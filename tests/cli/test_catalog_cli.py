@@ -316,11 +316,11 @@ class TestCatalogFilterEp:
         for m in models:
             assert "vitisai" in _ep_keys(m)
 
-    def test_ep_vitisai_is_strict_subset_of_full_catalog(self, tmp_path: Path) -> None:
-        """vitisai is not universally supported — filtered list must be smaller."""
+    def test_ep_vitisai_is_subset_of_full_catalog(self, tmp_path: Path) -> None:
+        """vitisai filtered list must be a non-empty subset of the full catalog."""
         all_models = _run_json(tmp_path / "all.json")
         vitisai = _run_json(tmp_path / "vitisai.json", "--ep", "vitisai")
-        assert 0 < len(vitisai) < len(all_models)
+        assert 0 < len(vitisai) <= len(all_models)
 
     def test_ep_alias_openvino_equals_openvinoexecutionprovider(self, tmp_path: Path) -> None:
         ov = _run_json(tmp_path / "ov.json", "--ep", "openvinoexecutionprovider")

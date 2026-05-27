@@ -4,6 +4,45 @@ All notable changes to this project are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## WinML CLI v0.1.0
+
+First **public preview** release. With the Windows ML 2.0 baseline now in place, this release shifts focus to polishing the CLI surface: faster `winml inspect` / `winml eval`, more accurate device & EP resolution, a real PyPI release pipeline, and a meaningful pass over sysinfo and quantization behavior.
+
+### 🎉 Public preview
+
+- Promoted to `Development Status :: 4 - Beta` in `pyproject.toml`.
+- First release published to PyPI via the new ESRP-signed release pipeline (#473).
+
+### ✨ Improvements
+
+- `winml inspect`: banner + spinner during HF metadata fetch (#718, hidden in JSON mode #745); `--list-tasks` <500 ms (#717); processor `Auto*` lookups gated (#719, #746).
+- `winml eval`: lazy module loading drops cold-start latency (#711); inputs validated up-front with friendlier errors and a structured `--schema` output (#694).
+- `winml export`: `model-id` and `task` validated before the export runs (#714).
+- `winml analyze`: cleaner EP/device selection, clearer "op-check skipped" UI, merged optimization config (#702).
+- `winml perf`: estimated model precision (QDQ / block-wise quant / dominant float dtype) is now reported by `WinMLSession` (#706); expanded perf e2e coverage across EPs and devices (#698).
+- `winml monitor`: queries all NPU/GPU engines and reports the max utilization (#716).
+- CLI-wide: did-you-mean suggestions on mistyped subcommands (#699); consistent option-vs-config-file value priority across commands (#720); `op_tracing` hidden from the public surface (#738).
+- Adopted the official `windowsml` usage example — removed the redundant `WinML` singleton, fixing a benign "library already registered" traceback on `winml perf --device npu` (#729).
+
+### 🐛 Fixes
+
+- **Quantization (P0)** — `--precision` now rejects invalid values instead of silently falling back to `uint8/uint8`; default image calibration dataset streams rather than downloading ~5 GB; DETR-family object detection supports `pixel_mask` padding (#680).
+- **`winml eval`** — pinned `pyarrow <24` to avoid an EP DLL load-order crash (#750).
+- **`winml perf`** — QDQ precision detection fix (#753); NPU monitoring adds `3D` engine, device line shows requested vs. actual (#747).
+- **EP / device resolution** — `resolve_device`/`resolve_eps` now use `get_registered_ep_devices` (#712); dropped misleading `ov`/`vitis`/`trtrtx` aliases (#690); `winml sys` raises when an EP isn't available on the host (#686); per-provider `ensure_ready` failures demoted to debug (#703); analyze regression caught during compile e2e (#740).
+- **Native ORT / WinML** — suppressed ORT native stderr, fixed a HANDLE leak (#709); nulled the EP catalog handle after enumeration to prevent a QNN NPU crash on exit (#701); fixed the `onnxruntime` DLL search path (#689).
+- **`winml sys`** — diagnostic sections gated behind `-v`, json-mode logs routed to stderr (#737); CPU/Mem scoped to the current process and PDH percent counters no longer artificially capped (#715); host arch reported via `IsWow64Process2` on Windows ARM64 (#705).
+- **OpenVINO** — `is_npu` detection updated (#722).
+
+### 🔧 Internals & CI
+
+- Added a `winml-cli` Copilot skill (#733).
+
+### 📦 Assets
+
+- `winml_cli-0.1.0-py3-none-any.whl`
+- `rules-v0.1.0.zip`
+
 ## WinML CLI v0.0.4
 
 ### 🚀 Platform upgrades

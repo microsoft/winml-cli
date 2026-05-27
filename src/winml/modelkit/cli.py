@@ -264,7 +264,7 @@ class LazyGroup(ActionGroup):
 def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
     """WinML CLI - Accelerate Model Deployment on WinML.
 
-    Universal ONNX export with QNN and OpenVINO backend support.
+    Universal ONNX export with various WinML execution providers support.
     """
     # --debug is a backward-compat alias for -vv
     if debug:
