@@ -647,7 +647,7 @@ class WinMLSession:
         }
 
         def _label(w_bits: int, a_bits: int) -> str:
-            return f"int{w_bits}" if w_bits == a_bits else f"w{w_bits}a{a_bits}"
+            return f"w{w_bits}a{a_bits}"
 
         # (1) QDQ — dominant zero_point bit width per side.
         if op_types & {"QuantizeLinear", "DequantizeLinear"}:
@@ -664,7 +664,13 @@ class WinMLSession:
                 bits = int_bits.get(zp_dtype)
                 if bits is None:
                     continue
-                target = weight_counts if node.input[0] in init_names else act_counts
+                is_weight_side = node.input[0] in init_names
+                # 32-bit zero_points on initializer-input DQs are bias
+                # accumulators (standard for INT8 QDQ: INT8 weights, INT32
+                # bias). They shouldn't drive the weight precision label.
+                if is_weight_side and bits >= 32:
+                    continue
+                target = weight_counts if is_weight_side else act_counts
                 target[bits] = target.get(bits, 0) + 1
 
             if weight_counts or act_counts:
