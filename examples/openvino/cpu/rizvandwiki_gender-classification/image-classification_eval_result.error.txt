@@ -1,0 +1,16 @@
+ 25%|██▌       | 104/416 [00:00<00:00, 1029.71it/s]
+ 55%|█████▌    | 229/416 [00:00<00:00, 1150.98it/s]
+ 87%|████████▋ | 362/416 [00:00<00:00, 1220.78it/s]
+100%|██████████| 416/416 [00:00<00:00, 1211.95it/s]
+[2026-05-26T21:21:21] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/368 [00:00<?, ?it/s]
+ 26%|██▌       | 96/368 [00:00<00:00, 885.57it/s]
+ 61%|██████    | 225/368 [00:00<00:00, 1110.31it/s]
+ 95%|█████████▌| 351/368 [00:00<00:00, 1173.05it/s]
+100%|██████████| 368/368 [00:00<00:00, 1141.08it/s]
+[2026-05-26T21:21:21] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-26T21:21:22] WARNING: Failed to register EP OpenVINOExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under OpenVINOExecutionProvider
+[0;93m2026-05-26 21:21:22.6081288 [W:onnxruntime:, ov_provider.cc:162 onnxruntime::openvino_ep_plugin::OpenVINOEpPluginOptions::ParseProviderOptions] Provider option device_type is ignored. Please pass one of the enumerated EP device to AppendExecutionProvider_V2 for device selection.[m
+[0;93m2026-05-26 21:21:23.5221463 [W:onnxruntime:, ov_provider.cc:162 onnxruntime::openvino_ep_plugin::OpenVINOEpPluginOptions::ParseProviderOptions] Provider option device_type is ignored. Please pass one of the enumerated EP device to AppendExecutionProvider_V2 for device selection.[m
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_fairface' is not compatible with task 'image-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_fairface' (name=None, split='validation'): Couldn't find any data file at C:\Users\yuesu\.cache\winml\eval_datasets\build_fairface.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task image-classification' to see the expected schema.
