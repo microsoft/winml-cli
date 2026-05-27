@@ -142,20 +142,33 @@ def test_fmt_model_id_with_org():
     assert "clip-vit-base-patch32" in t.plain
 
 
+def test_fmt_model_id_org_prefix_dimmed():
+    """Full model ID should be rendered in uniform cyan bold."""
+    t = _fmt_model_id("openai/clip-vit-base-patch32")
+    spans = list(t._spans)
+    # Single span covers the entire model ID in cyan bold
+    assert len(spans) == 1
+    span = spans[0]
+    assert span.start == 0
+    assert span.end == len("openai/clip-vit-base-patch32")
+    assert "cyan" in str(span.style)
+    assert "bold" in str(span.style)
+
+
 def test_fmt_model_id_no_org():
     t = _fmt_model_id("bert-base-uncased")
     assert t.plain == "bert-base-uncased"
 
 
 def test_fmt_model_id_overflow_is_ascii_safe():
-    """Text overflow must use 'crop', not 'ellipsis' (regression: #233).
+    """Text overflow must use 'fold', not 'ellipsis' (regression: #233).
 
     'ellipsis' emits U+2026 (…) which is unrepresentable in cp1252 terminals.
-    'crop' simply truncates without appending any non-ASCII character.
+    'fold' wraps long text onto the next line without emitting non-ASCII chars.
     """
     t = _fmt_model_id("org/model-name")
-    assert t.overflow == "crop", (
-        f"Expected overflow='crop', got {t.overflow!r}. "
+    assert t.overflow == "fold", (
+        f"Expected overflow='fold', got {t.overflow!r}. "
         "Using 'ellipsis' would emit U+2026 (…) on cp1252 terminals."
     )
 

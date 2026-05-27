@@ -300,7 +300,8 @@ class PerfBenchmark:
         _print_model_info(
             self._model.io_config,
             task=self._model.task or self.config.task,
-            device=self._model.device,
+            req_device=self.config.device,
+            act_device=self._model.device,
             ep_name=self._model.ep_name,
         )
 
@@ -755,6 +756,12 @@ def _perf_modules(
 # Report Generation
 # =============================================================================
 
+def _device_string(req_device: str, act_device: str, ep_name: EPName | None) -> str:
+    device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
+    if ep_name:
+        device_str = f"{device_str} / {ep_name}"
+    return device_str
+
 
 def display_console_report(result: BenchmarkResult, console: Console) -> None:
     """Display benchmark results in formatted console output."""
@@ -763,9 +770,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
     req_device = result.config.device
     act_device = result.actual_device
-    device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
-    if result.actual_ep:
-        device_str = f"{device_str} / {result.actual_ep}"
+    device_str = _device_string(req_device, act_device, result.actual_ep)
     console.print(f"[dim]Device:[/dim]      {device_str}")
 
     # TODO: show resolved precision once WinMLPreTrainedModel.precision
@@ -837,8 +842,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             )
         else:
             console.print(
-                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
-                f"Mem: {ram.get('used_mb', 0):.0f} MB"
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  Mem: {ram.get('used_mb', 0):.0f} MB"
             )
 
     console.print()
@@ -886,13 +890,14 @@ def _print_model_info(
     io_config: dict,
     *,
     task: str | None = None,
-    device: str = "auto",
+    req_device: str = "auto",
+    act_device: str = "auto",
     ep_name: EPName | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
     console = Console(stderr=True)
     console.print()
-    device_line = f"{device} / {ep_name}" if ep_name else device
+    device_line = _device_string(req_device, act_device, ep_name)
     console.print(f"[dim]Device:[/dim]      {device_line}")
     if task:
         console.print(f"[dim]Task:[/dim]        {task}")
@@ -1012,7 +1017,7 @@ def _run_onnx_benchmark(
     session.compile()
 
     # Print model info before benchmark starts
-    _print_model_info(io_cfg, device=session.device, ep_name=session.ep_name)
+    _print_model_info(io_cfg, req_device=device, act_device=session.device, ep_name=session.ep_name)
 
     # Run benchmark
     total_iterations = warmup + iterations
@@ -1045,7 +1050,7 @@ def _run_onnx_benchmark(
                 total_iterations=total_iterations,
                 warmup=warmup,
                 model_id=str(onnx_path.name),
-                device=device,
+                device=session.device or device,
             )
             hw_metrics = hw.to_dict()
     else:
@@ -1181,6 +1186,7 @@ def _run_onnx_benchmark(
     type=click.Choice(["basic", "detail"], case_sensitive=False),
     default=None,
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
+    hidden=True,  # Not ready, so hide from --help for now
 )
 @click.option(
     "--verbose",
@@ -1245,13 +1251,16 @@ def perf(
 
     hf_model = model
 
-    # Apply build config defaults (CLI explicit options take precedence)
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
-            task = build_cfg.loader.task
-        if build_cfg.compile and not cli_utils.is_cli_provided(ctx, "ep"):
-            ep = build_cfg.compile.ep_config.provider
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        lc = raw_cfg.get("loader") or {}
+        cc = raw_cfg.get("compile") or {}
+        if not cli_utils.is_cli_provided(ctx, "task") and "task" in lc:
+            task = lc["task"]
+        if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
+            ep = cc["execution_provider"]
 
     # Setup logging
     if verbose or (ctx.obj and ctx.obj.get("debug")):

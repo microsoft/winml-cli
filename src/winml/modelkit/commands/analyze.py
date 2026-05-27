@@ -715,11 +715,13 @@ def analyze(
         winml analyze --model model.onnx --ep ov --device GPU
         winml analyze --model model.onnx --output results.json
     """
-    # Apply build config defaults (CLI explicit options take precedence)
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.compile and not cli_utils.is_cli_provided(ctx, "ep"):
-            ep = build_cfg.compile.ep_config.provider
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        cc = raw_cfg.get("compile") or {}
+        if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
+            ep = cc["execution_provider"]
 
     # Configure logging
     configure_logging(verbosity=verbose, quiet=quiet)
@@ -768,7 +770,8 @@ def analyze(
             (candidate_ep, candidate_device)
             for candidate_ep in eps
             for candidate_device in devices
-            if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+            if candidate_ep in EP_SUPPORTED_DEVICES
+            and candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
         ]
         execution_pairs = _sort_ep_device_pairs(execution_pairs)
 

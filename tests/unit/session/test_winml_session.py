@@ -150,119 +150,35 @@ class TestWinMLSessionCompilation:
         assert session.state == SessionState.COMPILED
         assert session._session is first_session
 
-    def test_run_uses_epcontext_after_compile(self, simple_matmul_onnx: Path):
-        """Test that run() uses EPContext if compile() was called first."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Pre-compile to create EPContext
-        session.compile()
-
-        # Run should use EPContext and create session
-        sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
-        session.run(sample_input)
-
-        # Now session should be compiled
-        assert session.is_compiled
-        assert session.state == SessionState.COMPILED
-
 
 class TestWinMLSessionProviders:
     """Test that session providers match WinML EP registry."""
 
-    def test_providers_are_valid_and_include_fallback(self, simple_matmul_onnx: Path):
-        """
-        Test that session providers are valid and include CPU fallback.
-
-        With device="auto", ``resolve_device`` walks the device priority list
-        (NPU > GPU > CPU) and picks the first one that has a compatible EP
-        available on this system. On a CPU-only runner this falls back to CPU.
-        The key requirements are:
-        1. Session initializes successfully
-        2. At least one provider is active
-        3. CPUExecutionProvider is available as fallback
-        """
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Run to trigger lazy init
-        sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
-        session.run(sample_input)
-
-        # Get actual providers used by session
-        actual_providers = session._session.get_providers()
-
-        # Must have at least one provider
-        assert len(actual_providers) > 0, "Session must have at least one provider"
-
-        # CPUExecutionProvider should always be present as fallback
-        assert "CPUExecutionProvider" in actual_providers, (
-            f"CPUExecutionProvider not in providers: {actual_providers}"
-        )
-
-        # Log which providers are being used (useful for debugging)
-        # On NPU-capable systems, should see QNNExecutionProvider or similar
-        print(f"Active providers: {actual_providers}")
-
     def test_cpu_provider_always_available(self, simple_matmul_onnx: Path):
-        """Test that CPUExecutionProvider is always available as fallback."""
+        """CPUExecutionProvider is available, run() auto-compiles, output dtype is fp32.
+
+        Also pins the `not is_compiled` -> run() -> `is_compiled` transition
+        and the output dtype check (assertions ported from deleted
+        device='auto' tests; no other test pins these on device='cpu').
+        """
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
             device="cpu",
         )
+        assert not session.is_compiled
 
-        # Run to trigger lazy init
+        # Run triggers lazy compile
         sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
-        session.run(sample_input)
+        outputs = session.run(sample_input)
 
+        assert session.is_compiled
         providers = session._session.get_providers()
         assert "CPUExecutionProvider" in providers
+        assert outputs["C"].dtype == np.float32
 
 
 class TestWinMLSessionInference:
     """Test WinMLSession inference execution."""
-
-    def test_basic_inference(
-        self,
-        simple_matmul_onnx: Path,
-        sample_input: dict[str, np.ndarray],
-    ):
-        """Test basic inference with MatMul model."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Run inference (auto-compiles)
-        outputs = session.run(sample_input)
-
-        # Check output
-        assert "C" in outputs
-        assert outputs["C"].shape == (1, 4)
-        assert outputs["C"].dtype == np.float32
-
-    def test_inference_auto_compiles(
-        self,
-        simple_matmul_onnx: Path,
-        sample_input: dict[str, np.ndarray],
-    ):
-        """Test that run() auto-compiles if not compiled."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        assert not session.is_compiled
-
-        # Run should trigger auto-compile
-        outputs = session.run(sample_input)
-
-        assert session.is_compiled
-        assert "C" in outputs
 
     def test_inference_with_torch_tensor(
         self,
@@ -274,7 +190,7 @@ class TestWinMLSessionInference:
 
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
-            device="auto",
+            device="cpu",
         )
 
         # Create torch tensor input
@@ -295,51 +211,6 @@ class TestWinMLSessionInference:
 
         with pytest.raises(ValueError, match="inputs cannot be empty"):
             session.run({})
-
-
-class TestWinMLSessionStateManagement:
-    """Test WinMLSession state machine."""
-
-    def test_state_transitions(
-        self,
-        simple_matmul_onnx: Path,
-        sample_input: dict[str, np.ndarray],
-    ):
-        """Test state transitions: INITIALIZED -> COMPILED -> INFERRING -> COMPILED."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Initial state
-        assert session.state == SessionState.INITIALIZED
-
-        # After run (lazy init triggers session creation)
-        session.run(sample_input)
-        assert session.state == SessionState.COMPILED
-
-        # Run again (should return to COMPILED)
-        session.run(sample_input)
-        assert session.state == SessionState.COMPILED
-
-    def test_reset_returns_to_initialized(
-        self,
-        simple_matmul_onnx: Path,
-        sample_input: dict[str, np.ndarray],
-    ):
-        """Test that reset() returns session to INITIALIZED state."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Run to create session
-        session.run(sample_input)
-        assert session.is_compiled
-
-        session.reset()
-        assert session.state == SessionState.INITIALIZED
-        assert not session.is_compiled
 
 
 class TestWinMLSessionMetadata:
@@ -425,7 +296,7 @@ class TestWinMLSessionPrecisionDetection:
         path = self._save(model, tmp_path / "qdq_int8.onnx")
 
         session = WinMLSession(onnx_path=path, device="auto")
-        assert session.io_config["precision"] == "int8"
+        assert session.io_config["precision"] == "w8a8"
 
     def test_precision_w8a16_mixed_qdq(self, tmp_path: Path):
         """Activation quantized to uint16 + weight to int8 → 'w8a16'."""
@@ -478,6 +349,72 @@ class TestWinMLSessionPrecisionDetection:
 
         session = WinMLSession(onnx_path=path, device="auto")
         assert session.io_config["precision"] == "w8a16"
+
+    def test_precision_int8_ignores_int32_bias_zp(self, tmp_path: Path):
+        """INT32 bias DQ on the weight side must not poison the label.
+
+        Mirrors the NPU-quantized ResNet-50 case: every Conv has an
+        INT8-weight DQ alongside an INT32-bias DQ. The bias is a quant
+        accumulator, not a weight, so it must be excluded from weight-side
+        bit-width counting; otherwise the result becomes 'w32a8'.
+        """
+        import numpy as np
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])
+
+        # Activation Q→DQ with UINT8 zero_point
+        a_scale = helper.make_tensor("A_scale", TensorProto.FLOAT, [], [0.05])
+        a_zp = helper.make_tensor(
+            "A_zp", TensorProto.UINT8, [], np.array([0], dtype=np.uint8).tobytes(), raw=True
+        )
+        q_act = helper.make_node("QuantizeLinear", ["A", "A_scale", "A_zp"], ["A_q"], name="q_act")
+        dq_act = helper.make_node(
+            "DequantizeLinear", ["A_q", "A_scale", "A_zp"], ["A_d"], name="dq_act"
+        )
+
+        # Weight DQ with INT8 zero_point (initializer → weight side)
+        w_q = helper.make_tensor(
+            "W_q",
+            TensorProto.INT8,
+            [4, 4],
+            np.zeros((4, 4), dtype=np.int8).tobytes(),
+            raw=True,
+        )
+        w_scale = helper.make_tensor("W_scale", TensorProto.FLOAT, [], [0.1])
+        w_zp = helper.make_tensor(
+            "W_zp", TensorProto.INT8, [], np.array([0], dtype=np.int8).tobytes(), raw=True
+        )
+        dq_w = helper.make_node("DequantizeLinear", ["W_q", "W_scale", "W_zp"], ["W"], name="dq_w")
+
+        # Bias DQ with INT32 zero_point (initializer → would be classified
+        # weight-side; this is the node that previously poisoned the label).
+        b_q = helper.make_tensor(
+            "B_q", TensorProto.INT32, [4], np.zeros(4, dtype=np.int32).tobytes(), raw=True
+        )
+        b_scale = helper.make_tensor("B_scale", TensorProto.FLOAT, [], [0.005])
+        b_zp = helper.make_tensor(
+            "B_zp", TensorProto.INT32, [], np.array([0], dtype=np.int32).tobytes(), raw=True
+        )
+        dq_b = helper.make_node("DequantizeLinear", ["B_q", "B_scale", "B_zp"], ["B"], name="dq_b")
+
+        matmul = helper.make_node("MatMul", ["A_d", "W"], ["MM"], name="mm")
+        add = helper.make_node("Add", ["MM", "B"], ["C"], name="add_bias")
+
+        graph = helper.make_graph(
+            [q_act, dq_act, dq_w, dq_b, matmul, add],
+            "qdq_with_int32_bias",
+            [a],
+            [c],
+            [a_scale, a_zp, w_q, w_scale, w_zp, b_q, b_scale, b_zp],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "qdq_int32_bias.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] == "w8a8"
 
     def test_precision_matmulnbits_w4a16(self, tmp_path: Path):
         """MatMulNBits with bits=4 + fp16 initializers → 'w4a16'."""

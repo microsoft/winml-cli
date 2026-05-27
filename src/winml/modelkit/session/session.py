@@ -17,6 +17,7 @@ import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
+from ..utils.native_stderr import capture_native_stderr, suppress_native_stderr
 from .ep_registry import WinMLEPRegistry
 from .stats import PerfStats
 
@@ -121,7 +122,8 @@ class WinMLSession:
         try:
             registry = WinMLEPRegistry.get_instance()
             if registry.winml_available:
-                registered = registry.register_to_ort()
+                with suppress_native_stderr():
+                    registered = registry.register_to_ort()
                 logger.info("WinML EPs registered: %s", registered)
         except Exception as e:
             logger.debug("WinML EP init skipped: %s", e)
@@ -231,7 +233,8 @@ class WinMLSession:
                         str(self._onnx_path),
                         embed_compiled_data_into_model=self._embed_context,
                     )
-                    model_compiler.compile_to_file(str(ctx_path))
+                    with capture_native_stderr(logging.INFO):
+                        model_compiler.compile_to_file(str(ctx_path))
 
                     # Use compiled model if it was created
                     if ctx_path.exists():
@@ -248,7 +251,8 @@ class WinMLSession:
             # registry, e.g. QNN) or left to ORT's device policy (fallback).
             # Never pass providers= — WinML-registered EPs don't support it.
             sess_options, resolved_device, _ = self._build_session_options(target_device)
-            session = ort.InferenceSession(str(model_path), sess_options=sess_options)
+            with capture_native_stderr(logging.INFO):
+                session = ort.InferenceSession(str(model_path), sess_options=sess_options)
 
         except Exception as ep_err:
             self._state = SessionState.ERROR
@@ -643,7 +647,7 @@ class WinMLSession:
         }
 
         def _label(w_bits: int, a_bits: int) -> str:
-            return f"int{w_bits}" if w_bits == a_bits else f"w{w_bits}a{a_bits}"
+            return f"w{w_bits}a{a_bits}"
 
         # (1) QDQ — dominant zero_point bit width per side.
         if op_types & {"QuantizeLinear", "DequantizeLinear"}:
@@ -660,7 +664,13 @@ class WinMLSession:
                 bits = int_bits.get(zp_dtype)
                 if bits is None:
                     continue
-                target = weight_counts if node.input[0] in init_names else act_counts
+                is_weight_side = node.input[0] in init_names
+                # 32-bit zero_points on initializer-input DQs are bias
+                # accumulators (standard for INT8 QDQ: INT8 weights, INT32
+                # bias). They shouldn't drive the weight precision label.
+                if is_weight_side and bits >= 32:
+                    continue
+                target = weight_counts if is_weight_side else act_counts
                 target[bits] = target.get(bits, 0) + 1
 
             if weight_counts or act_counts:

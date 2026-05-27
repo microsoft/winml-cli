@@ -6,9 +6,17 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Literal, TypeAlias, get_args
 
-import onnxruntime as ort
+
+if sys.platform == "win32":
+    from .native_stderr import suppress_native_stderr
+
+    with suppress_native_stderr():
+        import onnxruntime as ort
+else:
+    import onnxruntime as ort
 
 
 # Canonical ORT execution provider full names (the `*ExecutionProvider` symbols).

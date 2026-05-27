@@ -32,6 +32,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.config import config
 
 
@@ -46,7 +47,9 @@ pytestmark = [pytest.mark.e2e, pytest.mark.network]
 def _mock_resolve_device():
     """Mock hardware detection to avoid failures in CI/test environments."""
 
-    def _resolve_device_mock(device: str = "auto") -> tuple[str, list[str]]:
+    def _resolve_device_mock(
+        device: str = "auto", *, ep: str | None = None
+    ) -> tuple[str, list[str]]:
         # Keep tests deterministic while preserving explicit device requests.
         normalized = (device or "auto").lower()
         if normalized in {"cpu", "gpu", "npu"}:
@@ -370,6 +373,7 @@ class TestConfigFlagVariations:
 
     def test_compile_enabled(self) -> None:
         """--compile (negated default) should produce a compile section."""
+        require_ep("qnn")
         data = _run_config(
             "-m",
             self.MODEL,
