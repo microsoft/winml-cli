@@ -1,0 +1,1 @@
+[2026-05-27T11:30:27] WARNING: --dataset not specified; attempting default dataset 'mteb/stsbenchmark-sts' for task 'feature-extraction'. Any --split / --column / --streaming / --dataset-name options are ignored.
