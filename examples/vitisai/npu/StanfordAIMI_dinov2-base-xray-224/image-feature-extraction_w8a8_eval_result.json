@@ -10,7 +10,7 @@
     "seed": 42,
     "path": "Ewakaa/pneumonia_classification_chest_xray"
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\vitisai\\npu\\StanfordAIMI_dinov2-base-xray-224\\image-feature-extraction_w8a8_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\StanfordAIMI_dinov2-base-xray-224\\image-feature-extraction_w8a8_eval_result.json",
   "metrics": {
     "knn_top1_accuracy": 93.299,
     "knn_top5_accuracy": 99.3127

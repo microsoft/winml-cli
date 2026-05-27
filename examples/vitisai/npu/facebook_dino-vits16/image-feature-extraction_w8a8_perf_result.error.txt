@@ -1,0 +1,14 @@
+d. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+C:\Users\zhangchao\project\winml-cli\.venv\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\zhangchao\.cache\huggingface\hub\datasets--timm--mini-imagenet. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+
+Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 622.55 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 188.97 examples/s]
+[2026-05-26T12:25:44] WARNING: Failed to register EP MIGraphXExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under MIGraphXExecutionProvider
+[2026-05-26T12:25:44] WARNING: Failed to register EP VitisAIExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under VitisAIExecutionProvider
+[2026-05-26T12:25:44] WARNING: Failed to register EP NvTensorRTRTXExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under NvTensorRTRTXExecutionProvider
+[0;93m2026-05-26 12:25:44.5750603 [W:onnxruntime:, pass_main.cpp:419 pass_main.cpp] Unexcepted exception: (Exception type: class std::invalid_argument) NodeArg name already exists in original graph[m

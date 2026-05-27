@@ -1,11 +1,41 @@
-9b402c0)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/config.json
-[2026-05-26T05:12:50] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 0cc458d4-34cf-436a-a8a4-132fe9b402c0)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/config.json
-Retrying in 8s [Retry 4/5].
-[2026-05-26T05:12:50] WARNING: Retrying in 8s [Retry 4/5].
-'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 8d3142b7-eaea-4492-8f3f-30f50ef5cf7f)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/config.json
-[2026-05-26T05:13:08] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 8d3142b7-eaea-4492-8f3f-30f50ef5cf7f)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/config.json
-Retrying in 8s [Retry 5/5].
-[2026-05-26T05:13:08] WARNING: Retrying in 8s [Retry 5/5].
-'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 8d7570ba-46a5-4cca-bc45-0cfa43d4ee4c)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/config.json
-[2026-05-26T05:13:27] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 8d7570ba-46a5-4cca-bc45-0cfa43d4ee4c)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/config.json
-Error: Evaluation failed: Failed to load model 'openai/clip-vit-base-patch32'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task feature-extraction' to see supported role=path model options.
+]
+ 22%|██▏       | 91/412 [00:15<00:13, 24.26it/s]
+ 24%|██▎       | 97/412 [00:15<00:12, 26.17it/s]
+ 27%|██▋       | 113/412 [00:16<00:07, 38.55it/s]
+ 29%|██▊       | 118/412 [00:16<00:08, 35.39it/s]
+ 30%|███       | 124/412 [00:16<00:08, 35.52it/s]
+ 32%|███▏      | 130/412 [00:16<00:08, 34.16it/s]
+ 35%|███▌      | 146/412 [00:16<00:05, 44.88it/s]
+ 37%|███▋      | 151/412 [00:17<00:06, 40.13it/s]
+ 38%|███▊      | 157/412 [00:17<00:06, 37.66it/s]
+ 40%|███▉      | 163/412 [00:17<00:06, 36.68it/s]
+ 43%|████▎     | 179/412 [00:17<00:04, 48.27it/s]
+ 45%|████▍     | 184/412 [00:17<00:05, 42.22it/s]
+ 46%|████▌     | 190/412 [00:18<00:05, 39.94it/s]
+ 48%|████▊     | 196/412 [00:18<00:05, 37.53it/s]
+ 51%|█████▏    | 212/412 [00:18<00:04, 49.32it/s]
+ 53%|█████▎    | 217/412 [00:18<00:04, 43.33it/s]
+ 54%|█████▍    | 223/412 [00:18<00:04, 40.84it/s]
+ 56%|█████▌    | 229/412 [00:19<00:04, 38.29it/s]
+ 59%|█████▉    | 245/412 [00:19<00:03, 50.16it/s]
+ 61%|██████    | 250/412 [00:19<00:03, 42.91it/s]
+ 62%|██████▏   | 256/412 [00:19<00:03, 40.25it/s]
+ 64%|██████▎   | 262/412 [00:19<00:03, 38.59it/s]
+ 67%|██████▋   | 278/412 [00:20<00:02, 50.01it/s]
+ 69%|██████▊   | 283/412 [00:20<00:02, 44.52it/s]
+ 70%|███████   | 289/412 [00:20<00:02, 41.66it/s]
+ 72%|███████▏  | 295/412 [00:20<00:03, 38.47it/s]
+ 75%|███████▌  | 311/412 [00:20<00:01, 51.69it/s]
+ 77%|███████▋  | 317/412 [00:20<00:01, 48.34it/s]
+ 78%|███████▊  | 322/412 [00:21<00:02, 44.31it/s]
+ 80%|███████▉  | 328/412 [00:21<00:02, 40.00it/s]
+ 83%|████████▎ | 344/412 [00:21<00:01, 55.21it/s]
+ 85%|████████▍ | 350/412 [00:21<00:01, 54.15it/s]
+ 86%|████████▋ | 356/412 [00:21<00:01, 50.81it/s]
+ 88%|████████▊ | 362/412 [00:21<00:01, 48.83it/s]
+ 92%|█████████▏| 377/412 [00:22<00:00, 66.06it/s]
+ 93%|█████████▎| 384/412 [00:22<00:00, 58.73it/s]
+ 95%|█████████▍| 390/412 [00:22<00:00, 49.49it/s]
+ 96%|█████████▌| 396/412 [00:22<00:00, 44.10it/s]
+ 99%|█████████▉| 409/412 [00:22<00:00, 57.75it/s]
+100%|██████████| 412/412 [00:22<00:00, 17.97it/s]

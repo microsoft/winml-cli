@@ -1,55 +1,58 @@
-ion: 2.19.0
-Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
-Git branch: HEAD
-PID: 20652
-UID: 0
-[Fri May 22 14:43:14 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
 
 XRT build version: 2.19.0
 Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
+Build date: 2025-10-10 17:23:25
 Git branch: HEAD
-PID: 20652
+PID: 28980
 UID: 0
-[Fri May 22 14:43:14 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+[Tue May 26 15:29:09 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
 
 XRT build version: 2.19.0
 Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
+Build date: 2025-10-10 17:23:25
 Git branch: HEAD
-PID: 20652
+PID: 28980
 UID: 0
-[Fri May 22 14:43:14 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+[Tue May 26 15:29:09 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
 
 XRT build version: 2.19.0
 Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
+Build date: 2025-10-10 17:23:25
 Git branch: HEAD
-PID: 20652
+PID: 28980
 UID: 0
-[Fri May 22 14:43:14 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+[Tue May 26 15:29:09 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
 
 XRT build version: 2.19.0
 Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
+Build date: 2025-10-10 17:23:25
 Git branch: HEAD
-PID: 20652
+PID: 28980
 UID: 0
-[Fri May 22 14:43:14 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+[Tue May 26 15:29:09 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
 
 XRT build version: 2.19.0
 Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
+Build date: 2025-10-10 17:23:25
 Git branch: HEAD
-PID: 20652
+PID: 28980
 UID: 0
-[Fri May 22 14:43:14 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+[Tue May 26 15:29:09 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 28980
+UID: 0
+[Tue May 26 15:29:09 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
 
 Error: Evaluation failed: Failed to load model 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task feature-extraction' to see supported role=path model options.

@@ -5,7 +5,7 @@
 - Models: 55
 - Configs: 63
 - Perf Pass: 28/63 (44%)
-- Eval Pass: 31/63 (49%)
+- Eval Pass: 35/63 (56%)
 
 ## Results
 
@@ -29,7 +29,7 @@
 | facebook/dinov2-base | image-feature-extraction |  | [config](./facebook_dinov2-base/image-feature-extraction_config.json) | 53.05ms, 18.9sps ([metric](./facebook_dinov2-base/image-feature-extraction_perf_result.json)) | knn_top1_accuracy=1.3000, knn_top5_accuracy=5.0000 ([metric](./facebook_dinov2-base/image-feature-extraction_eval_result.json)) |
 | facebook/dinov2-large | image-feature-extraction |  | [config](./facebook_dinov2-large/image-feature-extraction_config.json) | FAIL | FAIL |
 | facebook/dinov2-small | image-feature-extraction |  | [config](./facebook_dinov2-small/image-feature-extraction_config.json) | 30.74ms, 32.5sps ([metric](./facebook_dinov2-small/image-feature-extraction_perf_result.json)) | knn_top1_accuracy=85.5000, knn_top5_accuracy=96.7000 ([metric](./facebook_dinov2-small/image-feature-extraction_eval_result.json)) |
-| FacebookAI/roberta-base | fill-mask |  | [config](./FacebookAI_roberta-base/fill-mask_config.json) | FAIL | TIMEOUT |
+| FacebookAI/roberta-base | fill-mask |  | [config](./FacebookAI_roberta-base/fill-mask_config.json) | FAIL | FAIL |
 | FacebookAI/roberta-large | fill-mask |  | [config](./FacebookAI_roberta-large/fill-mask_config.json) | FAIL | FAIL |
 | FacebookAI/xlm-roberta-base | fill-mask |  | [config](./FacebookAI_xlm-roberta-base/fill-mask_config.json) | FAIL | FAIL |
 | FacebookAI/xlm-roberta-large | fill-mask |  | [config](./FacebookAI_xlm-roberta-large/fill-mask_config.json) | FAIL | FAIL |
@@ -43,7 +43,7 @@
 |  | text-classification |  | [config](./Intel_bert-base-uncased-mrpc/text-classification_config.json) | 115.34ms, 8.7sps ([metric](./Intel_bert-base-uncased-mrpc/text-classification_perf_result.json)) | accuracy=0.8200 ([metric](./Intel_bert-base-uncased-mrpc/text-classification_eval_result.json)) |
 | joeddav/xlm-roberta-large-xnli | zero-shot-classification |  | [config](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_config.json) | FAIL | FAIL |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction |  | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_config.json) | FAIL | cosine_spearman=75.4619 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_eval_result.json)) |
-|  | zero-shot-image-classification |  | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_config.json) | 13.77ms, 72.6sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_perf_result.json)) | TIMEOUT |
+|  | zero-shot-image-classification |  | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_config.json) | 13.77ms, 72.6sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_perf_result.json)) | top1_accuracy=73.0000, top5_accuracy=92.1000 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_eval_result.json)) |
 | laion/CLIP-ViT-H-14-laion2B-s32B-b79K | zero-shot-image-classification |  | [config](./laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_config.json) | FAIL | FAIL |
 | mattmdjaga/segformer_b2_clothes | image-segmentation |  | [config](./mattmdjaga_segformer_b2_clothes/image-segmentation_config.json) | 379.95ms, 2.6sps ([metric](./mattmdjaga_segformer_b2_clothes/image-segmentation_perf_result.json)) | mean_iou=0.7032, overall_accuracy=0.9639 ([metric](./mattmdjaga_segformer_b2_clothes/image-segmentation_eval_result.json)) |
 | microsoft/rad-dino | image-feature-extraction |  | [config](./microsoft_rad-dino/image-feature-extraction_config.json) | FAIL | knn_top1_accuracy=70.6186, knn_top5_accuracy=100.0000 ([metric](./microsoft_rad-dino/image-feature-extraction_eval_result.json)) |
@@ -57,10 +57,10 @@
 | nvidia/segformer-b1-finetuned-ade-512-512 | image-segmentation |  | [config](./nvidia_segformer-b1-finetuned-ade-512-512/image-segmentation_config.json) | 102.53ms, 9.8sps ([metric](./nvidia_segformer-b1-finetuned-ade-512-512/image-segmentation_perf_result.json)) | mean_iou=0.3140, overall_accuracy=0.7944 ([metric](./nvidia_segformer-b1-finetuned-ade-512-512/image-segmentation_eval_result.json)) |
 | nvidia/segformer-b2-finetuned-ade-512-512 | image-segmentation |  | [config](./nvidia_segformer-b2-finetuned-ade-512-512/image-segmentation_config.json) | FAIL | mean_iou=0.3873, overall_accuracy=0.8146 ([metric](./nvidia_segformer-b2-finetuned-ade-512-512/image-segmentation_eval_result.json)) |
 | nvidia/segformer-b5-finetuned-ade-640-640 | image-segmentation |  | [config](./nvidia_segformer-b5-finetuned-ade-640-640/image-segmentation_config.json) | FAIL | FAIL |
-| openai/clip-vit-base-patch16 | feature-extraction |  | [config](./openai_clip-vit-base-patch16/feature-extraction_config.json) | FAIL | FAIL |
-|  | zero-shot-image-classification |  | [config](./openai_clip-vit-base-patch16/zero-shot-image-classification_config.json) | 13.04ms, 76.7sps ([metric](./openai_clip-vit-base-patch16/zero-shot-image-classification_perf_result.json)) | FAIL |
+| openai/clip-vit-base-patch16 | feature-extraction |  | [config](./openai_clip-vit-base-patch16/feature-extraction_config.json) | FAIL | cosine_spearman=68.3323 ([metric](./openai_clip-vit-base-patch16/feature-extraction_eval_result.json)) |
+|  | zero-shot-image-classification |  | [config](./openai_clip-vit-base-patch16/zero-shot-image-classification_config.json) | 13.04ms, 76.7sps ([metric](./openai_clip-vit-base-patch16/zero-shot-image-classification_perf_result.json)) | top1_accuracy=62.6000, top5_accuracy=85.7000 ([metric](./openai_clip-vit-base-patch16/zero-shot-image-classification_eval_result.json)) |
 | openai/clip-vit-base-patch32 | feature-extraction |  | [config](./openai_clip-vit-base-patch32/feature-extraction_config.json) | 13.36ms, 74.9sps ([metric](./openai_clip-vit-base-patch32/feature-extraction_perf_result.json)) | FAIL |
-|  | zero-shot-image-classification |  | [config](./openai_clip-vit-base-patch32/zero-shot-image-classification_config.json) | 13.60ms, 73.5sps ([metric](./openai_clip-vit-base-patch32/zero-shot-image-classification_perf_result.json)) | FAIL |
+|  | zero-shot-image-classification |  | [config](./openai_clip-vit-base-patch32/zero-shot-image-classification_config.json) | 13.60ms, 73.5sps ([metric](./openai_clip-vit-base-patch32/zero-shot-image-classification_perf_result.json)) | top1_accuracy=58.4000, top5_accuracy=84.0000 ([metric](./openai_clip-vit-base-patch32/zero-shot-image-classification_eval_result.json)) |
 | openai/clip-vit-large-patch14 | zero-shot-image-classification |  | [config](./openai_clip-vit-large-patch14/zero-shot-image-classification_config.json) | FAIL | FAIL |
 | openai/clip-vit-large-patch14-336 | zero-shot-image-classification |  | [config](./openai_clip-vit-large-patch14-336/zero-shot-image-classification_config.json) | FAIL | FAIL |
 | patrickjohncyh/fashion-clip | zero-shot-image-classification |  | [config](./patrickjohncyh_fashion-clip/zero-shot-image-classification_config.json) | 12.59ms, 79.4sps ([metric](./patrickjohncyh_fashion-clip/zero-shot-image-classification_perf_result.json)) | FAIL |

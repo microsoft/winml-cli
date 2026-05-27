@@ -1,11 +1,39 @@
-ed-ade-640-640/resolve/main/config.json
-[2026-05-26T05:02:37] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 2d6e1f5e-a5a3-4e79-9710-b5820f1315c7)')' thrown while requesting HEAD https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640/resolve/main/config.json
-Retrying in 8s [Retry 4/5].
-[2026-05-26T05:02:37] WARNING: Retrying in 8s [Retry 4/5].
-'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: bc82fd72-4ae2-45c7-8af6-f0e45a3df8cc)')' thrown while requesting HEAD https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640/resolve/main/config.json
-[2026-05-26T05:02:55] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: bc82fd72-4ae2-45c7-8af6-f0e45a3df8cc)')' thrown while requesting HEAD https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640/resolve/main/config.json
-Retrying in 8s [Retry 5/5].
-[2026-05-26T05:02:55] WARNING: Retrying in 8s [Retry 5/5].
-'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: c1562c74-4dde-452d-a8b8-2e51f2b39df8)')' thrown while requesting HEAD https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640/resolve/main/config.json
-[2026-05-26T05:03:13] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: c1562c74-4dde-452d-a8b8-2e51f2b39df8)')' thrown while requesting HEAD https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640/resolve/main/config.json
-Error: Evaluation failed: Failed to load model 'nvidia/segformer-b5-finetuned-ade-640-640'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task image-segmentation' to see supported role=path model options.
+:04, 107.51it/s]
+ 80%|███████▉  | 1735/2175 [00:26<00:04, 89.53it/s] 
+ 80%|████████  | 1745/2175 [00:26<00:04, 88.64it/s]
+ 81%|████████  | 1763/2175 [00:26<00:03, 108.56it/s]
+ 82%|████████▏ | 1775/2175 [00:27<00:04, 80.60it/s] 
+ 82%|████████▏ | 1786/2175 [00:27<00:04, 86.28it/s]
+ 83%|████████▎ | 1806/2175 [00:27<00:03, 93.34it/s]
+ 84%|████████▎ | 1817/2175 [00:27<00:04, 86.64it/s]
+ 84%|████████▍ | 1827/2175 [00:27<00:03, 88.59it/s]
+ 85%|████████▍ | 1847/2175 [00:27<00:03, 99.60it/s]
+ 85%|████████▌ | 1858/2175 [00:27<00:03, 85.79it/s]
+ 86%|████████▌ | 1867/2175 [00:28<00:03, 86.48it/s]
+ 87%|████████▋ | 1888/2175 [00:28<00:02, 99.52it/s]
+ 87%|████████▋ | 1898/2175 [00:28<00:03, 85.11it/s]
+ 88%|████████▊ | 1907/2175 [00:28<00:03, 84.86it/s]
+ 89%|████████▊ | 1928/2175 [00:28<00:02, 113.46it/s]
+ 89%|████████▉ | 1941/2175 [00:28<00:02, 88.64it/s] 
+ 90%|████████▉ | 1953/2175 [00:28<00:02, 95.06it/s]
+ 91%|█████████ | 1970/2175 [00:29<00:02, 95.71it/s]
+ 91%|█████████ | 1981/2175 [00:29<00:02, 89.83it/s]
+ 92%|█████████▏| 1995/2175 [00:29<00:01, 98.83it/s]
+ 92%|█████████▏| 2011/2175 [00:29<00:01, 111.70it/s]
+ 93%|█████████▎| 2023/2175 [00:29<00:02, 75.89it/s] 
+ 94%|█████████▎| 2035/2175 [00:29<00:01, 83.12it/s]
+ 94%|█████████▍| 2046/2175 [00:29<00:01, 85.81it/s]
+ 95%|█████████▍| 2056/2175 [00:30<00:01, 68.33it/s]
+ 95%|█████████▍| 2065/2175 [00:31<00:04, 24.52it/s]
+ 95%|█████████▌| 2071/2175 [00:31<00:04, 24.52it/s]
+ 95%|█████████▌| 2076/2175 [00:31<00:04, 24.72it/s]
+ 96%|█████████▌| 2088/2175 [00:31<00:02, 35.68it/s]
+ 96%|█████████▋| 2095/2175 [00:32<00:02, 36.05it/s]
+ 97%|█████████▋| 2101/2175 [00:32<00:02, 27.90it/s]
+ 97%|█████████▋| 2110/2175 [00:32<00:02, 32.12it/s]
+ 98%|█████████▊| 2127/2175 [00:32<00:00, 50.95it/s]
+ 98%|█████████▊| 2135/2175 [00:33<00:01, 34.64it/s]
+ 99%|█████████▊| 2144/2175 [00:33<00:00, 36.92it/s]
+ 99%|█████████▉| 2160/2175 [00:33<00:00, 53.90it/s]
+100%|█████████▉| 2172/2175 [00:33<00:00, 64.84it/s]
+100%|██████████| 2175/2175 [00:34<00:00, 62.83it/s]

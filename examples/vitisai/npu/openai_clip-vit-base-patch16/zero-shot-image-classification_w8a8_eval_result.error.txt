@@ -1,2 +1,58 @@
-[0;93m2026-05-22 22:11:26.1902666 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
-Error: Evaluation failed: Task 'unknown' is not supported. Supported tasks: feature-extraction, fill-mask, image-classification, image-feature-extraction, image-segmentation, image-to-text, next-sentence-prediction, object-detection, question-answering, sentence-similarity, sequence-classification, text-classification, token-classification, zero-shot-classification, zero-shot-image-classification.
+ 13:05:46 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 18684
+UID: 0
+[Tue May 26 13:05:46 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 18684
+UID: 0
+[Tue May 26 13:05:46 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 18684
+UID: 0
+[Tue May 26 13:05:46 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 18684
+UID: 0
+[Tue May 26 13:05:46 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 18684
+UID: 0
+[Tue May 26 13:05:46 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 18684
+UID: 0
+[Tue May 26 13:05:46 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): �豸�ѱ�ɾ����
+
+Error: Evaluation failed: Failed to load model 'openai/clip-vit-base-patch16'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task zero-shot-image-classification' to see supported role=path model options.

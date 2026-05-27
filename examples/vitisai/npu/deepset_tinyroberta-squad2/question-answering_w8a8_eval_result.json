@@ -16,7 +16,7 @@
       "label_column": "answers"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\vitisai\\npu\\deepset_tinyroberta-squad2\\question-answering_w8a8_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\deepset_tinyroberta-squad2\\question-answering_w8a8_eval_result.json",
   "metrics": {
     "exact": 0.0,
     "f1": 4.0,
@@ -31,8 +31,8 @@
     "best_exact_thresh": 0.0,
     "best_f1": 70.0,
     "best_f1_thresh": 0.0,
-    "total_time_in_seconds": 1.6426909000001615,
-    "samples_per_second": 6.0875725311432705,
-    "latency_in_seconds": 0.16426909000001616
+    "total_time_in_seconds": 1.524434900000415,
+    "samples_per_second": 6.559807834363592,
+    "latency_in_seconds": 0.15244349000004148
   }
 }

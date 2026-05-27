@@ -3,7 +3,7 @@ onnxruntime_pybind11_state
 _PyArg_CheckPositional
 PyObject_Vectorcall
 [m
-[2026-05-22T20:51:09] ERROR: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_7921125256550310601_1 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_7921125256550310601_1_1' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+[2026-05-26T20:15:48] ERROR: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_7921125256550310601_1 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_7921125256550310601_1_1' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
 xir_deserialize_cif
 xir_deserialize_cif
 xir_deserialize_cif

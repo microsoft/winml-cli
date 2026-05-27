@@ -1,11 +1,32 @@
-6a)')' thrown while requesting HEAD https://huggingface.co/patrickjohncyh/fashion-clip/resolve/main/config.json
-[2026-05-26T05:26:17] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 80d4aeae-6207-4733-84d4-fab3b3cca26a)')' thrown while requesting HEAD https://huggingface.co/patrickjohncyh/fashion-clip/resolve/main/config.json
-Retrying in 8s [Retry 4/5].
-[2026-05-26T05:26:17] WARNING: Retrying in 8s [Retry 4/5].
-'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 7193bc41-0847-41bc-be45-a931a01f687d)')' thrown while requesting HEAD https://huggingface.co/patrickjohncyh/fashion-clip/resolve/main/config.json
-[2026-05-26T05:26:35] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 7193bc41-0847-41bc-be45-a931a01f687d)')' thrown while requesting HEAD https://huggingface.co/patrickjohncyh/fashion-clip/resolve/main/config.json
-Retrying in 8s [Retry 5/5].
-[2026-05-26T05:26:35] WARNING: Retrying in 8s [Retry 5/5].
-'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 1be9eae0-8ce1-4e64-8059-ec3adadf82e9)')' thrown while requesting HEAD https://huggingface.co/patrickjohncyh/fashion-clip/resolve/main/config.json
-[2026-05-26T05:26:53] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 1be9eae0-8ce1-4e64-8059-ec3adadf82e9)')' thrown while requesting HEAD https://huggingface.co/patrickjohncyh/fashion-clip/resolve/main/config.json
-Error: Evaluation failed: Failed to load model 'patrickjohncyh/fashion-clip'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task zero-shot-image-classification' to see supported role=path model options.
+ed for model_type='clip_vision_model', task='image-feature-extraction'. Export may produce incorrect results for models requiring Transformers 4.53+ tracing patches.
+Traceback (most recent call last):
+  File "D:\ModelKit_Public\worker3\WinML-ModelKit\src\winml\modelkit\export\htp\exporter.py", line 474, in _get_optimum_patcher
+    cfg_cls = TasksManager.get_exporter_config_constructor(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "d:\ModelKit_Public\worker3\WinML-ModelKit\.venv\Lib\site-packages\optimum\exporters\tasks.py", line 1300, in get_exporter_config_constructor
+    raise ValueError(
+ValueError: clip_vision_model doesn't support task image-feature-extraction for the onnx backend. Supported tasks are: feature-extraction.
+[2026-05-26T19:02:04] WARNING: Model producer not matched: Expected "pytorch", Got "onnxruntime.transformers".Please specify correct --model_type parameter.
+
+  0%|          | 0/393 [00:00<?, ?it/s]
+  0%|          | 1/393 [00:01<10:11,  1.56s/it]
+  1%|          | 2/393 [00:01<05:32,  1.18it/s]
+  1%|          | 4/393 [00:02<02:18,  2.81it/s]
+  1%|▏         | 5/393 [00:02<02:07,  3.05it/s]
+  2%|▏         | 6/393 [00:02<01:52,  3.45it/s]
+  2%|▏         | 9/393 [00:03<02:14,  2.85it/s]
+  3%|▎         | 12/393 [00:03<01:26,  4.40it/s]
+  4%|▍         | 17/393 [00:04<00:46,  8.07it/s]
+  7%|▋         | 28/393 [00:04<00:19, 18.84it/s]
+ 12%|█▏        | 48/393 [00:04<00:08, 42.63it/s]
+ 18%|█▊        | 71/393 [00:04<00:04, 71.79it/s]
+ 26%|██▌       | 101/393 [00:04<00:02, 113.56it/s]
+ 32%|███▏      | 127/393 [00:04<00:01, 143.45it/s]
+ 43%|████▎     | 169/393 [00:04<00:01, 205.27it/s]
+ 53%|█████▎    | 210/393 [00:04<00:00, 255.03it/s]
+ 62%|██████▏   | 245/393 [00:04<00:00, 277.65it/s]
+ 72%|███████▏  | 281/393 [00:04<00:00, 298.27it/s]
+ 80%|███████▉  | 314/393 [00:05<00:00, 301.33it/s]
+ 88%|████████▊ | 347/393 [00:05<00:00, 304.98it/s]
+ 97%|█████████▋| 380/393 [00:05<00:00, 299.70it/s]
+100%|██████████| 393/393 [00:06<00:00, 61.80it/s] 
