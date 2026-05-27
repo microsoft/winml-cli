@@ -2,16 +2,16 @@
 
 ## Summary
 
-- Models: 77
-- Configs: 216
-- Perf Pass: 188/216 (87%)
-- Eval Pass: 168/216 (78%)
+- Models: 78
+- Configs: 218
+- Perf Pass: 188/218 (86%)
+- Eval Pass: 170/218 (78%)
 
 ### Per-precision breakdown
 
 | Precision | Models | Configs | Perf Pass | Eval Pass |
 |---|---|---|---|---|
-| fp16 | 77 | 90 | 62/90 (69%) | 62/90 (69%) |
+| fp16 | 78 | 92 | 62/92 (67%) | 64/92 (70%) |
 | w8a16 | 55 | 63 | 63/63 (100%) | 53/63 (84%) |
 | w8a8 | 55 | 63 | 63/63 (100%) | 53/63 (84%) |
 
@@ -22,6 +22,7 @@
 | AdamCodd/vit-base-nsfw-detector | image-classification | fp16 | [config](./AdamCodd_vit-base-nsfw-detector/image-classification_fp16_config.json) | FAIL | FAIL |
 | ahotrod/electra_large_discriminator_squad2_512 | question-answering | fp16 | [config](./ahotrod_electra_large_discriminator_squad2_512/question-answering_fp16_config.json) | — | FAIL |
 | amunchet/rorshark-vit-base | image-classification | fp16 | [config](./amunchet_rorshark-vit-base/image-classification_fp16_config.json) | — | FAIL |
+| apple/mobilevit-small | image-classification | fp16 | [config](./apple_mobilevit-small/image-classification_fp16_config.json) | — | — |
 | BAAI/bge-base-en-v1.5 | feature-extraction | fp16 | [config](./BAAI_bge-base-en-v1.5/feature-extraction_fp16_config.json) | 23.87ms, 41.9sps ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_fp16_perf_result.json)) | cosine_spearman=89.0097 ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_fp16_eval_result.json)) |
 |  | feature-extraction | w8a16 | [config](./BAAI_bge-base-en-v1.5/feature-extraction_w8a16_config.json) | 15.38ms, 65.0sps ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_w8a16_perf_result.json)) | cosine_spearman=81.0991 ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_w8a16_eval_result.json)) |
 |  | feature-extraction | w8a8 | [config](./BAAI_bge-base-en-v1.5/feature-extraction_w8a8_config.json) | 15.76ms, 63.4sps ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_w8a8_perf_result.json)) | cosine_spearman=81.0991 ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_w8a8_eval_result.json)) |
@@ -99,6 +100,7 @@
 | google-bert/bert-base-multilingual-cased | feature-extraction | fp16 | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_fp16_config.json) | 16.29ms, 61.4sps ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_fp16_perf_result.json)) | cosine_spearman=45.5332 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_fp16_eval_result.json)) |
 |  | feature-extraction | w8a16 | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a16_config.json) | 16.55ms, 60.4sps ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a16_perf_result.json)) | cosine_spearman=42.6837 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a16_eval_result.json)) |
 |  | feature-extraction | w8a8 | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a8_config.json) | 16.39ms, 61.0sps ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a8_perf_result.json)) | cosine_spearman=42.6837 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a8_eval_result.json)) |
+|  | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_config.json) | — | — |
 |  | masked-lm | fp16 | [config](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_config.json) | — | FAIL |
 | google-bert/bert-base-multilingual-uncased | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-uncased/fill-mask_fp16_config.json) | 82.06ms, 12.2sps ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_fp16_perf_result.json)) | pseudo_perplexity=4.6449, nll=1.5358 ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_fp16_eval_result.json)) |
 |  | fill-mask | w8a16 | [config](./google-bert_bert-base-multilingual-uncased/fill-mask_w8a16_config.json) | 82.24ms, 12.2sps ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_w8a16_perf_result.json)) | pseudo_perplexity=4.6449, nll=1.5358 ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_w8a16_eval_result.json)) |
@@ -218,7 +220,7 @@
 |  | sentence-similarity | fp16 | [config](./sentence-transformers_all-mpnet-base-v2/sentence-similarity_fp16_config.json) | — | cosine_spearman=29.6817 ([metric](./sentence-transformers_all-mpnet-base-v2/sentence-similarity_fp16_eval_result.json)) |
 | sentence-transformers/multi-qa-mpnet-base-dot-v1 | feature-extraction | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/feature-extraction_fp16_config.json) | — | cosine_spearman=27.3779 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/feature-extraction_fp16_eval_result.json)) |
 |  | fill-mask | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/fill-mask_fp16_config.json) | — | pseudo_perplexity=1516611.1981, nll=14.2320 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/fill-mask_fp16_eval_result.json)) |
-|  | sentence-similarity | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_fp16_config.json) | — | — |
+|  | sentence-similarity | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_fp16_config.json) | — | cosine_spearman=10.4162 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_fp16_eval_result.json)) |
 | sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 | feature-extraction | fp16 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_fp16_config.json) | 26.83ms, 37.3sps ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_fp16_perf_result.json)) | cosine_spearman=84.1603 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_fp16_eval_result.json)) |
 |  | feature-extraction | w8a16 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a16_config.json) | 27.64ms, 36.2sps ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a16_perf_result.json)) | cosine_spearman=64.0256 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a16_eval_result.json)) |
 |  | feature-extraction | w8a8 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a8_config.json) | 27.39ms, 36.5sps ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a8_perf_result.json)) | cosine_spearman=64.0256 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a8_eval_result.json)) |
@@ -231,7 +233,7 @@
 | StanfordAIMI/dinov2-base-xray-224 | image-feature-extraction | fp16 | [config](./StanfordAIMI_dinov2-base-xray-224/image-feature-extraction_fp16_config.json) | 27.85ms, 35.9sps ([metric](./StanfordAIMI_dinov2-base-xray-224/image-feature-extraction_fp16_perf_result.json)) | knn_top1_accuracy=93.4708, knn_top5_accuracy=99.3127 ([metric](./StanfordAIMI_dinov2-base-xray-224/image-feature-extraction_fp16_eval_result.json)) |
 |  | image-feature-extraction | w8a16 | [config](./StanfordAIMI_dinov2-base-xray-224/image-feature-extraction_w8a16_config.json) | 28.73ms, 34.8sps ([metric](./StanfordAIMI_dinov2-base-xray-224/image-feature-extraction_w8a16_perf_result.json)) | knn_top1_accuracy=93.4708, knn_top5_accuracy=99.3127 ([metric](./StanfordAIMI_dinov2-base-xray-224/image-feature-extraction_w8a16_eval_result.json)) |
 |  | image-feature-extraction | w8a8 | [config](./StanfordAIMI_dinov2-base-xray-224/image-feature-extraction_w8a8_config.json) | 28.00ms, 35.7sps ([metric](./StanfordAIMI_dinov2-base-xray-224/image-feature-extraction_w8a8_perf_result.json)) | knn_top1_accuracy=93.4708, knn_top5_accuracy=99.3127 ([metric](./StanfordAIMI_dinov2-base-xray-224/image-feature-extraction_w8a8_eval_result.json)) |
-| valentinafeve/yolos-fashionpedia | object-detection | fp16 | [config](./valentinafeve_yolos-fashionpedia/object-detection_fp16_config.json) | — | — |
+| valentinafeve/yolos-fashionpedia | object-detection | fp16 | [config](./valentinafeve_yolos-fashionpedia/object-detection_fp16_config.json) | — | map=0.0726, map_50=0.2095, map_75=0.0362, num_predictions=10000, num_ground_truths=726, num_images=100, map_small=0.0001, map_medium=0.0056, map_large=0.1203, mar_1=0.0966, mar_10=0.1410, mar_100=0.1420, mar_small=0.0008, mar_medium=0.0406, mar_large=0.2144, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./valentinafeve_yolos-fashionpedia/object-detection_fp16_eval_result.json)) |
 | w11wo/indonesian-roberta-base-posp-tagger | token-classification | fp16 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_fp16_config.json) | 45.67ms, 21.9sps ([metric](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_fp16_perf_result.json)) | FAIL |
 |  | token-classification | w8a16 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a16_config.json) | 45.34ms, 22.1sps ([metric](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a16_perf_result.json)) | FAIL |
 |  | token-classification | w8a8 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json) | 45.86ms, 21.8sps ([metric](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_perf_result.json)) | FAIL |
