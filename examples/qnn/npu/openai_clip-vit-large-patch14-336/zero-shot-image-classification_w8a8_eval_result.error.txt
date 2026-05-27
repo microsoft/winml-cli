@@ -1,32 +1,34 @@
- "c:\repo\WinML-ModelKit\.venv\Lib\site-packages\optimum\exporters\tasks.py", line 1300, in get_exporter_config_constructor
-    raise ValueError(
-ValueError: clip_vision_model doesn't support task image-feature-extraction for the onnx backend. Supported tasks are: feature-extraction.
-[2026-05-26T07:08:42] WARNING: Model producer not matched: Expected "pytorch", Got "onnxruntime.transformers".Please specify correct --model_type parameter.
-[2026-05-26T07:09:00] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+eature-extraction for the onnx backend. Supported tasks are: feature-extraction.
+[2026-05-26T18:14:51] WARNING: Model producer not matched: Expected "pytorch", Got "onnxruntime.transformers".Please specify correct --model_type parameter.
+[2026-05-26T18:15:12] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
 
   0%|          | 0/777 [00:00<?, ?it/s]
-  6%|▌         | 46/777 [00:00<00:01, 451.20it/s]
- 12%|█▏        | 97/777 [00:00<00:01, 481.62it/s]
- 20%|█▉        | 152/777 [00:00<00:01, 510.43it/s]
- 26%|██▋       | 204/777 [00:00<00:01, 511.36it/s]
- 33%|███▎      | 256/777 [00:00<00:01, 462.24it/s]
- 39%|███▉      | 303/777 [00:00<00:01, 443.48it/s]
- 45%|████▍     | 348/777 [00:00<00:00, 441.24it/s]
- 51%|█████     | 393/777 [00:00<00:00, 431.81it/s]
- 57%|█████▋    | 443/777 [00:00<00:00, 450.80it/s]
- 63%|██████▎   | 489/777 [00:01<00:00, 442.77it/s]
- 69%|██████▊   | 534/777 [00:01<00:00, 407.38it/s]
- 75%|███████▍  | 580/777 [00:01<00:00, 419.71it/s]
- 80%|████████  | 623/777 [00:01<00:00, 398.73it/s]
- 86%|████████▌ | 668/777 [00:01<00:00, 407.37it/s]
- 91%|█████████▏| 710/777 [00:01<00:00, 404.84it/s]
- 97%|█████████▋| 751/777 [00:01<00:00, 396.69it/s]
-100%|██████████| 777/777 [00:01<00:00, 429.96it/s]
-[2026-05-26T07:09:02] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+  4%|▍         | 31/777 [00:00<00:02, 304.53it/s]
+  9%|▉         | 72/777 [00:00<00:01, 364.04it/s]
+ 14%|█▍        | 112/777 [00:00<00:01, 380.08it/s]
+ 20%|█▉        | 152/777 [00:00<00:01, 387.18it/s]
+ 25%|██▍       | 191/777 [00:00<00:01, 375.10it/s]
+ 29%|██▉       | 229/777 [00:00<00:01, 368.59it/s]
+ 34%|███▍      | 266/777 [00:00<00:01, 354.86it/s]
+ 39%|███▉      | 303/777 [00:00<00:01, 358.77it/s]
+ 44%|████▍     | 341/777 [00:00<00:01, 363.60it/s]
+ 49%|████▊     | 378/777 [00:01<00:01, 361.43it/s]
+ 53%|█████▎    | 415/777 [00:01<00:01, 354.79it/s]
+ 59%|█████▊    | 455/777 [00:01<00:00, 364.71it/s]
+ 63%|██████▎   | 492/777 [00:01<00:00, 355.71it/s]
+ 68%|██████▊   | 528/777 [00:01<00:00, 354.69it/s]
+ 73%|███████▎  | 569/777 [00:01<00:00, 367.84it/s]
+ 78%|███████▊  | 606/777 [00:01<00:00, 366.90it/s]
+ 83%|████████▎ | 643/777 [00:01<00:00, 364.33it/s]
+ 88%|████████▊ | 680/777 [00:01<00:00, 363.53it/s]
+ 93%|█████████▎| 720/777 [00:01<00:00, 373.76it/s]
+ 98%|█████████▊| 758/777 [00:02<00:00, 370.20it/s]
+100%|██████████| 777/777 [00:02<00:00, 363.98it/s]
+[2026-05-26T18:15:15] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
 
 Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
-Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 232.71 examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 229.75 examples/s]
 
 Map:   0%|          | 0/10 [00:00<?, ? examples/s]
-Map:  90%|█████████ | 9/10 [00:00<00:00, 81.90 examples/s]
-Map: 100%|██████████| 10/10 [00:00<00:00, 54.92 examples/s]
+Map:  70%|███████   | 7/10 [00:00<00:00, 57.48 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 41.35 examples/s]

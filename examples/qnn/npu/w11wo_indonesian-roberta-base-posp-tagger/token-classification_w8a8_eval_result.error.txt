@@ -1,28 +1,6 @@
- - custom Python from the model repository
+[0;93m2026-05-26 21:19:16.7219724 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
+WARNING: trust_remote_code is enabled - custom Python from the model repository
 will be downloaded and executed. Proceed only if you trust the publisher.
-[2026-05-26T08:09:41] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-
-  0%|          | 0/442 [00:00<?, ?it/s]
- 11%|█▏        | 50/442 [00:00<00:00, 490.81it/s]
- 24%|██▍       | 108/442 [00:00<00:00, 537.77it/s]
- 37%|███▋      | 163/442 [00:00<00:00, 539.17it/s]
- 49%|████▉     | 217/442 [00:00<00:00, 523.17it/s]
- 61%|██████    | 270/442 [00:00<00:00, 514.03it/s]
- 73%|███████▎  | 322/442 [00:00<00:00, 509.39it/s]
- 86%|████████▌ | 380/442 [00:00<00:00, 530.63it/s]
- 98%|█████████▊| 434/442 [00:00<00:00, 521.24it/s]
-100%|██████████| 442/442 [00:00<00:00, 515.77it/s]
-[2026-05-26T08:10:03] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-
-  0%|          | 0/395 [00:00<?, ?it/s]
- 11%|█         | 42/395 [00:00<00:00, 411.14it/s]
- 22%|██▏       | 86/395 [00:00<00:00, 425.87it/s]
- 33%|███▎      | 131/395 [00:00<00:00, 433.73it/s]
- 44%|████▍     | 175/395 [00:00<00:00, 424.34it/s]
- 57%|█████▋    | 226/395 [00:00<00:00, 451.73it/s]
- 70%|██████▉   | 275/395 [00:00<00:00, 462.66it/s]
- 82%|████████▏ | 323/395 [00:00<00:00, 467.35it/s]
- 94%|█████████▍| 371/395 [00:00<00:00, 470.84it/s]
-100%|██████████| 395/395 [00:00<00:00, 452.44it/s]
-[2026-05-26T08:10:04] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-[2026-05-26T08:10:07] WARNING: Task 'token-classification' not in supported tasks ['image-classification', 'image-feature-extraction', 'object-detection', 'text-classification', 'text-feature-extraction', 'feature-extraction', 'sentence-similarity', 'next-sentence-prediction', 'fill-mask', 'zero-shot-classification', 'image-segmentation', 'random'], falling back to RandomDataset
+[2026-05-26T21:19:37] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+[2026-05-26T21:19:37] WARNING: Failed to register EP QNNExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under QNNExecutionProvider
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' (name=None, split='validation'): Couldn't find any data file at C:\Users\shzhen\.cache\winml\eval_datasets\build_indonlu_posp.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.

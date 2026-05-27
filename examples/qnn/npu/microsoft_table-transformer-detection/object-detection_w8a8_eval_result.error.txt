@@ -1,13 +1,26 @@
-Error(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1006)')))"), '(Request ID: 63c08dd7-f264-4428-9864-14442df4c25e)')' thrown while requesting GET https://huggingface.co/datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet
-Retrying in 1s [Retry 1/5].
-[2026-05-25T23:45:27] WARNING: Retrying in 1s [Retry 1/5].
-'(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1006)')))"), '(Request ID: 0357db8c-ad1a-4a1d-afe7-932c492c78a5)')' thrown while requesting GET https://huggingface.co/datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet
-[2026-05-25T23:45:35] WARNING: '(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1006)')))"), '(Request ID: 0357db8c-ad1a-4a1d-afe7-932c492c78a5)')' thrown while requesting GET https://huggingface.co/datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet
-Retrying in 1s [Retry 1/5].
-[2026-05-25T23:45:35] WARNING: Retrying in 1s [Retry 1/5].
-The `max_size` parameter is deprecated and will be removed in v4.26. Please specify in `size['longest_edge'] instead`.
-
-Map:   0%|          | 0/10 [00:00<?, ? examples/s]
-Map:  40%|████      | 4/10 [00:00<00:00, 29.80 examples/s]
-Map:  80%|████████  | 8/10 [00:00<00:00, 33.88 examples/s]
-Map: 100%|██████████| 10/10 [00:00<00:00, 19.84 examples/s]
+nML-ModelKit\src\winml\modelkit\telemetry\click_group.py", line 69, in wrapped_invoke
+    return original_invoke(ctx)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "c:\repo\WinML-ModelKit\.venv\Lib\site-packages\click\core.py", line 1308, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\repo\WinML-ModelKit\.venv\Lib\site-packages\click\core.py", line 877, in invoke
+    return callback(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\repo\WinML-ModelKit\.venv\Lib\site-packages\click\decorators.py", line 34, in new_func
+    return f(get_current_context(), *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 212, in eval
+    _run_dataset_script(cfg, trust_remote_code)
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 387, in _run_dataset_script
+    result = subprocess.run(  # noqa: S603
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shzhen\AppData\Roaming\uv\python\cpython-3.11-windows-x86_64-none\Lib\subprocess.py", line 550, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shzhen\AppData\Roaming\uv\python\cpython-3.11-windows-x86_64-none\Lib\subprocess.py", line 1209, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shzhen\AppData\Roaming\uv\python\cpython-3.11-windows-x86_64-none\Lib\subprocess.py", line 1630, in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+subprocess.TimeoutExpired: Command '['c:\\repo\\WinML-ModelKit\\.venv\\Scripts\\python.exe', 'scripts\\e2e_eval\\datasets\\build_pubtables1m_detection.py', '--output', 'C:\\Users\\shzhen\\.cache\\winml\\eval_datasets\\build_pubtables1m_detection']' timed out after 300 seconds

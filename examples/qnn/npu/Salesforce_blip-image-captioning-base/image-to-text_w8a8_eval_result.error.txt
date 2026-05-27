@@ -1,17 +1,21 @@
-untime:, qnn_model.cc:240 onnxruntime::qnn::QnnModel::FinalizeGraphs] Failed to finalize QNN graph. Error code: 1002[m
-[2026-05-26T07:59:18] WARNING: ModelCompiler failed, using original: [ONNXRuntimeError] : 11 : EP_FAIL : Failed to finalize QNN graph.
-DSP_INFO UNSUPPORTED_KEY: 49
-DSP_INFO UNSUPPORTED_KEY: 50
-DSP_INFO UNSUPPORTED_KEY: 49
-DSP_INFO UNSUPPORTED_KEY: 50
-[0;93m2026-05-26 07:59:19.8097449 [W:onnxruntime:, qnn_model_wrapper.cc:478 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `/text_decoder/bert/Cast_ort_qnn_ep_convert` of type `Convert` with error code 3110
-[m
-DSP_INFO UNSUPPORTED_KEY: 49
-DSP_INFO UNSUPPORTED_KEY: 50
-[0;93m2026-05-26 07:59:27.1828554 [W:onnxruntime:, qnn_model_wrapper.cc:478 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `/text_decoder/bert/Cast_ort_qnn_ep_convert` of type `Convert` with error code 3110
-[m
-[0;93m2026-05-26 07:59:35.0383764 [W:onnxruntime:, qnn_model_wrapper.cc:478 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `/text_decoder/bert/Cast_ort_qnn_ep_convert` of type `Convert` with error code 3110
-[m
-[1;31m2026-05-26 07:59:46.6246320 [E:onnxruntime:, qnn_model.cc:240 onnxruntime::qnn::QnnModel::FinalizeGraphs] Failed to finalize QNN graph. Error code: 1002[m
-[2026-05-26T07:59:46] ERROR: Compilation failed: Failed to compile for npu | Context: device=npu, onnx_path=C:\Users\shzhen\.cache\winml\artifacts\Salesforce_blip-image-captioning-base\txt2txt_3e9eedd6a71ef705_quantized.onnx, error=[ONNXRuntimeError] : 11 : EP_FAIL : Failed to finalize QNN graph. | Suggestion: Verify NPU drivers and runtime are properly installed
-Error: Evaluation failed: Failed to load model 'Salesforce/blip-image-captioning-base'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task image-to-text' to see supported role=path model options.
+ed: Expected "pytorch", Got "onnxruntime.transformers".Please specify correct --model_type parameter.
+[2026-05-26T21:12:03] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/330 [00:00<?, ?it/s]
+ 16%|█▌        | 53/330 [00:00<00:00, 495.07it/s]
+ 36%|███▌      | 118/330 [00:00<00:00, 578.38it/s]
+ 54%|█████▎    | 177/330 [00:00<00:00, 453.47it/s]
+ 72%|███████▏  | 237/330 [00:00<00:00, 501.12it/s]
+ 93%|█████████▎| 306/330 [00:00<00:00, 561.17it/s]
+100%|██████████| 330/330 [00:00<00:00, 523.67it/s]
+[2026-05-26T21:12:04] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 267.44 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 98.36 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 92.41 examples/s]
+c:\repo\WinML-ModelKit\.venv\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\shzhen\.cache\huggingface\hub\models--Salesforce--blip-image-captioning-base. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)

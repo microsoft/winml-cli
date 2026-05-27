@@ -1,24 +1,24 @@
-0<00:01, 430.83it/s]
- 31%|███       | 217/702 [00:00<00:01, 427.55it/s]
- 37%|███▋      | 260/702 [00:00<00:01, 384.74it/s]
- 43%|████▎     | 304/702 [00:00<00:00, 399.10it/s]
- 50%|████▉     | 350/702 [00:00<00:00, 414.30it/s]
- 56%|█████▋    | 395/702 [00:00<00:00, 421.47it/s]
- 62%|██████▏   | 438/702 [00:01<00:00, 420.82it/s]
- 69%|██████▉   | 486/702 [00:01<00:00, 438.10it/s]
- 76%|███████▌  | 531/702 [00:01<00:00, 418.74it/s]
- 82%|████████▏ | 575/702 [00:01<00:00, 423.37it/s]
- 88%|████████▊ | 618/702 [00:01<00:00, 422.93it/s]
- 94%|█████████▍| 661/702 [00:01<00:00, 418.83it/s]
-100%|██████████| 702/702 [00:01<00:00, 414.57it/s]
-[2026-05-26T04:27:27] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/702 [00:00<?, ?it/s]
+  9%|▉         | 63/702 [00:00<00:01, 624.21it/s]
+ 19%|█▉        | 135/702 [00:00<00:00, 676.53it/s]
+ 29%|██▉       | 203/702 [00:00<00:00, 642.14it/s]
+ 39%|███▊      | 272/702 [00:00<00:00, 657.86it/s]
+ 51%|█████     | 359/702 [00:00<00:00, 731.04it/s]
+ 62%|██████▏   | 433/702 [00:00<00:00, 670.26it/s]
+ 72%|███████▏  | 502/702 [00:00<00:00, 661.37it/s]
+ 82%|████████▏ | 576/702 [00:00<00:00, 683.91it/s]
+ 92%|█████████▏| 646/702 [00:00<00:00, 680.97it/s]
+100%|██████████| 702/702 [00:01<00:00, 674.35it/s]
+[2026-05-26T17:00:34] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
 c:\repo\WinML-ModelKit\.venv\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\shzhen\.cache\huggingface\hub\datasets--timm--mini-imagenet. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
 To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
   warnings.warn(message)
 
 Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
-Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 471.73 examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 303.01 examples/s]
 
 Map:   0%|          | 0/10 [00:00<?, ? examples/s]
-Map: 100%|██████████| 10/10 [00:00<00:00, 58.78 examples/s]
-Map: 100%|██████████| 10/10 [00:00<00:00, 55.06 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 71.65 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 66.86 examples/s]
