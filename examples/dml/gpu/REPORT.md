@@ -2,15 +2,22 @@
 
 ## Summary
 
-- Models: 55
-- Configs: 63
-- Perf Pass: 57/63 (90%)
-- Eval Pass: 43/63 (68%)
+- Models: 62
+- Configs: 73
+- Perf Pass: 57/73 (78%)
+- Eval Pass: 43/73 (59%)
+
+### Per-precision breakdown
+
+| Precision | Models | Configs | Perf Pass | Eval Pass |
+|---|---|---|---|---|
+| fp16 | 8 | 10 | 0/10 (0%) | 0/10 (0%) |
 
 ## Results
 
 | Model | Task | Precision | Config | Perf | Eval |
 |---|---|---|---|---|---|
+| AdamCodd/vit-base-nsfw-detector | image-classification | fp16 | [config](./AdamCodd_vit-base-nsfw-detector/image-classification_fp16_config.json) | — | — |
 | BAAI/bge-base-en-v1.5 | feature-extraction |  | [config](./BAAI_bge-base-en-v1.5/feature-extraction_config.json) | 618.85ms, 1.6sps ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_perf_result.json)) | cosine_spearman=89.2759 ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_eval_result.json)) |
 |  | sentence-similarity |  | [config](./BAAI_bge-base-en-v1.5/sentence-similarity_config.json) | 661.51ms, 1.5sps ([metric](./BAAI_bge-base-en-v1.5/sentence-similarity_perf_result.json)) | cosine_spearman=89.2759 ([metric](./BAAI_bge-base-en-v1.5/sentence-similarity_eval_result.json)) |
 | BAAI/bge-large-en-v1.5 | sentence-similarity |  | [config](./BAAI_bge-large-en-v1.5/sentence-similarity_config.json) | 2459.30ms, 0.4sps ([metric](./BAAI_bge-large-en-v1.5/sentence-similarity_perf_result.json)) | cosine_spearman=90.3971 ([metric](./BAAI_bge-large-en-v1.5/sentence-similarity_eval_result.json)) |
@@ -34,6 +41,7 @@
 | FacebookAI/xlm-roberta-base | fill-mask |  | [config](./FacebookAI_xlm-roberta-base/fill-mask_config.json) | 1533.49ms, 0.7sps ([metric](./FacebookAI_xlm-roberta-base/fill-mask_perf_result.json)) | TIMEOUT |
 | FacebookAI/xlm-roberta-large | fill-mask |  | [config](./FacebookAI_xlm-roberta-large/fill-mask_config.json) | 2629.72ms, 0.4sps ([metric](./FacebookAI_xlm-roberta-large/fill-mask_perf_result.json)) | TIMEOUT |
 | google-bert/bert-base-multilingual-cased | feature-extraction |  | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_config.json) | 659.68ms, 1.5sps ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_perf_result.json)) | cosine_spearman=40.9452 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_eval_result.json)) |
+|  | masked-lm | fp16 | [config](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_config.json) | — | — |
 | google-bert/bert-base-multilingual-uncased | fill-mask |  | [config](./google-bert_bert-base-multilingual-uncased/fill-mask_config.json) | 1086.24ms, 0.9sps ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_perf_result.json)) | TIMEOUT |
 | google-bert/bert-base-uncased | fill-mask |  | [config](./google-bert_bert-base-uncased/fill-mask_config.json) | 796.02ms, 1.3sps ([metric](./google-bert_bert-base-uncased/fill-mask_perf_result.json)) | TIMEOUT |
 | google-bert/bert-large-uncased-whole-word-masking-finetuned-squad | question-answering |  | [config](./google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_config.json) | 2441.98ms, 0.4sps ([metric](./google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_perf_result.json)) | exact_match=88.0000, f1=93.6526 ([metric](./google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_eval_result.json)) |
@@ -41,10 +49,14 @@
 | google/vit-base-patch16-224-in21k | image-feature-extraction |  | [config](./google_vit-base-patch16-224-in21k/image-feature-extraction_config.json) | 190.35ms, 5.2sps ([metric](./google_vit-base-patch16-224-in21k/image-feature-extraction_perf_result.json)) | knn_top1_accuracy=91.9000, knn_top5_accuracy=97.0000 ([metric](./google_vit-base-patch16-224-in21k/image-feature-extraction_eval_result.json)) |
 | Intel/bert-base-uncased-mrpc | feature-extraction |  | [config](./Intel_bert-base-uncased-mrpc/feature-extraction_config.json) | 687.92ms, 1.4sps ([metric](./Intel_bert-base-uncased-mrpc/feature-extraction_perf_result.json)) | cosine_spearman=42.9850 ([metric](./Intel_bert-base-uncased-mrpc/feature-extraction_eval_result.json)) |
 |  | text-classification |  | [config](./Intel_bert-base-uncased-mrpc/text-classification_config.json) | 678.43ms, 1.5sps ([metric](./Intel_bert-base-uncased-mrpc/text-classification_perf_result.json)) | accuracy=0.8200 ([metric](./Intel_bert-base-uncased-mrpc/text-classification_eval_result.json)) |
+| Intel/dpt-hybrid-midas | depth-estimation | fp16 | [config](./Intel_dpt-hybrid-midas/depth-estimation_fp16_config.json) | — | — |
+| Jean-Baptiste/camembert-ner-with-dates | token-classification | fp16 | [config](./Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_config.json) | — | — |
 | joeddav/xlm-roberta-large-xnli | zero-shot-classification |  | [config](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_config.json) | 1821.29ms, 0.6sps ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_perf_result.json)) | accuracy=0.5600, f1=0.5578 ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_eval_result.json)) |
+| kredor/punctuate-all | token-classification | fp16 | [config](./kredor_punctuate-all/token-classification_fp16_config.json) | — | — |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction |  | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_config.json) | 36.63ms, 27.3sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_perf_result.json)) | cosine_spearman=75.4619 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_eval_result.json)) |
 |  | zero-shot-image-classification |  | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_config.json) | 36.50ms, 27.4sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_perf_result.json)) | TIMEOUT |
 | laion/CLIP-ViT-H-14-laion2B-s32B-b79K | zero-shot-image-classification |  | [config](./laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_config.json) | 235.91ms, 4.2sps ([metric](./laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_perf_result.json)) | TIMEOUT |
+| lxyuan/distilbert-base-multilingual-cased-sentiments-student | zero-shot-classification | fp16 | [config](./lxyuan_distilbert-base-multilingual-cased-sentiments-student/zero-shot-classification_fp16_config.json) | — | — |
 | mattmdjaga/segformer_b2_clothes | image-segmentation |  | [config](./mattmdjaga_segformer_b2_clothes/image-segmentation_config.json) | FAIL | FAIL |
 | microsoft/rad-dino | image-feature-extraction |  | [config](./microsoft_rad-dino/image-feature-extraction_config.json) | 4986.20ms, 0.2sps ([metric](./microsoft_rad-dino/image-feature-extraction_perf_result.json)) | — |
 | microsoft/resnet-50 | image-classification |  | [config](./microsoft_resnet-50/image-classification_config.json) | 23.15ms, 43.2sps ([metric](./microsoft_resnet-50/image-classification_perf_result.json)) | accuracy=0.7800 ([metric](./microsoft_resnet-50/image-classification_eval_result.json)) |
@@ -69,6 +81,10 @@
 | Salesforce/blip-image-captioning-base | image-to-text |  | [config](./Salesforce_blip-image-captioning-base/image-to-text_config.json) | 2420.96ms, 0.4sps ([metric](./Salesforce_blip-image-captioning-base/image-to-text_perf_result.json)) | cer=0.6891, cider=0.3965, n_samples=500 ([metric](./Salesforce_blip-image-captioning-base/image-to-text_eval_result.json)) |
 | sentence-transformers/all-MiniLM-L6-v2 | feature-extraction |  | [config](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_config.json) | 207.17ms, 4.8sps ([metric](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_perf_result.json)) | cosine_spearman=81.3502 ([metric](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_eval_result.json)) |
 |  | sentence-similarity |  | [config](./sentence-transformers_all-MiniLM-L6-v2/sentence-similarity_config.json) | 207.98ms, 4.8sps ([metric](./sentence-transformers_all-MiniLM-L6-v2/sentence-similarity_perf_result.json)) | cosine_spearman=81.3502 ([metric](./sentence-transformers_all-MiniLM-L6-v2/sentence-similarity_eval_result.json)) |
+| sentence-transformers/all-mpnet-base-v2 | feature-extraction | fp16 | [config](./sentence-transformers_all-mpnet-base-v2/feature-extraction_fp16_config.json) | — | — |
+|  | fill-mask | fp16 | [config](./sentence-transformers_all-mpnet-base-v2/fill-mask_fp16_config.json) | — | — |
+| sentence-transformers/multi-qa-mpnet-base-dot-v1 | feature-extraction | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/feature-extraction_fp16_config.json) | — | — |
+|  | fill-mask | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/fill-mask_fp16_config.json) | — | — |
 | sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 | feature-extraction |  | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_config.json) | 463.90ms, 2.2sps ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_perf_result.json)) | cosine_spearman=84.5004 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_eval_result.json)) |
 |  | sentence-similarity |  | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_config.json) | 464.02ms, 2.2sps ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_perf_result.json)) | cosine_spearman=84.5004 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_eval_result.json)) |
 | sentence-transformers/paraphrase-multilingual-mpnet-base-v2 | sentence-similarity |  | [config](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_config.json) | 573.11ms, 1.7sps ([metric](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_perf_result.json)) | cosine_spearman=86.0458 ([metric](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_eval_result.json)) |

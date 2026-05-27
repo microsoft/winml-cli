@@ -2,15 +2,23 @@
 
 ## Summary
 
-- Models: 55
-- Configs: 63
-- Perf Pass: 61/63 (97%)
-- Eval Pass: 47/63 (75%)
+- Models: 65
+- Configs: 76
+- Perf Pass: 61/76 (80%)
+- Eval Pass: 54/76 (71%)
+
+### Per-precision breakdown
+
+| Precision | Models | Configs | Perf Pass | Eval Pass |
+|---|---|---|---|---|
+| fp16 | 11 | 13 | 0/13 (0%) | 7/13 (54%) |
 
 ## Results
 
 | Model | Task | Precision | Config | Perf | Eval |
 |---|---|---|---|---|---|
+| AdamCodd/vit-base-nsfw-detector | image-classification | fp16 | [config](./AdamCodd_vit-base-nsfw-detector/image-classification_fp16_config.json) | — | FAIL |
+| amunchet/rorshark-vit-base | image-classification | fp16 | [config](./amunchet_rorshark-vit-base/image-classification_fp16_config.json) | — | FAIL |
 | BAAI/bge-base-en-v1.5 | feature-extraction |  | [config](./BAAI_bge-base-en-v1.5/feature-extraction_config.json) | 258.73ms, 3.9sps ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_perf_result.json)) | cosine_spearman=89.2759 ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_eval_result.json)) |
 |  | sentence-similarity |  | [config](./BAAI_bge-base-en-v1.5/sentence-similarity_config.json) | 207.41ms, 4.8sps ([metric](./BAAI_bge-base-en-v1.5/sentence-similarity_perf_result.json)) | cosine_spearman=89.2759 ([metric](./BAAI_bge-base-en-v1.5/sentence-similarity_eval_result.json)) |
 | BAAI/bge-large-en-v1.5 | sentence-similarity |  | [config](./BAAI_bge-large-en-v1.5/sentence-similarity_config.json) | 807.95ms, 1.2sps ([metric](./BAAI_bge-large-en-v1.5/sentence-similarity_perf_result.json)) | cosine_spearman=90.3971 ([metric](./BAAI_bge-large-en-v1.5/sentence-similarity_eval_result.json)) |
@@ -33,7 +41,9 @@
 | FacebookAI/roberta-large | fill-mask |  | [config](./FacebookAI_roberta-large/fill-mask_config.json) | 850.59ms, 1.2sps ([metric](./FacebookAI_roberta-large/fill-mask_perf_result.json)) | TIMEOUT |
 | FacebookAI/xlm-roberta-base | fill-mask |  | [config](./FacebookAI_xlm-roberta-base/fill-mask_config.json) | 543.24ms, 1.8sps ([metric](./FacebookAI_xlm-roberta-base/fill-mask_perf_result.json)) | TIMEOUT |
 | FacebookAI/xlm-roberta-large | fill-mask |  | [config](./FacebookAI_xlm-roberta-large/fill-mask_config.json) | — | TIMEOUT |
+| Falconsai/nsfw_image_detection | image-classification | fp16 | [config](./Falconsai_nsfw_image_detection/image-classification_fp16_config.json) | — | FAIL |
 | google-bert/bert-base-multilingual-cased | feature-extraction |  | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_config.json) | 228.76ms, 4.4sps ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_perf_result.json)) | cosine_spearman=40.9452 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_eval_result.json)) |
+|  | masked-lm | fp16 | [config](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_config.json) | — | FAIL |
 | google-bert/bert-base-multilingual-uncased | fill-mask |  | [config](./google-bert_bert-base-multilingual-uncased/fill-mask_config.json) | 370.18ms, 2.7sps ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_perf_result.json)) | TIMEOUT |
 | google-bert/bert-base-uncased | fill-mask |  | [config](./google-bert_bert-base-uncased/fill-mask_config.json) | 265.48ms, 3.8sps ([metric](./google-bert_bert-base-uncased/fill-mask_perf_result.json)) | TIMEOUT |
 | google-bert/bert-large-uncased-whole-word-masking-finetuned-squad | question-answering |  | [config](./google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_config.json) | 802.82ms, 1.2sps ([metric](./google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_perf_result.json)) | exact_match=88.0000, f1=93.6526 ([metric](./google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_eval_result.json)) |
@@ -41,12 +51,17 @@
 | google/vit-base-patch16-224-in21k | image-feature-extraction |  | [config](./google_vit-base-patch16-224-in21k/image-feature-extraction_config.json) | 69.97ms, 14.3sps ([metric](./google_vit-base-patch16-224-in21k/image-feature-extraction_perf_result.json)) | knn_top1_accuracy=91.9000, knn_top5_accuracy=97.0000 ([metric](./google_vit-base-patch16-224-in21k/image-feature-extraction_eval_result.json)) |
 | Intel/bert-base-uncased-mrpc | feature-extraction |  | [config](./Intel_bert-base-uncased-mrpc/feature-extraction_config.json) | 199.38ms, 5.0sps ([metric](./Intel_bert-base-uncased-mrpc/feature-extraction_perf_result.json)) | cosine_spearman=42.9850 ([metric](./Intel_bert-base-uncased-mrpc/feature-extraction_eval_result.json)) |
 |  | text-classification |  | [config](./Intel_bert-base-uncased-mrpc/text-classification_config.json) | 197.60ms, 5.1sps ([metric](./Intel_bert-base-uncased-mrpc/text-classification_perf_result.json)) | accuracy=0.8200 ([metric](./Intel_bert-base-uncased-mrpc/text-classification_eval_result.json)) |
+| Intel/dpt-hybrid-midas | depth-estimation | fp16 | [config](./Intel_dpt-hybrid-midas/depth-estimation_fp16_config.json) | — | FAIL |
+| Jean-Baptiste/camembert-ner-with-dates | token-classification | fp16 | [config](./Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_config.json) | — | FAIL |
 | joeddav/xlm-roberta-large-xnli | zero-shot-classification |  | [config](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_config.json) | 780.69ms, 1.3sps ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_perf_result.json)) | accuracy=0.5600, f1=0.5578 ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_eval_result.json)) |
+| kredor/punctuate-all | token-classification | fp16 | [config](./kredor_punctuate-all/token-classification_fp16_config.json) | — | overall_precision=0.0000, overall_recall=0.0000, overall_f1=0.0000, overall_accuracy=0.0000 ([metric](./kredor_punctuate-all/token-classification_fp16_eval_result.json)) |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction |  | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_config.json) | 19.90ms, 50.2sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_perf_result.json)) | cosine_spearman=75.4619 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_eval_result.json)) |
 |  | zero-shot-image-classification |  | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_config.json) | 25.82ms, 38.7sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_perf_result.json)) | TIMEOUT |
 | laion/CLIP-ViT-H-14-laion2B-s32B-b79K | zero-shot-image-classification |  | [config](./laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_config.json) | — | TIMEOUT |
+| lxyuan/distilbert-base-multilingual-cased-sentiments-student | zero-shot-classification | fp16 | [config](./lxyuan_distilbert-base-multilingual-cased-sentiments-student/zero-shot-classification_fp16_config.json) | — | accuracy=0.1600, f1=0.1062 ([metric](./lxyuan_distilbert-base-multilingual-cased-sentiments-student/zero-shot-classification_fp16_eval_result.json)) |
 | mattmdjaga/segformer_b2_clothes | image-segmentation |  | [config](./mattmdjaga_segformer_b2_clothes/image-segmentation_config.json) | 456.84ms, 2.2sps ([metric](./mattmdjaga_segformer_b2_clothes/image-segmentation_perf_result.json)) | mean_iou=0.7032, overall_accuracy=0.9639 ([metric](./mattmdjaga_segformer_b2_clothes/image-segmentation_eval_result.json)) |
 | microsoft/rad-dino | image-feature-extraction |  | [config](./microsoft_rad-dino/image-feature-extraction_config.json) | 696.67ms, 1.4sps ([metric](./microsoft_rad-dino/image-feature-extraction_perf_result.json)) | knn_top1_accuracy=94.6735, knn_top5_accuracy=99.3127 ([metric](./microsoft_rad-dino/image-feature-extraction_eval_result.json)) |
+| microsoft/resnet-18 | image-classification | fp16 | [config](./microsoft_resnet-18/image-classification_fp16_config.json) | — | accuracy=0.6600 ([metric](./microsoft_resnet-18/image-classification_fp16_eval_result.json)) |
 | microsoft/resnet-50 | image-classification |  | [config](./microsoft_resnet-50/image-classification_config.json) | 14.74ms, 67.8sps ([metric](./microsoft_resnet-50/image-classification_perf_result.json)) | accuracy=0.7800 ([metric](./microsoft_resnet-50/image-classification_eval_result.json)) |
 | microsoft/swin-large-patch4-window7-224 | image-classification |  | [config](./microsoft_swin-large-patch4-window7-224/image-classification_config.json) | 187.85ms, 5.3sps ([metric](./microsoft_swin-large-patch4-window7-224/image-classification_perf_result.json)) | accuracy=0.7900 ([metric](./microsoft_swin-large-patch4-window7-224/image-classification_eval_result.json)) |
 | microsoft/table-transformer-detection | object-detection |  | [config](./microsoft_table-transformer-detection/object-detection_config.json) | 108.66ms, 9.2sps ([metric](./microsoft_table-transformer-detection/object-detection_perf_result.json)) | FAIL |
@@ -69,6 +84,10 @@
 | Salesforce/blip-image-captioning-base | image-to-text |  | [config](./Salesforce_blip-image-captioning-base/image-to-text_config.json) | 51.86ms, 19.3sps ([metric](./Salesforce_blip-image-captioning-base/image-to-text_perf_result.json)) | cer=0.6891, cider=0.3965, n_samples=500 ([metric](./Salesforce_blip-image-captioning-base/image-to-text_eval_result.json)) |
 | sentence-transformers/all-MiniLM-L6-v2 | feature-extraction |  | [config](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_config.json) | 48.52ms, 20.6sps ([metric](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_perf_result.json)) | cosine_spearman=81.3502 ([metric](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_eval_result.json)) |
 |  | sentence-similarity |  | [config](./sentence-transformers_all-MiniLM-L6-v2/sentence-similarity_config.json) | 54.93ms, 18.2sps ([metric](./sentence-transformers_all-MiniLM-L6-v2/sentence-similarity_perf_result.json)) | cosine_spearman=81.3502 ([metric](./sentence-transformers_all-MiniLM-L6-v2/sentence-similarity_eval_result.json)) |
+| sentence-transformers/all-mpnet-base-v2 | feature-extraction | fp16 | [config](./sentence-transformers_all-mpnet-base-v2/feature-extraction_fp16_config.json) | — | cosine_spearman=82.7129 ([metric](./sentence-transformers_all-mpnet-base-v2/feature-extraction_fp16_eval_result.json)) |
+|  | fill-mask | fp16 | [config](./sentence-transformers_all-mpnet-base-v2/fill-mask_fp16_config.json) | — | pseudo_perplexity=522993.4697, nll=13.1673 ([metric](./sentence-transformers_all-mpnet-base-v2/fill-mask_fp16_eval_result.json)) |
+| sentence-transformers/multi-qa-mpnet-base-dot-v1 | feature-extraction | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/feature-extraction_fp16_config.json) | — | cosine_spearman=71.7863 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/feature-extraction_fp16_eval_result.json)) |
+|  | fill-mask | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/fill-mask_fp16_config.json) | — | pseudo_perplexity=437280.0183, nll=12.9883 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/fill-mask_fp16_eval_result.json)) |
 | sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 | feature-extraction |  | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_config.json) | 92.72ms, 10.8sps ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_perf_result.json)) | cosine_spearman=84.5004 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_eval_result.json)) |
 |  | sentence-similarity |  | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_config.json) | 94.50ms, 10.6sps ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_perf_result.json)) | cosine_spearman=84.5004 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_eval_result.json)) |
 | sentence-transformers/paraphrase-multilingual-mpnet-base-v2 | sentence-similarity |  | [config](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_config.json) | 210.12ms, 4.8sps ([metric](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_perf_result.json)) | cosine_spearman=86.0458 ([metric](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_eval_result.json)) |
