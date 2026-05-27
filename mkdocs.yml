@@ -12,6 +12,7 @@ exclude_docs: |
   /superpowers/
   /naming-convention.md
   /pytest-best-practices.md
+  /README.md
 
 theme:
   name: material
