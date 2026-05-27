@@ -9,12 +9,18 @@ Counts per row (matching scripts/generate_example_report.py semantics):
 Buckets:
   - For NPU folders, rows are split by precision (fp16 / w8a16 / w8a8).
   - For CPU/GPU folders, single row.
+
+Also emits a top-level "Builtin Models" section listing (model_id, task) tuples
+that:
+  1. Have at least one config in every one of the 9 (ep, hardware) buckets,
+  2. Every existing config (across all 9 buckets, any precision) has a
+     sibling *_perf_result.json,
+  3. At least one config has a sibling *_eval_result.json.
 """
 
 from __future__ import annotations
 
 import re
-from collections import defaultdict
 from pathlib import Path
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -38,6 +44,159 @@ ROWS: list[tuple[str, str, str, str | None, str]] = [
     ("MLAS (CPU)",                       "mlas",            "cpu", None,    "mlas/cpu/REPORT.md"),
     ("NVIDIA TensorRT RTX (GPU)",        "nv_tensorrt_rtx", "gpu", None,    "nv_tensorrt_rtx/gpu/REPORT.md"),
 ]
+
+# The 9 (ep folder, hardware) buckets each model must cover for "builtin" status.
+ALL_EP_BUCKETS: list[tuple[str, str]] = [
+    ("dml", "gpu"),
+    ("mlas", "cpu"),
+    ("nv_tensorrt_rtx", "gpu"),
+    ("openvino", "cpu"),
+    ("openvino", "gpu"),
+    ("openvino", "npu"),
+    ("qnn", "gpu"),
+    ("qnn", "npu"),
+    ("vitisai", "npu"),
+]
+
+_NPU_PRECISION_RE = re.compile(r"_(fp16|w8a16|w8a8)$")
+
+
+def collect(folder: Path, hardware: str, precision_filter: str | None) -> tuple[int, int, int, int]:
+    """Return (models, configs, perf_pass, eval_pass).
+
+    Matches the semantics of scripts/generate_example_report.py:
+    - All ``*_config.json`` files count as configs (CPU/GPU rows include any
+      precision suffix; only the NPU rows are filtered by precision).
+    - Perf/Eval pass = sibling ``*_perf_result.json`` / ``*_eval_result.json``
+      file exists for the same stem.
+    """
+    models: set[str] = set()
+    configs = 0
+    perf_pass = 0
+    eval_pass = 0
+
+    if not folder.is_dir():
+        return 0, 0, 0, 0
+
+    for model_dir in folder.iterdir():
+        if not model_dir.is_dir():
+            continue
+        for cfg in model_dir.glob("*_config.json"):
+            stem = cfg.name[: -len("_config.json")]  # e.g. "image-classification" or "..._fp16"
+            if hardware == "npu" and precision_filter:
+                m = _NPU_PRECISION_RE.search(stem)
+                if not m or m.group(1) != precision_filter:
+                    continue
+            configs += 1
+            models.add(model_dir.name)
+            if (model_dir / f"{stem}_perf_result.json").exists():
+                perf_pass += 1
+            if (model_dir / f"{stem}_eval_result.json").exists():
+                eval_pass += 1
+
+    return len(models), configs, perf_pass, eval_pass
+
+
+def _split_stem(stem: str) -> tuple[str, str | None]:
+    m = _NPU_PRECISION_RE.search(stem)
+    if m:
+        return stem[: m.start()], m.group(1)
+    return stem, None
+
+
+def _builtin_models() -> list[tuple[str, str, dict[tuple[str, str], list[str]]]]:
+    """Return list of (model_slug, task, bucket_to_precisions) for tuples that
+    qualify as builtin models per the criteria documented at the top of this file.
+
+    Each entry's bucket_to_precisions maps (ep, hardware) -> list of precision
+    strings (or [""] for cpu/gpu) for which a config exists.
+    """
+    # (slug, task) -> { (ep, hw): [precision, ...] }
+    configs_by_key: dict[tuple[str, str], dict[tuple[str, str], list[str]]] = {}
+    # (slug, task) -> all_perf_pass flag (True until we see a missing perf)
+    all_perf: dict[tuple[str, str], bool] = {}
+    any_eval: dict[tuple[str, str], bool] = {}
+
+    for ep, hw in ALL_EP_BUCKETS:
+        folder = EXAMPLES / ep / hw
+        if not folder.is_dir():
+            continue
+        for model_dir in folder.iterdir():
+            if not model_dir.is_dir():
+                continue
+            for cfg in model_dir.glob("*_config.json"):
+                stem = cfg.name[: -len("_config.json")]
+                task, precision = _split_stem(stem)
+                key = (model_dir.name, task)
+                configs_by_key.setdefault(key, {}).setdefault((ep, hw), []).append(precision or "")
+                has_perf = (model_dir / f"{stem}_perf_result.json").exists()
+                has_eval = (model_dir / f"{stem}_eval_result.json").exists()
+                if not has_perf:
+                    all_perf[key] = False
+                else:
+                    all_perf.setdefault(key, True)
+                if has_eval:
+                    any_eval[key] = True
+
+    qualified: list[tuple[str, str, dict[tuple[str, str], list[str]]]] = []
+    required_buckets = set(ALL_EP_BUCKETS)
+    for key, buckets in sorted(configs_by_key.items()):
+        if set(buckets.keys()) != required_buckets:
+            continue
+        if not all_perf.get(key, False):
+            continue
+        if not any_eval.get(key, False):
+            continue
+        qualified.append((key[0], key[1], buckets))
+    return qualified
+
+
+def main() -> int:
+    builtins = _builtin_models()
+
+    out_lines: list[str] = [
+        "# Example Configs Test Summary",
+        "",
+        "## Builtin Models",
+        "",
+        (
+            "Models that have a config in every one of the 9 (EP, device) "
+            "buckets, all configs have perf pass, and at least one config has "
+            "eval pass."
+        ),
+        "",
+        f"Total: **{len(builtins)}** (model, task) tuples.",
+        "",
+        "| Model | Task |",
+        "|---|---|",
+    ]
+    for slug, task, _buckets in builtins:
+        out_lines.append(f"| {slug.replace('_', '/', 1)} | {task} |")
+
+    out_lines += [
+        "",
+        "## Overview",
+        "",
+        "| EP | Models | Configs | Perf Pass | Eval Pass | Report |",
+        "|----|--------|---------|-----------|-----------|--------|",
+    ]
+    for label, ep, hw, prec, report in ROWS:
+        models, configs, p, e = collect(EXAMPLES / ep / hw, hw, prec)
+        pct = lambda x, tot: f"{x}/{tot} ({100 * x / tot:.0f}%)" if tot else f"{x}/0 (0%)"
+        out_lines.append(
+            f"| {label} | {models} | {configs} | {pct(p, configs)} | {pct(e, configs)} | [Report]({report}) |"
+        )
+
+    out_lines.append("")
+    out_path = EXAMPLES / "summary.md"
+    out_path.write_text("\n".join(out_lines), encoding="utf-8")
+    print(f"Wrote {out_path}")
+    print(f"Builtin (model, task) count: {len(builtins)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 _NPU_PRECISION_RE = re.compile(r"_(fp16|w8a16|w8a8)$")
 
