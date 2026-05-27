@@ -1,0 +1,59 @@
+{
+  "benchmark_info": {
+    "model_id": "distilbert/distilbert-base-uncased",
+    "task": "fill-mask",
+    "device": "npu",
+    "ep": "OpenVINOExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T16:32:02.129658+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        30522
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 27.08,
+    "min": 23.37,
+    "max": 38.2,
+    "p50": 26.12,
+    "p90": 38.2,
+    "p95": 38.2,
+    "p99": 38.2,
+    "std": 4.47,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 36.93,
+    "batches_per_sec": 36.93
+  },
+  "raw_samples_ms": []
+}

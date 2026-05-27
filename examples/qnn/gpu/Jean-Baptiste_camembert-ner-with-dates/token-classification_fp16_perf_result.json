@@ -1,0 +1,59 @@
+{
+  "benchmark_info": {
+    "model_id": "Jean-Baptiste/camembert-ner-with-dates",
+    "task": "token-classification",
+    "device": "gpu",
+    "ep": "QNNExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-20T10:27:23.425541+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        6
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 87.3,
+    "min": 84.91,
+    "max": 92.8,
+    "p50": 86.06,
+    "p90": 92.8,
+    "p95": 92.8,
+    "p99": 92.8,
+    "std": 2.7,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 11.45,
+    "batches_per_sec": 11.45
+  },
+  "raw_samples_ms": []
+}

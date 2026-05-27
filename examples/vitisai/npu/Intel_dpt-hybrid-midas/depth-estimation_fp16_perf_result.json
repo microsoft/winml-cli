@@ -1,0 +1,55 @@
+{
+  "benchmark_info": {
+    "model_id": "Intel/dpt-hybrid-midas",
+    "task": "depth-estimation",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T09:55:46.337572+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        384,
+        384
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "predicted_depth"
+    ],
+    "output_shapes": [
+      [
+        1,
+        384,
+        384
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 172.35,
+    "min": 169.03,
+    "max": 175.06,
+    "p50": 172.65,
+    "p90": 175.06,
+    "p95": 175.06,
+    "p99": 175.06,
+    "std": 1.97,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 5.8,
+    "batches_per_sec": 5.8
+  },
+  "raw_samples_ms": []
+}
