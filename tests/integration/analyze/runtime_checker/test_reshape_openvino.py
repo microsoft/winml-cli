@@ -10,13 +10,11 @@ from tests.integration.analyze.runtime_checker.test_helper import (
     reshape_quick_helper,
     should_run_ep_test,
 )
-from winml.modelkit import winml
 from winml.modelkit.analyze.runtime_checker.ep_checker import EPChecker
 
 
 def _require_openvino_device(device_type: ort.OrtHardwareDeviceType, skip_message: str) -> None:
     should_run_ep_test("OpenVINOExecutionProvider", device_type, skip_message)
-    winml.register_execution_providers(ort=True)
 
 
 # don't use EPChecker directly as there is a bug with pytest in subprocess
