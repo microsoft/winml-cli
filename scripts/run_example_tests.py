@@ -10,6 +10,7 @@ Usage:
     python scripts/run_example_tests.py --ep qnn --device npu
     python scripts/run_example_tests.py --ep qnn --device npu --timeout 3600
     python scripts/run_example_tests.py --ep openvino --device cpu --eval-only
+    python scripts/run_example_tests.py --ep cpu --device cpu
     python scripts/run_example_tests.py --ep vitisai --device npu \
         --models microsoft_resnet-50,BAAI_bge-base-en-v1.5
 """
@@ -23,8 +24,58 @@ import subprocess
 import sys
 from pathlib import Path
 
+from winml.modelkit.utils.constants import (
+    ALL_EP_NAMES,
+    EP_NAME_TO_ALIAS,
+    normalize_ep_name,
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+EP_TO_EXAMPLES_FOLDER = {
+    "cpu": "mlas",
+}
+
+EP_CHOICES = [name for name in ALL_EP_NAMES if name not in ("cuda", "CUDAExecutionProvider")]
+EP_CHOICES_MAP = {name.lower(): name for name in EP_CHOICES}
+DEVICE_CHOICES = ["cpu", "gpu", "npu"]
+
+
+def parse_ep(ep_arg: str) -> str:
+    """Parse EP argument case-insensitively using winml perf/eval choices."""
+    ep = EP_CHOICES_MAP.get(ep_arg.lower())
+    if ep is None:
+        choices_text = ", ".join(EP_CHOICES)
+        raise argparse.ArgumentTypeError(f"Invalid --ep '{ep_arg}'. Choices: {choices_text}")
+    return ep
+
+
+def parse_device(device_arg: str) -> str:
+    """Parse device argument case-insensitively using winml perf/eval choices."""
+    device = device_arg.lower()
+    if device not in DEVICE_CHOICES:
+        choices_text = ", ".join(DEVICE_CHOICES)
+        raise argparse.ArgumentTypeError(
+            f"Invalid --device '{device_arg}'. Choices: {choices_text}"
+        )
+    return device
+
+
+def resolve_ep_and_examples_folder(ep_arg: str) -> tuple[str, str]:
+    """Normalize EP value for winml and map to examples folder name.
+
+    Returns:
+        Tuple of (ep_for_winml, ep_folder_under_examples)
+    """
+    canonical_ep = normalize_ep_name(ep_arg)
+    if canonical_ep is None:
+        return ep_arg, ep_arg
+
+    ep_for_winml = EP_NAME_TO_ALIAS.get(canonical_ep, ep_arg.lower())
+    examples_folder = EP_TO_EXAMPLES_FOLDER.get(ep_for_winml, ep_for_winml)
+    return ep_for_winml, examples_folder
 
 
 def run_eval(
@@ -169,14 +220,14 @@ def main() -> None:
     parser.add_argument(
         "--ep",
         required=True,
-        choices=["qnn", "openvino", "vitisai", "nv_tensorrt_rtx", "mlas", "dml"],
-        help="EP folder under examples/",
+        type=parse_ep,
+        help="Execution provider (same accepted values as winml --ep)",
     )
     parser.add_argument(
         "--device",
         required=True,
-        choices=["npu", "gpu", "cpu"],
-        help="Device",
+        type=parse_device,
+        help="Device (same accepted values as winml --device)",
     )
     parser.add_argument(
         "--timeout",
@@ -188,7 +239,8 @@ def main() -> None:
     parser.add_argument("--models", type=str, default=None, help="Comma-separated model slugs")
     args = parser.parse_args()
 
-    ep_dir = REPO_ROOT / "examples" / args.ep / args.device
+    ep_for_winml, examples_ep = resolve_ep_and_examples_folder(args.ep)
+    ep_dir = REPO_ROOT / "examples" / examples_ep / args.device
     if not ep_dir.exists():
         print(f"EP directory not found: {ep_dir}")
         sys.exit(1)
@@ -204,7 +256,12 @@ def main() -> None:
         cfg_file for model_dir in model_dirs for cfg_file in model_dir.glob("*_config.json")
     )
 
-    print(f"EP: {args.ep}, Device: {args.device}")
+    print(
+        "EP: "
+        f"{ep_for_winml}, "
+        f"Device: {args.device} "
+        f"(examples/{examples_ep}/{args.device})"
+    )
     print(f"Models: {len(model_dirs)}, Configs: {len(configs)}")
     print()
 
@@ -249,7 +306,15 @@ def main() -> None:
 
         # Run eval
         print(f"[{i}/{len(configs)}] {hf_id} / {stem} eval ...", end=" ", flush=True)
-        status = run_eval(hf_id, cfg_path, eval_output, args.ep, args.device, args.timeout, trust)
+        status = run_eval(
+            hf_id,
+            cfg_path,
+            eval_output,
+            ep_for_winml,
+            args.device,
+            args.timeout,
+            trust,
+        )
         results[status] += 1
         print(status)
 
