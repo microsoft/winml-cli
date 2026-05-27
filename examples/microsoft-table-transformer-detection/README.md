@@ -11,9 +11,8 @@ Run all commands from the `ModelKit` repo root.
 ## 1. Build the model on QNN EP
 
 Two steps: `winml config` generates a build config JSON, then `winml build`
-consumes it. `--precision w8a16` is the default NPU precision; the resulting
-config includes a compile section so the build produces the EPContext-compiled
-ONNX that QNN executes on the NPU.
+consumes it. `--precision w8a16` is the default NPU precision; the build
+produces a QDQ-quantized ONNX that the QNN EP executes on the NPU.
 
 ```powershell
 winml config `
@@ -35,8 +34,8 @@ winml build `
 ```
 
 Artifacts land under
-`~/.cache/winml/artifacts/microsoft_table-transformer-detection/`
-(look for `objdet_*_model.onnx` and the matching `*_qnn_ctx.onnx`).
+`~/.cache/winml/artifacts/microsoft_table-transformer-detection/` — the file
+to evaluate is `objdet_*_quantized.onnx`.
 
 ---
 
@@ -49,12 +48,15 @@ uv run python scripts/e2e_eval/datasets/build_pubtables1m_detection.py `
   --output $HOME/.cache/winml/eval_datasets/build_pubtables1m_detection
 ```
 
-Then run `winml eval`. `--output` writes a JSON file containing the parsed
-metrics:
+Then run `winml eval` against the quantized ONNX produced in step 1. Pass the
+ONNX file to `-m` and the HuggingFace model ID to `--model-id` (needed for
+the preprocessor / postprocessor). `--output` writes a JSON file containing
+the parsed metrics:
 
 ```powershell
 winml eval `
-  -m microsoft/table-transformer-detection `
+  -m $HOME/.cache/winml/artifacts/microsoft_table-transformer-detection/objdet_<hash>_quantized.onnx `
+  --model-id microsoft/table-transformer-detection `
   --task object-detection `
   --device npu `
   --ep qnn `
@@ -68,6 +70,8 @@ winml eval `
   --output winml_eval_output.json
 ```
 
+Replace `<hash>` with the actual filename produced by step 1.
+
 The mAP value is `metrics.map` inside `winml_eval_output.json`.
 
 ---
@@ -80,6 +84,8 @@ last stdout line is a single JSON object:
 `{"metric": "map", "value": <float>, "num_samples": <int>}`.
 
 ```powershell
+$columnsMapping = '{"annotation_column":"objects","bbox_key":"bbox","category_key":"category","box_format":"xyxy"}'
+
 uv run python scripts/e2e_eval/run_pytorch_baseline.py `
   --model microsoft/table-transformer-detection `
   --task object-detection `
@@ -87,7 +93,7 @@ uv run python scripts/e2e_eval/run_pytorch_baseline.py `
   --num-samples 1000 `
   --dataset $HOME/.cache/winml/eval_datasets/build_pubtables1m_detection `
   --split validation `
-  --columns-mapping '{\"annotation_column\":\"objects\",\"bbox_key\":\"bbox\",\"category_key\":\"category\",\"box_format\":\"xyxy\"}' `
+  --columns-mapping $columnsMapping `
   --winml-metric-key map
 ```
 
@@ -106,5 +112,4 @@ Compare the two mAP values:
 - **Relative delta** = `(winml_map - baseline_map) / baseline_map`
 
 A small negative delta is expected from w8a16 quantization. A large drop
-suggests inspecting the quantization or EPContext partitioning of the QNN
-build.
+suggests inspecting the quantization of the QNN build.
