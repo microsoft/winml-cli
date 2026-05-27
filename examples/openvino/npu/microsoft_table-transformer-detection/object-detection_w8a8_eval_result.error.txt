@@ -1,5 +1,0 @@
-[0;93m2026-05-26 00:40:33.2999906 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
-WARNING: trust_remote_code is enabled - custom Python from the model repository
-will be downloaded and executed. Proceed only if you trust the publisher.
-[2026-05-26T00:40:46] WARNING: Failed to register EP OpenVINOExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under OpenVINOExecutionProvider
-Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_pubtables1m_detection' is not compatible with task 'object-detection': Failed to load dataset '~/.cache/winml/eval_datasets/build_pubtables1m_detection' (name=None, split='validation'): Couldn't find any data file at C:\Users\shzhen\.cache\winml\eval_datasets\build_pubtables1m_detection.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task object-detection' to see the expected schema.

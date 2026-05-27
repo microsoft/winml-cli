@@ -32,77 +32,40 @@ EPS = [
     ("dml", "dml", "gpu"),
 ]
 
-# NPU targets are tested across multiple quantization precisions.
-# CPU/GPU targets generate a single config without an explicit --precision
-# (uses the EP's default), so we don't sweep precisions there.
-NPU_PRECISIONS = ["w8a8", "w8a16", "fp16"]
-CPU_GPU_PRECISIONS: list[str | None] = [None]
+# All EP/device targets are generated with fp16 precision only.
+PRECISION = "fp16"
 
 # Builtin models: (hf_id, task)
 MODELS = [
-    ("facebook/dino-vits16", "image-feature-extraction"),
-    ("Salesforce/blip-image-captioning-base", "image-to-text"),
-    ("StanfordAIMI/dinov2-base-xray-224", "image-feature-extraction"),
-    ("BAAI/bge-base-en-v1.5", "feature-extraction"),
-    ("BAAI/bge-base-en-v1.5", "sentence-similarity"),
-    ("BAAI/bge-small-en-v1.5", "feature-extraction"),
-    ("BAAI/bge-small-en-v1.5", "sentence-similarity"),
-    ("Babelscape/wikineural-multilingual-ner", "token-classification"),
-    ("deepset/bert-large-uncased-whole-word-masking-squad2", "question-answering"),
-    ("dslim/bert-base-NER", "token-classification"),
-    ("facebook/convnext-tiny-224", "image-classification"),
-    ("facebook/dinov2-large", "image-feature-extraction"),
-    ("FacebookAI/xlm-roberta-large", "fill-mask"),
-    ("google-bert/bert-base-multilingual-cased", "feature-extraction"),
-    ("Intel/bert-base-uncased-mrpc", "feature-extraction"),
-    ("Intel/bert-base-uncased-mrpc", "text-classification"),
-    ("laion/CLIP-ViT-B-32-laion2B-s34B-b79K", "zero-shot-image-classification"),
-    ("laion/CLIP-ViT-H-14-laion2B-s32B-b79K", "zero-shot-image-classification"),
-    ("microsoft/table-transformer-detection", "object-detection"),
-    ("openai/clip-vit-base-patch16", "zero-shot-image-classification"),
-    ("openai/clip-vit-base-patch32", "zero-shot-image-classification"),
-    ("patrickjohncyh/fashion-clip", "zero-shot-image-classification"),
-    ("ProsusAI/finbert", "text-classification"),
-    ("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", "feature-extraction"),
-    ("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", "sentence-similarity"),
-    ("BAAI/bge-large-en-v1.5", "sentence-similarity"),
-    ("cardiffnlp/twitter-roberta-base-sentiment-latest", "text-classification"),
-    ("dbmdz/bert-large-cased-finetuned-conll03-english", "token-classification"),
-    ("deepset/roberta-base-squad2", "question-answering"),
-    ("deepset/tinyroberta-squad2", "question-answering"),
-    ("facebook/dino-vitb16", "image-feature-extraction"),
-    ("facebook/dinov2-base", "image-feature-extraction"),
-    ("facebook/dinov2-small", "image-feature-extraction"),
-    ("FacebookAI/roberta-base", "fill-mask"),
-    ("FacebookAI/roberta-large", "fill-mask"),
-    ("FacebookAI/xlm-roberta-base", "fill-mask"),
-    ("google-bert/bert-base-multilingual-uncased", "fill-mask"),
-    ("google-bert/bert-base-uncased", "fill-mask"),
-    ("google-bert/bert-large-uncased-whole-word-masking-finetuned-squad", "question-answering"),
-    ("google/vit-base-patch16-224", "image-classification"),
-    ("google/vit-base-patch16-224-in21k", "image-feature-extraction"),
-    ("joeddav/xlm-roberta-large-xnli", "zero-shot-classification"),
-    ("laion/CLIP-ViT-B-32-laion2B-s34B-b79K", "feature-extraction"),
-    ("mattmdjaga/segformer_b2_clothes", "image-segmentation"),
-    ("microsoft/rad-dino", "image-feature-extraction"),
-    ("microsoft/resnet-50", "image-classification"),
-    ("microsoft/swin-large-patch4-window7-224", "image-classification"),
-    ("microsoft/trocr-base-handwritten", "image-to-text"),
-    ("microsoft/trocr-base-printed", "image-to-text"),
-    ("microsoft/trocr-large-handwritten", "image-to-text"),
-    ("microsoft/trocr-large-printed", "image-to-text"),
-    ("nvidia/segformer-b1-finetuned-ade-512-512", "image-segmentation"),
-    ("nvidia/segformer-b2-finetuned-ade-512-512", "image-segmentation"),
-    ("nvidia/segformer-b5-finetuned-ade-640-640", "image-segmentation"),
-    ("openai/clip-vit-base-patch16", "feature-extraction"),
-    ("openai/clip-vit-base-patch32", "feature-extraction"),
-    ("openai/clip-vit-large-patch14", "zero-shot-image-classification"),
-    ("openai/clip-vit-large-patch14-336", "zero-shot-image-classification"),
-    ("rizvandwiki/gender-classification", "image-classification"),
-    ("sentence-transformers/all-MiniLM-L6-v2", "feature-extraction"),
-    ("sentence-transformers/all-MiniLM-L6-v2", "sentence-similarity"),
-    ("sentence-transformers/paraphrase-multilingual-mpnet-base-v2", "sentence-similarity"),
-    ("w11wo/indonesian-roberta-base-posp-tagger", "token-classification"),
+    ("AdamCodd/vit-base-nsfw-detector", "image-classification"),
+    ("ahotrod/electra_large_discriminator_squad2_512", "question-answering"),
+    ("amunchet/rorshark-vit-base", "image-classification"),
+    ("apple/mobilevit-small", "image-classification"),
+    ("cross-encoder/ms-marco-MiniLM-L4-v2", "text-classification"),
+    ("cross-encoder/ms-marco-MiniLM-L6-v2", "text-classification"),
+    ("dima806/fairface_age_image_detection", "image-classification"),
+    ("distilbert/distilbert-base-cased-distilled-squad", "question-answering"),
+    ("distilbert/distilbert-base-uncased", "fill-mask"),
+    ("distilbert/distilbert-base-uncased-distilled-squad", "question-answering"),
+    ("distilbert/distilbert-base-uncased-finetuned-sst-2-english", "text-classification"),
+    ("Falconsai/nsfw_image_detection", "image-classification"),
+    ("google-bert/bert-base-multilingual-cased", "fill-mask"),
+    ("google-bert/bert-base-multilingual-cased", "masked-lm"),
+    ("hustvl/yolos-small", "object-detection"),
+    ("Intel/dpt-hybrid-midas", "depth-estimation"),
+    ("Isotonic/distilbert_finetuned_ai4privacy_v2", "token-classification"),
+    ("Jean-Baptiste/camembert-ner-with-dates", "token-classification"),
+    ("kredor/punctuate-all", "token-classification"),
+    ("lxyuan/distilbert-base-multilingual-cased-sentiments-student", "zero-shot-classification"),
+    ("microsoft/resnet-18", "image-classification"),
+    ("monologg/koelectra-small-v2-distilled-korquad-384", "question-answering"),
+    ("sentence-transformers/all-mpnet-base-v2", "feature-extraction"),
+    ("sentence-transformers/all-mpnet-base-v2", "fill-mask"),
+    ("sentence-transformers/all-mpnet-base-v2", "sentence-similarity"),
+    ("sentence-transformers/multi-qa-mpnet-base-dot-v1", "feature-extraction"),
+    ("sentence-transformers/multi-qa-mpnet-base-dot-v1", "fill-mask"),
+    ("sentence-transformers/multi-qa-mpnet-base-dot-v1", "sentence-similarity"),
+    ("valentinafeve/yolos-fashionpedia", "object-detection"),
 ]
 
 
@@ -145,16 +108,22 @@ def merge_eval_section(
     device: str,
     dataset: dict | None,
 ) -> None:
-    """Write/merge the new eval section into a build config."""
+    """Write/merge the new eval section into a build config.
+
+    Only emits an ``eval`` section when ``dataset`` is provided (i.e. the
+    model is listed in ``models_with_acc.json``). Otherwise the config is
+    left without an ``eval`` section.
+    """
+    if not dataset:
+        return
     eval_cfg = config.get("eval") if isinstance(config.get("eval"), dict) else {}
     eval_cfg["task"] = eval_cfg.get("task") or task
     eval_cfg["device"] = eval_cfg.get("device") or device
-    if dataset:
-        ds = eval_cfg.get("dataset") if isinstance(eval_cfg.get("dataset"), dict) else {}
-        for key, value in dataset.items():
-            if key not in ds:
-                ds[key] = value
-        eval_cfg["dataset"] = ds
+    ds = eval_cfg.get("dataset") if isinstance(eval_cfg.get("dataset"), dict) else {}
+    for key, value in dataset.items():
+        if key not in ds:
+            ds[key] = value
+    eval_cfg["dataset"] = ds
     config["eval"] = eval_cfg
 
 
@@ -166,8 +135,25 @@ def generate_config(
     For composite models (e.g., CLIP with image-encoder + text-encoder),
     returns a dict with 'components' list containing all sub-configs.
     """
+    # Bootstrap that monkey-patches the EP/device availability check so configs
+    # can be generated on hosts that do not have every vendor EP installed.
+    bootstrap = (
+        "import sys; "
+        "from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES; "
+        "import winml.modelkit.sysinfo.device as _d; "
+        "_synthetic = {}\n"
+        "for _ep, _devs in EP_SUPPORTED_DEVICES.items():\n"
+        "    for _dev in _devs:\n"
+        "        _synthetic.setdefault(_dev.lower(), []).append(_ep)\n"
+        "_d._get_device_ep_map_from_ort = lambda: "
+        "{k: tuple(v) for k, v in _synthetic.items()}\n"
+        "from winml.modelkit.__main__ import main\n"
+        "sys.argv = ['winml'] + sys.argv[1:]\n"
+        "main()\n"
+    )
     cmd = [
-        sys.executable, "-m", "winml.modelkit", "config",
+        sys.executable, "-c", bootstrap,
+        "config",
         "-m", hf_id,
         "--task", task,
         "--device", device,
@@ -254,12 +240,7 @@ def main() -> None:
     eval_lookup = load_eval_lookup()
     examples_dir = REPO_ROOT / "examples"
 
-    # Pre-compute precision list per EP target (NPU sweeps, CPU/GPU single config).
-    ep_precisions = [
-        (ep_flag, ep_folder, hw, NPU_PRECISIONS if hw == "npu" else CPU_GPU_PRECISIONS)
-        for ep_flag, ep_folder, hw in eps
-    ]
-    total = sum(len(MODELS) * len(precs) for *_, precs in ep_precisions)
+    total = len(MODELS) * len(eps)
     done = 0
     created = 0
     skipped = 0
@@ -269,33 +250,27 @@ def main() -> None:
         slug = model_slug(hf_id)
         eval_dataset = eval_lookup.get((hf_id, task))
 
-        for ep_flag, ep_folder, hardware, precisions in ep_precisions:
-            for precision in precisions:
-                done += 1
-                out_dir = examples_dir / ep_folder / hardware / slug
-                if precision is None:
-                    out_file = out_dir / f"{task}_config.json"
-                    label = "default"
-                else:
-                    out_file = out_dir / f"{task}_{precision}_config.json"
-                    label = precision
+        for ep_flag, ep_folder, hardware in eps:
+            done += 1
+            out_dir = examples_dir / ep_folder / hardware / slug
+            out_file = out_dir / f"{task}_{PRECISION}_config.json"
 
-                if out_file.exists():
-                    skipped += 1
-                    continue
+            if out_file.exists():
+                skipped += 1
+                continue
 
-                print(f"[{done}/{total}] {hf_id} / {task} / {ep_folder} / {label} ...", end=" ")
-                config = generate_config(hf_id, task, hardware, ep_flag, precision)
-                if config is None:
-                    failed += 1
-                    continue
+            print(f"[{done}/{total}] {hf_id} / {task} / {ep_folder} / {PRECISION} ...", end=" ")
+            config = generate_config(hf_id, task, hardware, ep_flag, PRECISION)
+            if config is None:
+                failed += 1
+                continue
 
-                merge_eval_section(config, task=task, device=hardware, dataset=eval_dataset)
+            merge_eval_section(config, task=task, device=hardware, dataset=eval_dataset)
 
-                out_dir.mkdir(parents=True, exist_ok=True)
-                out_file.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-                created += 1
-                print("OK")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_file.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            created += 1
+            print("OK")
 
     print(f"\nDone: {created} created, {skipped} skipped, {failed} failed")
 

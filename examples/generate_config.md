@@ -17,11 +17,9 @@ uv run python scripts/generate_example_configs.py --hardware npu
 ```
 
 The script:
-1. Calls `winml config -m <hf_id> --task <task> --device <device> --ep <ep>` (with `--precision <precision>` only on NPU targets)
-2. Writes:
-   - NPU targets: `examples/<ep>/<hardware>/<model_slug>/<task>_<precision>_config.json` for each of `w8a8`, `w8a16`, `fp16`
-   - CPU/GPU targets: a single `examples/<ep>/<hardware>/<model_slug>/<task>_config.json` (no precision in name, EP default precision)
-3. Injects the new `eval` section from `scripts/e2e_eval/testsets/models_with_acc.json` when dataset metadata exists
+1. Calls `winml config -m <hf_id> --task <task> --device <device> --ep <ep> --precision fp16` for every EP/hardware target
+2. Writes a single `examples/<ep>/<hardware>/<model_slug>/<task>_fp16_config.json` per target
+3. Injects the new `eval` section from `scripts/e2e_eval/testsets/models_with_acc.json` when dataset metadata exists for the `(hf_id, task)` pair; otherwise the config is written without an `eval` section
 4. Skips files that already exist
 
 ## EP and Device Matrix Used by Generator
@@ -85,13 +83,7 @@ If a custom dataset builder is needed, use `dataset.build_script`:
 
 Add `(hf_id, task)` to `MODELS` in `scripts/generate_example_configs.py`, then rerun generation.
 
-## Precision Options
+## Precision
 
-NPU targets are swept across the precisions below; CPU/GPU targets generate a single config
-without `--precision` (using the EP's default), so this table only applies to NPU targets.
-
-| Precision | Weight | Activation | Description |
-|-----------|--------|------------|-------------|
-| `w8a8` | uint8 | uint8 | Fully quantized, smallest model |
-| `w8a16` | uint8 | uint16 | Mixed precision |
-| `fp16` | float16 | float16 | Half precision, no quantization |
+All EP/hardware targets are generated with `--precision fp16` only. The previous
+NPU sweep across `w8a8` / `w8a16` / `fp16` is no longer performed.
