@@ -98,7 +98,7 @@ $ winml inspect -m facebook/convnext-tiny-224 -v -H
 
 ## See also
 
-- [hub.md](hub.md) — browse the curated catalog and check accuracy verdicts before
+- [catalog.md](catalog.md) — browse the curated catalog and check accuracy verdicts before
   inspecting
 - [Load and export concept](../concepts/load-and-export.md) — how `winml.hierarchy.tag`
   metadata is written and what you can do with the module tree
