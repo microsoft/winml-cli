@@ -8,21 +8,21 @@ Because `winml perf` accepts both HuggingFace model IDs and local `.onnx` files,
 
 At its core, `winml perf` runs a configurable number of inference iterations and reports latency statistics: p50, p90, and mean latency in milliseconds, plus throughput in inferences per second. Warmup iterations (controlled by `--warmup`, defaulting to 10) are excluded from the statistics so that JIT and cache effects do not skew the numbers.
 
-You can control the run length with `--iterations` and the input shape with `--batch-size` or a `--shape-config` JSON file for models with dynamic axes. The `--device` flag selects the target EP — `cpu`, `gpu`, or `npu` — allowing you to collect numbers on each target with the same command and compare them directly. For fine-grained EP control, `--ep` lets you name a specific provider such as `qnn` or `dml`.
+You can control the run length with `--iterations` and the input shape with `--batch-size` or a `--shape-config` JSON file for models with dynamic axes. The `--device` flag selects the target EP — `cpu`, `gpu`, `npu`, or `auto` (default) — allowing you to collect numbers on each target with the same command and compare them directly. For fine-grained EP control, `--ep` lets you name a specific provider such as `qnn` or `dml`.
 
-The results are written to a JSON file (defaulting to `{model_slug}_perf.json`) so they can be archived and compared across builds.
+The results are written to a JSON file at `~/.cache/winml/perf/<slug>/<timestamp>.json` so they can be archived and compared across builds.
 
 ## Live monitoring
 
 Latency numbers alone do not tell you whether the hardware is actually being used. A slow NPU inference could mean the model is running on the NPU and hitting a memory bottleneck, or it could mean the EP silently fell back to CPU and is not using the NPU at all.
 
-The `--monitor` flag adds a live terminal chart that streams NPU utilisation while the benchmark runs. The chart updates in place during the iteration loop so you can see whether utilisation is sustained, bursty, or absent. This is particularly useful when commissioning a new model on QNN hardware, where EP fallback can be hard to detect from latency numbers alone. If the chart stays near zero while the benchmark runs, the model is not executing on the NPU as expected.
+The `--monitor` flag adds a live terminal chart that streams hardware utilisation for whichever device is being benchmarked. The chart updates in place during the iteration loop so you can see whether utilisation is sustained, bursty, or absent. This is particularly useful when commissioning a new model on QNN or DirectML hardware, where EP fallback can be hard to detect from latency numbers alone. If the chart stays near zero while the benchmark runs, the model is not executing on the expected device.
 
 `--monitor` has no effect on the measured latency statistics — it is a passive observer.
 
 ## Per-operator tracing
 
-When end-to-end latency is higher than expected, `--op-tracing` lets you find the operators that are responsible. Two levels are available:
+When end-to-end latency is higher than expected, per-operator tracing lets you find the operators that are responsible. This capability is available via a hidden `--op-tracing` flag (not shown in `--help`) intended for advanced diagnostics. Two levels are available:
 
 `--op-tracing basic` collects cumulative time per operator type and reports a ranked list. This is usually enough to identify whether, say, a sequence of Attention nodes or a large MatMul is dominating the runtime.
 

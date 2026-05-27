@@ -26,7 +26,7 @@ The first time an ONNX Runtime session is created for a model on a hardware EP, 
 
 A model produced by `winml compile` has already paid that cost. The EP context blob is the result of compilation, not its input. When the application loads the compiled model the EP reads the pre-built binary and the session is ready almost immediately. Shipping a compiled model is therefore the standard pattern for production deployments on QNN hardware.
 
-If you are iterating on quantization settings or ONNX graphs and want to check whether the model compiles at all, `winml compile` also accepts `--no-quant` to skip the quantization pass for already-quantized (QDQ) models.
+If you are iterating on quantization settings or ONNX graphs and want to check whether the model compiles at all, pass an already-quantized (QDQ) model directly — `winml compile` compiles whatever ONNX file you supply and does not have a separate quantization pass to skip.
 
 ## Skipping validation
 

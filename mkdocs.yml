@@ -96,7 +96,7 @@ nav:
       - Discover:
           - sys: commands/sys.md
           - inspect: commands/inspect.md
-          - hub: commands/hub.md
+          - catalog: commands/hub.md
           - analyze: commands/analyze.md
       - Configure:
           - config: commands/config.md

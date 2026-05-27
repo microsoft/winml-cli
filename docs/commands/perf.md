@@ -23,7 +23,7 @@ $ winml perf [options]
 | `--device` | | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. |
 | `--precision` | | `TEXT` | `auto` | Precision mode applied during model build: `auto`, `fp32`, `fp16`, `int8`, `int16`, or compound forms such as `w8a16`. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider (e.g., `qnn`, `dml`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. |
-| `--output` | `-o` | `PATH` | `{model_slug}_perf.json` | Output JSON file path for the benchmark report. |
+| `--output` | `-o` | `PATH` | `~/.cache/winml/perf/<slug>/<timestamp>.json` | Output JSON file path for the benchmark report. |
 | `--batch-size` | | `INTEGER` | `1` | Batch size used when generating synthetic input tensors. |
 | `--shape-config` | | `PATH` | — | Path to a JSON file containing shape overrides (e.g., `{"height": 480, "width": 480}`). Ignored for pre-exported ONNX files and in `--module` mode. |
 | `--no-quantize` | | flag | `false` | Skip quantization during model build. Useful for measuring the fp32 baseline. |
@@ -31,8 +31,7 @@ $ winml perf [options]
 | `--ignore-cache` | | flag | `false` | Build from scratch in a temporary folder and discard the artifact after benchmarking. Implies `--rebuild`. |
 | `--module` | | `TEXT` | — | PyTorch module class name for per-module benchmarking (e.g., `BertAttention`). Builds and times each matching instance separately. See [Load and export](../concepts/load-and-export.md). |
 | `--monitor` | | flag | `false` | Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. |
-| `--op-tracing` | | `basic\|detail` | — | Enable operator-level profiling. Requires `onnxruntime-qnn`. |
-| `--compare-devices` | | `TEXT` | — | Not yet implemented. Run benchmarks separately and compare the JSON outputs instead. |
+| `--op-tracing` | | `basic\|detail` | — | *(Advanced, hidden=True)* Enable operator-level profiling. Requires `onnxruntime-qnn`. Hidden from `--help` by design; gated on QNN-only profiling support. |
 
 ## How it works
 
@@ -59,7 +58,7 @@ Latency (ms)
 
 Throughput: 467.29 samples/sec
 
-Results saved to: microsoft_resnet-50_perf.json
+Results saved to: ~/.cache/winml/perf/microsoft_resnet-50/2026-05-27T120000.json
 ```
 
 Benchmark a pre-exported ONNX file on CPU with more iterations:
@@ -92,7 +91,7 @@ $ winml perf -m bert-base-uncased --module BertAttention --iterations 200
 - **`--shape-config` is silently ignored in two cases.** It has no effect on pre-exported ONNX files (shapes are baked into the graph) and is ignored in `--module` mode. The command prints a warning in both situations.
 - **`--op-tracing` requires `onnxruntime-qnn`.** The flag activates the QNN profiler, which is only present in the `onnxruntime-qnn` package. If that package is not installed, the benchmark still runs but the op-trace step exits with an error.
 - **Random inputs do not represent real data distributions.** Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.
-- **`--compare-devices` is not yet implemented.** Use separate `winml perf` invocations and compare the resulting JSON files manually.
+- **Cross-device comparison.** There is no `--compare-devices` flag. To compare performance across devices, run `winml perf` separately with different `--device` values and compare the resulting JSON files.
 
 ## See also
 

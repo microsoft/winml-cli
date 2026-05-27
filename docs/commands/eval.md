@@ -21,8 +21,8 @@ $ winml eval [options]
 | `--dataset` | | `TEXT` | task default | HuggingFace dataset path (e.g., `imagenet-1k`, `glue`). If omitted, a default dataset is selected based on the task. |
 | `--dataset-name` | | `TEXT` | — | Dataset configuration name for multi-config datasets (e.g., `mrpc` within `glue`). |
 | `--task` | | `TEXT` | auto-detected | Task name (e.g., `image-classification`). Auto-detected from `--model-id` when not provided. |
-| `--device` | | `cpu\|gpu\|npu` | `cpu` | Device to run inference on during evaluation. |
-| `--samples` | `-n` (alias) | `INTEGER` | `100` | Number of dataset samples to evaluate. |
+| `--device` | | `auto\|cpu\|gpu\|npu` | `auto` | Device to run inference on during evaluation. `auto` selects the best available device. |
+| `--samples` | | `INTEGER` | `100` | Number of dataset samples to evaluate. |
 | `--split` | | `TEXT` | `validation` | Dataset split to use (e.g., `validation`, `test`, `train`). |
 | `--shuffle / --no-shuffle` | | flag | `shuffle` | Shuffle the dataset before sampling. Disable with `--no-shuffle` for reproducible sample ordering. |
 | `--streaming` | | flag | `false` | Stream the dataset from the Hub instead of downloading the full split. Useful for large datasets. |
@@ -33,7 +33,7 @@ $ winml eval [options]
 
 ## How it works
 
-`winml eval` loads the model via `WinMLAutoModel` (supporting both HuggingFace IDs and local ONNX files), then pulls the requested number of samples from a HuggingFace dataset. Each sample is preprocessed using the tokenizer or image processor associated with the model ID, passed through the ONNX Runtime session, and the output is compared against the ground-truth label. Aggregated metrics (accuracy, F1, etc.) are printed to the console and optionally written to a JSON file. When `-m` is an ONNX file, `--model-id` must be provided so the command knows which preprocessor and label vocabulary to use.
+`winml eval` loads the model and runs the evaluation pipeline via the internal `evaluate` function (supporting both HuggingFace IDs and local ONNX files), then pulls the requested number of samples from a HuggingFace dataset. Each sample is preprocessed using the tokenizer or image processor associated with the model ID, passed through the ONNX Runtime session, and the output is compared against the ground-truth label. Aggregated metrics (accuracy, F1, etc.) are printed to the console and optionally written to a JSON file. When `-m` is an ONNX file, `--model-id` must be provided so the command knows which preprocessor and label vocabulary to use.
 
 ## Examples
 
@@ -46,7 +46,7 @@ $ winml eval -m microsoft/resnet-50
 ```text
 Task:     image-classification
 Dataset:  imagenet-1k (validation, 100 samples)
-Device:   cpu
+Device:   auto
 
 Accuracy: 76.00%
 

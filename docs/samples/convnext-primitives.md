@@ -107,14 +107,14 @@ Compilation pre-bakes an EP-specific binary cache into the ONNX graph so the run
 !!! note "NPU requires the QNN SDK"
     Compilation for `--device npu` invokes the Qualcomm QNN offline compiler, which must be installed separately. Pass `--qnn-sdk-root` pointing at the root of your QAIRT SDK installation, or set the `QNN_SDK_ROOT` environment variable to the same path. If the SDK is absent, compile for CPU or GPU instead. For a full explanation of how EPs relate to device targets see [ONNX & Execution Providers](../concepts/eps-and-devices.md).
 
-Each invocation writes a compiled ONNX file to the output directory: `convnext_int8_cpu_ctx.onnx` for CPU, `convnext_int8_dml_ctx.onnx` for GPU (DirectML), and `convnext_int8_qnn_ctx.onnx` for NPU (QNN). The GPU and NPU variants contain an EPContext node that embeds the pre-compiled binary.
+Only the NPU invocation writes a new compiled artifact — `convnext_int8_npu_ctx.onnx` — which contains an EPContext node embedding the pre-compiled Hexagon binary. CPU and GPU compile with `enable_ep_context=False` by default: the compile step validates the model against the target EP but does not produce a new file. For CPU and GPU perf benchmarks (Step 6), use the quantized `convnext_int8.onnx` directly.
 
 ## Step 6: Benchmark
 
 Measure latency and throughput on each device. Pass the compiled ONNX directly so the benchmark uses the pre-compiled artifact.
 
 ```bash
-winml perf -m convnext_int8_cpu_ctx.onnx --device cpu --iterations 200
+winml perf -m convnext_int8.onnx --device cpu --iterations 200
 ```
 
 ```text
@@ -132,8 +132,8 @@ Throughput: 118.91 samples/sec
 ```
 
 ```bash
-winml perf -m convnext_int8_dml_ctx.onnx --device gpu --iterations 200
-winml perf -m convnext_int8_qnn_ctx.onnx --device npu --iterations 200
+winml perf -m convnext_int8.onnx --device gpu --iterations 200
+winml perf -m convnext_int8_npu_ctx.onnx --device npu --iterations 200
 ```
 
 The NPU variant typically delivers the lowest latency and highest power efficiency on Qualcomm Snapdragon hardware. Use the JSON output written by `--output` to compare runs programmatically.
@@ -157,7 +157,7 @@ Accuracy: 81.00%
 Results saved to: convnext_int8_eval.json
 ```
 
-Note that `--device` accepts only `cpu`, `gpu`, or `npu` — it does not accept `auto`. To compare quantized accuracy against the floating-point baseline, run the same command with `convnext.onnx` and compare the two JSON outputs.
+To compare quantized accuracy against the floating-point baseline, run the same command with `convnext.onnx` and compare the two JSON outputs.
 
 ## What you learned
 
@@ -165,7 +165,7 @@ Note that `--device` accepts only `cpu`, `gpu`, or `npu` — it does not accept 
 - `winml config` captures the full pipeline configuration as a reproducible JSON file.
 - `winml export` converts the PyTorch model to a portable ONNX graph and embeds hierarchy metadata for downstream analysis.
 - `winml quantize` inserts QDQ nodes using calibration data; `--precision int8` and `--samples` control the precision and calibration budget.
-- `winml compile` pre-bakes an EP-specific binary cache per device; the same quantized ONNX feeds all three targets.
+- `winml compile` pre-bakes an EP-specific binary cache for NPU (producing `convnext_int8_npu_ctx.onnx`); CPU and GPU compile steps validate EP compatibility but produce no new artifact — use the quantized `convnext_int8.onnx` for those devices.
 - `winml perf` and `winml eval` consume the final artifact without modifying it — benchmark first, then validate accuracy before shipping.
 
 ## See also

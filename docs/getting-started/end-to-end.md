@@ -51,7 +51,7 @@ then GPU, then CPU.
                  Cores: 12 | Threads: 12 | Architecture: ARM64
 
     Available Execution Providers
-      QNNExecutionProvider              -> NPU
+      QNNExecutionProvider              -> NPU/GPU
       DmlExecutionProvider              -> GPU
       CPUExecutionProvider              -> CPU
     ```
@@ -119,10 +119,11 @@ uv run winml perf -m convnext_out/<artifact>.onnx --device auto --iterations 50 
 ```
 
 Replace `<artifact>` with the filename written to `convnext_out/` by the build.
-The name reflects the device the build targeted — for example,
-`convnext_tiny_qnn_ctx.onnx` on NPU, `convnext_tiny_dml_ctx.onnx` on
-DirectML, or `convnext_tiny.onnx` on CPU. You can check the directory listing
-or read the compiled artifact path from the build output to get the exact name.
+For NPU builds the compiled artifact is named `model.onnx` in the output
+directory (the `_npu_ctx.onnx` suffix applies only when the compile stage
+produces an EPContext file, which requires `enable_ep_context=True` in the
+compile config). You can check the directory listing or read the compiled
+artifact path from the build output to get the exact name.
 
 === "NPU (QNN)"
 
@@ -139,7 +140,7 @@ or read the compiled artifact path from the build output to get the exact name.
 
     Throughput: 258.14 samples/sec
 
-    Results saved to: convnext_tiny_qnn_ctx_perf.json
+    Results saved to: model_perf.json
     ```
 
 === "GPU (DirectML)"
@@ -156,8 +157,6 @@ or read the compiled artifact path from the build output to get the exact name.
     12.43  12.18  13.74  14.11  15.02  11.27  16.55   0.89
 
     Throughput: 80.45 samples/sec
-
-    Results saved to: convnext_tiny_dml_ctx_perf.json
     ```
 
 === "CPU"
@@ -174,8 +173,6 @@ or read the compiled artifact path from the build output to get the exact name.
     48.31  47.85  52.14  53.77  57.40  44.62  61.23   2.94
 
     Throughput: 20.70 samples/sec
-
-    Results saved to: convnext_tiny_perf.json
     ```
 
 The `--monitor` flag opens a live chart of device utilization while the

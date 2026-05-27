@@ -20,9 +20,8 @@ $ winml compile [options]
 |---|---|---|---|---|
 | `--model` | `-m` | path | *(required unless `--list`)* | Input ONNX model file. |
 | `--output-dir` | | path | same dir as input | Directory to write compiled output artifacts. |
-| `--device` | `-d` | choice | `npu` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
+| `--device` | `-d` | choice | `auto` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
 | `--ep` | | choice | `None` | Force a specific execution provider, overriding device-to-provider mapping. Choices: `cpu`, `cuda`, `dml`, `migraphx`, `openvino`, `qnn`, `tensorrt`, `vitisai`. |
-| `--no-quant` | | flag | `false` | Flag retained for compatibility; quantization is no longer performed during compile. Use `winml quantize` beforehand. |
 | `--no-validate` | | flag | `false` | Skip validation of the compiled model after compilation. |
 | `--compiler` | | choice | `ort` | Compiler backend: `ort` (ONNX Runtime) or `qairt` (Qualcomm AI Runtime Tools). |
 | `--qnn-sdk-root` | | path | `None` | Path to the QAIRT/QNN SDK root directory. Required when `--compiler qairt` is set. |
@@ -34,18 +33,19 @@ $ winml compile [options]
 
 `winml compile` resolves the target execution provider from `--device` and
 `--ep`, then calls the winml-cli compiler API to hand the ONNX graph to the
-EP's offline compilation toolchain. For the default NPU target, ONNX Runtime's
-QNN EP generates a binary `.bin` context file (or embeds it inline with
-`--embed`) that encodes the hardware-optimized execution plan, eliminating
-graph partitioning at load time. When `--compiler qairt` is used, the
-Qualcomm AI Runtime Tools SDK is invoked directly (requires `--qnn-sdk-root`).
+EP's offline compilation toolchain. When `--device auto` (the default), the
+target EP is determined by auto-detecting available hardware. For NPU targets,
+ONNX Runtime's QNN EP generates a binary `.bin` context file (or embeds it
+inline with `--embed`) that encodes the hardware-optimized execution plan,
+eliminating graph partitioning at load time. When `--compiler qairt` is used,
+the Qualcomm AI Runtime Tools SDK is invoked directly (requires `--qnn-sdk-root`).
 An optional post-compilation validation pass runs a forward pass through the
 target EP; skip it with `--no-validate` when the target hardware is absent.
 
 ## Examples
 
 ```bash
-# Compile for NPU (default device and compiler)
+# Compile with auto device detection (default compiler)
 winml compile -m resnet50_qdq.onnx
 ```
 
@@ -88,9 +88,6 @@ winml compile -m facebook_convnext_qdq.onnx \
 
 ## Common pitfalls
 
-- **`--no-quant` is a no-op in the current release.** Quantization is no longer
-  performed during compile; run `winml quantize` on your model first, then pass
-  the QDQ model to this command.
 - **`--compiler qairt` requires `--qnn-sdk-root`.** Without a valid SDK path,
   compilation will fail immediately with a missing-executable error.
 - **`--embed` inflates the `.onnx` file significantly.** Embedding the EP
@@ -99,9 +96,9 @@ winml compile -m facebook_convnext_qdq.onnx \
 - **Validation requires the target hardware.** The post-compilation validation
   step runs an actual inference pass; on a machine without the NPU driver or the
   relevant EP installed, always pass `--no-validate`.
-- **`--device` default is `npu`, not `auto`.** Unlike other commands, compile
-  defaults to NPU targeting. Pass `--device cpu` or `--device gpu` explicitly
-  when targeting other hardware.
+- **`--device auto` auto-detects the best available hardware.** Pass `--device npu`,
+  `--device gpu`, or `--device cpu` explicitly when targeting specific hardware
+  regardless of what is auto-detected.
 
 ## See also
 

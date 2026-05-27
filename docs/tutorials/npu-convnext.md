@@ -19,7 +19,7 @@ The tutorial is split into two sections. Section A runs through eight primitive 
 
 - **Windows 11 24H2** — required for NPU stack support
 - **Copilot+PC with NPU** — 40+ TOPS recommended; CPU and DirectML work as fallback throughout
-- **Python 3.10** and **uv** installed (`pip install uv` or follow [astral.sh/uv](https://astral.sh/uv))
+- **Python 3.11** and **uv** installed (`pip install uv` or follow [astral.sh/uv](https://astral.sh/uv))
 - **winml-cli** installed — see [Installation](../getting-started/installation.md)
 - **For QNN (Snapdragon NPU):** QAIRT SDK installed and `QNN_SDK_ROOT` set to its root directory
 - **For OpenVINO (Intel CPU/GPU/NPU):** OpenVINO runtime installed and registered as an ONNX Runtime EP
@@ -155,13 +155,7 @@ Compilation converts the portable quantized ONNX into an EP-specific binary form
     uv run winml compile -m convnext_int8.onnx --device npu --ep openvino
     ```
 
-=== "CPU fallback"
-
-    ```bash
-    uv run winml compile -m convnext_int8.onnx --device cpu
-    ```
-
-The compiled output file appears in the same directory as the input model. For QNN, the file name follows the pattern `convnext_int8_qnn_ctx.onnx` and an accompanying `.bin` context binary is written alongside it. For OpenVINO, the compiled artifact is named `convnext_int8_openvino_ctx.onnx`. For CPU, the output is `convnext_int8_cpu_ctx.onnx`.
+The compiled output file appears in the same directory as the input model. For QNN, the file name follows the pattern `convnext_int8_npu_ctx.onnx` (using the resolved device string `npu`, not the EP name) and an accompanying `.bin` context binary is written alongside it. For OpenVINO targeting the NPU, the compiled artifact is also named `convnext_int8_npu_ctx.onnx`. CPU builds do not produce a new artifact — the compile step validates EP compatibility but writes no output file; use `convnext_int8.onnx` directly for CPU inference.
 
 !!! note "What we just did"
     Compilation embeds EP context — the compiled binary — inside or alongside the ONNX file using the `EPContext` node convention. At inference time the runtime loads the pre-compiled binary directly rather than re-compiling from the ONNX graph, eliminating the 15–60 second JIT penalty on first load. winml-cli locates the QAIRT SDK libraries needed for QNN compilation through `QNN_SDK_ROOT` (set as an environment variable, or passed with `--qnn-sdk-root` on `winml compile`). `winml build` reads only the env var. See [Concepts → Compile and EPContext](../concepts/compile-and-epcontext.md) for the full picture of what gets embedded and how the context is consumed at runtime.
@@ -175,19 +169,19 @@ Measure inference latency and throughput with the `--monitor` flag to see live N
 === "QNN NPU"
 
     ```bash
-    uv run winml perf -m convnext_int8_qnn_ctx.onnx --device npu --iterations 50 --monitor
+    uv run winml perf -m convnext_int8_npu_ctx.onnx --device npu --iterations 50 --monitor
     ```
 
 === "OpenVINO NPU"
 
     ```bash
-    uv run winml perf -m convnext_int8_openvino_ctx.onnx --device npu --ep openvino --iterations 50 --monitor
+    uv run winml perf -m convnext_int8_npu_ctx.onnx --device npu --ep openvino --iterations 50 --monitor
     ```
 
 === "CPU"
 
     ```bash
-    uv run winml perf -m convnext_int8_cpu_ctx.onnx --device cpu --iterations 50
+    uv run winml perf -m convnext_int8.onnx --device cpu --iterations 50
     ```
 
 A representative run on a Snapdragon X Elite NPU produces output like the following:

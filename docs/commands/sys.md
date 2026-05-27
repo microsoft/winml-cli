@@ -21,6 +21,7 @@ $ winml sys [options]
 | `--format` | `-f` | `text` \| `json` \| `compact` | `text` | Output format. `text` renders rich tables, `json` emits machine-readable JSON, `compact` prints a single-line summary. |
 | `--list-device` | — | flag | `false` | List available compute devices (NPU, GPU, CPU) in priority order instead of showing the full system report. |
 | `--list-ep` | — | flag | `false` | List available ONNX Runtime execution providers instead of showing the full system report. Can be combined with `--list-device`. |
+| `--verbose` | `-v` | flag | `false` | Surface additional diagnostic sections: Backend SDKs and Export Readiness. |
 | `--help` | `-h` | flag | — | Show help and exit. |
 
 > `winml sys` takes no `--model`, `--device`, `--ep`, `--task`, or `--precision`

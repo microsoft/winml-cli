@@ -5,7 +5,7 @@ journey from model discovery to a deployment-ready artifact. Every subcommand
 shares a consistent invocation style — `winml <command> [flags]` — and the
 same global flags are available on the root `winml` group.
 
-The commands group by user intent. **Discover** (`sys`, `inspect`, `hub`,
+The commands group by user intent. **Discover** (`sys`, `inspect`, `catalog`,
 `analyze`) helps you understand your hardware and model before writing any
 artifacts. **Configure** (`config`, `optimize`) produces a reusable build
 configuration and tunes the ONNX graph. **Build** (`export`, `quantize`,
@@ -13,7 +13,7 @@ configuration and tunes the ONNX graph. **Build** (`export`, `quantize`,
 **Measure** (`perf`, `eval`) benchmarks and validates the result.
 
 The typical workflow follows that order: run `winml sys` to confirm hardware
-and EPs, then `winml inspect` or `winml hub` to verify model support. Use
+and EPs, then `winml inspect` or `winml catalog` to verify model support. Use
 `winml config` to generate a build configuration, then `winml build` to execute
 the full pipeline — or chain `export` → `optimize` → `quantize` → `compile`
 individually for finer control. Close with `winml perf` and `winml eval` to
@@ -25,7 +25,7 @@ measure speed and accuracy.
 |---|---|---|
 | [`sys`](sys.md) | Discover | Inspect your machine — devices, EPs, SDKs, runtime versions at a glance. |
 | [`inspect`](inspect.md) | Discover | Inspect a model's tasks, classes, and hierarchy before committing to an export. |
-| [`hub`](hub.md) | Discover | Browse the curated winml-cli catalog of validated models and benchmarks. |
+| [`catalog`](hub.md) | Discover | Browse the curated winml-cli catalog of validated models and benchmarks. |
 | [`analyze`](analyze.md) | Discover | Verify an ONNX model is compatible with a target execution provider before deployment. |
 | [`config`](config.md) | Configure | Generate a reusable build configuration for a Hugging Face model or ONNX file. |
 | [`optimize`](optimize.md) | Configure | Apply graph optimizations and fusions to an ONNX model to reduce node count and improve inference speed. |
@@ -40,7 +40,7 @@ measure speed and accuracy.
 
 - **I want to see what hardware and EPs I have** → `winml sys`
 - **I want to know if my model is supported** → `winml inspect`
-- **I want to browse validated models with known benchmarks** → `winml hub`
+- **I want to browse validated models with known benchmarks** → `winml catalog`
 - **I want to verify EP operator compatibility before compiling** → `winml analyze`
 - **I want to convert a Hugging Face model to ONNX** → `winml export`
 - **I want to run the whole pipeline in one go** → `winml build`
@@ -52,7 +52,7 @@ measure speed and accuracy.
 `-v` / `--verbose`, `-q` / `--quiet`, `--debug`, `--version`, and `-h` /
 `--help` live on the root `winml` group only. Subcommands access them through
 `ctx.obj` and do not redefine them. See
-`src/winml/modelkit/commands/_options.py` for the canonical contract.
+`src/winml/modelkit/cli.py` for the canonical contract.
 
 ## Shared flags
 

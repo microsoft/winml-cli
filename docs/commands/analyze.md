@@ -16,13 +16,16 @@ $ winml analyze [options]
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--model` | | `PATH` | *(required)* | Path to the ONNX model file to analyze. |
-| `--ep` | | choice | *(none)* | Target execution provider. Accepts full names (`QNNExecutionProvider`, `OpenVINOExecutionProvider`, `VitisAIExecutionProvider`) or short aliases (`qnn`, `ov`/`openvino`, `vitis`/`vitisai`). When omitted, all supported EPs are analyzed. |
-| `--device` | | `CPU\|GPU\|NPU` | `NPU` | Target device type. Filters the analysis for the named device class when `--ep` is also supplied. When omitted, defaults to NPU. |
+| `--model` | `-m` | `PATH` | *(required)* | Path to the ONNX model file to analyze. |
+| `--ep` | | choice | `auto` | Target execution provider. Accepts full names (`QNNExecutionProvider`, `OpenVINOExecutionProvider`, `VitisAIExecutionProvider`), short aliases (`qnn`, `ov`/`openvino`, `vitis`/`vitisai`), `all` (all rule-data-backed EPs), or `auto` (infer from local availability). |
+| `--device` | | `cpu\|gpu\|npu\|all\|auto` | `auto` | Target device type. `auto` infers from local availability; `all` evaluates all rule-data-backed devices. |
+| `--verbose` | `-v` | flag | off | Enable verbose output. |
+| `--quiet` | `-q` | flag | off | Suppress non-essential output. |
+| `--config` | `-c` | `PATH` | *(none)* | Build configuration file (YAML/JSON). |
 | `--output` | | `PATH` | *(none)* | Save the full JSON result to a file in addition to printing the console summary. |
 | `--information` / `--no-information` | | flag | enabled | Include detailed per-operator recommendations and remediation hints in the output. Pass `--no-information` for a compact pass/fail summary. |
 | `--htp-metadata` | | `PATH` | *(none)* | Path to an HTP metadata JSON file. Enables enhanced Qualcomm-specific pattern extraction when targeting QNN. |
-| `--run-unknown-op` / `--no-run-unknown-op` | | flag | enabled | Attempt to run operators unknown to the EP locally to infer shape and type information. Disable when the local machine lacks the required libraries. |
+| `--run-unknown-op` / `--no-run-unknown-op` | | flag | disabled | Attempt to run operators unknown to the EP locally to infer shape and type information. Enable when local libraries are available. |
 | `--save-node` | | `partial\|unsupported` | *(none)* | Save partial or unsupported node subgraphs to disk for further investigation. Can be specified multiple times: `--save-node partial --save-node unsupported`. |
 
 ## How it works
@@ -31,14 +34,14 @@ $ winml analyze [options]
 
 ## Examples
 
-Analyze against all supported EPs using the default NPU device:
+Analyze using auto-detected EP and device:
 
 ```bash
 $ winml analyze --model microsoft/resnet-50.onnx
 ```
 
 ```text
-Analyzing microsoft/resnet-50.onnx against all supported EPs...
+Analyzing microsoft/resnet-50.onnx (EP: auto, device: auto)...
 
 QNNExecutionProvider (NPU): FULLY SUPPORTED
   Operators checked : 142
@@ -79,10 +82,10 @@ $ winml analyze --model bert-base-uncased.onnx \
 
 ## Common pitfalls
 
-- **Omitting `--ep` analyzes every EP** — this is slower and may produce confusing output when one EP shows unsupported operators that another handles fine. Specify `--ep` when you know your target hardware.
+- **Omitting `--ep` uses `auto` (inferred from local availability)** — to analyze every EP regardless of what is installed, pass `--ep all`. Specify `--ep <name>` when you know your target hardware.
 - **Exit code 1 is not a hard failure** — it means at least one operator is unsupported, not that the model cannot run at all. Many EPs fall back unsupported nodes to the CPU EP automatically; review the recommendations before deciding to restructure the model.
 - **`--htp-metadata` is QNN-specific** — passing a QNN HTP metadata file while targeting a different EP has no effect. Ensure the EP and metadata file correspond to the same hardware.
-- **`--no-run-unknown-op` may widen the unsupported list** — if local execution is disabled, operators whose support cannot be verified statically are conservatively marked as unsupported.
+- **`--run-unknown-op` is disabled by default** — operators whose support cannot be verified statically are conservatively marked as unsupported unless you explicitly pass `--run-unknown-op`. Enable it only when the required local libraries are present.
 - **The model path must point to an existing `.onnx` file** — symbolic HuggingFace model IDs are not accepted; export the model first with `winml export`.
 
 ## See also

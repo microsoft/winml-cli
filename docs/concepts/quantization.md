@@ -6,18 +6,18 @@ Quantization is the headline use of datatypes in winml-cli. By replacing `float3
 
 ## Datatypes
 
-winml-cli exposes a precision shorthand on the `--precision` flag that encodes the weight/activation dtype pair as a single string. The table below lists every precision from `_KNOWN_PRECISIONS` in `_options.py`, together with the resolved quantization types from `config/precision.py`. Float precisions (`fp32`, `fp16`) carry no quantization types because weights and activations remain in floating point throughout.
+winml-cli exposes a precision shorthand on the `--precision` flag that encodes the weight/activation dtype pair as a single string. The table below lists every precision from `_NAMED_PRECISIONS` in `config/precision.py`, together with the resolved quantization types. Float precisions (`fp32`, `fp16`) carry no quantization types because weights and activations remain in floating point throughout.
 
 | Precision | Weight dtype | Activation dtype | Notes |
 |-----------|-------------|-----------------|-------|
-| `auto` | device-dependent | device-dependent | Resolves to `int8` (NPU), `fp16` (GPU/CPU) at runtime |
+| `auto` | device-dependent | device-dependent | Resolves to `w8a16` (NPU), `fp16` (GPU/CPU) at runtime |
 | `fp32` | float32 | float32 | No quantization; baseline accuracy |
 | `fp16` | float16 | float16 | Half-precision float; no QDQ nodes inserted |
-| `int8` | uint8 | uint8 | Static quantization; default for NPU via QNN EP |
+| `int8` | uint8 | uint8 | Static quantization; valid for QNN EP |
 | `int16` | int16 | uint16 | Higher-accuracy quantization; larger model than int8 |
 | `w8a8` | uint8 | uint8 | Equivalent to `int8`; explicit mixed-precision notation |
 | `w8a16` | uint8 | uint16 | Mixed: compact weights, wider activations for accuracy |
-| `w4a16` | n/a | n/a | **Planned — not yet supported.** Recognized as a precision string but raises an error at quantization time; no 4-bit weight dtype mapping exists in `precision.py` yet. |
+| `w4a16` | n/a | n/a | **Not supported.** Rejected at validation — `is_quantized_precision("w4a16")` returns `False` because 4-bit weight types are absent from `_BITS_TO_WEIGHT_TYPE` in `precision.py`. The string is not a recognized precision. |
 
 The `--weight-type` and `--activation-type` flags on `winml quantize` accept `uint8`, `int8`, `uint16`, or `int16` and override whatever the `--precision` shorthand would have resolved. This is useful when you need an unsigned weight type for QNN compatibility but a signed activation type for a specific operator constraint. See [Weight and Activation](weight-and-activation.md) for why the two need separate flags in the first place.
 

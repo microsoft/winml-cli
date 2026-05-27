@@ -19,10 +19,14 @@ $ winml inspect -m <model_id> [options]
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--model` | `-m` | string | **required** | HuggingFace model ID (e.g. `openai/clip-vit-base-patch32`). Required unless `--help` is used. |
+| `--model` | `-m` | string | **required** | HuggingFace model ID (e.g. `openai/clip-vit-base-patch32`). Required unless `--list-tasks` or `--help` is used. |
 | `--format` | `-f` | `table` \| `json` | `table` | Output format. `table` renders rich panels; `json` emits a machine-readable object. |
 | `--task` | `-t` | string | `null` | Override the auto-detected task (e.g. `image-classification`, `feature-extraction`). |
 | `--hierarchy` | `-H` | flag | `false` | Print the PyTorch module tree. Instantiates the model with random weights — no weight download required. |
+| `--verbose` | `-v` | flag | `false` | Show full configuration details. |
+| `--list-tasks` | | flag | `false` | List all known tasks and exit. Does not require `--model`. |
+| `--model-type` | | string | `null` | Override model type (e.g. `bert`, `resnet`). Can be used without `--model`. |
+| `--model-class` | | string | `null` | Override model class (e.g. `BertForMaskedLM`). Can be used without `--model`. |
 | `--help` | `-h` | flag | — | Show help and exit. |
 
 > `winml inspect` does not accept `--device`, `--ep`, `--precision`, or `--output`.
@@ -78,8 +82,7 @@ $ winml inspect -m facebook/convnext-tiny-224 -v -H
 
 ## Common pitfalls
 
-- **`--model` is always required.** Unlike some other commands, `winml inspect` has
-  no mode that omits `-m`. The flag is marked required; omitting it returns an error.
+- **`--model` is required for model inspection.** The flag is marked required for model-specific lookups; omitting it returns an error. The only exception is `--list-tasks`, which lists all known tasks and exits without needing a model.
 - **Hierarchy requires a locally installable model config.** If the model config
   references a custom architecture not in the local `transformers` installation,
   `--hierarchy` will fail with an import error. Update `transformers` or omit the flag.

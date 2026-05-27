@@ -29,7 +29,7 @@ $ winml config [options]
 | `--output` | `-o` | `PATH` | *(stdout)* | Write the generated JSON to this file instead of printing to stdout. |
 | `--library` | | `TEXT` | `transformers` | Source library for `TasksManager` task lookup. Defaults to `transformers`; set to `diffusers` or another Optimum-supported library when needed. |
 | `--no-quant` | | flag | off | Omit quantization from the generated config (sets `quant` to `null`). Equivalent to removing the `quant` section before passing to `winml build`. |
-| `--no-compile` | | flag | off | Omit compilation from the generated config (sets `compile` to `null`). Use this when you want to inspect the optimized ONNX before EP-specific compilation. |
+| `--no-compile` / `--compile` | | flag | `--no-compile` (compile excluded by default) | Controls whether compilation is included in the generated config. By default compilation is **excluded** (`compile: null`). Pass `--compile` to include a compile section. |
 | `--trust-remote-code` | | flag | off | Allow execution of custom model code from the HuggingFace repository. Required for some community models. Only enable for repositories you trust. |
 
 ## How it works
@@ -75,10 +75,10 @@ Generate from a model type alone (no HuggingFace download required at config tim
 $ winml config --model-type bert --task fill-mask
 ```
 
-Generate a config from an already-exported ONNX file, skipping quantization and compilation:
+Generate a config from an already-exported ONNX file, skipping quantization (compilation is already excluded by default):
 
 ```bash
-$ winml config -m facebook/convnext-tiny-224.onnx --no-quant --no-compile -o convnext_optim_only.json
+$ winml config -m facebook/convnext-tiny-224.onnx --no-quant -o convnext_optim_only.json
 ```
 
 ## Common pitfalls

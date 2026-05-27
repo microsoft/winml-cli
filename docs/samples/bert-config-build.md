@@ -75,7 +75,7 @@ winml build
   compile      done  (21.4s)
 
   Build complete in 88.5s
-  Final artifact: bert_out/bert-base-uncased_ctx.onnx
+  Final artifact: bert_out/model.onnx
 ```
 
 !!! note
@@ -84,7 +84,7 @@ winml build
 ## Step 3: Benchmark
 
 ```bash
-winml perf -m bert_out/bert-base-uncased_ctx.onnx --iterations 50
+winml perf -m bert_out/model.onnx --iterations 50
 ```
 
 After a short warm-up, `winml perf` reports latency percentiles and throughput:
@@ -101,7 +101,7 @@ Latency (ms)
 
 Throughput: 206.99 samples/sec
 
-Results saved to: bert-base-uncased_ctx_perf.json
+Results saved to: model_perf.json
 ```
 
 ## Customizing the config

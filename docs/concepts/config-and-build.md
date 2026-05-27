@@ -44,8 +44,8 @@ directly before being passed to `winml build`.
 ## What's in a config
 
 A `WinMLBuildConfig` is a dataclass defined in
-`src/winml/modelkit/config/build.py`. It holds five nested sub-configs, one per
-pipeline stage:
+`src/winml/modelkit/config/build.py`. It holds five nested sub-configs for the
+pipeline stages, plus an evaluation config and an auto flag:
 
 | Field | Type | Purpose |
 |---|---|---|
@@ -54,6 +54,8 @@ pipeline stage:
 | `optim` | `WinMLOptimizationConfig` | Graph fusion flags (GeLU, LayerNorm, MatMul+Add). |
 | `quant` | `WinMLQuantizationConfig` | Precision types (`weight_type`, `activation_type`), calibration samples and method (`null` to skip). |
 | `compile` | `WinMLCompileConfig` | Target EP provider, EPContext options, compiler backend (`null` to skip). |
+| `eval` | `WinMLEvaluationConfig \| null` | Evaluation settings run after the build (`null` to skip). |
+| `auto` | `bool` | When `true` (default), auto-fills missing fields from model introspection. |
 
 Setting `quant` or `compile` to `null` tells the pipeline to skip that stage
 entirely, equivalent to passing `--no-quant` or `--no-compile` on the command
@@ -82,10 +84,8 @@ A generated config looks similar to:
     "samples": 10
   },
   "compile": {
-    "ep_config": {
-      "provider": "qnn",
-      "enable_ep_context": true
-    }
+    "execution_provider": "qnn",
+    "enable_ep_context": true
   }
 }
 ```
