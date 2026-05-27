@@ -122,7 +122,7 @@ def should_run_ep_test(ep_name: str, device_type, skip_message: str | None = Non
         from winml.modelkit import winml
         winml.register_execution_providers(ort=True)
         import onnxruntime as ort
-        
+
         ep_devices = ort.get_ep_devices()
         for ep_device in ep_devices:
             if ep_device.ep_name == ep_name and ep_device.device.type == device_type:
