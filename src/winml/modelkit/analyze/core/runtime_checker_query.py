@@ -625,7 +625,7 @@ def get_query_conditions_for_node(
         runtime_checker_op = get_runtime_checker_op(node.op_type, domain=domain.value)(schema)
     except KeyError:
         raise OpUnsupportedError(f"Node {node.op_type} is not supported") from None
-    type_vars = {}
+    type_vars: dict[str, Any] = {}
 
     # fill missing attrs with default values; set None for optional attrs without defaults
     for k, v in schema.attributes.items():
@@ -680,7 +680,7 @@ def get_query_conditions_for_node(
         is_constant: bool,
         shape: tuple[Any, ...] | list[Any] | None = None,
         value: Any | None = None,
-    ):
+    ) -> None:
         dyn_axes = _compute_dynamic_axes(shape, is_constant)
         if is_variadic:
             cond[f"{input_name}_is_constant"] = (
@@ -2409,7 +2409,7 @@ class RuntimeCheckerQuery:
         # Phase 1: Extract conditions to determine if node is QDQ
         is_qdq = False
 
-        def get_pattern_id(is_qdq):
+        def get_pattern_id(is_qdq: bool) -> str:
             return (
                 pattern_match.pattern.pattern_id + QDQ_SUFFIX
                 if is_qdq

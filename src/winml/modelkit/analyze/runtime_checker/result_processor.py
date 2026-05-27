@@ -176,7 +176,7 @@ def item_to_row(
     # TODO: add _dyanmic_axes and _is_fixed_shape for QDQ?
     dynamic_axes = item.get("dynamic_axes", {})
 
-    def set_properties_for_dynamic_axes(input_name: str, is_constant: bool):
+    def set_properties_for_dynamic_axes(input_name: str, is_constant: bool) -> None:
         if "__" not in input_name:  # skip variadic inputs
             axes = dynamic_axes.get(input_name, ())
             res[f"{input_name}_is_constant"] = is_constant
@@ -419,7 +419,7 @@ def extract_single_negative_rules(
     if not target_cols:
         return {}
 
-    n_results = df[result_col][0].__len__()  # type: ignore[attr-defined]
+    n_results = df[result_col][0].__len__()
     assert n_results == 2
     all_negative_rules = []
     all_failed = []

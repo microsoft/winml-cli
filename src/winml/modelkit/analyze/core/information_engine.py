@@ -723,7 +723,7 @@ class InformationEngine:
         self,
         current_classification: SupportLevel,
         alternative_classification: SupportLevel,
-    ) -> tuple[ActionLevel, SupportLevel | None]:
+    ) -> tuple[ActionLevel | None, SupportLevel | None]:
         """Determine action level and status based on classification transition.
 
         Args:

@@ -19,7 +19,7 @@ import numpy as np
 from ...pattern.models import OperatorPattern, PatternType
 
 # Re-export shared utilities from pattern.utils
-from ...pattern.utils import (  # noqa: F401
+from ...pattern.utils import (
     DUMMY_FLOAT,
     collect_initializers,
     collect_valueinfo_dict,
@@ -30,6 +30,21 @@ from ...pattern.utils import (  # noqa: F401
     make_hashable,
     shape_and_dtype_from_valueinfo,
 )
+
+
+__all__ = [
+    "DUMMY_FLOAT",
+    "collect_initializers",
+    "collect_valueinfo_dict",
+    "dtype_from_tensorproto_enum",
+    "encode_rule_condition_value_for_parquet",
+    "get_attribute_proto_value",
+    "get_op_input_properties",
+    "get_op_since_version",
+    "make_hashable",
+    "node_to_pattern_match",
+    "shape_and_dtype_from_valueinfo",
+]
 
 
 if TYPE_CHECKING:

@@ -31,6 +31,8 @@ from ...sysinfo import SysInfo
 
 
 if TYPE_CHECKING:
+    import argparse
+
     import onnxruntime as ort
 
     from ...utils.constants import EPName
@@ -259,7 +261,7 @@ def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
     return ep_name_to_checker[ep_name](device_type=device_type)
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     """Build argument parser for check_patterns-style commands."""
     import argparse
 

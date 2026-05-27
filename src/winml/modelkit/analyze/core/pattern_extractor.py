@@ -666,7 +666,7 @@ class PatternExtractor:
     def model_summary(
         self,
         detected_pattern_count: dict[str, int] | None = None,
-    ) -> ModelStats:  # type: ignore[name-defined]
+    ) -> ModelStats:
         """Get model metadata and statistics.
 
         Args:
