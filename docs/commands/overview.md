@@ -25,7 +25,7 @@ measure speed and accuracy.
 |---|---|---|
 | [`sys`](sys.md) | Discover | Inspect your machine — devices, EPs, SDKs, runtime versions at a glance. |
 | [`inspect`](inspect.md) | Discover | Inspect a model's tasks, classes, and hierarchy before committing to an export. |
-| [`catalog`](hub.md) | Discover | Browse the curated winml-cli catalog of validated models and benchmarks. |
+| [`catalog`](catalog.md) | Discover | Browse the curated winml-cli catalog of validated models and benchmarks. |
 | [`analyze`](analyze.md) | Discover | Verify an ONNX model is compatible with a target execution provider before deployment. |
 | [`config`](config.md) | Configure | Generate a reusable build configuration for a Hugging Face model or ONNX file. |
 | [`optimize`](optimize.md) | Configure | Apply graph optimizations and fusions to an ONNX model to reduce node count and improve inference speed. |

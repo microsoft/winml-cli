@@ -115,5 +115,5 @@ $ winml sys --list-ep --format json
 - [ONNX & Execution Providers](../concepts/eps-and-devices.md) — background on EPs and
   how `--device` / `--ep` flags interact
 - [inspect.md](inspect.md) — inspect a specific HuggingFace model's compatibility
-- [hub.md](hub.md) — browse the curated catalog of validated models
+- [catalog.md](catalog.md) — browse the curated catalog of validated models
 - [How winml-cli Works](../concepts/how-it-works.md) — end-to-end pipeline overview
