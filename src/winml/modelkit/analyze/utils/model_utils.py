@@ -61,25 +61,24 @@ def _normalize_for_parquet_encoding(value: object) -> object:
     """
     if isinstance(value, np.generic):
         return _normalize_for_parquet_encoding(value.item())
-
-    val_type = type(value)
     if value is None:
         return {"t": "none"}
-    if val_type is bool:
+    # bool must be checked before int (bool is an int subclass).
+    if isinstance(value, bool):
         return {"t": "bool", "v": value}
-    if val_type is int:
+    if isinstance(value, int):
         return {"t": "int", "v": value}
-    if val_type is float:
+    if isinstance(value, float):
         return {"t": "float", "v": repr(value)}
-    if val_type is str:
+    if isinstance(value, str):
         return {"t": "str", "v": value}
-    if val_type is bytes:
+    if isinstance(value, bytes):
         return {"t": "bytes", "v": base64.b64encode(value).decode("ascii")}
-    if val_type is tuple:
+    if isinstance(value, tuple):
         return {"t": "tuple", "v": [_normalize_for_parquet_encoding(v) for v in value]}
-    if val_type is list:
+    if isinstance(value, list):
         return {"t": "list", "v": [_normalize_for_parquet_encoding(v) for v in value]}
-    if val_type is dict:
+    if isinstance(value, dict):
         items = sorted(value.items(), key=lambda kv: str(kv[0]))
         return {
             "t": "dict",
@@ -90,7 +89,7 @@ def _normalize_for_parquet_encoding(value: object) -> object:
         }
 
     # Fallback: keep determinism and type visibility for unknown objects.
-    return {"t": "repr", "type": val_type.__name__, "v": repr(value)}
+    return {"t": "repr", "type": type(value).__name__, "v": repr(value)}
 
 
 def encode_rule_condition_value_for_parquet(value: object) -> str:

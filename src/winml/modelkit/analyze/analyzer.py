@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     from .models.information import Action
     from .models.output import AnalysisOutput
+    from .models.runtime_checks import PatternRuntime
 
 
 @dataclass
@@ -390,7 +391,7 @@ class AnalysisResult:
         actions = self.get_optimization_opportunities(ep=ep)
 
         # Collect all optimization options from action items
-        optim_options = {}
+        optim_options: dict[str, bool] = {}
         for action in actions:
             for action_item in action.action_items:
                 # Only process GraphOptimization type
@@ -726,9 +727,12 @@ class ONNXStaticAnalyzer:
         logger.info("Extracted %d patterns", len(pattern_matches))
         extraction_ms = int((time.perf_counter() - extraction_start) * 1000)
 
-        # Step 2: Check runtime support for each EP
-        check_op_results = {}
-        information_list = {}
+        # Step 2: Check runtime support for each EP.
+        # Annotate keys as `str` (not EPName) so these dicts are assignable to
+        # OutputAggregator.aggregate(), which takes `dict[str, ...]`. dict is
+        # invariant in its key type, so dict[EPName, V] won't fit dict[str, V].
+        check_op_results: dict[EPName, list[PatternRuntime]] = {}
+        information_list: dict[EPName, list[Information]] = {}
         ep_runtime_timing: dict[str, int] = {}
         ep_info_timing: dict[str, int] = {}
         for current_ep in eps_to_analyze:

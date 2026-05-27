@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -132,7 +132,7 @@ def _get_all_attr_names(check_results: list[dict[str, Any]]) -> set[str]:
 
 def item_to_row(
     item: dict[str, Any],
-    input_constraint_types: dict[str, str] | None = None,
+    input_constraint_types: dict[str, str],
     all_attr_names: set[str] | None = None,
     replace_float_with_dummy: bool = True,
     use_qdq: bool = False,
@@ -398,7 +398,7 @@ def np_to_python_value(value: Any) -> Any:
 
 def extract_single_negative_rules(
     df: pd.DataFrame, result_col: str, ignored_cols: list[str]
-) -> dict[str, list[dict[str, Any]]]:
+) -> tuple[list[dict[str, list[dict[str, Any]]]], list[Any]]:
     """Extract single negative rules from DataFrame.
 
     A negative rule identifies property values that always lead to failure.
@@ -417,7 +417,7 @@ def extract_single_negative_rules(
 
     target_cols = [c for c in df.columns if c not in ignored_cols and c != result_col]
     if not target_cols:
-        return {}
+        return [], []
 
     n_results = df[result_col][0].__len__()
     assert n_results == 2
@@ -735,7 +735,9 @@ def _json_safe_records(df: pd.DataFrame) -> list[dict[str, Any]]:
     """Convert dataframe records to JSON-safe Python objects."""
     if df.empty:
         return []
-    return json.loads(df.to_json(orient="records", force_ascii=False))
+    # df.to_json(orient="records") returns the records JSON array string;
+    # json.loads returns Any, so cast to the expected shape.
+    return cast("list[dict[str, Any]]", json.loads(df.to_json(orient="records", force_ascii=False)))
 
 
 def _encode_condition_columns_for_parquet(
@@ -875,8 +877,11 @@ if __name__ == "__main__":
                     schema, qdq_generator=qdq_generator if is_qdq else None
                 )
             except SchemaError:
+                # Use the already-converted ONNXDomain so the dict keys have
+                # one concrete type; mixing raw `op_domain: str` with the enum
+                # widens the inferred key type and breaks PatternInputGenerator.
                 domain_versions = {
-                    op_domain: opset_version,
+                    domain: opset_version,
                     ONNXDomain.COM_MICROSOFT: 1,
                 }
                 input_generator = get_pattern_input_generator(op_name)(domain_versions)
