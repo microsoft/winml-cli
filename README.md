@@ -1,85 +1,65 @@
 # WinML CLI
 
 [![WinML CLI CI](https://github.com/microsoft/winml-cli/actions/workflows/modelkit-ci.yml/badge.svg)](https://github.com/microsoft/winml-cli/actions/workflows/modelkit-ci.yml)
-![Status](https://img.shields.io/badge/status-early%20access-blue)
+![Status](https://img.shields.io/badge/status-preview-blue)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**WinML CLI** is a CLI toolkit to build **portable, performant, and high-quality** models for Windows ML. It covers the entire journey from pretrained model to on-device inference — export, optimization, quantization, compilation, and benchmarking — across **all execution providers**, regardless of silicon.
+**Windows ML CLI** is a command line tool for building **portable, performant, and high-quality** AI models for Windows ML. It takes you from a source model — whether from Hugging Face or your own pipeline — to a hardware-optimized artifact in a reproducible workflow.
+
+Purpose-built for Windows hardware diversity, the CLI handles conversion, graph optimization, and compilation across AMD, Intel, NVIDIA, and Qualcomm targets. The CLI is fitting naturally into CI/CD pipelines so teams can validate and ship models easily.
 
 ---
 
-## :dart: WinML CLI Is Right for You If
+## :dart: Features
 
-- [x] You want to build models that run on **any Windows device** — Qualcomm, Intel, AMD, NVIDIA, or CPU
-- [x] You want to benchmark a model with **one command** — latency, throughput, and live hardware utilization
-- [x] You want to catch compatibility issues **ahead of time** — unsupported ops, shape mismatches, EP gaps
-- [x] You want **deep insights** into your model — I/O shapes, task mapping, operator coverage per EP
-- [x] You want a **repeatable and traceable** model building process — config-driven, inspectable at every stage
-- [x] You want **AI agents** to build and profile models for you — agent-ready skills for coding assistants
+✅ **You want to build models that run with Windows ML on any device** — seamlessly across CPU, GPU, and NPU
 
----
+✅ **You want to benchmark models with one command** — get latency, throughput, and live hardware utilization
 
-## :desktop_computer: Supported Hardware
+✅ **You want to optimize models out of the box** — with built-in graph optimizations, quantization, and EP-aware tuning
 
-| Execution Provider | Hardware | Status | EP Flag | Device Flag |
-|:-------------------|:---------|:------:|:--------|:------------|
-| **QNN** | Qualcomm NPU (Snapdragon X Elite) | 🟢 Ready | `--ep qnn` | `--device npu` |
-| **OpenVINO** | Intel NPU (Meteor Lake / Lunar Lake) | 🟢 Ready | `--ep openvino` | `--device npu` |
-| **VitisAI** | AMD NPU (Ryzen AI) | 🟢 Ready | `--ep vitisai` | `--device npu` |
-| **NvTensorRTRTX** | NVIDIA discrete GPUs | 🔶 Planned | `--ep nv_tensorrt_rtx` | `--device gpu` |
-| **MIGraphX** | AMD discrete GPUs | 🔶 Planned | `--ep migraphx` | `--device gpu` |
-| **Dml** | Hardware-agnostic GPU backend | 🔶 Planned | `--ep dml` | `--device gpu` |
-| **CPU** | Cross-platform fallback | ⚪ Always available | `--ep cpu` | `--device cpu` |
+✅ **You want deep insights into your model** — including unsupported operators, shape mismatches, and execution provider gaps
 
-> **Tip:** Use `--device auto` and WinML CLI picks the best available device — NPU first, then GPU, then CPU.
+✅ **You want a repeatable and traceable workflow** — with config-driven pipelines that are inspectable at every stage
 
----
+✅ **You want AI agents to build and profile models for you** — with agent-ready skills for automation via coding assistants
 
-## :clipboard: Prerequisites
+### :compass: Scope
 
-### Required Software
+WinML CLI supports **classic deep learning models** for now — LLM support is on the way.
 
-| **Component** | **How to Get It** |
-|-----------|--------------|
-| **Windows 11** (x64 or ARM64) | Windows 11 24H2+ required for NPU support |
-| **UV** | Install [UV](https://github.com/astral-sh/uv) |
-| **WinML CLI** (Python wheel) | [Releases](https://github.com/microsoft/winml-cli/releases) |
+**Supported execution providers:** QNN · OpenVINO · VitisAI · NvTensorRTRTX · MIGraphX · Dml · CPU — covering NPU, GPU, and CPU across Windows ML. See the [Supported Hardware](#supported-hardware) reference table for the full EP-to-device mapping.
 
-### Required Hardware
-
-**WinML CLI targets NPU.** We recommend testing on one of the following NPU devices:
-
-| Device | EP | Flag |
-|--------|-----|------|
-| Snapdragon X Elite (Qualcomm) | QNN | `--ep qnn --device npu` |
-| Intel AI Boost (Meteor Lake / Lunar Lake) | OpenVINO | `--ep openvino --device npu` |
-| AMD Ryzen AI (Phoenix / Hawk Point / Strix) | VitisAI | `--ep vitisai --device npu` |
-
-**No NPU?** Use `--device auto` — WinML CLI will fall back to the best available device (GPU → CPU). Note that `winml compile` requires NPU and cannot run without one.
-
-### Accepted Inputs
+The [built-in model catalog](#built-in-models) includes verified models that run across all EPs supported by Windows ML and serve as a reliable starting point. WinML CLI is not limited to these — you can bring **any model** you have:
 
 - **HuggingFace model ID** (e.g., `microsoft/resnet-50`) — weights are downloaded on first run
 - **Local ONNX file** (e.g., `model.onnx`) — from `winml export`, `winml build`, or any ONNX you already have
 
-### The Golden Rule: Inspect First
+See the [Supported Tasks](#supported-tasks) and [Supported Model Types](#supported-model-types) reference tables for the full list.
 
-Before running any pipeline command, always verify the model is supported:
+**Known constraints:**
 
-```bash
-winml inspect -m <model-id>
-```
-
-If `inspect` prints an error or shows `Unsupported`, **skip that model**. Only models that pass inspect are valid inputs for export, analyze, build, perf, and eval.
+- Some models may export successfully but fail during optimization or quantization due to unsupported operator patterns. The analyzer will flag these issues.
+- Performance numbers vary by device, driver version, and EP version. Always benchmark on your target hardware.
 
 ---
 
-## :package: Installation
+## :rocket: Getting Started
+
+### Prerequisites
+
+| Component | Details |
+|---|---|
+| Windows | Windows 11 24H2 or later (required for NPU support; earlier versions work for CPU/GPU) |
+| Python | 3.11 (the project pins `requires-python = ">=3.11,<3.12"`) |
+| Package manager | [`uv`](https://github.com/astral-sh/uv) |
+
+### Installation
 
 WinML CLI requires **Python 3.11** and is distributed as a Python wheel. We recommend [uv](https://docs.astral.sh/uv/) for fast, reproducible environment setup.
 
-**1. Create a Python 3.11 environment**
+**1. Create an environment**
 
 ```bash
 uv venv --python 3.11
@@ -104,29 +84,138 @@ uv pip install winml_cli-<version>-py3-none-any.whl
 **3. Verify your environment**
 
 ```bash
-winml sys --list-device --list-ep
+uv run winml sys --list-device --list-ep
 ```
 
-Confirm that your target device and EP appear in the output:
+`--list-device` and `--list-ep` print only the hardware and EP inventory, skipping SDK versions and Python environment details that plain `winml sys` would include. If the command exits without error, your winml-cli install is ready.
 
-- **Snapdragon X Elite** — look for `QNNExecutionProvider`
-- **Intel AI Boost** — look for `OpenVINOExecutionProvider`
-- **AMD Ryzen AI** — look for `VitisAIExecutionProvider`
+### Quick Start
 
-If no NPU is detected, you can still use WinML CLI with `--device auto` for most commands. The only exception is `winml compile`, which requires an NPU device.
+WinML CLI supports two ways to build a model — choose the one that fits your workflow:
+
+- [**Config-Build Driven Pipeline**](#config-build-pipeline) — generate a config file first, then run a single build command. Best for reproducible, CI/CD-friendly workflows.
+- [**Primitive Commands**](#step-by-step-through-primitive-commands) — run each pipeline stage individually. Best for exploring, debugging, or custom workflows.
+
+This walkthrough uses `facebook/convnext-tiny-224` as an example model.
+
+#### Config-Build Pipeline
+
+##### Step 0: Check model readiness
+
+Before running any pipeline command, verify the model is supported:
+
+```bash
+uv run winml inspect -m facebook/convnext-tiny-224
+```
+
+This prints the model's task, model class, input/output tensor names and shapes, and execution provider compatibility — without downloading weights. If inspect succeeds, the model is supported and you can proceed.
+
+##### Step 1: Generate the build config
+
+```bash
+uv run winml config -m facebook/convnext-tiny-224 --device auto -o convnext_config.json
+```
+
+`winml config` queries Hugging Face, auto-detects the task and model type, and produces a WinMLBuildConfig JSON. Passing `--device auto` tells the config generator to resolve the target device at generation time — it inspects your hardware and writes the winning device (NPU, GPU, or CPU) together with matching precision and compile settings into `convnext_config.json`. You can open the file to see exactly what was picked before committing to a full build.
+
+##### Step 2: Run the build
+
+```bash
+uv run winml build -c convnext_config.json -m facebook/convnext-tiny-224 -o convnext_out/
+```
+
+This single command runs all four pipeline stages in sequence — export, optimize, quantize, and compile — reading the device and precision settings recorded in `convnext_config.json`. The compile stage targets whichever device the config captured: it calls the QNN backend and embeds a pre-compiled Hexagon binary on NPU, or it compiles a DirectML graph on GPU, or it produces a standard optimized ONNX for CPU. All intermediate artifacts land in `convnext_out/`, so you can inspect or reuse any stage independently.
+
+You can also pass `--no-quant` or `--no-compile` to stop the pipeline early, or `--rebuild` to force re-running even when cached artifacts exist.
+
+##### Step 3: Benchmark on your device
+
+```bash
+uv run winml perf -m convnext_out/<artifact>.onnx --device auto --iterations 50 --monitor
+```
+
+Replace `<artifact>` with the filename written to `convnext_out/` by the build. For NPU builds the compiled artifact is named `model.onnx` in the output directory (the `_npu_ctx.onnx` suffix applies only when the compile stage produces an EPContext file, which requires `enable_ep_context=True` in the compile config). You can check the directory listing or read the compiled artifact path from the build output to get the exact name.
+
+#### Step-by-step through primitive commands
+
+This walkthrough builds **ConvNeXT** (`facebook/convnext-base-224`) step by step using primitive commands.
+
+##### Step 1: Inspect
+
+```bash
+winml inspect -m facebook/convnext-base-224
+```
+
+##### Step 2: Build a Portable Model
+
+Export from PyTorch to ONNX:
+
+```bash
+winml export -m facebook/convnext-base-224 -o convnext/model.onnx -v
+```
+
+Analyze for EP compatibility:
+
+```bash
+winml analyze -m convnext/model.onnx --optim-config optim.json
+```
+
+Optimize the graph using the analyzer's config:
+
+```bash
+winml optimize -m convnext/model.onnx -c optim.json -o convnext/model_opt.onnx
+```
+
+Quantize to w8a16:
+
+```bash
+winml quantize -m convnext/model_opt.onnx --precision w8a16 -o convnext/model_opt_w8a16.onnx
+```
+
+##### Step 3: Benchmark on Device
+
+Compile for NPU (generates device-specific binaries):
+
+```bash
+winml compile -m convnext/model_opt_w8a16.onnx --ep qnn -o convnext/model_compiled.onnx
+```
+
+Benchmark on NPU — note the latency:
+
+```bash
+winml perf -m convnext/model_compiled.onnx --ep qnn --iterations 100
+```
+
+Benchmark on CPU for comparison:
+
+```bash
+winml perf -m convnext/model_opt.onnx --ep cpu --iterations 100
+```
+
+Compare the two numbers to see the performance difference between NPU and CPU inference.
 
 ---
 
 ## :wrench: Commands
 
-| Category | Commands | Purpose |
-|:---------|:---------|:--------|
-| **Primitives** | `inspect` `export` `optimize` `quantize` `compile` | Single-stage building blocks |
-| **Pipeline** | `config` `build` `perf` `eval` `run`\* | End-to-end orchestration |
-| **Insights** | `analyze` `debug`\* | Diagnostics and compatibility |
-| **Utilities** | `hub` `cache`\* `doctor`\* `setting`\* `sys` | Catalog, cache, and environment |
+### The BYOM Workflow
 
-\* = coming soon
+The **Build Your Own Model** (BYOM) workflow is the philosophy behind WinML CLI. It defines how a source model becomes a production-ready, device-optimized artifact.
+
+```text
+Source Model --> Export --> Analyze --> Optimize --> Quantize --> Compile --> Benchmark
+```
+
+![BYOM Workflow](docs/assets/workflow-only.svg)
+
+Each arrow is a WinML CLI command. You can enter the pipeline at any stage (for example, start with a local ONNX file and skip export), exit early (stop after optimization if you do not need quantization), or loop back to repeat a stage with different settings.
+
+| Category | Commands | Purpose |
+| --- | --- | --- |
+| **Primitives** | `inspect` `export` `optimize` `quantize` `compile` | Single-stage building blocks |
+| **Pipeline** | `config` `build` `perf` `eval` | End-to-end orchestration |
+| **Insights** | `analyze`| Diagnostics and compatibility |
+| **Utilities** | `catalog` `sys` | Catalog, and environment |
 
 <details>
 <summary><strong>Primitives</strong> — one stage at a time</summary>
@@ -154,8 +243,6 @@ If no NPU is detected, you can still use WinML CLI with `--device auto` for most
 
 **`winml eval`** — Measure model accuracy against reference datasets. Compares the output of your optimized/quantized model against the original to quantify any accuracy loss introduced by the pipeline.
 
-**`winml run`** — End-to-end inference with pre/post processing. *(Coming soon.)*
-
 </details>
 
 <details>
@@ -163,183 +250,126 @@ If no NPU is detected, you can still use WinML CLI with `--device auto` for most
 
 **`winml analyze`** — Lint operators, check EP compatibility, and generate optimization config. The analyzer has two components: the **Linter** (like ESLint for ONNX) checks every operator against target EPs and classifies each as supported, partial, or unsupported. **AutoConf** detects suboptimal patterns and generates the optimization config that the optimizer consumes. Together they form the analyze-optimize loop.
 
-**`winml debug`** — Interactive model debugging and layer-by-layer inspection. *(Coming soon.)*
-
 </details>
 
 <details>
-<summary><strong>Utilities</strong> — catalog, cache, and environment</summary>
+<summary><strong>Utilities</strong> — catalog, and environment</summary>
 
 **`winml catalog`** — Browse the curated built-in model catalog.
-
-**`winml cache`** — Manage built model artifacts and pipeline outputs. View, clean, or selectively remove cached models and intermediate files.
-
-**`winml doctor`** — Diagnose environment issues. Checks runtimes, execution providers, and dependencies to identify configuration problems.
-
-**`winml setting`** — Configure WinML CLI preferences. Set default EPs, output directories, and other global options.
 
 **`winml sys`** — System information and capability reporting. Prints detected hardware, available EPs, Python version, and installed package versions.
 
 </details>
 
----
-
-## :rocket: Quick Start
-
-### Inspect a Model
-
-The fastest way to get started is to inspect a model. Let's look at ResNet-50:
-
-```bash
-winml inspect -m microsoft/resnet-50
-```
-
-This prints the model's metadata without downloading weights:
-
-- **Task**: `image-classification` — what the model does
-- **Model class**: `ResNetForImageClassification` — the architecture
-- **Input tensors**: names, data types, and shapes (e.g., `pixel_values: float32 [1, 3, 224, 224]`)
-- **Output tensors**: names, data types, and shapes (e.g., `logits: float32 [1, 1000]`)
-
-If inspect succeeds, the model is supported and you can proceed with the rest of the pipeline.
-
-> **Golden rule: always inspect first.** Before running export, build, perf, or any other pipeline command, verify the model is supported with `winml inspect`.
-
-### Build with Primitive Commands
-
-This walkthrough builds **ConvNeXT** (`facebook/convnext-base-224`) step by step using primitive commands. ConvNeXT is a family of CNN models inspired by Vision Transformers, introduced by Meta in 2022 — it offers high accuracy while retaining the efficiency of CNNs.
-
-#### Phase 1: Inspect
-
-```bash
-winml inspect -m facebook/convnext-base-224
-```
-
-#### Phase 2: Build a Portable Model
-
-**Export** from PyTorch to ONNX:
-
-```bash
-winml export -m facebook/convnext-base-224 -o convnext/model.onnx -v
-```
-
-**Analyze** for EP compatibility:
-
-```bash
-winml analyze -m convnext/model.onnx --optim-config optim.json
-```
-
-**Optimize** the graph using the analyzer's config:
-
-```bash
-winml optimize -m convnext/model.onnx -c optim.json -o convnext/model_opt.onnx
-```
-
-**Quantize** to INT8:
-
-```bash
-winml quantize -m convnext/model_opt.onnx -o convnext/model_opt_int8.onnx
-```
-
-#### Phase 3: Benchmark on Device
-
-**Compile** for NPU (generates device-specific binaries):
-
-```bash
-winml compile -m convnext/model_opt_int8.onnx --ep qnn -o convnext/model_compiled.onnx
-```
-
-**Benchmark on NPU** — note the latency:
-
-```bash
-winml perf -m convnext/model_compiled.onnx --ep qnn --iterations 100
-```
-
-**Benchmark on CPU** for comparison:
-
-```bash
-winml perf -m convnext/model_opt.onnx --ep cpu --iterations 100
-```
-
-Compare the two numbers to see the performance difference between NPU and CPU inference.
-
-### Build with Config + Build
-
-Same model, different approach. Instead of running each command manually, use the config-driven pipeline. Think of it like CMake: `config` generates a build plan, `build` executes it.
-
-**Generate the build config:**
-
-```bash
-winml config -m facebook/convnext-base-224 -o convnext_config.json
-```
-
-This creates a JSON file containing all settings for every pipeline step — task, I/O shapes, optimization flags, quantization parameters — all auto-detected from the model.
-
-**Build the model:**
-
-```bash
-winml build -c convnext_config.json -m facebook/convnext-base-224 -o convnext_build/
-```
-
-This orchestrates the full pipeline — export, analyze, optimize, quantize, compile — all in one go. Same result as the manual steps above, but in two commands.
-
-**Benchmark the result:**
-
-```bash
-winml perf -m convnext_build/model.onnx --ep qnn --iterations 100
-```
-
-The config file is the single source of truth for your build. Version-control it, share it with teammates, edit it to override settings, and replay builds deterministically on any machine.
-
-### Benchmark in One Command
-
-The simplest way to evaluate a model — one command, zero setup:
-
-```bash
-winml perf -m facebook/convnext-base-224 --device npu --monitor
-```
-
-WinML CLI handles everything behind the scenes: download the model from Hugging Face, export to ONNX, optimize the graph, and run the benchmark on your NPU. The `--monitor` flag enables live hardware monitoring — real-time CPU utilization, RAM usage, and NPU activity alongside the latency results.
-
-This is ideal for quick smoke tests: does the model run on this device, and how fast is it?
-
----
-
-## :arrows_counterclockwise: The BYOM Workflow
-
-The **Build Your Own Model** (BYOM) workflow is the philosophy behind WinML CLI. It defines how a source model becomes a production-ready, device-optimized artifact.
-
-### The Pipeline
-
-```
-Source Model --> Export --> Analyze --> Optimize --> Quantize --> Compile --> Benchmark
-```
-
-![BYOM Workflow](docs/assets/workflow-only.svg)
-
-Each arrow is a WinML CLI command. You can enter the pipeline at any stage (for example, start with a local ONNX file and skip export), exit early (stop after optimization if you do not need quantization), or loop back to repeat a stage with different settings.
-
-### Primitive Commands vs. Config-Driven Pipeline
-
-|  | **Primitive Commands** | **Config-Driven Pipeline** |
+|  | **Config-Driven Pipeline** | **Primitive Commands** |
 |:--|:--|:--|
-| **Steps** | One command **per stage** | Two steps: **config** + **build** |
-| **Control** | Start from any stage; try different settings to fix errors or tweak performance | Repeatable, tweakable, version-controllable |
-| **Best for** | **Flexible** workflow | Production-ready **delivery** |
-| **When to use** | Exploring, debugging, prototyping | CI/CD, batch builds, team workflows |
-| **Lifecycle** | "Coding" phase | Polish |
+| **Steps** | Two steps: **config** + **build** | One command **per stage** |
+| **Control** | Repeatable, tweakable, version-controllable | Start from any stage; try different settings to fix errors or tweak performance |
+| **Best for** | Production-ready **delivery** | **Flexible** workflow |
+| **When to use** | CI/CD, batch builds, team workflows | Exploring, debugging, prototyping |
+| **Lifecycle** | Polish | "Coding" phase |
 
 ---
 
-## :clipboard: Built-in Models
+## :handshake: Contributing
+
+We welcome contributions! Please see the [contribution guidelines](CONTRIBUTING.md).
+
+For feature requests or bug reports, please file a [GitHub Issue](https://github.com/microsoft/winml-cli/issues).
+
+### Code of Conduct
+
+See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+### License
+
+This project is licensed under the [MIT License](LICENSE.txt).
+
+### Trademarks
+
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
+trademarks or logos is subject to and must follow
+[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
+Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft
+sponsorship. Any use of third-party trademarks or logos are subject to those third-party's policies.
+
+---
+
+## Supported Hardware
+
+| Execution Provider | Hardware | Status | EP Flag | Device Flag |
+| --- | --- | --- | --- | --- |
+| **QNN** | Qualcomm NPU & GPU (Snapdragon X Elite) | 🟢 Ready | `--ep qnn` | `--device npu` or `--device gpu` |
+| **OpenVINO** | Intel NPU, GPU & CPU (Meteor Lake / Lunar Lake) | 🟢 Ready | `--ep openvino` | `--device npu`, `--device gpu`, or `--device cpu` |
+| **VitisAI** | AMD NPU — Ryzen AI (Phoenix / Hawk Point / Strix) | 🟢 Ready | `--ep vitisai` | `--device npu` |
+| **NvTensorRTRTX** | NVIDIA discrete GPUs | 🟢 Ready | `--ep nv_tensorrt_rtx` | `--device gpu` |
+| **MIGraphX** | AMD discrete GPUs | 🟢 Ready | `--ep migraphx` | `--device gpu` |
+| **Dml** | Hardware-agnostic GPU backend | 🟢 Ready | `--ep dml` | `--device gpu` |
+| **CPU** | Cross-platform fallback | 🟢 Ready | `--ep cpu` | `--device cpu` |
+
+> **Tip:**
+>
+> - For scenarios where you want to benchmark a model, if no `--device` is specified, WinML CLI defaults to `--device auto` and picks the best available device on your machine — NPU first, then GPU, then CPU.
+> - For scenarios where you want to get insights across all EPs, use `--device all` to cover all WinML EPs, or specify a target like `--device npu` to focus on a particular device class.
+
+---
+
+## Supported Tasks
+
+| Task | Category |
+| --- | --- |
+| `image-classification` | Vision |
+| `image-segmentation` / `semantic-segmentation` | Vision |
+| `image-feature-extraction` | Vision |
+| `image-to-image` / `image-to-text` / `image-text-to-text` | Vision |
+| `object-detection` | Vision |
+| `depth-estimation` | Vision |
+| `keypoint-detection` | Vision |
+| `mask-generation` / `masked-im` / `inpainting` | Vision |
+| `zero-shot-image-classification` / `zero-shot-object-detection` | Vision |
+| `text-classification` | NLP |
+| `token-classification` | NLP |
+| `question-answering` / `document-question-answering` | NLP |
+| `text-generation` / `text2text-generation` | NLP |
+| `fill-mask` / `feature-extraction` / `text-to-image` | NLP |
+| `multiple-choice` / `next-sentence-prediction` | NLP |
+| `sentence-similarity` | NLP |
+| `audio-classification` / `audio-frame-classification` / `audio-xvector` | Audio |
+| `automatic-speech-recognition` | Audio |
+| `text-to-audio` | Audio |
+| `visual-question-answering` | Multimodal |
+| `time-series-forecasting` | Other |
+| `reinforcement-learning` | Other |
+
+---
+
+## Supported Model Types
+
+| Model Type | Category | Supported Tasks |
+| --- | --- | --- |
+| `convnext` | Vision | image-classification |
+| `detr` | Vision | object-detection |
+| `depth_anything`, `depth_pro`, `zoedepth` | Vision | depth-estimation |
+| `segformer` | Vision | image-segmentation |
+| `swin2sr` | Vision | image-to-image |
+| `sam`, `sam2`, `sam2-video` | Vision | mask-generation, image-segmentation |
+| `bert` | NLP / Encoder | text-classification, token-classification, question-answering, and more |
+| `roberta`, `camembert`, `xlm-roberta` | NLP / Encoder | text-classification, token-classification, and more |
+| `bart`, `marian`, `t5` | NLP / Encoder | text2text-generation, feature-extraction |
+| `blip` | Multimodal | image-to-text, image-text-to-text |
+| `clip`, `clip-text-model`, `clip-vision-model` | Multimodal | feature-extraction, image-feature-extraction |
+| `siglip`, `siglip-text-model`, `siglip-vision-model` | Multimodal | feature-extraction, image-feature-extraction |
+| `vision-encoder-decoder` | Multimodal | image-to-text, text2text-generation |
+| `mu2`, `qwen3` | Generative | text2text-generation |
+
+---
+
+## Built-in Models
 
 Run `winml catalog` to browse the full catalog interactively.
 
-<details>
-<summary><strong>Click to expand the full model catalog</strong></summary>
-
 | Model ID | Task | Architecture |
-|:---------|:-----|:-------------|
+| --- | --- | --- |
 | `microsoft/resnet-50` | image-classification | ResNet |
 | `google/vit-base-patch16-224` | image-classification | ViT |
 | `microsoft/swin-large-patch4-window7-224` | image-classification | Swin |
@@ -357,127 +387,3 @@ Run `winml catalog` to browse the full catalog interactively.
 | `nvidia/segformer-b1-finetuned-ade-512-512` | image-segmentation | SegFormer |
 | `nvidia/segformer-b2-finetuned-ade-512-512` | image-segmentation | SegFormer |
 | `nvidia/segformer-b5-finetuned-ade-640-640` | image-segmentation | SegFormer |
-
-</details>
-
-These models are verified against WinML CLI's full pipeline and serve as reliable starting points. You are not limited to this list — any Hugging Face model that passes `winml inspect` is a valid input.
-
-For models not in this table, run `winml inspect -m <model-id>` to verify support before proceeding.
-
----
-
-## :warning: Scope & Limitations
-
-### What WinML CLI supports
-
-WinML CLI targets **classic deep learning models** — CNNs, encoders, vision transformers, NLP classifiers, token classifiers, object detection models, and segmentation models.
-
-Supported tasks include:
-- Image classification (ResNet, ViT, Swin, ConvNeXT)
-- Text classification (BERT, RoBERTa)
-- Token classification / NER (BERT, RoBERTa)
-- Object detection (Table Transformer)
-- Image segmentation (SegFormer)
-
-### What WinML CLI does not support
-
-**LLMs and generative models are not in scope.** Do not use WinML CLI with GPT, LLaMA, Phi, Mistral, Stable Diffusion, or any model with a decoder-only or sequence-to-sequence generative architecture. LLM support (with LoRA) is planned for Q3-Q4 2026.
-
-### Known constraints
-
-- `winml compile` requires an NPU device. If no NPU is available, skip the compile step and use `--device auto` for benchmarking.
-- Some models may export successfully but fail during optimization or quantization due to unsupported operator patterns. The analyzer will flag these issues.
-- Performance numbers vary by device, driver version, and EP version. Always benchmark on your target hardware.
-
----
-
-## :world_map: Roadmap
-
-| Milestone | Target | Highlights |
-|:----------|:-------|:-----------|
-| 🟡 **Kickoff** | Q4 2025 | Internal prototype, core primitive commands |
-| 🟢 **Early Access** | Q1 2026 | First external testers, config + build pipeline, hub catalog |
-| 🔵 **Public Beta** | Q2 2026 | Open source, agent skills, Foundry Toolkit integration |
-| 🟣 **RC** | Q3-Q4 2026 | **LLM support** (with LoRA), broader device coverage, MLIR |
-
-<details>
-<summary><strong>Click to expand roadmap details</strong></summary>
-
-**Q4 2025 — Kickoff**
-- Primitive commands: `inspect`, `export`, `optimize`, `quantize`, `compile`
-- QNN, OpenVINO, and VitisAI execution provider support
-- Internal validation with ResNet, BERT, ViT, SegFormer families
-
-**Q1 2026 — Early Access**
-- Pipeline commands: `config`, `build`, `perf`, `eval`
-- Analyzer with auto-configuration loop
-- Built-in model catalog (`winml catalog`)
-- Live hardware monitoring (`--monitor`)
-
-**Q2 2026 — Public Beta**
-- Open source release
-- Agent-ready skills for coding assistants (Claude Code, Cursor, Copilot)
-- Foundry Toolkit for VS Code integration
-
-**Q3-Q4 2026 — Release Candidate**
-- LLM support (decoder-only architectures with LoRA adapters)
-- NvTensorRTRTX, MIGraphX, and Dml execution providers
-- MLIR-based optimization backend
-- Public SDK and framework APIs
-
-</details>
-
----
-
-## :lock: Data / Telemetry
-
-Official WinML CLI releases can collect anonymous usage telemetry to
-help improve the product. Telemetry is classified as **Optional**. A
-one-time prompt on your first run asks for consent (default: accept —
-press Enter to enable, type `n` to decline).
-
-Dev installs (`pip install -e .` or running from a source checkout)
-never send telemetry.
-
-**Control** — edit `%USERPROFILE%\.winml\config.json`:
-
-- Set `telemetry.consent` to `"disabled"` to opt out
-- Set `telemetry.consent` to `"enabled"` to opt in
-- Delete the file to re-show the first-run prompt on the next run
-
-Telemetry is automatically disabled in CI / non-TTY environments
-regardless of the stored decision.
-
-See [docs/Privacy.md](docs/Privacy.md) for the full list of what is and
-is not collected, event schemas, CI auto-disable behavior, and storage
-locations.
-
----
-
-## :handshake: Contributions and Feedback
-
-We welcome contributions! Please see the [contribution guidelines](CONTRIBUTING.md).
-
-For feature requests or bug reports, please file a [GitHub Issue](https://github.com/microsoft/winml-cli/issues).
-
----
-
-## :balance_scale: Code of Conduct
-
-See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-
----
-
-## :page_facing_up: License
-
-This project is licensed under the [MIT License](LICENSE.txt).
-
----
-
-## Trademarks
-
-This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
-trademarks or logos is subject to and must follow
-[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
-Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft
-sponsorship. Any use of third-party trademarks or logos are subject to those third-party's policies.
