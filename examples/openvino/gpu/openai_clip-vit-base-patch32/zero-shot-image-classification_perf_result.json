@@ -1,0 +1,85 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "openai/clip-vit-base-patch32",
+                           "task":  "zero-shot-image-classification",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T16:54:28.655021+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "pixel_values",
+                                           "input_ids",
+                                           "attention_mask"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                3,
+                                                224,
+                                                224
+                                            ],
+                                            [
+                                                1,
+                                                77
+                                            ],
+                                            [
+                                                1,
+                                                77
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "float32",
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "image_embeds",
+                                            "last_hidden_state",
+                                            "text_embeds",
+                                            "last_hidden_state"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512
+                                             ],
+                                             [
+                                                 1,
+                                                 50,
+                                                 768
+                                             ],
+                                             [
+                                                 1,
+                                                 512
+                                             ],
+                                             [
+                                                 1,
+                                                 77,
+                                                 512
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  3.85,
+                       "min":  3.62,
+                       "max":  4.37,
+                       "p50":  3.87,
+                       "p90":  4.37,
+                       "p95":  4.37,
+                       "p99":  4.37,
+                       "std":  0.24,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  259.91,
+                       "batches_per_sec":  259.91
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

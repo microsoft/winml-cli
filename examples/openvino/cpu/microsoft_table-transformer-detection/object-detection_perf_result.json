@@ -1,0 +1,63 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "microsoft/table-transformer-detection",
+                           "task":  "object-detection",
+                           "device":  "cpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-21T10:36:16.162344+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "pixel_values"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                3,
+                                                800,
+                                                800
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "float32"
+                                       ],
+                       "output_names":  [
+                                            "logits",
+                                            "pred_boxes"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 15,
+                                                 3
+                                             ],
+                                             [
+                                                 1,
+                                                 15,
+                                                 4
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  134.78,
+                       "min":  132.57,
+                       "max":  139.71,
+                       "p50":  133.83,
+                       "p90":  139.71,
+                       "p95":  139.71,
+                       "p99":  139.71,
+                       "std":  2.4,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  7.42,
+                       "batches_per_sec":  7.42
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}
