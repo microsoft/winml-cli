@@ -1,25 +1,25 @@
-# microsoft/table-transformer-detection — QNN EP example
+# microsoft/table-transformer-detection
 
 End-to-end build + accuracy walkthrough for `microsoft/table-transformer-detection`
-(task: `object-detection`) on the QNN execution provider (NPU), using the
+(task: `object-detection`) on the NPU, using the
 PubTables-1M detection validation split as the dataset.
 
 Run all commands from the `ModelKit` repo root.
 
 ---
 
-## 1. Build the model on QNN EP
+## 1. Build the model on NPU
 
 Two steps: `winml config` generates a build config JSON, then `winml build`
 consumes it. `--precision w8a16` is the default NPU precision; the build
-produces a QDQ-quantized ONNX that the QNN EP executes on the NPU.
+produces a QDQ-quantized ONNX that executes on the NPU.
 
 ```powershell
 winml config `
   -m microsoft/table-transformer-detection `
   --task object-detection `
   --device npu `
-  --ep qnn `
+  --ep openvino `
   --precision w8a16 `
   -o build_config.json
 ```
@@ -29,7 +29,7 @@ winml build `
   -c build_config.json `
   -m microsoft/table-transformer-detection `
   --device npu `
-  --ep qnn `
+  --ep openvino `
   --use-cache
 ```
 
@@ -39,7 +39,7 @@ to evaluate is `objdet_*_quantized.onnx`.
 
 ---
 
-## 2. Evaluate on QNN EP with `winml eval`
+## 2. Evaluate on NPU with `winml eval`
 
 The PubTables-1M dataset must exist on disk first. Build it once:
 
@@ -59,7 +59,7 @@ winml eval `
   --model-id microsoft/table-transformer-detection `
   --task object-detection `
   --device npu `
-  --ep qnn `
+  --ep openvino `
   --dataset $HOME/.cache/winml/eval_datasets/build_pubtables1m_detection `
   --split validation `
   --samples 1000 `
@@ -101,15 +101,12 @@ uv run python scripts/e2e_eval/run_pytorch_baseline.py `
 
 ## 4. Comparing the results
 
-| Run | Engine | Device | Precision | mAP |
-|---|---|---|---|---|
-| PyTorch baseline | `transformers` eager | CPU | fp32 | _value from step 3 stdout_ |
-| WinML / QNN | ONNX Runtime + QNN EP | NPU | w8a16 (QDQ) | _value from step 2 `metrics.map`_ |
+For WinML, the accuracy value comes from metrics.map while for PyTorch baseline, it comes from stdout.
 
-Compare the two mAP values:
+Result on CPU	Intel(R) Core(TM) Ultra 7 258V:
 
-- **Absolute delta** = `winml_map - baseline_map`
-- **Relative delta** = `(winml_map - baseline_map) / baseline_map`
 
-A small negative delta is expected from w8a16 quantization. A large drop
-suggests inspecting the quantization of the QNN build.
+| Run | Device | Precision | mAP |
+|---|---|---|---|
+| PyTorch baseline | CPU | fp32 | 0.988714 |
+| WinML | NPU | w8a16 (QDQ) | 0.9822 |
