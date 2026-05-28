@@ -4,10 +4,11 @@
 # --------------------------------------------------------------------------
 """Shared fixtures for config tests.
 
-Mocks ``resolve_device`` and ``resolve_eps`` to avoid slow EP discovery
-in CI and to keep ``compile_provider`` resolution deterministic regardless
-of which EPs the test host has installed (e.g., OpenVINO would otherwise
-out-rank QNN/DML/CPU under the dynamic resolution in ``resolve_precision``).
+Mocks ``resolve_check_device_ep`` and ``resolve_eps`` to avoid slow EP
+discovery in CI and to keep ``compile_provider`` resolution deterministic
+regardless of which EPs the test host has installed (e.g., OpenVINO would
+otherwise out-rank QNN/DML/CPU under the dynamic resolution in
+``resolve_precision``).
 """
 
 from unittest.mock import patch
@@ -26,7 +27,10 @@ _DEVICE_TO_EPS = {
 def mock_resolve_device():
     """Mock device + EP resolution globally for all config tests.
 
-    - ``resolve_device``: stubbed so EP discovery via WinML doesn't slow CI.
+    - ``resolve_check_device_ep``: stubbed so EP discovery via WinML doesn't
+      slow CI. ``build.py`` calls this (not ``resolve_device`` directly), so
+      patching the higher-level entry point is what intercepts the lazy
+      import in ``generate_hf_build_config`` / ``resolve_quant_compile_config``.
     - ``resolve_eps``: returns a canonical single-EP list per device so
       ``resolve_precision`` produces deterministic ``compile_provider``
       values (QNN for npu, DML for gpu, CPU→None for cpu) independent of
@@ -34,8 +38,8 @@ def mock_resolve_device():
     """
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("npu", ["npu", "gpu", "cpu"]),
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
         ),
         patch(
             "winml.modelkit.config.precision.resolve_eps",

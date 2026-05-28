@@ -182,7 +182,7 @@ class TestCatalogCliSurface:
     def test_invalid_device_choice_exits_two(self) -> None:
         result = _run("--device", "TPU")
         assert result.exit_code == 2
-        assert "Invalid value for '--device'" in result.output
+        assert "Invalid value for '-d' / '--device'" in result.output
 
     def test_short_flags_accepted(self, type_task_pair: tuple[str, str], tmp_path: Path) -> None:
         """-t / -k short aliases are accepted by the parser."""

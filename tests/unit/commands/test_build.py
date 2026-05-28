@@ -30,15 +30,29 @@ _DEVICE_TO_EPS = {
 }
 
 
+def _fake_resolve_check_device_ep(*, device: str = "auto", ep: str | None = None):
+    """Side effect for resolve_check_device_ep that honours the requested device.
+
+    The build command's --device path calls resolve_quant_compile_config which
+    in turn calls resolve_check_device_ep. Tests pass explicit devices like
+    "npu", "gpu", "cpu" -- echo them back with a canonical EP so the downstream
+    precision policy resolves deterministically.
+    """
+    resolved = device.lower() if device != "auto" else "npu"
+    eps = _DEVICE_TO_EPS.get(resolved, ["CPUExecutionProvider"])
+    return resolved, ["npu", "gpu", "cpu"], eps
+
+
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device / resolve_eps to avoid hardware detection.
+    """Mock device/EP resolution to avoid hardware detection.
 
-    The build command calls resolve_device() / resolve_eps() to auto-select
-    an EP when ``--ep`` is not specified. Both must be mocked to avoid
-    slow DLL scanning and WinML SDK discovery on CI runners without WinML
-    installed. WinMLEPRegistry.get_instance is also patched defensively
-    for any downstream code path that may touch it.
+    The build command calls ``resolve_device`` / ``resolve_eps`` to auto-select
+    an EP when ``--ep`` is not specified, and ``resolve_check_device_ep`` (via
+    ``resolve_quant_compile_config``) when ``--device`` is explicit. All three
+    must be mocked to avoid slow DLL scanning and WinML SDK discovery on CI
+    runners without WinML installed. ``WinMLEPRegistry.get_instance`` is also
+    patched defensively for any downstream code path that may touch it.
     """
     mock_registry = MagicMock()
     mock_registry.is_ep_available.return_value = False
@@ -51,6 +65,10 @@ def mock_resolve_device():
         patch(
             "winml.modelkit.sysinfo.resolve_eps",
             side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            side_effect=_fake_resolve_check_device_ep,
         ),
         patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
