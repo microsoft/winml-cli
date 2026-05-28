@@ -108,7 +108,7 @@ Total: **40** (model, task) tuples.
 | facebook/dinov2-base | image-feature-extraction | 9/9 |
 | facebook/dinov2-large | image-feature-extraction | 8/9 |
 | facebook/dinov2-small | image-feature-extraction | 9/9 |
-| google-bert/bert-base-multilingual-cased | fill-mask | 1/9 |
+| google-bert/bert-base-multilingual-cased | fill-mask | 2/9 |
 | google-bert/bert-base-multilingual-uncased | fill-mask | 3/9 |
 | google-bert/bert-base-uncased | fill-mask | 7/9 |
 | google/vit-base-patch16-224 | image-classification | 7/9 |

@@ -1,17 +1,17 @@
-# QNN NPU Report
+# QNN (Qualcomm, NPU) Report
 
 ## Summary
 
 - Models: 78
 - Configs: 218
 - Perf Pass: 216/218 (99%)
-- Eval Pass: 170/218 (78%)
+- Eval Pass: 171/218 (78%)
 
 ### Per-precision breakdown
 
 | Precision | Models | Configs | Perf Pass | Eval Pass |
 |---|---|---|---|---|
-| fp16 | 78 | 92 | 90/92 (98%) | 64/92 (70%) |
+| fp16 | 78 | 92 | 90/92 (98%) | 65/92 (71%) |
 | w8a16 | 55 | 63 | 63/63 (100%) | 53/63 (84%) |
 | w8a8 | 55 | 63 | 63/63 (100%) | 53/63 (84%) |
 
@@ -22,7 +22,7 @@
 | AdamCodd/vit-base-nsfw-detector | image-classification | fp16 | [config](./AdamCodd_vit-base-nsfw-detector/image-classification_fp16_config.json) | 29.16ms, 34.3sps ([metric](./AdamCodd_vit-base-nsfw-detector/image-classification_fp16_perf_result.json)) | FAIL |
 | ahotrod/electra_large_discriminator_squad2_512 | question-answering | fp16 | [config](./ahotrod_electra_large_discriminator_squad2_512/question-answering_fp16_config.json) | 120.75ms, 8.3sps ([metric](./ahotrod_electra_large_discriminator_squad2_512/question-answering_fp16_perf_result.json)) | FAIL |
 | amunchet/rorshark-vit-base | image-classification | fp16 | [config](./amunchet_rorshark-vit-base/image-classification_fp16_config.json) | 7.00ms, 142.8sps ([metric](./amunchet_rorshark-vit-base/image-classification_fp16_perf_result.json)) | FAIL |
-| apple/mobilevit-small | image-classification | fp16 | [config](./apple_mobilevit-small/image-classification_fp16_config.json) | 5.32ms, 187.8sps ([metric](./apple_mobilevit-small/image-classification_fp16_perf_result.json)) | — |
+| apple/mobilevit-small | image-classification | fp16 | [config](./apple_mobilevit-small/image-classification_fp16_config.json) | 5.32ms, 187.8sps ([metric](./apple_mobilevit-small/image-classification_fp16_perf_result.json)) | TIMEOUT |
 | BAAI/bge-base-en-v1.5 | feature-extraction | fp16 | [config](./BAAI_bge-base-en-v1.5/feature-extraction_fp16_config.json) | 23.87ms, 41.9sps ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_fp16_perf_result.json)) | cosine_spearman=89.0097 ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_fp16_eval_result.json)) |
 |  | feature-extraction | w8a16 | [config](./BAAI_bge-base-en-v1.5/feature-extraction_w8a16_config.json) | 15.38ms, 65.0sps ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_w8a16_perf_result.json)) | cosine_spearman=81.0991 ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_w8a16_eval_result.json)) |
 |  | feature-extraction | w8a8 | [config](./BAAI_bge-base-en-v1.5/feature-extraction_w8a8_config.json) | 15.76ms, 63.4sps ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_w8a8_perf_result.json)) | cosine_spearman=81.0991 ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_w8a8_eval_result.json)) |
@@ -100,7 +100,7 @@
 | google-bert/bert-base-multilingual-cased | feature-extraction | fp16 | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_fp16_config.json) | 16.29ms, 61.4sps ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_fp16_perf_result.json)) | cosine_spearman=45.5332 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_fp16_eval_result.json)) |
 |  | feature-extraction | w8a16 | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a16_config.json) | 16.55ms, 60.4sps ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a16_perf_result.json)) | cosine_spearman=42.6837 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a16_eval_result.json)) |
 |  | feature-extraction | w8a8 | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a8_config.json) | 16.39ms, 61.0sps ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a8_perf_result.json)) | cosine_spearman=42.6837 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a8_eval_result.json)) |
-|  | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_config.json) | 54.29ms, 18.4sps ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_perf_result.json)) | — |
+|  | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_config.json) | 54.29ms, 18.4sps ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_perf_result.json)) | pseudo_perplexity=5.7760, nll=1.7537 ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_eval_result.json)) |
 |  | masked-lm | fp16 | [config](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_config.json) | 54.67ms, 18.3sps ([metric](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_perf_result.json)) | FAIL |
 | google-bert/bert-base-multilingual-uncased | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-uncased/fill-mask_fp16_config.json) | 82.06ms, 12.2sps ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_fp16_perf_result.json)) | pseudo_perplexity=4.6449, nll=1.5358 ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_fp16_eval_result.json)) |
 |  | fill-mask | w8a16 | [config](./google-bert_bert-base-multilingual-uncased/fill-mask_w8a16_config.json) | 82.24ms, 12.2sps ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_w8a16_perf_result.json)) | pseudo_perplexity=4.6449, nll=1.5358 ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_w8a16_eval_result.json)) |
@@ -130,7 +130,7 @@
 | joeddav/xlm-roberta-large-xnli | zero-shot-classification | fp16 | [config](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_fp16_config.json) | 41.40ms, 24.1sps ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_fp16_perf_result.json)) | accuracy=0.3100, f1=0.2508 ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_fp16_eval_result.json)) |
 |  | zero-shot-classification | w8a16 | [config](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_w8a16_config.json) | 42.22ms, 23.7sps ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_w8a16_perf_result.json)) | accuracy=0.1000, f1=0.0500 ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_w8a16_eval_result.json)) |
 |  | zero-shot-classification | w8a8 | [config](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_w8a8_config.json) | 43.55ms, 23.0sps ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_w8a8_perf_result.json)) | accuracy=0.1000, f1=0.0500 ([metric](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_w8a8_eval_result.json)) |
-| kredor/punctuate-all | token-classification | fp16 | [config](./kredor_punctuate-all/token-classification_fp16_config.json) | — | overall_precision=0.0000, overall_recall=0.0000, overall_f1=0.0000, overall_accuracy=0.0000 ([metric](./kredor_punctuate-all/token-classification_fp16_eval_result.json)) |
+| kredor/punctuate-all | token-classification | fp16 | [config](./kredor_punctuate-all/token-classification_fp16_config.json) | TIMEOUT | overall_precision=0.0000, overall_recall=0.0000, overall_f1=0.0000, overall_accuracy=0.0000 ([metric](./kredor_punctuate-all/token-classification_fp16_eval_result.json)) |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction | fp16 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_fp16_config.json) | 3.28ms, 304.9sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_fp16_perf_result.json)) | cosine_spearman=77.0097 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_fp16_eval_result.json)) |
 |  | feature-extraction | w8a16 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a16_config.json) | 4.54ms, 220.1sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a16_perf_result.json)) | cosine_spearman=79.2698 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a16_eval_result.json)) |
 |  | feature-extraction | w8a8 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a8_config.json) | 3.74ms, 267.6sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a8_perf_result.json)) | cosine_spearman=79.2698 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a8_eval_result.json)) |

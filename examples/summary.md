@@ -7,7 +7,7 @@
 | AMD (VitisAI, NPU) - fp16 | 71 | 85 | 58/85 (68%) | 45/85 (53%) | [Report](vitisai/npu/REPORT.md) |
 | AMD (VitisAI, NPU) - w8a16 | 48 | 56 | 30/56 (54%) | 26/56 (46%) | [Report](vitisai/npu/REPORT.md) |
 | AMD (VitisAI, NPU) - w8a8 | 48 | 56 | 33/56 (59%) | 29/56 (52%) | [Report](vitisai/npu/REPORT.md) |
-| QNN (Qualcomm, NPU) - fp16 | 78 | 92 | 90/92 (98%) | 64/92 (70%) | [Report](qnn/npu/REPORT.md) |
+| QNN (Qualcomm, NPU) - fp16 | 78 | 92 | 90/92 (98%) | 65/92 (71%) | [Report](qnn/npu/REPORT.md) |
 | QNN (Qualcomm, NPU) - w8a16 | 55 | 63 | 63/63 (100%) | 53/63 (84%) | [Report](qnn/npu/REPORT.md) |
 | QNN (Qualcomm, NPU) - w8a8 | 55 | 63 | 63/63 (100%) | 53/63 (84%) | [Report](qnn/npu/REPORT.md) |
 | OpenVINO (Intel, NPU) - fp16 | 71 | 85 | 84/85 (99%) | 49/85 (58%) | [Report](openvino/npu/REPORT.md) |
