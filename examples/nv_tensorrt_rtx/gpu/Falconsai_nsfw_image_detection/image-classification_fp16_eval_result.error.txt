@@ -1,1 +1,2 @@
-[2026-05-27T11:28:15] WARNING: --dataset not specified; attempting default dataset 'timm/mini-imagenet' for task 'image-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+[2026-05-27T18:00:46] WARNING: --dataset not specified; attempting default dataset 'timm/mini-imagenet' for task 'image-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+Error: Evaluation failed: Failed to load model 'Falconsai/nsfw_image_detection'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task image-classification' to see supported role=path model options.

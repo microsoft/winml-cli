@@ -1,1 +1,2 @@
-[2026-05-27T11:29:37] WARNING: --dataset not specified; attempting default dataset 'timm/mini-imagenet' for task 'image-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+[2026-05-27T18:01:04] WARNING: --dataset not specified; attempting default dataset 'timm/mini-imagenet' for task 'image-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+Error: Evaluation failed: Failed to load model 'microsoft/resnet-18'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task image-classification' to see supported role=path model options.
