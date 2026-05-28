@@ -77,7 +77,7 @@ def compute_case_signature(case: dict, *, namespace: str) -> str:
         sig_parts.append(f"ns:{namespace}")
 
     def _safe_dump(obj: Any) -> str:
-        def _default(o: Any):
+        def _default(o: Any) -> Any:
             if isinstance(o, onnx.TensorProto):
                 return json.loads(json_format.MessageToJson(o))
             if isinstance(o, np.ndarray):
@@ -165,7 +165,7 @@ class CheckResultWriter:
         self.file_path = Path(file_path)
         self.sys_info = sys_info
         self.save_per_cases = save_per_cases
-        self.results = []
+        self.results: list[dict[str, Any]] = []
         self.pending_count = 0
         self.rerun_failed = rerun_failed
         self.delta_only = delta_only
@@ -430,7 +430,7 @@ class CheckResultWriter:
             key=lambda x: x.get("case_index", "") if isinstance(x, dict) else "",
         )
 
-        def json_default(obj):
+        def json_default(obj: Any) -> Any:
             if isinstance(obj, onnx.TensorProto):
                 return json.loads(json_format.MessageToJson(obj))
             if isinstance(obj, np.ndarray):

@@ -45,6 +45,7 @@ class EPContextNodeChecker(NodeChecker):
     ) -> "PatternRuntime":
         """Check EPContext node partition_name against the execution provider name."""
         ep_name = kwargs.get("ep_name")
+        assert ep_name is not None, "ep_name must be provided for EPContextNodeChecker"
         partition_name = self.get_attribute_value(node, "partition_name")
         # Suffix every pattern_id with the EP label derived from
         # partition_name so multi-EP analysis reports stay disambiguated
