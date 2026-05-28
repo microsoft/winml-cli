@@ -188,6 +188,12 @@ class DatasetCalibrationReader(CalibrationDataReader):
             # Pass model_path for RandomDataset fallback on unsupported tasks
             dataset_kwargs["model_path"] = model_path
 
+        # Convert to known task before looking up the dataset registry.
+        from ..loader.task import canonical_task_to_known_task
+
+        task = canonical_task_to_known_task(task, model_name)
+        self.task = task
+
         # Create dataset via factory
         self._dataset = universal_calib_dataset(
             model_name=model_name,
