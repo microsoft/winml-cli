@@ -35,7 +35,7 @@ class ActionItem(BaseModel):
     type: str = Field(
         ..., description="Type of transformation or optimization, e.g. Olive pass name"
     )
-    optimization_options: dict[str, object] | None = Field(
+    optimization_options: dict[str, bool] | None = Field(
         default=None, description="Configuration options"
     )
 
