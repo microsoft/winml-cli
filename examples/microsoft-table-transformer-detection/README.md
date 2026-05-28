@@ -76,7 +76,31 @@ The mAP value is `metrics.map` inside `winml_eval_output.json`.
 
 ---
 
-## 3. Evaluate the original PyTorch model
+## 3. Measure latency with `winml perf`
+
+`winml perf` benchmarks the quantized ONNX directly using random inputs
+derived from the model's I/O configuration. Point `-m` at the same
+`*_quantized.onnx` produced in step 1. `--warmup` iterations are excluded
+from the statistics; `--iterations` is the measured sample count.
+
+```powershell
+winml perf `
+  -m $HOME/.cache/winml/artifacts/microsoft_table-transformer-detection/objdet_<hash>_quantized.onnx `
+  --device npu `
+  --ep openvino `
+  --warmup 10 `
+  --iterations 100 `
+  -o winml_perf_output.json
+```
+
+The output JSON contains `latency_ms` (`mean`, `min`, `max`, `p50`, `p90`,
+`p95`, `p99`, `std`) and `throughput` (`samples_per_sec`, `batches_per_sec`).
+Mean and p50 latency are the headline numbers; report them alongside the
+device and precision used.
+
+---
+
+## 4. Evaluate the original PyTorch model
 
 `run_pytorch_baseline.py` loads the HuggingFace checkpoint with native PyTorch
 on CPU and emits the same metric so the two runs are directly comparable. The
@@ -109,30 +133,6 @@ uv run python scripts/e2e_eval/run_pytorch_baseline.py `
 The latency JSON line has the same `mean_ms` / `min_ms` / `max_ms` /
 `p50_ms` / `p90_ms` / `p95_ms` / `p99_ms` keys as `winml perf` so the two
 runs can be compared directly.
-
----
-
-## 4. Measure latency with `winml perf`
-
-`winml perf` benchmarks the quantized ONNX directly using random inputs
-derived from the model's I/O configuration. Point `-m` at the same
-`*_quantized.onnx` produced in step 1. `--warmup` iterations are excluded
-from the statistics; `--iterations` is the measured sample count.
-
-```powershell
-winml perf `
-  -m $HOME/.cache/winml/artifacts/microsoft_table-transformer-detection/objdet_<hash>_quantized.onnx `
-  --device npu `
-  --ep openvino `
-  --warmup 10 `
-  --iterations 100 `
-  -o winml_perf_output.json
-```
-
-The output JSON contains `latency_ms` (`mean`, `min`, `max`, `p50`, `p90`,
-`p95`, `p99`, `std`) and `throughput` (`samples_per_sec`, `batches_per_sec`).
-Mean and p50 latency are the headline numbers; report them alongside the
-device and precision used.
 
 ---
 
