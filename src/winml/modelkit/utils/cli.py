@@ -172,6 +172,7 @@ def device_option(required=True, optional_message=None, default="NPU", include_a
         help_text = f"{help_text}. {optional_message}"
 
     return click.option(
+        "-d",
         "--device",
         required=required,
         default=default if not required else None,
