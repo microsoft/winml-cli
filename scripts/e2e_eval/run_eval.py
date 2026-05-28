@@ -81,8 +81,15 @@ TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.js
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION_NPU = "w8a16"
 
+# EP aliases / canonical names that imply VitisAI.  VitisAI (AMD Ryzen AI)
+# expects INT8 weights + INT8 activations (w8a8) — not the w8a16 default used
+# for Qualcomm/QNN.  Compiling w8a16 on VitisAI produces an ONNX file the EP
+# loads but crashes on the first inference, so we skip quantization entirely
+# when VitisAI is selected.
+_VITISAI_EP_NAMES = frozenset({"vitisai", "vitisaiexecutionprovider"})
 
-def _resolve_precision(device: str, explicit: str | None) -> str | None:
+
+def _resolve_precision(device: str, explicit: str | None, ep: str | None = None) -> str | None:
     """Return the precision to pass to winml config/perf, or None to omit the flag.
 
     w8a16 is only applied by default on NPU.  For CPU/GPU the flag is omitted
@@ -91,10 +98,15 @@ def _resolve_precision(device: str, explicit: str | None) -> str | None:
     (NHWC layout transformer inserts Conv nodes that QNN GPU's GetCapability
     does not claim).
 
+    When the VitisAI EP is selected, "fp32" is returned to skip quantization
+    entirely — VitisAI requires w8a8 and crashes on the w8a16 default.
+
     An explicit per-model precision always takes precedence.
     """
     if explicit:
         return explicit
+    if (ep or "").lower() in _VITISAI_EP_NAMES:
+        return "fp32"
     return _DEFAULT_PRECISION_NPU if device == "npu" else None
 
 
@@ -549,7 +561,7 @@ def run_model(
     """
     if not onnx_paths:
         # No pre-built paths: fall back to HF model ID (single model only)
-        precision = _resolve_precision(device, None)
+        precision = _resolve_precision(device, None, ep=ep)
         args = [
             *WINML_CLI,
             "perf",
@@ -1336,7 +1348,7 @@ def main() -> None:
             build_result = _run_build(
                 entry,
                 args.device,
-                _resolve_precision(args.device, entry.precision),
+                _resolve_precision(args.device, entry.precision, ep=args.ep),
                 args.timeout,
                 model_dir,
                 ep=args.ep,
