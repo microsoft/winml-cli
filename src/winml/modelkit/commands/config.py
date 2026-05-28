@@ -174,6 +174,9 @@ def config(
 
     Requires at least one of -m/--model, --model-type, or --model-class.
 
+    If device is auto or EP is None, they are inferred from the system configuration.
+    If both are specified, the combination is only validated but not against the system.
+
     \b
     Examples:
         # Basic usage - auto-detect everything
