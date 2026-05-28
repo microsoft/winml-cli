@@ -102,9 +102,9 @@ Total: **42** (model, task) tuples.
 | deepset/roberta-base-squad2 | question-answering | 9/9 |
 | deepset/tinyroberta-squad2 | question-answering | 9/9 |
 | dima806/fairface_age_image_detection | image-classification | 1/9 |
-| distilbert/distilbert-base-cased-distilled-squad | question-answering | 5/9 |
+| distilbert/distilbert-base-cased-distilled-squad | question-answering | 6/9 |
 | distilbert/distilbert-base-uncased | fill-mask | 4/9 |
-| distilbert/distilbert-base-uncased-distilled-squad | question-answering | 5/9 |
+| distilbert/distilbert-base-uncased-distilled-squad | question-answering | 6/9 |
 | distilbert/distilbert-base-uncased-finetuned-sst-2-english | text-classification | 4/9 |
 | facebook/dino-vitb16 | image-feature-extraction | 7/9 |
 | facebook/dino-vits16 | image-feature-extraction | 8/9 |
@@ -116,7 +116,7 @@ Total: **42** (model, task) tuples.
 | google-bert/bert-base-uncased | fill-mask | 8/9 |
 | google/vit-base-patch16-224 | image-classification | 8/9 |
 | google/vit-base-patch16-224-in21k | image-feature-extraction | 9/9 |
-| hustvl/yolos-small | object-detection | 4/9 |
+| hustvl/yolos-small | object-detection | 6/9 |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction | 9/9 |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | zero-shot-image-classification | 7/9 |
 | microsoft/rad-dino | image-feature-extraction | 9/9 |
@@ -126,11 +126,11 @@ Total: **42** (model, task) tuples.
 | rizvandwiki/gender-classification | image-classification | 3/9 |
 | sentence-transformers/all-MiniLM-L6-v2 | feature-extraction | 9/9 |
 | sentence-transformers/all-MiniLM-L6-v2 | sentence-similarity | 9/9 |
-| sentence-transformers/all-mpnet-base-v2 | sentence-similarity | 5/9 |
-| sentence-transformers/multi-qa-mpnet-base-dot-v1 | sentence-similarity | 5/9 |
+| sentence-transformers/all-mpnet-base-v2 | sentence-similarity | 7/9 |
+| sentence-transformers/multi-qa-mpnet-base-dot-v1 | sentence-similarity | 7/9 |
 | sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 | sentence-similarity | 8/9 |
 | sentence-transformers/paraphrase-multilingual-mpnet-base-v2 | sentence-similarity | 8/9 |
-| valentinafeve/yolos-fashionpedia | object-detection | 5/9 |
+| valentinafeve/yolos-fashionpedia | object-detection | 7/9 |
 | w11wo/indonesian-roberta-base-posp-tagger | token-classification | 2/9 |
 
 ---
