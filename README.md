@@ -7,7 +7,7 @@
 
 **Windows ML CLI** is a command line tool for building **portable, performant, and high-quality** AI models for Windows ML. It takes you from a source model — whether from Hugging Face or your own pipeline — to a hardware-optimized artifact in a reproducible workflow.
 
-Purpose-built for Windows hardware diversity, the CLI handles conversion, graph optimization, and compilation across AMD, Intel, NVIDIA, and Qualcomm targets. The CLI is fitting naturally into CI/CD pipelines so teams can validate and ship models easily.
+Purpose-built for Windows hardware diversity, the CLI handles conversion, graph optimization, and compilation across AMD, Intel, NVIDIA, and Qualcomm targets. The CLI fits naturally into CI/CD pipelines so teams can validate and ship models easily.
 
 ---
 
@@ -29,7 +29,7 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 
 WinML CLI supports **classic deep learning models** for now — LLM support is on the way.
 
-**Supported execution providers:** QNN · OpenVINO · VitisAI · NvTensorRTRTX · MIGraphX · Dml · CPU — covering NPU, GPU, and CPU across Windows ML. See the [Supported Hardware](#supported-hardware) reference table for the full EP-to-device mapping.
+**Supported execution providers:** QNN · OpenVINO · VitisAI · NvTensorRTRTX · Dml · CPU — covering NPU, GPU, and CPU across Windows ML. See the [Supported Hardware](#supported-hardware) reference table for the full EP-to-device mapping.
 
 The [built-in model catalog](#built-in-models) includes verified models that run across all EPs supported by Windows ML and serve as a reliable starting point. WinML CLI is not limited to these — you can bring **any model** you have:
 
@@ -52,8 +52,9 @@ See the [Supported Tasks](#supported-tasks) and [Supported Model Types](#support
 | Component | Details |
 |---|---|
 | Windows | Windows 11 24H2 or later (required for NPU support; earlier versions work for CPU/GPU) |
-| Python | 3.11 (the project pins `requires-python = ">=3.11,<3.12"`) |
+| Python | 3.11 |
 | Package manager | [`uv`](https://github.com/astral-sh/uv) |
+| **WinML CLI** (Python wheel) | [Releases](https://github.com/microsoft/winml-cli/releases) |
 
 ### Installation
 
@@ -303,7 +304,7 @@ sponsorship. Any use of third-party trademarks or logos are subject to those thi
 | **OpenVINO** | Intel NPU, GPU & CPU (Meteor Lake / Lunar Lake) | 🟢 Ready | `--ep openvino` | `--device npu`, `--device gpu`, or `--device cpu` |
 | **VitisAI** | AMD NPU — Ryzen AI (Phoenix / Hawk Point / Strix) | 🟢 Ready | `--ep vitisai` | `--device npu` |
 | **NvTensorRTRTX** | NVIDIA discrete GPUs | 🟢 Ready | `--ep nv_tensorrt_rtx` | `--device gpu` |
-| **MIGraphX** | AMD discrete GPUs | 🟢 Ready | `--ep migraphx` | `--device gpu` |
+| **MIGraphX** | AMD discrete GPUs | ⚠️ Coming soon | `--ep migraphx` | `--device gpu` |
 | **Dml** | Hardware-agnostic GPU backend | 🟢 Ready | `--ep dml` | `--device gpu` |
 | **CPU** | Cross-platform fallback | 🟢 Ready | `--ep cpu` | `--device cpu` |
 
