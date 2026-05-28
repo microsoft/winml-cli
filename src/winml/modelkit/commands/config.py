@@ -104,7 +104,10 @@ def _is_onnx_file(model_input: str) -> bool:
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
 )
 @cli_utils.device_option(
-    required=False, optional_message="Affects compile config.", default="auto", include_auto=True
+    required=False,
+    optional_message="Affects quant/compile config.",
+    default="auto",
+    include_auto=True,
 )
 @cli_utils.ep_option(
     required=False,
