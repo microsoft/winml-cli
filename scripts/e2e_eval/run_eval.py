@@ -83,9 +83,9 @@ _DEFAULT_PRECISION_NPU = "w8a16"
 
 # EP aliases / canonical names that imply VitisAI.  VitisAI (AMD Ryzen AI)
 # expects INT8 weights + INT8 activations (w8a8) — not the w8a16 default used
-# for Qualcomm/QNN.  Compiling w8a16 on VitisAI produces an ONNX file the EP
-# loads but crashes on the first inference, so we skip quantization entirely
-# when VitisAI is selected.
+# for Qualcomm/QNN, and not fp32 (the NPU cannot execute fp32).  Compiling
+# w8a16 *or* leaving the model fp32 produces an ONNX file the EP loads but
+# crashes on the first inference, so we force w8a8 when VitisAI is selected.
 _VITISAI_EP_NAMES = frozenset({"vitisai", "vitisaiexecutionprovider"})
 
 
@@ -98,15 +98,16 @@ def _resolve_precision(device: str, explicit: str | None, ep: str | None = None)
     (NHWC layout transformer inserts Conv nodes that QNN GPU's GetCapability
     does not claim).
 
-    When the VitisAI EP is selected, "fp32" is returned to skip quantization
-    entirely — VitisAI requires w8a8 and crashes on the w8a16 default.
+    When the VitisAI EP is selected, "w8a8" is returned — VitisAI requires
+    INT8 weights + INT8 activations and crashes on both the w8a16 default and
+    on fp32 models.
 
     An explicit per-model precision always takes precedence.
     """
     if explicit:
         return explicit
     if (ep or "").lower() in _VITISAI_EP_NAMES:
-        return "fp32"
+        return "w8a8"
     return _DEFAULT_PRECISION_NPU if device == "npu" else None
 
 

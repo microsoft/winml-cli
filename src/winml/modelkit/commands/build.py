@@ -436,7 +436,12 @@ def build(
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
-                resolved_quant, _ = resolve_quant_compile_config(device=device)
+                # Forward ep so EP-specific defaults (e.g. VitisAI requires
+                # w8a8, not the generic NPU w8a16) are honored.  Without this
+                # the patch silently downgrades the user's config to the
+                # device-only default and produces a model that crashes at
+                # inference on EPs with stricter precision requirements.
+                resolved_quant, _ = resolve_quant_compile_config(device=device, ep=ep)
                 if resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:

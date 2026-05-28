@@ -35,6 +35,14 @@ _AUTO_PRECISION: dict[str, str] = {
     "cpu": "fp16",
 }
 
+# EP-specific auto-precision overrides (applied when precision="auto" and
+# the EP appears in this map).  VitisAI (AMD Ryzen AI NPU) requires INT8
+# weights + INT8 activations; the generic NPU w8a16 default produces a model
+# the EP loads but crashes on first inference.
+_EP_AUTO_PRECISION: dict[EPName, str] = {
+    "VitisAIExecutionProvider": "w8a8",
+}
+
 # Precision -> weight/activation type mapping (named presets)
 _WEIGHT_TYPE: dict[str, str | None] = {
     "int8": "uint8",
@@ -252,7 +260,12 @@ def resolve_precision(
 
     # Resolve "auto" precision for the resolved device
     if resolved_precision == "auto":
-        resolved_precision = _AUTO_PRECISION[resolved_device]
+        # EP-specific override takes precedence over the device default
+        # (e.g. VitisAI on NPU needs w8a8, not the generic NPU w8a16).
+        if ep_canonical is not None and ep_canonical in _EP_AUTO_PRECISION:
+            resolved_precision = _EP_AUTO_PRECISION[ep_canonical]
+        else:
+            resolved_precision = _AUTO_PRECISION[resolved_device]
 
         # GPU + LLM: warn about w4a16 recommendation
         if resolved_device == "gpu" and task in _LLM_TASKS:
