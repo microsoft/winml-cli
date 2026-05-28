@@ -79,7 +79,7 @@ source .venv/Scripts/activate
 **2. Install winml-cli**
 
 ```bash
-pip install winml-cli
+uv pip install winml-cli
 ```
 
 **3. Verify your environment**
