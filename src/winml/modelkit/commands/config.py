@@ -430,18 +430,12 @@ def config(
 
             console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
 
-            # Fix #4: Device from resolve_device (existing API)
-            from ..sysinfo import resolve_device as _rd
+            # Use the same resolution logic as the config generation to determine what to display
+            from ..sysinfo import resolve_check_device_ep
 
-            _resolved_dev, _ = _rd(device, ep=ep)
+            _resolved_dev, _, _resolved_eps = resolve_check_device_ep(device=device, ep=ep)
             console.print(f"      Device:     [cyan]{_resolved_dev.upper()}[/cyan]")
-
-            # EP — only shown when user explicitly passed --ep
-            if ep:
-                from ..utils.constants import normalize_ep_name
-
-                _ep_full = normalize_ep_name(ep) or ep
-                console.print(f"      EP:         [cyan]{_ep_full}[/cyan]")
+            console.print(f"      EP:         [cyan]{_resolved_eps[0]}[/cyan]")
 
             # Quant types — display exactly what config contains
             if _quant:

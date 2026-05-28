@@ -144,35 +144,6 @@ def _get_available_eps() -> frozenset[EPName]:
     return frozenset(ep for eps in _get_device_ep_map_from_ort().values() for ep in eps)
 
 
-def check_device(*, device: str = "auto", ep: EPNameOrAlias | None = None) -> None:
-    """Check that the requested device and/or EP combination is valid, raising if not.
-
-    Ideal for commands that do not need the device + ep actually exists on the system.
-
-    Args:
-        device: "auto", "npu", "gpu", or "cpu".
-        ep: Optional EP short name (e.g., "qnn", "dml"). When set,
-            availability is checked and an error is raised if no compatible EP
-            is found.
-
-    Raises:
-        ValueError: If the requested device or EP combination is not valid.
-    """
-    if device == "auto":
-        return  # "auto" is always valid
-    ep_name = normalize_ep_name(ep)
-    if ep_name is None:
-        return  # No specific EP requested, so no compatibility check needed
-    if ep_name not in EP_SUPPORTED_DEVICES:
-        raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
-    supported_devices = EP_SUPPORTED_DEVICES[ep_name]
-    if device.lower() not in supported_devices:
-        raise ValueError(
-            f"EP '{ep}' does not support device '{device}'. "
-            f"Supported devices for {ep_name}: {', '.join(supported_devices)}."
-        )
-
-
 def resolve_device(
     device: str = "auto",
     *,
@@ -252,3 +223,36 @@ def resolve_eps(resolved_device: str) -> list[EPName]:
     device = resolved_device.lower()
     available_eps = set(_get_device_ep_map_from_ort().get(device, ()))
     return [ep for ep in _DEVICE_EP_MAP.get(device, []) if ep in available_eps]
+
+
+def resolve_check_device_ep(
+    *, device: str = "auto", ep: EPNameOrAlias | None = None
+) -> tuple[str, list[str], list[EPName]]:
+    """Resolve or check that the requested device and/or EP combination is valid, raising if not.
+
+    Ideal for commands that do not need the device + ep actually exists on the system.
+
+    Args:
+        device: "auto", "npu", "gpu", or "cpu".
+        ep: Optional EP short name (e.g., "qnn", "dml"). When set,
+            availability is checked and an error is raised if no compatible EP
+            is found.
+
+    Raises:
+        ValueError: If the requested device or EP combination is not valid.
+    """
+    ep_name = normalize_ep_name(ep)
+    if device == "auto" or ep_name is None:
+        resolved_device, available_devices = resolve_device(device=device, ep=ep)
+        available_eps: list[EPName] = resolve_eps(resolved_device) if ep_name is None else [ep_name]
+        return resolved_device, available_devices, available_eps
+
+    if ep_name not in EP_SUPPORTED_DEVICES:
+        raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
+    supported_devices = EP_SUPPORTED_DEVICES[ep_name]
+    if device.lower() not in supported_devices:
+        raise ValueError(
+            f"EP '{ep}' does not support device '{device}'. "
+            f"Supported devices for {ep_name}: {', '.join(supported_devices)}."
+        )
+    return device.lower(), list(supported_devices), [ep_name]
