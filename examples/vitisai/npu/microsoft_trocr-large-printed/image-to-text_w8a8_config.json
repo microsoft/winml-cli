@@ -58,7 +58,6 @@
         "task": "image-feature-extraction",
         "model_name": "microsoft/trocr-large-printed"
       },
-      "compile": null,
       "loader": {
         "task": "image-feature-extraction",
         "model_class": "VisionEncoderWrapper",
@@ -557,7 +556,6 @@
         "task": "text2text-generation",
         "model_name": "microsoft/trocr-large-printed"
       },
-      "compile": null,
       "loader": {
         "task": "text2text-generation",
         "model_class": "VisionDecoderWrapper",

@@ -43,15 +43,6 @@
         "matmul_add_fusion": true
       },
       "quant": null,
-      "compile": {
-        "execution_provider": "openvino",
-        "provider_options": {},
-        "enable_ep_context": true,
-        "embed_context": false,
-        "compiler": "ort",
-        "qnn_sdk_root": null,
-        "validate": true
-      },
       "loader": {
         "task": "image-feature-extraction",
         "model_class": "CLIPVisionModelWithProjection",
@@ -111,15 +102,6 @@
         "matmul_add_fusion": true
       },
       "quant": null,
-      "compile": {
-        "execution_provider": "openvino",
-        "provider_options": {},
-        "enable_ep_context": true,
-        "embed_context": false,
-        "compiler": "ort",
-        "qnn_sdk_root": null,
-        "validate": true
-      },
       "loader": {
         "task": "feature-extraction",
         "model_class": "CLIPTextModelWithProjection",

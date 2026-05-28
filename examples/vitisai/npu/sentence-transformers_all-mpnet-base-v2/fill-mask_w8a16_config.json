@@ -60,7 +60,6 @@
     "task": "fill-mask",
     "model_name": "sentence-transformers/all-mpnet-base-v2"
   },
-  "compile": null,
   "loader": {
     "task": "fill-mask",
     "model_class": "AutoModelForMaskedLM",

@@ -50,7 +50,6 @@
     "task": "image-classification",
     "model_name": "google/vit-base-patch16-224"
   },
-  "compile": null,
   "loader": {
     "task": "image-classification",
     "model_class": "AutoModelForImageClassification",

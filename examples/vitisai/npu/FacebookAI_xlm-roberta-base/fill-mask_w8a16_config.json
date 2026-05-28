@@ -62,15 +62,6 @@
     "task": "fill-mask",
     "model_name": "FacebookAI/xlm-roberta-base"
   },
-  "compile": {
-    "execution_provider": "vitisai",
-    "provider_options": {},
-    "enable_ep_context": false,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "fill-mask",
     "model_class": "AutoModelForMaskedLM",

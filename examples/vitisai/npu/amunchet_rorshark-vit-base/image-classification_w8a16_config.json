@@ -50,7 +50,6 @@
     "task": "image-classification",
     "model_name": "amunchet/rorshark-vit-base"
   },
-  "compile": null,
   "loader": {
     "task": "image-classification",
     "model_class": "AutoModelForImageClassification",

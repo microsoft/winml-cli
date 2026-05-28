@@ -62,15 +62,6 @@
     "task": "token-classification",
     "model_name": "w11wo/indonesian-roberta-base-posp-tagger"
   },
-  "compile": {
-    "execution_provider": "openvino",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "token-classification",
     "model_class": "AutoModelForTokenClassification",

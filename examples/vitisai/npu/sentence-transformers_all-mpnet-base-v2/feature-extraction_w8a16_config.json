@@ -60,7 +60,6 @@
     "task": "feature-extraction",
     "model_name": "sentence-transformers/all-mpnet-base-v2"
   },
-  "compile": null,
   "loader": {
     "task": "feature-extraction",
     "model_class": "AutoModel",

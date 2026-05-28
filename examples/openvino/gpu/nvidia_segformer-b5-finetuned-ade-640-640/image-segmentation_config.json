@@ -33,7 +33,6 @@
   },
   "optim": {},
   "quant": null,
-  "compile": null,
   "loader": {
     "task": "image-segmentation",
     "model_class": "AutoModelForSemanticSegmentation",

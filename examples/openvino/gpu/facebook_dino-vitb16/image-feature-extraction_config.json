@@ -33,7 +33,6 @@
   },
   "optim": {},
   "quant": null,
-  "compile": null,
   "loader": {
     "task": "image-feature-extraction",
     "model_class": "AutoModel",

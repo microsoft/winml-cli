@@ -50,7 +50,6 @@
     "task": "image-classification",
     "model_name": "microsoft/resnet-18"
   },
-  "compile": null,
   "loader": {
     "task": "image-classification",
     "model_class": "AutoModelForImageClassification",

@@ -48,15 +48,6 @@
     "clamp_constant_values": true
   },
   "quant": null,
-  "compile": {
-    "execution_provider": "vitisai",
-    "provider_options": {},
-    "enable_ep_context": false,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "question-answering",
     "model_class": "AutoModelForQuestionAnswering",

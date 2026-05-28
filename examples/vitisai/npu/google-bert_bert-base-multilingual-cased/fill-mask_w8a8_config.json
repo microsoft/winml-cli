@@ -74,7 +74,6 @@
     "task": "fill-mask",
     "model_name": "google-bert/bert-base-multilingual-cased"
   },
-  "compile": null,
   "loader": {
     "task": "fill-mask",
     "model_class": "AutoModelForMaskedLM",

@@ -50,7 +50,6 @@
     "task": "image-classification",
     "model_name": "facebook/convnext-tiny-224"
   },
-  "compile": null,
   "loader": {
     "task": "image-classification",
     "model_class": "AutoModelForImageClassification",

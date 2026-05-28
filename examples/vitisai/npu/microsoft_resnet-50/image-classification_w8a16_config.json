@@ -50,15 +50,6 @@
     "task": "image-classification",
     "model_name": "microsoft/resnet-50"
   },
-  "compile": {
-    "execution_provider": "vitisai",
-    "provider_options": {},
-    "enable_ep_context": false,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "image-classification",
     "model_class": "AutoModelForImageClassification",

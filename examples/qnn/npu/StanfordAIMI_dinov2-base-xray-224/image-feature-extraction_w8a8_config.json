@@ -50,15 +50,6 @@
     "task": "image-feature-extraction",
     "model_name": "StanfordAIMI/dinov2-base-xray-224"
   },
-  "compile": {
-    "execution_provider": "qnn",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "image-feature-extraction",
     "model_class": "AutoModel",

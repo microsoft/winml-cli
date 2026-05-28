@@ -45,7 +45,6 @@
     "clamp_constant_values": true
   },
   "quant": null,
-  "compile": null,
   "loader": {
     "task": "text-classification",
     "model_class": "AutoModelForSequenceClassification",

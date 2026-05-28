@@ -33,7 +33,6 @@
   },
   "optim": {},
   "quant": null,
-  "compile": null,
   "loader": {
     "task": "depth-estimation",
     "model_class": "AutoModelForDepthEstimation",

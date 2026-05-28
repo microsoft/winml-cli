@@ -62,7 +62,6 @@
     "task": "token-classification",
     "model_name": "Jean-Baptiste/camembert-ner-with-dates"
   },
-  "compile": null,
   "loader": {
     "task": "token-classification",
     "model_class": "AutoModelForTokenClassification",

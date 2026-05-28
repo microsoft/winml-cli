@@ -74,15 +74,6 @@
     "task": "text-classification",
     "model_name": "ProsusAI/finbert"
   },
-  "compile": {
-    "execution_provider": "qnn",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "text-classification",
     "model_class": "AutoModelForSequenceClassification",

@@ -65,15 +65,6 @@
     "task": "question-answering",
     "model_name": "deepset/roberta-base-squad2"
   },
-  "compile": {
-    "execution_provider": "qnn",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "question-answering",
     "model_class": "AutoModelForQuestionAnswering",

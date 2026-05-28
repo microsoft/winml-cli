@@ -60,7 +60,6 @@
     "task": "zero-shot-classification",
     "model_name": "lxyuan/distilbert-base-multilingual-cased-sentiments-student"
   },
-  "compile": null,
   "loader": {
     "task": "zero-shot-classification",
     "model_class": "AutoModelForSequenceClassification",

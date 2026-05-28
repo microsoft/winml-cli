@@ -45,7 +45,6 @@
     "clamp_constant_values": true
   },
   "quant": null,
-  "compile": null,
   "loader": {
     "task": "token-classification",
     "model_class": "AutoModelForTokenClassification",

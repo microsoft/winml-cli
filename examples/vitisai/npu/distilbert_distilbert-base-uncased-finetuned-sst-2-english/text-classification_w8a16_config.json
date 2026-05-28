@@ -60,7 +60,6 @@
     "task": "text-classification",
     "model_name": "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
   },
-  "compile": null,
   "loader": {
     "task": "text-classification",
     "model_class": "AutoModelForSequenceClassification",

@@ -68,15 +68,6 @@
     "task": "feature-extraction",
     "model_name": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
   },
-  "compile": {
-    "execution_provider": "openvino",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "feature-extraction",
     "model_class": "CLIPTextModelWithProjection",

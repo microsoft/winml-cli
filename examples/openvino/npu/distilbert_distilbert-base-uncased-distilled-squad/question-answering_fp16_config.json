@@ -46,7 +46,6 @@
   },
   "optim": {},
   "quant": null,
-  "compile": null,
   "loader": {
     "task": "question-answering",
     "model_class": "AutoModelForQuestionAnswering",

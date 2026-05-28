@@ -62,7 +62,6 @@
     "task": "token-classification",
     "model_name": "kredor/punctuate-all"
   },
-  "compile": null,
   "loader": {
     "task": "token-classification",
     "model_class": "AutoModelForTokenClassification",

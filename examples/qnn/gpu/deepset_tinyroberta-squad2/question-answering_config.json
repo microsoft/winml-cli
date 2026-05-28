@@ -48,7 +48,6 @@
     "clamp_constant_values": true
   },
   "quant": null,
-  "compile": null,
   "loader": {
     "task": "question-answering",
     "model_class": "AutoModelForQuestionAnswering",

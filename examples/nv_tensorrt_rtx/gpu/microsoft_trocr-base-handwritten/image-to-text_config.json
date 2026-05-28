@@ -41,7 +41,6 @@
         "reshape_mergedreshape": true
       },
       "quant": null,
-      "compile": null,
       "loader": {
         "task": "image-feature-extraction",
         "model_class": "VisionEncoderWrapper",
@@ -523,7 +522,6 @@
         "reshape_mergedreshape": true
       },
       "quant": null,
-      "compile": null,
       "loader": {
         "task": "text2text-generation",
         "model_class": "VisionDecoderWrapper",

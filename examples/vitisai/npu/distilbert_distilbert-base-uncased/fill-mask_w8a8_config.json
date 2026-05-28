@@ -60,7 +60,6 @@
     "task": "fill-mask",
     "model_name": "distilbert/distilbert-base-uncased"
   },
-  "compile": null,
   "loader": {
     "task": "fill-mask",
     "model_class": "AutoModelForMaskedLM",

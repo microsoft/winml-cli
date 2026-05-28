@@ -60,7 +60,6 @@
         "task": "image-feature-extraction",
         "model_name": "patrickjohncyh/fashion-clip"
       },
-      "compile": null,
       "loader": {
         "task": "image-feature-extraction",
         "model_class": "CLIPVisionModelWithProjection",
@@ -137,7 +136,6 @@
         "task": "feature-extraction",
         "model_name": "patrickjohncyh/fashion-clip"
       },
-      "compile": null,
       "loader": {
         "task": "feature-extraction",
         "model_class": "CLIPTextModelWithProjection",

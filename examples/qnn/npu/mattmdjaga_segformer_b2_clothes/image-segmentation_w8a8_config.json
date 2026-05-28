@@ -50,15 +50,6 @@
     "task": "image-segmentation",
     "model_name": "mattmdjaga/segformer_b2_clothes"
   },
-  "compile": {
-    "execution_provider": "qnn",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "image-segmentation",
     "model_class": "AutoModelForSemanticSegmentation",

@@ -60,7 +60,6 @@
     "task": "token-classification",
     "model_name": "Isotonic/distilbert_finetuned_ai4privacy_v2"
   },
-  "compile": null,
   "loader": {
     "task": "token-classification",
     "model_class": "AutoModelForTokenClassification",

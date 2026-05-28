@@ -68,15 +68,6 @@
     "task": "feature-extraction",
     "model_name": "openai/clip-vit-base-patch16"
   },
-  "compile": {
-    "execution_provider": "qnn",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "feature-extraction",
     "model_class": "CLIPTextModelWithProjection",

@@ -36,7 +36,6 @@
   },
   "optim": {},
   "quant": null,
-  "compile": null,
   "loader": {
     "task": "object-detection",
     "model_class": "AutoModelForObjectDetection",

@@ -74,15 +74,6 @@
     "task": "text-classification",
     "model_name": "Intel/bert-base-uncased-mrpc"
   },
-  "compile": {
-    "execution_provider": "openvino",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "text-classification",
     "model_class": "AutoModelForSequenceClassification",

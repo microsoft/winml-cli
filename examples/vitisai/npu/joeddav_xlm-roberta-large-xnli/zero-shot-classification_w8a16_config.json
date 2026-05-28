@@ -62,7 +62,6 @@
     "task": "zero-shot-classification",
     "model_name": "joeddav/xlm-roberta-large-xnli"
   },
-  "compile": null,
   "loader": {
     "task": "zero-shot-classification",
     "model_class": "AutoModelForSequenceClassification",

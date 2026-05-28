@@ -60,7 +60,6 @@
         "task": "image-feature-extraction",
         "model_name": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
       },
-      "compile": null,
       "loader": {
         "task": "image-feature-extraction",
         "model_class": "CLIPVisionModelWithProjection",
@@ -137,7 +136,6 @@
         "task": "feature-extraction",
         "model_name": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
       },
-      "compile": null,
       "loader": {
         "task": "feature-extraction",
         "model_class": "CLIPTextModelWithProjection",

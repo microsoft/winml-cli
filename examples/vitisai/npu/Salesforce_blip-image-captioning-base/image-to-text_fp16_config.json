@@ -39,7 +39,6 @@
         "matmul_add_fusion": true
       },
       "quant": null,
-      "compile": null,
       "loader": {
         "task": "image-feature-extraction",
         "model_class": "BlipVisionEncoderWrapper",
@@ -519,7 +518,6 @@
         "matmul_add_fusion": true
       },
       "quant": null,
-      "compile": null,
       "loader": {
         "task": "text2text-generation",
         "model_class": "BlipDecoderWrapper",

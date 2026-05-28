@@ -62,15 +62,6 @@
     "task": "zero-shot-classification",
     "model_name": "joeddav/xlm-roberta-large-xnli"
   },
-  "compile": {
-    "execution_provider": "qnn",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "zero-shot-classification",
     "model_class": "AutoModelForSequenceClassification",

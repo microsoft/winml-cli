@@ -50,7 +50,6 @@
     "task": "depth-estimation",
     "model_name": "Intel/dpt-hybrid-midas"
   },
-  "compile": null,
   "loader": {
     "task": "depth-estimation",
     "model_class": "AutoModelForDepthEstimation",

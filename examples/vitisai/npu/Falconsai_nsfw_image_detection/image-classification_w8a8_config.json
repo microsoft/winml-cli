@@ -50,7 +50,6 @@
     "task": "image-classification",
     "model_name": "Falconsai/nsfw_image_detection"
   },
-  "compile": null,
   "loader": {
     "task": "image-classification",
     "model_class": "AutoModelForImageClassification",

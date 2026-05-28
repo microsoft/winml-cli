@@ -33,15 +33,6 @@
   },
   "optim": {},
   "quant": null,
-  "compile": {
-    "execution_provider": "qnn",
-    "provider_options": {},
-    "enable_ep_context": true,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "image-classification",
     "model_class": "AutoModelForImageClassification",

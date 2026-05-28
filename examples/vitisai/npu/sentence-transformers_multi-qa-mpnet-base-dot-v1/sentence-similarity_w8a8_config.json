@@ -60,7 +60,6 @@
     "task": "sentence-similarity",
     "model_name": "sentence-transformers/multi-qa-mpnet-base-dot-v1"
   },
-  "compile": null,
   "loader": {
     "task": "sentence-similarity",
     "model_class": "AutoModel",

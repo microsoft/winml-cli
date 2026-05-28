@@ -50,15 +50,6 @@
     "task": "image-segmentation",
     "model_name": "nvidia/segformer-b2-finetuned-ade-512-512"
   },
-  "compile": {
-    "execution_provider": "vitisai",
-    "provider_options": {},
-    "enable_ep_context": false,
-    "embed_context": false,
-    "compiler": "ort",
-    "qnn_sdk_root": null,
-    "validate": true
-  },
   "loader": {
     "task": "image-segmentation",
     "model_class": "AutoModelForSemanticSegmentation",

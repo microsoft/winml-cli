@@ -60,15 +60,6 @@
         "task": "image-feature-extraction",
         "model_name": "openai/clip-vit-large-patch14"
       },
-      "compile": {
-        "execution_provider": "qnn",
-        "provider_options": {},
-        "enable_ep_context": true,
-        "embed_context": false,
-        "compiler": "ort",
-        "qnn_sdk_root": null,
-        "validate": true
-      },
       "loader": {
         "task": "image-feature-extraction",
         "model_class": "CLIPVisionModelWithProjection",
@@ -144,15 +135,6 @@
         "nodes_to_exclude": null,
         "task": "feature-extraction",
         "model_name": "openai/clip-vit-large-patch14"
-      },
-      "compile": {
-        "execution_provider": "qnn",
-        "provider_options": {},
-        "enable_ep_context": true,
-        "embed_context": false,
-        "compiler": "ort",
-        "qnn_sdk_root": null,
-        "validate": true
       },
       "loader": {
         "task": "feature-extraction",
