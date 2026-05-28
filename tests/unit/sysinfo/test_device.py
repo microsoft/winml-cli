@@ -14,6 +14,7 @@ from winml.modelkit.sysinfo.device import (
     _DEVICE_EP_MAP,
     _EP_DEVICE_MAP,
     _get_available_devices,
+    resolve_check_device_ep,
     resolve_device,
     resolve_eps,
 )
@@ -493,3 +494,149 @@ class TestResolveEps:
             assert resolve_eps("npu") == []
             assert resolve_eps("gpu") == []
             assert resolve_eps("cpu") == []
+
+
+class TestResolveCheckDeviceEp:
+    """Tests for resolve_check_device_ep().
+
+    The function has two distinct code paths:
+
+    - **Path A** — ``device == "auto"`` OR ``ep is None``. Delegates to
+      :func:`resolve_device` + :func:`resolve_eps`. System-aware: it raises if
+      the requested device/EP is not actually present.
+    - **Path B** — explicit device AND explicit ep. Validates only against the
+      static ``EP_SUPPORTED_DEVICES`` mapping. Does **not** consult ORT, so it
+      succeeds on hosts with no EPs installed — the point being that some
+      callers just want to validate a (device, ep) pair, not run it.
+    """
+
+    def test_auto_no_ep_delegates_to_system(self) -> None:
+        """device='auto', ep=None -> Path A: device + EPs come from system probe."""
+        with _patch_device_ep_map(
+            {
+                "npu": ("QNNExecutionProvider",),
+                "gpu": ("DmlExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
+        ):
+            device, available_devices, available_eps = resolve_check_device_ep(
+                device="auto", ep=None
+            )
+
+        assert device == "npu"
+        assert available_devices == ["npu", "gpu", "cpu"]
+        # When ep=None, available_eps comes from resolve_eps -- the full list
+        # of EPs that target the resolved device, not a single explicit ep.
+        assert available_eps == ["QNNExecutionProvider"]
+
+    def test_auto_with_ep_returns_single_ep(self) -> None:
+        """device='auto', ep='qnn' -> Path A: available_eps narrows to [ep_name]."""
+        with _patch_device_ep_map(
+            {
+                "npu": ("QNNExecutionProvider",),
+                "gpu": ("QNNExecutionProvider", "DmlExecutionProvider"),
+                "cpu": ("CPUExecutionProvider",),
+            }
+        ):
+            device, available_devices, available_eps = resolve_check_device_ep(
+                device="auto", ep="qnn"
+            )
+
+        assert device == "npu"
+        assert available_devices == ["npu", "gpu"]
+        # Even though gpu also advertises DML, the EP filter pins this to qnn.
+        assert available_eps == ["QNNExecutionProvider"]
+
+    def test_explicit_device_no_ep_delegates(self) -> None:
+        """device='npu', ep=None -> Path A (ep_name is None): goes through resolve_device."""
+        with _patch_device_ep_map(
+            {
+                "npu": ("QNNExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
+        ):
+            device, available_devices, available_eps = resolve_check_device_ep(
+                device="npu", ep=None
+            )
+
+        assert device == "npu"
+        assert available_devices == ["npu", "cpu"]
+        assert available_eps == ["QNNExecutionProvider"]
+
+    def test_explicit_device_and_ep_uses_static_mapping(self) -> None:
+        """device='npu', ep='qnn' -> Path B: returns from static EP_SUPPORTED_DEVICES.
+
+        The available_devices is the EP's supported set ('npu', 'gpu' for QNN),
+        not what the system actually exposes.
+        """
+        with _patch_device_ep_map(
+            {
+                "npu": ("QNNExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
+        ):
+            device, available_devices, available_eps = resolve_check_device_ep(
+                device="npu", ep="qnn"
+            )
+
+        assert device == "npu"
+        assert sorted(available_devices) == ["gpu", "npu"]
+        assert available_eps == ["QNNExecutionProvider"]
+
+    def test_path_b_does_not_require_system_eps(self) -> None:
+        """Path B succeeds when the system has no EPs registered at all.
+
+        This is the key contract for callers that only need to *validate* a
+        (device, ep) pair without running it.
+        """
+        with _patch_device_ep_map({}):
+            device, available_devices, available_eps = resolve_check_device_ep(
+                device="npu", ep="qnn"
+            )
+
+        assert device == "npu"
+        assert "npu" in available_devices
+        assert available_eps == ["QNNExecutionProvider"]
+
+    def test_explicit_device_unsupported_by_ep_raises(self) -> None:
+        """device='cpu' + ep='qnn' -> ValueError: QNN does not support CPU."""
+        with (
+            _patch_device_ep_map({}),
+            pytest.raises(ValueError, match="does not support device 'cpu'"),
+        ):
+            resolve_check_device_ep(device="cpu", ep="qnn")
+
+    def test_explicit_unknown_ep_raises(self) -> None:
+        """device='npu' + ep='tpu' -> ValueError: 'Unknown EP'."""
+        with (
+            _patch_device_ep_map({}),
+            pytest.raises(ValueError, match="Unknown EP 'tpu'"),
+        ):
+            resolve_check_device_ep(device="npu", ep="tpu")
+
+    def test_auto_unknown_ep_raises_from_delegate(self) -> None:
+        """device='auto' + ep='tpu' -> Path A delegates to resolve_device, which raises.
+
+        Confirms the error message is consistent across paths so users get the
+        same diagnostic regardless of whether they passed an explicit device.
+        """
+        with (
+            _patch_device_ep_map(
+                {
+                    "npu": ("QNNExecutionProvider",),
+                    "cpu": ("CPUExecutionProvider",),
+                }
+            ),
+            pytest.raises(ValueError, match="Unknown EP 'tpu'"),
+        ):
+            resolve_check_device_ep(device="auto", ep="tpu")
+
+    def test_case_insensitive(self) -> None:
+        """Device and EP arguments are case-insensitive."""
+        with _patch_device_ep_map({}):
+            device, _available_devices, available_eps = resolve_check_device_ep(
+                device="NPU", ep="QNN"
+            )
+
+        assert device == "npu"
+        assert available_eps == ["QNNExecutionProvider"]

@@ -243,7 +243,7 @@ def resolve_check_device_ep(
     """
     ep_name = normalize_ep_name(ep)
     if device == "auto" or ep_name is None:
-        resolved_device, available_devices = resolve_device(device=device, ep=ep)
+        resolved_device, available_devices = resolve_device(device=device, ep=ep_name)
         available_eps: list[EPName] = resolve_eps(resolved_device) if ep_name is None else [ep_name]
         return resolved_device, available_devices, available_eps
 
