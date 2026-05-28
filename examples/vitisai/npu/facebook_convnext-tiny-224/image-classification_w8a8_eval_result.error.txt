@@ -1,0 +1,35 @@
+an_output_0_vaip_277_], Command failed to complete successfully (ERT_CMD_STATE_TIMEOUT)
+[2026-05-27T23:06:49] ERROR: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_5752121804899142497_18 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_5752121804899142497_18_18' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+morphizen_main
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+_PyArg_CheckPositional
+PyObject_Vectorcall
+
+Error: Evaluation failed: Failed to load model 'facebook/convnext-tiny-224'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task image-classification' to see supported role=path model options.

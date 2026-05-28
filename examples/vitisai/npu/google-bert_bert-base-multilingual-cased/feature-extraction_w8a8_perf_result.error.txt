@@ -1,22 +1,19 @@
-26-05-26T16:26:37] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-27T23:34:13] WARNING: Output names count mismatch: config has 1 ['last_hidden_state'], model trace inferred 2 ['last_hidden_state', 'pooler_output']. Keeping config names (from Optimum OnnxConfig).
+[2026-05-27T23:34:56] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/432 [00:00<?, ?it/s]
+ 25%|██▌       | 109/432 [00:00<00:00, 1085.64it/s]
+ 57%|█████▋    | 245/432 [00:00<00:00, 1140.85it/s]
+ 83%|████████▎ | 359/432 [00:00<00:00, 1084.58it/s]
+100%|██████████| 432/432 [00:00<00:00, 1058.87it/s]
+[2026-05-27T23:35:09] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
 
   0%|          | 0/384 [00:00<?, ?it/s]
- 37%|███▋      | 141/384 [00:00<00:00, 1263.56it/s]
- 79%|███████▊  | 302/384 [00:00<00:00, 1373.40it/s]
-100%|██████████| 384/384 [00:00<00:00, 1420.38it/s]
-[2026-05-26T16:26:37] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-C:\Users\zhangchao\project\winml-cli\.venv\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\zhangchao\.cache\huggingface\hub\datasets--glue. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
-To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
-  warnings.warn(message)
-
-Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
-Generating train split: 100%|██████████| 3668/3668 [00:00<00:00, 229048.16 examples/s]
-
-Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
-Generating validation split: 100%|██████████| 408/408 [00:00<?, ? examples/s]
-
-Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
-Generating test split: 100%|██████████| 1725/1725 [00:00<00:00, 107291.09 examples/s]
-
-Map:   0%|          | 0/10 [00:00<?, ? examples/s]
-Map: 100%|██████████| 10/10 [00:00<00:00, 865.72 examples/s]
+ 19%|█▉        | 72/384 [00:00<00:00, 709.75it/s]
+ 41%|████▏     | 159/384 [00:00<00:00, 792.45it/s]
+ 62%|██████▏   | 239/384 [00:00<00:00, 764.37it/s]
+ 85%|████████▌ | 328/384 [00:00<00:00, 794.83it/s]
+100%|██████████| 384/384 [00:00<00:00, 764.01it/s]
+[2026-05-27T23:35:09] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-27T23:36:05] ERROR: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_15450709674288708591_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_15450709674288708591_0_0' Status Message: No such query request (73)
+Error: Benchmark failed: Compilation failed: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_15450709674288708591_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_15450709674288708591_0_0' Status Message: No such query request (73)

@@ -1,0 +1,24 @@
+0:02<00:03, 29.72it/s]
+ 48%|████▊     | 67/140 [00:02<00:01, 44.97it/s]
+ 55%|█████▌    | 77/140 [00:02<00:01, 50.36it/s]
+ 70%|███████   | 98/140 [00:03<00:00, 64.16it/s]
+ 77%|███████▋  | 108/140 [00:03<00:00, 64.09it/s]
+ 92%|█████████▏| 129/140 [00:03<00:00, 77.47it/s]
+ 99%|█████████▉| 139/140 [00:03<00:00, 77.14it/s]
+100%|██████████| 140/140 [00:03<00:00, 38.26it/s]
+[2026-05-27T10:28:55] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+c:\repo\WinML-ModelKit\.venv\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\shzhen\.cache\huggingface\hub\datasets--glue. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+
+Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
+Generating train split: 100%|██████████| 3668/3668 [00:00<00:00, 58266.36 examples/s]
+
+Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 408/408 [00:00<00:00, 15863.80 examples/s]
+
+Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 1725/1725 [00:00<00:00, 52029.16 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 204.15 examples/s]

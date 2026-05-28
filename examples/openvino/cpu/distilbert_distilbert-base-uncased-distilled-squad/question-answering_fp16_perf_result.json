@@ -1,0 +1,63 @@
+{
+  "benchmark_info": {
+    "model_id": "distilbert/distilbert-base-uncased-distilled-squad",
+    "task": "question-answering",
+    "device": "cpu",
+    "ep": "OpenVINOExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T08:04:40.224970+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "start_logits",
+      "end_logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 114.54,
+    "min": 112.67,
+    "max": 119.45,
+    "p50": 114.52,
+    "p90": 119.45,
+    "p95": 119.45,
+    "p99": 119.45,
+    "std": 1.95,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 8.73,
+    "batches_per_sec": 8.73
+  },
+  "raw_samples_ms": []
+}

@@ -1,0 +1,60 @@
+{
+  "benchmark_info": {
+    "model_id": "facebook/dino-vitb16",
+    "task": "image-feature-extraction",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T14:04:26.191619+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        224,
+        224
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "last_hidden_state",
+      "1247"
+    ],
+    "output_shapes": [
+      [
+        1,
+        197,
+        768
+      ],
+      [
+        1,
+        768
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 12.85,
+    "min": 12.25,
+    "max": 13.2,
+    "p50": 13.04,
+    "p90": 13.2,
+    "p95": 13.2,
+    "p99": 13.2,
+    "std": 0.33,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 77.81,
+    "batches_per_sec": 77.81
+  },
+  "raw_samples_ms": []
+}

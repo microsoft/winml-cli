@@ -1,34 +1,35 @@
- [00:00<00:00, 408.89it/s]
- 84%|████████▎ | 370/442 [00:00<00:00, 427.09it/s]
- 94%|█████████▍| 417/442 [00:00<00:00, 437.64it/s]
-100%|██████████| 442/442 [00:00<00:00, 447.58it/s]
-[2026-05-27T11:50:26] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+00, 291.05it/s]
+ 99%|█████████▉| 438/442 [00:01<00:00, 304.66it/s]
+100%|██████████| 442/442 [00:01<00:00, 325.08it/s]
+[2026-05-28T01:15:10] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
 
   0%|          | 0/395 [00:00<?, ?it/s]
- 14%|█▍        | 55/395 [00:00<00:00, 494.07it/s]
- 27%|██▋       | 105/395 [00:00<00:00, 433.17it/s]
- 38%|███▊      | 149/395 [00:00<00:00, 417.92it/s]
- 50%|████▉     | 197/395 [00:00<00:00, 423.01it/s]
- 64%|██████▍   | 254/395 [00:00<00:00, 454.71it/s]
- 76%|███████▌  | 301/395 [00:00<00:00, 457.03it/s]
- 88%|████████▊ | 347/395 [00:00<00:00, 431.38it/s]
- 99%|█████████▉| 392/395 [00:00<00:00, 422.89it/s]
-100%|██████████| 395/395 [00:00<00:00, 437.05it/s]
-[2026-05-27T11:50:27] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-[2026-05-27T11:50:29] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+ 11%|█▏        | 45/395 [00:00<00:00, 428.27it/s]
+ 22%|██▏       | 88/395 [00:00<00:00, 321.22it/s]
+ 31%|███       | 122/395 [00:00<00:00, 283.17it/s]
+ 40%|████      | 159/395 [00:00<00:00, 301.27it/s]
+ 49%|████▊     | 192/395 [00:00<00:00, 299.98it/s]
+ 56%|█████▋    | 223/395 [00:00<00:00, 301.58it/s]
+ 64%|██████▍   | 254/395 [00:00<00:00, 300.12it/s]
+ 72%|███████▏  | 285/395 [00:00<00:00, 270.00it/s]
+ 81%|████████  | 319/395 [00:01<00:00, 281.33it/s]
+ 88%|████████▊ | 348/395 [00:01<00:00, 278.61it/s]
+ 95%|█████████▌| 377/395 [00:01<00:00, 269.66it/s]
+100%|██████████| 395/395 [00:01<00:00, 281.83it/s]
+[2026-05-28T01:15:12] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-28T01:15:14] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
 
 Generating train split:   0%|          | 0/14041 [00:00<?, ? examples/s]
-Generating train split: 100%|██████████| 14041/14041 [00:00<00:00, 125533.64 examples/s]
-Generating train split: 100%|██████████| 14041/14041 [00:00<00:00, 125533.64 examples/s]
+Generating train split: 100%|██████████| 14041/14041 [00:00<00:00, 185949.41 examples/s]
 
 Generating validation split:   0%|          | 0/3250 [00:00<?, ? examples/s]
-Generating validation split: 100%|██████████| 3250/3250 [00:00<00:00, 53038.54 examples/s]
+Generating validation split: 100%|██████████| 3250/3250 [00:00<00:00, 82433.23 examples/s]
 
 Generating test split:   0%|          | 0/3453 [00:00<?, ? examples/s]
-Generating test split: 100%|██████████| 3453/3453 [00:00<00:00, 60439.48 examples/s]
+Generating test split: 100%|██████████| 3453/3453 [00:00<00:00, 72260.38 examples/s]
 
 Map:   0%|          | 0/100 [00:00<?, ? examples/s]
-Map: 100%|██████████| 100/100 [00:00<00:00, 1060.60 examples/s]
+Map: 100%|██████████| 100/100 [00:00<00:00, 782.73 examples/s]
 
 Downloading builder script: 0.00B [00:00, ?B/s]
 Downloading builder script: 6.34kB [00:00, ?B/s]

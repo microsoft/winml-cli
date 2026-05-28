@@ -1,0 +1,64 @@
+{
+  "benchmark_info": {
+    "model_id": "cross-encoder/ms-marco-MiniLM-L4-v2",
+    "task": "text-classification",
+    "device": "cpu",
+    "ep": "CPUExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T04:20:39.801288+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask",
+      "token_type_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        1
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 30.38,
+    "min": 29.67,
+    "max": 31.21,
+    "p50": 30.36,
+    "p90": 31.21,
+    "p95": 31.21,
+    "p99": 31.21,
+    "std": 0.38,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 32.92,
+    "batches_per_sec": 32.92
+  },
+  "raw_samples_ms": []
+}

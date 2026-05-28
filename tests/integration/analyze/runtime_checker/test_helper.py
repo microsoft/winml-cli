@@ -119,6 +119,8 @@ def should_run_ep_test(ep_name: str, device_type, skip_message: str | None = Non
     """Determine if EP test should run."""
     # Run if hardware is available
     try:
+        from winml.modelkit import winml
+        winml.register_execution_providers(ort=True)
         import onnxruntime as ort
 
         ep_devices = ort.get_ep_devices()

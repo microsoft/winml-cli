@@ -1,0 +1,39 @@
+{
+  "model_id": "hustvl/yolos-small",
+  "task": "object-detection",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "val",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "detection-datasets/coco",
+    "columns_mapping": {
+      "annotation_column": "objects",
+      "bbox_key": "bbox",
+      "category_key": "category",
+      "box_format": "xyxy"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\hustvl_yolos-small\\object-detection_fp16_eval_result.json",
+  "metrics": {
+    "map": 0.15174804627895355,
+    "map_50": 0.3017786145210266,
+    "map_75": 0.14580601453781128,
+    "num_predictions": 10000,
+    "num_ground_truths": 752,
+    "num_images": 100,
+    "map_small": 0.027926990762352943,
+    "map_medium": 0.10442091524600983,
+    "map_large": 0.32311099767684937,
+    "mar_1": 0.15262851119041443,
+    "mar_10": 0.25812503695487976,
+    "mar_100": 0.29880771040916443,
+    "mar_small": 0.05834555625915527,
+    "mar_medium": 0.2243303805589676,
+    "mar_large": 0.5097346305847168,
+    "map_per_class": -1.0,
+    "mar_100_per_class": -1.0
+  }
+}
