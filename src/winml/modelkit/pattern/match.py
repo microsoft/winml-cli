@@ -20,8 +20,8 @@ import numpy as np
 if TYPE_CHECKING:
     from onnx import NodeProto
 
-    from winml.modelkit.pattern.base import Pattern, PatternMatcher
-    from winml.modelkit.pattern.models import Pattern as PatternModel
+    from .base import Pattern, PatternMatcher
+    from .models import Pattern as PatternModel
 
 
 @dataclass

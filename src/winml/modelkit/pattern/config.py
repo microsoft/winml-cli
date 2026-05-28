@@ -19,9 +19,9 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from winml.modelkit.pattern.base import Pattern
-    from winml.modelkit.pattern.models import Pattern as PatternModel
-    from winml.modelkit.pattern.models import SubgraphPattern
+    from .base import Pattern
+    from .models import Pattern as PatternModel
+    from .models import SubgraphPattern
 
 logger = logging.getLogger(__name__)
 
