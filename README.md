@@ -53,9 +53,9 @@ See the [Supported Tasks](#supported-tasks) and [Supported Model Types](#support
 |---|---|
 | Windows | Windows 11 24H2 or later (required for NPU support; earlier versions work for CPU/GPU) |
 | Python | 3.11 |
-| Package manager | [`uv`](https://github.com/astral-sh/uv) |
-| **WinML CLI** (Python wheel) | [Releases](https://github.com/microsoft/winml-cli/releases) |
-| **WinML CLI** (Python wheel) | [Releases](https://github.com/microsoft/winml-cli/releases) |
+| Package manager | [uv](https://github.com/astral-sh/uv) |
+| WinML CLI | [PyPI](https://pypi.org/project/winml-cli/) |
+
 ### Installation
 
 WinML CLI requires **Python 3.11** and is distributed as a Python wheel. We recommend [uv](https://docs.astral.sh/uv/) for fast, reproducible environment setup.
@@ -76,10 +76,10 @@ Activate it:
 source .venv/Scripts/activate
 ```
 
-**2. Install from wheel**
+**2. Install winml-cli**
 
 ```bash
-uv pip install winml_cli-<version>-py3-none-any.whl
+uv pip install winml-cli
 ```
 
 **3. Verify your environment**
