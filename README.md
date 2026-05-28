@@ -53,7 +53,7 @@ See the [Supported Tasks](#supported-tasks) and [Supported Model Types](#support
 |---|---|
 | Windows | Windows 11 24H2 or later (required for NPU support; earlier versions work for CPU/GPU) |
 | Python | 3.11 |
-| Package manager | [`uv`](https://github.com/astral-sh/uv) |
+| Package manager | [uv](https://github.com/astral-sh/uv) |
 | WinML CLI | [PyPI](https://pypi.org/project/winml-cli/) |
 
 ### Installation
