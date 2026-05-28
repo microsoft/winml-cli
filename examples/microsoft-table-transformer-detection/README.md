@@ -145,8 +145,8 @@ for WinML and from the latency JSON line on stdout for the PyTorch baseline.
 
 Result on CPU Intel(R) Core(TM) Ultra 7 258V:
 
-| Model | Device | Precision | mAP | mean latency (ms) | p50 latency (ms) |
-|---|---|---|---|---|---|
-| PyTorch | CPU | fp32 | 0.988714 | 620.859 | 600.336 |
-| WinML (ONNX) | OpenVINO NPU | w8a16 (QDQ) | 0.9822 | 82.28 | 82.16 |
-| WinML (ONNX) | CPU | fp32 | 0.9814 | 33.99 | 30.38 |
+| Model | Device | Precision | mAP | mean latency (ms) | p50 latency (ms) | Size (MB) |
+|---|---|---|---|---|---|---|
+| PyTorch | CPU | fp32 | 0.988714 | 620.859 | 600.336 | 115 |
+| WinML (ONNX) | OpenVINO NPU | w8a16 (QDQ) | 0.9822 | 44.09 | 41.60 | 58 |
+| WinML (ONNX) | OpenVINO CPU | fp32 | 0.9814 | 33.99 | 30.38 | 110 |
