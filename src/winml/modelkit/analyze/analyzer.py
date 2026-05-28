@@ -727,10 +727,7 @@ class ONNXStaticAnalyzer:
         logger.info("Extracted %d patterns", len(pattern_matches))
         extraction_ms = int((time.perf_counter() - extraction_start) * 1000)
 
-        # Step 2: Check runtime support for each EP.
-        # Annotate keys as `str` (not EPName) so these dicts are assignable to
-        # OutputAggregator.aggregate(), which takes `dict[str, ...]`. dict is
-        # invariant in its key type, so dict[EPName, V] won't fit dict[str, V].
+        # Step 2: Check runtime support for each EP
         check_op_results: dict[EPName, list[PatternRuntime]] = {}
         information_list: dict[EPName, list[Information]] = {}
         ep_runtime_timing: dict[str, int] = {}
