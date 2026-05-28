@@ -85,13 +85,13 @@ def cell(model_dir: Path, stems: list[str]) -> str:
         tmo = model_dir / f"{stem}_eval_result.timeout"
         # Workspace-relative POSIX path
         if ok.exists():
-            rel = ok.relative_to(REPO).as_posix()
+            rel = ok.relative_to(EX).as_posix()
             return f"[✓]({rel})"
         if err.exists():
-            rel = err.relative_to(REPO).as_posix()
+            rel = err.relative_to(EX).as_posix()
             return f"[✗]({rel})"
         if tmo.exists():
-            rel = tmo.relative_to(REPO).as_posix()
+            rel = tmo.relative_to(EX).as_posix()
             return f"[⏱]({rel})"
     return "—" if not cfg_found else "?"
 
@@ -215,7 +215,7 @@ def build_failure_summary(pairs: list[tuple[str, str]]) -> str:
             examples = examples_by_cat.get((label, cat), [])
             ex_link = ""
             if examples:
-                rel = examples[0].relative_to(REPO).as_posix()
+                rel = examples[0].relative_to(EX).as_posix()
                 ex_link = f"[{examples[0].parent.name}/{examples[0].name}]({rel})"
             lines.append(f"| {cat} | {n} | {ex_link} |")
         lines.append("")

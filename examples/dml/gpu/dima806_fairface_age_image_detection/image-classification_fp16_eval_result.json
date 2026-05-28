@@ -1,0 +1,24 @@
+{
+  "model_id": "dima806/fairface_age_image_detection",
+  "task": "image-classification",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_fairface",
+    "columns_mapping": {
+      "label_column": "age"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_fairface.py"
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\dima806_fairface_age_image_detection\\image-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.61,
+    "total_time_in_seconds": 21.888426799792796,
+    "samples_per_second": 4.568624365500157,
+    "latency_in_seconds": 0.21888426799792796
+  }
+}

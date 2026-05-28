@@ -1,4 +1,4 @@
-# NV TensorRT RTX GPU Report
+# NVIDIA TensorRT RTX (GPU) Report
 
 ## Summary
 
@@ -48,13 +48,13 @@
 | facebook/dinov2-small | image-feature-extraction |  | [config](./facebook_dinov2-small/image-feature-extraction_config.json) | 2.63ms, 379.6sps ([metric](./facebook_dinov2-small/image-feature-extraction_perf_result.json)) | knn_top1_accuracy=85.5000, knn_top5_accuracy=96.7000 ([metric](./facebook_dinov2-small/image-feature-extraction_eval_result.json)) |
 | FacebookAI/roberta-base | fill-mask |  | [config](./FacebookAI_roberta-base/fill-mask_config.json) | 130.52ms, 7.7sps ([metric](./FacebookAI_roberta-base/fill-mask_perf_result.json)) | pseudo_perplexity=5.2706, nll=1.6621 ([metric](./FacebookAI_roberta-base/fill-mask_eval_result.json)) |
 | FacebookAI/roberta-large | fill-mask |  | [config](./FacebookAI_roberta-large/fill-mask_config.json) | — | pseudo_perplexity=5.3352, nll=1.6743 ([metric](./FacebookAI_roberta-large/fill-mask_eval_result.json)) |
-| FacebookAI/xlm-roberta-base | fill-mask |  | [config](./FacebookAI_xlm-roberta-base/fill-mask_config.json) | 634.06ms, 1.6sps ([metric](./FacebookAI_xlm-roberta-base/fill-mask_perf_result.json)) | TIMEOUT |
-| FacebookAI/xlm-roberta-large | fill-mask |  | [config](./FacebookAI_xlm-roberta-large/fill-mask_config.json) | — | TIMEOUT |
+| FacebookAI/xlm-roberta-base | fill-mask |  | [config](./FacebookAI_xlm-roberta-base/fill-mask_config.json) | 634.06ms, 1.6sps ([metric](./FacebookAI_xlm-roberta-base/fill-mask_perf_result.json)) | FAIL |
+| FacebookAI/xlm-roberta-large | fill-mask |  | [config](./FacebookAI_xlm-roberta-large/fill-mask_config.json) | — | FAIL |
 | Falconsai/nsfw_image_detection | image-classification | fp16 | [config](./Falconsai_nsfw_image_detection/image-classification_fp16_config.json) | 13.24ms, 75.5sps ([metric](./Falconsai_nsfw_image_detection/image-classification_fp16_perf_result.json)) | FAIL |
 | google-bert/bert-base-multilingual-cased | feature-extraction |  | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_config.json) | 17.69ms, 56.5sps ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_perf_result.json)) | cosine_spearman=40.9602 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_eval_result.json)) |
 |  | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_config.json) | 306.34ms, 3.3sps ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_perf_result.json)) | — |
 |  | masked-lm | fp16 | [config](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_config.json) | 306.09ms, 3.3sps ([metric](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_perf_result.json)) | FAIL |
-| google-bert/bert-base-multilingual-uncased | fill-mask |  | [config](./google-bert_bert-base-multilingual-uncased/fill-mask_config.json) | 271.69ms, 3.7sps ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_perf_result.json)) | TIMEOUT |
+| google-bert/bert-base-multilingual-uncased | fill-mask |  | [config](./google-bert_bert-base-multilingual-uncased/fill-mask_config.json) | 271.69ms, 3.7sps ([metric](./google-bert_bert-base-multilingual-uncased/fill-mask_perf_result.json)) | FAIL |
 | google-bert/bert-base-uncased | fill-mask |  | [config](./google-bert_bert-base-uncased/fill-mask_config.json) | 80.77ms, 12.4sps ([metric](./google-bert_bert-base-uncased/fill-mask_perf_result.json)) | pseudo_perplexity=4.2981, nll=1.4582 ([metric](./google-bert_bert-base-uncased/fill-mask_eval_result.json)) |
 | google-bert/bert-large-uncased-whole-word-masking-finetuned-squad | question-answering |  | [config](./google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_config.json) | — | exact_match=88.0000, f1=93.6526 ([metric](./google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_eval_result.json)) |
 | google/vit-base-patch16-224 | image-classification |  | [config](./google_vit-base-patch16-224/image-classification_config.json) | 13.34ms, 75.0sps ([metric](./google_vit-base-patch16-224/image-classification_perf_result.json)) | accuracy=0.7000 ([metric](./google_vit-base-patch16-224/image-classification_eval_result.json)) |

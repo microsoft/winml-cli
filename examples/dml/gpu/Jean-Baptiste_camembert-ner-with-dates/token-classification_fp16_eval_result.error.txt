@@ -1,0 +1,39 @@
+pends on "onnxruntime_providers_shared.dll" which is missing. (Error 126: "The specified module could not be found.")
+
+  0%|          | 0/442 [00:00<?, ?it/s]
+ 13%|█▎        | 57/442 [00:00<00:00, 556.23it/s]
+ 26%|██▌       | 114/442 [00:00<00:00, 558.87it/s]
+ 39%|███▊      | 171/442 [00:00<00:00, 562.09it/s]
+ 52%|█████▏    | 229/442 [00:00<00:00, 568.78it/s]
+ 66%|██████▌   | 291/442 [00:00<00:00, 587.06it/s]
+ 79%|███████▉  | 350/442 [00:00<00:00, 574.98it/s]
+ 92%|█████████▏| 408/442 [00:00<00:00, 557.77it/s]
+100%|██████████| 442/442 [00:00<00:00, 562.80it/s]
+
+  0%|          | 0/395 [00:00<?, ?it/s]
+ 11%|█         | 44/395 [00:00<00:00, 436.76it/s]
+ 25%|██▌       | 99/395 [00:00<00:00, 501.84it/s]
+ 39%|███▉      | 155/395 [00:00<00:00, 526.78it/s]
+ 53%|█████▎    | 208/395 [00:00<00:00, 514.70it/s]
+ 67%|██████▋   | 264/395 [00:00<00:00, 525.89it/s]
+ 80%|████████  | 317/395 [00:00<00:00, 527.09it/s]
+ 94%|█████████▎| 370/395 [00:00<00:00, 509.44it/s]
+100%|██████████| 395/395 [00:00<00:00, 508.24it/s]
+[2026-05-27T12:11:41] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+
+Generating train split:   0%|          | 0/14041 [00:00<?, ? examples/s]
+Generating train split: 100%|██████████| 14041/14041 [00:00<00:00, 124095.70 examples/s]
+Generating train split: 100%|██████████| 14041/14041 [00:00<00:00, 122425.60 examples/s]
+
+Generating validation split:   0%|          | 0/3250 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 3250/3250 [00:00<00:00, 302283.80 examples/s]
+
+Generating test split:   0%|          | 0/3453 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 3453/3453 [00:00<00:00, 327527.35 examples/s]
+
+Map:   0%|          | 0/100 [00:00<?, ? examples/s]
+Map: 100%|██████████| 100/100 [00:00<00:00, 2486.68 examples/s]
+
+Downloading builder script: 0.00B [00:00, ?B/s]
+Downloading builder script: 6.34kB [00:00, ?B/s]
+Error: Evaluation failed: list index out of range

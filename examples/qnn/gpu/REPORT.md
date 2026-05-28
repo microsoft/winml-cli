@@ -1,26 +1,26 @@
-# QNN GPU Report
+# QNN (Qualcomm, GPU) Report
 
 ## Summary
 
 - Models: 78
 - Configs: 92
 - Perf Pass: 57/92 (62%)
-- Eval Pass: 48/92 (52%)
+- Eval Pass: 54/92 (59%)
 
 ### Per-precision breakdown
 
 | Precision | Models | Configs | Perf Pass | Eval Pass |
 |---|---|---|---|---|
-| fp16 | 24 | 29 | 29/29 (100%) | 13/29 (45%) |
+| fp16 | 24 | 29 | 29/29 (100%) | 19/29 (66%) |
 
 ## Results
 
 | Model | Task | Precision | Config | Perf | Eval |
 |---|---|---|---|---|---|
 | AdamCodd/vit-base-nsfw-detector | image-classification | fp16 | [config](./AdamCodd_vit-base-nsfw-detector/image-classification_fp16_config.json) | 101.78ms, 9.8sps ([metric](./AdamCodd_vit-base-nsfw-detector/image-classification_fp16_perf_result.json)) | FAIL |
-| ahotrod/electra_large_discriminator_squad2_512 | question-answering | fp16 | [config](./ahotrod_electra_large_discriminator_squad2_512/question-answering_fp16_config.json) | 327.20ms, 3.1sps ([metric](./ahotrod_electra_large_discriminator_squad2_512/question-answering_fp16_perf_result.json)) | — |
+| ahotrod/electra_large_discriminator_squad2_512 | question-answering | fp16 | [config](./ahotrod_electra_large_discriminator_squad2_512/question-answering_fp16_config.json) | 327.20ms, 3.1sps ([metric](./ahotrod_electra_large_discriminator_squad2_512/question-answering_fp16_perf_result.json)) | exact=87.0000, f1=89.9647, total=100, HasAns_exact=85.4167, HasAns_f1=91.5931, HasAns_total=48, NoAns_exact=88.4615, NoAns_f1=88.4615, NoAns_total=52, best_exact=87.0000, best_exact_thresh=0.9943, best_f1=89.9647, best_f1_thresh=0.9943 ([metric](./ahotrod_electra_large_discriminator_squad2_512/question-answering_fp16_eval_result.json)) |
 | amunchet/rorshark-vit-base | image-classification | fp16 | [config](./amunchet_rorshark-vit-base/image-classification_fp16_config.json) | 38.88ms, 25.7sps ([metric](./amunchet_rorshark-vit-base/image-classification_fp16_perf_result.json)) | FAIL |
-| apple/mobilevit-small | image-classification | fp16 | [config](./apple_mobilevit-small/image-classification_fp16_config.json) | 18.77ms, 53.3sps ([metric](./apple_mobilevit-small/image-classification_fp16_perf_result.json)) | — |
+| apple/mobilevit-small | image-classification | fp16 | [config](./apple_mobilevit-small/image-classification_fp16_config.json) | 18.77ms, 53.3sps ([metric](./apple_mobilevit-small/image-classification_fp16_perf_result.json)) | accuracy=0.7500 ([metric](./apple_mobilevit-small/image-classification_fp16_eval_result.json)) |
 | BAAI/bge-base-en-v1.5 | feature-extraction |  | [config](./BAAI_bge-base-en-v1.5/feature-extraction_config.json) | 113.58ms, 8.8sps ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_perf_result.json)) | cosine_spearman=89.2759 ([metric](./BAAI_bge-base-en-v1.5/feature-extraction_eval_result.json)) |
 |  | sentence-similarity |  | [config](./BAAI_bge-base-en-v1.5/sentence-similarity_config.json) | 114.86ms, 8.7sps ([metric](./BAAI_bge-base-en-v1.5/sentence-similarity_perf_result.json)) | cosine_spearman=89.2759 ([metric](./BAAI_bge-base-en-v1.5/sentence-similarity_eval_result.json)) |
 | BAAI/bge-large-en-v1.5 | sentence-similarity |  | [config](./BAAI_bge-large-en-v1.5/sentence-similarity_config.json) | FAIL | cosine_spearman=90.3971 ([metric](./BAAI_bge-large-en-v1.5/sentence-similarity_eval_result.json)) |
@@ -34,11 +34,11 @@
 | deepset/bert-large-uncased-whole-word-masking-squad2 | question-answering |  | [config](./deepset_bert-large-uncased-whole-word-masking-squad2/question-answering_config.json) | FAIL | FAIL |
 | deepset/roberta-base-squad2 | question-answering |  | [config](./deepset_roberta-base-squad2/question-answering_config.json) | 119.94ms, 8.3sps ([metric](./deepset_roberta-base-squad2/question-answering_perf_result.json)) | exact=79.0000, f1=82.3008, total=100, HasAns_exact=79.1667, HasAns_f1=86.0433, HasAns_total=48, NoAns_exact=78.8462, NoAns_f1=78.8462, NoAns_total=52, best_exact=79.0000, best_exact_thresh=0.9872, best_f1=82.3008, best_f1_thresh=0.9872 ([metric](./deepset_roberta-base-squad2/question-answering_eval_result.json)) |
 | deepset/tinyroberta-squad2 | question-answering |  | [config](./deepset_tinyroberta-squad2/question-answering_config.json) | 56.73ms, 17.6sps ([metric](./deepset_tinyroberta-squad2/question-answering_perf_result.json)) | exact=80.0000, f1=82.2500, total=100, HasAns_exact=79.1667, HasAns_f1=83.8542, HasAns_total=48, NoAns_exact=80.7692, NoAns_f1=80.7692, NoAns_total=52, best_exact=80.0000, best_exact_thresh=0.9948, best_f1=82.2500, best_f1_thresh=0.9948 ([metric](./deepset_tinyroberta-squad2/question-answering_eval_result.json)) |
-| dima806/fairface_age_image_detection | image-classification | fp16 | [config](./dima806_fairface_age_image_detection/image-classification_fp16_config.json) | 34.30ms, 29.2sps ([metric](./dima806_fairface_age_image_detection/image-classification_fp16_perf_result.json)) | — |
+| dima806/fairface_age_image_detection | image-classification | fp16 | [config](./dima806_fairface_age_image_detection/image-classification_fp16_config.json) | 34.30ms, 29.2sps ([metric](./dima806_fairface_age_image_detection/image-classification_fp16_perf_result.json)) | FAIL |
 | distilbert/distilbert-base-cased-distilled-squad | question-answering | fp16 | [config](./distilbert_distilbert-base-cased-distilled-squad/question-answering_fp16_config.json) | 54.34ms, 18.4sps ([metric](./distilbert_distilbert-base-cased-distilled-squad/question-answering_fp16_perf_result.json)) | exact_match=84.0000, f1=88.1143 ([metric](./distilbert_distilbert-base-cased-distilled-squad/question-answering_fp16_eval_result.json)) |
-| distilbert/distilbert-base-uncased | fill-mask | fp16 | [config](./distilbert_distilbert-base-uncased/fill-mask_fp16_config.json) | 75.20ms, 13.3sps ([metric](./distilbert_distilbert-base-uncased/fill-mask_fp16_perf_result.json)) | — |
+| distilbert/distilbert-base-uncased | fill-mask | fp16 | [config](./distilbert_distilbert-base-uncased/fill-mask_fp16_config.json) | 75.20ms, 13.3sps ([metric](./distilbert_distilbert-base-uncased/fill-mask_fp16_perf_result.json)) | pseudo_perplexity=6.6132, nll=1.8891 ([metric](./distilbert_distilbert-base-uncased/fill-mask_fp16_eval_result.json)) |
 | distilbert/distilbert-base-uncased-distilled-squad | question-answering | fp16 | [config](./distilbert_distilbert-base-uncased-distilled-squad/question-answering_fp16_config.json) | 52.51ms, 19.1sps ([metric](./distilbert_distilbert-base-uncased-distilled-squad/question-answering_fp16_perf_result.json)) | exact_match=81.0000, f1=85.5157 ([metric](./distilbert_distilbert-base-uncased-distilled-squad/question-answering_fp16_eval_result.json)) |
-| distilbert/distilbert-base-uncased-finetuned-sst-2-english | text-classification | fp16 | [config](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_fp16_config.json) | 57.98ms, 17.2sps ([metric](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_fp16_perf_result.json)) | — |
+| distilbert/distilbert-base-uncased-finetuned-sst-2-english | text-classification | fp16 | [config](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_fp16_config.json) | 57.98ms, 17.2sps ([metric](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_fp16_perf_result.json)) | accuracy=0.9100 ([metric](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_fp16_eval_result.json)) |
 | dslim/bert-base-NER | token-classification |  | [config](./dslim_bert-base-NER/token-classification_config.json) | FAIL | overall_precision=0.9773, overall_recall=0.9718, overall_f1=0.9745, overall_accuracy=0.9967 ([metric](./dslim_bert-base-NER/token-classification_eval_result.json)) |
 | facebook/convnext-tiny-224 | image-classification |  | [config](./facebook_convnext-tiny-224/image-classification_config.json) | 20.77ms, 48.2sps ([metric](./facebook_convnext-tiny-224/image-classification_perf_result.json)) | accuracy=0.7700 ([metric](./facebook_convnext-tiny-224/image-classification_eval_result.json)) |
 | facebook/dino-vitb16 | image-feature-extraction |  | [config](./facebook_dino-vitb16/image-feature-extraction_config.json) | 35.31ms, 28.3sps ([metric](./facebook_dino-vitb16/image-feature-extraction_perf_result.json)) | knn_top1_accuracy=83.2000, knn_top5_accuracy=95.5000 ([metric](./facebook_dino-vitb16/image-feature-extraction_eval_result.json)) |
@@ -52,7 +52,7 @@
 | FacebookAI/xlm-roberta-large | fill-mask |  | [config](./FacebookAI_xlm-roberta-large/fill-mask_config.json) | FAIL | FAIL |
 | Falconsai/nsfw_image_detection | image-classification | fp16 | [config](./Falconsai_nsfw_image_detection/image-classification_fp16_config.json) | 37.17ms, 26.9sps ([metric](./Falconsai_nsfw_image_detection/image-classification_fp16_perf_result.json)) | FAIL |
 | google-bert/bert-base-multilingual-cased | feature-extraction |  | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_config.json) | FAIL | cosine_spearman=40.9452 ([metric](./google-bert_bert-base-multilingual-cased/feature-extraction_eval_result.json)) |
-|  | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_config.json) | 412.11ms, 2.4sps ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_perf_result.json)) | — |
+|  | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_config.json) | 412.11ms, 2.4sps ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_perf_result.json)) | pseudo_perplexity=5.2262, nll=1.6537 ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_eval_result.json)) |
 |  | masked-lm | fp16 | [config](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_config.json) | 389.16ms, 2.6sps ([metric](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_perf_result.json)) | FAIL |
 | google-bert/bert-base-multilingual-uncased | fill-mask |  | [config](./google-bert_bert-base-multilingual-uncased/fill-mask_config.json) | FAIL | FAIL |
 | google-bert/bert-base-uncased | fill-mask |  | [config](./google-bert_bert-base-uncased/fill-mask_config.json) | FAIL | pseudo_perplexity=4.2981, nll=1.4582 ([metric](./google-bert_bert-base-uncased/fill-mask_eval_result.json)) |
@@ -63,7 +63,7 @@
 | Intel/bert-base-uncased-mrpc | feature-extraction |  | [config](./Intel_bert-base-uncased-mrpc/feature-extraction_config.json) | 108.13ms, 9.2sps ([metric](./Intel_bert-base-uncased-mrpc/feature-extraction_perf_result.json)) | cosine_spearman=42.9850 ([metric](./Intel_bert-base-uncased-mrpc/feature-extraction_eval_result.json)) |
 |  | text-classification |  | [config](./Intel_bert-base-uncased-mrpc/text-classification_config.json) | 115.34ms, 8.7sps ([metric](./Intel_bert-base-uncased-mrpc/text-classification_perf_result.json)) | accuracy=0.8200 ([metric](./Intel_bert-base-uncased-mrpc/text-classification_eval_result.json)) |
 | Intel/dpt-hybrid-midas | depth-estimation | fp16 | [config](./Intel_dpt-hybrid-midas/depth-estimation_fp16_config.json) | 233.10ms, 4.3sps ([metric](./Intel_dpt-hybrid-midas/depth-estimation_fp16_perf_result.json)) | FAIL |
-| Isotonic/distilbert_finetuned_ai4privacy_v2 | token-classification | fp16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_config.json) | 49.72ms, 20.1sps ([metric](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_perf_result.json)) | — |
+| Isotonic/distilbert_finetuned_ai4privacy_v2 | token-classification | fp16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_config.json) | 49.72ms, 20.1sps ([metric](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_perf_result.json)) | FAIL |
 | Jean-Baptiste/camembert-ner-with-dates | token-classification | fp16 | [config](./Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_config.json) | 87.30ms, 11.4sps ([metric](./Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_perf_result.json)) | FAIL |
 | joeddav/xlm-roberta-large-xnli | zero-shot-classification |  | [config](./joeddav_xlm-roberta-large-xnli/zero-shot-classification_config.json) | FAIL | FAIL |
 | kredor/punctuate-all | token-classification | fp16 | [config](./kredor_punctuate-all/token-classification_fp16_config.json) | 95.04ms, 10.5sps ([metric](./kredor_punctuate-all/token-classification_fp16_perf_result.json)) | overall_precision=0.0000, overall_recall=0.0000, overall_f1=0.0000, overall_accuracy=0.0000 ([metric](./kredor_punctuate-all/token-classification_fp16_eval_result.json)) |
@@ -81,7 +81,7 @@
 | microsoft/trocr-base-printed | image-to-text |  | [config](./microsoft_trocr-base-printed/image-to-text_config.json) | FAIL | FAIL |
 | microsoft/trocr-large-handwritten | image-to-text |  | [config](./microsoft_trocr-large-handwritten/image-to-text_config.json) | FAIL | FAIL |
 | microsoft/trocr-large-printed | image-to-text |  | [config](./microsoft_trocr-large-printed/image-to-text_config.json) | FAIL | FAIL |
-| monologg/koelectra-small-v2-distilled-korquad-384 | question-answering | fp16 | [config](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_fp16_config.json) | 29.66ms, 33.7sps ([metric](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_fp16_perf_result.json)) | — |
+| monologg/koelectra-small-v2-distilled-korquad-384 | question-answering | fp16 | [config](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_fp16_config.json) | 29.66ms, 33.7sps ([metric](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_fp16_perf_result.json)) | exact_match=34.0000, f1=50.2167 ([metric](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_fp16_eval_result.json)) |
 | nvidia/segformer-b1-finetuned-ade-512-512 | image-segmentation |  | [config](./nvidia_segformer-b1-finetuned-ade-512-512/image-segmentation_config.json) | 102.53ms, 9.8sps ([metric](./nvidia_segformer-b1-finetuned-ade-512-512/image-segmentation_perf_result.json)) | mean_iou=0.3140, overall_accuracy=0.7944 ([metric](./nvidia_segformer-b1-finetuned-ade-512-512/image-segmentation_eval_result.json)) |
 | nvidia/segformer-b2-finetuned-ade-512-512 | image-segmentation |  | [config](./nvidia_segformer-b2-finetuned-ade-512-512/image-segmentation_config.json) | FAIL | mean_iou=0.3873, overall_accuracy=0.8146 ([metric](./nvidia_segformer-b2-finetuned-ade-512-512/image-segmentation_eval_result.json)) |
 | nvidia/segformer-b5-finetuned-ade-640-640 | image-segmentation |  | [config](./nvidia_segformer-b5-finetuned-ade-640-640/image-segmentation_config.json) | FAIL | FAIL |

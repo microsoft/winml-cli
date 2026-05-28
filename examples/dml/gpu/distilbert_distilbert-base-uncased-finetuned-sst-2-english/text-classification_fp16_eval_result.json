@@ -1,0 +1,24 @@
+{
+  "model_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+  "task": "text-classification",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "sst2",
+    "columns_mapping": {
+      "input_column": "sentence"
+    }
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.91,
+    "total_time_in_seconds": 14.638251399854198,
+    "samples_per_second": 6.831417036668467,
+    "latency_in_seconds": 0.146382513998542
+  }
+}
