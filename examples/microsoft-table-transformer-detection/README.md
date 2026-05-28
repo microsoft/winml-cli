@@ -83,6 +83,13 @@ on CPU and emits the same metric so the two runs are directly comparable. The
 last stdout line is a single JSON object:
 `{"metric": "map", "value": <float>, "num_samples": <int>}`.
 
+Pass `--perf-iterations N` (and optionally `--perf-warmup K`, default `10`) to
+also measure PyTorch inference latency. When `N > 0`, the script reuses the
+HuggingFace pipeline on the first dataset sample, runs `K` untimed warmup
+iterations, then `N` timed iterations, and emits a latency JSON line on
+stdout immediately before the metric line. The metric line is still the
+final stdout line.
+
 ```powershell
 $columnsMapping = '{"annotation_column":"objects","bbox_key":"bbox","category_key":"category","box_format":"xyxy"}'
 
@@ -94,19 +101,51 @@ uv run python scripts/e2e_eval/run_pytorch_baseline.py `
   --dataset $HOME/.cache/winml/eval_datasets/build_pubtables1m_detection `
   --split validation `
   --columns-mapping $columnsMapping `
-  --winml-metric-key map
+  --winml-metric-key map `
+  --perf-warmup 10 `
+  --perf-iterations 100
 ```
+
+The latency JSON line has the same `mean_ms` / `min_ms` / `max_ms` /
+`p50_ms` / `p90_ms` / `p95_ms` / `p99_ms` keys as `winml perf` so the two
+runs can be compared directly.
 
 ---
 
-## 4. Comparing the results
+## 4. Measure latency with `winml perf`
 
-For WinML, the accuracy value comes from metrics.map while for PyTorch baseline, it comes from stdout.
+`winml perf` benchmarks the quantized ONNX directly using random inputs
+derived from the model's I/O configuration. Point `-m` at the same
+`*_quantized.onnx` produced in step 1. `--warmup` iterations are excluded
+from the statistics; `--iterations` is the measured sample count.
 
-Result on CPU	Intel(R) Core(TM) Ultra 7 258V:
+```powershell
+winml perf `
+  -m $HOME/.cache/winml/artifacts/microsoft_table-transformer-detection/objdet_<hash>_quantized.onnx `
+  --device npu `
+  --ep openvino `
+  --warmup 10 `
+  --iterations 100 `
+  -o winml_perf_output.json
+```
 
+The output JSON contains `latency_ms` (`mean`, `min`, `max`, `p50`, `p90`,
+`p95`, `p99`, `std`) and `throughput` (`samples_per_sec`, `batches_per_sec`).
+Mean and p50 latency are the headline numbers; report them alongside the
+device and precision used.
 
-| Run | Device | Precision | mAP |
-|---|---|---|---|
-| PyTorch baseline | CPU | fp32 | 0.988714 |
-| WinML | NPU | w8a16 (QDQ) | 0.9822 |
+---
+
+## 5. Comparing the results
+
+For WinML, the accuracy value comes from `metrics.map` in
+`winml_eval_output.json` while for the PyTorch baseline, it comes from the
+last stdout line. Latency comes from `latency_ms` in `winml_perf_output.json`
+for WinML and from the latency JSON line on stdout for the PyTorch baseline.
+
+Result on CPU Intel(R) Core(TM) Ultra 7 258V:
+
+| Run | Device | Precision | mAP | mean latency (ms) | p50 latency (ms) |
+|---|---|---|---|---|---|
+| PyTorch baseline | CPU | fp32 | 0.988714 | _from step 3 latency line_ | _from step 3 latency line_ |
+| WinML | NPU | w8a16 (QDQ) | 0.9822 | _from step 4 `latency_ms.mean`_ | _from step 4 `latency_ms.p50`_ |
