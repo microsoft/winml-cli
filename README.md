@@ -55,7 +55,7 @@ See the [Supported Tasks](#supported-tasks) and [Supported Model Types](#support
 | Python | 3.11 |
 | Package manager | [`uv`](https://github.com/astral-sh/uv) |
 | **WinML CLI** (Python wheel) | [Releases](https://github.com/microsoft/winml-cli/releases) |
-
+| **WinML CLI** (Python wheel) | [Releases](https://github.com/microsoft/winml-cli/releases) |
 ### Installation
 
 WinML CLI requires **Python 3.11** and is distributed as a Python wheel. We recommend [uv](https://docs.astral.sh/uv/) for fast, reproducible environment setup.
