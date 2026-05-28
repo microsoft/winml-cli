@@ -9,6 +9,10 @@ actionable guidance for pattern compatibility issues. Also integrates model-leve
 validation checks.
 """
 
+# Defensive None-checks here are unreachable per the type annotations but kept
+# as runtime safety nets, so silence mypy's [unreachable] for this file only.
+# mypy: disable-error-code="unreachable"
+
 from __future__ import annotations
 
 import logging
