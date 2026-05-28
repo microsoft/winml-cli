@@ -149,28 +149,8 @@ def _builtin_models() -> list[tuple[str, str, dict[tuple[str, str], list[str]]]]
 
 
 def main() -> int:
-    builtins = _builtin_models()
-
     out_lines: list[str] = [
         "# Example Configs Test Summary",
-        "",
-        "## Builtin Models",
-        "",
-        (
-            "Models that, in every one of the 9 (EP, device) buckets, have at "
-            "least one config, perf pass on every existing config (all "
-            "precisions for NPU), and eval pass on at least one precision."
-        ),
-        "",
-        f"Total: **{len(builtins)}** (model, task) tuples.",
-        "",
-        "| Model | Task |",
-        "|---|---|",
-    ]
-    for slug, task, _buckets in builtins:
-        out_lines.append(f"| {slug.replace('_', '/', 1)} | {task} |")
-
-    out_lines += [
         "",
         "## Overview",
         "",
@@ -188,7 +168,6 @@ def main() -> int:
     out_path = EXAMPLES / "summary.md"
     out_path.write_text("\n".join(out_lines), encoding="utf-8")
     print(f"Wrote {out_path}")
-    print(f"Builtin (model, task) count: {len(builtins)}")
     return 0
 
 

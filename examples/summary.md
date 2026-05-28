@@ -1,26 +1,10 @@
 # Example Configs Test Summary
 
-## Builtin Models
-
-Models that, in every one of the 9 (EP, device) buckets, have at least one config, perf pass on every existing config (all precisions for NPU), and eval pass on at least one precision.
-
-Total: **7** (model, task) tuples.
-
-| Model | Task |
-|---|---|
-| cardiffnlp/twitter-roberta-base-sentiment-latest | text-classification |
-| deepset/roberta-base-squad2 | question-answering |
-| deepset/tinyroberta-squad2 | question-answering |
-| facebook/dinov2-base | image-feature-extraction |
-| facebook/dinov2-small | image-feature-extraction |
-| sentence-transformers/all-MiniLM-L6-v2 | feature-extraction |
-| sentence-transformers/all-MiniLM-L6-v2 | sentence-similarity |
-
 ## Overview
 
 | EP | Models | Configs | Perf Pass | Eval Pass | Report |
 |----|--------|---------|-----------|-----------|--------|
-| AMD (VitisAI, NPU) - fp16 | 24 | 29 | 28/29 (97%) | 19/29 (66%) | [Report](vitisai/npu/REPORT.md) |
+| AMD (VitisAI, NPU) - fp16 | 71 | 85 | 58/85 (68%) | 45/85 (53%) | [Report](vitisai/npu/REPORT.md) |
 | AMD (VitisAI, NPU) - w8a16 | 48 | 56 | 30/56 (54%) | 26/56 (46%) | [Report](vitisai/npu/REPORT.md) |
 | AMD (VitisAI, NPU) - w8a8 | 48 | 56 | 33/56 (59%) | 29/56 (52%) | [Report](vitisai/npu/REPORT.md) |
 | QNN (Qualcomm, NPU) - fp16 | 78 | 92 | 90/92 (98%) | 64/92 (70%) | [Report](qnn/npu/REPORT.md) |

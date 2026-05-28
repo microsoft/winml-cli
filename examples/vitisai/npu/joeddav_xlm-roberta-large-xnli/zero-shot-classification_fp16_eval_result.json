@@ -1,0 +1,22 @@
+{
+  "model_id": "joeddav/xlm-roberta-large-xnli",
+  "task": "zero-shot-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation_matched",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/multi_nli",
+    "columns_mapping": {
+      "input_column": "premise",
+      "label_column": "genre",
+      "candidate_labels": "fiction,government,slate,telephone,travel"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\vitisai\\npu\\joeddav_xlm-roberta-large-xnli\\zero-shot-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.19,
+    "f1": 0.18764538841560663
+  }
+}
