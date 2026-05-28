@@ -1,0 +1,20 @@
+{
+  "model_id": "google/vit-base-patch16-224",
+  "task": "image-classification",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\vitisai\\npu\\google_vit-base-patch16-224\\image-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.71,
+    "total_time_in_seconds": 2.792382200001157,
+    "samples_per_second": 35.81171660525503,
+    "latency_in_seconds": 0.027923822000011568
+  }
+}

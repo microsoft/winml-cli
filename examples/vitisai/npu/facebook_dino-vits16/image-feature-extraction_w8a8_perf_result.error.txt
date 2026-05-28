@@ -1,14 +1,37 @@
-d. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-C:\Users\zhangchao\project\winml-cli\.venv\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\zhangchao\.cache\huggingface\hub\datasets--timm--mini-imagenet. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
-To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
-  warnings.warn(message)
+███▍   | 268/417 [00:01<00:00, 163.31it/s]
+ 70%|██████▉   | 291/417 [00:01<00:00, 173.69it/s]
+ 74%|███████▍  | 309/417 [00:01<00:00, 163.58it/s]
+ 81%|████████  | 336/417 [00:02<00:00, 177.02it/s]
+ 85%|████████▌ | 356/417 [00:02<00:00, 176.39it/s]
+ 90%|█████████ | 377/417 [00:02<00:00, 165.57it/s]
+ 97%|█████████▋| 404/417 [00:02<00:00, 178.22it/s]
+100%|██████████| 417/417 [00:02<00:00, 165.21it/s]
+[2026-05-27T23:07:27] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/369 [00:00<?, ?it/s]
+  7%|▋         | 24/369 [00:00<00:01, 216.14it/s]
+ 12%|█▏        | 46/369 [00:00<00:01, 175.94it/s]
+ 17%|█▋        | 64/369 [00:00<00:02, 152.35it/s]
+ 24%|██▍       | 89/369 [00:00<00:01, 178.86it/s]
+ 29%|██▉       | 108/369 [00:00<00:01, 176.16it/s]
+ 34%|███▍      | 126/369 [00:00<00:01, 163.81it/s]
+ 40%|████      | 149/369 [00:00<00:01, 171.08it/s]
+ 46%|████▌     | 168/369 [00:00<00:01, 174.80it/s]
+ 50%|█████     | 186/369 [00:01<00:01, 164.66it/s]
+ 57%|█████▋    | 209/369 [00:01<00:00, 176.87it/s]
+ 62%|██████▏   | 228/369 [00:01<00:00, 180.31it/s]
+ 67%|██████▋   | 247/369 [00:01<00:00, 170.33it/s]
+ 73%|███████▎  | 269/369 [00:01<00:00, 177.19it/s]
+ 78%|███████▊  | 288/369 [00:01<00:00, 178.94it/s]
+ 83%|████████▎ | 307/369 [00:01<00:00, 170.22it/s]
+ 89%|████████▉ | 329/369 [00:01<00:00, 177.89it/s]
+ 95%|█████████▍| 349/369 [00:01<00:00, 183.60it/s]
+100%|█████████▉| 368/369 [00:02<00:00, 167.69it/s]
+100%|██████████| 369/369 [00:02<00:00, 173.35it/s]
+[2026-05-27T23:07:30] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
 
 Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
-Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 622.55 examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 625.68 examples/s]
 
 Map:   0%|          | 0/10 [00:00<?, ? examples/s]
-Map: 100%|██████████| 10/10 [00:00<00:00, 188.97 examples/s]
-[2026-05-26T12:25:44] WARNING: Failed to register EP MIGraphXExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under MIGraphXExecutionProvider
-[2026-05-26T12:25:44] WARNING: Failed to register EP VitisAIExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under VitisAIExecutionProvider
-[2026-05-26T12:25:44] WARNING: Failed to register EP NvTensorRTRTXExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under NvTensorRTRTXExecutionProvider
-[0;93m2026-05-26 12:25:44.5750603 [W:onnxruntime:, pass_main.cpp:419 pass_main.cpp] Unexcepted exception: (Exception type: class std::invalid_argument) NodeArg name already exists in original graph[m
+Map: 100%|██████████| 10/10 [00:00<00:00, 237.92 examples/s]

@@ -1,9 +1,19 @@
-preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.[m
-[0;93m2026-05-26 11:46:52.1210535 [W:onnxruntime:, session_state.cc:1329 onnxruntime::VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.[m
-[0;93m2026-05-26 11:46:52.9543255 [W:onnxruntime:, session_state.cc:1327 onnxruntime::VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.[m
-[0;93m2026-05-26 11:46:52.9548612 [W:onnxruntime:, session_state.cc:1329 onnxruntime::VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.[m
-ERROR: Kernel partition: 0, pdi_id: 0 timed out!
-Details: Command failed to complete successfully (ERT_CMD_STATE_TIMEOUT)
-[1;31m2026-05-26 11:47:23.2350431 [E:onnxruntime:, sequential_executor.cc:572 onnxruntime::ExecuteKernel] Non-zero status code returned while running VitisAIExecutionProvider_453356176724769404_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_453356176724769404_0_0' Status Message: No such query request (73)[m
-[2026-05-26T11:47:23] ERROR: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_453356176724769404_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_453356176724769404_0_0' Status Message: No such query request (73)
-Error: Benchmark failed: Compilation failed: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_453356176724769404_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_453356176724769404_0_0' Status Message: No such query request (73)
+:00, 621.66it/s]
+ 63%|██████▎   | 273/434 [00:00<00:00, 599.76it/s]
+ 78%|███████▊  | 339/434 [00:00<00:00, 595.16it/s]
+ 92%|█████████▏| 399/434 [00:00<00:00, 558.39it/s]
+100%|██████████| 434/434 [00:00<00:00, 562.41it/s]
+[2026-05-27T22:01:56] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/387 [00:00<?, ?it/s]
+ 16%|█▌        | 62/387 [00:00<00:00, 551.01it/s]
+ 33%|███▎      | 127/387 [00:00<00:00, 564.26it/s]
+ 49%|████▉     | 191/387 [00:00<00:00, 595.70it/s]
+ 65%|██████▌   | 253/387 [00:00<00:00, 604.89it/s]
+ 81%|████████▏ | 315/387 [00:00<00:00, 604.83it/s]
+ 99%|█████████▊| 382/387 [00:00<00:00, 602.11it/s]
+100%|██████████| 387/387 [00:00<00:00, 603.82it/s]
+[2026-05-27T22:01:56] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-27T22:01:58] WARNING: Task 'token-classification' not in supported tasks ['image-classification', 'image-feature-extraction', 'object-detection', 'text-classification', 'text-feature-extraction', 'feature-extraction', 'sentence-similarity', 'next-sentence-prediction', 'fill-mask', 'zero-shot-classification', 'image-segmentation', 'random'], falling back to RandomDataset
+[2026-05-27T22:02:54] ERROR: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_2043786540626554774_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_2043786540626554774_0_0' Status Message: No such query request (73)
+Error: Benchmark failed: Compilation failed: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_2043786540626554774_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_2043786540626554774_0_0' Status Message: No such query request (73)

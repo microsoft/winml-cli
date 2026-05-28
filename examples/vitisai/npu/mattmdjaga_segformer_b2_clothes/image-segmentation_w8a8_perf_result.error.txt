@@ -1,8 +1,38 @@
-ch_embeddings.0.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
-[0;93m2026-05-26 19:32:41.6750203 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.layer_norm_1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
-[0;93m2026-05-26 19:32:41.6753250 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.layer_norm_1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
-[0;93m2026-05-26 19:32:41.6756296 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (segformer.encoder.patch_embeddings.0.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
-[0;93m2026-05-26 19:32:43.7906605 [W:onnxruntime:, internal_util.hpp:183 internal_util.hpp] xir::Op{name = (/segformer/encoder/block.0.0/attention/self/sr/Conv_output_0_vaip_6), type = qlinear-conv2d}'s parameter is not supported by AMD_AIE2P_4x8_CMC_Overlay now. It will be assigned back to CPU[m
-[0;93m2026-05-26 19:32:44.0479753 [W:onnxruntime:, internal_util.hpp:183 internal_util.hpp] xir::Op{name = (/segformer/encoder/block.0.1/attention/self/sr/Conv_output_0_vaip_12), type = qlinear-conv2d}'s parameter is not supported by AMD_AIE2P_4x8_CMC_Overlay now. It will be assigned back to CPU[m
-[0;93m2026-05-26 19:32:44.3043856 [W:onnxruntime:, internal_util.hpp:183 internal_util.hpp] xir::Op{name = (/segformer/encoder/block.0.2/attention/self/sr/Conv_output_0_vaip_18), type = qlinear-conv2d}'s parameter is not supported by AMD_AIE2P_4x8_CMC_Overlay now. It will be assigned back to CPU[m
-[0;93m2026-05-26 19:32:47.1213072 [W:onnxruntime:, pass_main.cpp:419 pass_main.cpp] Unexcepted exception: (Exception type: class std::length_error) vector too long[m
+icrosoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/699 [00:00<?, ?it/s]
+  1%|          | 8/699 [00:00<00:33, 20.58it/s]
+  7%|▋         | 49/699 [00:00<00:05, 120.86it/s]
+ 13%|█▎        | 90/699 [00:00<00:03, 184.53it/s]
+ 20%|█▉        | 139/699 [00:00<00:02, 257.06it/s]
+ 25%|██▍       | 173/699 [00:01<00:03, 147.13it/s]
+ 28%|██▊       | 198/699 [00:01<00:03, 151.76it/s]
+ 33%|███▎      | 228/699 [00:01<00:04, 109.67it/s]
+ 38%|███▊      | 269/699 [00:01<00:03, 139.20it/s]
+ 45%|████▍     | 313/699 [00:02<00:02, 181.65it/s]
+ 49%|████▉     | 346/699 [00:02<00:01, 198.04it/s]
+ 54%|█████▍    | 378/699 [00:02<00:01, 216.24it/s]
+ 59%|█████▉    | 412/699 [00:02<00:01, 235.98it/s]
+ 63%|██████▎   | 440/699 [00:02<00:01, 142.27it/s]
+ 68%|██████▊   | 472/699 [00:02<00:01, 166.98it/s]
+ 72%|███████▏  | 501/699 [00:03<00:01, 179.97it/s]
+ 77%|███████▋  | 535/699 [00:03<00:00, 206.61it/s]
+ 80%|████████  | 561/699 [00:03<00:00, 212.29it/s]
+ 84%|████████▍ | 586/699 [00:03<00:00, 214.55it/s]
+ 87%|████████▋ | 610/699 [00:03<00:00, 199.41it/s]
+ 90%|█████████ | 632/699 [00:03<00:00, 184.50it/s]
+ 93%|█████████▎| 653/699 [00:03<00:00, 178.32it/s]
+ 96%|█████████▌| 672/699 [00:03<00:00, 163.48it/s]
+100%|██████████| 699/699 [00:04<00:00, 173.04it/s]
+[2026-05-28T02:29:19] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+Generating train split:   0%|          | 0/10 [00:00<?, ? examples/s]
+Generating train split: 100%|██████████| 10/10 [00:00<00:00, 628.64 examples/s]
+
+Generating validation split:   0%|          | 0/10 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 10/10 [00:00<00:00, 621.97 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map:  10%|█         | 1/10 [00:00<00:00,  9.46 examples/s]
+Map:  90%|█████████ | 9/10 [00:00<00:00, 43.42 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 26.22 examples/s]
