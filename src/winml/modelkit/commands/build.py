@@ -273,7 +273,7 @@ def _validate_task_supported_for_model(
     Raises:
         ValueError: If the task is not supported for the model architecture.
     """
-    from ..export.io import ensure_hf_models_registered
+    from ..export.io import TASK_SYNONYM_EXTENSIONS, ensure_hf_models_registered
     from ..loader.task import get_supported_tasks, normalize_task
 
     if hf_config is None:
@@ -301,8 +301,43 @@ def _validate_task_supported_for_model(
     if not supported_tasks:
         return hf_config
 
+    # [1] Verbatim canonical match — definitive accept. Comparing without
+    #     normalization first means an arch that lists `image-feature-extraction`
+    #     in its supported set accepts that name as-is, while a text-only arch
+    #     that lists only `feature-extraction` does not silently accept it via
+    #     Optimum's synonym collapse on this branch.
+    if task in supported_tasks:
+        return hf_config
+
+    # [2] HF-pipeline-only task names that Optimum's TasksManager does not
+    #     know but the rest of the CLI accepts (e.g. ``next-sentence-prediction``
+    #     handled via HF_TASK_DEFAULTS, ``mask-generation`` preserved for SAM2).
+    #     These are routed downstream by export/io.py::_map_task_synonym, so
+    #     rejecting here would break invocations that ``winml config`` and
+    #     ``winml export`` accept.
+    if task in TASK_SYNONYM_EXTENSIONS:
+        return hf_config
+
+    # [3] Optimum synonym fallback — e.g. ``masked-lm`` -> ``fill-mask``.
+    #     Accept, but warn so users converge on the canonical spelling.
+    #
+    #     Known limitation: Optimum collapses text/image variants of
+    #     feature-extraction (``image-feature-extraction`` -> ``feature-extraction``)
+    #     and routes ``sentence-similarity`` -> ``feature-extraction``. This
+    #     branch therefore silently accepts cross-modality combinations such as
+    #     ``--task image-feature-extraction`` against a text-only arch. Such
+    #     mismatches must be caught downstream where the HF-pipeline-keyed
+    #     registries see the un-collapsed ``loader.task`` value.
+    normalized = normalize_task(task)
     normalized_supported = {normalize_task(t) for t in supported_tasks}
-    if normalize_task(task) in normalized_supported:
+    if normalized in normalized_supported:
+        if normalized != task:
+            logger.warning(
+                "%s=%r matches via Optimum synonym mapping; consider using the canonical name %r.",
+                task_field_name,
+                task,
+                normalized,
+            )
         return hf_config
 
     supported_list = ", ".join(supported_tasks)
