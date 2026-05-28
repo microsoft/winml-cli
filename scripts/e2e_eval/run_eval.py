@@ -81,12 +81,16 @@ TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.js
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION_NPU = "w8a16"
 
-# EP aliases / canonical names that imply VitisAI.  VitisAI (AMD Ryzen AI)
-# expects INT8 weights + INT8 activations (w8a8) — not the w8a16 default used
-# for Qualcomm/QNN, and not fp32 (the NPU cannot execute fp32).  Compiling
-# w8a16 *or* leaving the model fp32 produces an ONNX file the EP loads but
-# crashes on the first inference, so we force w8a8 when VitisAI is selected.
-_VITISAI_EP_NAMES = frozenset({"vitisai", "vitisaiexecutionprovider"})
+# EPs that ship their own internal quantizer (run after the ONNX model is
+# loaded into the EP).  Layering winml's generic QDQ quantizer on top of
+# them noticeably degrades accuracy, so we pass ``--no-quant`` to
+# ``winml build`` and let the EP quantize natively.
+_NATIVE_QUANT_EP_NAMES = frozenset({"vitisai", "vitisaiexecutionprovider"})
+
+
+def _ep_quantizes_natively(ep: str | None) -> bool:
+    """True if the EP ships its own internal quantizer."""
+    return (ep or "").lower() in _NATIVE_QUANT_EP_NAMES
 
 
 def _resolve_precision(device: str, explicit: str | None, ep: str | None = None) -> str | None:
@@ -98,16 +102,16 @@ def _resolve_precision(device: str, explicit: str | None, ep: str | None = None)
     (NHWC layout transformer inserts Conv nodes that QNN GPU's GetCapability
     does not claim).
 
-    When the VitisAI EP is selected, "w8a8" is returned — VitisAI requires
-    INT8 weights + INT8 activations and crashes on both the w8a16 default and
-    on fp32 models.
+    For EPs with native quantizers (e.g. VitisAI) the flag is omitted; the
+    actual "skip winml quantization" instruction is conveyed via
+    ``winml build --no-quant`` in :func:`_run_build`.
 
     An explicit per-model precision always takes precedence.
     """
     if explicit:
         return explicit
-    if (ep or "").lower() in _VITISAI_EP_NAMES:
-        return "w8a8"
+    if _ep_quantizes_natively(ep):
+        return None
     return _DEFAULT_PRECISION_NPU if device == "npu" else None
 
 
@@ -459,6 +463,12 @@ def _run_build(
         ]
         if ep:
             build_args += ["--ep", ep]
+        # EPs with native quantizers (e.g. VitisAI / AMD Ryzen AI) quantize
+        # internally at session-create time; running winml's generic w8a8
+        # QDQ pass on top noticeably degrades accuracy.  --no-quant tells
+        # winml build to keep the model fp32 and lets the EP do its own.
+        if _ep_quantizes_natively(ep):
+            build_args += ["--no-quant"]
 
         build_proc = _run_subprocess(build_args, timeout)
         last_proc = build_proc
