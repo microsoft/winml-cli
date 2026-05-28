@@ -363,14 +363,13 @@ def _save_json(data: Any, path: Path) -> None:
 @click.command()
 @click.option(
     "--model-type",
-    "-t",
     default=None,
     metavar="TYPE",
     help="Filter by model architecture (e.g. bert, roberta, vit).",
 )
 @click.option(
     "--task",
-    "-k",
+    "-t",
     default=None,
     metavar="TASK",
     help="Filter by HuggingFace task (e.g. text-classification, image-segmentation).",
