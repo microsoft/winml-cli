@@ -240,12 +240,19 @@ def resolve_check_device_ep(
 
     Raises:
         ValueError: If the requested device or EP combination is not valid.
+
+    Returns:
+    Tuple of (resolved_device, available_devices, available_eps) where:
+    - resolved_device: The device that should be used based on the input parameters.
+    - available_devices: List of devices that are compatible with the first in available_eps
+    - available_eps: List of EPs that are compatible with the resolved device.
     """
     ep_name = normalize_ep_name(ep)
     if device == "auto" or ep_name is None:
-        resolved_device, available_devices = resolve_device(device=device, ep=ep_name)
+        resolved_device, _ = resolve_device(device=device, ep=ep_name)
         available_eps: list[EPName] = resolve_eps(resolved_device) if ep_name is None else [ep_name]
-        return resolved_device, available_devices, available_eps
+        supported_devices = EP_SUPPORTED_DEVICES[available_eps[0]]
+        return resolved_device, list(supported_devices), available_eps
 
     if ep_name not in EP_SUPPORTED_DEVICES:
         raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")

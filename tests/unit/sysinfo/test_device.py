@@ -501,13 +501,16 @@ class TestResolveCheckDeviceEp:
 
     The function has two distinct code paths:
 
-    - **Path A** — ``device == "auto"`` OR ``ep is None``. Delegates to
-      :func:`resolve_device` + :func:`resolve_eps`. System-aware: it raises if
-      the requested device/EP is not actually present.
-    - **Path B** — explicit device AND explicit ep. Validates only against the
-      static ``EP_SUPPORTED_DEVICES`` mapping. Does **not** consult ORT, so it
-      succeeds on hosts with no EPs installed — the point being that some
-      callers just want to validate a (device, ep) pair, not run it.
+    - **Path A** — ``device == "auto"`` OR ``ep is None``. Resolves the
+      concrete device via :func:`resolve_device` (system-aware: raises if the
+      device/EP is not present) and the EP list via :func:`resolve_eps`. The
+      returned ``available_devices`` is the *static* device set for the first
+      available EP (``EP_SUPPORTED_DEVICES[available_eps[0]]``), not the
+      runtime-available list — keeps the contract symmetric with Path B.
+    - **Path B** — explicit device AND explicit ep. Validates only against
+      ``EP_SUPPORTED_DEVICES``. Does **not** consult ORT, so it succeeds on
+      hosts with no EPs installed — for callers that just want to validate a
+      (device, ep) pair without running it.
     """
 
     def test_auto_no_ep_delegates_to_system(self) -> None:
@@ -524,7 +527,10 @@ class TestResolveCheckDeviceEp:
             )
 
         assert device == "npu"
-        assert available_devices == ["npu", "gpu", "cpu"]
+        # available_devices is EP_SUPPORTED_DEVICES[available_eps[0]] (static),
+        # not the runtime device list. QNN supports npu/gpu, so cpu is absent
+        # even though the mocked system has it.
+        assert available_devices == ["npu", "gpu"]
         # When ep=None, available_eps comes from resolve_eps -- the full list
         # of EPs that target the resolved device, not a single explicit ep.
         assert available_eps == ["QNNExecutionProvider"]
@@ -560,7 +566,9 @@ class TestResolveCheckDeviceEp:
             )
 
         assert device == "npu"
-        assert available_devices == ["npu", "cpu"]
+        # available_devices reflects the static EP_SUPPORTED_DEVICES for QNN
+        # (npu, gpu) rather than what the mocked system advertises.
+        assert available_devices == ["npu", "gpu"]
         assert available_eps == ["QNNExecutionProvider"]
 
     def test_explicit_device_and_ep_uses_static_mapping(self) -> None:
