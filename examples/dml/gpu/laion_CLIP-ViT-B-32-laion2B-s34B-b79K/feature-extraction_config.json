@@ -59,7 +59,6 @@
   },
   "eval": {
     "task": "feature-extraction",
-    "device": "gpu",
     "dataset": {
       "path": "mteb/stsbenchmark-sts",
       "split": "test",

@@ -68,7 +68,6 @@
   },
   "eval": {
     "task": "token-classification",
-    "device": "npu",
     "dataset": {
       "path": "~/.cache/winml/eval_datasets/build_ai4privacy",
       "columns_mapping": {

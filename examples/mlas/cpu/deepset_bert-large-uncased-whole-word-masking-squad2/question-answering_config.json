@@ -68,7 +68,6 @@
   },
   "eval": {
     "task": "question-answering",
-    "device": "cpu",
     "dataset": {
       "path": "rajpurkar/squad_v2",
       "split": "validation",

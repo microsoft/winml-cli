@@ -69,7 +69,6 @@
     "model_type": "camembert"
   },
   "eval": {
-    "task": "token-classification",
-    "device": "npu"
+    "task": "token-classification"
   }
 }

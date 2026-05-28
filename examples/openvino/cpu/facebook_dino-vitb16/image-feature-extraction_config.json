@@ -41,7 +41,6 @@
   },
   "eval": {
     "task": "image-feature-extraction",
-    "device": "cpu",
     "dataset": {
       "path": "timm/mini-imagenet",
       "split": "test",

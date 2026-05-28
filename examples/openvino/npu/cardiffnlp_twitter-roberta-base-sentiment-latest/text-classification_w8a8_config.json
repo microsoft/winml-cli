@@ -78,7 +78,6 @@
   },
   "eval": {
     "task": "text-classification",
-    "device": "npu",
     "dataset": {
       "path": "tweet_eval",
       "name": "sentiment",

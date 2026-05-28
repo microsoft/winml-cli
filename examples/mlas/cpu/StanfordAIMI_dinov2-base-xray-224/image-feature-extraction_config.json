@@ -41,7 +41,6 @@
   },
   "eval": {
     "task": "image-feature-extraction",
-    "device": "cpu",
     "dataset": {
       "path": "Ewakaa/pneumonia_classification_chest_xray",
       "split": "test",

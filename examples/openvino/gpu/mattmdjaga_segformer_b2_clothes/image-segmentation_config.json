@@ -41,7 +41,6 @@
   },
   "eval": {
     "task": "image-segmentation",
-    "device": "gpu",
     "dataset": {
       "path": "mattmdjaga/human_parsing_dataset",
       "split": "train",

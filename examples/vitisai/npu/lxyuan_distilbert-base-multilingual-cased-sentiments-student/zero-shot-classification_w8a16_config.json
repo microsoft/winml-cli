@@ -67,7 +67,6 @@
     "model_type": "distilbert"
   },
   "eval": {
-    "task": "zero-shot-classification",
-    "device": "npu"
+    "task": "zero-shot-classification"
   }
 }

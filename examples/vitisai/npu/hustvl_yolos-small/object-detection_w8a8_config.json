@@ -61,7 +61,6 @@
   },
   "eval": {
     "task": "object-detection",
-    "device": "npu",
     "dataset": {
       "path": "detection-datasets/coco",
       "split": "val",

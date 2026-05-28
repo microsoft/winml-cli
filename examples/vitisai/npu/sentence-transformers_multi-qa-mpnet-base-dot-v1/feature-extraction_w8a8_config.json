@@ -67,7 +67,6 @@
     "model_type": "mpnet"
   },
   "eval": {
-    "task": "feature-extraction",
-    "device": "npu"
+    "task": "feature-extraction"
   }
 }

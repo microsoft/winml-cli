@@ -113,7 +113,6 @@
   ],
   "eval": {
     "task": "zero-shot-image-classification",
-    "device": "cpu",
     "dataset": {
       "path": "uoft-cs/cifar100",
       "split": "test",

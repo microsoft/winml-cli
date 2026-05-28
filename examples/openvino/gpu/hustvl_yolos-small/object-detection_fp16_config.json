@@ -44,7 +44,6 @@
   },
   "eval": {
     "task": "object-detection",
-    "device": "gpu",
     "dataset": {
       "path": "detection-datasets/coco",
       "split": "val",

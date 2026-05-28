@@ -52,7 +52,6 @@
   },
   "eval": {
     "task": "object-detection",
-    "device": "npu",
     "dataset": {
       "path": "~/.cache/winml/eval_datasets/build_pubtables1m_detection",
       "split": "validation",

@@ -57,7 +57,6 @@
     "model_type": "dpt"
   },
   "eval": {
-    "task": "depth-estimation",
-    "device": "npu"
+    "task": "depth-estimation"
   }
 }

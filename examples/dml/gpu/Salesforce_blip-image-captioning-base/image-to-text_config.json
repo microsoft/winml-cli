@@ -529,7 +529,6 @@
   ],
   "eval": {
     "task": "image-to-text",
-    "device": "gpu",
     "dataset": {
       "path": "lmms-lab/flickr30k",
       "split": "test",

@@ -53,7 +53,6 @@
   },
   "eval": {
     "task": "zero-shot-classification",
-    "device": "gpu",
     "dataset": {
       "path": "fancyzhx/ag_news",
       "split": "test",

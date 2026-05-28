@@ -113,7 +113,6 @@
   ],
   "eval": {
     "task": "zero-shot-image-classification",
-    "device": "cpu",
     "dataset": {
       "path": "zalando-datasets/fashion_mnist",
       "split": "test",

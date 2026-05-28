@@ -49,7 +49,6 @@
   },
   "eval": {
     "task": "image-feature-extraction",
-    "device": "npu",
     "dataset": {
       "path": "timm/mini-imagenet",
       "split": "test",

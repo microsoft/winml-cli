@@ -51,7 +51,6 @@
   },
   "eval": {
     "task": "fill-mask",
-    "device": "npu",
     "dataset": {
       "path": "Salesforce/wikitext",
       "name": "wikitext-2-raw-v1",

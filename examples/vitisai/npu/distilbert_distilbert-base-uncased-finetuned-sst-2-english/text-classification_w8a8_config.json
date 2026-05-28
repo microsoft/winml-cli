@@ -68,7 +68,6 @@
   },
   "eval": {
     "task": "text-classification",
-    "device": "npu",
     "dataset": {
       "path": "nyu-mll/glue",
       "name": "sst2",

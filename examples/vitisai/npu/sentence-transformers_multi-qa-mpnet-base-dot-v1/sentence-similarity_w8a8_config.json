@@ -68,7 +68,6 @@
   },
   "eval": {
     "task": "sentence-similarity",
-    "device": "npu",
     "dataset": {
       "path": "mteb/stsbenchmark-sts",
       "split": "test",

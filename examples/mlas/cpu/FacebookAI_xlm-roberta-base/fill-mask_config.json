@@ -53,7 +53,6 @@
   },
   "eval": {
     "task": "fill-mask",
-    "device": "cpu",
     "dataset": {
       "path": "Salesforce/wikitext",
       "name": "wikitext-2-raw-v1",

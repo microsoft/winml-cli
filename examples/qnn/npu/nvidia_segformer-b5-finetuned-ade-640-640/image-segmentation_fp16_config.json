@@ -49,7 +49,6 @@
   },
   "eval": {
     "task": "image-segmentation",
-    "device": "npu",
     "dataset": {
       "path": "danjacobellis/scene_parse_150",
       "split": "validation",

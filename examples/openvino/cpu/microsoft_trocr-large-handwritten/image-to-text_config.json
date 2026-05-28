@@ -533,7 +533,6 @@
   ],
   "eval": {
     "task": "image-to-text",
-    "device": "cpu",
     "dataset": {
       "path": "Teklia/IAM-line",
       "split": "test",

@@ -57,7 +57,6 @@
     "model_type": "resnet"
   },
   "eval": {
-    "task": "image-classification",
-    "device": "npu"
+    "task": "image-classification"
   }
 }

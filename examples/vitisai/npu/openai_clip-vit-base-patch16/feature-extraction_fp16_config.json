@@ -67,7 +67,6 @@
   },
   "eval": {
     "task": "feature-extraction",
-    "device": "npu",
     "dataset": {
       "path": "mteb/stsbenchmark-sts",
       "split": "test",

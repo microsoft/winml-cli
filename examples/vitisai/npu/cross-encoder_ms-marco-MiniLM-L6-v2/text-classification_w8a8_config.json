@@ -81,7 +81,6 @@
     "model_type": "bert"
   },
   "eval": {
-    "task": "text-classification",
-    "device": "npu"
+    "task": "text-classification"
   }
 }

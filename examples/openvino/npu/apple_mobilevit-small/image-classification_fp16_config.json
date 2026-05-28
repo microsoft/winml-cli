@@ -41,7 +41,6 @@
   },
   "eval": {
     "task": "image-classification",
-    "device": "npu",
     "dataset": {
       "path": "timm/mini-imagenet",
       "split": "test"

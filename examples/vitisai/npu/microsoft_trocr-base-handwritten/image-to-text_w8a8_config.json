@@ -567,7 +567,6 @@
   ],
   "eval": {
     "task": "image-to-text",
-    "device": "npu",
     "dataset": {
       "path": "Teklia/IAM-line",
       "split": "test",

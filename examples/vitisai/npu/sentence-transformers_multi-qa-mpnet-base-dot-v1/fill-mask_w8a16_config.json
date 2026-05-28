@@ -67,7 +67,6 @@
     "model_type": "mpnet"
   },
   "eval": {
-    "task": "fill-mask",
-    "device": "npu"
+    "task": "fill-mask"
   }
 }

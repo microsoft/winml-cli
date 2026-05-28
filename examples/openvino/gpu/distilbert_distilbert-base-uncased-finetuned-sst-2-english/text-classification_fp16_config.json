@@ -51,7 +51,6 @@
   },
   "eval": {
     "task": "text-classification",
-    "device": "gpu",
     "dataset": {
       "path": "nyu-mll/glue",
       "name": "sst2",

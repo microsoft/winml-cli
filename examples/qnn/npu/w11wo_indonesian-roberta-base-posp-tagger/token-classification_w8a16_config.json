@@ -78,7 +78,6 @@
   },
   "eval": {
     "task": "token-classification",
-    "device": "npu",
     "dataset": {
       "path": "~/.cache/winml/eval_datasets/build_indonlu_posp",
       "columns_mapping": {

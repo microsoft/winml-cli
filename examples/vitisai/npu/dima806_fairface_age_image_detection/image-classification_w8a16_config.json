@@ -58,7 +58,6 @@
   },
   "eval": {
     "task": "image-classification",
-    "device": "npu",
     "dataset": {
       "path": "~/.cache/winml/eval_datasets/build_fairface",
       "columns_mapping": {

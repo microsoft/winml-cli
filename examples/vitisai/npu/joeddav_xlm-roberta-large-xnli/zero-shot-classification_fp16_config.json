@@ -53,7 +53,6 @@
   },
   "eval": {
     "task": "zero-shot-classification",
-    "device": "npu",
     "dataset": {
       "path": "nyu-mll/multi_nli",
       "split": "validation_matched",

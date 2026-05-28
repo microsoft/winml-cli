@@ -83,7 +83,6 @@
   },
   "eval": {
     "task": "question-answering",
-    "device": "npu",
     "dataset": {
       "path": "KorQuAD/squad_kor_v1",
       "split": "validation",

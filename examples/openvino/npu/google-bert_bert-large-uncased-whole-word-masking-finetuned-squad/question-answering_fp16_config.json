@@ -76,7 +76,6 @@
   },
   "eval": {
     "task": "question-answering",
-    "device": "npu",
     "dataset": {
       "path": "rajpurkar/squad",
       "split": "validation",

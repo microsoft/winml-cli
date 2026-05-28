@@ -73,7 +73,6 @@
   },
   "eval": {
     "task": "token-classification",
-    "device": "npu",
     "dataset": {
       "path": "BramVanroy/conll2003",
       "columns_mapping": {
