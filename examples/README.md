@@ -1,12 +1,16 @@
 # Built-in Model Recipes
 
-These are curated recipe configs for models that **pass both perf and eval
-on every supported (EP, device) bucket**: DML/GPU, MLAS/CPU,
-OpenVINO/{CPU,GPU,NPU}, QNN/{GPU,NPU}, VitisAI/NPU, NVIDIA TensorRT RTX/GPU.
+Curated recipe configuration samples for **portable, high-performance, and high-quality** AI models on Windows ML, working consistently across supported EPs.
 
-Layout: `examples/<model_dir>/<task>_<precision>_config.json`
+**Supported EPs:**
 
-Each (model, task) ships with `fp16` plus `w8a8` and `w8a16` quantized variants.
+DML/GPU, MLAS/CPU, OpenVINO (CPU/GPU/NPU), QNN (GPU/NPU), VitisAI/NPU, NVIDIA TensorRT RTX/GPU
+
+Each *(model, task)* includes:
+
+- `fp16`
+- `w8a8`
+- `w8a16` quantized variants
 
 ## Models
 
