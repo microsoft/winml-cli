@@ -1,0 +1,24 @@
+NG: trust_remote_code is enabled - custom Python from the model repository
+will be downloaded and executed. Proceed only if you trust the publisher.
+[2026-05-28T01:13:01] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/222 [00:00<?, ?it/s]
+ 21%|██        | 46/222 [00:00<00:00, 458.76it/s]
+ 41%|████▏     | 92/222 [00:00<00:00, 415.24it/s]
+ 62%|██████▏   | 137/222 [00:00<00:00, 430.06it/s]
+ 82%|████████▏ | 181/222 [00:00<00:00, 343.03it/s]
+ 98%|█████████▊| 218/222 [00:00<00:00, 332.20it/s]
+100%|██████████| 222/222 [00:00<00:00, 328.29it/s]
+[2026-05-28T01:13:12] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/199 [00:00<?, ?it/s]
+ 18%|█▊        | 35/199 [00:00<00:00, 318.61it/s]
+ 34%|███▎      | 67/199 [00:00<00:00, 302.87it/s]
+ 49%|████▉     | 98/199 [00:00<00:00, 255.41it/s]
+ 65%|██████▌   | 130/199 [00:00<00:00, 277.22it/s]
+ 82%|████████▏ | 164/199 [00:00<00:00, 295.19it/s]
+ 99%|█████████▉| 198/199 [00:00<00:00, 272.42it/s]
+100%|██████████| 199/199 [00:00<00:00, 279.94it/s]
+[2026-05-28T01:13:13] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-28T01:13:14] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_ai4privacy' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_ai4privacy' (name=None, split='validation'): Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_ai4privacy.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.
