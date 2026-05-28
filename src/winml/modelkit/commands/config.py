@@ -64,14 +64,7 @@ def _is_onnx_file(model_input: str) -> bool:
 
 
 @click.command("config")
-@click.option(
-    "-m",
-    "--model",
-    "hf_model",
-    default=None,
-    help="HuggingFace model ID (e.g., microsoft/resnet-50) or path to .onnx file. "
-    "Optional when --model-type is provided.",
-)
+@cli_utils.model_option(required=False, optional_message="Optional when --model-type is provided.")
 @click.option(
     "-t",
     "--task",
@@ -97,12 +90,7 @@ def _is_onnx_file(model_input: str) -> bool:
     default=None,
     help="Generate configs for submodules matching this class name (e.g., ResNetConvLayer)",
 )
-@click.option(
-    "-c",
-    "--config",
-    "config_file",
-    type=click.Path(exists=True),
-    default=None,
+@cli_utils.build_config_option(
     help="JSON config file with overrides (WinMLBuildConfig format)",
 )
 @click.option(
@@ -115,13 +103,8 @@ def _is_onnx_file(model_input: str) -> bool:
     "vision: height, width, num_channels; "
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
 )
-@click.option(
-    "-d",
-    "--device",
-    "device",
-    type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
-    default="auto",
-    help="Target device (affects quant/compile config). Default: auto (no changes to config).",
+@cli_utils.device_option(
+    required=False, optional_message="Affects compile config.", default="auto", include_auto=True
 )
 @cli_utils.ep_option(
     required=False,
@@ -165,7 +148,7 @@ def _is_onnx_file(model_input: str) -> bool:
 )
 @cli_utils.trust_remote_code_option()
 def config(
-    hf_model: str | None,
+    model: str | None,
     task: str | None,
     model_class: str | None,
     model_type: str | None,
@@ -226,6 +209,7 @@ def config(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
+    hf_model = model  # rename for clarity in this function
     # Validate: at least one of -m, --model-type, or --model-class is required
     if hf_model is None and model_type is None and model_class is None:
         # Show header even for errors
