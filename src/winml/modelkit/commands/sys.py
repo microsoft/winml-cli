@@ -23,6 +23,8 @@ Usage:
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
 import json
 import logging
 import platform
@@ -68,10 +70,80 @@ def _get_python_info() -> dict[str, Any]:
     }
 
 
+# Intentionally limited to the host architectures Windows 11 ships on.
+# 32-bit ARM (ARMNT 0xC4, ARM 0x1C4) and IA64 are not Windows 11 host
+# targets, so IsWow64Process2 will not report them in practice; an
+# unmapped value falls through to None and logs at debug level.
+_IMAGE_FILE_MACHINE_TO_NAME = {
+    0x8664: "AMD64",
+    0xAA64: "ARM64",
+    0x14C: "x86",
+}
+
+
+if sys.platform == "win32":
+    try:
+        _KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        _IS_WOW64_PROCESS_2 = _KERNEL32.IsWow64Process2
+        _IS_WOW64_PROCESS_2.argtypes = [
+            ctypes.wintypes.HANDLE,
+            ctypes.POINTER(ctypes.c_ushort),
+            ctypes.POINTER(ctypes.c_ushort),
+        ]
+        _IS_WOW64_PROCESS_2.restype = ctypes.wintypes.BOOL
+    except (OSError, AttributeError):
+        _KERNEL32 = None  # type: ignore[assignment]
+        _IS_WOW64_PROCESS_2 = None  # type: ignore[assignment]
+else:
+    _KERNEL32 = None  # type: ignore[assignment]
+    _IS_WOW64_PROCESS_2 = None  # type: ignore[assignment]
+
+
+def _query_native_machine_via_win32() -> int | None:
+    """Call IsWow64Process2 and return the native IMAGE_FILE_MACHINE_* code.
+
+    Returns None on non-Windows or when the API call fails. Logs the
+    GetLastError code at debug level on failure so a regression in
+    IsWow64Process2 wiring is not silently swallowed.
+    """
+    if sys.platform != "win32" or _IS_WOW64_PROCESS_2 is None or _KERNEL32 is None:
+        return None
+
+    proc = ctypes.c_ushort(0)
+    native = ctypes.c_ushort(0)
+    if not _IS_WOW64_PROCESS_2(
+        _KERNEL32.GetCurrentProcess(), ctypes.byref(proc), ctypes.byref(native)
+    ):
+        logger.debug("IsWow64Process2 failed: GetLastError=%d", ctypes.get_last_error())
+        return None
+    return native.value
+
+
+def _get_windows_native_machine() -> str | None:
+    """Return the host architecture name, or None when unavailable.
+
+    platform.machine() returns the *process* arch (PROCESSOR_ARCHITECTURE),
+    so an x64 Python running under ARM64 emulation reports "AMD64". This
+    consults IsWow64Process2 for the real host machine type, which is what
+    the user expects to see in `winml sys`. PROCESSOR_ARCHITEW6432 is
+    unreliable on ARM64 (Prism emulation does not set it on Snapdragon X).
+    """
+    if sys.platform != "win32":
+        return None
+    raw = _query_native_machine_via_win32()
+    if raw is None:
+        return None
+    name = _IMAGE_FILE_MACHINE_TO_NAME.get(raw)
+    if name is None:
+        logger.debug("IsWow64Process2 returned unmapped native machine: 0x%x", raw)
+    return name
+
+
 def _get_platform_info() -> dict[str, Any]:
     """Gather OS and platform information."""
     system = platform.system()
     release = platform.release()
+    machine = platform.machine()
 
     # For Windows, use OS class for accurate Windows 11 detection
     # platform.release() may incorrectly report '10' on some Python versions
@@ -86,10 +158,14 @@ def _get_platform_info() -> dict[str, Any]:
             # Fallback to platform.release() if OS detection fails
             pass
 
+        native_machine = _get_windows_native_machine()
+        if native_machine:
+            machine = native_machine
+
     return {
         "system": system,
         "release": release,
-        "machine": platform.machine(),
+        "machine": machine,
         "processor": platform.processor() or "Unknown",
     }
 
@@ -310,45 +386,51 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
 
         console.print(torch_table)
 
-    # Backend SDKs
-    console.print("\n[bold blue]Backend SDKs[/bold blue]")
-    backend_table = Table(show_header=False, box=None, padding=(0, 2))
-    backend_table.add_column("Backend", style="bold")
-    backend_table.add_column("Status")
-    backend_table.add_column("Details")
+    # Backend SDKs and Export Readiness are diagnostic info — only render
+    # under --verbose so the default `winml sys` stays focused on Python,
+    # libraries, devices, and EPs.
+    if verbose:
+        backends = info["backends"]
+        qnn = backends["qnn"]
+        ov = backends["openvino"]
 
-    qnn = info["backends"]["qnn"]
-    qnn_status = "[green]Installed[/green]" if qnn["installed"] else "[yellow]Not found[/yellow]"
-    qnn_details = qnn.get("path", "-")[:50] if qnn["installed"] else "-"
-    backend_table.add_row("QNN SDK", qnn_status, qnn_details)
+        console.print("\n[bold blue]Backend SDKs[/bold blue]")
+        backend_table = Table(show_header=False, box=None, padding=(0, 2))
+        backend_table.add_column("Backend", style="bold")
+        backend_table.add_column("Status")
+        backend_table.add_column("Details")
 
-    ov = info["backends"]["openvino"]
-    ov_status = "[green]Installed[/green]" if ov["installed"] else "[yellow]Not found[/yellow]"
-    ov_details = ov.get("version", "-") if ov["installed"] else "-"
-    backend_table.add_row("OpenVINO", ov_status, ov_details)
+        if qnn["installed"]:
+            backend_table.add_row("QNN SDK", "[green]Installed[/green]", qnn.get("path", "-")[:50])
+        else:
+            backend_table.add_row("QNN SDK", "[yellow]Not found[/yellow]", "-")
+        if ov["installed"]:
+            backend_table.add_row("OpenVINO", "[green]Installed[/green]", ov.get("version", "-"))
+        else:
+            backend_table.add_row("OpenVINO", "[yellow]Not found[/yellow]", "-")
 
-    console.print(backend_table)
+        console.print(backend_table)
 
-    # Export Readiness
-    console.print("\n[bold blue]Export Readiness[/bold blue]")
-    readiness = info["export_readiness"]
-    ready_table = Table(show_header=False, box=None, padding=(0, 2))
-    ready_table.add_column("Capability", style="bold")
-    ready_table.add_column("Status")
+        readiness = info["export_readiness"]
+        console.print("\n[bold blue]Export Readiness[/bold blue]")
+        ready_table = Table(show_header=False, box=None, padding=(0, 2))
+        ready_table.add_column("Capability", style="bold")
+        ready_table.add_column("Status")
 
-    onnx_ready = "[green]Ready[/green]" if readiness["onnx_export"] else "[red]Not ready[/red]"
-    qnn_ready = (
-        "[green]Ready[/green]" if readiness["qnn_ready"] else "[yellow]SDK required[/yellow]"
-    )
-    ov_ready = (
-        "[green]Ready[/green]" if readiness["openvino_ready"] else "[yellow]Not installed[/yellow]"
-    )
+        onnx_ready = "[green]Ready[/green]" if readiness["onnx_export"] else "[red]Not ready[/red]"
+        ready_table.add_row("ONNX Export", onnx_ready)
+        qnn_status = (
+            "[green]Ready[/green]" if readiness["qnn_ready"] else "[yellow]SDK required[/yellow]"
+        )
+        ready_table.add_row("QNN Compilation", qnn_status)
+        ov_status = (
+            "[green]Ready[/green]"
+            if readiness["openvino_ready"]
+            else "[yellow]Not installed[/yellow]"
+        )
+        ready_table.add_row("OpenVINO Conversion", ov_status)
 
-    ready_table.add_row("ONNX Export", onnx_ready)
-    ready_table.add_row("QNN Compilation", qnn_ready)
-    ready_table.add_row("OpenVINO Conversion", ov_ready)
-
-    console.print(ready_table)
+        console.print(ready_table)
 
 
 def _output_json(info: dict[str, Any]) -> None:
@@ -379,10 +461,13 @@ def _output_compact(info: dict[str, Any]) -> None:
 
     qnn = info["backends"]["qnn"]
     ov = info["backends"]["openvino"]
-    lines.append(
-        f"QNN: {'OK' if qnn['installed'] else 'N/A'} | "
-        f"OpenVINO: {ov.get('version', 'N/A') if ov['installed'] else 'N/A'}"
-    )
+    sdk_parts = []
+    if qnn["installed"]:
+        sdk_parts.append("QNN: OK")
+    if ov["installed"]:
+        sdk_parts.append(f"OpenVINO: {ov.get('version', 'OK')}")
+    if sdk_parts:
+        lines.append(" | ".join(sdk_parts))
 
     onnx_status = "OK" if readiness["onnx_export"] else "FAIL"
     lines.append(f"Export Ready: ONNX {onnx_status}")
@@ -628,7 +713,13 @@ def sysinfo(
     # Route winml.modelkit logs through Rich so they never interleave with CLI output.
     # In normal mode suppress everything below WARNING; in debug mode show all levels.
     # Restore logger state on exit so tests using caplog are not affected.
+    #
+    # For --format json, send log records to stderr so DEBUG/WARNING lines do
+    # not corrupt the JSON payload on stdout (verbose+json was unparseable).
+    from rich.console import Console as _RichConsole
     from rich.logging import RichHandler
+
+    use_json = output_format.lower() == "json"
 
     log_level = logging.DEBUG if verbose else logging.WARNING
     pkg_logger = logging.getLogger("winml.modelkit")
@@ -636,15 +727,14 @@ def sysinfo(
     _saved_level = pkg_logger.level
     _saved_propagate = pkg_logger.propagate
     pkg_logger.handlers = [h for h in pkg_logger.handlers if not isinstance(h, RichHandler)]
-    rich_handler = RichHandler(console=_get_console(), show_path=False)
+    log_console = _RichConsole(stderr=True) if use_json else _get_console()
+    rich_handler = RichHandler(console=log_console, show_path=False)
     rich_handler.setLevel(log_level)
     pkg_logger.setLevel(log_level)
     pkg_logger.addHandler(rich_handler)
     pkg_logger.propagate = False
 
     try:
-        use_json = output_format.lower() == "json"
-
         # Handle --list-device and/or --list-ep (combinable)
         if list_device or list_ep:
             if use_json:

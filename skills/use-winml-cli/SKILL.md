@@ -1,0 +1,180 @@
+---
+name: use-winml-cli
+description: Build, optimize, quantize, compile, and benchmark ONNX models for Windows ML using the `winml` CLI. Covers the Build-Your-Own-Model (BYOM) pipeline across NPU (Qualcomm QNN, Intel OpenVINO, AMD VitisAI), GPU, and CPU execution providers. Use this skill whenever the user wants to run a Hugging Face or ONNX model on a Windows AI PC, target an NPU, prepare a model for on-device inference, benchmark latency on Snapdragon X Elite / Intel Core Ultra / AMD Ryzen AI, or troubleshoot operator/EP compatibility — even when they don't say "winml" by name. If a user mentions running models on Windows hardware, NPU acceleration, or low-latency on-device inference, this skill applies. **Skip for generative models** — LLMs (GPT, LLaMA, Phi, Mistral), Stable Diffusion, Whisper, or any decoder-only / seq2seq architecture are out of scope (planned for late 2026).
+---
+
+# winml CLI
+
+`winml` is a CLI that turns a source model — a Hugging Face ID or a local ONNX file — into a portable, performant artifact that runs on any Windows execution provider. This skill teaches you the *shape* of that workflow. The CLI is the source of truth for current commands and flags.
+
+## Installing the CLI
+
+**Default behavior: lead any walkthrough with a brief install section.** Unless the user signals they already have `winml` working, include the install steps below (or a clear "prereq: install winml first" pointer to them) as the first thing in your response. First-timers shouldn't have to guess what they need.
+
+**Skip the install section only if the user clearly signals they're past install:**
+- They quote a `winml <command>` they ran, with output or an error from it.
+- They say they "already" / "previously" exported, built, optimized, etc. with winml.
+- They share an artifact path that came out of an earlier winml run.
+- They're asking a debugging or comparison question that presumes a working install.
+
+When in doubt, include it — a five-line prereq block is cheaper than a stuck user.
+
+`winml-cli` pins **Python 3.11 exactly** (`>=3.11,<3.12`) — use `uv` to create an isolated venv so you don't pollute system Python or land on a 3.12+ environment that won't resolve.
+
+**1. Create a Python 3.11 environment**
+
+```bash
+uv venv --python 3.11
+```
+
+Activate it:
+
+```bash
+# Windows (PowerShell)
+.venv\Scripts\activate
+
+# Windows (Git Bash / WSL)
+source .venv/Scripts/activate
+```
+
+**2. Install `winml-cli` from PyPI**
+
+```bash
+uv pip install winml-cli
+```
+
+**3. Verify**
+
+```bash
+winml --help
+winml sys --list-ep
+```
+
+`--help` should print the command list, and `sys --list-ep` should show the execution providers registered on this machine.
+
+## Discover the CLI before doing anything else
+
+The command set and flags evolve. Don't memorize them and don't guess them — read them from the tool itself:
+
+- **`winml --help`** — current top-level command list with one-line descriptions.
+- **`winml <command> --help`** — current flags, arguments, and defaults for that command.
+- **`winml sys --list-device --list-ep`** — what hardware and execution providers are actually present on this machine.
+
+Run these *before quoting any command to the user*, not after. "I'll check `--help` if anything looks off" is too late — the user has already copy-pasted a broken command and come back annoyed. If you're about to write `winml <something>` in your reply, run `winml <something> --help` first.
+
+**The CLI is flag-based, not positional.** Model IDs and paths go through `-m` / `--model`, not as bare positional arguments. `winml inspect microsoft/resnet-50` will error — you need `winml inspect -m microsoft/resnet-50`. This shape is stable across the toolkit; the specific flag spelling per command isn't, which is why you still read `--help`.
+
+Inventing plausible-sounding flags (a `--preset`, `--profile`, `--mode=fast`) is the most common way to waste the user's time — the command will reject them and the user has to come back. When in doubt, `--help`.
+
+## The mental model
+
+`winml` organizes work as a pipeline. Each stage is its own primitive command, and the output of one stage feeds the next:
+
+```
+inspect → export → analyze → optimize → quantize → compile → perf
+```
+
+You don't have to run every stage. Enter wherever the user's input lives (already have an ONNX file? skip `export`) and exit when you have what you need (just want a latency number? stop at `perf`). Several stages are EP- or hardware-sensitive — `compile` is documented as requiring an NPU device (per README's Scope & Limitations: "winml compile requires an NPU device"). `winml compile --help` does expose `--device` and `--ep` values for CPU/GPU, but treat NPU as the assumed target unless the user says otherwise.
+
+Sitting on top of the primitives are two **shortcut commands** that wrap the whole pipeline:
+
+- A **config** command auto-detects every setting the pipeline needs and writes a JSON file.
+- A **build** command reads that config and runs the stages in order.
+
+Together they replace the seven primitives with two.
+
+The names above (`inspect`, `export`, `analyze`, `optimize`, `quantize`, `compile`, `perf`, plus the config/build pair) are stable concepts — they map to subcommands of `winml`. Confirm exact spelling and current flags via `winml --help` before you write any command.
+
+## Outputs are explicit; cache is opaque
+
+Every `winml` command has a **published output** — what `-o` writes or what it prints to stdout — and that is the only thing you can hand to a user or downstream command. What a command does *internally* (cached intermediate builds, temp graphs, EP context blobs in a private folder) is not a supported output. Don't try to fish artifacts out of cache, don't assume one command's internal byproducts can feed another.
+
+This is the easiest way to pick the right command for a goal: **map the goal to a published output, not to a side effect.**
+
+- `inspect`, `sys`, `analyze`, `catalog` print to stdout (no `-o` artifact).
+- `export`, `optimize`, `quantize`, `compile`, `build` write transformed model artifacts to `-o`.
+- `perf` writes a **metrics JSON** to `-o` — not a model.
+- `config` writes the **config JSON** to `-o` — the input to `build`.
+
+When you find yourself thinking "command X probably builds something internally that I can grab" — stop. You've picked the wrong entry point. Use the command whose published output is the thing you actually want.
+
+One concrete failure this guards against: `perf` builds an artifact internally to benchmark it, but only the metrics JSON is published; the build lives in cache and is opaque. If a user wants both a deployable model *and* a latency number, `perf` alone won't get them the model, and chaining `perf → build → perf` just pays the build cost twice — the first `perf` produced nothing they could keep. The right shape is to enter at the command whose `-o` is the artifact (`build`), then run `perf` against that artifact for the number.
+
+The same logic applies wherever a goal doesn't match a command's published output: `inspect`'s JSON isn't a build input (use `config`); `analyze`'s linter output isn't a graph rewrite (use a different optim/quant config); and so on.
+
+## The golden rule: inspect first
+
+Before any other command, run the inspect subcommand on the user's model. Per `winml inspect --help`, it reads the model configuration *without downloading weights* and shows the loader, exporter, WinML inference class, I/O specs, and the build resolution the pipeline will use. Pass `-f json` for machine-readable output.
+
+Inspect tells you whether the toolkit knows how to handle the architecture. But **always cross-check against the scope section below** — a model that inspect accepts can still be out of scope. The scope rule overrides anything inspect prints; for example, an LLM may have a usable loader/exporter via TasksManager defaults but is still not a fit.
+
+Skipping inspect and jumping to export or build is the most common cause of confusing failures three stages in, because the cost of finding out a model is unsupported climbs at every later stage.
+
+## Choosing a path
+
+Once inspect passes, pick one of two paths based on what the user is trying to do. Default to **config + build** unless the user explicitly wants to fiddle with a single stage.
+
+**Primitive commands — one stage at a time.** Right when the user is exploring, debugging a specific stage, or tweaking settings between runs. They get fine-grained control at the cost of running more commands.
+
+**Config + build — two commands for the whole thing.** Right when the user wants a clean, reproducible, end-to-end build for production, CI, or sharing with a teammate. The generated config is the single source of truth — they edit it to override defaults, version-control it, and replay deterministically.
+
+If the user is unsure, default to config + build unless they say "I want to try different settings" or "something failed and I need to debug a specific stage."
+
+## Mapping "I want to run X" to a command
+
+"I want to run resnet" / "can I try this model" / "let me use this on my NPU" is the most common ambiguous prompt. Apply the published-output rule from the previous section: figure out what the user actually wants, then pick the command whose `-o` is that thing.
+
+| User actually wants | Command whose `-o` is that thing |
+|---|---|
+| A latency / throughput number | `winml perf` (writes metrics JSON) |
+| A deployable `.onnx` they can ship or load from code | `winml config` then `winml build -o <dir>` (build writes the artifact) |
+| Both | `winml build -o <dir>` first, then `winml perf` against the built artifact |
+
+If the user's intent isn't clear from their prompt, ask one short question — "do you want a usable artifact, or just a latency number?" — before quoting commands.
+
+## Hardware and execution providers
+
+The right execution provider depends on the user's hardware. See the **README's Supported Hardware** table for the current hardware-to-EP matrix and Ready/Planned status — that's the canonical source, and it changes between releases. Don't reproduce the matrix here; it goes stale.
+
+Ground truth for what's actually working on this machine is always `winml sys --list-ep`. Run it; trust its output over anything else. If the user's hardware needs an EP that isn't in the listed output (whether the README marks it Ready or Planned), recommend CPU or DML as the working fallback rather than pretending the missing EP works.
+
+For exact flag spellings and device-selection options, consult `winml <command> --help` and `winml sys`. Don't hardcode flag values from this skill — read them live.
+
+If you don't know what hardware the user has, ask, or run `winml sys` and read the output.
+
+## Common patterns
+
+**"Just benchmark this model on my hardware."** A single perf invocation against the source model is enough — `winml perf` builds artifacts on the fly (see `--rebuild`, `--ignore-cache`, `--no-quantize` in `winml perf --help`). You don't have to chain primitives manually. For live NPU utilization during the run, look for the `--monitor` flag in `winml perf --help`.
+
+**"What's the latency on NPU vs CPU?"** Build once, then run perf twice — once against the EP-compiled artifact on the NPU, once against the optimized (pre-compile) artifact on CPU. Compiled artifacts are tied to the EP they were compiled for, so run the CPU comparison against the pre-compile optimized ONNX, not the compiled NPU artifact.
+
+**"Will this model work with my hardware?"** Inspect, then analyze. The analyzer's linter classifies every operator as supported / partial / unsupported per EP — that's the cheapest way to find out a build will succeed before paying the full export cost.
+
+**"My optimize/quantize step just blew up."** Most operator-pattern failures land at these stages even when export succeeded. Re-run analyze against the exported ONNX; the linter will usually name the offending op pattern. Don't hand-edit the ONNX graph — try a different optim or quantization configuration to dodge the unsupported pattern, or escalate to "this model isn't a fit for this EP."
+
+## Scope — what's in and what's out
+
+**In scope.** Classic deep learning models — CNNs, encoders, vision transformers, NLP classifiers, NER, object detection, segmentation. Concretely: ResNet, ViT, Swin, ConvNeXT, BERT, RoBERTa, Table Transformer, SegFormer families. If the user passes one of these, the pipeline is designed to handle it.
+
+**Out of scope.** Generative and decoder-only architectures: GPT, LLaMA, Phi, Mistral, Stable Diffusion, any seq2seq generator. If a user asks `winml` to handle one of these, **stop and say so** — the pipeline will fail mid-way and the error won't always make the cause obvious. LLM support (with LoRA) is on the public roadmap for late 2026; don't pretend it works today.
+
+If you're genuinely unsure whether a model is in scope, the inspect command is the source of truth. Trust its verdict over your guess.
+
+## Things that catch people out
+
+- **Confirm the target EP is registered before compiling.** Run `winml sys --list-ep` first; if your `--ep <foo>` isn't in the list, compile won't produce a usable artifact for that EP. Compile also runs validation by default (see `--validate / --no-validate` in `winml compile --help`).
+- **Compile defaults to external EP-context storage.** Per `winml compile --help`, the default writes EP context to a `.bin` file co-located with the output `.onnx`; pass `--embed` to inline it instead. If you move a non-embedded artifact, move the `.bin` alongside.
+- **CLI flags override the config file, not the other way around.** Every primitive that accepts `-c, --config` says so in its `--help`: "Provides defaults; explicit CLI options take precedence." For repeatable builds, edit the JSON; for one-off overrides, pass the flag at build time.
+- **Output paths are explicit on the pipeline-building commands.** `export`, `optimize`, `quantize`, `compile`, `perf`, `config`, and `build` each take an `-o` / `--output` (or `--output-dir`). There's no implicit "current directory" convention — tell the user where files will land. `inspect`, `sys`, `analyze`, and `catalog` print to stdout and don't require an output path.
+- **EP-compiled models are tied to their target EP.** Don't try to perf a QNN-compiled artifact against the CPU EP — the result is at best meaningless. For cross-EP comparison, use the pre-compile optimized ONNX.
+- **Don't fabricate flags.** If a flag isn't in `winml <command> --help`, it doesn't exist. Find a real one or change approach.
+
+## When things go sideways
+
+Read the error before suggesting a next step. `winml` error messages are usually specific (op name, EP, stage). When you don't know what to do:
+
+1. `winml <failing-command> --help` to confirm you used real flags.
+2. `winml sys --list-ep` to confirm the EP is actually registered on this machine.
+3. `winml inspect` and `winml analyze` to confirm the model is supported and the operator pattern is buildable.
+
+The CLI is self-documenting; lean on it before guessing.

@@ -27,6 +27,12 @@ def _configure() -> None:
     # Environment variable to reduce tokenizers noise
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
+    # Suppress huggingface_hub tqdm download progress bars by default.
+    # These are written directly to stderr by tqdm and cannot be routed
+    # through Python logging.  Users can override with
+    # HF_HUB_DISABLE_PROGRESS_BARS=0 to restore them.
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
     # Allow users to see all warnings if they want
     if os.environ.get("WINMLCLI_SHOW_ALL_WARNINGS", "").lower() in ("1", "true", "yes"):
         return
@@ -119,7 +125,7 @@ def _configure() -> None:
                                 duplicated files but your machine does not
                                 support them
 
-        After (INFO level, only visible with -v / --verbose):
+        After (INFO level, only visible with --verbose or -v):
             [09:12:34] INFO     C:\\...\\huggingface_hub\\file_download.py:1:
                                 UserWarning: `huggingface_hub` cache-system uses
                                 symlinks by default to efficiently store
@@ -135,6 +141,47 @@ def _configure() -> None:
             return True
 
     logging.getLogger("py.warnings").addFilter(_HFSymlinksInfoFilter())
+
+    # Suppress the huggingface_hub symlinks warning at the Python warnings level
+    # so it is hidden even before captureWarnings(True) is activated in build.py.
+    # When captureWarnings(True) is active, _HFSymlinksInfoFilter above handles
+    # the same message for loggers that need it at INFO (e.g. with --verbose).
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*huggingface_hub.*cache-system.*symlinks.*",
+        category=UserWarning,
+    )
+
+    class _TasksManagerFilter(logging.Filter):
+        """Downgrade optimum TasksManager architecture-mismatch notice to INFO.
+
+        optimum logs a WARNING when TasksManager selects a different Auto class
+        than the one in config.architectures (e.g. AutoModelForSequenceClassification
+        vs RobertaForSequenceClassification).  This is expected behaviour for
+        WinML models and is purely informational.
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            if "TasksManager returned" in record.getMessage():
+                record.levelno = logging.INFO
+                record.levelname = "INFO"
+            return True
+
+    logging.getLogger("optimum.exporters.tasks").addFilter(_TasksManagerFilter())
+
+    class _TransformersWeightsFilter(logging.Filter):
+        """Suppress the transformers "weights not used" notice.
+
+        When loading a checkpoint, transformers warns about pooler or other
+        weights that are intentionally absent in the target architecture.
+        This is expected (e.g. RobertaForSequenceClassification drops the
+        pooler from a base checkpoint) and is purely cosmetic noise.
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "were not used when initializing" not in record.getMessage()
+
+    logging.getLogger("transformers.modeling_utils").addFilter(_TransformersWeightsFilter())
 
 
 # Auto-configure on import

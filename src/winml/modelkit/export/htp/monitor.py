@@ -18,8 +18,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
-
 from .base_writer import ExportData, ExportStep, StepAwareWriter
 from .console_writer import ConsoleWriter
 from .markdown_report_writer import MarkdownReportWriter
@@ -76,12 +74,9 @@ class HTPExportMonitor:
         # Initialize writers
         self.writers: list[StepAwareWriter] = []
 
-        # Console writer (output to terminal when verbose)
-        if verbose:
-            self.console_writer = ConsoleWriter()
-            self.writers.append(self.console_writer)
-        else:
-            self.console_writer = None
+        # Console writer (always enabled — step progress is always useful)
+        self.console_writer = ConsoleWriter(verbose=self.verbose)
+        self.writers.append(self.console_writer)
 
         # Metadata writer (always enabled)
         self.metadata_writer = MetadataWriter(output_path)
@@ -95,7 +90,7 @@ class HTPExportMonitor:
             self.report_writer = None
 
         # For backward compatibility - store as attributes
-        self.console = self.console_writer.console if self.console_writer else Console()
+        self.console = self.console_writer.console
 
         # Track start time
         self._start_time = time.time()
@@ -237,9 +232,7 @@ class HTPExportMonitor:
 
     def __enter__(self) -> HTPExportMonitor:
         """Context manager entry."""
-        # Print header if verbose
-        if self.verbose and self.console_writer:
-            self._print_header()
+        self._print_header()
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -250,9 +243,7 @@ class HTPExportMonitor:
             if self.data.export_time == 0.0:
                 self.data.export_time = self.data.elapsed_time
 
-            # Print summary if verbose
-            if self.verbose and self.console_writer:
-                self._print_summary()
+            self._print_summary()
 
             # Close all writers normally
             for writer in self.writers:
@@ -267,8 +258,7 @@ class HTPExportMonitor:
                     writer.close()
 
         # Always add empty line at the end for visual separation
-        if self.verbose and self.console_writer:
-            self.console.print()
+        self.console.print()
 
     def _print_header(self) -> None:
         """Print export header."""

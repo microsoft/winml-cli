@@ -52,11 +52,18 @@ def _run_sys(*args: str) -> tuple[int, str]:
 
 
 def _run_sys_json(*args: str) -> dict:
-    """Invoke ``winml sys ... --format json`` and return the parsed JSON payload."""
+    """Invoke ``winml sys ... --format json`` and return the parsed JSON payload.
+
+    Reads ``result.stdout`` (not ``result.output``) so DEBUG logs emitted on
+    stderr under ``--verbose`` do not corrupt the JSON payload — the
+    ``winml sys`` command routes its RichHandler to stderr when
+    ``--format json`` is active, but Click 8.4's ``result.output``
+    aggregates both streams.
+    """
     runner = CliRunner()
     result = runner.invoke(sysinfo, [*args, "--format", "json"], obj={}, catch_exceptions=False)
     assert result.exit_code == 0, f"sys failed (exit {result.exit_code}):\n{result.output}"
-    return json.loads(result.output)
+    return json.loads(result.stdout)
 
 
 def _torch_installed() -> bool:

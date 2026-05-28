@@ -484,6 +484,7 @@ class TestPerfHuggingFace:
     def test_benchmark_ep_gpu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep>."""
         require_ep(ep)
+        _require_gpu()
 
         output_file = tmp_path / f"perf_hf_{ep}_gpu.json"
 
@@ -507,6 +508,7 @@ class TestPerfHuggingFace:
     def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep>."""
         require_ep(ep)
+        _require_npu()
 
         output_file = tmp_path / f"perf_hf_{ep}_npu.json"
 

@@ -146,15 +146,15 @@ def _filter_by_device(
 
 
 def _fmt_model_id(model_id: str) -> Text:
-    """Render model ID with org prefix and model name in uniform cyan bold.
+    """Render model ID in bold cyan.
 
     Args:
         model_id: HuggingFace model ID, e.g. ``openai/clip-vit-base-patch32``.
 
     Returns:
-        Rich Text with the full model ID in cyan bold.
+        Rich Text with bold cyan model name.
     """
-    t = Text(overflow="crop", no_wrap=True)
+    t = Text(overflow="fold")
     t.append(model_id, style="cyan bold")
     return t
 
@@ -275,14 +275,14 @@ def _build_list_renderable(
         header_style="bold",
         padding=(0, 2),
         show_edge=False,
-        expand=True,
+        expand=False,
     )
-    table.add_column("Model", no_wrap=True, ratio=3, overflow="crop")
-    table.add_column("Task", no_wrap=True, ratio=2, overflow="crop")
+    table.add_column("Model", overflow="fold")
+    table.add_column("Task", overflow="fold")
     table.add_column("Size", no_wrap=True, justify="right", width=5)
-    table.add_column("Model Type", no_wrap=True, ratio=2, overflow="crop")
+    table.add_column("Model Type", overflow="fold")
     if ep_col_header is not None:
-        table.add_column(ep_col_header, no_wrap=True, ratio=2, overflow="crop")
+        table.add_column(ep_col_header, overflow="fold")
 
     for m in models:
         color = _type_color(m["model_type"])
@@ -302,6 +302,7 @@ def _build_list_renderable(
         f"[bold cyan]{len(models)}[/bold cyan] validated model(s)",
         border_style="blue",
         padding=(0, 1),
+        expand=False,
     )
     return Group(panel)
 

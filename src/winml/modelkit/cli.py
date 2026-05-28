@@ -29,7 +29,7 @@ import click
 from . import __version__
 from .telemetry import ActionGroup
 from .telemetry import telemetry as _telemetry_mod
-from .utils.logging import configure_logging
+from .utils.logging import configure_logging, flush_ort_startup_logs
 
 
 logger = logging.getLogger(__name__)
@@ -204,6 +204,13 @@ class LazyGroup(ActionGroup):
                 discovered = attr
         return discovered
 
+    def resolve_command(self, ctx: click.Context, args: list[str]):
+        """Seed ``self.commands`` so Click can emit a did-you-mean hint on typos."""
+        # Click's NoSuchCommand exception uses self.commands to find suggestions.
+        for name in self.list_commands(ctx):
+            self.commands.setdefault(name, None)  # type: ignore[arg-type]
+        return super().resolve_command(ctx, args)
+
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Emit banner to stderr, then delegate to normal help formatting."""
         _print_banner(__version__)
@@ -257,13 +264,19 @@ class LazyGroup(ActionGroup):
 def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
     """WinML CLI - Accelerate Model Deployment on WinML.
 
-    Universal ONNX export with QNN and OpenVINO backend support.
+    Universal ONNX export with various WinML execution providers support.
     """
     # --debug is a backward-compat alias for -vv
     if debug:
         verbose = max(verbose, 2)
 
     configure_logging(verbosity=verbose, quiet=quiet)
+
+    # Replay ORT native stderr captured during onnxruntime import.
+    # onnxruntime is imported at module level in constants.py (before configure_logging
+    # runs), so any native C++ messages are buffered.  Flushing here — after
+    # configure_logging — ensures they are emitted at the correct log level.
+    flush_ort_startup_logs()
 
     # Store verbosity in context for subcommands
     ctx.ensure_object(dict)

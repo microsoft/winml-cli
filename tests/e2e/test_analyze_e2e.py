@@ -321,9 +321,39 @@ class TestAnalyzeHappyPath:
         data = json.loads(cfg_path.read_text(encoding="utf-8"))
         assert isinstance(data, dict)
 
-    def test_default_device_is_npu(self, onnx_model_path: Path, rules_dir: Path) -> None:
-        """Omitting ``--device`` should use NPU as documented in --help."""
+    def test_default_device_auto_filters_local_devices_by_ep_support(
+        self,
+        onnx_model_path: Path,
+        rules_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Omitting ``--device`` uses ``auto`` and filters local devices by
+        ``EP_SUPPORTED_DEVICES``. For pinned ``qnn`` and local CPU/GPU/NPU,
+        execution targets are ``(qnn, GPU)`` and ``(qnn, NPU)``.
+
+        The test is hardware-agnostic (AMD/Intel included): local availability
+        is controlled via monkeypatch rather than real machine capabilities.
+
+        This setup distinguishes auto-device behavior from an NPU-only default:
+        NPU is supported while GPU is intentionally unsupported, so running both
+        targets must return partial support (exit code 1).
+        """
+        monkeypatch.setattr(
+            "winml.modelkit.sysinfo.device._get_available_devices",
+            lambda: ["CPU", "GPU", "NPU"],
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
+            lambda: [
+                ("QNNExecutionProvider", "NPU"),
+                ("QNNExecutionProvider", "GPU"),
+                ("QNNExecutionProvider", "CPU"),
+                ("DmlExecutionProvider", "GPU"),
+                ("CPUExecutionProvider", "CPU"),
+            ],
+        )
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
+        _write_supported_rule(rules_dir, "QNNExecutionProvider", "GPU")
         result = _invoke(["-m", str(onnx_model_path), "--ep", "qnn", "--quiet"])
         assert result.exit_code == 0
 
@@ -522,8 +552,7 @@ class TestAnalyzeBadPath:
             ]
         )
         assert result.exit_code == 2
-        assert "only supports" in result.output.lower()
-        assert "gpu" in result.output.lower()
+        assert "no ep/device combination matched" in result.output.lower()
 
     def test_cpu_ep_with_npu_device_rejected(self, onnx_model_path: Path, rules_dir: Path) -> None:
         """CPUExecutionProvider only supports CPU; --device NPU must fail."""
@@ -539,8 +568,7 @@ class TestAnalyzeBadPath:
             ]
         )
         assert result.exit_code == 2
-        assert "only supports" in result.output.lower()
-        assert "cpu" in result.output.lower()
+        assert "no ep/device combination matched" in result.output.lower()
 
     def test_invalid_onnx_file_exits_two_without_traceback(
         self, tmp_path: Path, rules_dir: Path

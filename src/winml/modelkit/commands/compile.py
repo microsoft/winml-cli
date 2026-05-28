@@ -144,25 +144,28 @@ def compile(
     if ctx.obj and ctx.obj.get("debug"):
         verbose = True
 
-    # Apply build config defaults (CLI explicit options take precedence)
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.compile:
-            cc = build_cfg.compile
-            if not cli_utils.is_cli_provided(ctx, "ep"):
-                ep = cc.ep_config.provider
-            if not cli_utils.is_cli_provided(ctx, "compiler"):
-                compiler = cc.ep_config.compiler
-            if not cli_utils.is_cli_provided(ctx, "embed"):
-                embed = cc.ep_config.embed_context
-            if not cli_utils.is_cli_provided(ctx, "validate"):
-                validate = cc.validate
-            if not cli_utils.is_cli_provided(ctx, "verbose"):
-                verbose = cc.verbose
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        cc = raw_cfg.get("compile") or {}
+        if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
+            ep = cc["execution_provider"]
+        if not cli_utils.is_cli_provided(ctx, "compiler") and "compiler" in cc:
+            compiler = cc["compiler"]
+        if not cli_utils.is_cli_provided(ctx, "embed") and "embed_context" in cc:
+            embed = cc["embed_context"]
+        if not cli_utils.is_cli_provided(ctx, "validate") and "validate" in cc:
+            validate = cc["validate"]
+        if not cli_utils.is_cli_provided(ctx, "verbose") and "verbose" in cc:
+            verbose = cc["verbose"]
 
     configure_logging(verbose=verbose)
 
-    resolved_device, _ = resolve_device(device, ep=ep)
+    try:
+        resolved_device, _ = resolve_device(device, ep=ep)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
 
     # Handle --list
     if list_compilers_flag:
@@ -271,15 +274,8 @@ def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) ->
                 f"--ep {ep} cannot run on --device {resolved_device}. "
                 f"{canonical} supports: {', '.join(supported)}."
             )
-        from ..session.ep_registry import WinMLEPRegistry
-
-        registry = WinMLEPRegistry.get_instance()
-        if not registry.is_ep_available(canonical):
-            available = [e for e in EP_SUPPORTED_DEVICES if registry.is_ep_available(e)]
-            raise click.UsageError(
-                f"--ep {ep} ({canonical}) is not registered on this host. "
-                f"Available EPs: {', '.join(available) if available else 'none'}."
-            )
+        # EP host-availability is enforced by ``resolve_device`` upstream,
+        # no need for an extra check here
         return canonical
 
     eps = resolve_eps(resolved_device)
