@@ -233,6 +233,66 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _compute_onnx_size(onnx_paths: dict[str, str]) -> int | None:
+    """Return combined size in bytes of all ONNX files + their .data companions.
+
+    Returns None if onnx_paths is empty or no files exist on disk.
+    """
+    if not onnx_paths:
+        return None
+    total = 0
+    found_any = False
+    for path_str in onnx_paths.values():
+        p = Path(path_str)
+        if p.exists():
+            total += p.stat().st_size
+            found_any = True
+        data_p = Path(path_str + ".data")
+        if data_p.exists():
+            total += data_p.stat().st_size
+    return total if found_any else None
+
+
+# Lines that carry no diagnostic value in eval_result.json.
+# Matching is case-insensitive, applied per-line.
+_NOISE_PATTERNS = (
+    "benchmarking onnx",
+    "device:",
+    "task:",
+    "latency (ms)",
+    "throughput:",
+    "results saved to",
+    "inputs:",
+    "outputs:",
+    "samples/sec",
+)
+
+# Box-drawing characters used by Rich tables.
+_BOX_CHARS = frozenset("─│┌┐└┘├┤┬┴┼")
+
+
+def _sanitize_output(text: str) -> str:
+    """Strip routine CLI chrome from subprocess output, keeping error content.
+
+    Removes Rich benchmark tables, device/IO banners, and path lines that
+    bloat eval_result.json without aiding failure diagnosis. All classifier
+    patterns (see classifier.py) are error-related and survive this filter.
+    """
+    kept: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Drop box-drawing table rows
+        if stripped[0] in _BOX_CHARS:
+            continue
+        low = stripped.lower()
+        if any(pat in low for pat in _NOISE_PATTERNS):
+            continue
+        kept.append(stripped)
+    return "\n".join(kept)
+
+
 def _kill_process_tree(pid: int) -> None:
     """Kill a process and all its children.
 
@@ -1024,6 +1084,20 @@ def save_environment_info(path: Path) -> None:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass  # git not available or timed out; commit info stays empty
 
+    # `winml sys --format json` captures hardware details (devices, EPs,
+    # backends) that the lightweight package-version probes above miss.
+    try:
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "winml", "sys", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            info["winml_sys"] = json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        pass
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(info, indent=2), encoding="utf-8")
 
@@ -1395,6 +1469,7 @@ def main() -> None:
                 ep=args.ep,
             )
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
+            onnx_size = _compute_onnx_size(onnx_paths)
 
             if not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
@@ -1439,7 +1514,14 @@ def main() -> None:
             break
 
         result = build_eval_result(
-            entry, perf_proc, args.device, eval_types_run, accuracy_result, ep=args.ep
+            entry,
+            perf_proc,
+            args.device,
+            eval_types_run,
+            accuracy_result,
+            ep=args.ep,
+            onnx_size_bytes=onnx_size,
+            sanitize_fn=_sanitize_output,
         )
         results.append(result)
 
