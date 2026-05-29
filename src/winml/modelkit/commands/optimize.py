@@ -30,6 +30,7 @@ from rich.console import Console
 
 from ..onnx import load_onnx, save_onnx
 from ..utils import cli as cli_utils
+from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
@@ -177,14 +178,8 @@ def capability_options(func: Callable) -> Callable:
     default=None,
     help="Configuration file (YAML/JSON)",
 )
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output",
-)
 @capability_options
+@cli_utils.verbosity_options
 @click.pass_context
 def optimize(
     ctx: click.Context,
@@ -193,7 +188,8 @@ def optimize(
     model: Path | None,
     output: Path | None,
     config: Path | None,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     **kwargs: Any,
 ) -> None:
     r"""Optimize ONNX model with capability-driven optimizer.
@@ -337,13 +333,9 @@ def optimize(
     if model is None:
         raise click.UsageError("Missing option '--model' / '-m'.")
 
-    # Inherit debug mode from parent
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
-
-    # Configure logging
-    if verbose:
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     # Import optimizer
     from ..optim import Optimizer

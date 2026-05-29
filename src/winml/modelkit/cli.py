@@ -29,6 +29,7 @@ import click
 from . import __version__
 from .telemetry import ActionGroup
 from .telemetry import telemetry as _telemetry_mod
+from .utils.cli import verbosity_options
 from .utils.logging import configure_logging, flush_ort_startup_logs
 
 
@@ -240,19 +241,7 @@ class LazyGroup(ActionGroup):
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 @click.version_option(version=__version__, prog_name="winml")
-@click.option(
-    "--verbose",
-    "-v",
-    count=True,
-    help="Increase verbosity (-v=INFO, -vv=DEBUG)",
-)
-@click.option(
-    "--quiet",
-    "-q",
-    is_flag=True,
-    default=False,
-    help="Quiet mode - errors only",
-)
+@verbosity_options
 @click.option(
     "--debug",
     is_flag=True,

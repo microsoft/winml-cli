@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from ..utils import cli as cli_utils
+from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
@@ -131,13 +132,6 @@ def _is_onnx_file(model_input: str) -> bool:
     help="Source library for TasksManager (default: transformers)",
 )
 @click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Enable verbose logging",
-)
-@click.option(
     "--no-quant",
     is_flag=True,
     default=False,
@@ -150,7 +144,10 @@ def _is_onnx_file(model_input: str) -> bool:
     help="Exclude compilation from generated config (sets compile=None). Default: exclude.",
 )
 @cli_utils.trust_remote_code_option()
+@cli_utils.verbosity_options
+@click.pass_context
 def config(
+    ctx: click.Context,
     model: str | None,
     task: str | None,
     model_class: str | None,
@@ -163,7 +160,8 @@ def config(
     precision: str,
     output: Path | None,
     library_name: str,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     no_quant: bool,
     no_compile: bool,
     trust_remote_code: bool,
@@ -212,8 +210,8 @@ def config(
         # Generate configs for submodules
         winml config -m microsoft/resnet-50 --module ResNetConvLayer
     """
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     hf_model = model  # rename for clarity in this function
     # Validate: at least one of -m, --model-type, or --model-class is required

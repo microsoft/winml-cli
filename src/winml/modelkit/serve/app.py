@@ -92,9 +92,45 @@ class _RingHandler(logging.Handler):
 
 _log_handler = _RingHandler()
 _log_handler.setFormatter(logging.Formatter("%(message)s"))
-# Attach to modelkit root logger so all sub-loggers feed into the ring
-logging.getLogger("winml.modelkit").addHandler(_log_handler)
-logging.getLogger("winml.modelkit").setLevel(logging.INFO)
+# Bound the records the ring receives independently of the package logger's
+# level. This lets us attach the handler without raising the package logger
+# level at import time — which would otherwise mute DEBUG capture in unrelated
+# tests that get collected alongside the serve test module.
+_log_handler.setLevel(logging.INFO)
+
+
+def _attach_log_handler() -> None:
+    """Idempotently attach the ring handler to the modelkit logger tree.
+
+    Does NOT touch the package logger's level — that is a per-process side
+    effect we only want during an actual ``winml serve`` run (handled by the
+    lifespan startup hook), not at module-import time and not for tests that
+    only need ``_register_routes`` wired up.
+    """
+    pkg_logger = logging.getLogger("winml.modelkit")
+    if _log_handler not in pkg_logger.handlers:
+        pkg_logger.addHandler(_log_handler)
+
+
+def _ensure_log_capture_level() -> int | None:
+    """Raise the package logger level to INFO if needed; return prior level.
+
+    Returns ``None`` when no change was made (so the caller knows there is
+    nothing to restore). Pair with :func:`_restore_log_capture_level`.
+    """
+    pkg_logger = logging.getLogger("winml.modelkit")
+    if pkg_logger.level == logging.NOTSET or pkg_logger.level > logging.INFO:
+        prior = pkg_logger.level
+        pkg_logger.setLevel(logging.INFO)
+        return prior
+    return None
+
+
+def _restore_log_capture_level(prior: int | None) -> None:
+    if prior is None:
+        return
+    logging.getLogger("winml.modelkit").setLevel(prior)
+
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -126,6 +162,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.start_time = time.time()
+        # Raise the modelkit logger to INFO so the ring handler receives
+        # operational records during `winml serve`. Tests that build the app
+        # via ``_register_routes`` + their own mock lifespan never reach this
+        # branch, so the global level stays unchanged for them.
+        app.state._log_capture_prior = _ensure_log_capture_level()
         if mode == "multi":
             mgr = ModelSlotManager(
                 memory_budget_mb=memory_budget_mb,
@@ -147,6 +188,7 @@ def create_app(
         logger.info("Model ready")
         yield
         app.state.manager.shutdown()
+        _restore_log_capture_level(getattr(app.state, "_log_capture_prior", None))
 
     app = FastAPI(
         title="WinML CLI Inference Server",
@@ -183,6 +225,8 @@ def create_app(
 
 
 def _register_routes(app: FastAPI, *, mode: str) -> None:
+    _attach_log_handler()
+
     # ------------------------------------------------------------------
     # Local helpers (closure over app)
     # ------------------------------------------------------------------

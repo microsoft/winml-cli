@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 import click
 from rich.console import Console
 
+from ..utils import cli as cli_utils
+from ..utils.logging import configure_logging
+
 
 logger = logging.getLogger(__name__)
 # `console` is stdout-bound — table/JSON output goes here.
@@ -76,13 +79,6 @@ def _looks_like_local_path(model_id: str) -> bool:
     help="Output format (default: table)",
 )
 @click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Show full configuration details",
-)
-@click.option(
     "-t",
     "--task",
     default=None,
@@ -114,12 +110,14 @@ def _looks_like_local_path(model_id: str) -> bool:
     default=None,
     help="Override model class (e.g., BertForMaskedLM) — can be used without --model",
 )
+@cli_utils.verbosity_options
 @click.pass_context
 def inspect(
     ctx: click.Context,
     model_id: str | None,
     output_format: str,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     task: str | None,
     hierarchy: bool,
     list_tasks: bool,
@@ -189,7 +187,7 @@ def inspect(
     # json` consumers still get clean stdout. Suppressed in --quiet mode
     # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
     # and JSON consumers expect clean stdout regardless).
-    quiet = bool(ctx.obj and ctx.obj.get("quiet"))
+    quiet = quiet or bool(ctx.obj and ctx.obj.get("quiet"))
     json_mode = output_format.lower() == "json"
     target = model_id or model_type or model_class
     if not quiet and not json_mode:
@@ -198,13 +196,9 @@ def inspect(
     from ..inspect import InspectError, ModelNotFoundError, NetworkError
     from ..inspect.formatter import output_json, output_table
 
-    # Inherit debug mode from parent context
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
-
-    # Configure logging based on verbosity
-    if verbose:
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     try:
         if quiet or json_mode:
@@ -229,9 +223,9 @@ def inspect(
                 )
 
         if output_format.lower() == "json":
-            click.echo(output_json(result, verbose=verbose))
+            click.echo(output_json(result, verbose=bool(verbose)))
         else:
-            output_table(console, result, verbose=verbose)
+            output_table(console, result, verbose=bool(verbose))
 
     except ModelNotFoundError as e:
         raise click.ClickException(f"Model not found: {e}") from e
