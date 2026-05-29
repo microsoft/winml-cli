@@ -107,7 +107,7 @@ console = Console()
     default=False,
     help="Enable verbose output",
 )
-@cli_utils.build_config_option
+@cli_utils.build_config_option()
 @click.pass_context
 def quantize(
     ctx: click.Context,

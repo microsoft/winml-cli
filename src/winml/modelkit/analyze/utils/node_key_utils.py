@@ -22,6 +22,13 @@ if TYPE_CHECKING:
 from ...pattern.utils import make_stable_node_key
 
 
+__all__ = [
+    "build_node_key_by_node_id",
+    "make_stable_node_key",
+    "resolve_stable_node_key",
+]
+
+
 def build_node_key_by_node_id(graph_nodes: Sequence[onnx.NodeProto]) -> dict[int, str]:
     """Build id(node) -> stable-key map for a graph snapshot."""
     return {id(node): make_stable_node_key(node, index) for index, node in enumerate(graph_nodes)}

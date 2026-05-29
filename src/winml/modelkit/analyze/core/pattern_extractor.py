@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher
 from ...pattern.config import UnifiedPatternConfig
-from ..models.onnx_model import ONNXModel
+from ..models.onnx_model import ModelTag, ONNXModel
 from ..models.output import extract_model_stats
 from ..utils.timing_utils import make_timing_logger
 
@@ -305,7 +305,7 @@ class PatternExtractor:
             # Model is invalid for pattern matching (e.g., nodes with empty names)
             logger.warning("Model validation failed for pattern matching: %s", str(e))
             # Mark model with the exception's associated tag and error message
-            self._model.model_tags[e.error_tag] = str(e)
+            self._model.model_tags[ModelTag(e.error_tag)] = str(e)
             _log_timing(
                 "pattern_extractor.pattern_matcher",
                 model=self._model.model_path,
@@ -500,6 +500,7 @@ class PatternExtractor:
             return []
 
         pattern_label = pattern.semantic_label
+        assert pattern_label is not None  # ensured by _validate_pattern_for_matching
 
         # Get ONNX model
         model_proto = self._model.get_model()
@@ -577,10 +578,14 @@ class PatternExtractor:
             return []
 
         pattern_label = pattern.semantic_label
+        assert pattern_label is not None  # ensured by _validate_pattern_for_matching
+
+        # The 'nodes' section of HTP metadata maps node names to traced tags (str -> str).
+        nodes_mapping = cast("dict[str, str]", htp_metadata["nodes"])
 
         # Group nodes by traced_tag that contains pattern_label
         grouped_nodes = self._group_nodes_by_traced_tag(
-            nodes_mapping=htp_metadata["nodes"],
+            nodes_mapping=nodes_mapping,
             pattern_label=pattern_label,
         )
 
@@ -666,7 +671,7 @@ class PatternExtractor:
     def model_summary(
         self,
         detected_pattern_count: dict[str, int] | None = None,
-    ) -> ModelStats:  # type: ignore[name-defined]
+    ) -> ModelStats:
         """Get model metadata and statistics.
 
         Args:
