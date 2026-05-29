@@ -31,7 +31,7 @@ import platform
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 
@@ -39,7 +39,11 @@ from ..sysinfo import OS, get_ep_device_map
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from rich.console import Console
+
+    from ..utils.constants import EPName
 
 
 logger = logging.getLogger(__name__)
@@ -281,7 +285,7 @@ def _check_openvino() -> dict[str, Any]:
     info: dict[str, Any] = {"installed": False}
 
     try:
-        import openvino  # type: ignore[import-not-found]
+        import openvino
 
         info["installed"] = True
         info["version"] = openvino.__version__
@@ -493,7 +497,7 @@ def _gather_device_info() -> list[dict[str, Any]]:
     from ..sysinfo import CPU, GPU, NPU
 
     # NPU > GPU > CPU priority order.
-    hw_queries: list[tuple[str, type]] = [
+    hw_queries: list[tuple[str, type[NPU] | type[GPU] | type[CPU]]] = [
         ("NPU", NPU),
         ("GPU", GPU),
         ("CPU", CPU),
@@ -501,10 +505,15 @@ def _gather_device_info() -> list[dict[str, Any]]:
 
     with ThreadPoolExecutor(max_workers=len(hw_queries)) as pool:
         futures = [(label, pool.submit(cls.get_all)) for label, cls in hw_queries]
-        ordered_results: list[tuple[str, list[Any] | Exception]] = []
+        # Sequence (not list) because list is invariant in its element type:
+        # fut.result() at runtime is list[CPU] | list[GPU] | list[NPU], none
+        # of which are list[Any]. Sequence is covariant, so this accepts
+        # all three. The cast at .result() is needed because pool.submit
+        # collapses the union-typed `cls.get_all` callable to Future[object].
+        ordered_results: list[tuple[str, Sequence[Any] | Exception]] = []
         for label, fut in futures:
             try:
-                ordered_results.append((label, fut.result()))
+                ordered_results.append((label, cast("Sequence[Any]", fut.result())))
             except Exception as e:  # noqa: PERF203 - per-future error capture
                 ordered_results.append((label, e))
 
@@ -586,7 +595,7 @@ def _gather_ep_info() -> list[dict[str, Any]]:
         List of EP dicts with name, device, and optional path.
     """
     eps: list[dict[str, Any]] = []
-    winml_eps: dict[str, str] = {}
+    winml_eps: dict[EPName, str] = {}
 
     # Try WinML EP Registry first
     try:
@@ -608,18 +617,23 @@ def _gather_ep_info() -> list[dict[str, Any]]:
 
     # Merge: WinML EPs first (they have paths), then ORT-only EPs
     ep_device_map = get_ep_device_map()
-    seen: set[str] = set()
+    seen: set[EPName] = set()
 
     for ep_name, ep_path in winml_eps.items():
         device = ep_device_map.get(ep_name, "unknown").upper()
         eps.append({"name": ep_name, "device": device, "path": ep_path})
         seen.add(ep_name)
 
-    for ep_name in ort_providers:
-        if ep_name not in seen:
-            device = ep_device_map.get(ep_name, "unknown").upper()
-            eps.append({"name": ep_name, "device": device, "path": None})
-            seen.add(ep_name)
+    for raw_name in ort_providers:
+        # ORT returns arbitrary strings; cast acknowledges that downstream
+        # storage and lookup treat them as EPName. Unknown names fall through
+        # to the "unknown" device default.
+        ep_name = cast("EPName", raw_name)
+        if ep_name in seen:
+            continue
+        device = ep_device_map.get(ep_name, "unknown").upper()
+        eps.append({"name": ep_name, "device": device, "path": None})
+        seen.add(ep_name)
 
     return eps
 
@@ -641,8 +655,8 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
             console.print("    [dim](built-in)[/dim]")
 
 
-@click.command()  # type: ignore[misc]
-@click.option(  # type: ignore[misc]
+@click.command()
+@click.option(
     "--format",
     "-f",
     "output_format",
@@ -650,26 +664,26 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
     default="text",
     help="Output format: text (human-readable), json, or compact",
 )
-@click.option(  # type: ignore[misc]
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
     default=False,
     help="Include additional diagnostic information",
 )
-@click.option(  # type: ignore[misc]
+@click.option(
     "--list-device",
     is_flag=True,
     default=False,
     help="List available devices in priority order",
 )
-@click.option(  # type: ignore[misc]
+@click.option(
     "--list-ep",
     is_flag=True,
     default=False,
     help="List available execution providers",
 )
-@click.pass_context  # type: ignore[misc]
+@click.pass_context
 def sysinfo(
     ctx: click.Context,
     output_format: str,

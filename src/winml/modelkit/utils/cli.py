@@ -317,7 +317,7 @@ def is_cli_provided(ctx: click.Context, param_name: str) -> bool:
     return source == click.core.ParameterSource.COMMANDLINE
 
 
-def collect_cli_overrides(ctx: click.Context, cls: type) -> dict[str, object]:
+def collect_cli_overrides(ctx: click.Context, cls: type) -> dict[str, Any]:
     """Collect CLI-provided values that match fields on a dataclass.
 
     Iterates ``ctx.params`` and returns ``{field_name: value}`` for every
@@ -344,7 +344,7 @@ def collect_cli_overrides(ctx: click.Context, cls: type) -> dict[str, object]:
         if cli_name:
             rename[cli_name] = f.name
 
-    overrides: dict[str, object] = {}
+    overrides: dict[str, Any] = {}
     for cli_name, value in ctx.params.items():
         field_name = rename.get(cli_name, cli_name)
         if field_name in valid_fields and is_cli_provided(ctx, cli_name):
