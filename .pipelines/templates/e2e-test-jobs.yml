@@ -1,14 +1,16 @@
-# Job template for the Modelkit E2E Test (PR-gating) pipeline.
+# Job template for the Modelkit E2E Test (daily scheduled) pipeline.
 #
-# Unlike `eval-report-jobs.yml` (full registry, matrix sharding, report
-# generation), this template runs a small inline list of models on each
-# requested EP/device pair and uses winml perf as the only pass/fail signal.
+# Two phases run on each agent, after a shared env setup:
 #
-# Each (model, pair) tuple is its own step so:
-#   * the ADO UI shows granular per-combination status
-#   * `condition: always()` lets later combinations run even if an earlier
-#     one failed — we want to see every failure on a PR, not just the first
-#   * the job is naturally marked failed by ADO if any step exited non-zero
+#   1. winml perf loop — gated by `runEval`. One step per (model × pair).
+#   2. pytest e2e suites — one step per entry in `pytestTargets`. Each
+#      writes a junit XML; one PublishTestResults task at the end
+#      aggregates them into the ADO Tests tab.
+#
+# Each test step uses `condition: always()` so later steps run even if
+# an earlier one failed (we want to see every failure in a daily run).
+# Steps still propagate their real exit codes, so the job is marked
+# failed whenever any step fails.
 parameters:
   - name: agentName
     type: string
@@ -27,6 +29,20 @@ parameters:
     type: number
     default: 1800
 
+  - name: runEval
+    type: boolean
+    default: true
+
+  # List of pytest e2e test short names. Each entry `<name>` runs
+  # `tests/e2e/test_<name>_e2e.py`. Empty list skips the pytest phase.
+  - name: pytestTargets
+    type: object
+    default: []
+
+  - name: pytestTimeout
+    type: number
+    default: 1000
+
 jobs:
   - job: E2ETest_${{ parameters.agentSuffix }}
     displayName: 'E2E Test (${{ parameters.agentSuffix }})'
@@ -34,7 +50,7 @@ jobs:
       name: modelkit-selfhost-pool
       demands:
         - Agent.Name -equals ${{ parameters.agentName }}
-    timeoutInMinutes: 60
+    timeoutInMinutes: 360
     cancelTimeoutInMinutes: 2
 
     steps:
@@ -108,62 +124,95 @@ jobs:
         displayName: 'Install dependencies'
 
       # ----------------------------------------------------------------------
-      # Per (model, pair) test step. Expanded at template time so each
-      # combination is its own line item in the ADO UI.
+      # Phase 1: winml perf (gated by runEval).
+      # One step per (model × pair); template-time expanded for granular UI.
       # ----------------------------------------------------------------------
-      - ${{ each model in parameters.models }}:
-          - ${{ each pairName in parameters.pairNames }}:
-              - powershell: |
-                  $catalog = @{
-                      'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
-                      'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
-                      'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
-                      'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
-                      'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
-                      'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
-                      'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
-                      'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
-                  }
-                  $name = '${{ pairName }}'
-                  if (-not $catalog.ContainsKey($name)) {
-                      Write-Error "Unknown EP/device pair name: '$name'. Valid: $($catalog.Keys -join ', ')"
-                      exit 1
-                  }
-                  $pair = $catalog[$name]
+      - ${{ if eq(parameters.runEval, true) }}:
+          - ${{ each model in parameters.models }}:
+              - ${{ each pairName in parameters.pairNames }}:
+                  - powershell: |
+                      $catalog = @{
+                          'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+                          'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
+                          'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
+                          'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
+                          'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
+                          'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
+                          'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
+                          'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
+                      }
+                      $name = '${{ pairName }}'
+                      if (-not $catalog.ContainsKey($name)) {
+                          Write-Error "Unknown EP/device pair name: '$name'. Valid: $($catalog.Keys -join ', ')"
+                          exit 1
+                      }
+                      $pair = $catalog[$name]
 
-                  $hfModel = '${{ model.hf_id }}'
-                  $task    = '${{ model.task }}'
-                  $output  = "$(Agent.TempDirectory)/e2e-test/$name"
+                      $hfModel = '${{ model.hf_id }}'
+                      $task    = '${{ model.task }}'
+                      $output  = "$(Agent.TempDirectory)/e2e-test/$name"
 
-                  Write-Host "============================================================"
-                  Write-Host "E2E test: $hfModel  (task='$task')  on  $($pair.displayName) [name=$name]"
-                  Write-Host "============================================================"
+                      Write-Host "============================================================"
+                      Write-Host "Eval: $hfModel  (task='$task')  on  $($pair.displayName) [name=$name]"
+                      Write-Host "============================================================"
 
-                  $uvArgs = @(
-                      "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
-                      "--hf-model", $hfModel,
-                      "--device", $pair.device,
-                      "--ep", $pair.ep,
-                      "--eval-type", "perf",
-                      "--no-report",
-                      "--verbose",
-                      "--timeout", "${{ parameters.modelTimeout }}",
-                      "--output-dir", $output
-                  )
-                  if ($task) {
-                      $uvArgs += @("--task", $task)
-                  }
+                      $uvArgs = @(
+                          "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
+                          "--hf-model", $hfModel,
+                          "--device", $pair.device,
+                          "--ep", $pair.ep,
+                          "--eval-type", "perf",
+                          "--no-report",
+                          "--verbose",
+                          "--timeout", "${{ parameters.modelTimeout }}",
+                          "--output-dir", $output
+                      )
+                      if ($task) {
+                          $uvArgs += @("--task", $task)
+                      }
 
-                  & uv @uvArgs
-                  $code = $LASTEXITCODE
-                  if ($code -ne 0) {
-                      Write-Error "E2E test FAILED: $hfModel on $($pair.displayName) (exit=$code)"
-                  } else {
-                      Write-Host "E2E test PASSED: $hfModel on $($pair.displayName)"
-                  }
-                  exit $code
-                workingDirectory: $(Build.SourcesDirectory)
-                # Always run so a failure on one pair does not hide failures on others.
-                # The job is still marked failed by ADO because of the non-zero exit.
-                condition: always()
-                displayName: 'Test: ${{ model.hf_id }} on ${{ pairName }}'
+                      & uv @uvArgs
+                      $code = $LASTEXITCODE
+                      if ($code -ne 0) {
+                          Write-Error "Eval FAILED: $hfModel on $($pair.displayName) (exit=$code)"
+                      } else {
+                          Write-Host "Eval PASSED: $hfModel on $($pair.displayName)"
+                      }
+                      exit $code
+                    workingDirectory: $(Build.SourcesDirectory)
+                    # Always run so a failure on one pair does not hide failures on others.
+                    # The job is still marked failed by ADO because of the non-zero exit.
+                    condition: always()
+                    displayName: 'Eval: ${{ model.hf_id }} on ${{ pairName }}'
+
+      # ----------------------------------------------------------------------
+      # Phase 2: pytest e2e suites. One step per entry in `pytestTargets`.
+      # Each `<name>` runs `tests/e2e/test_<name>_e2e.py` and writes a
+      # per-step junit XML; aggregated by PublishTestResults at the end.
+      # Tests use `require_ep()` to self-skip on irrelevant EPs, so it is
+      # safe to run all of them on every agent.
+      # ----------------------------------------------------------------------
+      - ${{ each target in parameters.pytestTargets }}:
+          - powershell: |
+              uv run --no-sync python -m pytest tests/e2e/test_${{ target }}_e2e.py -m e2e --timeout=${{ parameters.pytestTimeout }} --junitxml="$(Agent.TempDirectory)/junit-${{ parameters.agentSuffix }}-${{ target }}.xml" -v
+              exit $LASTEXITCODE
+            workingDirectory: $(Build.SourcesDirectory)
+            condition: always()
+            displayName: 'pytest: test_${{ target }}_e2e.py'
+
+      # ----------------------------------------------------------------------
+      # Publish all pytest junit XMLs as ADO test results. Runs always so
+      # we see partial results even when an earlier step failed.
+      # failTaskOnFailedTests is false because the pytest step itself
+      # already failed the job on non-zero exit; we don't want a second
+      # failure source from this aggregator.
+      # ----------------------------------------------------------------------
+      - task: PublishTestResults@2
+        condition: always()
+        inputs:
+          testResultsFormat: 'JUnit'
+          testResultsFiles: '$(Agent.TempDirectory)/junit-${{ parameters.agentSuffix }}-*.xml'
+          testRunTitle: 'pytest e2e (${{ parameters.agentSuffix }})'
+          mergeTestResults: true
+          failTaskOnFailedTests: false
+        displayName: 'Publish pytest e2e results'

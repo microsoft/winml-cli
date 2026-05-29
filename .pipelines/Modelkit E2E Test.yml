@@ -1,29 +1,36 @@
-# Modelkit E2E Test — PR-gating pipeline.
+# Modelkit E2E Test — scheduled daily e2e validation pipeline.
 #
-# Runs `winml perf` against a small inline list of models across all
-# EP/device pairs on the three self-hosted agents (QNN, OV, AMD). Each
-# stage runs in parallel. Pipeline fails if any (model, EP/device pair)
-# combination fails its perf run.
+# Runs two kinds of e2e checks on the three self-hosted agents (QNN, OV,
+# AMD) in parallel stages:
 #
-# Notes on runtime mitigations:
-#   * `pr.drafts: false` — draft PRs do not trigger this pipeline.
-#   * Auto-cancel of superseded PR builds (when a new commit is pushed to
-#     the same PR) is controlled by the per-pipeline portal setting
-#     "Automatically cancel existing validation builds for previous
-#     iterations of a pull request". Enable it once in the portal — this
-#     cannot be set from YAML.
-#   * The pipeline is NOT yet added as a required branch-policy check.
-#     During the prototype phase, failures appear as a red status on the
-#     PR but do not block merge. Promote to a required check from the
-#     portal once we are confident.
+#   1. winml perf against a small inline list of models (the `models`
+#      parameter, defaults to facebook/convnext-tiny-224), once per
+#      EP/device pair available on each agent. Gated by `runEval`.
+#
+#   2. A configurable list of pytest e2e suites under `tests/e2e/`,
+#      controlled by the `pytestTargets` parameter (default: all 11).
+#      Edit the list at queue time for a minimal run (e.g. keep only
+#      `analyze`). Each entry maps 1:1 to `tests/e2e/test_<name>_e2e.py`.
+#      Tests use `require_ep()` to self-skip when the target EP is not
+#      present on the host, so it is safe to run all suites on all
+#      three agents — irrelevant tests just skip.
+#
+# Trigger model:
+#   * Manual queue-time runs (with selectable parameters) for ad-hoc
+#     validation.
+#   * Daily scheduled run at 00:00 Beijing time (16:00 UTC the prior
+#     day), staggered 8 h away from the weekly Eval Report cron.
+#   * No PR/CI trigger. Failures do not block PR merges.
 
 trigger: none
 
-pr:
-  branches:
-    include:
-      - main
-  drafts: false
+schedules:
+  - cron: '0 16 * * *'
+    displayName: 'Daily run — 00:00 (UTC+8) every day'
+    branches:
+      include:
+        - main
+    always: true
 
 resources:
   repositories:
@@ -34,20 +41,59 @@ resources:
       ref: main
 
 parameters:
+  # --------------------------------------------------------------------
+  # winml perf section
+  # --------------------------------------------------------------------
+  - name: runEval
+    displayName: 'Run winml perf eval on inline `models` list'
+    type: boolean
+    default: true
+
   # Inline model list. Each entry: { hf_id: <str>, task: <str> }.
-  # Extend over time; keep small to keep PR feedback fast.
+  # Extend over time; keep small to keep daily runs fast.
   - name: models
-    displayName: 'Models to test (inline list)'
+    displayName: 'Models to test (inline list, used by runEval)'
     type: object
     default:
       - hf_id: facebook/convnext-tiny-224
         task: image-classification
 
   - name: modelTimeout
-    displayName: 'Per-model timeout (seconds)'
+    displayName: 'Per-model perf timeout (seconds)'
     type: number
     default: 1800
 
+  # --------------------------------------------------------------------
+  # pytest e2e section — single editable list of test file short names.
+  # Each entry `<name>` runs `tests/e2e/test_<name>_e2e.py`.
+  # Edit the list at queue time (delete unwanted entries) to do a
+  # minimal run. Setting it to an empty list skips the pytest phase
+  # entirely.
+  # --------------------------------------------------------------------
+  - name: pytestTargets
+    displayName: 'pytest e2e targets (one entry per tests/e2e/test_<name>_e2e.py)'
+    type: object
+    default:
+      - analyze
+      - inspect
+      - build
+      - compile
+      - config
+      - export
+      - optimize
+      - quantize
+      - sys
+      - perf
+      - eval
+
+  - name: pytestTimeout
+    displayName: 'Per-test pytest --timeout (seconds)'
+    type: number
+    default: 1000
+
+  # --------------------------------------------------------------------
+  # Agent / EP-device pair configuration
+  # --------------------------------------------------------------------
   - name: qnnAgentName
     displayName: 'QNN: self-hosted agent name (Agent.Name)'
     type: string
@@ -94,6 +140,9 @@ stages:
           pairNames: ${{ parameters.qnnPairs }}
           models: ${{ parameters.models }}
           modelTimeout: ${{ parameters.modelTimeout }}
+          runEval: ${{ parameters.runEval }}
+          pytestTargets: ${{ parameters.pytestTargets }}
+          pytestTimeout: ${{ parameters.pytestTimeout }}
 
   - stage: NPU_OV
     displayName: 'E2E Test — OV'
@@ -106,6 +155,9 @@ stages:
           pairNames: ${{ parameters.ovPairs }}
           models: ${{ parameters.models }}
           modelTimeout: ${{ parameters.modelTimeout }}
+          runEval: ${{ parameters.runEval }}
+          pytestTargets: ${{ parameters.pytestTargets }}
+          pytestTimeout: ${{ parameters.pytestTimeout }}
 
   - stage: NPU_AMD
     displayName: 'E2E Test — AMD'
@@ -118,3 +170,6 @@ stages:
           pairNames: ${{ parameters.amdPairs }}
           models: ${{ parameters.models }}
           modelTimeout: ${{ parameters.modelTimeout }}
+          runEval: ${{ parameters.runEval }}
+          pytestTargets: ${{ parameters.pytestTargets }}
+          pytestTimeout: ${{ parameters.pytestTimeout }}
