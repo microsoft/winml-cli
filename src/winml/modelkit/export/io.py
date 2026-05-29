@@ -213,7 +213,7 @@ def _get_onnx_config(
     # Route model_types whose Optimum OnnxConfig is registered under another
     # library (e.g. timm via "timm_wrapper" -> "timm") so the lookup succeeds
     # from every call site without an explicit --library flag.
-    from ..loader.task import resolve_optimum_library
+    from ..loader import resolve_optimum_library
 
     library_name = resolve_optimum_library(model_type, library_name)
 

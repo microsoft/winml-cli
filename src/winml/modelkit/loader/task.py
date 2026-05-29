@@ -8,6 +8,7 @@ Uses TasksManager.infer_task_from_model() as PRIMARY approach per design spec.
 
 Public API:
     resolve_task_and_model_class  - Main orchestrator (3 resolution cases)
+    resolve_optimum_library      - Route a model_type to the Optimum export library
     normalize_task               - Map task aliases to canonical names
     get_task_abbrev              - Abbreviated task name for cache keys
     get_supported_tasks          - List ONNX-exportable tasks for a model type
@@ -176,9 +177,13 @@ def resolve_optimum_library(model_type: str | None, library_name: str = "transfo
     Most models export under the library they were requested with. A few
     transformers model_types are thin wrappers whose Optimum OnnxConfig lives in
     another library (see :data:`WRAPPED_LIBRARY_MODEL_TYPES`); route those so the
-    OnnxConfig lookup succeeds without an explicit ``--library`` flag. Only the
-    default ``"transformers"`` library is remapped, so an explicit choice always
-    wins.
+    OnnxConfig lookup succeeds without an explicit ``--library`` flag.
+
+    Only the ``"transformers"`` library is rerouted, so an explicit
+    non-``"transformers"`` library is returned unchanged. (An explicit
+    ``--library transformers`` is indistinguishable from the default and is
+    still rerouted for wrapped types -- harmless, since those types have no
+    OnnxConfig registered under transformers anyway.)
     """
     if library_name == "transformers" and model_type in WRAPPED_LIBRARY_MODEL_TYPES:
         return WRAPPED_LIBRARY_MODEL_TYPES[model_type]
