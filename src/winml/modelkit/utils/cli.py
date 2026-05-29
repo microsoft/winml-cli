@@ -222,6 +222,11 @@ def resolve_verbosity(ctx: click.Context, verbose: int, quiet: bool) -> tuple[in
     This helper takes the max verbosity and OR of quiet so users can supply
     the flag at either level (or both).
 
+    Precedence: ``-q``/``--quiet`` always wins over verbosity, including the
+    ``--debug`` alias — ``winml --debug export -q …`` runs at ERROR. ``-q`` is
+    an explicit "shut up" signal and trumps any verbosity raise, so the user
+    is never surprised by debug spam after they asked for quiet.
+
     Args:
         ctx: Click context for the current subcommand.
         verbose: Subcommand-level ``-v`` count.

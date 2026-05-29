@@ -187,6 +187,11 @@ def inspect(
     # json` consumers still get clean stdout. Suppressed in --quiet mode
     # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
     # and JSON consumers expect clean stdout regardless).
+    #
+    # NOTE: this is an EARLY OR-merge of top-level --quiet, done before the
+    # banner so `winml --quiet inspect …` actually suppresses it. The full
+    # resolve_verbosity() merge happens below, before configure_logging() —
+    # the duplication is idempotent (OR), not a subtle ordering dependency.
     quiet = quiet or bool(ctx.obj and ctx.obj.get("quiet"))
     json_mode = output_format.lower() == "json"
     target = model_id or model_type or model_class

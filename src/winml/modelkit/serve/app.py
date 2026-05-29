@@ -129,7 +129,13 @@ def _ensure_log_capture_level() -> int | None:
 def _restore_log_capture_level(prior: int | None) -> None:
     if prior is None:
         return
-    logging.getLogger("winml.modelkit").setLevel(prior)
+    pkg_logger = logging.getLogger("winml.modelkit")
+    # Only restore if the value still matches what we set. If anyone else
+    # (middleware, debug hook, a nested ``configure_logging`` from a CLI
+    # invocation routed through /v1/cli) has since changed it, defer to them
+    # rather than silently rolling their change back.
+    if pkg_logger.level == logging.INFO:
+        pkg_logger.setLevel(prior)
 
 
 # ---------------------------------------------------------------------------
