@@ -491,6 +491,21 @@ class TestDiscoverEps:
         resolved = discover_eps(extra_sources=[src])
         assert resolved["QNNExecutionProvider"] == (fake_dll.resolve(), src)
 
+    def test_discover_eps_returns_tuple_shape(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """discover_eps() (no flag) returns dict[str, (Path, EpSource)]."""
+        fake_dll = _touch(tmp_path / "fake.dll")
+        src = FilesystemSource(
+            root=tmp_path,
+            dll_patterns={"QNNExecutionProvider": fake_dll.name},
+        )
+        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
+        result = discover_eps(extra_sources=[src])
+        for value in result.values():
+            assert isinstance(value, tuple)
+            assert len(value) == 2
+
 
 # ---------------------------------------------------------------------------
 # NuGetSource.

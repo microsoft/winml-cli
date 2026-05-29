@@ -548,15 +548,13 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
     Returns:
         Dict ``ep_name -> {compatible, device_types, entries: [...]}``.
     """
-    from ..ep_path import discover_eps, list_msix_eps
+    from ..ep_path import discover_all_eps, list_msix_eps
 
-    # discover_eps with return_shadowed gives us (primary, *shadowed) per EP.
     # MSIX entries inject AFTER the default EP_PATH so they appear as
     # shadowed alternatives — not as artificial primaries that would
     # mislead the user about what would actually load.
     msix = list_msix_eps()
-    full = discover_eps(extra_sources_after=msix, return_shadowed=True)
-    assert isinstance(full, dict)
+    full = discover_all_eps(extra_sources_after=msix)
 
     catalog_default_paths: set[Path] = set()
     # Cross-reference WinMlCatalogSource's pick to tag (catalog default).

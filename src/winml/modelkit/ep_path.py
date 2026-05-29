@@ -29,8 +29,13 @@ Public API:
   by family-name prefix (handles non-current versions and the
   ``WindowsWorkload.EP.*`` OEM channel).
 * :class:`EpSource`: abstract base for the five concrete sources.
-* :func:`discover_eps`: walk ``EP_PATH`` (plus any extras) and yield
-  ``(ep_name, dll_path, source)`` triples with first-hit-wins semantics.
+* :func:`discover_eps`: walk ``EP_PATH`` (plus any extras) and return
+  ``{ep_name: (dll_path, source)}`` with first-hit-wins semantics. One
+  precedence winner per EP.
+* :func:`discover_all_eps`: same precedence rules, but return all
+  matches per EP as ``{ep_name: [ResolvedEp, ...]}`` with the primary
+  first and any shadowed entries after. Used by the inventory CLI
+  (``winml sys --list-ep``).
 """
 
 from __future__ import annotations
@@ -1265,10 +1270,9 @@ def _parse_modelkit_ep_path() -> list[EpSource]:
 class ResolvedEp:
     """One (ep_name, dll_path, source) hit with resolution status.
 
-    Returned by :func:`discover_eps` when ``return_shadowed=True``. The
-    ``status`` field distinguishes the precedence-winner ("primary") from
-    later sources for the same EP that were skipped under first-hit-wins
-    ("shadowed").
+    Returned by :func:`discover_all_eps`. The ``status`` field distinguishes
+    the precedence-winner ("primary") from later sources for the same EP
+    that were skipped under first-hit-wins ("shadowed").
     """
 
     ep_name: str
@@ -1277,40 +1281,15 @@ class ResolvedEp:
     status: str  # "primary" | "shadowed"
 
 
-def discover_eps(
-    extra_sources: list[EpSource] | None = None,
-    *,
-    extra_sources_after: list[EpSource] | None = None,
-    return_shadowed: bool = False,
-) -> dict[str, tuple[Path, EpSource]] | dict[str, list[ResolvedEp]]:
-    """Walk ``EP_PATH`` and return resolved EPs.
+def _walk_sources(
+    extra_sources: list[EpSource] | None,
+    extra_sources_after: list[EpSource] | None,
+) -> dict[str, list[ResolvedEp]]:
+    """Walk the assembled source list and collect all matches per EP.
 
-    Precedence (highest first):
-
-    1. ``extra_sources`` (programmatic override, useful for tests).
-    2. ``MODELKIT_EP_PATH`` env-var entries (parsed into FilesystemSources).
-    3. The default :data:`EP_PATH` list.
-    4. ``extra_sources_after`` (lowest precedence — used by the
-       ``winml sys --list-ep`` CLI to inject :func:`list_msix_eps`
-       results so non-current MSIX versions appear as ``"shadowed"``
-       rather than overriding the user's normal precedence).
-
-    Within that combined list, first-hit-wins per canonical EP name.
-
-    Args:
-        extra_sources: Optional list of EpSources prepended to the walk.
-        extra_sources_after: Optional list of EpSources appended *after*
-            the default :data:`EP_PATH`. Appears as ``"shadowed"`` unless
-            the EP is otherwise unresolved.
-        return_shadowed: When ``False`` (default, back-compat), returns
-            ``dict[ep_name, (dll_path, source)]`` with one entry per EP —
-            the precedence winner. When ``True``, returns
-            ``dict[ep_name, list[ResolvedEp]]`` with all matching sources;
-            the first entry is the ``"primary"``, the rest are
-            ``"shadowed"``. Used by the inventory CLI.
-
-    Returns:
-        See ``return_shadowed``.
+    Internal helper shared by :func:`discover_eps` (returns the primary
+    winner per EP) and :func:`discover_all_eps` (returns primary + every
+    shadowed match).
     """
     sources: list[EpSource] = []
     if extra_sources:
@@ -1320,9 +1299,6 @@ def discover_eps(
     if extra_sources_after:
         sources.extend(extra_sources_after)
 
-    # Always compute the full per-EP list; the legacy shape is derived
-    # from it. This keeps the two return shapes consistent and the
-    # precedence rules in one place.
     full: dict[str, list[ResolvedEp]] = {}
     for source in sources:
         try:
@@ -1344,8 +1320,6 @@ def discover_eps(
                         dll_path,
                     )
                     continue
-                # Deduplicate (path, source) pairs so a source yielding
-                # the same (ep_name, dll) twice doesn't appear twice.
                 bucket = full.setdefault(ep_name, [])
                 if any(e.dll_path == dll_path and e.source is source for e in bucket):
                     continue
@@ -1368,11 +1342,46 @@ def discover_eps(
             logger.error("Source %r failed mid-iteration: %s", source, e)
             continue
 
-    if return_shadowed:
-        return full
+    return full
 
-    # Legacy shape: one (path, source) tuple per EP — the primary winner.
+
+def discover_eps(
+    extra_sources: list[EpSource] | None = None,
+    *,
+    extra_sources_after: list[EpSource] | None = None,
+) -> dict[str, tuple[Path, EpSource]]:
+    """Walk ``EP_PATH`` and return one ``(dll_path, source)`` per EP.
+
+    Returns the precedence winner per EP. Use :func:`discover_all_eps`
+    when you need primary + shadowed matches (e.g. for the inventory CLI).
+
+    Precedence (highest first):
+
+    1. ``extra_sources`` (programmatic override; useful for tests)
+    2. ``MODELKIT_EP_PATH`` env-var entries (parsed into FilesystemSources)
+    3. The default :data:`EP_PATH` list
+    4. ``extra_sources_after`` (lowest precedence; used by inventory CLI)
+
+    Within that combined list, first-hit-wins per canonical EP name.
+    """
+    full = _walk_sources(extra_sources, extra_sources_after)
     return {ep: (entries[0].dll_path, entries[0].source) for ep, entries in full.items()}
+
+
+def discover_all_eps(
+    extra_sources: list[EpSource] | None = None,
+    *,
+    extra_sources_after: list[EpSource] | None = None,
+) -> dict[str, list[ResolvedEp]]:
+    """Walk ``EP_PATH`` and return all matches per EP — primary first then shadowed.
+
+    Companion to :func:`discover_eps`. Used by ``winml sys --list-ep`` to
+    enumerate every source contributing each EP, so users can see when a
+    later source is being shadowed by a higher-precedence one.
+
+    Precedence rules are identical to :func:`discover_eps`.
+    """
+    return _walk_sources(extra_sources, extra_sources_after)
 
 
 __all__ = [
@@ -1385,6 +1394,7 @@ __all__ = [
     "PyPiSource",
     "ResolvedEp",
     "WinMlCatalogSource",
+    "discover_all_eps",
     "discover_eps",
     "list_msix_eps",
 ]
