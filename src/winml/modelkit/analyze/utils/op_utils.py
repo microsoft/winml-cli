@@ -8,6 +8,7 @@ import csv
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -139,6 +140,25 @@ def hash_case_signature(signature: str) -> str:
     return hashlib.sha256(signature.encode("utf-8")).hexdigest()
 
 
+def _build_ep_device_agnostic_namespace(namespace: str) -> str:
+    """Build a namespace that is stable across EP/device variants of the same file stem."""
+    if not namespace:
+        return namespace
+
+    stem = namespace[:-4] if namespace.endswith("_qdq") else namespace
+    match = re.match(r"^(?P<prefix>.+)_([^_]+)_(CPU|GPU|NPU)_([^_]+)_opset(?P<opset>\d+)$", stem)
+    if match is None:
+        return namespace
+
+    prefix = match.group("prefix")
+    domain = match.group(4)
+    opset = match.group("opset")
+    ep_device_agnostic = f"{prefix}_{domain}_opset{opset}"
+    if namespace.endswith("_qdq"):
+        ep_device_agnostic = f"{ep_device_agnostic}_qdq"
+    return ep_device_agnostic
+
+
 class CheckResultWriter:
     """Writer for test results that supports continuation from existing files."""
 
@@ -178,6 +198,9 @@ class CheckResultWriter:
         self.case_namespace = (
             self.file_path.stem
         )  # File name without extension for case_index namespace
+        self.case_namespace_ignore_ep_device = _build_ep_device_agnostic_namespace(
+            self.case_namespace
+        )
         if filter_case_index is None:
             self.filter_case_indices: list[str] | None = None
             self._filter_case_index_set: set[str] | None = None
@@ -260,7 +283,7 @@ class CheckResultWriter:
             return
 
         self._assign_not_run_ids(case)
-        self._set_case_index_signature(case)
+        self._set_case_index_signatures(case)
         self.results.append(case)
         self.output_signatures.add(sig)
         self._increment_pending_and_maybe_save()
@@ -295,16 +318,25 @@ class CheckResultWriter:
             # via iter(), so its input_constraints is up-to-date.
             if "input_constraints" in case:
                 existing_case["input_constraints"] = case["input_constraints"]
-            self._set_case_index_signature(existing_case)
+            # Ensure reused cases keep the current model payload contract.
+            if isinstance(case.get("model_bytes_b64"), str):
+                existing_case["model_bytes_b64"] = case["model_bytes_b64"]
+            self._set_case_index_signatures(existing_case)
             self.results.append(existing_case)
             self.output_signatures.add(sig)
             return True
         return False
 
-    def _set_case_index_signature(self, case: dict[str, Any]) -> None:
-        """Set case_index to a stable hash derived from normalized signature."""
+    def _set_case_index_signatures(self, case: dict[str, Any]) -> None:
+        """Set both case index signatures derived from normalized case content."""
         signature = compute_case_signature(case, namespace=self.case_namespace)
         case["case_index"] = hash_case_signature(signature)
+
+        signature_ignore_ep_device = compute_case_signature(
+            case,
+            namespace=self.case_namespace_ignore_ep_device,
+        )
+        case["case_index_ignore_ep_device"] = hash_case_signature(signature_ignore_ep_device)
 
     def _contains_not_run_reason(self, case: dict[str, Any]) -> bool:
         """Check whether compile/run reason contains a not_run placeholder."""
@@ -422,7 +454,7 @@ class CheckResultWriter:
 
         for item in output_data["check_results"]:
             if isinstance(item, dict):
-                self._set_case_index_signature(item)
+                self._set_case_index_signatures(item)
 
         # Sort results by case_index to keep deterministic ordering before writing
         output_data["check_results"] = sorted(

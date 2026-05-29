@@ -13,11 +13,12 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import click
 from rich.console import Console
@@ -620,6 +621,104 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     return f"{ep_name} ({device_name.upper()})"
 
 
+def _sanitize_filename_token(value: str) -> str:
+    """Convert EP/device labels into filesystem-safe filename tokens."""
+    token = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    token = token.strip("._")
+    return token or "unknown"
+
+
+def _extract_node_name(pattern_runtime: Any) -> str | None:
+    """Best-effort node name extraction from PatternRuntime payload."""
+    pattern_match = getattr(pattern_runtime, "pattern_match", None)
+    node = getattr(pattern_match, "node", None)
+    node_name = getattr(node, "name", None)
+    if isinstance(node_name, str) and node_name:
+        return node_name
+    return None
+
+
+def _build_runtime_debug_record(pattern_runtime: Any) -> dict[str, Any] | None:
+    """Build per-node debug record for non-supported results."""
+    runtime_result = getattr(pattern_runtime, "result", None)
+    if runtime_result is None:
+        return None
+
+    classification = getattr(getattr(runtime_result, "classification", None), "value", None)
+    if classification == "supported":
+        return None
+
+    debug_details = runtime_result.debug_details if isinstance(runtime_result.debug_details, dict) else {}
+    case_indices_raw = debug_details.get("matched_case_indices")
+    case_indices: list[str] | None = None
+    if isinstance(case_indices_raw, list):
+        case_indices = [str(v) for v in case_indices_raw if v not in (None, "")]
+
+    return {
+        "pattern_id": getattr(pattern_runtime, "pattern_id", None),
+        "node_name": _extract_node_name(pattern_runtime),
+        "compile_run_result": {
+            "compile": bool(getattr(runtime_result, "compile", False)),
+            "run": bool(getattr(runtime_result, "run", False)),
+            "classification": classification,
+            "reason": getattr(runtime_result, "reason", None),
+            "no_data": bool(getattr(runtime_result, "no_data", False)),
+        },
+        "case_indices": case_indices,
+        "rules_debug_file": debug_details.get("rules_debug_file"),
+        "matched_rule_row": debug_details.get("matched_rule_row"),
+        "table_file": debug_details.get("table_file"),
+    }
+
+
+def _build_runtime_debug_output_path(
+    output: Path | None,
+    model: Path,
+    ep_name: str,
+    device_name: str,
+) -> Path:
+    """Resolve per-EP/device runtime debug output file path."""
+    if output is not None:
+        base_dir = output.parent
+        base_stem = output.stem
+    else:
+        base_dir = model.parent
+        base_stem = f"{model.stem}.analyze"
+
+    ep_token = _sanitize_filename_token(ep_name)
+    device_token = _sanitize_filename_token(device_name.upper())
+    return base_dir / f"{base_stem}.{ep_token}_{device_token}.runtime_debug.json"
+
+
+def _write_runtime_debug_report(
+    output: Path | None,
+    model: Path,
+    ep_name: str,
+    device_name: str,
+    non_supported_nodes: list[dict[str, Any]],
+) -> Path:
+    """Write runtime debug JSON report for one EP/device pair."""
+    debug_output_path = _build_runtime_debug_output_path(
+        output,
+        model,
+        ep_name,
+        device_name,
+    )
+    payload = {
+        "format": "analyze_runtime_debug_v1",
+        "model": str(model),
+        "ep": ep_name,
+        "device": device_name.upper(),
+        "non_supported_nodes": non_supported_nodes,
+    }
+    debug_output_path.parent.mkdir(parents=True, exist_ok=True)
+    debug_output_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return debug_output_path
+
+
 # ── Click command ─────────────────────────────────────────────────────────
 
 
@@ -871,8 +970,17 @@ def analyze(
         ep_counter = 0
         _no_data_eps: set[tuple[str, str]] = set()  # EP/device pairs with no op rule data
         analysis_results: list = []
+        debug_non_supported_nodes: dict[tuple[str, str], list[dict[str, Any]]] = {}
         current_run_unknown_op = False
         current_op_check_skipped = False
+
+        def _collect_runtime_debug_record(pattern_runtime: Any) -> None:
+            if not for_debug or current_ep_device_pair is None:
+                return
+            debug_record = _build_runtime_debug_record(pattern_runtime)
+            if debug_record is None:
+                return
+            debug_non_supported_nodes.setdefault(current_ep_device_pair, []).append(debug_record)
 
         def _current_ep_device_pair_display_name() -> str:
             """Return current EP/device display label, or empty when unset."""
@@ -1025,6 +1133,8 @@ def analyze(
 
         def on_node_result(pattern_runtime):
             """Callback invoked per-node during analysis."""
+            _collect_runtime_debug_record(pattern_runtime)
+
             op = _display_name(pattern_runtime.pattern_id)
             level = pattern_runtime.result.classification.value
             op_counts = instance_counts.setdefault(op, {})
@@ -1076,6 +1186,7 @@ def analyze(
                         device=target_device,
                         enable_information=information,
                         htp_metadata_path=str(htp_metadata) if htp_metadata else None,
+                        for_debug=for_debug,
                         run_unknown_op=run_unknown_op_for_ep,
                         save_node_types=save_node_types,
                         on_node_result=on_node_result,
@@ -1124,10 +1235,19 @@ def analyze(
                 root_logger.handlers = old_handlers
         else:
             # Quiet mode — no live display
+            def on_ep_start_quiet(ep_name, _operator_counts):
+                nonlocal current_ep_device_pair
+                current_ep_device_pair = (ep_name, current_device)
+
+            def on_node_result_quiet(pattern_runtime):
+                _collect_runtime_debug_record(pattern_runtime)
+
             for target_ep, target_device in execution_pairs:
                 run_unknown_op_for_ep = _resolve_run_unknown_op(
                     target_ep, target_device, run_unknown_op, local_pairs
                 )
+                current_device = target_device
+                current_ep_device_pair = None
 
                 result = analyzer.analyze(
                     model_path=str(model),
@@ -1135,12 +1255,27 @@ def analyze(
                     device=target_device,
                     enable_information=information,
                     htp_metadata_path=str(htp_metadata) if htp_metadata else None,
+                    for_debug=for_debug,
                     run_unknown_op=run_unknown_op_for_ep,
                     save_node_types=save_node_types,
+                    on_node_result=on_node_result_quiet if for_debug else None,
+                    on_ep_start=on_ep_start_quiet if for_debug else None,
                 )
                 analysis_results.append(result)
 
         result = analysis_results[-1]
+
+        if for_debug:
+            for target_ep, target_device in execution_pairs:
+                debug_rows = debug_non_supported_nodes.get((target_ep, target_device), [])
+                debug_output_path = _write_runtime_debug_report(
+                    output=output,
+                    model=model,
+                    ep_name=target_ep,
+                    device_name=target_device,
+                    non_supported_nodes=debug_rows,
+                )
+                logger.info("Runtime debug results saved to: %s", debug_output_path)
 
         # Save JSON if requested
         if output:
@@ -1149,8 +1284,6 @@ def analyze(
                 if len(analysis_results) == 1:
                     output.write_text(result.to_json(), encoding="utf-8")
                 else:
-                    import json
-
                     output.write_text(
                         json.dumps(
                             [json.loads(run_result.to_json()) for run_result in analysis_results]
@@ -1166,8 +1299,6 @@ def analyze(
 
         # Save optimization config if requested
         if optim_config:
-            import json
-
             try:
                 # Merge optimization configs from all execution pairs; warn on conflicts.
 

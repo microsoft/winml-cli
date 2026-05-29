@@ -498,6 +498,7 @@ class ONNXStaticAnalyzer:
         device: str | None = None,
         enable_information: bool = True,
         htp_metadata_path: str | None = None,
+        for_debug: bool = False,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
@@ -523,6 +524,8 @@ class ONNXStaticAnalyzer:
                 Default: True
             htp_metadata_path: Optional path to HTP metadata JSON file
                 for pattern extraction from hierarchy traces
+            for_debug: Whether to include runtime debug payloads in check results.
+                Default: False
             run_unknown_op: Whether to run unknown operators on the local machine
                 if possible. Default: True
             save_node_types: Set of node types to save for further analysis
@@ -604,6 +607,7 @@ class ONNXStaticAnalyzer:
             enable_information=enable_information,
             model_path=str(model_file),
             htp_metadata_path=htp_metadata_path,
+            for_debug=for_debug,
             run_unknown_op=run_unknown_op,
             save_node_types=save_node_types,
             on_node_result=on_node_result,
@@ -629,6 +633,7 @@ class ONNXStaticAnalyzer:
         enable_information: bool = True,
         model_path: str | None = None,
         htp_metadata_path: str | None = None,
+        for_debug: bool = False,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
@@ -651,6 +656,8 @@ class ONNXStaticAnalyzer:
             model_path: Optional path to model file (for metadata)
             htp_metadata_path: Optional path to HTP metadata JSON file
                 for pattern extraction from hierarchy traces
+            for_debug: Whether to include runtime debug payloads in check results.
+                Default: False
             run_unknown_op: Whether to run unknown operators on local machine
                 if possible. Default: True
             save_node_types: Set of node types to save for further analysis
@@ -754,6 +761,7 @@ class ONNXStaticAnalyzer:
 
             runtime_summary = runtime_checker.summary(
                 patterns=pattern_matches,
+                for_debug=for_debug,
                 run_unknown_op=run_unknown_op_for_ep,
                 save_node_types=save_node_types,
                 on_node_result=on_node_result,

@@ -448,9 +448,10 @@ class TestAnalyzeCommandOptions:
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """Test that --verbose flag enables debug output."""
+        """Test that --verbose enables runtime debug mode and debug JSON output."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
+        output_file = tmp_path / "results.json"
 
         mock_instance = Mock()
         mock_instance.analyze.return_value = mock_analyzer_result
@@ -466,11 +467,22 @@ class TestAnalyzeCommandOptions:
                 "--device",
                 "NPU",
                 "--verbose",
+                "--output",
+                str(output_file),
             ],
         )
 
         # Should complete successfully
         assert result.exit_code == 0
+        call_kwargs = mock_instance.analyze.call_args.kwargs
+        assert call_kwargs["for_debug"] is True
+
+        debug_file = tmp_path / "results.QNNExecutionProvider_NPU.runtime_debug.json"
+        assert debug_file.exists()
+        debug_payload = json.loads(debug_file.read_text(encoding="utf-8"))
+        assert debug_payload["ep"] == "QNNExecutionProvider"
+        assert debug_payload["device"] == "NPU"
+        assert debug_payload["non_supported_nodes"] == []
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_quiet_flag_suppresses_warnings(
@@ -836,6 +848,7 @@ class TestAnalyzeCommandIntegration:
         assert call_kwargs["ep"] == "OpenVINOExecutionProvider"
         assert call_kwargs["device"] == "GPU"
         assert call_kwargs["enable_information"] is True
+        assert call_kwargs["for_debug"] is False
 
 
 class TestAnalyzeEPDeviceValidation:

@@ -243,3 +243,56 @@ class TestReuseExistingResultInputConstraints:
         saved = writer.results[0]
         assert saved["input_constraints"]["X"] == compact
         assert "same_value" in saved["input_constraints"]["X"]
+
+    def test_reuse_preserves_model_bytes_payload(self, tmp_path) -> None:
+        """Reused cases must retain model_bytes_b64 from the current generator payload."""
+        arr = np.ones((2,), dtype=np.float32)
+        compact = InputValueConstraint(arr).to_dict()
+
+        existing_case = {
+            "type_vars": {"T": "FLOAT"},
+            "input_constraints": {"X": compact},
+            "check_result": {
+                "compile": {"result": {"success": True}},
+                "run": {"result": {"success": True}},
+            },
+        }
+
+        with self._make_writer([existing_case], tmp_path) as writer:
+            skipped_case = {
+                "type_vars": {"T": "FLOAT"},
+                "input_constraints": {"X": compact},
+                "model_bytes_b64": "test_payload",
+                "_skipped": True,
+            }
+            reused = writer.reuse_existing_result(skipped_case)
+
+        assert reused
+        saved = writer.results[0]
+        assert saved["model_bytes_b64"] == "test_payload"
+
+    def test_case_index_ignore_ep_device_is_stable_across_ep_device(self, tmp_path) -> None:
+        """case_index_ignore_ep_device should be identical across EP/device variants."""
+        case_template = {
+            "type_vars": {"T": "FLOAT"},
+            "input_constraints": {"X": {"type": "shape", "shape": [1], "min_max": None}},
+            "check_result": {
+                "compile": {"result": {"success": True}},
+                "run": {"result": {"success": True}},
+            },
+        }
+
+        qnn_output = tmp_path / "Abs_QNNExecutionProvider_NPU_ai.onnx_opset13.json"
+        ov_output = tmp_path / "Abs_OpenVINOExecutionProvider_CPU_ai.onnx_opset13.json"
+
+        with CheckResultWriter(qnn_output, sys_info={}) as writer_qnn:
+            writer_qnn.append_result(dict(case_template))
+
+        with CheckResultWriter(ov_output, sys_info={}) as writer_ov:
+            writer_ov.append_result(dict(case_template))
+
+        qnn_case = writer_qnn.results[0]
+        ov_case = writer_ov.results[0]
+
+        assert qnn_case["case_index"] != ov_case["case_index"]
+        assert qnn_case["case_index_ignore_ep_device"] == ov_case["case_index_ignore_ep_device"]

@@ -39,6 +39,10 @@ SNAPSHOT_CURRENT_OPSET_KEY = "__current_opset__"
 SNAPSHOT_CHANGED_KEY = "__changed__"
 SNAPSHOT_DELETED_KEY = "__deleted__"
 
+# Keep parquet schema metadata stable across environments so unchanged rule
+# payloads do not produce binary-only diffs due to pandas metadata version.
+PARQUET_STABLE_PANDAS_VERSION = "2.3.3"
+
 
 def _sorted_dict_by_key(payload: dict[str, Any]) -> dict[str, Any]:
     """Return a shallow key-sorted dict for stable JSON output."""
@@ -690,6 +694,9 @@ def _deduplicate_rule_rows(
 
     When compare_output_cols is None, output_cols is used for both
     conflict detection and conflict display.
+
+    The deduplicated row carries a ``case_indices`` list, which captures
+    all source case indices folded into that rule row.
     """
     if df.empty:
         return df.copy(), None
@@ -724,6 +731,11 @@ def _deduplicate_rule_rows(
 
         row = group_df.iloc[0].copy()
         row["rule_row_count"] = len(group_df)
+        if case_index_col in group_df.columns:
+            case_indices_raw = group_df[case_index_col].tolist()
+        else:
+            case_indices_raw = group_df.index.tolist()
+        row["case_indices"] = [np_to_python_value(v) for v in case_indices_raw]
         dedup_rows.append(row)
 
     dedup_df = pd.DataFrame(dedup_rows, dtype=object)
@@ -756,6 +768,55 @@ def _encode_condition_columns_for_parquet(
     return encoded_df
 
 
+def _derive_rules_debug_json_dir(rules_debug_dir: Path) -> Path:
+    """Infer sibling rules_debug_json directory from rules_debug directory."""
+    parent = rules_debug_dir.parent
+    if parent.name.lower() == "rules_debug":
+        return parent.parent / "rules_debug_json" / rules_debug_dir.name
+    return parent / "rules_debug_json" / rules_debug_dir.name
+
+
+def _write_parquet_with_stable_pandas_version(
+    df: pd.DataFrame,
+    parquet_file: Path,
+    compression: str = "snappy",
+) -> None:
+    """Write parquet with pinned pandas metadata for deterministic artifacts."""
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "Failed to write parquet file with stable pandas metadata. "
+            "Ensure pyarrow is installed."
+        ) from e
+
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    metadata = dict(table.schema.metadata or {})
+
+    pandas_meta: dict[str, Any] = {}
+    pandas_meta_raw = metadata.get(b"pandas")
+    if pandas_meta_raw is not None:
+        try:
+            pandas_meta = json.loads(pandas_meta_raw.decode("utf-8"))
+        except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+            pandas_meta = {}
+
+    # Preserve original metadata bytes when already pinned to avoid
+    # non-functional binary diffs caused only by JSON re-serialization.
+    if pandas_meta.get("pandas_version") == PARQUET_STABLE_PANDAS_VERSION and pandas_meta_raw:
+        metadata[b"pandas"] = pandas_meta_raw
+    else:
+        pandas_meta["pandas_version"] = PARQUET_STABLE_PANDAS_VERSION
+        metadata[b"pandas"] = json.dumps(
+            pandas_meta,
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+    table = table.replace_schema_metadata(metadata)
+    pq.write_table(table, parquet_file, compression=compression)
+
+
 if __name__ == "__main__":
     import argparse
     import sys
@@ -780,6 +841,24 @@ if __name__ == "__main__":
         help=(
             "Directory where per-op parquet rule files are written. "
             "Defaults to first entry from rule search dirs."
+        ),
+    )
+    parser.add_argument(
+        "--rules-debug-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory where per-op debug parquet mapping files are written. "
+            "Each row mirrors rules parquet row data and appends case_index mappings."
+        ),
+    )
+    parser.add_argument(
+        "--rules-debug-json-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory where per-op debug JSON mapping files are written. "
+            "If omitted and --rules-debug-dir is set, defaults to sibling rules_debug_json."
         ),
     )
     parser.add_argument(
@@ -816,6 +895,16 @@ if __name__ == "__main__":
     selected_domain_set = set(domains_to_process)
     parquet_dir = Path(args.rules_dir) if args.rules_dir else get_runtime_rules_search_dirs()[0]
     parquet_dir.mkdir(parents=True, exist_ok=True)
+
+    rules_debug_dir = Path(args.rules_debug_dir) if args.rules_debug_dir else None
+    if rules_debug_dir is not None:
+        rules_debug_dir.mkdir(parents=True, exist_ok=True)
+
+    rules_debug_json_dir = Path(args.rules_debug_json_dir) if args.rules_debug_json_dir else None
+    if rules_debug_json_dir is None and rules_debug_dir is not None:
+        rules_debug_json_dir = _derive_rules_debug_json_dir(rules_debug_dir)
+    if rules_debug_json_dir is not None:
+        rules_debug_json_dir.mkdir(parents=True, exist_ok=True)
 
     qdq_generator = None
     processed = 0
@@ -896,6 +985,9 @@ if __name__ == "__main__":
                 for c in rule_df.columns
                 if c not in output_cols and c not in infinite_properties and c != "case_index"
             ]
+            # Keep artifact schema stable across runs/machines regardless of
+            # intermediate dict/set insertion ordering.
+            condition_cols = sorted(condition_cols)
 
             dedup_df, conflict_df = _deduplicate_rule_rows(
                 rule_df,
@@ -942,12 +1034,73 @@ if __name__ == "__main__":
             with open(output_json, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
                 json.dump(json_payload, f, indent=2, ensure_ascii=False)
 
+            if rules_debug_dir is not None:
+                debug_parquet = rules_debug_dir / f"{json_file.stem}.parquet"
+
+                debug_df = dedup_df.loc[
+                    :,
+                    [
+                        *condition_cols,
+                        *output_cols,
+                        "case_indices",
+                    ],
+                ].copy()
+
+                debug_rows = _json_safe_records(debug_df)
+
+                debug_parquet_rows = [
+                    {
+                        **{col: row.get(col) for col in [*condition_cols, *output_cols]},
+                        "case_indices_json": json.dumps(
+                            row.get("case_indices", []),
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
+                    }
+                    for row in debug_rows
+                ]
+                debug_parquet_df = pd.DataFrame(debug_parquet_rows, dtype=object)
+                debug_parquet_df = _encode_condition_columns_for_parquet(
+                    debug_parquet_df,
+                    condition_cols,
+                )
+                _write_parquet_with_stable_pandas_version(
+                    debug_parquet_df,
+                    debug_parquet,
+                    compression="snappy",
+                )
+
+                if rules_debug_json_dir is not None:
+                    debug_json = rules_debug_json_dir / f"{json_file.stem}.json"
+                    debug_json_df = pd.DataFrame(debug_rows, dtype=object)
+                    debug_json_df = debug_json_df.loc[
+                        :,
+                        [*condition_cols, *output_cols, "case_indices"],
+                    ]
+                    debug_json_payload = {
+                        "format": "per_op_rules_debug_v1",
+                        "op_name": op_name,
+                        "ep_name": ep_name,
+                        "device": device,
+                        "domain": domain_str,
+                        "opset_version": opset_version,
+                        "is_qdq": is_qdq,
+                        "condition_columns": condition_cols,
+                        "rows": _json_safe_records(debug_json_df),
+                    }
+                    with open(debug_json, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
+                        json.dump(debug_json_payload, f, indent=2, ensure_ascii=False)
+
             try:
-                parquet_write_df.to_parquet(parquet_file, index=False, compression="snappy")
+                _write_parquet_with_stable_pandas_version(
+                    parquet_write_df,
+                    parquet_file,
+                    compression="snappy",
+                )
             except Exception as e:
                 raise RuntimeError(
-                    "Failed to write parquet file. Ensure a parquet engine "
-                    "(for example pyarrow) is installed."
+                    "Failed to write parquet file with stable pandas metadata. "
+                    "Ensure pyarrow is installed."
                 ) from e
 
             processed += 1

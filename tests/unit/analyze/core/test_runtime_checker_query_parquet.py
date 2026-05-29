@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from typing import TYPE_CHECKING
 
@@ -67,6 +68,22 @@ def _write_legacy_parquet_rules_with_row_index(rules_dir: Path) -> Path:
     return parquet_path
 
 
+def _write_rules_debug_parquet(rules_dir: Path, case_indices: list[str]) -> Path:
+    """Write rules_debug parquet rows aligned to rules parquet row positions."""
+    debug_dir = rules_dir.parent / "rules_debug" / rules_dir.name
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    debug_path = debug_dir / "Add_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet"
+    debug_df = pd.DataFrame(
+        [
+            {
+                "case_indices_json": json.dumps(case_indices, ensure_ascii=False),
+            }
+        ]
+    )
+    debug_df.to_parquet(debug_path, index=False)
+    return debug_path
+
+
 @pytest.fixture
 def patched_query_conditions(monkeypatch: pytest.MonkeyPatch):
     """Patch condition extraction to stable deterministic values for this test."""
@@ -123,6 +140,58 @@ class TestRuntimeCheckerQueryParquet:
         assert result_parquet.result.compile is True
         assert result_parquet.result.run is False
         assert str(result_parquet.result.debug_details.get("table_file", "")).endswith(".parquet")
+
+    def test_parquet_lookup_omits_debug_details_without_for_debug(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        patched_query_conditions,
+    ):
+        """debug_details should be omitted unless for_debug is explicitly enabled."""
+        del patched_query_conditions
+
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
+        _write_parquet_rules(tmp_path)
+
+        model = _build_add_model()
+        node = model.graph.node[0]
+
+        query_parquet = RuntimeCheckerQuery(model, "QNNExecutionProvider", "NPU")
+        query_parquet.node_checkers = []
+        result_parquet = query_parquet.run_for_node(node, for_debug=False, run_unknown_op=False)
+
+        assert result_parquet.result.no_data is False
+        assert result_parquet.result.compile is True
+        assert result_parquet.result.run is False
+        assert result_parquet.result.debug_details is None
+
+    def test_parquet_lookup_reads_rules_debug_case_indices(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        patched_query_conditions,
+    ):
+        """Matched parquet row should map to case_indices from rules_debug parquet."""
+        del patched_query_conditions
+
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
+        _write_parquet_rules(tmp_path)
+        _write_rules_debug_parquet(tmp_path, case_indices=["case_42", "case_43"])
+
+        model = _build_add_model()
+        node = model.graph.node[0]
+
+        query_parquet = RuntimeCheckerQuery(model, "QNNExecutionProvider", "NPU")
+        query_parquet.node_checkers = []
+        result_parquet = query_parquet.run_for_node(node, for_debug=True, run_unknown_op=False)
+
+        debug_details = result_parquet.result.debug_details
+        assert isinstance(debug_details, dict)
+        assert debug_details.get("matched_rule_row") == 0
+        assert debug_details.get("matched_case_indices") == ["case_42", "case_43"]
+        assert debug_details.get("matched_first_case_index") == "case_42"
+        assert debug_details.get("matched_case_count") == 2
+        assert "rules_debug" in str(debug_details.get("rules_debug_file", ""))
 
     def test_parquet_global_cache_reused_across_instances(
         self,

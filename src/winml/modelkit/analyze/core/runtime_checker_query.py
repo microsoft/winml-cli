@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -134,6 +135,7 @@ def _extract_condition_columns(table_df: pd.DataFrame) -> list[str]:
     """Extract rule-condition columns from a parquet table."""
     output_cols = {
         "row_index",
+        "rule_key",
         "compile_run_success",
         "compile_reason",
         "run_reason",
@@ -408,6 +410,45 @@ def _normalize_table_path(path_like: str | Path) -> str:
             return "\\".join(parts[idx:])
 
     return str(p)
+
+
+def _build_rules_debug_parquet_candidates(parquet_path: Path) -> list[Path]:
+    """Build the canonical rules_debug parquet path mapped from a rule parquet."""
+    parquet_name = parquet_path.name
+    parent_dir = parquet_path.parent
+    grandparent_dir = parent_dir.parent
+
+    if grandparent_dir.name.lower() in {"rules", "runtime_check_rules"}:
+        return [grandparent_dir.parent / "rules_debug" / parent_dir.name / parquet_name]
+
+    return [grandparent_dir / "rules_debug" / parent_dir.name / parquet_name]
+
+
+def _normalize_case_indices(value: Any) -> list[str] | None:
+    """Normalize case_indices parquet payload to list[str]."""
+    parsed: Any = None
+    if isinstance(value, str):
+        if not value:
+            return None
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return None
+    elif isinstance(value, (list, tuple)):
+        parsed = list(value)
+    else:
+        return None
+
+    if not isinstance(parsed, list):
+        return None
+
+    normalized: list[str] = []
+    for item in parsed:
+        if item in (None, ""):
+            continue
+        normalized.append(str(item))
+
+    return normalized
 
 
 class QDQTypeInfo:
@@ -1076,6 +1117,9 @@ class RuntimeCheckerQuery:
         ] = {}
         # since_version cache keyed by (op, domain, model_opset)
         self._since_version_cache: dict[tuple[str, str, int], int] = {}
+        # rules_debug cache keyed by resolved parquet path (casefold)
+        self._rules_debug_case_index_rows_cache: dict[str, list[list[str] | None] | None] = {}
+        self._rules_debug_file_cache: dict[str, str | None] = {}
 
     def _collect_qdq_types(self) -> None:
         """Collect QDQ types from the model.
@@ -1587,6 +1631,7 @@ class RuntimeCheckerQuery:
         pattern_match: PatternMatchResult,
         node_tags: list[NodeTag],
         fallback_reason: str,
+        for_debug: bool = False,
         include_adjacent_qdq: bool = False,
         save_node_types: set[str] | None = None,
         conditions: Any | None = None,
@@ -1603,6 +1648,7 @@ class RuntimeCheckerQuery:
             pattern_match: Pattern match result for the node.
             node_tags: Collected tags for the node.
             fallback_reason: The original reason rules were not found.
+            for_debug: Whether to include debug_details in result payload.
             save_node_types: Set of node types to save (e.g., {"partial", "unsupported"}).
             conditions: Conditions for the local check.
 
@@ -1714,16 +1760,20 @@ class RuntimeCheckerQuery:
             no_data=False,
             reason=reason_str,
             node_tags=node_tags,
-            debug_details={
-                "source": "local_ep_check",
-                "fallback_reason": fallback_reason,
-                "op_type": node.op_type,
-                "node_name": node.name,
-                "domain": str(op_domain),
-                "opset_version": opset_version,
-                "table_path": "",
-                "table_file": "",
-            },
+            debug_details=(
+                {
+                    "source": "local_ep_check",
+                    "fallback_reason": fallback_reason,
+                    "op_type": node.op_type,
+                    "node_name": node.name,
+                    "domain": str(op_domain),
+                    "opset_version": opset_version,
+                    "table_path": "",
+                    "table_file": "",
+                }
+                if for_debug
+                else None
+            ),
         )
 
         if conditions is not None:
@@ -1946,6 +1996,57 @@ class RuntimeCheckerQuery:
         self._parquet_condition_tree_cache[cache_key] = condition_tree
         return table_df, parquet_path, condition_tree
 
+    def _load_rules_debug_case_indices_by_row_position(
+        self,
+        parquet_path: Path,
+        row_position: int | None,
+    ) -> tuple[list[str] | None, str | None]:
+        """Load case_index list from rules_debug parquet mapping using row position."""
+        if row_position is None or row_position < 0:
+            return None, None
+
+        parquet_cache_key = str(parquet_path.resolve(strict=False)).casefold()
+
+        if parquet_cache_key not in self._rules_debug_case_index_rows_cache:
+            debug_parquet_path: Path | None = None
+            for candidate in _build_rules_debug_parquet_candidates(parquet_path):
+                if candidate.exists():
+                    debug_parquet_path = candidate
+                    break
+
+            self._rules_debug_file_cache[parquet_cache_key] = (
+                _normalize_table_path(debug_parquet_path) if debug_parquet_path is not None else None
+            )
+
+            if debug_parquet_path is None:
+                self._rules_debug_case_index_rows_cache[parquet_cache_key] = None
+            else:
+                try:
+                    debug_df = pd.read_parquet(debug_parquet_path)
+                except Exception as e:
+                    logger.debug(
+                        "Failed to load rules_debug parquet from %s: %s",
+                        debug_parquet_path,
+                        e,
+                    )
+                    self._rules_debug_case_index_rows_cache[parquet_cache_key] = None
+                else:
+                    debug_df = debug_df.replace({np.nan: None})
+                    case_rows: list[list[str] | None] = []
+                    for _, row in debug_df.iterrows():
+                        case_rows.append(_normalize_case_indices(row.get("case_indices_json")))
+
+                    self._rules_debug_case_index_rows_cache[parquet_cache_key] = case_rows
+
+        rules_debug_file = self._rules_debug_file_cache.get(parquet_cache_key)
+        cached_rows = self._rules_debug_case_index_rows_cache.get(parquet_cache_key)
+        if not isinstance(cached_rows, list):
+            return None, rules_debug_file
+        if row_position >= len(cached_rows):
+            return None, rules_debug_file
+
+        return cached_rows[row_position], rules_debug_file
+
     def _run_for_node_with_parquet_rules(
         self,
         node: onnx.NodeProto,
@@ -2017,6 +2118,7 @@ class RuntimeCheckerQuery:
                     pattern_match,
                     node_tags,
                     "rules_not_found",
+                    for_debug=for_debug,
                     include_adjacent_qdq=is_qdq,
                     conditions=None,
                     save_node_types=save_node_types,
@@ -2154,6 +2256,7 @@ class RuntimeCheckerQuery:
                     pattern_match,
                     node_tags,
                     "properties_not_found",
+                    for_debug=for_debug,
                     include_adjacent_qdq=is_qdq,
                     conditions=cache_key,
                     save_node_types=save_node_types,
@@ -2202,23 +2305,53 @@ class RuntimeCheckerQuery:
         compile_result = bool(compile_run[0])
         run_result = bool(compile_run[1])
 
+        matched_row_position: int | None = row_position
+        if matched_row_position is None:
+            try:
+                matched_row_position = int(row.name)
+            except Exception:
+                matched_row_position = None
+
+        matched_case_indices_raw, rules_debug_file = (
+            self._load_rules_debug_case_indices_by_row_position(parquet_path, matched_row_position)
+        )
+        matched_case_indices: list[str] | None = None
+        if isinstance(matched_case_indices_raw, list):
+            matched_case_indices = matched_case_indices_raw
+
+        reason_text = ""
+        if not compile_result or not run_result:
+            if matched_row_position is not None:
+                reason_text = f"matched_rule={parquet_file}#row={matched_row_position}"
+            else:
+                reason_text = f"matched_rule={parquet_file}"
+
+        debug_payload: dict[str, Any] | None = None
+        if for_debug:
+            debug_payload = {
+                "table_path": parquet_path_norm,
+                "table_file": parquet_file,
+                "op_since_version": op_since_version,
+                "lookup_columns": op_columns,
+                "query_signature": query_signature,
+                "matched_rule_row": matched_row_position,
+                "rules_debug_file": rules_debug_file,
+                "matched_case_indices": matched_case_indices,
+                "matched_first_case_index": (
+                    matched_case_indices[0] if matched_case_indices else None
+                ),
+                "matched_case_count": (
+                    len(matched_case_indices) if matched_case_indices is not None else None
+                ),
+            }
+
         result = RuntimeTestResult(
             compile=compile_result,
             run=run_result,
-            reason="",
+            reason=reason_text,
             no_data=False,
             node_tags=node_tags,
-            debug_details=(
-                {
-                    "table_path": parquet_path_norm,
-                    "table_file": parquet_file,
-                    "op_since_version": op_since_version,
-                    "lookup_columns": op_columns,
-                    "query_signature": query_signature,
-                }
-                if for_debug
-                else None
-            ),
+            debug_details=debug_payload,
         )
 
         maybe_save_start = time.perf_counter()
@@ -2457,13 +2590,17 @@ class RuntimeCheckerQuery:
                         no_data=True,
                         reason="optional_input_properties_not_found",
                         node_tags=node_tags,
-                        debug_details={
-                            "op_type": node.op_type,
-                            "node_name": node.name,
-                            "error_message": str(e),
-                            "table_path": "",
-                            "table_file": "",
-                        },
+                        debug_details=(
+                            {
+                                "op_type": node.op_type,
+                                "node_name": node.name,
+                                "error_message": str(e),
+                                "table_path": "",
+                                "table_file": "",
+                            }
+                            if for_debug
+                            else None
+                        ),
                     ),
                     alternatives=self.alternatives,
                     pattern_match=pattern_match,
