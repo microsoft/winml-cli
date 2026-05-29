@@ -1096,7 +1096,7 @@ def save_environment_info(path: Path) -> None:
         if result.returncode == 0:
             info["winml_sys"] = json.loads(result.stdout)
     except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
-        pass
+        pass  # winml sys unavailable or returned invalid JSON; skip optional field
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(info, indent=2), encoding="utf-8")
