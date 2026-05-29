@@ -56,17 +56,22 @@ def build_eval_result(
     perf_section: dict | None = None
     if perf_proc is not None:
         passed = perf_proc["exit_code"] == 0
-        stdout = perf_proc["stdout"]
-        stderr = perf_proc["stderr"]
+        raw_stdout = perf_proc["stdout"]
+        raw_stderr = perf_proc["stderr"]
         if sanitize_fn is not None:
-            stdout = sanitize_fn(stdout)
-            stderr = sanitize_fn(stderr)
+            stdout = sanitize_fn(raw_stdout)
+            stderr = sanitize_fn(raw_stderr)
+        else:
+            stdout = raw_stdout
+            stderr = raw_stderr
         perf_section = {
             "passed": passed,
             "elapsed": perf_proc["elapsed"],
             "exit_code": perf_proc["exit_code"],
             "stdout_output": stdout,
             "stderr_output": stderr,
+            "raw_stdout": raw_stdout,
+            "raw_stderr": raw_stderr,
             "timeout": perf_proc["timeout"],
             "command": perf_proc["command"],
             "error": perf_proc.get("error_summary", ""),
