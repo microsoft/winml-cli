@@ -954,25 +954,18 @@ class MsixPackageSource(EpSource):
                 f"MsixPackageSource.relative_dll must be POSIX-style "
                 f"(forward-slash separators); got {self.relative_dll!r}"
             )
-        manager = _get_pkg_manager()
-        if manager is None:
-            return
 
-        try:
-            packages = list(manager.find_packages_by_user_security_id(""))
-        except Exception as e:
-            logger.warning(
-                "MsixPackageSource: find_packages_by_user_security_id raised %s",
-                e,
-            )
+        packages = _enumerate_installed_msix_packages()
+        if not packages:
             return
 
         matching = [
-            p for p in packages
-            if str(p.id.family_name).startswith(self.family_name_prefix)
+            (family, version, install)
+            for family, version, install in packages
+            if family.startswith(self.family_name_prefix)
         ]
         if self.version is not None:
-            matching = [p for p in matching if _pkg_version_str(p.id.version) == self.version]
+            matching = [t for t in matching if t[1] == self.version]
 
         if not matching:
             logger.debug(
@@ -982,13 +975,14 @@ class MsixPackageSource(EpSource):
             )
             return
 
-        selected = max(matching, key=lambda p: _pkg_version_tuple(p.id.version))
-        installed_path = Path(str(selected.installed_path))
+        selected = max(matching, key=lambda t: _parse_dotted_version(t[1]))
+        family_name, version_str, installed_path = selected
         dll_path = installed_path / self.relative_dll
         if not dll_path.is_file():
             logger.warning(
-                "MsixPackageSource: package %s installed at %s but DLL missing at %s",
-                selected.id.full_name,
+                "MsixPackageSource: package %s/%s installed at %s but DLL missing at %s",
+                family_name,
+                version_str,
                 installed_path,
                 dll_path,
             )
@@ -1002,6 +996,109 @@ class MsixPackageSource(EpSource):
         return self.eps
 
 
+def _parse_dotted_version(v: str) -> tuple[int, int, int, int]:
+    """Parse ``M.m.b.r`` (or any leading-numeric subset) into a 4-int tuple.
+
+    Used as the sort key for the PowerShell-fallback path where
+    versions are already string-valued. Missing trailing components
+    default to 0 so ``"1.8"`` and ``"1.8.0.0"`` compare equal.
+    """
+    parts = (v.split(".") + ["0", "0", "0", "0"])[:4]
+    try:
+        return (int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3]))
+    except ValueError:
+        return (0, 0, 0, 0)
+
+
+def _enumerate_installed_msix_packages() -> list[tuple[str, str, Path]]:
+    """Return ``[(family_name, version, install_path)]`` for installed MSIX packages.
+
+    Tries the WinRT ``PackageManager`` first (preferred — single Python
+    API call). When the ``winrt-Windows.Management.Deployment`` binding
+    is not installed (e.g. the user did not opt into the
+    ``[winml-catalog]`` extra), falls back to shelling out to
+    PowerShell's ``Get-AppxPackage`` cmdlet, which ships with every
+    supported Windows version. Returns an empty list if neither path
+    yields data.
+    """
+    manager = _get_pkg_manager()
+    if manager is not None:
+        try:
+            packages = list(manager.find_packages_by_user_security_id(""))
+            return [
+                (
+                    str(p.id.family_name),
+                    _pkg_version_str(p.id.version),
+                    Path(str(p.installed_path)),
+                )
+                for p in packages
+            ]
+        except Exception as e:
+            logger.warning(
+                "WinRT package enumeration failed (%s); falling back to PowerShell",
+                e,
+            )
+
+    return _enumerate_msix_via_powershell()
+
+
+def _enumerate_msix_via_powershell() -> list[tuple[str, str, Path]]:
+    """No-deps MSIX enumeration via ``powershell.exe Get-AppxPackage``.
+
+    Used when the WinRT Python binding is unavailable. PowerShell is
+    present on every supported Windows install; the JSON output is
+    parsed into the same triple shape as the WinRT path.
+    """
+    import json
+    import subprocess  # noqa: S404 — controlled invocation, fixed argv
+
+    try:
+        result = subprocess.run(  # noqa: S603
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-AppxPackage "
+                "| Select-Object PackageFamilyName, Version, InstallLocation "
+                "| ConvertTo-Json -Depth 2",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        logger.debug("PowerShell fallback unavailable: powershell.exe not on PATH")
+        return []
+    except subprocess.SubprocessError as e:
+        logger.debug("PowerShell fallback failed: %s", e)
+        return []
+
+    if not result.stdout.strip():
+        return []
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        logger.warning("PowerShell Get-AppxPackage output not parseable as JSON: %s", e)
+        return []
+
+    # ConvertTo-Json returns a single object when only one package matches;
+    # normalise to a list so the downstream loop has one shape.
+    if isinstance(data, dict):
+        data = [data]
+
+    out: list[tuple[str, str, Path]] = []
+    for entry in data:
+        family = entry.get("PackageFamilyName")
+        version = entry.get("Version")
+        install = entry.get("InstallLocation")
+        if family and version and install:
+            out.append((family, version, Path(install)))
+    return out
+
+
 def list_msix_eps(
     family_name_prefixes: tuple[str, ...] = (
         "MicrosoftCorporationII.WinML.",
@@ -1013,6 +1110,10 @@ def list_msix_eps(
     Returns one fully-pinned :class:`MsixPackageSource` per (family,
     version) found. Each return value is ready to drop into the default
     EP source list and resolvable via ``.resolve()``.
+
+    Enumeration uses :func:`_enumerate_installed_msix_packages` — WinRT
+    preferred, ``powershell.exe Get-AppxPackage`` fallback when the
+    ``winrt-*`` Python bindings are not installed.
 
     EP names are auto-detected from the DLL filename inside each package,
     using :meth:`EpCatalog.ep_for_dll` on :data:`EP_CATALOG`. Packages with
@@ -1040,36 +1141,21 @@ def list_msix_eps(
         version pin together: a ``startswith()`` match on the full
         family name only matches that one family, and the exact
         version filter narrows further to the specific build. Empty
-        list if the binding is unavailable or no matching packages
-        are installed.
+        list if no matching packages are installed.
     """
-    manager = _get_pkg_manager()
-    if manager is None:
-        return []
-
-    try:
-        packages = list(manager.find_packages_by_user_security_id(""))
-    except Exception as e:
-        logger.warning(
-            "list_msix_eps: find_packages_by_user_security_id raised %s", e
-        )
+    enumerated = _enumerate_installed_msix_packages()
+    if not enumerated:
         return []
 
     matching = [
-        p
-        for p in packages
-        if any(
-            str(p.id.family_name).startswith(prefix)
-            for prefix in family_name_prefixes
-        )
+        (family, version, install)
+        for family, version, install in enumerated
+        if any(family.startswith(prefix) for prefix in family_name_prefixes)
     ]
-    matching.sort(
-        key=lambda p: (str(p.id.family_name), _pkg_version_tuple(p.id.version)),
-    )
+    matching.sort(key=lambda t: (t[0], _parse_dotted_version(t[1])))
 
     results: list[MsixPackageSource] = []
-    for p in matching:
-        installed_path = Path(str(p.installed_path))
+    for family_name, version_str, installed_path in matching:
         try:
             ep_dir = installed_path / "ExecutionProvider"
             candidates = list(ep_dir.glob("onnxruntime_providers_*.dll")) if ep_dir.is_dir() else []
@@ -1096,8 +1182,9 @@ def list_msix_eps(
 
         if ep_name is None or chosen_dll is None:
             logger.debug(
-                "list_msix_eps: package %s has no recognizable EP DLL; skipping",
-                p.id.full_name,
+                "list_msix_eps: package %s/%s has no recognizable EP DLL; skipping",
+                family_name,
+                version_str,
             )
             continue
 
@@ -1107,10 +1194,10 @@ def list_msix_eps(
         # Combined with self.version pin, this is exact-match round-trip.
         results.append(
             MsixPackageSource(
-                family_name_prefix=str(p.id.family_name),
+                family_name_prefix=family_name,
                 relative_dll=rel,
                 eps=(ep_name,),
-                version=_pkg_version_str(p.id.version),
+                version=version_str,
             )
         )
 
