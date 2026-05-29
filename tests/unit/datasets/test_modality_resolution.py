@@ -16,9 +16,12 @@ and the wiring through DatasetCalibrationReader.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-import pytest
+
+if TYPE_CHECKING:
+    import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -71,11 +74,11 @@ class TestCanonicalTaskToKnownTask:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Tasks not in the ambiguity dict must not trigger any AutoConfig load."""
-        from winml.modelkit.loader import canonical_task_to_known_task
-
         # If AutoConfig.from_pretrained is called, the test fails -- short-circuit
         # must happen before any HF/Optimum work.
         import transformers
+
+        from winml.modelkit.loader import canonical_task_to_known_task
 
         def explode(*args, **kwargs):  # pragma: no cover - exercised on regression
             raise AssertionError("AutoConfig.from_pretrained should not be called")
@@ -140,9 +143,9 @@ class TestCanonicalTaskToKnownTask:
 
     def test_autoconfig_failure_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AutoConfig.from_pretrained failure -> passthrough, no raise."""
-        from winml.modelkit.loader import canonical_task_to_known_task
-
         import transformers
+
+        from winml.modelkit.loader import canonical_task_to_known_task
 
         def boom(*args, **kwargs):
             raise OSError("network down")
@@ -158,11 +161,10 @@ class TestCanonicalTaskToKnownTask:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """OnnxConfig lookup failure -> passthrough, no raise."""
-        from winml.modelkit.loader import canonical_task_to_known_task
-
         import transformers
 
         import winml.modelkit.export.io as export_io
+        from winml.modelkit.loader import canonical_task_to_known_task
 
         def fake_from_pretrained(*args, **kwargs):
             cfg = MagicMock()

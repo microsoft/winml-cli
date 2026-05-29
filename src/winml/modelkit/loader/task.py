@@ -473,6 +473,7 @@ def canonical_task_to_known_task(task: str, model_id: str | None = None) -> str:
 
     try:
         from transformers import AutoConfig
+
         from ..export.io import _get_onnx_config
 
         hf_config = AutoConfig.from_pretrained(model_id)
