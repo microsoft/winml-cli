@@ -15,7 +15,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.loader import WinMLLoaderConfig, resolve_loader_config
+from winml.modelkit.loader import (
+    WinMLLoaderConfig,
+    resolve_loader_config,
+)
 
 
 # =============================================================================
