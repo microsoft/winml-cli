@@ -15,8 +15,11 @@ from typing import TYPE_CHECKING, NamedTuple
 from ..loader.task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
+    WRAPPED_LIBRARY_MODEL_TYPES,
+    _detect_task_and_class_from_config,
     _detect_task_from_config,
     _get_custom_model_class,
+    resolve_optimum_library,
 )
 from ..models import (
     HF_MODEL_CLASS_MAPPING,
@@ -120,6 +123,16 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
     for mt, task in HF_MODEL_CLASS_MAPPING:
         if mt == model_type_normalized:
             return task, "HF_MODEL_CLASS_MAPPING"
+
+    # Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
+    # `architectures`; reuse the loader's resolution to derive the real task
+    # instead of falling through to the HF_TASK_DEFAULTS mislabel below.
+    if model_type in WRAPPED_LIBRARY_MODEL_TYPES and not getattr(config, "architectures", None):
+        try:
+            task, _ = _detect_task_and_class_from_config(config)
+            return task, "wrapped-library"
+        except Exception:
+            logger.debug("wrapped-library task detection failed for %s", model_type, exc_info=True)
 
     # Use TasksManager detection
     try:
@@ -343,7 +356,7 @@ def resolve_exporter(
             exporter="onnx",
             model_type=model_type,
             task=task,
-            library_name="transformers",
+            library_name=resolve_optimum_library(model_type),
         )
         if onnx_config_cls:
             # Handle functools.partial returned by TasksManager
