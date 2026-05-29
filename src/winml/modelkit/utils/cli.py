@@ -74,7 +74,7 @@ def model_path_option(required=True):
     )
 
 
-def model_option(required=True):
+def model_option(required=True, optional_message=None):
     """Add --model option that accepts any model reference.
 
     Accepts a HuggingFace model ID, build output directory, or .onnx file path.
@@ -86,12 +86,15 @@ def model_option(required=True):
     Returns:
         Decorator function
     """
+    help = "Model: HF model ID, build output directory, or .onnx file path"
+    if optional_message:
+        help = f"{help}. {optional_message}"
     return click.option(
         "--model",
         "-m",
         required=required,
         default=None,
-        help="Model: HF model ID, build output directory, or .onnx file path",
+        help=help,
     )
 
 
@@ -169,6 +172,7 @@ def device_option(required=True, optional_message=None, default="NPU", include_a
         help_text = f"{help_text}. {optional_message}"
 
     return click.option(
+        "-d",
         "--device",
         required=required,
         default=default if not required else None,
@@ -209,17 +213,21 @@ def verbosity_options(f):
     return f  # noqa: RET504
 
 
-def build_config_option(func):
+def build_config_option(help: str | None = None):
     """Add -c/--config option for WinMLBuildConfig JSON file."""
+    if help is None:
+        help = (
+            "WinMLBuildConfig JSON file (from winml config). "
+            "Provides defaults; explicit CLI options take precedence."
+        )
     return click.option(
         "-c",
         "--config",
         "config_file",
         type=click.Path(exists=True, path_type=Path),
         default=None,
-        help="WinMLBuildConfig JSON file (from winml config). "
-        "Provides defaults; explicit CLI options take precedence.",
-    )(func)
+        help=help,
+    )
 
 
 def trust_remote_code_option(optional_message: str | None = None):

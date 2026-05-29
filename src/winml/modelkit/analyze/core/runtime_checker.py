@@ -484,7 +484,7 @@ class RuntimeChecker:
         """Extract stable node key from an op-level PatternRuntime."""
         pm = op_runtime.pattern_match
         if pm and hasattr(pm, "skeleton_match_result"):
-            node_keys = pm.skeleton_match_result.matched_node_keys
+            node_keys: list[str] = pm.skeleton_match_result.matched_node_keys
             if node_keys:
                 return node_keys[0]
         return ""

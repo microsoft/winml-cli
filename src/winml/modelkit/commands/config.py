@@ -58,14 +58,7 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
 
 
 @click.command("config")
-@click.option(
-    "-m",
-    "--model",
-    "hf_model",
-    default=None,
-    help="HuggingFace model ID (e.g., microsoft/resnet-50) or path to .onnx file. "
-    "Optional when --model-type is provided.",
-)
+@cli_utils.model_option(required=False, optional_message="Optional when --model-type is provided.")
 @click.option(
     "-t",
     "--task",
@@ -91,12 +84,7 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     default=None,
     help="Generate configs for submodules matching this class name (e.g., ResNetConvLayer)",
 )
-@click.option(
-    "-c",
-    "--config",
-    "config_file",
-    type=click.Path(exists=True),
-    default=None,
+@cli_utils.build_config_option(
     help="JSON config file with overrides (WinMLBuildConfig format)",
 )
 @click.option(
@@ -109,13 +97,11 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     "vision: height, width, num_channels; "
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
 )
-@click.option(
-    "-d",
-    "--device",
-    "device",
-    type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
+@cli_utils.device_option(
+    required=False,
+    optional_message="Affects quant/compile config.",
     default="auto",
-    help="Target device (affects quant/compile config). Default: auto (no changes to config).",
+    include_auto=True,
 )
 @cli_utils.ep_option(
     required=False,
@@ -159,7 +145,7 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
 )
 @cli_utils.trust_remote_code_option()
 def config(
-    hf_model: str | None,
+    model: str | None,
     task: str | None,
     model_class: str | None,
     model_type: str | None,
@@ -184,6 +170,9 @@ def config(
     export=None for the ONNX build path.
 
     Requires at least one of -m/--model, --model-type, or --model-class.
+
+    If device is auto or EP is None, they are inferred from the system configuration.
+    If both are specified, the combination is only validated but not against the system.
 
     \b
     Examples:
@@ -220,6 +209,7 @@ def config(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
+    hf_model = model  # rename for clarity in this function
     # Validate: at least one of -m, --model-type, or --model-class is required
     if hf_model is None and model_type is None and model_class is None:
         # Show header even for errors
@@ -437,18 +427,12 @@ def config(
 
             console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
 
-            # Fix #4: Device from resolve_device (existing API)
-            from ..sysinfo import resolve_device as _rd
+            # Use the same resolution logic as the config generation to determine what to display
+            from ..sysinfo import resolve_check_device_ep
 
-            _resolved_dev, _ = _rd(device, ep=ep)
+            _resolved_dev, _, _resolved_eps = resolve_check_device_ep(device=device, ep=ep)
             console.print(f"      Device:     [cyan]{_resolved_dev.upper()}[/cyan]")
-
-            # EP — only shown when user explicitly passed --ep
-            if ep:
-                from ..utils.constants import normalize_ep_name
-
-                _ep_full = normalize_ep_name(ep) or ep
-                console.print(f"      EP:         [cyan]{_ep_full}[/cyan]")
+            console.print(f"      EP:         [cyan]{_resolved_eps[0]}[/cyan]")
 
             # Quant types — display exactly what config contains
             if _quant:

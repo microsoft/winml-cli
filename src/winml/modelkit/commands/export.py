@@ -128,7 +128,7 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     default=None,
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
-@cli_utils.build_config_option
+@cli_utils.build_config_option()
 @click.pass_context
 def export(
     ctx: click.Context,
@@ -267,6 +267,7 @@ def export(
 
     # Always auto-resolve input/output tensors via loader + Optimum
     from ..export import ONNXConfigNotFoundError
+
     try:
         from ..export import resolve_export_config as resolve_cfg
 
