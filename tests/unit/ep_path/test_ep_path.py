@@ -356,8 +356,8 @@ class TestWinmlEpPathOverride:
         sources = _parse_winmlcli_ep_path()
         # Per the C1 fix, the parser emits ONE FilesystemSource per
         # (root, ep, dll_filename) combination — so a single entry with
-        # five EPs (some with both .dll and .so filenames) yields more
-        # than five sources. Every known EP must be covered at least once.
+        # five EPs (each with exactly one .dll filename) yields five sources.
+        # Every known EP must be covered at least once.
         assert all(isinstance(s, FilesystemSource) for s in sources)
         assert all(s.root == tmp_path for s in sources)
         covered_eps = {
@@ -368,13 +368,13 @@ class TestWinmlEpPathOverride:
         }
         assert covered_eps == set(EP_DLL_NAMES.keys())
 
-    def test_emits_source_per_dll_filename_for_cross_platform(
+    def test_emits_source_per_dll_filename_windows_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # C1: EP_DLL_NAMES["OpenVINOExecutionProvider"] has both the
-        # Windows .dll filename and the Linux .so filename. The parser
-        # must emit a FilesystemSource for EACH so a Linux user with
-        # WINMLCLI_EP_PATH set finds .so files too.
+        # This is a Windows-only project. EP_DLL_NAMES entries now contain
+        # only .dll filenames (Linux .so entries were dropped in Task 6).
+        # The parser emits one FilesystemSource per (root, ep, dll_filename)
+        # tuple — all EPs should resolve correctly with their single DLL name.
         monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
         sources = _parse_winmlcli_ep_path()
         ov_dlls = [
@@ -384,7 +384,8 @@ class TestWinmlEpPathOverride:
             and "OpenVINOExecutionProvider" in s.dll_patterns
         ]
         assert "onnxruntime_providers_openvino_plugin.dll" in ov_dlls
-        assert "libonnxruntime_providers_openvino_plugin.so" in ov_dlls
+        # .so filenames were dropped — Windows-only project
+        assert not any(dll.endswith(".so") for dll in ov_dlls)
 
     def test_multi_entry_separator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

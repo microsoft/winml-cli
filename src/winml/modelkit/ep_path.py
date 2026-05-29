@@ -68,7 +68,6 @@ logger = logging.getLogger(__name__)
 EP_DLL_NAMES: dict[str, list[str]] = {
     "OpenVINOExecutionProvider": [
         "onnxruntime_providers_openvino_plugin.dll",
-        "libonnxruntime_providers_openvino_plugin.so",
     ],
     "QNNExecutionProvider": [
         "onnxruntime_providers_qnn.dll",
@@ -84,7 +83,6 @@ EP_DLL_NAMES: dict[str, list[str]] = {
     ],
     "NvTensorRtRtxExecutionProvider": [
         "onnxruntime_providers_nv_tensorrt_rtx.dll",
-        "libonnxruntime_providers_nv_tensorrt_rtx.so",
     ],
 }
 
