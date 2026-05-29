@@ -278,15 +278,11 @@ class TestMsixPackageSourceResolve:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        # WinRT raises → enumeration falls back to PowerShell.
-        # Stub the PowerShell fallback to also return [], so the resolve
-        # path observes "no enumeration source produced anything".
         monkeypatch.setattr(
             _ep,
             "_get_pkg_manager",
             lambda: _FakeManager(RuntimeError("WinRT failure")),
         )
-        monkeypatch.setattr(_ep, "_enumerate_msix_via_powershell", lambda: [])
         src = MsixPackageSource(
             family_name_prefix="...QNN.EP.1.8_",
             relative_dll="ignored",
@@ -295,7 +291,7 @@ class TestMsixPackageSourceResolve:
         import logging
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(src.resolve()) == []
-        assert any("WinRT package enumeration failed" in r.message for r in caplog.records)
+        assert any("find_packages_by_user_security_id" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -452,10 +448,7 @@ class TestListMsixEps:
         reset_pkg_manager_cache: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # Both enumeration paths empty: WinRT binding absent AND PowerShell
-        # fallback returns no packages — list_msix_eps reports [].
         monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
-        monkeypatch.setattr(_ep, "_enumerate_msix_via_powershell", lambda: [])
         assert list_msix_eps() == []
 
     def test_find_packages_raises_returns_empty(
@@ -464,42 +457,12 @@ class TestListMsixEps:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        # WinRT raises and PowerShell fallback yields nothing: the WARN
-        # about WinRT failure is still emitted, and the result is [].
         monkeypatch.setattr(
             _ep,
             "_get_pkg_manager",
             lambda: _FakeManager(RuntimeError("WinRT failure")),
         )
-        monkeypatch.setattr(_ep, "_enumerate_msix_via_powershell", lambda: [])
         import logging
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list_msix_eps() == []
-        assert any("WinRT package enumeration failed" in r.message for r in caplog.records)
-
-    def test_powershell_fallback_surfaces_packages_without_winrt(
-        self,
-        reset_pkg_manager_cache: None,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        """When WinRT is absent but PowerShell finds packages, list_msix_eps
-        returns them — i.e. the user does not need the [winml-catalog] extra
-        for basic MSIX EP enumeration."""
-        ov_root = tmp_path / "WindowsWorkload.EP.Intel.OpenVINO.1.8_1.8.61.0_x64__h"
-        (ov_root / "ExecutionProvider").mkdir(parents=True)
-        (ov_root / "ExecutionProvider" / "onnxruntime_providers_openvino_plugin.dll").write_bytes(b"")
-
-        monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
-        monkeypatch.setattr(
-            _ep,
-            "_enumerate_msix_via_powershell",
-            lambda: [
-                ("WindowsWorkload.EP.Intel.OpenVINO.1.8_h", "1.8.61.0", ov_root),
-            ],
-        )
-        results = list_msix_eps()
-        assert len(results) == 1
-        assert results[0].eps == ("OpenVINOExecutionProvider",)
-        assert results[0].version == "1.8.61.0"
-        assert results[0].family_name_prefix == "WindowsWorkload.EP.Intel.OpenVINO.1.8_h"
+        assert any("find_packages_by_user_security_id" in r.message for r in caplog.records)
