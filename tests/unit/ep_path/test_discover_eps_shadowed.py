@@ -31,8 +31,8 @@ from winml.modelkit.ep_path import (
 
 @pytest.fixture(autouse=True)
 def _isolate_default_ep_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace EP_PATH and skip live catalog/MSIX scans for every test here."""
-    monkeypatch.setattr(_ep, "EP_PATH", [])
+    """Replace _default_ep_sources and skip live catalog/MSIX scans for every test here."""
+    monkeypatch.setattr(_ep, "_default_ep_sources", list)
     monkeypatch.setattr(_ep, "_get_catalog", lambda: None)
     monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
     monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
@@ -127,7 +127,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
         default = _filesystem_source_for(
             tmp_path / "default", "QNNExecutionProvider", "qnn.dll"
         )
-        monkeypatch.setattr(_ep, "EP_PATH", [default])
+        monkeypatch.setattr(_ep, "_default_ep_sources", lambda: [default])
 
         result = discover_all_eps(extra_sources=[extra])
         entries = result["QNNExecutionProvider"]
@@ -137,9 +137,9 @@ class TestDiscoverAllEpsFormerReturnShadowed:
 
     # -----------------------------------------------------------------------
     # extra_sources_after — the load-bearing kwarg for `winml sys --list-ep`.
-    # MUST appear AFTER EP_PATH precedence-wise so injected MSIX entries
-    # don't artificially override the user's normal precedence. Coverage
-    # added per review C-4.
+    # MUST appear AFTER the default EP source list precedence-wise so
+    # injected MSIX entries don't artificially override the user's normal
+    # precedence. Coverage added per review C-4.
     # -----------------------------------------------------------------------
 
     def test_extra_sources_after_appears_after_ep_path(
@@ -155,12 +155,12 @@ class TestDiscoverAllEpsFormerReturnShadowed:
         after = _filesystem_source_for(
             tmp_path / "after", "QNNExecutionProvider", "qnn.dll"
         )
-        monkeypatch.setattr(_ep, "EP_PATH", [default])
+        monkeypatch.setattr(_ep, "_default_ep_sources", lambda: [default])
 
         result = discover_all_eps(extra_sources_after=[after])
         entries = result["QNNExecutionProvider"]
         assert len(entries) == 2
-        # EP_PATH wins primary; extra_sources_after lands shadowed.
+        # Default source list wins primary; extra_sources_after lands shadowed.
         assert "default" in str(entries[0].dll_path)
         assert entries[0].status == "primary"
         assert "after" in str(entries[1].dll_path)
@@ -173,7 +173,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
     ) -> None:
         # When BOTH extra_sources (prepended) AND extra_sources_after
         # (appended) provide the same EP, precedence order is:
-        #   extra_sources -> EP_PATH -> extra_sources_after.
+        #   extra_sources -> default EP sources -> extra_sources_after.
         _touch(tmp_path / "before" / "qnn.dll")
         _touch(tmp_path / "default" / "qnn.dll")
         _touch(tmp_path / "after" / "qnn.dll")
@@ -186,7 +186,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
         after = _filesystem_source_for(
             tmp_path / "after", "QNNExecutionProvider", "qnn.dll"
         )
-        monkeypatch.setattr(_ep, "EP_PATH", [default])
+        monkeypatch.setattr(_ep, "_default_ep_sources", lambda: [default])
 
         result = discover_all_eps(
             extra_sources=[before],
@@ -204,8 +204,9 @@ class TestDiscoverAllEpsFormerReturnShadowed:
         self,
         tmp_path: Path,
     ) -> None:
-        # Autouse fixture sets EP_PATH=[]; only extra_sources_after provides
-        # an EP. That EP becomes primary by default (no other source competes).
+        # Autouse fixture sets _default_ep_sources=[]; only extra_sources_after
+        # provides an EP. That EP becomes primary by default (no other source
+        # competes).
         _touch(tmp_path / "qnn.dll")
         only = _filesystem_source_for(tmp_path, "QNNExecutionProvider", "qnn.dll")
         result = discover_all_eps(extra_sources_after=[only])
@@ -315,7 +316,7 @@ class TestDiscoverAllEps:
         _touch(tmp_path / "after" / "qnn.dll")
         default = _filesystem_source_for(tmp_path / "default", "QNNExecutionProvider", "qnn.dll")
         after = _filesystem_source_for(tmp_path / "after", "QNNExecutionProvider", "qnn.dll")
-        monkeypatch.setattr(_ep, "EP_PATH", [default])
+        monkeypatch.setattr(_ep, "_default_ep_sources", lambda: [default])
 
         result = discover_all_eps(extra_sources_after=[after])
         entries = result["QNNExecutionProvider"]

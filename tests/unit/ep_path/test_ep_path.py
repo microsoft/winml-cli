@@ -23,12 +23,12 @@ import pytest
 
 from winml.modelkit.ep_path import (
     EP_DLL_NAMES,
-    EP_PATH,
     EpSource,
     FilesystemSource,
     NuGetSource,
     PyPiSource,
     WinMlCatalogSource,
+    _default_ep_sources,
     _get_detected_vendors,
     _parse_winmlcli_ep_path,
     _qnn_arch_resolver,
@@ -40,7 +40,7 @@ from winml.modelkit.ep_path import (
 # File-scoped autouse: prevent any test in this file from loading the live
 # wasdk binding via ``_get_catalog``. None of the tests here need it; without
 # this gate, tests that call ``discover_eps()`` (which walks the default
-# EP_PATH including WinMlCatalogSource entries) would lazy-load the binding
+# EP source list including WinMlCatalogSource entries) would lazy-load the binding
 # on machines with the [winml-catalog] extra installed and the OS-level
 # Windows App Runtime present, polluting the module-level catalog singleton
 # state for downstream fake-binding tests in test_winml_catalog_source.py.
@@ -54,7 +54,7 @@ from winml.modelkit.ep_path import (
 
 @pytest.fixture(autouse=True)
 def _skip_live_catalog_in_ep_path_tests(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Force ``_get_catalog`` to return None so default EP_PATH stays inert."""
+    """Force ``_get_catalog`` to return None so the default EP source list stays inert."""
     from winml.modelkit import ep_path as _ep
 
     monkeypatch.setattr(_ep, "_get_catalog", lambda: None)
@@ -84,8 +84,9 @@ class TestPublicAPI:
         assert "NvTensorRTRTXExecutionProvider" not in EP_DLL_NAMES
 
     def test_ep_path_is_a_list(self) -> None:
-        assert isinstance(EP_PATH, list)
-        for entry in EP_PATH:
+        sources = _default_ep_sources()
+        assert isinstance(sources, list)
+        for entry in sources:
             assert isinstance(
                 entry,
                 (PyPiSource, NuGetSource, FilesystemSource, WinMlCatalogSource),

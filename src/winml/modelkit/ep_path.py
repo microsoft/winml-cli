@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Unified execution-provider discovery via ``EP_PATH``.
+"""Unified execution-provider discovery.
 
 This module replaces the legacy ``EP_PLUGIN_REGISTRY`` dict (which only
 modeled PyPI-installed plugin EPs) with an ordered list of typed
@@ -15,7 +15,6 @@ the per-origin x per-EP map and the migration plan.
 
 Public API:
 
-* :data:`EP_PATH`: ordered ``list[EpSource]`` consulted by the registry.
 * :data:`EP_DLL_NAMES`: canonical EP-name -> list-of-DLL-filenames table.
 * :class:`PyPiSource`: pip-installed plugin EP wheels.
 * :class:`NuGetSource`: NuGet-cached plugin EP packages
@@ -29,9 +28,9 @@ Public API:
   by family-name prefix (handles non-current versions and the
   ``WindowsWorkload.EP.*`` OEM channel).
 * :class:`EpSource`: abstract base for the five concrete sources.
-* :func:`discover_eps`: walk ``EP_PATH`` (plus any extras) and return
-  ``{ep_name: (dll_path, source)}`` with first-hit-wins semantics. One
-  precedence winner per EP.
+* :func:`discover_eps`: walk the default EP source list (plus any extras)
+  and return ``{ep_name: (dll_path, source)}`` with first-hit-wins
+  semantics. One precedence winner per EP.
 * :func:`discover_all_eps`: same precedence rules, but return all
   matches per EP as ``{ep_name: [ResolvedEp, ...]}`` with the primary
   first and any shadowed entries after. Used by the inventory CLI
@@ -955,8 +954,8 @@ def list_msix_eps(
     """Enumerate installed MSIX EP packages.
 
     Returns one fully-pinned :class:`MsixPackageSource` per (family,
-    version) found. Each return value is ``EP_PATH``-ready (drop into
-    the list) and resolvable via ``.resolve()``.
+    version) found. Each return value is ready to drop into the default
+    EP source list and resolvable via ``.resolve()``.
 
     EP names are auto-detected from the DLL filename inside each package,
     using the inverse of :data:`EP_DLL_NAMES`. Packages with no
@@ -1062,12 +1061,12 @@ def list_msix_eps(
 
 
 # ---------------------------------------------------------------------------
-# Default EP_PATH per platform.
+# Default EP source list.
 # ---------------------------------------------------------------------------
 
 
-def _default_ep_path_windows() -> list[EpSource]:
-    """Default ``EP_PATH`` for Windows hosts.
+def _default_ep_sources() -> list[EpSource]:
+    """Default EP source list for this project.
 
     Order: PyPI sources first (most deterministic, locked by pyproject),
     then ``NuGetSource`` entries (opportunistic pickup of plugin EPs the
@@ -1175,46 +1174,6 @@ def _default_ep_path_windows() -> list[EpSource]:
     ]
 
 
-def _default_ep_path_linux() -> list[EpSource]:
-    """Default ``EP_PATH`` for Linux hosts.
-
-    Only PyPI plugins; no MSIX, no Ryzen AI Windows installer.
-
-    Note on QNN: ``onnxruntime-qnn`` 2.1.0 publishes Linux aarch64 wheels
-    (``manylinux_2_34_aarch64`` for cp311+) but the wheel's internal SO
-    layout has not been empirically verified for this codebase. A
-    ``PyPiSource`` entry is intentionally NOT added here until that
-    layout is confirmed — emitting a speculative ``relative_dll`` could
-    silently break QNN-on-Linux discovery for users who DO have the
-    wheel installed. TODO: install the cp311 aarch64 wheel on a Linux
-    aarch64 box, inspect the .so location, then add a ``PyPiSource``
-    here mirroring the Windows entry but with a verified
-    ``libonnxruntime_providers_qnn.so`` path.
-    """
-    return [
-        PyPiSource(
-            distribution="onnxruntime-ep-openvino",
-            relative_dll=(
-                "onnxruntime_ep_openvino/"
-                "libonnxruntime_providers_openvino_plugin.so"
-            ),
-            eps=("OpenVINOExecutionProvider",),
-        ),
-    ]
-
-
-def _default_ep_path_for_platform() -> list[EpSource]:
-    if os.name == "nt":
-        return _default_ep_path_windows()
-    if platform.system().lower() == "linux":
-        return _default_ep_path_linux()
-    # macOS / other: no plugin EPs ship today.
-    return []
-
-
-# Public default. Mutable on purpose so consumers / tests can append.
-EP_PATH: list[EpSource] = _default_ep_path_for_platform()
-
 
 # ---------------------------------------------------------------------------
 # Override mechanisms.
@@ -1295,7 +1254,7 @@ def _walk_sources(
     if extra_sources:
         sources.extend(extra_sources)
     sources.extend(_parse_winmlcli_ep_path())
-    sources.extend(EP_PATH)
+    sources.extend(_default_ep_sources())
     if extra_sources_after:
         sources.extend(extra_sources_after)
 
@@ -1350,7 +1309,7 @@ def discover_eps(
     *,
     extra_sources_after: list[EpSource] | None = None,
 ) -> dict[str, tuple[Path, EpSource]]:
-    """Walk ``EP_PATH`` and return one ``(dll_path, source)`` per EP.
+    """Walk the default EP source list and return one ``(dll_path, source)`` per EP.
 
     Returns the precedence winner per EP. Use :func:`discover_all_eps`
     when you need primary + shadowed matches (e.g. for the inventory CLI).
@@ -1359,7 +1318,7 @@ def discover_eps(
 
     1. ``extra_sources`` (programmatic override; useful for tests)
     2. ``WINMLCLI_EP_PATH`` env-var entries (parsed into FilesystemSources)
-    3. The default :data:`EP_PATH` list
+    3. The default EP source list (``_default_ep_sources()``)
     4. ``extra_sources_after`` (lowest precedence; used by inventory CLI)
 
     Within that combined list, first-hit-wins per canonical EP name.
@@ -1373,7 +1332,7 @@ def discover_all_eps(
     *,
     extra_sources_after: list[EpSource] | None = None,
 ) -> dict[str, list[ResolvedEp]]:
-    """Walk ``EP_PATH`` and return all matches per EP — primary first then shadowed.
+    """Walk the default EP source list and return all matches per EP — primary first then shadowed.
 
     Companion to :func:`discover_eps`. Used by ``winml sys --list-ep`` to
     enumerate every source contributing each EP, so users can see when a
@@ -1386,7 +1345,6 @@ def discover_all_eps(
 
 __all__ = [
     "EP_DLL_NAMES",
-    "EP_PATH",
     "EpSource",
     "FilesystemSource",
     "MsixPackageSource",

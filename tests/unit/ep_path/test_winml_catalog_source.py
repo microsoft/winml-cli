@@ -15,7 +15,7 @@ The ONLY mocked surface is the WinAppSDK Python binding itself
 ``pathlib``, etc.
 
 Also covers:
-    - The default ``EP_PATH`` includes the 5 ``WinMlCatalogSource`` rows
+    - The default EP source list includes the 5 ``WinMlCatalogSource`` rows
       with the canonical EP names from the design doc.
     - ``atexit`` cleanup is registered exactly once across many
       ``_get_catalog()`` calls.
@@ -38,8 +38,8 @@ if TYPE_CHECKING:
 
 from winml.modelkit import ep_path as _ep
 from winml.modelkit.ep_path import (
-    EP_PATH,
     WinMlCatalogSource,
+    _default_ep_sources,
 )
 
 
@@ -199,28 +199,29 @@ def reset_catalog_singleton(
 
 
 # ---------------------------------------------------------------------------
-# Default EP_PATH shape.
+# Default EP source list shape.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(os.name != "nt", reason="WinMlCatalogSource entries are Windows-only")
 class TestDefaultEpPathIncludesCatalogEntries:
-    """The default Windows EP_PATH must include the 5 catalog rows from the design doc."""
+    """The default EP source list must include the 5 catalog rows from the design doc."""
 
     def test_five_winml_catalog_entries(self) -> None:
-        catalog_entries = [s for s in EP_PATH if isinstance(s, WinMlCatalogSource)]
+        catalog_entries = [s for s in _default_ep_sources() if isinstance(s, WinMlCatalogSource)]
         assert len(catalog_entries) == 5
 
     def test_canonical_catalog_names_match_design(self) -> None:
         catalog_names = {
-            s.catalog_name for s in EP_PATH if isinstance(s, WinMlCatalogSource)
+            s.catalog_name for s in _default_ep_sources() if isinstance(s, WinMlCatalogSource)
         }
         # The catalog API returns provider.name as the full canonical EP
-        # name (e.g. "QNNExecutionProvider"), so catalog_name in EP_PATH
-        # must match. Verified empirically against the live WinAppSDK ML
-        # 2.0.1 binding on Snapdragon X Elite — find_all_providers() returns
-        # provider.name == "QNNExecutionProvider", not the short "QNN" form
-        # used by older Microsoft Learn supported-execution-providers tables.
+        # name (e.g. "QNNExecutionProvider"), so catalog_name in the
+        # default source list must match. Verified empirically against the
+        # live WinAppSDK ML 2.0.1 binding on Snapdragon X Elite —
+        # find_all_providers() returns provider.name == "QNNExecutionProvider",
+        # not the short "QNN" form used by older Microsoft Learn
+        # supported-execution-providers tables.
         assert catalog_names == {
             "OpenVINOExecutionProvider",
             "QNNExecutionProvider",
@@ -235,7 +236,7 @@ class TestDefaultEpPathIncludesCatalogEntries:
         # in EP_DLL_NAMES.
         ep_names_from_catalog = {
             ep
-            for s in EP_PATH
+            for s in _default_ep_sources()
             if isinstance(s, WinMlCatalogSource)
             for ep in s.eps
         }
@@ -252,13 +253,14 @@ class TestDefaultEpPathIncludesCatalogEntries:
         # PyPI sources are more deterministic than MSIX, so they win.
         from winml.modelkit.ep_path import PyPiSource
 
+        sources = _default_ep_sources()
         first_catalog_idx = next(
-            i for i, s in enumerate(EP_PATH) if isinstance(s, WinMlCatalogSource)
+            i for i, s in enumerate(sources) if isinstance(s, WinMlCatalogSource)
         )
         pypi_indices = [
-            i for i, s in enumerate(EP_PATH) if isinstance(s, PyPiSource)
+            i for i, s in enumerate(sources) if isinstance(s, PyPiSource)
         ]
-        assert pypi_indices, "default EP_PATH must include PyPiSource rows"
+        assert pypi_indices, "default EP source list must include PyPiSource rows"
         assert max(pypi_indices) < first_catalog_idx
 
 

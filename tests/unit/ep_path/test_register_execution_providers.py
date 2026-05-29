@@ -34,10 +34,10 @@ def _touch(path: Path) -> Path:
 
 @pytest.fixture
 def isolated_winml(monkeypatch: pytest.MonkeyPatch) -> WinML:
-    """Build a fresh WinML instance with cleared singleton + isolated EP_PATH."""
+    """Build a fresh WinML instance with cleared singleton + isolated EP sources."""
     # Clear the module-level singleton so each test gets its own instance.
     monkeypatch.setattr("winml.modelkit.winml._winml_instance", None)
-    monkeypatch.setattr(_ep, "EP_PATH", [])
+    monkeypatch.setattr(_ep, "_default_ep_sources", list)
     monkeypatch.setattr(_ep, "_get_catalog", lambda: None)
     monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
     monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)

@@ -27,11 +27,11 @@ if TYPE_CHECKING:
 
 from .ep_path import (
     EP_DLL_NAMES,
-    EP_PATH,
     EpSource,
     FilesystemSource,
     PyPiSource,
     WinMlCatalogSource,
+    _default_ep_sources,
     discover_eps,
 )
 
@@ -43,12 +43,12 @@ logger = logging.getLogger(__name__)
 # Backwards-compat shims.
 # ---------------------------------------------------------------------------
 # The two PyPI-only entries we historically advertised. Kept as a frozen
-# view of ``EP_PATH``'s ``PyPiSource`` rows so callers that still iterate
-# this dict (none in-tree at time of writing) keep working. New code
-# should use ``EP_PATH`` and ``discover_eps()`` instead.
+# view of the default EP source list's ``PyPiSource`` rows so callers that
+# still iterate this dict (none in-tree at time of writing) keep working.
+# New code should use ``_default_ep_sources()`` and ``discover_eps()`` instead.
 def _legacy_ep_plugin_registry() -> dict[str, tuple[str, str]]:
     out: dict[str, tuple[str, str]] = {}
-    for source in EP_PATH:
+    for source in _default_ep_sources():
         if not isinstance(source, PyPiSource):
             continue
         rel = source.relative_dll
@@ -65,8 +65,9 @@ EP_PLUGIN_REGISTRY: dict[str, tuple[str, str]] = _legacy_ep_plugin_registry()
 def resolve_plugin_dll(ep_name: str) -> Path | None:
     """Resolve the absolute DLL path for a plugin EP, or None if unavailable.
 
-    Backwards-compat shim. Walks ``EP_PATH`` via :func:`discover_eps` and
-    returns the first absolute path resolved for ``ep_name``, or ``None``.
+    Backwards-compat shim. Walks the default EP source list via
+    :func:`discover_eps` and returns the first absolute path resolved for
+    ``ep_name``, or ``None``.
     """
     resolved = discover_eps()
     entry = resolved.get(ep_name)
@@ -97,13 +98,14 @@ class WinML:
         return _winml_instance
 
     def __init__(self) -> None:
-        """Initialize WinML execution provider catalog from ``EP_PATH``."""
+        """Initialize WinML execution provider catalog from the default EP source list."""
         if self._initialized:
             return
         self._initialized = True
 
-        # Walk EP_PATH (plus WINMLCLI_EP_PATH env var entries, if any) and
-        # capture (ep_name -> abs path) for every discovered plugin.
+        # Walk the default EP source list (plus WINMLCLI_EP_PATH env var
+        # entries, if any) and capture (ep_name -> abs path) for every
+        # discovered plugin.
         self._resolved: dict[str, tuple[Path, EpSource]] = discover_eps()
         # Preserve the legacy attribute name and shape so any external
         # caller that introspects the singleton sees the same dict it
@@ -129,7 +131,7 @@ class WinML:
             ort: Whether to register for ONNX Runtime.
             ort_genai: Whether to register for ONNX Runtime GenAI.
             extra_sources: Optional list of additional ``EpSource`` entries
-                to consult before the default ``EP_PATH``. Useful for
+                to consult before the default EP source list. Useful for
                 tests and embedded apps. Has highest precedence.
 
         Returns:
@@ -252,7 +254,6 @@ def add_ep_for_device(
 
 __all__ = [
     "EP_DLL_NAMES",
-    "EP_PATH",
     "EP_PLUGIN_REGISTRY",
     "EpSource",
     "FilesystemSource",

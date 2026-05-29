@@ -538,9 +538,9 @@ def _describe_source(source: Any) -> dict[str, Any]:
 def _gather_ep_info() -> dict[str, dict[str, Any]]:
     """Gather comprehensive EP inventory across every source.
 
-    Walks ``EP_PATH`` plus :func:`list_msix_eps` (to surface non-current
-    MSIX versions the catalog hides) plus the ``WINMLCLI_EP_PATH`` env-var
-    override, then groups by canonical EP name with ``[primary]`` /
+    Walks the default EP source list plus :func:`list_msix_eps` (to surface
+    non-current MSIX versions the catalog hides) plus the ``WINMLCLI_EP_PATH``
+    env-var override, then groups by canonical EP name with ``[primary]`` /
     ``[shadowed]`` resolution status. Built-in EPs (CPU, Azure) reported
     by ``onnxruntime.get_available_providers`` are appended as
     ``source_kind="built-in"``.
@@ -550,8 +550,8 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
     """
     from ..ep_path import discover_all_eps, list_msix_eps
 
-    # MSIX entries inject AFTER the default EP_PATH so they appear as
-    # shadowed alternatives — not as artificial primaries that would
+    # MSIX entries inject AFTER the default EP source list so they appear
+    # as shadowed alternatives — not as artificial primaries that would
     # mislead the user about what would actually load.
     msix = list_msix_eps()
     full = discover_all_eps(extra_sources_after=msix)

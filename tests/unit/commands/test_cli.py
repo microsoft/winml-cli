@@ -242,7 +242,7 @@ class TestSysListEpEndToEnd:
     Other ``TestSysCommand`` tests mock ``_gather_ep_info`` to return a
     canned dict. Here we mock only the slow boundary calls
     (``_get_pkg_manager``, ``_get_catalog``) and let the real handler
-    walk ``EP_PATH``, derive ``compatible``/``device_types``/``status``,
+    walk the default EP source list, derive ``compatible``/``device_types``/``status``,
     and emit the JSON shape.
     """
 
@@ -251,7 +251,7 @@ class TestSysListEpEndToEnd:
         """Make _gather_ep_info hermetic without mocking it out entirely."""
         from winml.modelkit import ep_path as _ep
 
-        monkeypatch.setattr(_ep, "EP_PATH", [])
+        monkeypatch.setattr(_ep, "_default_ep_sources", list)
         monkeypatch.setattr(_ep, "_get_catalog", lambda: None)
         monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
         monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
@@ -288,9 +288,9 @@ class TestSysListEpEndToEnd:
     def test_incompatible_ep_section_marks_entries(
         self, runner: CliRunner, monkeypatch
     ) -> None:
-        # Inject a PyPiSource for OpenVINO into EP_PATH; with detected
-        # vendors = {"Qualcomm Inc"}, OpenVINO must be marked incompatible
-        # at the section level AND at every entry level.
+        # Inject a PyPiSource for OpenVINO into the default EP source list;
+        # with detected vendors = {"Qualcomm Inc"}, OpenVINO must be marked
+        # incompatible at the section level AND at every entry level.
         from winml.modelkit import ep_path as _ep
         from winml.modelkit.ep_path import PyPiSource
 
@@ -303,7 +303,7 @@ class TestSysListEpEndToEnd:
             ),
             eps=("OpenVINOExecutionProvider",),
         )
-        monkeypatch.setattr(_ep, "EP_PATH", [ov_source])
+        monkeypatch.setattr(_ep, "_default_ep_sources", lambda: [ov_source])
 
         import json
 
