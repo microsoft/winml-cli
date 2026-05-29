@@ -464,7 +464,10 @@ def _load_model(
 
         # Prefer explicit model_class from loader config (set by winml config),
         # fall back to resolve_task_and_model_class for auto-detection.
-        model_class = None
+        # Annotated Any: resolvers return bare `type`, but the actual classes are
+        # HF model classes with extra methods (from_config, from_pretrained, etc.)
+        # that bare `type` doesn't expose.
+        model_class: Any = None
         if config.loader.model_class:
             from ..loader import resolve_hf_model_class
 

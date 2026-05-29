@@ -469,43 +469,23 @@ cache_dir = "nul"
 [[tool.mypy.overrides]]
 module = [
   # Third-party ML libraries (no stubs)
-  "torch.*",
   "torchvision.*",
-  "onnx.*",
   "onnxruntime.*",
-  "transformers.*",
   "datasets.*",
   "optimum.*",
-  "timm.*",
-  "onnxscript.*",
   "snakemd",
   "openvino",
   "openvino.*",
-  # Namespace package
-  "winml",
-  "winml.*",
 ]
 ignore_missing_imports = true
 
 # Relaxed modules: tests and WIP code
-# TODO: Gradually fix types in modelkit.* and tighten rules
 
 [[tool.mypy.overrides]]
 module = [
   # Tests
   "tests",
   "tests.*",
-  "winml.modelkit.configs",
-  "winml.modelkit.loader",
-  "winml.modelkit.export",
-  "winml.modelkit.export.*",
-  "winml.modelkit.optimization",
-  "winml.modelkit.optimization.*",
-  "winml.modelkit.models",
-  "winml.modelkit.models.*",
-  "winml.modelkit.utils",
-  "winml.modelkit.utils.*",
-  "winml.modelkit.commands.export",
 ]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
