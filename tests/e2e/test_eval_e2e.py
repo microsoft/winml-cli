@@ -280,15 +280,25 @@ class TestEvalPerTask:
         data = _assert_metrics_present(out, ["cosine_spearman"])
         _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
+    @pytest.mark.parametrize(
+        "task",
+        ["image-feature-extraction", "feature-extraction"],
+        ids=["hf_alias", "canonical"],
+    )
     def test_image_feature_extraction(
-        self, runner: CliRunner, tmp_path: Path,
+        self, runner: CliRunner, tmp_path: Path, task: str,
     ) -> None:
         # kNN accuracies reported as percentages 0..100.
         # --streaming avoids caching mini-imagenet.
+        # Parameterized to cover both the HF task name
+        # ("image-feature-extraction") and the canonical task name
+        # ("feature-extraction"): for vision models the canonical name
+        # must be converted to the HF name so the image dataset and
+        # evaluator are selected.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "facebook/dinov2-small",
-            "--task", "image-feature-extraction",
+            "--task", task,
             "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),

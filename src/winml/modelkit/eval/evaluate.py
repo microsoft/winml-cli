@@ -209,14 +209,14 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
 
 def _resolve_task(config: WinMLEvaluationConfig) -> str:
     """Resolve task from config or model's HF config, and validate it is supported."""
+    console = Console()
+    console.print("[bold]Detecting model task...[/bold]")
+
     if config.task is not None:
         task = config.task
     else:
         if config.model_id is None:
             raise ValueError("Cannot infer task without model_id. Provide --task.")
-
-        console = Console()
-        console.print("[bold]Detecting model task...[/bold]")
 
         from transformers import AutoConfig
 
@@ -224,7 +224,13 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
         task = _detect_task_from_config(hf_config)
-        console.print(f"[dim]Detected task:[/dim] {task}")
+
+    # Convert to known task before looking up the evaluator registry.
+    from ..loader.task import canonical_task_to_known_task
+
+    task = canonical_task_to_known_task(task, config.model_id)
+
+    console.print(f"[dim]Detected task:[/dim] {task}")
 
     if task not in _EVALUATOR_REGISTRY:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))

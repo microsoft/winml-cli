@@ -431,6 +431,63 @@ def normalize_task(task: str) -> str:
     return TasksManager.map_from_synonym(task)
 
 
+# Optimum collapses several modality-distinct HF pipeline tasks under one
+# canonical name (e.g. ``image-feature-extraction`` -> ``feature-extraction``).
+# WinML registries are keyed by HF-pipeline names, so we need to undo this
+# collapse before downstream registry lookups. The branch is selected by
+# inspecting the model's OnnxConfig input names.
+_OPTIMUM_CANONICAL_TO_KNOWN_TASK: dict[str, dict[str, str]] = {
+    "feature-extraction": {
+        "pixel_values": "image-feature-extraction",
+        "input_ids": "feature-extraction",
+    },
+}
+
+
+def canonical_task_to_known_task(task: str, model_id: str | None = None) -> str:
+    """Translate an Optimum-canonical task to a known HF-pipeline task.
+
+    Optimum collapses some modality-distinct tasks under one canonical name
+    (e.g. ``image-feature-extraction`` -> ``feature-extraction`` for vision
+    models). WinML registries (datasets, evaluators, schemas, model classes)
+    are keyed by HF-pipeline names, so this helper undoes the collapse using
+    Optimum's static ``OnnxConfig.inputs`` for ``(model_type, task)`` -- no
+    model weights are loaded.
+
+    Idempotent: tasks that are not ambiguous pass through unchanged. Also
+    passes through if ``model_id`` is ``None``, if the HF config cannot be
+    loaded, or if the OnnxConfig lookup fails; the downstream registry lookup
+    then raises the user-facing error.
+
+    Args:
+        task: Task name (Optimum-canonical or already HF-pipeline).
+        model_id: HF model id / local path used to load the config for static
+            OnnxConfig dispatch.
+
+    Returns:
+        HF-pipeline task name suitable for registry lookup.
+    """
+    branch = _OPTIMUM_CANONICAL_TO_KNOWN_TASK.get(task)
+    if branch is None or model_id is None:
+        return task
+
+    try:
+        from transformers import AutoConfig
+
+        from ..export.io import _get_onnx_config
+
+        hf_config = AutoConfig.from_pretrained(model_id)
+        onnx_config = _get_onnx_config(hf_config.model_type, task, hf_config)
+    except Exception as e:
+        logger.debug("Static disambiguation skipped for task %r: %s", task, e)
+        return task
+
+    for input_name, hf_task in branch.items():
+        if input_name in onnx_config.inputs:
+            return hf_task
+    return task
+
+
 def get_task_abbrev(task: str) -> str:
     """Get abbreviated task name for cache keys.
 
