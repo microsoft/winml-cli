@@ -539,7 +539,7 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
     """Gather comprehensive EP inventory across every source.
 
     Walks ``EP_PATH`` plus :func:`list_msix_eps` (to surface non-current
-    MSIX versions the catalog hides) plus the ``MODELKIT_EP_PATH`` env-var
+    MSIX versions the catalog hides) plus the ``WINMLCLI_EP_PATH`` env-var
     override, then groups by canonical EP name with ``[primary]`` /
     ``[shadowed]`` resolution status. Built-in EPs (CPU, Azure) reported
     by ``onnxruntime.get_available_providers`` are appended as

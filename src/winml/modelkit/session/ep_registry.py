@@ -31,7 +31,7 @@ class WinMLEPRegistry:
     """Execution Provider Registry for plugin-style ONNX Runtime EPs.
 
     Discovers plugin EPs via :func:`winml.modelkit.ep_path.discover_eps`
-    (which walks the ``EP_PATH`` list and the ``MODELKIT_EP_PATH`` env-var
+    (which walks the ``EP_PATH`` list and the ``WINMLCLI_EP_PATH`` env-var
     override) and registers them with ONNX Runtime.
 
     Usage:
@@ -160,7 +160,7 @@ class WinMLEPRegistry:
         raise WinMLEPNotDiscovered(
             f"EP {ep_name!r} not in discovered catalog and not visible via "
             f"ort.get_ep_devices(). Catalog: {sorted(self._ep_paths)}. "
-            f"Hint: install the plugin or set MODELKIT_EP_PATH."
+            f"Hint: install the plugin or set WINMLCLI_EP_PATH."
         )
 
     def get_ep_library_path(self, ep_name: str) -> str | None:

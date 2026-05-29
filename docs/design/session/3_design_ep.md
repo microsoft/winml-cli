@@ -141,7 +141,7 @@ The codebase exposes a single `discover_eps()` function that walks an ordered `E
 | `PyPiSource` | pip-installed plugin wheel | `onnxruntime-ep-openvino 1.4.1` ships `onnxruntime_providers_openvino_plugin.dll` |
 | `NuGetSource` | NuGet-cached plugin package (`~/.nuget/packages/`) | `Intel.ML.OnnxRuntime.EP.OpenVINO` |
 | `MsixPackageSource` | Microsoft Store / Windows-Workloads MSIX | `WindowsWorkload.EP.Intel.OpenVINO.1.8` |
-| `FilesystemSource` | Vendor-installer drop dir (`%RYZEN_AI_INSTALLATION_PATH%`, `%NVIDIA_TRT_RTX_EP%`) or arbitrary path via `MODELKIT_EP_PATH` | `D:\src\onnxruntime\build\Release\` |
+| `FilesystemSource` | Vendor-installer drop dir (`%RYZEN_AI_INSTALLATION_PATH%`, `%NVIDIA_TRT_RTX_EP%`) or arbitrary path via `WINMLCLI_EP_PATH` | `D:\src\onnxruntime\build\Release\` |
 | `WinMlCatalogSource` | Windows App SDK `ExecutionProviderCatalog` runtime API | MSIX EPs whose path is decided by OS package manager |
 
 `discover_eps()` returns `dict[ep_name -> (Path, EpSource)]` (first-match-wins) and the inventory variant `discover_eps(return_shadowed=True)` returns all hits per EP for the `winml sys --list-ep` inventory CLI.
@@ -175,7 +175,7 @@ class WinMLEPDeviceSpec:
     default_provider_options: Mapping[str, str] = field(default_factory=dict)
 ```
 
-The catalog contains 13 entries today (one row per `(ep, device)` target). OpenVINO has 3 (npu/gpu/cpu), QNN has 3 (npu/gpu/cpu), and the rest are single-target EPs.
+The catalog contains 12 entries today (one row per `(ep, device)` target). OpenVINO has 3 (npu/gpu/cpu), QNN has 3 (npu/gpu/cpu), and the rest are single-target EPs.
 
 ### 6.2 `resolve_device(ep, device)` → `WinMLEPDevice`
 
@@ -254,14 +254,14 @@ def default_ep_for_device(device: str) -> str | None:
     )
 ```
 
-**Call sites that must observe this contract** (today they don't):
+**Call sites that observe this contract** (filter applied at the deduction root in `default_ep_for_device`; the device-only and auto/auto branches inherit it transitively):
 
-| Site | Symptom |
+| Site | Behavior |
 |---|---|
-| `session/ep_device.py:242` `default_ep_for_device` | Returns static-catalog default ignoring registration |
-| `session/ep_device.py:379` `resolve_device` device-only branch | Deduces unregistered EP → registration fails later with a confusing message |
-| `config/precision.py:275` (in `resolve_precision`) | `compile_provider` carries the unregistered short name into `PrecisionPolicy` |
-| `config/build.py:612` (in `generate_hf_build_config`, auto/auto path) | `WinMLCompileConfig.for_provider(...)` constructed against an unregistered EP |
+| `session/ep_device.py:224` `default_ep_for_device` | Walks `EP_DEVICE_SPECS` and skips any `spec.ep` not in `available_eps()`; returns `None` when no registered EP targets the requested device |
+| `session/ep_device.py:393` `resolve_device` device-only branch | Inherits the filter via `default_ep_for_device`; raises `ValueError` when deduction returns `None` rather than silently substituting CPU |
+| `config/precision.py:275` (in `resolve_precision`) | `compile_provider` is derived from the filtered deduction; reflects a registered short name only |
+| `config/build.py:612` (in `generate_hf_build_config`, auto/auto path) | `WinMLCompileConfig.for_provider(...)` is constructed against a registered EP only |
 
 **Out of scope.** This requirement only constrains the **deduction default**. Callers may still ask for an explicit EP that is not registered — `resolve_device("qnn", "npu")` on a non-Snapdragon box must continue to raise loudly (today: via `register_ep` registration failure or `DeviceNotFound`). Registration-awareness changes the *default*, not the *explicit* path.
 
@@ -372,7 +372,7 @@ Snapshot of `EP_DEVICE_SPECS` as of 2026-05-15:
 | `OpenVINO/cpu` | `{}` | `{"load_config": '{"CPU":{"PERFORMANCE_HINT":"LATENCY","NUM_STREAMS":"1"}}'}` | missing latency-mode hint |
 | `DML/gpu` | `{}` | (no public ORT doc for DML provider_options) | unknown |
 | `CPU/cpu` | `{}` | (bundled EP — no tuning needed) | OK |
-| `VitisAI/npu`, `MIGraphX/gpu`, `Tensorrt/gpu`, `CUDA/gpu`, `NvTensorRtRtx/gpu` | `{}` | not yet measured by us | future work |
+| `VitisAI/npu`, `MIGraphX/gpu`, `Tensorrt/gpu`, `NvTensorRtRtx/gpu` | `{}` | not yet measured by us | future work |
 
 The catalog is **architecturally correct** (carries no routing keys, three-layer merge wired) but **incompletely tuned** (most entries are `{}` and should carry doc-recommended baselines).
 

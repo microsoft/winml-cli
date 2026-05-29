@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class WinMLEPNotDiscovered(Exception):  # noqa: N818
-    """EP plugin is not in the catalog or MODELKIT_EP_PATH."""
+    """EP plugin is not in the catalog or WINMLCLI_EP_PATH."""
 
 
 class WinMLEPRegistrationFailed(Exception):  # noqa: N818
@@ -346,7 +346,7 @@ def resolve_device(
     ep: str | None = None,
     device: str | None = None,
 ) -> WinMLEPDevice:
-    """Resolve a (EP name, device kind) pair to an WinMLEPDevice.
+    """Resolve a (EP name, device kind) pair to a WinMLEPDevice.
 
     Deduction matrix:
         both given   -> validate + return
@@ -363,7 +363,7 @@ def resolve_device(
 
     Raises:
         ValueError:           Unknown EP or device string.
-        WinMLEPNotDiscovered:      EP plugin not in catalog or MODELKIT_EP_PATH.
+        WinMLEPNotDiscovered:      EP plugin not in catalog or WINMLCLI_EP_PATH.
         WinMLEPRegistrationFailed: ort.register_execution_provider_library raised.
         DeviceNotFound:       EP registered, but no matching OrtEpDevice.
         AmbiguousMatch:       multiple OrtEpDevice match after dedup.
@@ -391,10 +391,13 @@ def resolve_device(
         if device_lower not in VALID_DEVICES:
             raise ValueError(f"Unknown device '{device}'. Expected one of: {sorted(VALID_DEVICES)}")
         default_ep_full = default_ep_for_device(device_lower)
-        # cpu maps to CPUExecutionProvider; use its short name for consistency
-        ep = short_ep_name(default_ep_full) if default_ep_full is not None else "cpu"
-        device = device_lower
-        logger.debug("Deduced ep=%r from device=%r", ep, device)
+        if default_ep_full is None:
+            raise ValueError(
+                f"No registered EP for device {device_lower!r}. "
+                f"Install a plugin EP that targets this device, or pass --ep explicitly."
+            )
+        ep = short_ep_name(default_ep_full)
+        logger.debug("Deduced ep=%r from device=%r", ep, device_lower)
 
     # At this point both ep and device are non-None strings (type-checker aid)
     assert ep is not None

@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 # Canonical EP-name -> DLL filename table.
 # ---------------------------------------------------------------------------
 # Used by FilesystemSource (when scanning a directory for any registrable
-# DLL) and by the ``MODELKIT_EP_PATH`` env-var override path. Keys are
+# DLL) and by the ``WINMLCLI_EP_PATH`` env-var override path. Keys are
 # always the canonical EP name (the spelling ORT registers under and
 # reports via ``get_ep_devices()``). EP names that don't match this
 # spelling fail at registration — there is no alias normalization layer.
@@ -1221,38 +1221,38 @@ EP_PATH: list[EpSource] = _default_ep_path_for_platform()
 # ---------------------------------------------------------------------------
 
 
-def _parse_modelkit_ep_path() -> list[EpSource]:
-    """Parse the ``MODELKIT_EP_PATH`` env var into ``FilesystemSource`` entries.
+def _parse_winmlcli_ep_path() -> list[EpSource]:
+    """Parse the ``WINMLCLI_EP_PATH`` env var into ``FilesystemSource`` entries.
 
     The env var is a path-list using OS-conventional separators (``;`` on
-    Windows, ``:`` elsewhere). Each entry is treated as a directory; we
-    scan it for every filename in :data:`EP_DLL_NAMES` so the user does
-    not have to specify which EP the directory provides.
+    Windows, ``:`` elsewhere — same semantics as the shell ``PATH``).
+    Each entry is treated as a directory; we scan it for every filename
+    in :data:`EP_DLL_NAMES` so the user does not have to specify which EP
+    the directory provides.
 
-    Returns an empty list when ``MODELKIT_EP_PATH`` is unset or empty.
+    Returns an empty list when ``WINMLCLI_EP_PATH`` is unset or empty.
+    Non-existent entries log a WARN and are skipped (matches the
+    ``FilesystemSource`` "configured-but-nonexistent root" pattern).
     """
-    raw = os.environ.get("MODELKIT_EP_PATH")
+    raw = os.environ.get("WINMLCLI_EP_PATH")
     if not raw:
         return []
-    # os.pathsep is ';' on Windows and ':' on POSIX — same as PATH semantics.
     entries = [e.strip() for e in raw.split(os.pathsep) if e.strip()]
     if not entries:
         return []
 
-    # Each EP_DLL_NAMES entry may list multiple filenames (e.g. OpenVINO
-    # has both ``onnxruntime_providers_openvino_plugin.dll`` and
-    # ``libonnxruntime_providers_openvino_plugin.so``). A FilesystemSource
-    # supports only one pattern per ep_name, so emit one source PER
-    # filename instead of picking ``[0]`` (which would search for the
-    # Windows ``.dll`` name on Linux and silently miss the ``.so``).
-    # FilesystemSource resolution is first-glob-hit; multiple sources for
-    # the same ep_name flow through ``discover_eps`` first-hit-wins.
     sources: list[EpSource] = []
     for entry in entries:
-        logger.debug("MODELKIT_EP_PATH override: scanning %s", entry)
+        p = Path(entry)
+        if not p.is_dir():
+            logger.warning(
+                "WINMLCLI_EP_PATH entry %r is not a directory; skipping", entry
+            )
+            continue
+        logger.debug("WINMLCLI_EP_PATH override: scanning %s", entry)
         sources.extend(
             FilesystemSource(
-                root=Path(entry),
+                root=p,
                 dll_patterns={ep: dll_name},
             )
             for ep, dll_names in EP_DLL_NAMES.items()
@@ -1294,7 +1294,7 @@ def _walk_sources(
     sources: list[EpSource] = []
     if extra_sources:
         sources.extend(extra_sources)
-    sources.extend(_parse_modelkit_ep_path())
+    sources.extend(_parse_winmlcli_ep_path())
     sources.extend(EP_PATH)
     if extra_sources_after:
         sources.extend(extra_sources_after)
@@ -1358,7 +1358,7 @@ def discover_eps(
     Precedence (highest first):
 
     1. ``extra_sources`` (programmatic override; useful for tests)
-    2. ``MODELKIT_EP_PATH`` env-var entries (parsed into FilesystemSources)
+    2. ``WINMLCLI_EP_PATH`` env-var entries (parsed into FilesystemSources)
     3. The default :data:`EP_PATH` list
     4. ``extra_sources_after`` (lowest precedence; used by inventory CLI)
 

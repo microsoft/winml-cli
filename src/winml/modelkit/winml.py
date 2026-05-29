@@ -102,7 +102,7 @@ class WinML:
             return
         self._initialized = True
 
-        # Walk EP_PATH (plus MODELKIT_EP_PATH env var entries, if any) and
+        # Walk EP_PATH (plus WINMLCLI_EP_PATH env var entries, if any) and
         # capture (ep_name -> abs path) for every discovered plugin.
         self._resolved: dict[str, tuple[Path, EpSource]] = discover_eps()
         # Preserve the legacy attribute name and shape so any external

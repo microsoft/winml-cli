@@ -1,6 +1,6 @@
 # MsixPackageSource: Version-pinned MSIX EP Discovery
 
-Status: implemented in commit `f79e484e` (and accompanying ABC refactor `ef9a5bdd`, CLI inventory `35dd39a6`, dep switch `eab52093`), as of 2026-05-08. Companion to [`docs/ep-path-design.md`](ep-path-design.md) (the unified `EP_PATH` design) and [`docs/winml-ep-empirical-findings.md`](winml-ep-empirical-findings.md) (live-machine evidence for WinML EP behavior). This document specifies a fourth `EpSource` variant — `MsixPackageSource` — that bypasses the WinAppSDK `ExecutionProviderCatalog` to load a specific installed MSIX EP package version, plus a sibling helper `list_msix_eps()` for inventory/diagnostics. Also covers the `MODELKIT_EP_PATH` env-var rename.
+Status: implemented in commit `f79e484e` (and accompanying ABC refactor `ef9a5bdd`, CLI inventory `35dd39a6`, dep switch `eab52093`), as of 2026-05-08. Companion to [`docs/ep-path-design.md`](ep-path-design.md) (the unified `EP_PATH` design) and [`docs/winml-ep-empirical-findings.md`](winml-ep-empirical-findings.md) (live-machine evidence for WinML EP behavior). This document specifies a fourth `EpSource` variant — `MsixPackageSource` — that bypasses the WinAppSDK `ExecutionProviderCatalog` to load a specific installed MSIX EP package version, plus a sibling helper `list_msix_eps()` for inventory/diagnostics. Also covers the `WINMLCLI_EP_PATH` env-var rename.
 
 ## Executive summary
 
@@ -8,7 +8,7 @@ Status: implemented in commit `f79e484e` (and accompanying ABC refactor `ef9a5bd
 - This is fine for the typical user — Windows curates which version is "current" — but blocks regression isolation, multi-tenant pinning, and any workflow that needs a non-current version.
 - This document specifies `MsixPackageSource`, a new `EpSource` that goes directly to `Windows.Management.Deployment.PackageManager` and selects packages by **family-name prefix** (the natural granularity at which Microsoft partitions major version lines). The same data structure is returned by a sibling helper `list_msix_eps()`, so a CLI inventory output can be copy-pasted into `EP_PATH` configuration.
 - **Single CLI surface**: the existing `winml sys --list-ep` command becomes a comprehensive inventory of every EP discoverable on the system (PyPI, MSIX-via-catalog, MSIX-via-package-manager, filesystem) with `[primary]` / `[shadowed]` / `[incompatible]` status tags. **There is no separate `--list-msix-eps` flag** — `--list-ep` is the single discovery command. This requires extending `discover_eps()` with a `return_shadowed=True` mode.
-- Renames `WINML_EP_PATH` (added in this branch, not yet shipped) to `MODELKIT_EP_PATH` to match the tool's identity. No back-compat alias.
+- Renames `WINML_EP_PATH` (added in this branch, not yet shipped) to `WINMLCLI_EP_PATH` to match the tool's identity. No back-compat alias.
 
 ## Background: why the catalog is insufficient
 
@@ -439,18 +439,19 @@ The `(catalog default)` annotation is computed by separately calling `WinMlCatal
 
 The earlier draft of this design proposed a separate `--list-msix-eps` flag for MSIX-specific inventory. Rejected: a single `--list-ep` covering every source is more discoverable, and a user looking for "what EPs do I have?" should not have to know in advance whether the answer involves MSIX. `list_msix_eps()` remains as a *Python-level* helper used by the CLI handler, but it is not a separate CLI surface.
 
-## `MODELKIT_EP_PATH` env-var rename
+## `WINMLCLI_EP_PATH` env-var rename
 
-The `WINML_EP_PATH` env var (added in this branch, not yet shipped externally) is renamed to `MODELKIT_EP_PATH`. Same semantics:
+The `WINML_EP_PATH` env var (added in this branch, not yet shipped externally) was renamed first to `MODELKIT_EP_PATH`, then to `WINMLCLI_EP_PATH`. Same semantics:
 
 - Path-list using OS-conventional separator (`;` on Windows, `:` on POSIX).
 - Each entry treated as a directory; instantiated as a `FilesystemSource` with `dll_patterns` covering every entry in `EP_DLL_NAMES`.
 - Resolved before the default `EP_PATH` (i.e., user override beats default).
 - Empty/unset: no override.
+- Non-existent entries log a WARN and are skipped.
 
-Rationale: `WINML_*` collides namespace-wise with the Windows ML platform (the product). `MODELKIT_*` is unambiguous. Since `WINML_EP_PATH` is not shipped externally, the rename has no migration cost.
+Rationale: `WINMLCLI_*` unambiguously identifies the winml-cli tool. Since the var was never shipped externally, the rename has no migration cost.
 
-Implementation: rename `_parse_winml_ep_path()` to `_parse_modelkit_ep_path()`, change the `os.environ.get` key, update the docstring, update tests. No deprecation warning (nothing to deprecate — the var was never shipped).
+Implementation: rename `_parse_modelkit_ep_path()` to `_parse_winmlcli_ep_path()`, change the `os.environ.get` key, update the docstring, update tests. No deprecation warning (nothing to deprecate — the var was never shipped).
 
 ## Test plan
 
@@ -488,9 +489,9 @@ One `pytest.mark.windows_msix` test that hits the real `PackageManager`:
 - Each returned `MsixPackageSource` round-trips: `.resolve()` returns a DLL path that exists.
 - Skip on machines without `winrt-windows.management.deployment` installed.
 
-### Test for `MODELKIT_EP_PATH` rename
+### Test for `WINMLCLI_EP_PATH` rename
 
-Update existing `WINML_EP_PATH` test cases in `tests/unit/ep_path/test_ep_path.py` to use `MODELKIT_EP_PATH`. Add one negative case: setting `WINML_EP_PATH` is a no-op (no warning, no parse) so users who try the old name see "nothing happened" cleanly.
+Update existing `WINML_EP_PATH` test cases in `tests/unit/ep_path/test_ep_path.py` to use `WINMLCLI_EP_PATH`. Add one negative case: setting `WINML_EP_PATH` is a no-op (no warning, no parse) so users who try the old name see "nothing happened" cleanly.
 
 ### Tests for `discover_eps(return_shadowed=True)`
 
@@ -532,11 +533,11 @@ In dependency order:
    - Extend `discover_eps()` with `return_shadowed: bool = False` parameter. Default behavior unchanged for existing call sites; shadowed-aware mode returns `dict[str, list[ResolvedEp]]`.
    - Update `EpSource` tagged union to include `MsixPackageSource`.
    - Update `__all__`.
-   - Rename `_parse_winml_ep_path` → `_parse_modelkit_ep_path`, update env-var key from `WINML_EP_PATH` to `MODELKIT_EP_PATH`.
+   - Rename `_parse_winml_ep_path` → `_parse_winmlcli_ep_path`, update env-var key from `WINML_EP_PATH` to `WINMLCLI_EP_PATH`.
 3. **`tests/unit/ep_path/test_msix_package_source.py`** — new file with unit tests above.
 4. **`tests/unit/ep_path/test_discover_eps_shadowed.py`** — new file covering `return_shadowed=True` semantics and the `[primary]`/`[shadowed]` ordering rules.
 5. **`tests/unit/ep_path/test_compat.py`** — new file covering `_ep_is_compatible`, `_get_detected_vendors`, and `EpSource.is_compatible()` on all four source types.
-6. **Update `tests/unit/ep_path/test_ep_path.py`** — rename `WINML_EP_PATH` references to `MODELKIT_EP_PATH`. Add negative case (setting `WINML_EP_PATH` is a silent no-op).
+6. **Update `tests/unit/ep_path/test_ep_path.py`** — rename `WINML_EP_PATH` references to `WINMLCLI_EP_PATH`. Add negative case (setting `WINML_EP_PATH` is a silent no-op).
 7. **`src/winml/modelkit/cli/sys.py`** (or wherever `winml sys` is implemented) — extend the existing `--list-ep` flag to use `discover_eps(extra_sources=list_msix_eps(), return_shadowed=True)`, compute the `[incompatible]` section tag from `EpSource.is_compatible()`, and render the comprehensive inventory output described above. Update the `--list-ep --format json` shape.
 8. **`tests/unit/cli/test_sys.py`** (if it exists; otherwise create) — golden-test the `--list-ep` output for a synthetic mixed scenario (compatible PyPI primary + 2 shadowed MSIX, plus an incompatible PyPI source on a Snapdragon-only mock). Mock `_get_pkg_manager`, `_get_catalog`, `_get_detected_vendors`.
 9. **`docs/ep-path-design.md`** — add a "MsixPackageSource" subsection cross-referencing this doc, plus notes on the `discover_eps(return_shadowed=...)` extension and the `is_compatible()` API.

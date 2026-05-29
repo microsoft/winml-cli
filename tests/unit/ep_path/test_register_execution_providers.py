@@ -40,7 +40,7 @@ def isolated_winml(monkeypatch: pytest.MonkeyPatch) -> WinML:
     monkeypatch.setattr(_ep, "EP_PATH", [])
     monkeypatch.setattr(_ep, "_get_catalog", lambda: None)
     monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
-    monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
+    monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
     return WinML()
 
 

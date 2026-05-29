@@ -254,7 +254,7 @@ class TestSysListEpEndToEnd:
         monkeypatch.setattr(_ep, "EP_PATH", [])
         monkeypatch.setattr(_ep, "_get_catalog", lambda: None)
         monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
-        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
+        monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
         # Force compat detection to pretend nothing is detected so
         # vendor-constrained EPs come out as `compatible=False`.
         _ep._get_detected_vendors.cache_clear()
