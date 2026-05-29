@@ -21,12 +21,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
+
+
+if TYPE_CHECKING:
+    from typing import Literal
 
 
 logger = logging.getLogger(__name__)
@@ -198,12 +203,14 @@ def quantize(
     console.print(f"[bold blue]Samples:[/bold blue] {samples}")
     console.print(f"[bold blue]Method:[/bold blue] {method}")
 
-    # Create config (output_path is passed separately to API)
+    # Create config (output_path is passed separately to API).
+    # Click's Choice validates these strings at parse time, so cast acknowledges
+    # the Literal[] contract that mypy can't see through the str return type.
     config = WinMLQuantizationConfig(
         samples=samples,
-        calibration_method=method,
-        weight_type=resolved_weight,
-        activation_type=resolved_activation,
+        calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
+        weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
+        activation_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_activation),
         per_channel=per_channel,
         symmetric=symmetric,
         task=task,

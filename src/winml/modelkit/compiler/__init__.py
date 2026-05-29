@@ -24,6 +24,8 @@ Usage:
     result = compile_onnx("model.onnx", config)
 """
 
+from typing import Any
+
 from .configs import (
     EPConfig,
     WinMLCompileConfig,
@@ -34,7 +36,7 @@ from .transforms import clear_transforms, get_transforms_for_ep, register_transf
 from .utils import QDQ_OP_TYPES, needs_format_conversion
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load heavy symbols that pull in session/torch to speed up import."""
     if name in {"Compiler", "compile_onnx", "list_compilers"}:
         from .compiler import Compiler, compile_onnx, list_compilers

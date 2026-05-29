@@ -17,7 +17,7 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import click
 from rich.console import Console
@@ -46,6 +46,10 @@ from ..utils.constants import (
     normalize_ep_name,
 )
 from ..utils.logging import configure_logging
+
+
+if TYPE_CHECKING:
+    from ..analyze.models.runtime_checks import PatternRuntime
 
 
 logger = logging.getLogger(__name__)
@@ -396,7 +400,7 @@ def _render_analysis_summary(
     console.print("═" * 80)
 
     if not results:
-        ep_label = ep or "all EPs"
+        ep_label: str = ep or "all EPs"
         if device:
             msg = (
                 f"   [dim]No runtime check results for [bold]{ep_label}[/bold] "
@@ -512,10 +516,10 @@ def _render_analysis_summary(
 
 
 def _resolve_run_unknown_op(
-    ep: str,
+    ep: EPName,
     device: str,
     run_unknown_op: bool,
-    local_pairs: set[tuple[str, str]],
+    local_pairs: set[tuple[EPName, str]],
 ) -> bool:
     """Resolve whether to run unknown operators for a given (EP, device) pair.
 
@@ -565,7 +569,10 @@ def _get_local_ep_device_pairs() -> list[tuple[EPName, str]]:
             if not ep_name_raw or ep_name_raw.endswith(".AUTO"):
                 continue
 
-            ep_name = normalize_ep_name(ep_name_raw)
+            # ep_name_raw is an arbitrary attribute string from ORT; cast lets
+            # normalize_ep_name (typed for EPNameOrAlias | None) accept it.
+            # Unknown values return None and get filtered below.
+            ep_name = normalize_ep_name(cast("EPNameOrAlias", ep_name_raw))
             if ep_name is None or ep_name not in SUPPORTED_EPS:
                 continue
 
@@ -746,33 +753,44 @@ def analyze(
             has_rule_data_for_ep,
         )
 
+        devices: list[str]
         if device == "auto":
             from ..sysinfo.device import _get_available_devices
 
-            devices = _get_available_devices()
+            devices = list(_get_available_devices())
         elif device == "all":
-            devices = SUPPORTED_DEVICES
-        else:
+            devices = list(SUPPORTED_DEVICES)
+        elif device is not None:
             devices = [device]
+        else:
+            devices = []
         devices = sorted(d.upper() for d in devices)
 
+        eps: list[EPName | None]
         if ep == "auto":
             from ..sysinfo.device import _get_available_eps
 
-            eps = _get_available_eps()
+            eps = list(_get_available_eps())
         elif ep == "all":
-            eps = SUPPORTED_EPS
+            eps = list(SUPPORTED_EPS)
         else:
             # ep is a specific EP or alias
             eps = [normalize_ep_name(ep)]
 
-        execution_pairs = [
-            (candidate_ep, candidate_device)
-            for candidate_ep in eps
-            for candidate_device in devices
-            if candidate_ep in EP_SUPPORTED_DEVICES
-            and candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
-        ]
+        # Build with a for-loop rather than a single nested comprehension so
+        # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
+        # narrowing carries through to the appended tuple's type (EPName,
+        # not str). The inner generator stays a comprehension to satisfy
+        # ruff PERF401.
+        execution_pairs: list[tuple[EPName, str]] = []
+        for candidate_ep in eps:
+            if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
+                continue
+            execution_pairs.extend(
+                (candidate_ep, candidate_device)
+                for candidate_device in devices
+                if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+            )
         execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
         local_pairs = set(_get_local_ep_device_pairs())
@@ -943,7 +961,7 @@ def analyze(
                 live.stop()
                 live = None
 
-        def on_ep_start(ep_name, operator_counts):
+        def on_ep_start(ep_name: EPName, operator_counts: dict[str, int]) -> None:
             """Called when analysis starts for a new EP."""
             nonlocal current_ep_device_pair
             nonlocal instance_counts, all_op_counts, ep_counter, live
@@ -1023,7 +1041,7 @@ def analyze(
             )
             live.start()
 
-        def on_node_result(pattern_runtime):
+        def on_node_result(pattern_runtime: PatternRuntime) -> None:
             """Callback invoked per-node during analysis."""
             op = _display_name(pattern_runtime.pattern_id)
             level = pattern_runtime.result.classification.value

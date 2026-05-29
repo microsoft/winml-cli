@@ -20,6 +20,7 @@ from ..utils.eval_utils import TASK_SCHEMAS, TaskSchema
 
 
 if TYPE_CHECKING:
+    from ..eval import EvalResult, WinMLEvaluationConfig
     from ..utils.constants import EPNameOrAlias
 
 
@@ -234,7 +235,7 @@ def _build_eval_config(
     config_file: Path | None,
     column: tuple[str, ...],
     label_mapping: Path | None,
-) -> object:
+) -> WinMLEvaluationConfig:
     """Build a WinMLEvaluationConfig with precedence: defaults ← config file ← CLI.
 
     Reads raw JSON for config-file values so only explicitly-present keys
@@ -244,24 +245,12 @@ def _build_eval_config(
     from ..eval import DatasetConfig, WinMLEvaluationConfig
     from ..utils.config_utils import merge_config
 
-    # Initialize config object from CLI ctx params.
-    p = ctx.params
-    cfg = WinMLEvaluationConfig(
-        task=p.get("task"),
-        device=p.get("device"),
-        precision=p.get("precision"),
-        ep=p.get("ep"),
-        output_path=p.get("output"),
-        dataset=DatasetConfig(
-            path=p.get("dataset_path"),
-            name=p.get("dataset_name"),
-            split=p.get("split"),
-            samples=p.get("samples"),
-            shuffle=p.get("shuffle"),
-            streaming=p.get("streaming"),
-            build_script=p.get("dataset_script"),
-        ),
-    )
+    # Initialize config object from CLI ctx params. ``collect_cli_overrides``
+    # filters to user-provided values and applies the cli_name → field_name
+    # renames declared on the dataclass fields (e.g. output → output_path).
+    eval_kwargs = cli_utils.collect_cli_overrides(ctx, WinMLEvaluationConfig)
+    dataset_kwargs = cli_utils.collect_cli_overrides(ctx, DatasetConfig)
+    cfg = WinMLEvaluationConfig(dataset=DatasetConfig(**dataset_kwargs), **eval_kwargs)
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
@@ -312,7 +301,7 @@ def _build_eval_config(
 
 
 def _resolve_model(
-    cfg: object,
+    cfg: WinMLEvaluationConfig,
     model: tuple[str, ...],
     model_id: str | None,
 ) -> None:
@@ -322,7 +311,7 @@ def _resolve_model(
     cfg.model_id = resolved_id
 
 
-def _resolve_device(cfg: object) -> None:
+def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     """Resolve ``'auto'`` → concrete device string on *cfg* in place."""
     if cfg.device and cfg.device.lower() != "auto":
         return
@@ -336,14 +325,14 @@ def _resolve_device(cfg: object) -> None:
     console.print(f"[dim]Using device:[/dim] {resolved}")
 
 
-def _resolve_label_mapping(cfg: object) -> None:
+def _resolve_label_mapping(cfg: WinMLEvaluationConfig) -> None:
     """Load label-mapping JSON file (if any) into ``cfg.dataset.label_mapping``."""
     if cfg.dataset.label_mapping_file:
         with Path(cfg.dataset.label_mapping_file).open() as f:
             cfg.dataset.label_mapping = json.load(f)
 
 
-def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
+def _run_dataset_script(cfg: WinMLEvaluationConfig, trust_remote_code: bool) -> None:
     """Run the dataset build script referenced by *cfg*, if any.
 
     The script is invoked with ``--output <dataset.path>`` so the built
@@ -384,7 +373,7 @@ def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
         )
 
 
-def _write_and_display(result: object, output_path: Path | None) -> None:
+def _write_and_display(result: EvalResult, output_path: Path | None) -> None:
     """Display evaluation results and optionally save to JSON."""
     console = Console()
     display_eval_report(result, console)
@@ -485,7 +474,7 @@ def _json_default(obj: object) -> object:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-def display_eval_report(result: object, console: object) -> None:
+def display_eval_report(result: EvalResult, console: Console) -> None:
     """Display evaluation results in formatted console output."""
     from rich.panel import Panel
     from rich.table import Table

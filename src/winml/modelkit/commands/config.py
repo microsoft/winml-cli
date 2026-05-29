@@ -278,6 +278,8 @@ def config(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
             )
+        config_obj: WinMLBuildConfig | None = None
+        output_data: dict[str, Any] | list[Any]
         if hf_model and cli_utils.is_onnx_file_path(hf_model):
             config_obj = generate_onnx_build_config(
                 hf_model,
@@ -326,26 +328,23 @@ def config(
                 )
                 return
 
-            # Generate config(s) - returns single or list based on module parameter
-            result = generate_hf_build_config(
-                model_id=hf_model,
-                task=task,
-                model_class=model_class,
-                model_type=model_type,
-                module=module,
-                override=override,
-                shape_config=shape_config,
-                library_name=library_name,
-                device=device,
-                precision=precision,
-                trust_remote_code=trust_remote_code,
-                ep=ep,
-            )
-
-            # Handle output format
+            # Generate config(s) - module parameter selects overload:
+            # module=str → list[WinMLBuildConfig], module=None → WinMLBuildConfig.
             if module:
-                # Module mode: result is list[WinMLBuildConfig]
-                configs = result
+                configs = generate_hf_build_config(
+                    model_id=hf_model,
+                    task=task,
+                    model_class=model_class,
+                    model_type=model_type,
+                    module=module,
+                    override=override,
+                    shape_config=shape_config,
+                    library_name=library_name,
+                    device=device,
+                    precision=precision,
+                    trust_remote_code=trust_remote_code,
+                    ep=ep,
+                )
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
                 output_data = [cfg.to_dict() for cfg in configs]
@@ -353,8 +352,19 @@ def config(
                 # Use first config for display metadata
                 config_obj = configs[0] if configs else None
             else:
-                # Normal mode: result is WinMLBuildConfig
-                config_obj = result
+                config_obj = generate_hf_build_config(
+                    model_id=hf_model,
+                    task=task,
+                    model_class=model_class,
+                    model_type=model_type,
+                    override=override,
+                    shape_config=shape_config,
+                    library_name=library_name,
+                    device=device,
+                    precision=precision,
+                    trust_remote_code=trust_remote_code,
+                    ep=ep,
+                )
                 configs = []
                 _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
                 output_data = config_obj.to_dict()

@@ -162,31 +162,32 @@ def _run_analyze_loop(
             )
             analyze_iterations += 1
 
-            if not analysis.autoconf:
+            optim_config = analysis.optimization_config
+            if not optim_config:
                 break
 
             logger.info(
                 "Autoconf iteration %d: discovered %s",
                 _iteration + 1,
-                analysis.optimization_config.to_dict(),
+                optim_config.to_dict(),
             )
 
             # Notify: patterns discovered
             if on_patterns_discovered is not None:
-                on_patterns_discovered(analysis.optimization_config)
+                on_patterns_discovered(optim_config)
 
             # Notify: re-optimizing with discovered flags
             if on_reoptimize is not None:
-                on_reoptimize(analysis.optimization_config)
+                on_reoptimize(optim_config)
 
             # Re-optimize with ONLY the autoconf flags (not merged with original)
             optimize_onnx(
                 model=iter_model,
                 output=iter_model,
                 **kwargs,
-                **analysis.optimization_config,
+                **optim_config,
             )
-            discovered_optim.update(analysis.optimization_config)
+            discovered_optim.update(optim_config)
         else:
             logger.warning(
                 "Autoconf did not converge after %d iteration(s)",
@@ -214,10 +215,11 @@ def _run_analyze_loop(
         config.optim.update(discovered_optim)
         logger.info("  [autoconf] final config: %s", discovered_optim)
 
-    if analysis.autoconf:
+    final_optim_config = analysis.optimization_config if analysis else None
+    if final_optim_config:
         logger.warning(
             "Analysis still has autoconf suggestions: %s",
-            analysis.optimization_config.to_dict(),
+            final_optim_config.to_dict(),
         )
 
     if analysis is not None and analysis.has_errors:
