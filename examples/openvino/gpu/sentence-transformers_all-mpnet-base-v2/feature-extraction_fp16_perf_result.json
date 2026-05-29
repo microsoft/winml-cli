@@ -1,0 +1,61 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "sentence-transformers/all-mpnet-base-v2",
+                           "task":  "feature-extraction",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "fp16",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T17:09:39.179256+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "last_hidden_state"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512,
+                                                 768
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  12.47,
+                       "min":  12.26,
+                       "max":  12.72,
+                       "p50":  12.48,
+                       "p90":  12.72,
+                       "p95":  12.72,
+                       "p99":  12.72,
+                       "std":  0.15,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  80.18,
+                       "batches_per_sec":  80.18
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

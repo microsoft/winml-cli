@@ -1,0 +1,32 @@
+it/s]
+ 86%|████████▋ | 195/226 [00:02<00:00, 148.29it/s]
+ 97%|█████████▋| 219/226 [00:02<00:00, 148.27it/s]
+100%|██████████| 226/226 [00:02<00:00, 82.10it/s] 
+[2026-05-27T17:13:34] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/202 [00:00<?, ?it/s]
+  0%|          | 1/202 [00:01<04:57,  1.48s/it]
+ 18%|█▊        | 36/202 [00:01<00:05, 29.49it/s]
+ 26%|██▌       | 52/202 [00:01<00:03, 42.76it/s]
+ 35%|███▌      | 71/202 [00:01<00:02, 57.30it/s]
+ 49%|████▊     | 98/202 [00:02<00:01, 83.68it/s]
+ 56%|█████▌    | 113/202 [00:02<00:00, 92.85it/s]
+ 64%|██████▍   | 129/202 [00:02<00:00, 105.16it/s]
+ 72%|███████▏  | 145/202 [00:02<00:00, 115.50it/s]
+ 81%|████████  | 164/202 [00:02<00:00, 114.90it/s]
+ 95%|█████████▍| 191/202 [00:02<00:00, 137.00it/s]
+100%|██████████| 202/202 [00:02<00:00, 72.80it/s] 
+[2026-05-27T17:13:37] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
+Generating train split: 100%|██████████| 3668/3668 [00:00<00:00, 112530.41 examples/s]
+
+Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 408/408 [00:00<00:00, 26925.48 examples/s]
+
+Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 1725/1725 [00:00<00:00, 76228.74 examples/s]
+
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Error: Evaluation failed: Dataset 'nyu-mll/glue' is not compatible with task 'text-classification': label alignment failed for dataset 'nyu-mll/glue': 'equivalent'. Use --dataset to specify a different dataset, or run 'winml eval --schema --task text-classification' to see the expected schema.

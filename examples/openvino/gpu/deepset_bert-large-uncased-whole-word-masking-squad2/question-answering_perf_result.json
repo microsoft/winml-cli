@@ -1,0 +1,71 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "deepset/bert-large-uncased-whole-word-masking-squad2",
+                           "task":  "question-answering",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T11:57:07.014015+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask",
+                                           "token_type_ids"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "start_logits",
+                                            "end_logits"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512
+                                             ],
+                                             [
+                                                 1,
+                                                 512
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  33.2,
+                       "min":  32.28,
+                       "max":  35.51,
+                       "p50":  33.21,
+                       "p90":  35.51,
+                       "p95":  35.51,
+                       "p99":  35.51,
+                       "std":  0.89,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  30.12,
+                       "batches_per_sec":  30.12
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

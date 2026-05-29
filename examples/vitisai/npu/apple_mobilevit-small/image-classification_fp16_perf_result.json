@@ -1,0 +1,54 @@
+{
+  "benchmark_info": {
+    "model_id": "apple/mobilevit-small",
+    "task": "image-classification",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T12:39:57.904028+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        256,
+        256
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        1000
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 25.48,
+    "min": 24.13,
+    "max": 28.08,
+    "p50": 25.34,
+    "p90": 28.08,
+    "p95": 28.08,
+    "p99": 28.08,
+    "std": 0.97,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 39.25,
+    "batches_per_sec": 39.25
+  },
+  "raw_samples_ms": []
+}

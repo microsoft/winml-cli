@@ -1,0 +1,54 @@
+{
+  "benchmark_info": {
+    "model_id": "AdamCodd/vit-base-nsfw-detector",
+    "task": "image-classification",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T08:28:35.107379+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        384,
+        384
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        2
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 267.04,
+    "min": 255.92,
+    "max": 292.0,
+    "p50": 260.06,
+    "p90": 292.0,
+    "p95": 292.0,
+    "p99": 292.0,
+    "std": 12.6,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 3.74,
+    "batches_per_sec": 3.74
+  },
+  "raw_samples_ms": []
+}

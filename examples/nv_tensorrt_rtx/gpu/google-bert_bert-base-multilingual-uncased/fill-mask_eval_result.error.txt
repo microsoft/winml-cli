@@ -1,0 +1,1 @@
+Error: Evaluation failed: Failed to load model 'google-bert/bert-base-multilingual-uncased'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task fill-mask' to see supported role=path model options.

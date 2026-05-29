@@ -1,0 +1,51 @@
+{
+  "benchmark_info": {
+    "model_id": "dslim/bert-base-NER",
+    "task": "token-classification",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T16:38:29.189758+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        9
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 3.29,
+    "min": 3.28,
+    "max": 3.3,
+    "p50": 3.29,
+    "p90": 3.3,
+    "p95": 3.3,
+    "p99": 3.3,
+    "std": 0.01
+  },
+  "throughput": {
+    "samples_per_sec": 304.27,
+    "batches_per_sec": 304.27
+  }
+}

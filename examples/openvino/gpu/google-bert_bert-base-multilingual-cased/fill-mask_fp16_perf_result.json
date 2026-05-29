@@ -1,0 +1,65 @@
+{
+  "benchmark_info": {
+    "model_id": "google-bert/bert-base-multilingual-cased",
+    "task": "fill-mask",
+    "device": "gpu",
+    "ep": "OpenVINOExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-20T12:51:52.087813+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask",
+      "token_type_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        119547
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 32.69,
+    "min": 30.69,
+    "max": 34.27,
+    "p50": 32.86,
+    "p90": 34.27,
+    "p95": 34.27,
+    "p99": 34.27,
+    "std": 0.94,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 30.59,
+    "batches_per_sec": 30.59
+  },
+  "raw_samples_ms": []
+}

@@ -1,0 +1,22 @@
+{
+  "model_id": "BAAI/bge-base-en-v1.5",
+  "task": "feature-extraction",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\BAAI_bge-base-en-v1.5\\feature-extraction_fp16_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 89.0097
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "benchmark_info": {
+    "model_id": "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad",
+    "task": "question-answering",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T05:59:26.020868+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "start_logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 802.82,
+    "min": 784.35,
+    "max": 812.61,
+    "p50": 807.81,
+    "p90": 812.61,
+    "p95": 812.61,
+    "p99": 812.61,
+    "std": 9.33
+  },
+  "throughput": {
+    "samples_per_sec": 1.25,
+    "batches_per_sec": 1.25
+  }
+}

@@ -1,0 +1,26 @@
+low https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/442 [00:00<?, ?it/s]
+ 16%|█▌        | 71/442 [00:00<00:00, 636.69it/s]
+ 31%|███       | 135/442 [00:00<00:00, 553.98it/s]
+ 44%|████▍     | 196/442 [00:00<00:00, 551.17it/s]
+ 58%|█████▊    | 257/442 [00:00<00:00, 549.22it/s]
+ 73%|███████▎  | 324/442 [00:00<00:00, 567.32it/s]
+ 86%|████████▌ | 381/442 [00:00<00:00, 548.21it/s]
+ 99%|█████████▊| 436/442 [00:00<00:00, 530.84it/s]
+100%|██████████| 442/442 [00:00<00:00, 544.17it/s]
+[2026-05-28T07:33:47] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/395 [00:00<?, ?it/s]
+ 11%|█▏        | 45/395 [00:00<00:00, 434.19it/s]
+ 23%|██▎       | 89/395 [00:00<00:00, 431.91it/s]
+ 35%|███▍      | 137/395 [00:00<00:00, 431.18it/s]
+ 47%|████▋     | 185/395 [00:00<00:00, 447.21it/s]
+ 58%|█████▊    | 231/395 [00:00<00:00, 449.05it/s]
+ 70%|██████▉   | 276/395 [00:00<00:00, 439.67it/s]
+ 84%|████████▎ | 330/395 [00:00<00:00, 468.05it/s]
+ 97%|█████████▋| 385/395 [00:00<00:00, 476.62it/s]
+100%|██████████| 395/395 [00:00<00:00, 456.02it/s]
+[2026-05-28T07:33:48] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-28T07:33:50] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' (name=None, split='validation'): Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_indonlu_posp.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.

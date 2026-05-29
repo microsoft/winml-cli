@@ -1,0 +1,69 @@
+{
+  "benchmark_info": {
+    "model_id": "ahotrod/electra_large_discriminator_squad2_512",
+    "task": "question-answering",
+    "device": "npu",
+    "ep": "OpenVINOExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-22T07:43:47.455999+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask",
+      "token_type_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "start_logits",
+      "end_logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 358.3,
+    "min": 354.88,
+    "max": 361.75,
+    "p50": 359.07,
+    "p90": 361.75,
+    "p95": 361.75,
+    "p99": 361.75,
+    "std": 2.32,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 2.79,
+    "batches_per_sec": 2.79
+  },
+  "raw_samples_ms": []
+}

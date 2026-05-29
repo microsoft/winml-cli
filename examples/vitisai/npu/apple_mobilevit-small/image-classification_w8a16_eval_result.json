@@ -1,0 +1,20 @@
+{
+  "model_id": "apple/mobilevit-small",
+  "task": "image-classification",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\vitisai\\npu\\apple_mobilevit-small\\image-classification_w8a16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.01,
+    "total_time_in_seconds": 4.992785900001763,
+    "samples_per_second": 20.028898094741994,
+    "latency_in_seconds": 0.04992785900001763
+  }
+}

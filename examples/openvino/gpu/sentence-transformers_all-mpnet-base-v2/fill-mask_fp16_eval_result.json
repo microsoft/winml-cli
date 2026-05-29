@@ -1,0 +1,23 @@
+{
+  "model_id": "sentence-transformers/all-mpnet-base-v2",
+  "task": "fill-mask",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Salesforce/wikitext",
+    "name": "wikitext-2-raw-v1",
+    "columns_mapping": {
+      "input_column": "text"
+    },
+    "streaming": true
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_fp16_eval_result.json",
+  "metrics": {
+    "pseudo_perplexity": 397757.1048,
+    "nll": 12.8936
+  }
+}

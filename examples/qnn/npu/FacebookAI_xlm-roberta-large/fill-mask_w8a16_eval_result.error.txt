@@ -1,0 +1,33 @@
+you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+[2026-05-26T11:59:41] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/870 [00:00<?, ?it/s]
+ 13%|█▎        | 114/870 [00:00<00:00, 1127.31it/s]
+ 27%|██▋       | 231/870 [00:00<00:00, 1140.29it/s]
+ 40%|████      | 352/870 [00:00<00:00, 1170.29it/s]
+ 54%|█████▍    | 473/870 [00:00<00:00, 1183.65it/s]
+ 68%|██████▊   | 594/870 [00:00<00:00, 1188.74it/s]
+ 82%|████████▏ | 713/870 [00:00<00:00, 1183.59it/s]
+ 96%|█████████▌| 832/870 [00:00<00:00, 1163.65it/s]
+100%|██████████| 870/870 [00:00<00:00, 1069.97it/s]
+[2026-05-26T12:00:41] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/772 [00:00<?, ?it/s]
+  6%|▋         | 50/772 [00:00<00:01, 494.07it/s]
+ 13%|█▎        | 104/772 [00:00<00:01, 512.90it/s]
+ 20%|██        | 156/772 [00:00<00:01, 502.82it/s]
+ 27%|██▋       | 207/772 [00:00<00:01, 439.35it/s]
+ 33%|███▎      | 252/772 [00:00<00:01, 418.32it/s]
+ 39%|███▉      | 301/772 [00:00<00:01, 438.50it/s]
+ 46%|████▋     | 358/772 [00:00<00:00, 462.12it/s]
+ 52%|█████▏    | 405/772 [00:00<00:00, 434.61it/s]
+ 58%|█████▊    | 449/772 [00:01<00:00, 381.23it/s]
+ 65%|██████▍   | 500/772 [00:01<00:00, 411.86it/s]
+ 70%|███████   | 543/772 [00:01<00:00, 410.89it/s]
+ 76%|███████▌  | 585/772 [00:01<00:00, 390.85it/s]
+ 81%|████████  | 625/772 [00:01<00:00, 384.67it/s]
+ 86%|████████▌ | 664/772 [00:01<00:00, 373.57it/s]
+ 91%|█████████ | 702/772 [00:01<00:00, 368.82it/s]
+ 96%|█████████▌| 740/772 [00:01<00:00, 370.67it/s]
+100%|██████████| 772/772 [00:02<00:00, 375.94it/s]
+[2026-05-26T12:00:44] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.

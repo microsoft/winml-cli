@@ -1,0 +1,69 @@
+{
+  "benchmark_info": {
+    "model_id": "monologg/koelectra-small-v2-distilled-korquad-384",
+    "task": "question-answering",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T21:18:23.453021+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask",
+      "token_type_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "start_logits",
+      "end_logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 1.13,
+    "min": 1.12,
+    "max": 1.15,
+    "p50": 1.13,
+    "p90": 1.15,
+    "p95": 1.15,
+    "p99": 1.15,
+    "std": 0.01,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 886.49,
+    "batches_per_sec": 886.49
+  },
+  "raw_samples_ms": []
+}

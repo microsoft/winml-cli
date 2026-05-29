@@ -1,0 +1,2 @@
+[0;93m2026-05-22 22:16:39.0093606 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
+Error: Evaluation failed: Task 'unknown' is not supported. Supported tasks: feature-extraction, fill-mask, image-classification, image-feature-extraction, image-segmentation, image-to-text, next-sentence-prediction, object-detection, question-answering, sentence-similarity, sequence-classification, text-classification, token-classification, zero-shot-classification, zero-shot-image-classification.

@@ -1,0 +1,27 @@
+{
+  "model_id": "monologg/koelectra-small-v2-distilled-korquad-384",
+  "task": "question-answering",
+  "device": "cpu",
+  "ep": "cpu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "KorQuAD/squad_kor_v1",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_fp16_eval_result.json",
+  "metrics": {
+    "exact_match": 34.0,
+    "f1": 50.21666666666667,
+    "total_time_in_seconds": 6.1934484001249075,
+    "samples_per_second": 16.146093991512586,
+    "latency_in_seconds": 0.06193448400124907
+  }
+}

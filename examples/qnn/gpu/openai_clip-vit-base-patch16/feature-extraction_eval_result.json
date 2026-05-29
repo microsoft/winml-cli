@@ -1,0 +1,22 @@
+{
+  "model_id": "openai/clip-vit-base-patch16",
+  "task": "feature-extraction",
+  "device": "gpu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "D:\\ModelKit_Public\\worker3\\WinML-ModelKit\\examples\\qnn\\gpu\\openai_clip-vit-base-patch16\\feature-extraction_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 68.3323
+  }
+}

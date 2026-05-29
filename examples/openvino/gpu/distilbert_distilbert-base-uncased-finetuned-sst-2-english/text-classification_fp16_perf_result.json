@@ -1,0 +1,58 @@
+{
+  "benchmark_info": {
+    "model_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+    "task": "text-classification",
+    "device": "gpu",
+    "ep": "OpenVINOExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-20T12:09:26.853874+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        2
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 5.84,
+    "min": 5.61,
+    "max": 6.37,
+    "p50": 5.81,
+    "p90": 6.37,
+    "p95": 6.37,
+    "p99": 6.37,
+    "std": 0.26,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 171.35,
+    "batches_per_sec": 171.35
+  },
+  "raw_samples_ms": []
+}

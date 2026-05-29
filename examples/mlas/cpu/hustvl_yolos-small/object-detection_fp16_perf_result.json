@@ -1,0 +1,61 @@
+{
+  "benchmark_info": {
+    "model_id": "hustvl/yolos-small",
+    "task": "object-detection",
+    "device": "cpu",
+    "ep": "CPUExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T07:38:30.774690+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        512,
+        864
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits",
+      "pred_boxes"
+    ],
+    "output_shapes": [
+      [
+        1,
+        100,
+        92
+      ],
+      [
+        1,
+        100,
+        4
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 431.6,
+    "min": 414.35,
+    "max": 441.92,
+    "p50": 433.76,
+    "p90": 441.92,
+    "p95": 441.92,
+    "p99": 441.92,
+    "std": 8.19,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 2.32,
+    "batches_per_sec": 2.32
+  },
+  "raw_samples_ms": []
+}

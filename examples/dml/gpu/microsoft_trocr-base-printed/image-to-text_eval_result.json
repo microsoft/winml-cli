@@ -1,0 +1,23 @@
+{
+  "model_id": "microsoft/trocr-base-printed",
+  "task": "image-to-text",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "test",
+    "samples": 500,
+    "shuffle": true,
+    "seed": 42,
+    "path": "priyank-m/SROIE_2019_text_recognition",
+    "columns_mapping": {
+      "input_column": "image",
+      "label_column": "text"
+    }
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\microsoft_trocr-base-printed\\image-to-text_eval_result.json",
+  "metrics": {
+    "cer": 0.0113,
+    "cider": 4.4286,
+    "n_samples": 500
+  }
+}

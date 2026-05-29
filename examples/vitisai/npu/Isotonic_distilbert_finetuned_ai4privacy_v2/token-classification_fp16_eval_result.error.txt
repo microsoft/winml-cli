@@ -1,0 +1,18 @@
+bled - custom Python from the model repository
+will be downloaded and executed. Proceed only if you trust the publisher.
+[2026-05-27T13:38:25] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/222 [00:00<?, ?it/s]
+ 32%|███▏      | 72/222 [00:00<00:00, 648.31it/s]
+ 71%|███████   | 157/222 [00:00<00:00, 717.93it/s]
+100%|██████████| 222/222 [00:00<00:00, 666.01it/s]
+[2026-05-27T13:38:30] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/199 [00:00<?, ?it/s]
+ 46%|████▌     | 91/199 [00:00<00:00, 820.94it/s]
+ 87%|████████▋ | 174/199 [00:00<00:00, 779.94it/s]
+100%|██████████| 199/199 [00:00<00:00, 690.53it/s]
+[2026-05-27T13:38:30] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-27T13:38:32] WARNING: Task 'token-classification' not in supported tasks ['image-classification', 'image-feature-extraction', 'object-detection', 'text-classification', 'text-feature-extraction', 'feature-extraction', 'sentence-similarity', 'next-sentence-prediction', 'fill-mask', 'zero-shot-classification', 'image-segmentation', 'random'], falling back to RandomDataset
+[2026-05-27T13:38:50] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_ai4privacy' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_ai4privacy' (name=None, split='validation'): Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_ai4privacy.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.

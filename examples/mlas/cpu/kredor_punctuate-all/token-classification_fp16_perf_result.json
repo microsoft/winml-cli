@@ -1,0 +1,59 @@
+{
+  "benchmark_info": {
+    "model_id": "kredor/punctuate-all",
+    "task": "token-classification",
+    "device": "cpu",
+    "ep": "CPUExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T07:57:50.914682+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        6
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 211.32,
+    "min": 202.3,
+    "max": 219.64,
+    "p50": 211.82,
+    "p90": 219.64,
+    "p95": 219.64,
+    "p99": 219.64,
+    "std": 4.05,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 4.73,
+    "batches_per_sec": 4.73
+  },
+  "raw_samples_ms": []
+}

@@ -1,0 +1,2 @@
+[2026-05-27T18:00:36] WARNING: --dataset not specified; attempting default dataset 'nyu-mll/glue' for task 'text-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+Error: Evaluation failed: Failed to load model 'cross-encoder/ms-marco-MiniLM-L4-v2'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task text-classification' to see supported role=path model options.

@@ -1,0 +1,39 @@
+{
+  "model_id": "hustvl/yolos-small",
+  "task": "object-detection",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "val",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "detection-datasets/coco",
+    "columns_mapping": {
+      "annotation_column": "objects",
+      "bbox_key": "bbox",
+      "category_key": "category",
+      "box_format": "xyxy"
+    }
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\hustvl_yolos-small\\object-detection_fp16_eval_result.json",
+  "metrics": {
+    "map": 0.4050551950931549,
+    "map_50": 0.6074596643447876,
+    "map_75": 0.4325888752937317,
+    "num_predictions": 10000,
+    "num_ground_truths": 752,
+    "num_images": 100,
+    "map_small": 0.19443805515766144,
+    "map_medium": 0.34675851464271545,
+    "map_large": 0.6419973969459534,
+    "mar_1": 0.3321073055267334,
+    "mar_10": 0.5090323090553284,
+    "mar_100": 0.547299861907959,
+    "mar_small": 0.2565445601940155,
+    "mar_medium": 0.48433417081832886,
+    "mar_large": 0.7530238628387451,
+    "map_per_class": -1.0,
+    "mar_100_per_class": -1.0
+  }
+}

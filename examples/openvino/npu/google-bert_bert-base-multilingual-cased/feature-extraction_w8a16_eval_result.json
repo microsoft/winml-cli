@@ -1,0 +1,22 @@
+{
+  "model_id": "google-bert/bert-base-multilingual-cased",
+  "task": "feature-extraction",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\google-bert_bert-base-multilingual-cased\\feature-extraction_w8a16_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 45.1228
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "model_id": "mattmdjaga/segformer_b2_clothes",
+  "task": "image-segmentation",
+  "device": "gpu",
+  "dataset": {
+    "split": "train",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mattmdjaga/human_parsing_dataset",
+    "columns_mapping": {
+      "annotation_column": "mask"
+    }
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_eval_result.json",
+  "metrics": {
+    "mean_iou": 0.7031619548797607,
+    "overall_accuracy": 0.9638509750366211,
+    "per_category_iou": [
+      0.9859466552734375,
+      0.6910890340805054,
+      0.817861795425415,
+      0.6384704113006592,
+      0.8008466958999634,
+      0.6768499612808228,
+      0.8602895736694336,
+      0.5890228152275085,
+      0.31249454617500305,
+      0.5916367173194885,
+      0.6199252009391785,
+      0.8479663729667664,
+      0.8101614117622375,
+      0.8083734512329102,
+      0.742206871509552,
+      0.7371981143951416,
+      0.8306722640991211,
+      0.29590365290641785
+    ]
+  }
+}

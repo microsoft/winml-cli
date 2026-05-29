@@ -1,0 +1,54 @@
+{
+  "benchmark_info": {
+    "model_id": "Falconsai/nsfw_image_detection",
+    "task": "image-classification",
+    "device": "cpu",
+    "ep": "OpenVINOExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T06:06:44.110804+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        224,
+        224
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        2
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 85.97,
+    "min": 83.63,
+    "max": 90.8,
+    "p50": 86.13,
+    "p90": 90.8,
+    "p95": 90.8,
+    "p99": 90.8,
+    "std": 2.14,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 11.63,
+    "batches_per_sec": 11.63
+  },
+  "raw_samples_ms": []
+}

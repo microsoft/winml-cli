@@ -1,0 +1,63 @@
+{
+  "benchmark_info": {
+    "model_id": "openai/clip-vit-large-patch14-336",
+    "task": "zero-shot-image-classification",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T10:40:50.307116+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values",
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        336,
+        336
+      ],
+      [
+        1,
+        77
+      ]
+    ],
+    "input_types": [
+      "float32",
+      "int32"
+    ],
+    "output_names": [
+      "image_embeds",
+      "text_embeds"
+    ],
+    "output_shapes": [
+      [
+        1,
+        768
+      ],
+      [
+        1,
+        768
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 782.97,
+    "min": 770.75,
+    "max": 798.91,
+    "p50": 782.37,
+    "p90": 798.91,
+    "p95": 798.91,
+    "p99": 798.91,
+    "std": 8.0
+  },
+  "throughput": {
+    "samples_per_sec": 1.28,
+    "batches_per_sec": 1.28
+  }
+}

@@ -1,0 +1,33 @@
+k 'token-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+[2026-05-27T17:43:02] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/442 [00:00<?, ?it/s]
+ 28%|██▊       | 124/442 [00:00<00:00, 1114.62it/s]
+ 53%|█████▎    | 236/442 [00:00<00:00, 966.36it/s] 
+ 83%|████████▎ | 368/442 [00:00<00:00, 1091.48it/s]
+100%|██████████| 442/442 [00:00<00:00, 1110.23it/s]
+[2026-05-27T17:43:19] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/395 [00:00<?, ?it/s]
+ 29%|██▉       | 115/395 [00:00<00:00, 1095.32it/s]
+ 63%|██████▎   | 249/395 [00:00<00:00, 1157.99it/s]
+ 98%|█████████▊| 389/395 [00:00<00:00, 1200.24it/s]
+100%|██████████| 395/395 [00:00<00:00, 1201.30it/s]
+[2026-05-27T17:43:19] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-27T17:43:22] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+
+Generating train split:   0%|          | 0/14041 [00:00<?, ? examples/s]
+Generating train split: 100%|██████████| 14041/14041 [00:00<00:00, 473265.58 examples/s]
+
+Generating validation split:   0%|          | 0/3250 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 3250/3250 [00:00<00:00, 48819.88 examples/s]
+
+Generating test split:   0%|          | 0/3453 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 3453/3453 [00:00<00:00, 136750.12 examples/s]
+
+Map:   0%|          | 0/100 [00:00<?, ? examples/s]
+Map: 100%|██████████| 100/100 [00:00<00:00, 1435.59 examples/s]
+
+Downloading builder script: 0.00B [00:00, ?B/s]
+Downloading builder script: 6.34kB [00:00, ?B/s]
+Error: Evaluation failed: list index out of range
