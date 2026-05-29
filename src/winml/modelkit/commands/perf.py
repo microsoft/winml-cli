@@ -1191,7 +1191,7 @@ def _run_onnx_benchmark(
     hidden=True,  # Not ready, so hide from --help for now
 )
 @cli_utils.build_config_option()
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context
 def perf(
     ctx: click.Context,

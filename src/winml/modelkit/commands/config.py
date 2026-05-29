@@ -144,7 +144,7 @@ def _is_onnx_file(model_input: str) -> bool:
     help="Exclude compilation from generated config (sets compile=None). Default: exclude.",
 )
 @cli_utils.trust_remote_code_option()
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context
 def config(
     ctx: click.Context,

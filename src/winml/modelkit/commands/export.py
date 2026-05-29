@@ -123,7 +123,7 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
 @cli_utils.build_config_option()
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context
 def export(
     ctx: click.Context,

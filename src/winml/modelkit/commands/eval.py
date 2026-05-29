@@ -135,7 +135,7 @@ logger = logging.getLogger(__name__)
     help="Print expected dataset schema for the given --task and exit.",
 )
 @cli_utils.build_config_option()
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context
 def eval(
     ctx: click.Context,

@@ -313,7 +313,7 @@ def _build_modules(
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context
 def build(
     ctx: click.Context,

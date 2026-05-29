@@ -179,7 +179,7 @@ def capability_options(func: Callable) -> Callable:
     help="Configuration file (YAML/JSON)",
 )
 @capability_options
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context
 def optimize(
     ctx: click.Context,

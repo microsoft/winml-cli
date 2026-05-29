@@ -648,7 +648,7 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
         "all = all rule-data-backed devices; auto = infer from local availability"
     ),
 )
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @cli_utils.build_config_option()
 @cli_utils.output_option("Save JSON output to file")
 @click.option(

@@ -110,7 +110,7 @@ def _looks_like_local_path(model_id: str) -> bool:
     default=None,
     help="Override model class (e.g., BertForMaskedLM) — can be used without --model",
 )
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context
 def inspect(
     ctx: click.Context,

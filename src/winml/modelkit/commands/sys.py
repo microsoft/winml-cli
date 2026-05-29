@@ -664,7 +664,7 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
     default=False,
     help="List available execution providers",
 )
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context  # type: ignore[misc]
 def sysinfo(
     ctx: click.Context,

@@ -241,7 +241,7 @@ class LazyGroup(ActionGroup):
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 @click.version_option(version=__version__, prog_name="winml")
-@verbosity_options
+@verbosity_options()
 @click.option(
     "--debug",
     is_flag=True,

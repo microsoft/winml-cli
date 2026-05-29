@@ -101,7 +101,7 @@ console = Console()
     "with --task, enables task-aware calibration datasets using the model's preprocessor.",
 )
 @cli_utils.build_config_option()
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context
 def quantize(
     ctx: click.Context,

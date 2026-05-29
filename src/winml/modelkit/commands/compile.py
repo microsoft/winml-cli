@@ -98,7 +98,7 @@ console = Console()
     help="List available compilers for the selected device and exit",
 )
 @cli_utils.build_config_option()
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @click.pass_context
 def compile(
     ctx: click.Context,

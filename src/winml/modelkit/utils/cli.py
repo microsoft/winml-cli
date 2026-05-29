@@ -182,7 +182,7 @@ def device_option(required=True, optional_message=None, default="NPU", include_a
     )
 
 
-def verbosity_options(f):
+def verbosity_options():
     """Add verbose and quiet logging options to a Click command.
 
     Adds --verbose/-v (stackable: -v, -vv, -vvv) and --quiet/-q flags.
@@ -191,26 +191,26 @@ def verbosity_options(f):
 
     See :mod:`winml.modelkit.utils.logging` for the verbosity convention.
 
-    Args:
-        f: Click command function to decorate
-
     Returns:
-        Decorated function with verbose and quiet options
+        Decorator function adding verbose and quiet options.
     """
-    f = click.option(
-        "--quiet",
-        "-q",
-        is_flag=True,
-        default=False,
-        help="Quiet mode - errors only to stderr",
-    )(f)
-    f = click.option(
-        "--verbose",
-        "-v",
-        count=True,
-        help="Increase verbosity (-v=INFO, -vv=DEBUG)",
-    )(f)
-    return f  # noqa: RET504
+
+    def decorator(f):
+        f = click.option(
+            "--quiet",
+            "-q",
+            is_flag=True,
+            default=False,
+            help="Quiet mode - errors only to stderr",
+        )(f)
+        return click.option(
+            "--verbose",
+            "-v",
+            count=True,
+            help="Increase verbosity (-v=INFO, -vv=DEBUG)",
+        )(f)
+
+    return decorator
 
 
 def resolve_verbosity(ctx: click.Context, verbose: int, quiet: bool) -> tuple[int, bool]:
