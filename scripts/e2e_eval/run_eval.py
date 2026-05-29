@@ -85,12 +85,22 @@ _DEFAULT_PRECISION_NPU = "w8a16"
 # loaded into the EP).  Layering winml's generic QDQ quantizer on top of
 # them noticeably degrades accuracy, so we pass ``--no-quant`` to
 # ``winml build`` and let the EP quantize natively.
-_NATIVE_QUANT_EP_NAMES = frozenset({"vitisai", "vitisaiexecutionprovider"})
+#
+# Entries are canonical ``EPName`` values (the ``*ExecutionProvider`` form);
+# user-facing aliases like ``vitisai`` are normalised via
+# ``normalize_ep_name`` in :func:`_ep_quantizes_natively` so we only have to
+# list each EP once here.
+_NATIVE_QUANT_EPS = frozenset({"VitisAIExecutionProvider"})
 
 
 def _ep_quantizes_natively(ep: str | None) -> bool:
     """True if the EP ships its own internal quantizer."""
-    return (ep or "").lower() in _NATIVE_QUANT_EP_NAMES
+    # Lazy import: keeps ``scripts/e2e_eval`` cheap to load (winml.modelkit
+    # transitively imports onnxruntime) and matches the existing in-function
+    # import pattern used elsewhere in this script.
+    from winml.modelkit.utils.constants import normalize_ep_name
+
+    return normalize_ep_name(ep) in _NATIVE_QUANT_EPS
 
 
 def _resolve_precision(device: str, explicit: str | None, ep: str | None = None) -> str | None:
@@ -423,6 +433,12 @@ def _run_build(
         config_args += ["--task", entry.task]
     if ep:
         config_args += ["--ep", ep]
+    # Native-quant EPs: also pass --no-quant to winml config so the generated
+    # build_config.json is written with quant=None up-front. Otherwise on NPU
+    # the config command would still apply its default precision (w8a16) and
+    # we'd be relying on --no-quant at build time to override it.
+    if _ep_quantizes_natively(ep):
+        config_args += ["--no-quant"]
 
     config_proc = _run_subprocess(config_args, timeout)
     if config_proc["exit_code"] != 0:
@@ -464,8 +480,8 @@ def _run_build(
         if ep:
             build_args += ["--ep", ep]
         # EPs with native quantizers (e.g. VitisAI / AMD Ryzen AI) quantize
-        # internally at session-create time; running winml's generic w8a8
-        # QDQ pass on top noticeably degrades accuracy.  --no-quant tells
+        # internally at session-create time; running winml's generic QDQ
+        # pass on top noticeably degrades accuracy.  --no-quant tells
         # winml build to keep the model fp32 and lets the EP do its own.
         if _ep_quantizes_natively(ep):
             build_args += ["--no-quant"]

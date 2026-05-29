@@ -437,7 +437,7 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(device=device)
-                if resolved_quant is None:
+                if no_quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
