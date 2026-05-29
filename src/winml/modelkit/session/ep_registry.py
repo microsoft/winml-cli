@@ -11,7 +11,7 @@ Windows Machine Learning API (WinML).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
@@ -19,6 +19,68 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+EP_DOWNLOAD_TIMEOUT_SECONDS = 5 * 60
+
+
+def _ensure_provider_ready(provider: Any) -> None:
+    """Ensure an EP is ready, showing a tqdm progress bar when downloading.
+
+    Providers already in the ``Ready`` state take the synchronous fast path so
+    cached EPs do not flash a 0-100% bar. Otherwise drives a tqdm bar from
+    ``ensure_ready_async``'s ``on_progress`` callback (cumulative fraction
+    0.0-1.0, per windowsml docs) and waits for the ``on_complete`` callback
+    via a threading.Event with a ``EP_DOWNLOAD_TIMEOUT_SECONDS`` timeout. On
+    timeout the async op is cancelled and ``TimeoutError`` is raised.
+    """
+    import threading
+
+    from windowsml import EpReadyState
+
+    if provider.ready_state == EpReadyState.Ready:
+        provider.ensure_ready()
+        return
+
+    from tqdm import tqdm
+
+    logger.warning(
+        "Downloading execution provider %r. This may take several minutes "
+        "depending on network speed (timeout: %ds).",
+        provider.name,
+        EP_DOWNLOAD_TIMEOUT_SECONDS,
+    )
+
+    bar = tqdm(
+        total=100,
+        desc=f"Downloading {provider.name}",
+        unit="%",
+        leave=True,
+    )
+    done = threading.Event()
+
+    def _on_progress(fraction: float) -> None:
+        current = max(0, min(100, int(fraction * 100)))
+        delta = current - bar.n
+        if delta > 0:
+            bar.update(delta)
+
+    op = provider.ensure_ready_async(on_complete=done.set, on_progress=_on_progress)
+    try:
+        if not done.wait(timeout=EP_DOWNLOAD_TIMEOUT_SECONDS):
+            op.cancel()
+            raise TimeoutError(
+                f"EP {provider.name!r} download did not complete within "
+                f"{EP_DOWNLOAD_TIMEOUT_SECONDS}s; cancelled."
+            )
+        # Surface any native failure (raises OSError on error).
+        op.get_status()
+    finally:
+        if bar.n < 100:
+            bar.update(100 - bar.n)
+        bar.close()
+        op.close()
+
 
 # Singleton instance
 _winml_ep_registry: WinMLEPRegistry | None = None
@@ -80,9 +142,9 @@ class WinMLEPRegistry:
         with EpCatalog() as catalog:
             for provider in catalog.find_all_providers():
                 try:
-                    provider.ensure_ready()
+                    _ensure_provider_ready(provider)
                 except Exception as e:
-                    logger.debug("Failed to ensure EP %s is ready: %s", provider.name, e)
+                    logger.info("Failed to ensure EP %s is ready: %s", provider.name, e)
                     continue
                 if provider.library_path == "":
                     continue
