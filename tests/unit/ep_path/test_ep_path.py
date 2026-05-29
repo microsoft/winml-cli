@@ -29,10 +29,10 @@ from winml.modelkit.ep_path import (
     NuGetSource,
     PyPiSource,
     WinMlCatalogSource,
+    _get_detected_vendors,
     _parse_modelkit_ep_path,
     _qnn_arch_resolver,
     discover_eps,
-    _get_detected_vendors,
 )
 
 
@@ -493,6 +493,77 @@ class TestDiscoverEps:
 
 
 # ---------------------------------------------------------------------------
+# NuGetSource.
+# ---------------------------------------------------------------------------
+
+
+class TestNuGetSource:
+    """NuGetSource resolves plugin DLLs from the NuGet global-packages cache."""
+
+    def test_nuget_source_resolves_highest_stable_over_prerelease(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """NuGetSource picks the highest stable version, even when prereleases sort later."""
+        import winml.modelkit.ep_path as mod
+
+        root = tmp_path / "packages" / "foo"
+        for ver in ("1.0.0", "1.0.0-rc.10", "1.0.0-rc.2", "0.9.0"):
+            (root / ver / "native").mkdir(parents=True)
+            (root / ver / "native" / "lib.dll").write_bytes(b"")
+
+        monkeypatch.setattr(mod, "_nuget_packages_root", lambda: tmp_path / "packages")
+
+        src = NuGetSource(
+            distribution="Foo",
+            relative_dll="native/lib.dll",
+            eps=("FooExecutionProvider",),
+        )
+        results = list(src.resolve())
+
+        assert len(results) == 1
+        ep_name, path = results[0]
+        assert ep_name == "FooExecutionProvider"
+        assert "1.0.0" in str(path)
+        path_str = str(path)
+        assert "1.0.0-rc" not in path_str and "1.0.0-" not in path_str
+
+    def test_nuget_source_compares_prerelease_with_semver_numeric_ordering(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When only prereleases exist, -rc.10 must beat -rc.2 (numeric, not lex).
+
+        This test exposes the bug in the hand-rolled parser: when sorting
+        prerelease versions by their string suffix, "rc.2" > "rc.10"
+        lexicographically. The SemVer 2.0 spec requires numeric ordering
+        within prerelease identifiers.
+        """
+        import winml.modelkit.ep_path as mod
+
+        root = tmp_path / "packages" / "foo"
+        # Create rc.2 first so it's sorted first by iterdir(). Then the
+        # old code will pick rc.2 (preserved by stable sort on equal keys),
+        # while the new code will pick rc.10 (correct SemVer ordering).
+        for ver in ("1.0.0-rc.2", "1.0.0-rc.10"):
+            (root / ver / "native").mkdir(parents=True)
+            (root / ver / "native" / "lib.dll").write_bytes(b"")
+
+        monkeypatch.setattr(mod, "_nuget_packages_root", lambda: tmp_path / "packages")
+
+        src = NuGetSource(
+            distribution="Foo",
+            relative_dll="native/lib.dll",
+            eps=("FooExecutionProvider",),
+        )
+        results = list(src.resolve())
+
+        assert len(results) == 1
+        _, path = results[0]
+        # The version picked should be rc.10 (semantically newer).
+        path_str = str(path)
+        assert "1.0.0-rc.10" in path_str
+
+
+# ---------------------------------------------------------------------------
 # Vendor detection error handling.
 # ---------------------------------------------------------------------------
 
@@ -502,8 +573,9 @@ class TestGetDetectedVendorsErrorHandling:
 
     def test_raises_on_hardware_import_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When sysinfo.hardware import fails, _get_detected_vendors must raise."""
-        from winml.modelkit import ep_path
         import sys
+
+        from winml.modelkit import ep_path
 
         ep_path._get_detected_vendors.cache_clear()
 

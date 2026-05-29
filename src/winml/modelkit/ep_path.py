@@ -47,6 +47,8 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+from packaging.version import InvalidVersion, Version
+
 
 logger = logging.getLogger(__name__)
 
@@ -191,44 +193,8 @@ def _qnn_arch_resolver(rel_template: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# NuGet semver parsing helpers (used by NuGetSource).
+# NuGet packages root helper (used by NuGetSource).
 # ---------------------------------------------------------------------------
-
-
-def _parse_nuget_version(version: str) -> tuple[tuple[int, ...], bool, str]:
-    """Parse a NuGet/SemVer version string into a sortable key.
-
-    NuGet versions follow SemVer 2 with optional ``-prerelease`` suffix
-    (e.g., ``1.4.0``, ``1.5.0-beta``, ``1.5.0-rc.1``, ``2.1.0-pre.42``).
-    Returns ``(numeric_parts, is_stable, prerelease_suffix)`` where:
-
-    * ``numeric_parts`` is the dot-separated leading digits as a tuple of
-      ints (missing parts default to 0; non-numeric parts are clamped to 0).
-    * ``is_stable`` is True iff there is no ``-`` suffix (a stable release).
-    * ``prerelease_suffix`` is the literal string after ``-`` (empty for
-      stable). Lex order on this suffix is a reasonable approximation for
-      ``-alpha < -beta < -rc`` ordering without parsing the SemVer
-      pre-release identifier grammar in full.
-
-    The returned tuple is suitable as a sort key when paired with
-    ``is_stable`` flipped to put stable above prerelease at the same numeric
-    level. ``NuGetSource.resolve`` uses this directly.
-    """
-    if "-" in version:
-        numeric_part, _, prerelease = version.partition("-")
-        is_stable = False
-    else:
-        numeric_part = version
-        prerelease = ""
-        is_stable = True
-
-    parts: list[int] = []
-    for piece in numeric_part.split("."):
-        try:
-            parts.append(int(piece))
-        except ValueError:
-            parts.append(0)
-    return (tuple(parts), is_stable, prerelease)
 
 
 def _nuget_packages_root() -> Path:
@@ -417,8 +383,8 @@ class NuGetSource(EpSource):
             )
             return
 
-        # Enumerate version subdirs and parse each as a NuGet semver.
-        candidates: list[tuple[tuple[tuple[int, ...], bool, str], Path]] = []
+        # Enumerate version subdirs and parse each as a SemVer version.
+        candidates: list[tuple[Version, Path]] = []
         try:
             entries = list(pkg_dir.iterdir())
         except OSError as e:
@@ -431,13 +397,13 @@ class NuGetSource(EpSource):
             if not entry.is_dir():
                 continue
             try:
-                key = _parse_nuget_version(entry.name)
-            except Exception:  # pragma: no cover — defensive
+                v = Version(entry.name)
+            except InvalidVersion:
                 logger.debug(
-                    "NuGetSource: skipping unparsable version dir %s", entry
+                    "NuGetSource: skipping non-version folder %s", entry.name
                 )
                 continue
-            candidates.append((key, entry))
+            candidates.append((v, entry))
 
         if not candidates:
             logger.debug(
@@ -445,27 +411,18 @@ class NuGetSource(EpSource):
             )
             return
 
-        # Two-pass selection: prefer stable over prerelease regardless of
-        # numeric version. Within each tier sort highest-numeric first.
-        # Without this, a ``1.5.0-beta`` would shadow a ``1.4.0`` stable —
-        # the opposite of what NuGet/SemVer consumers expect.
-        stable = sorted(
-            (c for c in candidates if c[0][1]),
-            key=lambda c: c[0][0],
-            reverse=True,
-        )
-        prerelease = sorted(
-            (c for c in candidates if not c[0][1]),
-            key=lambda c: c[0][0],
-            reverse=True,
-        )
-        ordered = stable + prerelease
+        # Sort by version descending; prefer stable over prerelease when
+        # numeric versions are equal. packaging.Version handles this
+        # correctly per SemVer 2.0.
+        candidates.sort(key=lambda t: t[0], reverse=True)
+        stable = [c for c in candidates if not c[0].is_prerelease]
+        ordered = (stable if stable else candidates)
 
         rel = self.relative_dll
         if self.arch_resolver is not None:
             rel = self.arch_resolver(rel)
 
-        for _key, version_dir in ordered:
+        for _version, version_dir in ordered:
             dll_path = version_dir / rel
             if dll_path.is_file():
                 resolved = dll_path.resolve()

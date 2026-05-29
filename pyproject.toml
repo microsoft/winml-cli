@@ -35,6 +35,7 @@ dependencies = [
   "numpy>=2.2,<2.3",
   "onnx>=1.21,<1.22",
   "onnx-ir>=0.1",
+  "packaging>=24",
   # onnxruntime-windowsml = Microsoft's MSIX-aligned ORT distro. Same
   # `onnxruntime/` Python module as upstream `onnxruntime`, but bundles
   # DirectML EP and tracks the WinML ExecutionProviderCatalog cadence.
