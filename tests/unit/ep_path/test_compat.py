@@ -210,10 +210,12 @@ class TestGetDetectedVendors:
         result = _get_detected_vendors()
         assert result == frozenset({"AMD"})
 
-    def test_get_all_failure_returns_partial(
+    def test_get_all_failure_raises(
         self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # If GPU.get_all raises (WMI failure), NPU still contributes.
+        # If GPU.get_all raises (WMI failure), the whole detection fails with RuntimeError.
+        # (Old behavior was to swallow the error and continue; new behavior is to raise
+        # so functools.cache doesn't pin a false "no hardware" result.)
         npu = MagicMock()
         npu.manufacturer = "Qualcomm"
         npu.name = "Qualcomm Hexagon"
@@ -228,9 +230,8 @@ class TestGetDetectedVendors:
             "winml.modelkit.sysinfo.hardware.NPU.get_all", lambda: [npu]
         )
 
-        result = _get_detected_vendors()
-        assert "Qualcomm" in result
-        assert "Qualcomm Hexagon" in result
+        with pytest.raises(RuntimeError, match="GPU.get_all"):
+            _get_detected_vendors()
 
     def test_no_hardware_returns_empty(
         self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch

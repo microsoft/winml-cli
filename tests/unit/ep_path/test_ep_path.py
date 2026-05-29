@@ -32,6 +32,7 @@ from winml.modelkit.ep_path import (
     _parse_modelkit_ep_path,
     _qnn_arch_resolver,
     discover_eps,
+    _get_detected_vendors,
 )
 
 
@@ -489,4 +490,40 @@ class TestDiscoverEps:
         monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
         resolved = discover_eps(extra_sources=[src])
         assert resolved["QNNExecutionProvider"] == (fake_dll.resolve(), src)
+
+
+# ---------------------------------------------------------------------------
+# Vendor detection error handling.
+# ---------------------------------------------------------------------------
+
+
+class TestGetDetectedVendorsErrorHandling:
+    """Vendor detection must raise on failure, not silently return empty."""
+
+    def test_raises_on_hardware_import_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When sysinfo.hardware import fails, _get_detected_vendors must raise."""
+        from winml.modelkit import ep_path
+        import sys
+
+        ep_path._get_detected_vendors.cache_clear()
+
+        # Hide the sysinfo.hardware module so the import inside _get_detected_vendors fails.
+        monkeypatch.setitem(sys.modules, "winml.modelkit.sysinfo.hardware", None)
+
+        with pytest.raises(RuntimeError, match="Hardware detection unavailable"):
+            _get_detected_vendors()
+
+    def test_raises_when_gpu_get_all_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When GPU.get_all() raises, propagate as RuntimeError (no silent empty)."""
+        from winml.modelkit import ep_path
+        from winml.modelkit.sysinfo.hardware import GPU
+
+        ep_path._get_detected_vendors.cache_clear()
+
+        def _broken(*_a, **_kw):
+            raise RuntimeError("WMI handle invalid")
+
+        monkeypatch.setattr(GPU, "get_all", _broken)
+        with pytest.raises(RuntimeError, match=r"GPU\.get_all\(\) failed"):
+            _get_detected_vendors()
 

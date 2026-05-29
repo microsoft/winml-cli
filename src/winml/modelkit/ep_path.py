@@ -125,25 +125,22 @@ def _get_detected_vendors() -> frozenset[str]:
     """Return the union of vendor identification strings from sysinfo.
 
     Aggregates ``manufacturer`` and ``name`` across detected GPUs and
-    NPUs (CPU vendor is not exposed by every WMI provider; CPU is
-    treated as universally compatible via the empty-requirement entry
-    in :data:`_EP_VENDOR_REQUIREMENT`). Both fields are included because
-    Windows reports vendor inconsistently — sometimes the manufacturer
-    is the IHV (``"Qualcomm Incorporated"``) and sometimes a parent
-    company (``"Microsoft Corporation"`` for OEM-rebranded devices).
-    The substring match in :func:`_ep_is_compatible` tolerates either.
+    NPUs. Both fields are included because Windows reports vendor
+    inconsistently — sometimes the manufacturer is the IHV
+    (``"Qualcomm Incorporated"``), sometimes a parent company
+    (``"Microsoft Corporation"`` for OEM-rebranded devices).
 
     Cached process-wide; tests reset via ``_get_detected_vendors.cache_clear()``.
-    Returns an empty frozenset if hardware detection fails — in which case
-    every EP with a non-empty vendor requirement reports as incompatible.
+    Raises ``RuntimeError`` if hardware detection fails — preventing
+    ``functools.cache`` from pinning an empty-set fallback that would
+    silently make every hardware-gated EP appear incompatible.
     """
-    strings: set[str] = set()
     try:
         from .sysinfo.hardware import GPU, NPU
     except ImportError as e:
-        logger.debug("Hardware detection unavailable (%s); compat checks will fail", e)
-        return frozenset()
+        raise RuntimeError(f"Hardware detection unavailable: {e}") from e
 
+    strings: set[str] = set()
     for cls in (GPU, NPU):
         try:
             for hw in cls.get_all():
@@ -151,8 +148,8 @@ def _get_detected_vendors() -> frozenset[str]:
                     value = getattr(hw, attr, None)
                     if value:
                         strings.add(str(value))
-        except Exception as e:  # pragma: no cover - WMI failure best-effort
-            logger.debug("%s.get_all() raised %s; skipping", cls.__name__, e)
+        except Exception as e:
+            raise RuntimeError(f"{cls.__name__}.get_all() failed: {e}") from e
 
     return frozenset(strings)
 
