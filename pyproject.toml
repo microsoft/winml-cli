@@ -109,6 +109,11 @@ optional-dependencies.winml-catalog = [
   #   PackageManager.find_packages_by_user_security_id() yields Package objects
   #   whose .id.family_name / .id.version we read (winrt.windows.applicationmodel)
   "winrt-Windows.ApplicationModel>=3.2.1",
+  #   PackageManager.find_packages_by_user_security_id() returns IIterable[Package];
+  #   materializing the iterator requires the Foundation.Collections projection
+  #   (winrt.windows.foundation.collections). Verified 2026-05-29 — without this,
+  #   MsixPackageSource yields zero results even when packages are installed.
+  "winrt-Windows.Foundation.Collections>=3.2.1",
 ]
 urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
 urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
