@@ -23,6 +23,8 @@ from .classifier import classify_failure
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .registry import ModelEntry
 
 
@@ -38,6 +40,8 @@ def build_eval_result(
     eval_types_run: list[str],
     accuracy_result: dict | None = None,
     ep: str | None = None,
+    onnx_size_bytes: int | None = None,
+    sanitize_fn: Callable[[str], str] | None = None,
 ) -> dict:
     """Build a unified eval_result dict (facts only, no derived fields).
 
@@ -46,16 +50,23 @@ def build_eval_result(
     accuracy_result is the accuracy sub-section dict (or None if not run).
     ep is the explicit execution provider (e.g., "qnn", "dml"), or None when
     not specified (device-to-provider mapping was used).
+    onnx_size_bytes is the combined size of the exported ONNX + .data files.
+    sanitize_fn, when provided, is applied to stdout/stderr to remove noise.
     """
     perf_section: dict | None = None
     if perf_proc is not None:
         passed = perf_proc["exit_code"] == 0
+        stdout = perf_proc["stdout"]
+        stderr = perf_proc["stderr"]
+        if sanitize_fn is not None:
+            stdout = sanitize_fn(stdout)
+            stderr = sanitize_fn(stderr)
         perf_section = {
             "passed": passed,
             "elapsed": perf_proc["elapsed"],
             "exit_code": perf_proc["exit_code"],
-            "stdout_output": perf_proc["stdout"],
-            "stderr_output": perf_proc["stderr"],
+            "stdout_output": stdout,
+            "stderr_output": stderr,
             "timeout": perf_proc["timeout"],
             "command": perf_proc["command"],
             "error": perf_proc.get("error_summary", ""),
@@ -76,6 +87,8 @@ def build_eval_result(
         "accuracy": accuracy_result,
     }
     # Optional fields: only include when explicitly provided by the user.
+    if onnx_size_bytes is not None:
+        result["onnx_size_bytes"] = onnx_size_bytes
     if ep is not None:
         result["ep"] = ep
     return result
@@ -324,6 +337,7 @@ def generate_html_report(
     registry_path: Path | None = None,
 ) -> None:
     from .accuracy import format_delta
+
     """Generate interactive HTML report with Perf and Accuracy tabs."""
     results = report_data.get("results", [])
 
@@ -366,9 +380,7 @@ def generate_html_report(
                     if acc is not None
                     else None
                 ),
-                "delta_display": (
-                    format_delta(acc) if acc and not acc.get("skipped") else ""
-                ),
+                "delta_display": (format_delta(acc) if acc and not acc.get("skipped") else ""),
                 "metric": (
                     {
                         "name": (acc.get("winml_metric") or {}).get("metric"),
