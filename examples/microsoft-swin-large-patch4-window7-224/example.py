@@ -84,30 +84,47 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_image(image_arg: Path | None) -> tuple[Image.Image, int | None]:
-    """Load an image and (when streamed from the eval dataset) its true class id.
+def load_image(image_arg: Path | None) -> tuple[Image.Image, str | None]:
+    """Load an image and (when streamed from the eval dataset) its WordNet synset.
 
-    Returns ``(image, true_label_id)``. ``true_label_id`` is the integer
-    class index from the dataset (the model's ``id2label`` resolves it to a
-    human-readable name later). ``None`` when the user supplied a custom
-    ``--image`` (we don't know its class).
+    Returns ``(image, true_synset)``. ``true_synset`` is the WordNet ID
+    (e.g. ``"n01532829"``) for the dataset's labelled class, used as the
+    universal bridge between the dataset's class indexing and the model's.
+    ``None`` when the user supplied a custom ``--image``.
     """
     if image_arg is not None:
         return Image.open(image_arg.expanduser()).convert("RGB"), None
 
     from datasets import load_dataset
 
-    sample = next(
-        iter(load_dataset(DEFAULT_DATASET, split=DEFAULT_DATASET_SPLIT, streaming=True)),
-    )
+    # streaming=False so we can read the ClassLabel feature's .names list
+    # to recover the WordNet synset for the sample's integer label.
+    dataset = load_dataset(DEFAULT_DATASET, split=DEFAULT_DATASET_SPLIT)
+    sample = dataset[0]
+
     image = sample["image"]
     if not isinstance(image, Image.Image):
         image = Image.fromarray(np.asarray(image))
     image = image.convert("RGB")
 
     label_value = sample.get("label")
-    true_label_id = int(label_value) if label_value is not None else None
-    return image, true_label_id
+    label_feature = dataset.features.get("label")
+    if label_value is None or label_feature is None or not hasattr(label_feature, "names"):
+        return image, None
+    return image, label_feature.names[int(label_value)]
+
+
+def imagenet_synset_to_id() -> dict[str, int]:
+    """Map WordNet synset ID -> ImageNet-1k class id (0-999).
+
+    Uses ``timm.data.ImageNetInfo`` so we don't have to ship the 1000-entry
+    list inline. The mapping is the canonical ImageNet-1k ordering that
+    the model was trained against.
+    """
+    from timm.data import ImageNetInfo
+
+    info = ImageNetInfo()
+    return {synset: idx for idx, synset in enumerate(info.label_names())}
 
 
 def draw_top_prediction(
@@ -138,7 +155,7 @@ def main() -> None:
     """Load the quantized ONNX, run one inference, print + save the result."""
     args = parse_args()
 
-    image, true_label_id = load_image(args.image)
+    image, true_synset = load_image(args.image)
     image_processor = AutoImageProcessor.from_pretrained(HF_MODEL_ID)
 
     # skip_build=True uses the ONNX as-is; it has already been optimized
@@ -178,9 +195,22 @@ def main() -> None:
         id2label.get(label_id, str(label_id)) for label_id in top_ids_list
     ]
 
-    if true_label_id is not None:
-        true_label_name = id2label.get(true_label_id, str(true_label_id))
-        print(f"True label:  {true_label_name} (id={true_label_id})")
+    # Resolve the dataset's WordNet synset to an ImageNet-1k class id so we
+    # can compare against the model's prediction. The dataset (e.g.
+    # timm/mini-imagenet) often uses its own 0..N indexing over a subset of
+    # ImageNet-1k, so the raw integer label from the dataset does NOT match
+    # the model's class id — the synset is the universal bridge.
+    true_label_id: int | None = None
+    if true_synset is not None:
+        synset_to_id = imagenet_synset_to_id()
+        true_label_id = synset_to_id.get(true_synset)
+
+    if true_synset is not None:
+        if true_label_id is not None:
+            true_label_name = id2label.get(true_label_id, str(true_label_id))
+            print(f"True label:  {true_label_name} (synset={true_synset}, id={true_label_id})")
+        else:
+            print(f"True label:  synset={true_synset} (not in ImageNet-1k vocabulary)")
     else:
         print("True label:  unknown (custom --image)")
     print(f"\nTop {top_k} predictions:")
@@ -190,9 +220,6 @@ def main() -> None:
         print(f"  {rank}. {label} ({score:.4f})")
 
     if true_label_id is not None:
-        # The dataset and the model both use ImageNet-1k class indices, so
-        # equality of class ids is the right verdict — no string matching
-        # against synonym lists.
         verdict = "PASS" if top_ids_list[0] == true_label_id else "FAIL"
         print(f"\nVerdict (top-1): {verdict}")
 
