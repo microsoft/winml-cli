@@ -82,6 +82,13 @@ logger = logging.getLogger(__name__)
     "Ignored for pre-built ONNX inputs (precision is already baked in).",
 )
 @click.option(
+    "--no-compile",
+    is_flag=True,
+    default=False,
+    help="Skip the compile stage during model build. "
+    "Ignored for pre-built ONNX inputs (build is skipped entirely).",
+)
+@click.option(
     "--samples",
     type=int,
     default=100,
@@ -152,6 +159,7 @@ def eval(
     device: str,
     precision: str,
     ep: EPNameOrAlias | None,
+    no_compile: bool,
     samples: int,
     split: str,
     shuffle: bool,
@@ -217,6 +225,12 @@ def eval(
             cfg.precision,
         )
 
+    if cfg.model_path is not None and cfg.no_compile:
+        logger.warning(
+            "--no-compile is ignored for pre-built ONNX inputs "
+            "(build is skipped entirely).",
+        )
+
     logger.debug("Effective eval config: %s", cfg.to_dict())
 
     # ── 3. Evaluate ──
@@ -251,6 +265,7 @@ def _build_eval_config(
         device=p.get("device"),
         precision=p.get("precision"),
         ep=p.get("ep"),
+        no_compile=p.get("no_compile", False),
         output_path=p.get("output"),
         dataset=DatasetConfig(
             path=p.get("dataset_path"),

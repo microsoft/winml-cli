@@ -101,6 +101,7 @@ class WinMLEvaluationConfig:
     device: str = "auto"
     precision: str = "auto"
     ep: EPNameOrAlias | None = None
+    no_compile: bool = False
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
 
@@ -118,6 +119,8 @@ class WinMLEvaluationConfig:
             result["precision"] = self.precision
         if self.ep is not None:
             result["ep"] = self.ep
+        if self.no_compile:
+            result["no_compile"] = True
         result["dataset"] = self.dataset.to_dict()
         if self.output_path is not None:
             result["output_path"] = str(self.output_path)
@@ -146,6 +149,7 @@ class WinMLEvaluationConfig:
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),
             ep=data.get("ep"),
+            no_compile=data.get("no_compile", False),
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
         )

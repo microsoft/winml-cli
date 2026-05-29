@@ -204,6 +204,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         device=config.device,
         precision=config.precision,
         ep=config.ep,
+        no_compile=config.no_compile,
     )
 
 

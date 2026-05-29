@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from winml.modelkit.commands.eval import eval as eval_cmd
+from winml.modelkit.session import WinMLEPRegistry
 
 from .conftest import find_cache_dir
 from .require_ep import require_ep
@@ -54,6 +55,13 @@ pytestmark = [pytest.mark.e2e, pytest.mark.timeout(900)]
 # across runs on the same dataset.
 SAMPLES = "10"
 ADE20K_LABEL_MAP = "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json"
+
+# Skip compile e2e for VitisAI: access violation in compile_to_file call.
+NO_COMPILE_IF_VITISAI: list[str] = (
+    ["--no-compile"]
+    if WinMLEPRegistry.get_instance().is_ep_available("VitisAIExecutionProvider")
+    else []
+)
 
 
 @pytest.fixture
@@ -191,12 +199,14 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
 
     def test_token_classification(self, runner: CliRunner, tmp_path: Path) -> None:
+        # Skip compile e2e for VitisAI: access violation in compile_to_file call.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "dslim/bert-base-NER",
             "--task", "token-classification",
             "--samples", SAMPLES,
             "-o", str(out),
+            *NO_COMPILE_IF_VITISAI,
         ])
         data = _assert_metrics_present(
             out,
@@ -226,6 +236,7 @@ class TestEvalPerTask:
             assert -1.0 <= v <= 1.0, f"{k}={v} outside [-1, 1]"
 
     def test_image_segmentation(self, runner: CliRunner, tmp_path: Path) -> None:
+        # Skip compile e2e for VitisAI: access violation in compile_to_file call.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "nvidia/segformer-b1-finetuned-ade-512-512",
@@ -235,6 +246,7 @@ class TestEvalPerTask:
             "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),
+            *NO_COMPILE_IF_VITISAI,
         ])
         data = _assert_metrics_present(out, ["mean_iou"])
         _assert_in_range(data["metrics"], "mean_iou", 0.0, 1.0)
@@ -304,6 +316,7 @@ class TestEvalPerTask:
         assert top1 <= top5, f"top1 ({top1}) must be <= top5 ({top5})"
 
     def test_image_to_text_fp16(self, runner: CliRunner, tmp_path: Path) -> None:
+        # Skip compile e2e for VitisAI: access violation in compile_to_file call.
         # Only test that exercises non-auto --precision.
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -316,6 +329,7 @@ class TestEvalPerTask:
             "--precision", "fp16",
             "--column", "label_column=caption",
             "-o", str(out),
+            *NO_COMPILE_IF_VITISAI,
         ])
         # CLI contract: exit 0 and produce the metric keys. Tiny N may
         # yield None values; magnitude is checked in the accuracy regression
@@ -369,12 +383,14 @@ class TestEvalPerTask:
     def test_zero_shot_image_classification(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip compile e2e for VitisAI: access violation in compile_to_file call.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "openai/clip-vit-base-patch32",
             "--task", "zero-shot-image-classification",
             "--samples", SAMPLES,
             "-o", str(out),
+            *NO_COMPILE_IF_VITISAI,
         ])
         data = _assert_metrics_present(out, ["top1_accuracy", "top5_accuracy"])
         # CLIP-ViT-B/32 zero-shot on CIFAR-100: top1 ≈ 0.63, top5 ≈ 0.88
@@ -422,6 +438,7 @@ class TestEvalModelInputForms:
     def test_onnx_file_mode_split_encoder(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip compile e2e for VitisAI: access violation in compile_to_file call.
         hf_id = "openai/clip-vit-base-patch32"
         task = "zero-shot-image-classification"
 
@@ -430,7 +447,10 @@ class TestEvalModelInputForms:
         # text encoder), each cached under its own sub-task in the same
         # directory. No top-level manifest carries the composite task name,
         # so cache discovery below must use the sub-task names.
-        _invoke(runner, ["-m", hf_id, "--task", task, "--samples", SAMPLES])
+        _invoke(runner, [
+            "-m", hf_id, "--task", task, "--samples", SAMPLES,
+            *NO_COMPILE_IF_VITISAI,
+        ])
 
         # Locate each sub-encoder's ONNX directly via its cache-key prefix:
         cache_dir = find_cache_dir(hf_id, task="image-feature-extraction")
@@ -579,6 +599,7 @@ class TestEvalAdditionalOptions:
     def test_label_mapping_image_segmentation(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip compile e2e for VitisAI: access violation in compile_to_file call.
         from pathlib import Path as _Path
 
         label_map = _Path(ADE20K_LABEL_MAP)
@@ -595,6 +616,7 @@ class TestEvalAdditionalOptions:
             "--label-mapping", str(label_map),
             "--samples", SAMPLES,
             "-o", str(out),
+            *NO_COMPILE_IF_VITISAI,
         ])
         data = _assert_metrics_present(out, ["mean_iou"])
         _assert_in_range(data["metrics"], "mean_iou", 0.0, 1.0)
