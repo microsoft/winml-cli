@@ -18,7 +18,7 @@ verifiable.
 
 Usage::
 
-    uv run python examples/microsoft-swin-large-patch4-window7-224/example.py `
+    uv run python examples/microsoft_swin-large-patch4-window7-224/example.py `
       --onnx $HOME/.cache/winml/artifacts/microsoft_swin-large-patch4-window7-224/`
             `imgcls_<hash>_quantized.onnx
 """
