@@ -404,11 +404,13 @@ def _inspect_model_v2(
             import optimum.exporters.onnx.model_configs  # noqa: F401
             from optimum.exporters.tasks import TasksManager
 
+            from ..loader.task import resolve_optimum_library
+
             onnx_config_cls = TasksManager.get_exporter_config_constructor(
                 exporter="onnx",
                 model_type=model_type,
                 task=task,
-                library_name="transformers",
+                library_name=resolve_optimum_library(model_type),
             )
             if onnx_config_cls:
                 config_name = (

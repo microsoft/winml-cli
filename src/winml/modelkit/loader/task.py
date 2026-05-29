@@ -154,6 +154,36 @@ MODEL_TASK_MAPPING: dict[tuple[str, str | None], str] = {
     ("prajjwal1/bert-tiny", None): "feature-extraction",
 }
 
+# Some transformers model_types are generic wrappers that expose an entire other
+# library through a single type (e.g. timm via "timm_wrapper"). Such configs
+# carry no `architectures` field, and their Optimum ONNX export config is
+# registered under the wrapped library, not "transformers". This is a
+# library-routing concern handled at the common resolution layer (the loader
+# below and export.io._get_onnx_config), not a per-model OnnxConfig.
+#
+# Only the library is recorded here -- it is the irreducible Optimum-taxonomy
+# fact. The export task is derived from Optimum's task list for that library
+# (get_supported_tasks), not hardcoded.
+# model_type -> optimum_library
+WRAPPED_LIBRARY_MODEL_TYPES: dict[str, str] = {
+    "timm_wrapper": "timm",
+}
+
+
+def resolve_optimum_library(model_type: str | None, library_name: str = "transformers") -> str:
+    """Route a transformers model_type to the Optimum library that owns its export.
+
+    Most models export under the library they were requested with. A few
+    transformers model_types are thin wrappers whose Optimum OnnxConfig lives in
+    another library (see :data:`WRAPPED_LIBRARY_MODEL_TYPES`); route those so the
+    OnnxConfig lookup succeeds without an explicit ``--library`` flag. Only the
+    default ``"transformers"`` library is remapped, so an explicit choice always
+    wins.
+    """
+    if library_name == "transformers" and model_type in WRAPPED_LIBRARY_MODEL_TYPES:
+        return WRAPPED_LIBRARY_MODEL_TYPES[model_type]
+    return library_name
+
 
 # =============================================================================
 # Internal Helpers
@@ -314,8 +344,33 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
         return resolve_task_and_model_class(config, task=override_task)
 
     # [1] Resolve architecture class from config.
-    # If config.architectures is missing/empty, this raises ValueError and the
-    # caller should provide task explicitly.
+    # Some model_types (e.g. timm via "timm_wrapper") are generic library
+    # wrappers that carry no `architectures` field. Resolve those through their
+    # wrapped library: the task comes from Optimum's task list for that library
+    # (not hardcoded), and the class from get_model_class_for_task (a generic
+    # Auto* class that transformers dispatches to the wrapper at load).
+    if not getattr(config, "architectures", None):
+        library = WRAPPED_LIBRARY_MODEL_TYPES.get(getattr(config, "model_type", None) or "")
+        if library is not None:
+            # Populate Optimum's exporter registry (incl. the wrapped library's
+            # task list) before querying it; scoped to this rare branch so normal
+            # model loading never pays for the import.
+            import optimum.exporters.onnx.model_configs  # noqa: F401
+
+            supported = get_supported_tasks(config.model_type, library_name=library)
+            if supported:
+                task = supported[0]
+                model_class = TasksManager.get_model_class_for_task(task, framework="pt")
+                logger.info(
+                    "config has no 'architectures'; resolved %s via %s library (task=%s, class=%s)",
+                    config.model_type,
+                    library,
+                    task,
+                    model_class.__name__,
+                )
+                return task, model_class
+    # If config.architectures is still missing/empty, this raises ValueError and
+    # the caller should provide task explicitly.
     arch_model_class = _resolve_model_class_from_config(config)
     arch_name = arch_model_class.__name__
 
