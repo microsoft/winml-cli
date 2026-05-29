@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 # Maps (model_type, task) → pipeline class with _SUB_MODEL_CONFIG.
 # Used by `winml config` to generate one config file per sub-component.
-COMPOSITE_MODEL_REGISTRY: dict[tuple[str, str], type] = {}
+COMPOSITE_MODEL_REGISTRY: dict[tuple[str, str], type[WinMLCompositeModel]] = {}
 
 
 def register_composite_model(model_type: str, task: str):

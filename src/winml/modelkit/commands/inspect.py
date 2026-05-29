@@ -310,7 +310,7 @@ def _inspect_model_v2(
     # =========================================================================
     # STEP 2: Shared loader resolution (same call as config command)
     # =========================================================================
-    from huggingface_hub.utils import RepositoryNotFoundError
+    from huggingface_hub.errors import RepositoryNotFoundError
 
     try:
         loader_config, hf_config, _resolved_class = resolve_loader_config(
@@ -342,6 +342,10 @@ def _inspect_model_v2(
 
     model_type = loader_config.model_type
     task = loader_config.task
+    if model_type is None:
+        raise InspectError("Could not resolve model_type from loader config")
+    if task is None:
+        raise InspectError("Could not resolve task from loader config")
     architectures = getattr(parent_hf_config, "architectures", []) or []
 
     # =========================================================================
@@ -389,7 +393,7 @@ def _inspect_model_v2(
         export_cfg = registered.export
         input_tensors = [
             TensorInfo(name=s.name or "unknown", dtype=s.dtype, shape=s.shape)
-            for s in export_cfg.input_tensors
+            for s in (export_cfg.input_tensors or [])
         ]
         output_tensors = [
             TensorInfo(name=s.name or "unknown") for s in (export_cfg.output_tensors or [])
@@ -491,7 +495,9 @@ def _inspect_model_v2(
     #   2. parent_hf_config     — pre-narrowing config (only when model_id was
     #                             provided and AutoConfig succeeded in step 1)
     #   3. model_type           — narrowed loader_config.model_type (fallback)
-    display_model_type = model_type_override or getattr(parent_hf_config, "model_type", model_type)
+    display_model_type: str = (
+        model_type_override or getattr(parent_hf_config, "model_type", None) or model_type
+    )
 
     return InspectResult(
         model_id=model_id or display_model_type or model_class_override or "unknown",

@@ -113,6 +113,7 @@ dev = [
   "pytest-timeout>=2.4.0",
   "types-jsonschema>=4.26.0.20260518",
   "types-protobuf>=7.34.1.20260518",
+  "types-pyyaml>=6.0.12.20260518",
   "types-tqdm>=4.67.3.20260518",
 ]
 
@@ -476,6 +477,7 @@ module = [
   "snakemd",
   "openvino",
   "openvino.*",
+  "plotext",
 ]
 ignore_missing_imports = true
 

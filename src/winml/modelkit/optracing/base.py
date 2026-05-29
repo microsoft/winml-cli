@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .result import OpTraceResult
 
 
@@ -23,6 +25,16 @@ class OpTracer(ABC):
     Concrete implementations receive the model path and output directory
     at construction time, then call ``run()`` to execute profiling.
     """
+
+    @abstractmethod
+    def __init__(self, onnx_path: Path, *, output_dir: Path, level: str = "basic") -> None:
+        """Construct an OpTracer for an ONNX model.
+
+        Args:
+            onnx_path: Path to the ONNX model to trace.
+            output_dir: Directory for profiling artifacts.
+            level: Profiling level ("basic" or "detail").
+        """
 
     @abstractmethod
     def run(self, iterations: int = 5, warmup: int = 2) -> OpTraceResult:
