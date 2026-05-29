@@ -15,7 +15,9 @@ the per-origin x per-EP map and the migration plan.
 
 Public API:
 
-* :data:`EP_DLL_NAMES`: canonical EP-name -> list-of-DLL-filenames table.
+* :data:`EP_CATALOG`: canonical EP metadata registry (:class:`EpCatalog`).
+* :class:`EpEntry`: frozen dataclass for one EP's metadata (name, DLL, vendor).
+* :class:`EpCatalog`: registry with forward/inverse lookups and vendor compat.
 * :class:`PyPiSource`: pip-installed plugin EP wheels.
 * :class:`NuGetSource`: NuGet-cached plugin EP packages
   (``~/.nuget/packages/<id>/<version>/runtimes/<rid>/native/...``).
@@ -49,6 +51,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from packaging.version import InvalidVersion, Version
@@ -58,70 +61,130 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Canonical EP-name -> DLL filename table.
+# Canonical EP metadata registry.
 # ---------------------------------------------------------------------------
-# Used by FilesystemSource (when scanning a directory for any registrable
-# DLL) and by the ``WINMLCLI_EP_PATH`` env-var override path. Keys are
-# always the canonical EP name (the spelling ORT registers under and
-# reports via ``get_ep_devices()``). EP names that don't match this
-# spelling fail at registration — there is no alias normalization layer.
-EP_DLL_NAMES: dict[str, list[str]] = {
-    "OpenVINOExecutionProvider": [
-        "onnxruntime_providers_openvino_plugin.dll",
-    ],
-    "QNNExecutionProvider": [
-        "onnxruntime_providers_qnn.dll",
-    ],
-    "VitisAIExecutionProvider": [
-        "onnxruntime_providers_vitisai.dll",
-    ],
+
+
+@dataclass(frozen=True)
+class EpEntry:
+    """One canonical EP's metadata: name, DLL filename, vendor requirement.
+
+    The ``dll_name`` is empty for bundled EPs (CPU, DML, Azure) — they
+    ship with ORT itself and never need plugin DLL loading.
+    """
+
+    name: str
+    dll_name: str
+    vendor_requirements: frozenset[str]
+
+
+class EpCatalog:
+    """Canonical EP metadata registry: forward + inverse lookups + vendor compat.
+
+    Replaces the three legacy module-level dicts (``EP_DLL_NAMES``,
+    ``_DLL_TO_EP_NAME``, ``_EP_VENDOR_REQUIREMENT``). Constructed once at
+    module load; ``EP_CATALOG`` is the project-wide instance.
+
+    Immutable after construction: the internal lookup dicts are wrapped
+    in ``MappingProxyType`` (no in-place mutation) and ``__setattr__`` is
+    locked after ``__init__`` (no attribute rebinding). Tests swap by
+    constructing a fresh ``EpCatalog`` and patching the module-level
+    ``EP_CATALOG`` binding.
+    """
+
+    __slots__ = ("_by_name", "_by_dll", "_initialized")
+
+    def __init__(self, entries: Iterable[EpEntry]) -> None:
+        by_name: dict[str, EpEntry] = {e.name: e for e in entries}
+        by_dll: dict[str, str] = {
+            e.dll_name: e.name for e in by_name.values() if e.dll_name
+        }
+        object.__setattr__(self, "_by_name", MappingProxyType(by_name))
+        object.__setattr__(self, "_by_dll", MappingProxyType(by_dll))
+        object.__setattr__(self, "_initialized", True)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if getattr(self, "_initialized", False):
+            raise AttributeError(f"EpCatalog is immutable; cannot set {name!r}")
+        object.__setattr__(self, name, value)
+
+    def dll_name_for(self, ep: str) -> str | None:
+        """Return the DLL filename for ``ep``, or ``None`` for bundled / unknown EPs."""
+        entry = self._by_name.get(ep)
+        return entry.dll_name if entry and entry.dll_name else None
+
+    def ep_for_dll(self, dll: str) -> str | None:
+        """Reverse lookup: DLL filename -> canonical EP name. ``None`` if unknown."""
+        return self._by_dll.get(dll)
+
+    def vendor_requirements_for(self, ep: str) -> frozenset[str]:
+        """Return the vendor-substring requirements for ``ep``.
+
+        Empty frozenset for bundled EPs (CPU/DML/Azure) and for unknown EPs
+        (unknown ones default to compatible — see :meth:`is_compatible`).
+        """
+        entry = self._by_name.get(ep)
+        return entry.vendor_requirements if entry else frozenset()
+
+    def is_compatible(self, ep: str) -> bool:
+        """Return True iff ``ep`` has compatible hardware on this machine.
+
+        Empty / missing vendor requirement -> always compatible.
+        Otherwise compatible iff at least one required vendor substring
+        appears (case-insensitively) in any detected vendor string.
+        """
+        entry = self._by_name.get(ep)
+        if entry is None or not entry.vendor_requirements:
+            return True
+        detected = _get_detected_vendors()
+        return any(
+            req.lower() in v.lower()
+            for req in entry.vendor_requirements
+            for v in detected
+        )
+
+    def all_eps(self) -> tuple[str, ...]:
+        """Return all canonical EP names in catalog order."""
+        return tuple(self._by_name)
+
+    def all_dlls(self) -> tuple[str, ...]:
+        """Return all non-empty DLL filenames in catalog order."""
+        return tuple(self._by_dll)
+
+
+EP_CATALOG = EpCatalog([
+    EpEntry(
+        name="OpenVINOExecutionProvider",
+        dll_name="onnxruntime_providers_openvino_plugin.dll",
+        vendor_requirements=frozenset({"Intel"}),
+    ),
+    EpEntry(
+        name="QNNExecutionProvider",
+        dll_name="onnxruntime_providers_qnn.dll",
+        vendor_requirements=frozenset({"Qualcomm"}),
+    ),
+    EpEntry(
+        name="VitisAIExecutionProvider",
+        dll_name="onnxruntime_providers_vitisai.dll",
+        vendor_requirements=frozenset({"AMD"}),
+    ),
     # TODO(ep_path): MIGraphX DLL leaf is unverified; mirrors the VitisAI
     # naming convention. Confirm by inspecting an installed MSIX. See
     # docs/ep-path-design.md TODO #4.
-    "MIGraphXExecutionProvider": [
-        "onnxruntime_providers_migraphx.dll",
-    ],
-    "NvTensorRtRtxExecutionProvider": [
-        "onnxruntime_providers_nv_tensorrt_rtx.dll",
-    ],
-}
-
-
-# ---------------------------------------------------------------------------
-# Reverse lookup: DLL filename -> canonical EP name.
-# ---------------------------------------------------------------------------
-# Inverse of :data:`EP_DLL_NAMES`, derived once at module load. Used by
-# :func:`list_msix_eps` to identify which EP a discovered MSIX package
-# provides without hardcoding vendor-specific naming patterns.
-_DLL_TO_EP_NAME: dict[str, str] = {
-    dll: ep
-    for ep, dll_list in EP_DLL_NAMES.items()
-    for dll in dll_list
-}
-
-
-# ---------------------------------------------------------------------------
-# Hardware-compatibility table and helpers.
-# ---------------------------------------------------------------------------
-# Maps each canonical EP name to the vendor substrings (case-insensitive)
-# that must appear in at least one detected hardware vendor string for the
-# EP to be considered compatible with this machine. Empty set = no vendor
-# requirement (e.g., CPU, DML, Azure work everywhere). Unknown EP names
-# default to compatible (forward-compat for new EPs not yet in the table).
-#
-# Substring matching tolerates the variety of vendor-string spellings
-# Windows reports (``"Intel(R) Corporation"`` vs ``"Intel"`` vs ``"Intel Corp"``)
-# without needing per-system normalization.
-_EP_VENDOR_REQUIREMENT: dict[str, set[str]] = {
-    "QNNExecutionProvider":           {"Qualcomm"},
-    "OpenVINOExecutionProvider":      {"Intel"},
-    "VitisAIExecutionProvider":       {"AMD"},
-    "MIGraphXExecutionProvider":      {"AMD"},
-    "NvTensorRtRtxExecutionProvider": {"NVIDIA"},
-    "DmlExecutionProvider":           set(),
-    "CPUExecutionProvider":           set(),
-    "AzureExecutionProvider":         set(),
-}
+    EpEntry(
+        name="MIGraphXExecutionProvider",
+        dll_name="onnxruntime_providers_migraphx.dll",
+        vendor_requirements=frozenset({"AMD"}),
+    ),
+    EpEntry(
+        name="NvTensorRtRtxExecutionProvider",
+        dll_name="onnxruntime_providers_nv_tensorrt_rtx.dll",
+        vendor_requirements=frozenset({"NVIDIA"}),
+    ),
+    EpEntry(name="DmlExecutionProvider", dll_name="", vendor_requirements=frozenset()),
+    EpEntry(name="CPUExecutionProvider", dll_name="", vendor_requirements=frozenset()),
+    EpEntry(name="AzureExecutionProvider", dll_name="", vendor_requirements=frozenset()),
+])
 
 
 @functools.cache
@@ -161,9 +224,9 @@ def _get_detected_vendors() -> frozenset[str]:
 def _ep_is_compatible(ep_name: str) -> bool:
     """Return True iff ``ep_name`` has compatible hardware on this machine.
 
-    Looks up the EP in :data:`_EP_VENDOR_REQUIREMENT`:
+    Delegates to :meth:`EpCatalog.is_compatible` on :data:`EP_CATALOG`:
 
-    * Empty requirement -> always compatible (CPU, DML, Azure).
+    * Empty / missing vendor requirement -> always compatible (CPU, DML, Azure).
     * Non-empty requirement -> compatible iff at least one required vendor
       substring appears (case-insensitively) in any detected vendor string.
     * Unknown EP name -> compatible (forward-compat default).
@@ -171,11 +234,7 @@ def _ep_is_compatible(ep_name: str) -> bool:
     Args:
         ep_name: Canonical EP name (the spelling ORT registers under).
     """
-    required = _EP_VENDOR_REQUIREMENT.get(ep_name, set())
-    if not required:
-        return True
-    detected = _get_detected_vendors()
-    return any(req.lower() in v.lower() for req in required for v in detected)
+    return EP_CATALOG.is_compatible(ep_name)
 
 
 # ---------------------------------------------------------------------------
@@ -956,8 +1015,8 @@ def list_msix_eps(
     EP source list and resolvable via ``.resolve()``.
 
     EP names are auto-detected from the DLL filename inside each package,
-    using the inverse of :data:`EP_DLL_NAMES`. Packages with no
-    recognizable EP DLL are skipped silently.
+    using :meth:`EpCatalog.ep_for_dll` on :data:`EP_CATALOG`. Packages with
+    no recognizable EP DLL are skipped silently.
 
     Args:
         family_name_prefixes: Default catches both publishing channels:
@@ -1029,7 +1088,7 @@ def list_msix_eps(
         ep_name: str | None = None
         chosen_dll: Path | None = None
         for dll in candidates:
-            mapped = _DLL_TO_EP_NAME.get(dll.name)
+            mapped = EP_CATALOG.ep_for_dll(dll.name)
             if mapped is not None:
                 ep_name = mapped
                 chosen_dll = dll
@@ -1183,9 +1242,9 @@ def _parse_winmlcli_ep_path() -> list[EpSource]:
 
     The env var is a path-list using OS-conventional separators (``;`` on
     Windows, ``:`` elsewhere — same semantics as the shell ``PATH``).
-    Each entry is treated as a directory; we scan it for every filename
-    in :data:`EP_DLL_NAMES` so the user does not have to specify which EP
-    the directory provides.
+    Each entry is treated as a directory; we scan it for every plugin DLL
+    filename in :data:`EP_CATALOG` so the user does not have to specify
+    which EP the directory provides.
 
     Returns an empty list when ``WINMLCLI_EP_PATH`` is unset or empty.
     Non-existent entries log a WARN and are skipped (matches the
@@ -1207,14 +1266,11 @@ def _parse_winmlcli_ep_path() -> list[EpSource]:
             )
             continue
         logger.debug("WINMLCLI_EP_PATH override: scanning %s", entry)
-        sources.extend(
-            FilesystemSource(
-                root=p,
-                dll_patterns={ep: dll_name},
-            )
-            for ep, dll_names in EP_DLL_NAMES.items()
-            for dll_name in dll_names
-        )
+        for ep in EP_CATALOG.all_eps():
+            dll = EP_CATALOG.dll_name_for(ep)
+            if not dll:
+                continue  # bundled EPs have no DLL filename
+            sources.append(FilesystemSource(root=p, dll_patterns={ep: dll}))
     return sources
 
 
@@ -1342,7 +1398,9 @@ def discover_all_eps(
 
 
 __all__ = [
-    "EP_DLL_NAMES",
+    "EP_CATALOG",
+    "EpCatalog",
+    "EpEntry",
     "EpSource",
     "FilesystemSource",
     "MsixPackageSource",

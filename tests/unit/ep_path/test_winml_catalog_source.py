@@ -233,7 +233,7 @@ class TestDefaultEpPathIncludesCatalogEntries:
     def test_canonical_ep_names_match_design(self) -> None:
         # Each catalog entry must report exactly one canonical EP name,
         # and those names must match the camelCase canonical keys used
-        # in EP_DLL_NAMES.
+        # in EP_CATALOG.
         ep_names_from_catalog = {
             ep
             for s in _default_ep_sources()

@@ -464,11 +464,11 @@ def _ep_vendor_prefix(ep_name: str) -> str:
     """Return a short vendor qualifier (e.g. ``"Qualcomm "``) for display.
 
     Empty string when the EP has no vendor requirement (CPU, DML, Azure)
-    or is unknown to the requirement table.
+    or is unknown to the catalog.
     """
-    from ..ep_path import _EP_VENDOR_REQUIREMENT
+    from ..ep_path import EP_CATALOG
 
-    vendors = _EP_VENDOR_REQUIREMENT.get(ep_name, set())
+    vendors = EP_CATALOG.vendor_requirements_for(ep_name)
     if not vendors:
         return ""
     # Pick the first short alias when multiple are listed (e.g., AMD).

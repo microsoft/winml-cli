@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from winml.modelkit.ep_path import (
-    EP_DLL_NAMES,
+    EP_CATALOG,
     EpSource,
     FilesystemSource,
     NuGetSource,
@@ -68,8 +68,9 @@ def _skip_live_catalog_in_ep_path_tests(monkeypatch: pytest.MonkeyPatch) -> None
 class TestPublicAPI:
     """Confirm the public module surface is intact."""
 
-    def test_ep_dll_names_has_five_eps(self) -> None:
-        assert set(EP_DLL_NAMES) == {
+    def test_ep_catalog_has_five_plugin_eps(self) -> None:
+        plugin_eps = {ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep)}
+        assert plugin_eps == {
             "OpenVINOExecutionProvider",
             "QNNExecutionProvider",
             "VitisAIExecutionProvider",
@@ -77,11 +78,11 @@ class TestPublicAPI:
             "NvTensorRtRtxExecutionProvider",
         }
 
-    def test_ep_dll_names_uses_camelcase_for_nvidia(self) -> None:
+    def test_ep_catalog_uses_camelcase_for_nvidia(self) -> None:
         # The canonical key follows MS Learn (camelCase). NVIDIA's
         # PascalCase 'NvTensorRTRTX...' is the alias, not the canonical.
-        assert "NvTensorRtRtxExecutionProvider" in EP_DLL_NAMES
-        assert "NvTensorRTRTXExecutionProvider" not in EP_DLL_NAMES
+        assert EP_CATALOG.dll_name_for("NvTensorRtRtxExecutionProvider") is not None
+        assert EP_CATALOG.dll_name_for("NvTensorRTRTXExecutionProvider") is None
 
     def test_ep_path_is_a_list(self) -> None:
         sources = _default_ep_sources()
@@ -366,12 +367,12 @@ class TestWinmlEpPathOverride:
             if isinstance(s, FilesystemSource)
             for ep in s.dll_patterns
         }
-        assert covered_eps == set(EP_DLL_NAMES.keys())
+        assert covered_eps == {ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep)}
 
     def test_emits_source_per_dll_filename_windows_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # This is a Windows-only project. EP_DLL_NAMES entries now contain
+        # This is a Windows-only project. EP_CATALOG entries contain
         # only .dll filenames (Linux .so entries were dropped in Task 6).
         # The parser emits one FilesystemSource per (root, ep, dll_filename)
         # tuple — all EPs should resolve correctly with their single DLL name.
@@ -614,6 +615,55 @@ class TestNuGetSource:
 # ---------------------------------------------------------------------------
 # Vendor detection error handling.
 # ---------------------------------------------------------------------------
+
+
+class TestEpCatalog:
+    """EpCatalog: forward/inverse lookups, bundled-EP handling, immutability."""
+
+    def test_ep_catalog_dll_name_for_known_ep(self) -> None:
+        """EP_CATALOG.dll_name_for returns the DLL filename for known plugin EPs."""
+        from winml.modelkit.ep_path import EP_CATALOG
+
+        assert EP_CATALOG.dll_name_for("OpenVINOExecutionProvider") == (
+            "onnxruntime_providers_openvino_plugin.dll"
+        )
+        assert EP_CATALOG.dll_name_for("QNNExecutionProvider") == "onnxruntime_providers_qnn.dll"
+
+    def test_ep_catalog_dll_name_for_bundled_ep_returns_none(self) -> None:
+        """Bundled EPs (CPU/DML/Azure) have no DLL filename — `dll_name_for` returns None."""
+        from winml.modelkit.ep_path import EP_CATALOG
+
+        assert EP_CATALOG.dll_name_for("CPUExecutionProvider") is None
+        assert EP_CATALOG.dll_name_for("DmlExecutionProvider") is None
+
+    def test_ep_catalog_ep_for_dll_inverse_lookup(self) -> None:
+        """EP_CATALOG.ep_for_dll resolves a DLL filename back to its EP name."""
+        from winml.modelkit.ep_path import EP_CATALOG
+
+        assert (
+            EP_CATALOG.ep_for_dll("onnxruntime_providers_openvino_plugin.dll")
+            == "OpenVINOExecutionProvider"
+        )
+        assert EP_CATALOG.ep_for_dll("nonexistent.dll") is None
+
+    def test_ep_catalog_is_frozen(self) -> None:
+        """EpCatalog must be truly immutable — both attribute rebinding and
+        underlying dict mutation must fail at runtime."""
+        import pytest
+        from winml.modelkit.ep_path import EP_CATALOG
+
+        # Attribute rebind raises
+        with pytest.raises(AttributeError):
+            EP_CATALOG._by_name = {}  # type: ignore[misc]
+
+        # Direct dict mutation raises (MappingProxyType protects it)
+        with pytest.raises(TypeError):
+            EP_CATALOG._by_name["FakeExecutionProvider"] = None  # type: ignore[index]
+        with pytest.raises(TypeError):
+            EP_CATALOG._by_dll["fake.dll"] = "FakeExecutionProvider"  # type: ignore[index]
+
+        # Confirm the lookups still work after the failed mutations
+        assert EP_CATALOG.dll_name_for("QNNExecutionProvider") == "onnxruntime_providers_qnn.dll"
 
 
 class TestGetDetectedVendorsErrorHandling:

@@ -5,7 +5,7 @@
 """Tests for EP hardware-compatibility helpers in ``ep_path``.
 
 Covers:
-    - ``_EP_VENDOR_REQUIREMENT`` table contents.
+    - ``EP_CATALOG`` vendor requirement contents.
     - ``_get_detected_vendors()`` aggregation across GPU/NPU.
     - ``_ep_is_compatible()`` matching rules.
     - ``is_compatible()`` method on every EpSource subclass.
@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from winml.modelkit.ep_path import (
-    _EP_VENDOR_REQUIREMENT,
+    EP_CATALOG,
     FilesystemSource,
     MsixPackageSource,
     PyPiSource,
@@ -36,14 +36,15 @@ def reset_vendor_cache() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _EP_VENDOR_REQUIREMENT table.
+# EP_CATALOG vendor requirement entries.
 # ---------------------------------------------------------------------------
 
 
 class TestVendorRequirementTable:
-    """Sanity checks on the static EP -> vendor requirement table."""
+    """Sanity checks on the EP_CATALOG vendor requirement entries."""
 
     def test_required_keys_present(self) -> None:
+        catalog_eps = set(EP_CATALOG.all_eps())
         for ep in (
             "QNNExecutionProvider",
             "OpenVINOExecutionProvider",
@@ -54,15 +55,21 @@ class TestVendorRequirementTable:
             "CPUExecutionProvider",
             "AzureExecutionProvider",
         ):
-            assert ep in _EP_VENDOR_REQUIREMENT
+            assert ep in catalog_eps
 
     def test_unconstrained_eps_have_empty_set(self) -> None:
         # CPU/DML/Azure work everywhere — empty requirement, never marked
         # incompatible.
+        from winml.modelkit.ep_path import EpEntry
+
         for ep in ("CPUExecutionProvider", "DmlExecutionProvider", "AzureExecutionProvider"):
-            assert _EP_VENDOR_REQUIREMENT[ep] == set()
+            # Access the internal entry to inspect vendor_requirements directly.
+            entry: EpEntry = EP_CATALOG._by_name[ep]
+            assert entry.vendor_requirements == frozenset()
 
     def test_vendor_constrained_eps_have_nonempty_set(self) -> None:
+        from winml.modelkit.ep_path import EpEntry
+
         for ep in (
             "QNNExecutionProvider",
             "OpenVINOExecutionProvider",
@@ -70,7 +77,8 @@ class TestVendorRequirementTable:
             "MIGraphXExecutionProvider",
             "NvTensorRtRtxExecutionProvider",
         ):
-            assert _EP_VENDOR_REQUIREMENT[ep], f"{ep} must declare ≥1 vendor"
+            entry: EpEntry = EP_CATALOG._by_name[ep]
+            assert entry.vendor_requirements, f"{ep} must declare ≥1 vendor"
 
 
 # ---------------------------------------------------------------------------

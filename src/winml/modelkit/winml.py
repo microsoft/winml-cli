@@ -26,7 +26,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from .ep_path import (
-    EP_DLL_NAMES,
+    EP_CATALOG,
+    EpCatalog,
+    EpEntry,
     EpSource,
     FilesystemSource,
     PyPiSource,
@@ -253,8 +255,10 @@ def add_ep_for_device(
 
 
 __all__ = [
-    "EP_DLL_NAMES",
+    "EP_CATALOG",
     "EP_PLUGIN_REGISTRY",
+    "EpCatalog",
+    "EpEntry",
     "EpSource",
     "FilesystemSource",
     "PyPiSource",
