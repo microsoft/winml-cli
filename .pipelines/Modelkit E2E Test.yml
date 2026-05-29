@@ -50,13 +50,41 @@ parameters:
     default: true
 
   # Inline model list. Each entry: { hf_id: <str>, task: <str> }.
-  # Extend over time; keep small to keep daily runs fast.
+  # Curated to cover one small representative model per supported task
+  # (P0 first, P1/P2 supplements to fill missing tasks). Edit at queue
+  # time (delete rows) to trim a one-off run.
   - name: models
     displayName: 'Models to test (inline list, used by runEval)'
     type: object
     default:
+      # --- P0 ---
       - hf_id: facebook/convnext-tiny-224
         task: image-classification
+      - hf_id: openai/clip-vit-base-patch32
+        task: feature-extraction
+      - hf_id: openai/clip-vit-base-patch32
+        task: zero-shot-classification
+      - hf_id: openai/clip-vit-base-patch32
+        task: zero-shot-image-classification
+      - hf_id: facebook/detr-resnet-50
+        task: object-detection
+      - hf_id: google-bert/bert-base-multilingual-cased
+        task: fill-mask
+      - hf_id: google-bert/bert-base-multilingual-cased
+        task: masked-lm
+      # --- P1/P2 to cover remaining supported tasks ---
+      - hf_id: Intel/dpt-hybrid-midas
+        task: depth-estimation
+      - hf_id: facebook/dinov2-small
+        task: image-feature-extraction
+      - hf_id: deepset/roberta-base-squad2
+        task: question-answering
+      - hf_id: sentence-transformers/all-MiniLM-L6-v2
+        task: sentence-similarity
+      - hf_id: cross-encoder/ms-marco-MiniLM-L4-v2
+        task: text-classification
+      - hf_id: dslim/bert-base-NER
+        task: token-classification
 
   - name: modelTimeout
     displayName: 'Per-model perf timeout (seconds)'
