@@ -326,10 +326,10 @@ def resolve_quant_compile_config(
         Tuple of (quant_config, compile_config). Either may be None when the
         policy does not require that stage (e.g., CPU with fp32).
     """
-    from ..sysinfo import resolve_device
+    from ..sysinfo import resolve_check_device_ep
     from .precision import resolve_precision
 
-    resolved_device, available_devices = resolve_device(device=device, ep=ep)
+    resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -339,7 +339,7 @@ def resolve_quant_compile_config(
     policy = resolve_precision(
         device=resolved_device,
         precision=precision,
-        ep=ep,
+        ep=resolved_eps[0],
         available_devices=available_devices,
         task=task,
     )
@@ -625,12 +625,12 @@ def generate_hf_build_config(
     # =========================================================================
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
-    from ..sysinfo import resolve_device
+    from ..sysinfo import resolve_check_device_ep
     from .precision import resolve_precision
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
     # blindly default to QNN on machines without an NPU (#412).
-    resolved_device, available_devices = resolve_device(device=device, ep=ep)
+    resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -640,7 +640,7 @@ def generate_hf_build_config(
     policy = resolve_precision(
         device=resolved_device,
         precision=precision,
-        ep=ep,
+        ep=resolved_eps[0],
         available_devices=available_devices,
         task=parent_config.loader.task,
     )

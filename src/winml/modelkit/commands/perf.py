@@ -756,6 +756,7 @@ def _perf_modules(
 # Report Generation
 # =============================================================================
 
+
 def _device_string(req_device: str, act_device: str, ep_name: EPName | None) -> str:
     device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
     if ep_name:
@@ -1195,7 +1196,7 @@ def _run_onnx_benchmark(
     default=False,
     help="Enable verbose output",
 )
-@cli_utils.build_config_option
+@cli_utils.build_config_option()
 @click.pass_context
 def perf(
     ctx: click.Context,

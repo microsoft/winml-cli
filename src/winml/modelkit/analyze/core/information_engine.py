@@ -9,11 +9,15 @@ actionable guidance for pattern compatibility issues. Also integrates model-leve
 validation checks.
 """
 
+# Defensive None-checks here are unreachable per the type annotations but kept
+# as runtime safety nets, so silence mypy's [unreachable] for this file only.
+# mypy: disable-error-code="unreachable"
+
 from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
@@ -24,7 +28,7 @@ if TYPE_CHECKING:
     from ...utils.constants import EPName
     from ..models.information import Action, Information
     from ..models.onnx_model import ONNXModel
-    from ..models.runtime_checks import PatternRuntime
+    from ..models.runtime_checks import PatternAlternative, PatternRuntime
 
 from ..models.information import ActionLevel
 from ..models.support_level import SupportLevel
@@ -639,6 +643,9 @@ class InformationEngine:
                 return None
 
             # Query doc checker
+            if self._doc_checker is None:
+                logger.debug("Doc checker not initialized, skipping doc constraints query")
+                return None
             logger.debug("Running doc checker for node: %s", node.name)
             checker_start = time.perf_counter()
             doc_result = self._doc_checker.run_for_node(node)
@@ -723,7 +730,7 @@ class InformationEngine:
         self,
         current_classification: SupportLevel,
         alternative_classification: SupportLevel,
-    ) -> tuple[ActionLevel, SupportLevel | None]:
+    ) -> tuple[ActionLevel | None, SupportLevel | None]:
         """Determine action level and status based on classification transition.
 
         Args:
@@ -854,11 +861,10 @@ class InformationEngine:
                     f"and no alternatives are available. "
                     f"Manual replacement or removal required."
                 )
-
         else:
             details = f"Pattern '{pattern_from_id}' status requires review."
 
-        action_kwargs = {
+        action_kwargs: dict[str, Any] = {
             "pattern_from_id": pattern_from_id,
             "pattern_to_id": pattern_to_id,
             "level": level,
@@ -1118,7 +1124,7 @@ class InformationEngine:
         classification = runtime_result.result.classification
 
         # Build a lookup map for alternatives by pattern_id
-        alternatives_map: dict[str, PatternRuntime] = {
+        alternatives_map: dict[str, PatternAlternative] = {
             alt.pattern_id: alt for alt in runtime_result.alternatives
         }
 

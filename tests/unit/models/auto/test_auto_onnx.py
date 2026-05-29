@@ -50,8 +50,8 @@ class TestFromOnnx:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("npu", ["npu", "cpu"]),
+                "winml.modelkit.sysinfo.resolve_check_device_ep",
+                return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
             ),
             patch(
                 "winml.modelkit.config.precision.resolve_eps",

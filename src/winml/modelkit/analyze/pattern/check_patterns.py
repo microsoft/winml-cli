@@ -31,6 +31,9 @@ from ...sysinfo import SysInfo
 
 
 if TYPE_CHECKING:
+    import argparse
+    from collections.abc import Callable
+
     import onnxruntime as ort
 
     from ...utils.constants import EPName
@@ -245,7 +248,7 @@ def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
         ValueError: If the execution provider name is not supported.
     """
     device_type = constants.DEVICE_TO_DEVICE_TYPE[device]
-    ep_name_to_checker: dict[str, Any] = {
+    ep_name_to_checker: dict[str, Callable[..., EPChecker]] = {
         "QNNExecutionProvider": QNNNPUChecker,
         "OpenVINOExecutionProvider": OpenVINONPUChecker,
         # Add other EPChecker subclasses here as needed
@@ -259,7 +262,7 @@ def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
     return ep_name_to_checker[ep_name](device_type=device_type)
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     """Build argument parser for check_patterns-style commands."""
     import argparse
 
