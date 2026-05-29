@@ -649,7 +649,7 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     ),
 )
 @cli_utils.verbosity_options
-@cli_utils.build_config_option
+@cli_utils.build_config_option()
 @cli_utils.output_option("Save JSON output to file")
 @click.option(
     "--information/--no-information",

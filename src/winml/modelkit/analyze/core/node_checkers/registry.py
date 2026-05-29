@@ -8,7 +8,7 @@ from typing import ClassVar, TypeVar
 from .base import NodeChecker
 
 
-T = TypeVar("T")
+T = TypeVar("T", bound=type[NodeChecker])
 
 
 class NodeCheckerRegistry:

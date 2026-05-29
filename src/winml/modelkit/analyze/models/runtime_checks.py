@@ -52,7 +52,7 @@ class RuntimeTestResult(BaseModel):
         default_factory=list, description="List of NodeTag enums for classifying this node"
     )
     debug_details: Any | None = Field(
-        None, description="Optional debug information for runtime checks"
+        default=None, description="Optional debug information for runtime checks"
     )
 
     @property

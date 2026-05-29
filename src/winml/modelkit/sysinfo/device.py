@@ -223,3 +223,43 @@ def resolve_eps(resolved_device: str) -> list[EPName]:
     device = resolved_device.lower()
     available_eps = set(_get_device_ep_map_from_ort().get(device, ()))
     return [ep for ep in _DEVICE_EP_MAP.get(device, []) if ep in available_eps]
+
+
+def resolve_check_device_ep(
+    *, device: str = "auto", ep: EPNameOrAlias | None = None
+) -> tuple[str, list[str], list[EPName]]:
+    """Resolve or check that the requested device and/or EP combination is valid, raising if not.
+
+    Ideal for commands that do not need the device + ep actually exists on the system.
+
+    Args:
+        device: "auto", "npu", "gpu", or "cpu".
+        ep: Optional EP short name (e.g., "qnn", "dml"). When set,
+            availability is checked and an error is raised if no compatible EP
+            is found.
+
+    Raises:
+        ValueError: If the requested device or EP combination is not valid.
+
+    Returns:
+    Tuple of (resolved_device, available_devices, available_eps) where:
+    - resolved_device: The device that should be used based on the input parameters.
+    - available_devices: List of devices that are compatible with the first in available_eps
+    - available_eps: List of EPs that are compatible with the resolved device.
+    """
+    ep_name = normalize_ep_name(ep)
+    if device == "auto" or ep_name is None:
+        resolved_device, _ = resolve_device(device=device, ep=ep_name)
+        available_eps: list[EPName] = resolve_eps(resolved_device) if ep_name is None else [ep_name]
+        supported_devices = EP_SUPPORTED_DEVICES[available_eps[0]]
+        return resolved_device, list(supported_devices), available_eps
+
+    if ep_name not in EP_SUPPORTED_DEVICES:
+        raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
+    supported_devices = EP_SUPPORTED_DEVICES[ep_name]
+    if device.lower() not in supported_devices:
+        raise ValueError(
+            f"EP '{ep}' does not support device '{device}'. "
+            f"Supported devices for {ep_name}: {', '.join(supported_devices)}."
+        )
+    return device.lower(), list(supported_devices), [ep_name]
