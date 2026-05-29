@@ -11,7 +11,7 @@ Windows Machine Learning API (WinML).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
@@ -19,6 +19,46 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_provider_ready(provider: Any) -> None:
+    """Ensure an EP is ready, showing a tqdm progress bar when downloading.
+
+    Providers already in the ``Ready`` state take the synchronous fast path so
+    cached EPs do not flash a 0-100% bar. Otherwise drives a tqdm bar from
+    ``ensure_ready_async``'s ``on_progress`` callback (cumulative fraction
+    0.0-1.0, per windowsml docs).
+    """
+    from windowsml import EpReadyState
+
+    if provider.ready_state == EpReadyState.Ready:
+        provider.ensure_ready()
+        return
+
+    from tqdm import tqdm
+
+    bar = tqdm(
+        total=100,
+        desc=f"Downloading {provider.name}",
+        unit="%",
+        leave=True,
+    )
+
+    def _on_progress(fraction: float) -> None:
+        current = max(0, min(100, int(fraction * 100)))
+        delta = current - bar.n
+        if delta > 0:
+            bar.update(delta)
+
+    op = provider.ensure_ready_async(on_progress=_on_progress)
+    try:
+        op.wait()
+    finally:
+        if bar.n < 100:
+            bar.update(100 - bar.n)
+        bar.close()
+        op.close()
+
 
 # Singleton instance
 _winml_ep_registry: WinMLEPRegistry | None = None
@@ -80,7 +120,7 @@ class WinMLEPRegistry:
         with EpCatalog() as catalog:
             for provider in catalog.find_all_providers():
                 try:
-                    provider.ensure_ready()
+                    _ensure_provider_ready(provider)
                 except Exception as e:
                     logger.debug("Failed to ensure EP %s is ready: %s", provider.name, e)
                     continue
