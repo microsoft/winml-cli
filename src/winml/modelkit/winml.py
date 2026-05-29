@@ -31,10 +31,15 @@ from .ep_path import (
     EpEntry,
     EpSource,
     FilesystemSource,
+    MsixPackageSource,
+    NuGetSource,
     PyPiSource,
+    ResolvedEp,
     WinMlCatalogSource,
     _default_ep_sources,
+    discover_all_eps,
     discover_eps,
+    list_msix_eps,
 )
 
 
@@ -261,10 +266,16 @@ __all__ = [
     "EpEntry",
     "EpSource",
     "FilesystemSource",
+    "MsixPackageSource",
+    "NuGetSource",
     "PyPiSource",
+    "ResolvedEp",
     "WinML",
     "WinMlCatalogSource",
     "add_ep_for_device",
+    "discover_all_eps",
+    "discover_eps",
+    "list_msix_eps",
     "register_execution_providers",
     "resolve_plugin_dll",
 ]

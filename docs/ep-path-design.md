@@ -4,7 +4,7 @@
 
 Status: implemented in commits `17b81c9a..eab52093` (and ABC refactor `ef9a5bdd`), as of 2026-05-08. Targets ORT 1.24.x (the version pinned in this repo) and 1.25.x. Companion to [`docs/ep-sideloading-research.md`](ep-sideloading-research.md), which inventories what each IHV actually ships today; this document specifies the discovery mechanism that consumes those origins.
 
-**See also**: [`docs/ep-path-msix-source.md`](ep-path-msix-source.md) extends this design with `MsixPackageSource` (version-pinned MSIX EP discovery via `Windows.Management.Deployment.PackageManager`), `is_compatible()` API on every `EpSource`, the `discover_eps(return_shadowed=True)` extension, and the comprehensive `winml sys --list-ep` inventory.
+**See also**: [`docs/ep-path-msix-source.md`](ep-path-msix-source.md) extends this design with `MsixPackageSource` (version-pinned MSIX EP discovery via `Windows.Management.Deployment.PackageManager`), `is_compatible()` API on every `EpSource`, the `discover_all_eps()` function for comprehensive shadowing discovery, and the comprehensive `winml sys --list-ep` inventory.
 
 ## Executive summary
 

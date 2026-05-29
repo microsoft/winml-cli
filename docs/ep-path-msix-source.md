@@ -7,7 +7,7 @@ Status: implemented in commit `f79e484e` (and accompanying ABC refactor `ef9a5bd
 - `WinMlCatalogSource` (the existing MSIX-via-catalog source) cannot reach more than one version of any given EP. The IDL contract specifies `ExecutionProvider.PackageId` as a scalar (one package per provider object) and `IExecutionProviderCatalog.FindAllProviders` returns one entry per **provider name**, not per installed package. Empirical proof on the dev box: two QNN EP MSIX packages installed (`...QNN.EP.1.8` v1.8.30.0, `...QNN.EP.2` v2.2420.44.0), `find_all_providers()` returned a single `QNNExecutionProvider` entry resolving to v2 only.
 - This is fine for the typical user — Windows curates which version is "current" — but blocks regression isolation, multi-tenant pinning, and any workflow that needs a non-current version.
 - This document specifies `MsixPackageSource`, a new `EpSource` that goes directly to `Windows.Management.Deployment.PackageManager` and selects packages by **family-name prefix** (the natural granularity at which Microsoft partitions major version lines). The same data structure is returned by a sibling helper `list_msix_eps()`, so a CLI inventory output can be copy-pasted into `EP_PATH` configuration.
-- **Single CLI surface**: the existing `winml sys --list-ep` command becomes a comprehensive inventory of every EP discoverable on the system (PyPI, MSIX-via-catalog, MSIX-via-package-manager, filesystem) with `[primary]` / `[shadowed]` / `[incompatible]` status tags. **There is no separate `--list-msix-eps` flag** — `--list-ep` is the single discovery command. This requires extending `discover_eps()` with a `return_shadowed=True` mode.
+- **Single CLI surface**: the existing `winml sys --list-ep` command becomes a comprehensive inventory of every EP discoverable on the system (PyPI, MSIX-via-catalog, MSIX-via-package-manager, filesystem) with `[primary]` / `[shadowed]` / `[incompatible]` status tags. **There is no separate `--list-msix-eps` flag** — `--list-ep` is the single discovery command. This uses `discover_all_eps()` to retrieve all matches per EP, with the first entry in each group marked as primary and the rest as shadowed.
 - Renames `WINML_EP_PATH` (added in this branch, not yet shipped) to `WINMLCLI_EP_PATH` to match the tool's identity. No back-compat alias.
 
 ## Background: why the catalog is insufficient
@@ -389,26 +389,13 @@ class PyPiSource:
 
 ### Implementation: how `--list-ep` reaches every source
 
-The change to `discover_eps()`:
+Two companion functions handle discovery:
 
-```python
-def discover_eps(
-    extra_sources: list[EpSource] | None = None,
-    *,
-    return_shadowed: bool = False,
-) -> dict[str, list[ResolvedEp]]:
-    """Walk EP_PATH and return resolved EPs per name.
+- **`discover_eps(extra_sources=...)`** walks the EP_PATH and returns one `ResolvedEp` per EP name (first-hit-wins precedence). Default behavior for routine EP registration.
 
-    With return_shadowed=False (default): one ResolvedEp per name (the
-    winner of first-hit-wins). Existing call sites use this shape.
+- **`discover_all_eps(extra_sources=...)`** walks the EP_PATH and returns all matching `ResolvedEp` entries per EP name, grouped as `dict[str, list[ResolvedEp]]`. Each list is sorted by precedence: the first entry is the primary (winner), and any additional entries are shadowed. Used by the CLI inventory command.
 
-    With return_shadowed=True: all matching ResolvedEps per name, in
-    EP_PATH precedence order. The first entry in each list is the
-    primary one; the rest are shadowed.
-    """
-```
-
-`ResolvedEp` is a small new dataclass:
+`ResolvedEp` is a small dataclass:
 
 ```python
 @dataclass(frozen=True)
@@ -421,14 +408,14 @@ class ResolvedEp:
 
 (The CLI may surface a third ``"incompatible"`` status when the EP
 section's ``is_compatible()`` is False — that override is applied
-in ``commands/sys.py``, not in ``discover_eps`` itself.)
+in ``commands/sys.py``, not in ``discover_all_eps`` itself.)
 
 To cover **non-current MSIX versions** (which `WinMlCatalogSource` collapses to one), `--list-ep` injects `list_msix_eps()` results as additional sources for the discovery walk. Note: appended via `extra_sources_after`, *not* prepended — MSIX entries should appear `[shadowed]`, not artificially override PyPI/Catalog precedence:
 
 ```python
 # Inside `winml sys --list-ep` handler:
 discovered_msix = list_msix_eps()  # one fully-pinned MsixPackageSource per (family, version)
-shadowed_view = discover_eps(extra_sources_after=discovered_msix, return_shadowed=True)
+shadowed_view = discover_all_eps(extra_sources_after=discovered_msix)
 ```
 
 `list_msix_eps()` is exposed as a Python helper for use from the CLI; it is NOT plumbed into the default `EP_PATH` (per "Default `EP_PATH` is unchanged" above). That keeps day-to-day `discover_eps()` behavior identical to today — only the CLI's inventory view sees the expanded set.
@@ -493,16 +480,15 @@ One `pytest.mark.windows_msix` test that hits the real `PackageManager`:
 
 Update existing `WINML_EP_PATH` test cases in `tests/unit/ep_path/test_ep_path.py` to use `WINMLCLI_EP_PATH`. Add one negative case: setting `WINML_EP_PATH` is a no-op (no warning, no parse) so users who try the old name see "nothing happened" cleanly.
 
-### Tests for `discover_eps(return_shadowed=True)`
+### Tests for `discover_all_eps()`
 
-In `tests/unit/ep_path/test_discover_eps_shadowed.py`:
+In `tests/unit/ep_path/test_discover_all_eps.py`:
 
-- **Single source per EP, no shadowing** → returns one `ResolvedEp` per name, all with `status="primary"`.
-- **PyPI active + filesystem shadowed for same EP** → returns 2 entries, PyPI first with `status="primary"`, filesystem second with `status="shadowed"`.
+- **Single source per EP, no shadowing** → returns one `ResolvedEp` per name in the list, with `status="primary"`.
+- **PyPI active + filesystem shadowed for same EP** → returns 2 entries in the same list, PyPI first with `status="primary"`, filesystem second with `status="shadowed"`.
 - **Three sources stack** (PyPI + MSIX + filesystem) → returns 3 entries in `EP_PATH` order; only the first is `primary`.
 - **`extra_sources` injection** (used by CLI to inject `list_msix_eps()` results) → injected sources participate in shadow detection at their precedence position.
 - **Multiple EPs, mixed shadow patterns** → grouping is correct; each EP-name list is sorted by precedence.
-- **`return_shadowed=False` (default) preserves existing return shape** → no breakage to current callers.
 - **Empty EP_PATH + empty extra_sources** → returns `{}`.
 
 ### Tests for the CLI: `winml sys --list-ep`
@@ -530,17 +516,17 @@ In dependency order:
    - Add `is_compatible()` method to `PyPiSource`, `FilesystemSource`, `WinMlCatalogSource` (one line each, delegates to `_ep_is_compatible`).
    - Add `list_msix_eps()` helper.
    - Add `ResolvedEp` dataclass (ep_name, dll_path, source, status).
-   - Extend `discover_eps()` with `return_shadowed: bool = False` parameter. Default behavior unchanged for existing call sites; shadowed-aware mode returns `dict[str, list[ResolvedEp]]`.
+   - Add `discover_all_eps()` function. Returns `dict[str, list[ResolvedEp]]` with all matches per EP-name, sorted by precedence (primary first).
    - Update `EpSource` tagged union to include `MsixPackageSource`.
    - Update `__all__`.
    - Rename `_parse_winml_ep_path` → `_parse_winmlcli_ep_path`, update env-var key from `WINML_EP_PATH` to `WINMLCLI_EP_PATH`.
 3. **`tests/unit/ep_path/test_msix_package_source.py`** — new file with unit tests above.
-4. **`tests/unit/ep_path/test_discover_eps_shadowed.py`** — new file covering `return_shadowed=True` semantics and the `[primary]`/`[shadowed]` ordering rules.
+4. **`tests/unit/ep_path/test_discover_all_eps.py`** — new file covering `discover_all_eps()` semantics and the `[primary]`/`[shadowed]` ordering rules.
 5. **`tests/unit/ep_path/test_compat.py`** — new file covering `_ep_is_compatible`, `_get_detected_vendors`, and `EpSource.is_compatible()` on all four source types.
 6. **Update `tests/unit/ep_path/test_ep_path.py`** — rename `WINML_EP_PATH` references to `WINMLCLI_EP_PATH`. Add negative case (setting `WINML_EP_PATH` is a silent no-op).
-7. **`src/winml/modelkit/cli/sys.py`** (or wherever `winml sys` is implemented) — extend the existing `--list-ep` flag to use `discover_eps(extra_sources=list_msix_eps(), return_shadowed=True)`, compute the `[incompatible]` section tag from `EpSource.is_compatible()`, and render the comprehensive inventory output described above. Update the `--list-ep --format json` shape.
+7. **`src/winml/modelkit/cli/sys.py`** (or wherever `winml sys` is implemented) — extend the existing `--list-ep` flag to use `discover_all_eps(extra_sources_after=list_msix_eps())`, compute the `[incompatible]` section tag from `EpSource.is_compatible()`, and render the comprehensive inventory output described above. Update the `--list-ep --format json` shape.
 8. **`tests/unit/cli/test_sys.py`** (if it exists; otherwise create) — golden-test the `--list-ep` output for a synthetic mixed scenario (compatible PyPI primary + 2 shadowed MSIX, plus an incompatible PyPI source on a Snapdragon-only mock). Mock `_get_pkg_manager`, `_get_catalog`, `_get_detected_vendors`.
-9. **`docs/ep-path-design.md`** — add a "MsixPackageSource" subsection cross-referencing this doc, plus notes on the `discover_eps(return_shadowed=...)` extension and the `is_compatible()` API.
+9. **`docs/ep-path-design.md`** — add a "MsixPackageSource" subsection cross-referencing this doc, plus notes on the `discover_all_eps()` function and the `is_compatible()` API.
 
 ## Open TODOs
 
