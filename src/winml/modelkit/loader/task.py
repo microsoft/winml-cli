@@ -355,20 +355,21 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
     # (not hardcoded), and the class from get_model_class_for_task (a generic
     # Auto* class that transformers dispatches to the wrapper at load).
     if not getattr(config, "architectures", None):
-        library = WRAPPED_LIBRARY_MODEL_TYPES.get(getattr(config, "model_type", None) or "")
+        model_type = getattr(config, "model_type", None)
+        library = WRAPPED_LIBRARY_MODEL_TYPES.get(model_type) if model_type else None
         if library is not None:
             # Populate Optimum's exporter registry (incl. the wrapped library's
             # task list) before querying it; scoped to this rare branch so normal
             # model loading never pays for the import.
             import optimum.exporters.onnx.model_configs  # noqa: F401
 
-            supported = get_supported_tasks(config.model_type, library_name=library)
+            supported = get_supported_tasks(model_type, library_name=library)
             if supported:
                 task = supported[0]
                 model_class = TasksManager.get_model_class_for_task(task, framework="pt")
                 logger.info(
                     "config has no 'architectures'; resolved %s via %s library (task=%s, class=%s)",
-                    config.model_type,
+                    model_type,
                     library,
                     task,
                     model_class.__name__,
