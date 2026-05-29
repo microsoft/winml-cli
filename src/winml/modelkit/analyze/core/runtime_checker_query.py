@@ -79,6 +79,14 @@ if TYPE_CHECKING:
 
 QDQ_SUFFIX = " (QDQ)"
 
+# EP/device-specific ops that are always considered supported.
+# These ops bypass parquet rule lookup and return compile=True, run=True.
+_EP_DEVICE_WHITELISTED_OPS: dict[tuple[str, str], set[str]] = {
+    ("OpenVINOExecutionProvider", "NPU"): {
+        "OP/ai.onnx/Slice",
+    },
+}
+
 
 def _elapsed_ms(start_time: float) -> int:
     """Return elapsed milliseconds from `start_time` to now."""
@@ -2338,6 +2346,25 @@ class RuntimeCheckerQuery:
                     pattern_match=pattern_match,
                 ),
                 outcome="ignored_op",
+            )
+
+        # EP/device-specific whitelisted ops bypass parquet rule lookup
+        ep_device_key = (self.ep_name, self.device_type.upper())
+        ep_whitelisted = _EP_DEVICE_WHITELISTED_OPS.get(ep_device_key, set())
+        if pattern_match.pattern.pattern_id in ep_whitelisted:
+            return _finish(
+                PatternRuntime(
+                    pattern_id=pattern_match.pattern.pattern_id,
+                    result=RuntimeTestResult(
+                        run=True,
+                        compile=True,
+                        no_data=False,
+                        debug_details=None,
+                    ),
+                    alternatives=self.alternatives,
+                    pattern_match=pattern_match,
+                ),
+                outcome="ep_whitelisted_op",
             )
 
         # Collect all tags for this node
