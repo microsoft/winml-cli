@@ -182,7 +182,7 @@ def device_option(required=True, optional_message=None, default="NPU", include_a
     )
 
 
-def verbosity_options(f):
+def verbosity_options():
     """Add verbose and quiet logging options to a Click command.
 
     Adds --verbose/-v (stackable: -v, -vv, -vvv) and --quiet/-q flags.
@@ -191,26 +191,59 @@ def verbosity_options(f):
 
     See :mod:`winml.modelkit.utils.logging` for the verbosity convention.
 
+    Returns:
+        Decorator function adding verbose and quiet options.
+    """
+
+    def decorator(f):
+        f = click.option(
+            "--quiet",
+            "-q",
+            is_flag=True,
+            default=False,
+            help="Quiet mode - errors only to stderr",
+        )(f)
+        return click.option(
+            "--verbose",
+            "-v",
+            count=True,
+            help="Increase verbosity (-v=INFO, -vv=DEBUG)",
+        )(f)
+
+    return decorator
+
+
+def resolve_verbosity(ctx: click.Context, verbose: int, quiet: bool) -> tuple[int, bool]:
+    """Merge subcommand ``--verbose``/``--quiet`` with the parent group's values.
+
+    The top-level ``winml`` group also accepts ``-v``/``-q`` and stores the
+    resolved values in ``ctx.obj``. Both positions are equally valid:
+    ``winml -v export …`` and ``winml export -v …`` should behave the same.
+    This helper takes the max verbosity and OR of quiet so users can supply
+    the flag at either level (or both).
+
+    Precedence: ``-q``/``--quiet`` always wins over verbosity, including the
+    ``--debug`` alias — ``winml --debug export -q …`` runs at ERROR. ``-q`` is
+    an explicit "shut up" signal and trumps any verbosity raise, so the user
+    is never surprised by debug spam after they asked for quiet.
+
     Args:
-        f: Click command function to decorate
+        ctx: Click context for the current subcommand.
+        verbose: Subcommand-level ``-v`` count.
+        quiet: Subcommand-level ``--quiet`` flag.
 
     Returns:
-        Decorated function with verbose and quiet options
+        Tuple ``(verbose, quiet)`` ready to pass to ``configure_logging``.
     """
-    f = click.option(
-        "--quiet",
-        "-q",
-        is_flag=True,
-        default=False,
-        help="Quiet mode - errors only to stderr",
-    )(f)
-    f = click.option(
-        "--verbose",
-        "-v",
-        count=True,
-        help="Increase verbosity (-v=INFO, -vv=DEBUG)",
-    )(f)
-    return f  # noqa: RET504
+    if ctx.obj:
+        verbose = max(verbose, int(ctx.obj.get("verbosity", 0)))
+        # ``debug`` is the historical backward-compat alias for ``-vv``; keep
+        # honoring it so tests that bypass ``main()`` and stuff ``debug=True``
+        # straight into ctx.obj still raise the verbosity floor.
+        if ctx.obj.get("debug"):
+            verbose = max(verbose, 2)
+        quiet = quiet or bool(ctx.obj.get("quiet", False))
+    return verbose, quiet
 
 
 def build_config_option(help: str | None = None):

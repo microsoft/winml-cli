@@ -73,13 +73,6 @@ console = Console()
     help="Validate compiled model (default: enabled)",
 )
 @click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output",
-)
-@click.option(
     "--compiler",
     type=click.Choice(["ort", "qairt"]),
     default="ort",
@@ -105,6 +98,7 @@ console = Console()
     help="List available compilers for the selected device and exit",
 )
 @cli_utils.build_config_option()
+@cli_utils.verbosity_options()
 @click.pass_context
 def compile(
     ctx: click.Context,
@@ -114,7 +108,8 @@ def compile(
     device: str,
     ep: EPNameOrAlias | None,
     validate: bool,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     compiler: str,
     qnn_sdk_root: Path | None,
     embed: bool,
@@ -140,9 +135,8 @@ def compile(
         # Compile using QAIRT SDK
         winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
     """
-    # Inherit debug mode from parent
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
@@ -157,10 +151,8 @@ def compile(
             embed = cc["embed_context"]
         if not cli_utils.is_cli_provided(ctx, "validate") and "validate" in cc:
             validate = cc["validate"]
-        if not cli_utils.is_cli_provided(ctx, "verbose") and "verbose" in cc:
-            verbose = cc["verbose"]
 
-    configure_logging(verbose=verbose)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     try:
         resolved_device, _ = resolve_device(device, ep=ep)
@@ -200,7 +192,7 @@ def compile(
         )
 
     config.validate = validate
-    config.verbose = verbose
+    config.verbose = bool(verbose)
 
     # Set compiler options
     config.ep_config.compiler = compiler
