@@ -97,6 +97,7 @@ class WinMLEvaluator:
                     name=ds.name,
                     split=ds.split,
                     streaming=ds.streaming,
+                    revision=ds.revision,
                 )
         except Exception as e:
             raise DatasetValidationError(

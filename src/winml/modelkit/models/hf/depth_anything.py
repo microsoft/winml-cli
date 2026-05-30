@@ -17,10 +17,48 @@ The config resolves image_size and num_channels from the nested backbone_config
 from __future__ import annotations
 
 from optimum.exporters.onnx import OnnxConfig
-from optimum.utils import NormalizedConfig
+from optimum.utils import DEFAULT_DUMMY_SHAPES, NormalizedConfig
 from optimum.utils.input_generators import DummyVisionInputGenerator
 
 from ...export import register_onnx_overwrite
+
+
+class _DepthAnythingVisionInputGenerator(DummyVisionInputGenerator):
+    """Vision input generator that lets explicit height/width override config.image_size.
+
+    Optimum's DummyVisionInputGenerator prioritizes normalized_config.image_size
+    (resolved here from backbone_config.image_size) over explicit height/width
+    kwargs. When the user supplies a non-default shape via --shape-config (e.g.
+    to match a non-square dataset), this subclass restores the override behavior
+    so user kwargs take precedence. Mirrors the pattern used in
+    `_SegformerVisionInputGenerator`.
+    """
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config,
+        batch_size: int = DEFAULT_DUMMY_SHAPES["batch_size"],
+        num_channels: int = DEFAULT_DUMMY_SHAPES["num_channels"],
+        width: int = DEFAULT_DUMMY_SHAPES["width"],
+        height: int = DEFAULT_DUMMY_SHAPES["height"],
+        **kwargs,
+    ):
+        super().__init__(
+            task,
+            normalized_config,
+            batch_size=batch_size,
+            num_channels=num_channels,
+            width=width,
+            height=height,
+            **kwargs,
+        )
+        # If caller passed non-default height/width (e.g. from --shape-config),
+        # use those instead of the backbone config's pretraining resolution.
+        if height != DEFAULT_DUMMY_SHAPES["height"] or width != DEFAULT_DUMMY_SHAPES["width"]:
+            self.height = height
+            self.width = width
+            self.image_size = (height, width)
 
 
 @register_onnx_overwrite("depth_anything", "depth-estimation", library_name="transformers")
@@ -42,7 +80,7 @@ class DepthAnythingIOConfig(OnnxConfig):
         num_channels="backbone_config.num_channels",
         allow_new=True,
     )
-    DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator,)
+    DUMMY_INPUT_GENERATOR_CLASSES = (_DepthAnythingVisionInputGenerator,)
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:
