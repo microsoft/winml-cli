@@ -62,7 +62,12 @@ parameters:
         task: image-classification
       - hf_id: openai/clip-vit-base-patch32
         task: feature-extraction
-      - hf_id: openai/clip-vit-base-patch32
+      # NOTE: zero-shot-classification ideally would be covered by the
+      # P0 model openai/clip-vit-base-patch32, but CLIP does not yet
+      # pass on every supported EP for this task. Temporarily covered
+      # by a small text-only NLI model; switch back to CLIP once it
+      # passes on all EPs.
+      - hf_id: cross-encoder/nli-deberta-v3-small
         task: zero-shot-classification
       - hf_id: openai/clip-vit-base-patch32
         task: zero-shot-image-classification
