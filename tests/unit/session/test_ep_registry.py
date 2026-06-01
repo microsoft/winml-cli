@@ -207,6 +207,36 @@ def test_ensure_provider_ready_surfaces_get_status_error(
     assert fake_bar.n == 0
 
 
+def test_ensure_provider_ready_works_without_tqdm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When tqdm (a dev-only optional dep) is missing, the download still
+    completes via the _NoopBar fallback — no ImportError, no progress UI."""
+    from winml.modelkit.session import ep_registry
+
+    ns = _install_fake_windowsml(monkeypatch)
+    # Simulate tqdm being uninstalled: make `from tqdm import tqdm` raise.
+    monkeypatch.setitem(sys.modules, "tqdm", None)
+
+    op = MagicMock()
+
+    def fake_ensure_async(on_complete=None, on_progress=None):
+        # Drive a progress update too — the no-op bar must tolerate bar.n = ...
+        on_progress(0.5)
+        on_complete()
+        return op
+
+    provider = MagicMock()
+    provider.name = "FakeEP"
+    provider.ready_state = ns.EpReadyState.NotPresent
+    provider.ensure_ready_async.side_effect = fake_ensure_async
+
+    ep_registry._ensure_provider_ready(provider)
+
+    op.get_status.assert_called_once_with()
+    op.close.assert_called_once_with()
+
+
 class TestEpDownloadTimeoutDefault:
     """`_ep_download_timeout_default` reads ``WINMLCLI_EP_DOWNLOAD_TIMEOUT``."""
 

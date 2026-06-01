@@ -41,6 +41,37 @@ def _ep_download_timeout_default() -> int:
 EP_DOWNLOAD_TIMEOUT_SECONDS = _ep_download_timeout_default()
 
 
+class _NoopBar:
+    """No-op stand-in for tqdm when the optional dependency is missing.
+
+    Exposes the attribute (``n``) and methods (``refresh``, ``close``) that
+    ``_ensure_provider_ready`` touches, so the helper can stay branch-free.
+    """
+
+    def __init__(self) -> None:
+        self.n = 0
+
+    def refresh(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+def _make_progress_bar(name: str) -> Any:
+    """Return a tqdm bar if tqdm is installed, else a silent no-op stand-in.
+
+    tqdm is a dev-only optional dep in this package, so production installs
+    without it must still complete EP downloads — they just lose the live bar.
+    The pre-download warning log is emitted by the caller and is unaffected.
+    """
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        return _NoopBar()
+    return tqdm(total=100, desc=f"Downloading {name}", unit="%", leave=True)
+
+
 def _ensure_provider_ready(provider: Any) -> None:
     """Ensure an EP is ready, showing a tqdm progress bar when downloading.
 
@@ -59,8 +90,6 @@ def _ensure_provider_ready(provider: Any) -> None:
         provider.ensure_ready()
         return
 
-    from tqdm import tqdm
-
     logger.warning(
         "Downloading execution provider %r. This may take several minutes "
         "depending on network speed (timeout: %ds).",
@@ -68,12 +97,7 @@ def _ensure_provider_ready(provider: Any) -> None:
         EP_DOWNLOAD_TIMEOUT_SECONDS,
     )
 
-    bar = tqdm(
-        total=100,
-        desc=f"Downloading {provider.name}",
-        unit="%",
-        leave=True,
-    )
+    bar = _make_progress_bar(provider.name)
     done = threading.Event()
 
     def _on_progress(fraction: float) -> None:
