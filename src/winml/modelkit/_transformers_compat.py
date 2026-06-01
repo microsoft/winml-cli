@@ -206,3 +206,99 @@ if not hasattr(transformers.utils.generic, "OutputRecorder"):
             self.recordings[name] = value
 
     transformers.utils.generic.OutputRecorder = OutputRecorder
+
+
+# ---------------------------------------------------------------------------
+# optimum-onnx 0.1.0 — sdpa_mask_without_vmap signature drift.
+#
+# Optimum-onnx replaces transformers' sdpa/eager mask attention functions at
+# export time (model_patcher.py:662) with vmap-free versions so torch.jit.trace
+# can capture the graph. Both replacements were written against transformers
+# 4.x's mask_interface, which passed `cache_position` (tensor) and derived
+# q_length / device from it.
+#
+# Transformers 5.x's mask_interface (masking_utils.py:983) now passes
+# `q_length: int`, `q_offset: int`, `device`, and `use_vmap` directly — and
+# no `cache_position`. The 0.1.0 function still has `cache_position` as a
+# required positional, so tf 5.x's call raises `TypeError:
+# sdpa_mask_without_vmap() missing 1 required positional argument:
+# 'cache_position'` for any model whose forward triggers create_causal_mask
+# under ONNX export (CLIP text encoder, every causal-mask-using text LM,
+# etc.). Additionally, optimum's body calls `prepare_padding_mask(...,
+# _slice=False)`, but tf 5.x dropped the `_slice` kwarg.
+#
+# We replace optimum's binding with a tf-5.x-signature-compatible version.
+# eager_mask_without_vmap is left as-is because it resolves
+# sdpa_mask_without_vmap from model_patcher's module globals at call time —
+# it picks up the patched version automatically.
+# ---------------------------------------------------------------------------
+try:
+    import optimum.exporters.onnx.model_patcher as _optimum_mp
+except ImportError:
+    pass
+else:
+    import torch as _torch
+    from transformers.masking_utils import (
+        _ignore_causal_mask_sdpa,
+        and_masks,
+        causal_mask_function,
+        padding_mask_function,
+        prepare_padding_mask,
+    )
+
+    def _sdpa_mask_without_vmap_tf5(
+        batch_size: int,
+        q_length: int,
+        kv_length: int,
+        q_offset: int = 0,
+        kv_offset: int = 0,
+        mask_function: Any | None = None,
+        attention_mask: Any | None = None,
+        local_size: int | None = None,
+        allow_is_causal_skip: bool = True,
+        device: Any = "cpu",
+        **kwargs: Any,
+    ) -> Any:
+        """Compat shim: optimum-onnx 0.1.0's sdpa_mask_without_vmap, adapted
+        to transformers 5.x's mask_interface calling convention.
+
+        Same body as optimum's 0.1.0 implementation, with:
+          - q_indices derived from (q_length + q_offset) instead of
+            cache_position[None, None, :, None]
+          - device taken from the explicit `device` kwarg
+          - prepare_padding_mask called without `_slice=False` (kwarg dropped
+            in transformers 5.x; default behavior matches optimum's intent)
+        Extra kwargs from tf 5.x (dtype, config, use_vmap) are accepted via
+        **kwargs and ignored — they're not exercised in the no-vmap path.
+        """
+        if mask_function is None:
+            mask_function = causal_mask_function
+
+        padding_mask = prepare_padding_mask(attention_mask, kv_length, kv_offset)
+        if allow_is_causal_skip and _ignore_causal_mask_sdpa(
+            padding_mask, q_length, kv_length, kv_offset, local_size
+        ):
+            return None
+        if padding_mask is not None:
+            mask_function = and_masks(mask_function, padding_mask_function(padding_mask))
+
+        if isinstance(device, str):
+            device = _torch.device(device)
+        q_indices = (
+            _torch.arange(q_length, dtype=_torch.long, device=device)[None, None, :, None]
+            + q_offset
+        )
+        head_indices = _torch.arange(1, dtype=_torch.long, device=device)[None, :, None, None]
+        batch_indices = _torch.arange(batch_size, dtype=_torch.long, device=device)[
+            :, None, None, None
+        ]
+        kv_indices = (
+            _torch.arange(kv_length, dtype=_torch.long, device=device)[None, None, None, :]
+            + kv_offset
+        )
+        causal_mask = mask_function(batch_indices, head_indices, q_indices, kv_indices)
+        # Expand to match batch size and q_length if mask_function broadcast.
+        causal_mask = causal_mask.expand(batch_size, -1, q_length, kv_length)
+        return causal_mask
+
+    _optimum_mp.sdpa_mask_without_vmap = _sdpa_mask_without_vmap_tf5
