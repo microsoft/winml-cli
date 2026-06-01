@@ -91,7 +91,7 @@ def require_not_ep(ep: str) -> None:
         pytest.skip(f"EP is available on this host (test requires it absent): {provider}")
 
 
-def _is_host(ep: str) -> bool:
+def is_host(ep: str) -> bool:
     """Return True iff ``ep`` is available on this host.
 
     Non-skipping probe used to gate assertions whose tolerance depends on

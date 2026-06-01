@@ -34,7 +34,7 @@ import pytest
 from winml.modelkit.commands.eval import eval as eval_cmd
 
 from .conftest import find_cache_dir
-from .require_ep import _is_host, require_ep, require_not_ep
+from .require_ep import is_host, require_ep, require_not_ep
 
 
 if TYPE_CHECKING:
@@ -190,7 +190,7 @@ class TestEvalPerTask:
         # bert-mrpc full MRPC ≈ 0.86; MRPC majority baseline ≈ 0.68.
         # Magnitude assertion is QNN-only: VitisAI W8A8 quantization
         # degrades this small BERT well below the floor.
-        if _is_host("qnn"):
+        if is_host("qnn"):
             _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
 
     def test_token_classification(self, runner: CliRunner, tmp_path: Path) -> None:
@@ -275,7 +275,7 @@ class TestEvalPerTask:
         # Magnitude assertion is QNN-only: VitisAI W8A8 quantization
         # produces near-random embeddings for this small encoder.
         data = _assert_metrics_present(out, ["cosine_spearman"])
-        if _is_host("qnn"):
+        if is_host("qnn"):
             _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
     def test_sentence_similarity(self, runner: CliRunner, tmp_path: Path) -> None:
@@ -289,7 +289,7 @@ class TestEvalPerTask:
         ])
         # Same quantization caveat as test_feature_extraction.
         data = _assert_metrics_present(out, ["cosine_spearman"])
-        if _is_host("qnn"):
+        if is_host("qnn"):
             _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
     def test_image_feature_extraction(
@@ -593,7 +593,7 @@ class TestEvalAdditionalOptions:
         ])
         # Same quantization caveat as TestEvalPerTask.test_text_classification.
         data = _assert_metrics_present(out, ["accuracy"])
-        if _is_host("qnn"):
+        if is_host("qnn"):
             _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
 
     def test_label_mapping_image_segmentation(
@@ -638,7 +638,7 @@ class TestEvalAdditionalOptions:
         ])
         # Same quantization caveat as TestEvalPerTask.test_text_classification.
         data = _assert_metrics_present(out, ["accuracy"])
-        if _is_host("qnn"):
+        if is_host("qnn"):
             _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
         assert data["dataset"]["samples"] == 5, (
             f"expected samples=5 from config, got {data['dataset']['samples']}"
@@ -662,7 +662,7 @@ class TestEvalAdditionalOptions:
         ])
         # Same quantization caveat as TestEvalPerTask.test_text_classification.
         data = _assert_metrics_present(out, ["accuracy"])
-        if _is_host("qnn"):
+        if is_host("qnn"):
             _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
         assert data["dataset"]["samples"] == 7, (
             f"expected CLI override samples=7, got {data['dataset']['samples']}"
@@ -680,7 +680,7 @@ class TestEvalAdditionalOptions:
         ])
         # Same quantization caveat as TestEvalPerTask.test_text_classification.
         data = _assert_metrics_present(out, ["accuracy"])
-        if _is_host("qnn"):
+        if is_host("qnn"):
             _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
         assert data.get("task") == "text-classification", (
             f"expected auto-detected task, got {data.get('task')!r}"
