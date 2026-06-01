@@ -11,9 +11,45 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from typing_extensions import NotRequired, TypedDict
 
 from .ihv_type import IHVType
 from .support_level import SupportLevel
+
+
+class RuntimeDebugStep(TypedDict):
+    """Single step in parquet debug filtering trace."""
+
+    column: str
+    value: Any
+    rows_before: int
+    rows_after: int
+
+
+class RuntimeDebugDetails(TypedDict):
+    """Typed payload for runtime debug details.
+
+    All fields are optional by design so producers can emit only applicable
+    diagnostics for each debug scenario.
+    """
+
+    table_path: NotRequired[str | None]
+    table_file: NotRequired[str | None]
+    case_indices: NotRequired[tuple[Any, ...] | list[Any] | None]
+
+    type: NotRequired[str]
+    source: NotRequired[str]
+    fallback_reason: NotRequired[str]
+    op_type: NotRequired[str]
+    node_stable_key: NotRequired[str | None]
+    domain: NotRequired[str]
+    opset_version: NotRequired[int]
+    op_since_version: NotRequired[int]
+    total_rows: NotRequired[int]
+    lookup_columns: NotRequired[list[str]]
+    query_signature: NotRequired[tuple[Any, ...]]
+    steps: NotRequired[list[dict[str, Any]]]
+    error_message: NotRequired[str]
 
 
 class NodeTag(str, Enum):
@@ -51,7 +87,7 @@ class RuntimeTestResult(BaseModel):
     node_tags: list[NodeTag] = Field(
         default_factory=list, description="List of NodeTag enums for classifying this node"
     )
-    debug_details: Any | None = Field(
+    debug_details: RuntimeDebugDetails | None = Field(
         default=None, description="Optional debug information for runtime checks"
     )
 

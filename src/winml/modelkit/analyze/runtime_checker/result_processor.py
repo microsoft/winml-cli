@@ -896,6 +896,9 @@ if __name__ == "__main__":
                 for c in rule_df.columns
                 if c not in output_cols and c not in infinite_properties and c != "case_index"
             ]
+            # Keep artifact schema stable across runs/machines regardless of
+            # intermediate dict/set insertion ordering.
+            condition_cols = sorted(condition_cols)
 
             dedup_df, conflict_df = _deduplicate_rule_rows(
                 rule_df,
@@ -947,7 +950,7 @@ if __name__ == "__main__":
             except Exception as e:
                 raise RuntimeError(
                     "Failed to write parquet file. Ensure a parquet engine "
-                    "(for example pyarrow) is installed."
+                    "(e.g., pyarrow) is installed."
                 ) from e
 
             processed += 1

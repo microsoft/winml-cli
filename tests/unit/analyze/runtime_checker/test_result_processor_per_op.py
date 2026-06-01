@@ -158,5 +158,3 @@ class TestParquetConditionEncoding:
         assert all(isinstance(v, str) for v in encoded_df["attr_value"].tolist())
         # Output columns remain untouched.
         assert encoded_df.iloc[0]["compile_run_success"] == (False, True)
-
-

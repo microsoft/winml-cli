@@ -40,7 +40,13 @@ from ..exceptions import (
     OpOptionalInputSupportError,
     OpUnsupportedError,
 )
-from ..models.runtime_checks import NodeTag, PatternAlternative, PatternRuntime, RuntimeTestResult
+from ..models.runtime_checks import (
+    NodeTag,
+    PatternAlternative,
+    PatternRuntime,
+    RuntimeDebugDetails,
+    RuntimeTestResult,
+)
 from ..runtime_checker.ep_checker import EPChecker
 from ..runtime_checker.runner import ResilientRunner
 from ..utils.model_utils import (
@@ -138,6 +144,8 @@ def _extract_condition_columns(table_df: pd.DataFrame) -> list[str]:
         "compile_reason",
         "run_reason",
         "rule_row_count",
+        # Debug parquet may carry case index mappings; they are outputs, not conditions.
+        "case_indices",
     }
     return [col for col in table_df.columns if col not in output_cols]
 
@@ -1069,7 +1077,10 @@ class RuntimeCheckerQuery:
         # Cache of node results keyed by hashable table_filter_conditions
         self._node_result_cache: dict[Any, PatternRuntime] = {}
         # Per-op parquet rule table cache keyed by (op, domain, since, qdq)
-        self._parquet_rule_table_cache: dict[tuple[str, str, int, bool], pd.DataFrame | None] = {}
+        self._parquet_rule_table_cache: dict[
+            tuple[str, str, int, bool],
+            pd.DataFrame | None,
+        ] = {}
         self._parquet_condition_tree_cache: dict[
             tuple[str, str, int, bool],
             _ParquetConditionTree | None,
@@ -1587,6 +1598,8 @@ class RuntimeCheckerQuery:
         pattern_match: PatternMatchResult,
         node_tags: list[NodeTag],
         fallback_reason: str,
+        node_stable_key: str | None = None,
+        for_debug: bool = False,
         include_adjacent_qdq: bool = False,
         save_node_types: set[str] | None = None,
         conditions: Any | None = None,
@@ -1603,6 +1616,7 @@ class RuntimeCheckerQuery:
             pattern_match: Pattern match result for the node.
             node_tags: Collected tags for the node.
             fallback_reason: The original reason rules were not found.
+            for_debug: Whether to include debug_details in result payload.
             save_node_types: Set of node types to save (e.g., {"partial", "unsupported"}).
             conditions: Conditions for the local check.
 
@@ -1708,22 +1722,26 @@ class RuntimeCheckerQuery:
                     name_suffix="unsupported" if is_unsupported else "partial",
                 )
 
+        local_debug_details: RuntimeDebugDetails | None = None
+        if for_debug:
+            local_debug_details = {
+                "source": "local_ep_check",
+                "fallback_reason": fallback_reason,
+                "op_type": node.op_type,
+                "node_stable_key": node_stable_key,
+                "domain": str(op_domain),
+                "opset_version": opset_version,
+                "table_path": None,
+                "table_file": None,
+            }
+
         result = RuntimeTestResult(
             compile=compile_success,
             run=run_success,
             no_data=False,
             reason=reason_str,
             node_tags=node_tags,
-            debug_details={
-                "source": "local_ep_check",
-                "fallback_reason": fallback_reason,
-                "op_type": node.op_type,
-                "node_name": node.name,
-                "domain": str(op_domain),
-                "opset_version": opset_version,
-                "table_path": "",
-                "table_file": "",
-            },
+            debug_details=local_debug_details,
         )
 
         if conditions is not None:
@@ -1916,29 +1934,36 @@ class RuntimeCheckerQuery:
         op_domain: ONNXDomain,
         op_since_version: int,
         is_qdq: bool,
-    ) -> tuple[pd.DataFrame | None, Path, _ParquetConditionTree | None]:
+        for_debug: bool = False,
+    ) -> tuple[pd.DataFrame | None, Path | None, _ParquetConditionTree | None]:
         """Load per-op parquet rule table with cache.
 
         Returns:
-            tuple[pd.DataFrame | None, Path, _ParquetConditionTree | None]:
+            tuple[pd.DataFrame | None, Path | None, _ParquetConditionTree | None]:
                 Loaded dataframe when available, otherwise None,
-                the resolved parquet path used for lookup,
+                the resolved parquet path used for lookup when found,
                 and optional pre-built condition tree.
         """
         parquet_name = (
             f"{op_name}_{self.ep_name}_{self.device_type.upper()}_{op_domain.name}"
             f"_opset{op_since_version}{'_qdq' if is_qdq else ''}.parquet"
         )
-        parquet_path = resolve_rule_parquet_path(parquet_name)
+        parquet_path = resolve_rule_parquet_path(parquet_name, for_debug=for_debug)
 
         cache_key = (op_name, op_domain.value, op_since_version, is_qdq)
         if cache_key in self._parquet_rule_table_cache:
-            _log_parquet_cache_hit(parquet_path, scope="instance")
+            if parquet_path is not None:
+                _log_parquet_cache_hit(parquet_path, scope="instance")
             return (
                 self._parquet_rule_table_cache[cache_key],
                 parquet_path,
                 self._parquet_condition_tree_cache.get(cache_key),
             )
+
+        if parquet_path is None:
+            self._parquet_rule_table_cache[cache_key] = None
+            self._parquet_condition_tree_cache[cache_key] = None
+            return None, None, None
 
         table_df = _get_or_load_parquet_table_global(parquet_path)
         condition_tree = _build_condition_tree(table_df)
@@ -1957,6 +1982,7 @@ class RuntimeCheckerQuery:
         node_tags: list[NodeTag],
         pattern_match: PatternMatchResult,
         pattern_id: str,
+        node_stable_key: str,
         for_debug: bool,
         run_unknown_op: bool,
         save_node_types: set[str] | None,
@@ -2002,10 +2028,11 @@ class RuntimeCheckerQuery:
             op_domain,
             op_since_version,
             is_qdq,
+            for_debug=for_debug,
         )
         load_table_ms = _elapsed_ms(load_table_start)
-        parquet_file = parquet_path.name
-        parquet_path_norm = _normalize_table_path(parquet_path)
+        parquet_file = parquet_path.name if parquet_path is not None else None
+        parquet_path_norm = _normalize_table_path(parquet_path) if parquet_path is not None else None
 
         if table_df is None:
             if run_unknown_op:
@@ -2017,6 +2044,8 @@ class RuntimeCheckerQuery:
                     pattern_match,
                     node_tags,
                     "rules_not_found",
+                    node_stable_key=node_stable_key,
+                    for_debug=for_debug,
                     include_adjacent_qdq=is_qdq,
                     conditions=None,
                     save_node_types=save_node_types,
@@ -2033,6 +2062,17 @@ class RuntimeCheckerQuery:
                         no_data=local_result.result.no_data,
                     )
 
+            rules_not_found_debug_details: RuntimeDebugDetails | None = None
+            if for_debug:
+                rules_not_found_debug_details = {
+                    "op_type": node.op_type,
+                    "domain": str(op_domain),
+                    "opset_version": opset_version,
+                    "table_path": parquet_path_norm,
+                    "table_file": parquet_file,
+                    "op_since_version": op_since_version,
+                }
+
             return _finish(
                 PatternRuntime(
                     pattern_id=pattern_id,
@@ -2042,18 +2082,7 @@ class RuntimeCheckerQuery:
                         no_data=True,
                         reason="rules_not_found",
                         node_tags=node_tags,
-                        debug_details=(
-                            {
-                                "op_type": node.op_type,
-                                "domain": str(op_domain),
-                                "opset_version": opset_version,
-                                "table_path": parquet_path_norm,
-                                "table_file": parquet_file,
-                                "op_since_version": op_since_version,
-                            }
-                            if for_debug
-                            else None
-                        ),
+                        debug_details=rules_not_found_debug_details,
                     ),
                     alternatives=self.alternatives,
                     pattern_match=pattern_match,
@@ -2117,7 +2146,7 @@ class RuntimeCheckerQuery:
         row_lookup_ms = _elapsed_ms(row_lookup_start)
 
         if matched_row is None:
-            debug_details = None
+            debug_details: RuntimeDebugDetails | None = None
             if for_debug:
                 debug_steps: list[dict[str, Any]] = []
                 current_df = table_df
@@ -2154,6 +2183,8 @@ class RuntimeCheckerQuery:
                     pattern_match,
                     node_tags,
                     "properties_not_found",
+                    node_stable_key=node_stable_key,
+                    for_debug=for_debug,
                     include_adjacent_qdq=is_qdq,
                     conditions=cache_key,
                     save_node_types=save_node_types,
@@ -2197,10 +2228,23 @@ class RuntimeCheckerQuery:
                 query_signature_size=len(query_signature),
             )
 
-        row = matched_row
-        compile_run = row.get("compile_run_success", (False, False))
+        compile_run = matched_row.get("compile_run_success", (False, False))
         compile_result = bool(compile_run[0])
         run_result = bool(compile_run[1])
+        matched_case_indices = (
+            matched_row.get("case_indices") if hasattr(matched_row, "get") else None
+        )
+
+        debug_details: RuntimeDebugDetails | None = None
+        if for_debug:
+            debug_details = {
+                "table_path": parquet_path_norm,
+                "table_file": parquet_file,
+                "op_since_version": op_since_version,
+                "lookup_columns": op_columns,
+                "query_signature": query_signature,
+                "case_indices": matched_case_indices,
+            }
 
         result = RuntimeTestResult(
             compile=compile_result,
@@ -2208,17 +2252,7 @@ class RuntimeCheckerQuery:
             reason="",
             no_data=False,
             node_tags=node_tags,
-            debug_details=(
-                {
-                    "table_path": parquet_path_norm,
-                    "table_file": parquet_file,
-                    "op_since_version": op_since_version,
-                    "lookup_columns": op_columns,
-                    "query_signature": query_signature,
-                }
-                if for_debug
-                else None
-            ),
+            debug_details=debug_details,
         )
 
         maybe_save_start = time.perf_counter()
@@ -2448,6 +2482,16 @@ class RuntimeCheckerQuery:
                 node.name,
                 str(e),
             )
+            conditions_error_debug_details: RuntimeDebugDetails | None = None
+            if for_debug:
+                conditions_error_debug_details = {
+                    "op_type": node.op_type,
+                    "node_stable_key": node_key,
+                    "error_message": str(e),
+                    "table_path": None,
+                    "table_file": None,
+                }
+
             return _finish(
                 PatternRuntime(
                     pattern_id=get_pattern_id(is_qdq),
@@ -2457,13 +2501,7 @@ class RuntimeCheckerQuery:
                         no_data=True,
                         reason="optional_input_properties_not_found",
                         node_tags=node_tags,
-                        debug_details={
-                            "op_type": node.op_type,
-                            "node_name": node.name,
-                            "error_message": str(e),
-                            "table_path": "",
-                            "table_file": "",
-                        },
+                        debug_details=conditions_error_debug_details,
                     ),
                     alternatives=self.alternatives,
                     pattern_match=pattern_match,
@@ -2484,6 +2522,7 @@ class RuntimeCheckerQuery:
             node_tags,
             pattern_match,
             pattern_id,
+            node_key,
             for_debug,
             run_unknown_op,
             save_node_types,

@@ -1550,6 +1550,10 @@ class OpInputGenerator(ABC):
                 print("Running", kwargs_summary)
 
                 for onnx_model, final_tags in self.iter_const_and_dynamic_models(kwargs, tags):
+                    model_bytes = onnx_model.SerializeToString()
+                    # Keep model payload by default so every persisted case can be replayed.
+                    final_tags["model_bytes_b64"] = model_bytes_to_b64(model_bytes)
+
                     # Check if we should skip this case based on signature (delta/rerun mode)
                     if skip_signature_fn is not None:
                         if skip_signature_fn(final_tags):
@@ -1562,11 +1566,6 @@ class OpInputGenerator(ABC):
                     elif cases_skipped < skip_cases:
                         cases_skipped += 1
                         continue
-
-                    model_bytes = onnx_model.SerializeToString()
-                    if dry_run:
-                        # For dry_run, stash the model bytes in base64 for JSON output/replay.
-                        final_tags["model_bytes_b64"] = model_bytes_to_b64(model_bytes)
 
                     qdq_types = final_tags.get(self.qdq_types_key, None)
                     ep_checker_inputs = self.create_input_dict(kwargs, qdq_types=qdq_types)
