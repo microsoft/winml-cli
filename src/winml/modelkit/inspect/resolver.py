@@ -49,6 +49,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Task-detection provenance label returned by detect_task() for wrapped-library
+# model types (e.g. timm via "timm_wrapper"). Surfaced in `inspect` output as
+# "Task <task> (via <source>)" and in the JSON `task_source` field.
+WRAPPED_LIBRARY_SOURCE = "wrapped-library"
+
 # Mapping from pipeline stage verbs to the filenames build_hf_model() produces.
 # "export" is omitted because its stage name equals its filename — the
 # .get(stage, stage) fallback handles it.  Used only in the legacy
@@ -130,7 +135,7 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
     if model_type in WRAPPED_LIBRARY_MODEL_TYPES and not getattr(config, "architectures", None):
         try:
             task, _ = _detect_task_and_class_from_config(config)
-            return task, "wrapped-library"
+            return task, WRAPPED_LIBRARY_SOURCE
         except Exception:
             logger.debug("wrapped-library task detection failed for %s", model_type, exc_info=True)
 

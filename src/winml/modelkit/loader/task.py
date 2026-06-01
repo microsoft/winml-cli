@@ -365,6 +365,13 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
 
             supported = get_supported_tasks(model_type, library_name=library)
             if supported:
+                # Take the first task. A wrapped library currently exposes a
+                # single ONNX export task, so the first is the only/right default
+                # -- for timm that is "image-classification". This holds only
+                # while the library has one task: if a wrapped library ever
+                # exposes multiple tasks, supported[0] becomes an arbitrary pick
+                # and this needs explicit per-model-type selection (or --task).
+                # Revisit then.
                 task = supported[0]
                 model_class = TasksManager.get_model_class_for_task(task, framework="pt")
                 logger.info(
