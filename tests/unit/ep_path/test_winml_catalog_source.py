@@ -2,10 +2,10 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Detailed unit tests for ``WinMlCatalogSource`` and the ``_get_catalog`` singleton.
+"""Detailed unit tests for ``WinMLCatalogSource`` and the ``_get_catalog`` singleton.
 
 These tests inject a fake WinAppSDK ML Python binding into ``sys.modules``
-to exercise every branch of ``WinMlCatalogSource.resolve()`` without
+to exercise every branch of ``WinMLCatalogSource.resolve()`` without
 requiring the optional ``winml-catalog`` extra to be installed.
 
 The ONLY mocked surface is the WinAppSDK Python binding itself
@@ -15,7 +15,7 @@ The ONLY mocked surface is the WinAppSDK Python binding itself
 ``pathlib``, etc.
 
 Also covers:
-    - The default EP source list includes the 5 ``WinMlCatalogSource`` rows
+    - The default EP source list includes the 5 ``WinMLCatalogSource`` rows
       with the canonical EP names from the design doc.
     - ``atexit`` cleanup is registered exactly once across many
       ``_get_catalog()`` calls.
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
 from winml.modelkit import ep_path as _ep
 from winml.modelkit.ep_path import (
-    WinMlCatalogSource,
+    WinMLCatalogSource,
     _default_ep_sources,
 )
 
@@ -203,17 +203,17 @@ def reset_catalog_singleton(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(os.name != "nt", reason="WinMlCatalogSource entries are Windows-only")
+@pytest.mark.skipif(os.name != "nt", reason="WinMLCatalogSource entries are Windows-only")
 class TestDefaultEpPathIncludesCatalogEntries:
     """The default EP source list must include the 5 catalog rows from the design doc."""
 
     def test_five_winml_catalog_entries(self) -> None:
-        catalog_entries = [s for s in _default_ep_sources() if isinstance(s, WinMlCatalogSource)]
+        catalog_entries = [s for s in _default_ep_sources() if isinstance(s, WinMLCatalogSource)]
         assert len(catalog_entries) == 5
 
     def test_canonical_catalog_names_match_design(self) -> None:
         catalog_names = {
-            s.catalog_name for s in _default_ep_sources() if isinstance(s, WinMlCatalogSource)
+            s.catalog_name for s in _default_ep_sources() if isinstance(s, WinMLCatalogSource)
         }
         # The catalog API returns provider.name as the full canonical EP
         # name (e.g. "QNNExecutionProvider"), so catalog_name in the
@@ -237,7 +237,7 @@ class TestDefaultEpPathIncludesCatalogEntries:
         ep_names_from_catalog = {
             ep
             for s in _default_ep_sources()
-            if isinstance(s, WinMlCatalogSource)
+            if isinstance(s, WinMLCatalogSource)
             for ep in s.eps
         }
         assert ep_names_from_catalog == {
@@ -255,7 +255,7 @@ class TestDefaultEpPathIncludesCatalogEntries:
 
         sources = _default_ep_sources()
         first_catalog_idx = next(
-            i for i, s in enumerate(sources) if isinstance(s, WinMlCatalogSource)
+            i for i, s in enumerate(sources) if isinstance(s, WinMLCatalogSource)
         )
         pypi_indices = [
             i for i, s in enumerate(sources) if isinstance(s, PyPiSource)
@@ -285,7 +285,7 @@ class TestBindingMissing:
         monkeypatch.setitem(
             sys.modules, "winui3.microsoft.windows.ai.machinelearning", None
         )
-        source = WinMlCatalogSource(
+        source = WinMLCatalogSource(
             catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
         )
         with caplog.at_level(logging.DEBUG, logger="winml.modelkit.ep_path"):
@@ -312,8 +312,8 @@ class TestBindingMissing:
         monkeypatch.setitem(
             sys.modules, "winui3.microsoft.windows.ai.machinelearning", None
         )
-        s1 = WinMlCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
-        s2 = WinMlCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
+        s1 = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
+        s2 = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         with caplog.at_level(logging.DEBUG, logger="winml.modelkit.ep_path"):
             assert list(s1.resolve()) == []
             assert list(s2.resolve()) == []
@@ -360,7 +360,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMlCatalogSource(
+        source = WinMLCatalogSource(
             catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
         )
         results = list(source.resolve())
@@ -385,7 +385,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMlCatalogSource(
+        source = WinMLCatalogSource(
             catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
         )
         # No provider with name "VitisAI" -> nothing yielded.
@@ -407,7 +407,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMlCatalogSource(
+        source = WinMLCatalogSource(
             catalog_name="MIGraphX", eps=("MIGraphXExecutionProvider",)
         )
         # NotPresent providers are skipped by default (auto_download=False).
@@ -430,7 +430,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMlCatalogSource(
+        source = WinMLCatalogSource(
             catalog_name="QNN", eps=("QNNExecutionProvider",)
         )
         assert list(source.resolve()) == []
@@ -454,7 +454,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMlCatalogSource(
+        source = WinMLCatalogSource(
             catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
         )
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
@@ -494,7 +494,7 @@ class TestWithFakeCatalog:
         )
         self._install_binding(monkeypatch, catalog)
 
-        source = WinMlCatalogSource(
+        source = WinMLCatalogSource(
             catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",)
         )
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
@@ -526,7 +526,7 @@ class TestWithFakeCatalog:
 
         monkeypatch.setattr(ml, "ExecutionProviderCatalog", _Catalog2)
 
-        source = WinMlCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
+        source = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
         warn_messages = [
@@ -541,7 +541,7 @@ class TestWithFakeCatalog:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         self._install_binding(monkeypatch, RuntimeError("get_default boom"))
-        source = WinMlCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
+        source = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
         warn_messages = [

@@ -8,7 +8,7 @@ Covers:
     - PyPiSource.resolve(): present/missing distribution.
     - FilesystemSource.resolve(): env-var gating, required marker,
       glob patterns, multiple EPs in one root.
-    - WinMlCatalogSource.resolve(): graceful no-yield when the
+    - WinMLCatalogSource.resolve(): graceful no-yield when the
       WinAppSDK ML Python binding is not installed.
     - WINMLCLI_EP_PATH env-var override parsing.
     - discover_eps(): first-hit-wins precedence, extra_sources
@@ -27,7 +27,7 @@ from winml.modelkit.ep_path import (
     FilesystemSource,
     NuGetSource,
     PyPiSource,
-    WinMlCatalogSource,
+    WinMLCatalogSource,
     _default_ep_sources,
     _get_detected_vendors,
     _parse_winmlcli_ep_path,
@@ -40,7 +40,7 @@ from winml.modelkit.ep_path import (
 # File-scoped autouse: prevent any test in this file from loading the live
 # wasdk binding via ``_get_catalog``. None of the tests here need it; without
 # this gate, tests that call ``discover_eps()`` (which walks the default
-# EP source list including WinMlCatalogSource entries) would lazy-load the binding
+# EP source list including WinMLCatalogSource entries) would lazy-load the binding
 # on machines with the [winml-catalog] extra installed and the OS-level
 # Windows App Runtime present, polluting the module-level catalog singleton
 # state for downstream fake-binding tests in test_winml_catalog_source.py.
@@ -90,7 +90,7 @@ class TestPublicAPI:
         for entry in sources:
             assert isinstance(
                 entry,
-                (PyPiSource, NuGetSource, FilesystemSource, WinMlCatalogSource),
+                (PyPiSource, NuGetSource, FilesystemSource, WinMLCatalogSource),
             )
 
     def test_ep_source_subclasses_inherit_from_abc(self) -> None:
@@ -98,9 +98,9 @@ class TestPublicAPI:
         assert PyPiSource is not None
         assert NuGetSource is not None
         assert FilesystemSource is not None
-        assert WinMlCatalogSource is not None
+        assert WinMLCatalogSource is not None
         # Every concrete source kind must subclass the ABC.
-        for cls in (PyPiSource, NuGetSource, FilesystemSource, WinMlCatalogSource):
+        for cls in (PyPiSource, NuGetSource, FilesystemSource, WinMLCatalogSource):
             assert issubclass(cls, EpSource)
 
 
@@ -312,11 +312,11 @@ class TestFilesystemSource:
 
 
 # ---------------------------------------------------------------------------
-# WinMlCatalogSource stub.
+# WinMLCatalogSource stub.
 # ---------------------------------------------------------------------------
 
 
-class TestWinMlCatalogSourceBindingMissing:
+class TestWinMLCatalogSourceBindingMissing:
     """When the optional WinAppSDK ML binding is absent, resolve() yields nothing.
 
     Detailed behavior (mocked binding shape, atexit registration, etc.)
@@ -327,7 +327,7 @@ class TestWinMlCatalogSourceBindingMissing:
         # The autouse fixture ``_skip_live_catalog_in_ep_path_tests``
         # forces ``_get_catalog`` to return ``None``, simulating the
         # binding-missing case. resolve() must yield nothing silently.
-        source = WinMlCatalogSource(
+        source = WinMLCatalogSource(
             catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
         )
         # ``resolve()`` is a generator; we have to iterate to trigger.
@@ -499,12 +499,12 @@ class TestDiscoverEps:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # On a CI machine without the WinAppSDK binding, resolve() on a
-        # WinMlCatalogSource yields nothing and discover_eps continues
+        # WinMLCatalogSource yields nothing and discover_eps continues
         # to subsequent sources. ``_get_catalog`` is already mocked to
         # None by the file-scoped autouse fixture
         # ``_skip_live_catalog_in_ep_path_tests``.
         fake_dll = _touch(tmp_path / "fake_qnn.dll")
-        catalog = WinMlCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
+        catalog = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         good = FilesystemSource(
             root=tmp_path,
             dll_patterns={"QNNExecutionProvider": fake_dll.name},

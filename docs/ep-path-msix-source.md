@@ -4,7 +4,7 @@ Status: implemented in commit `f79e484e` (and accompanying ABC refactor `ef9a5bd
 
 ## Executive summary
 
-- `WinMlCatalogSource` (the existing MSIX-via-catalog source) cannot reach more than one version of any given EP. The IDL contract specifies `ExecutionProvider.PackageId` as a scalar (one package per provider object) and `IExecutionProviderCatalog.FindAllProviders` returns one entry per **provider name**, not per installed package. Empirical proof on the dev box: two QNN EP MSIX packages installed (`...QNN.EP.1.8` v1.8.30.0, `...QNN.EP.2` v2.2420.44.0), `find_all_providers()` returned a single `QNNExecutionProvider` entry resolving to v2 only.
+- `WinMLCatalogSource` (the existing MSIX-via-catalog source) cannot reach more than one version of any given EP. The IDL contract specifies `ExecutionProvider.PackageId` as a scalar (one package per provider object) and `IExecutionProviderCatalog.FindAllProviders` returns one entry per **provider name**, not per installed package. Empirical proof on the dev box: two QNN EP MSIX packages installed (`...QNN.EP.1.8` v1.8.30.0, `...QNN.EP.2` v2.2420.44.0), `find_all_providers()` returned a single `QNNExecutionProvider` entry resolving to v2 only.
 - This is fine for the typical user — Windows curates which version is "current" — but blocks regression isolation, multi-tenant pinning, and any workflow that needs a non-current version.
 - This document specifies `MsixPackageSource`, a new `EpSource` that goes directly to `Windows.Management.Deployment.PackageManager` and selects packages by **family-name prefix** (the natural granularity at which Microsoft partitions major version lines). The same data structure is returned by a sibling helper `list_msix_eps()`, so a CLI inventory output can be copy-pasted into `EP_PATH` configuration.
 - **Single CLI surface**: the existing `winml sys --list-ep` command becomes a comprehensive inventory of every EP discoverable on the system (PyPI, MSIX-via-catalog, MSIX-via-package-manager, filesystem) with `[primary]` / `[shadowed]` / `[incompatible]` status tags. **There is no separate `--list-msix-eps` flag** — `--list-ep` is the single discovery command. This uses `discover_all_eps()` to retrieve all matches per EP, with the first entry in each group marked as primary and the rest as shadowed.
@@ -220,7 +220,7 @@ Tests reset via `_get_pkg_manager.cache_clear()`, parallel to the existing `_get
 
 | Condition | Severity | Action |
 |---|---|---|
-| WinRT binding not importable (no `winrt-windows.management.deployment`) | DEBUG, once | Yield nothing. Same opt-in semantics as `WinMlCatalogSource` — install via `[winml-catalog]` extra. |
+| WinRT binding not importable (no `winrt-windows.management.deployment`) | DEBUG, once | Yield nothing. Same opt-in semantics as `WinMLCatalogSource` — install via `[winml-catalog]` extra. |
 | `PackageManager()` instantiation raises | WARN, once | Yield nothing. |
 | `find_packages_for_user("")` raises | WARN, once per (prefix) | Yield nothing. |
 | No packages match prefix | DEBUG | Yield nothing. (Not an error — user may have written speculative `EP_PATH` covering EPs not installed on this machine.) |
@@ -230,7 +230,7 @@ Tests reset via `_get_pkg_manager.cache_clear()`, parallel to the existing `_get
 
 ### Default `EP_PATH` is unchanged
 
-`MsixPackageSource` is **not** added to the default `EP_PATH`. The default keeps `[PyPiSource, WinMlCatalogSource, FilesystemSource]` — Microsoft's catalog opinion still wins by default. `MsixPackageSource` is **opt-in only**: users who want pinning add their own rows via `extra_sources=` or by appending to `EP_PATH` directly.
+`MsixPackageSource` is **not** added to the default `EP_PATH`. The default keeps `[PyPiSource, WinMLCatalogSource, FilesystemSource]` — Microsoft's catalog opinion still wins by default. `MsixPackageSource` is **opt-in only**: users who want pinning add their own rows via `extra_sources=` or by appending to `EP_PATH` directly.
 
 Reasoning:
 1. **Reproducibility**: defaulting `MsixPackageSource` would make builds non-reproducible across machines (different MSIX versions installed → different EP picked). The catalog's "follow Windows Update's choice" is a more predictable default for non-pinning users.
@@ -296,7 +296,7 @@ Notes on the output:
 - **Within a section**, entries are sorted by precedence: `[primary]` first, then `[shadowed]` in `EP_PATH` order, then `[not-installed]` (with `--verbose`).
 - **Vendor-qualified device-types** (`Qualcomm NPU`, `Intel NPU/GPU/CPU`) replace bare `NPU/GPU/CPU` to remove cross-vendor ambiguity.
 - **Source-kind column** (`PyPI` / `MSIX` / `Filesystem` / `built-in`) at fixed offset for visual scanning.
-- **`(catalog default)`** annotation on the MSIX entry tells the user *that specific MSIX is what `WinMlCatalogSource` would pick* — useful for understanding why the catalog chose v2 over v1.8.
+- **`(catalog default)`** annotation on the MSIX entry tells the user *that specific MSIX is what `WinMLCatalogSource` would pick* — useful for understanding why the catalog chose v2 over v1.8.
 - **JSON output** via `--format json` returns a structured shape:
 
   ```json
@@ -377,7 +377,7 @@ class PyPiSource:
         return all(_ep_is_compatible(ep) for ep in self.eps)
 ```
 
-`FilesystemSource`, `WinMlCatalogSource`, and `MsixPackageSource` all get the identical method body. The CLI handler calls `source.is_compatible()` per resolved source; the result becomes the `[incompatible]` section-level tag (true iff *all* sources for an EP-name agree). Adding a new EP requires only one line in `_EP_VENDOR_REQUIREMENT` — no per-source-class changes.
+`FilesystemSource`, `WinMLCatalogSource`, and `MsixPackageSource` all get the identical method body. The CLI handler calls `source.is_compatible()` per resolved source; the result becomes the `[incompatible]` section-level tag (true iff *all* sources for an EP-name agree). Adding a new EP requires only one line in `_EP_VENDOR_REQUIREMENT` — no per-source-class changes.
 
 **Matching is intentionally substring-based and case-insensitive.** Vendor strings reported by Windows differ across systems (`"Intel(R) Corporation"`, `"Intel"`, `"Intel Corp"`, etc.). Substring on `"Intel"` matches all variants. Misclassification risk is low because vendor name overlaps are rare (no IHV's name is a substring of another's in practice).
 
@@ -410,7 +410,7 @@ class ResolvedEp:
 section's ``is_compatible()`` is False — that override is applied
 in ``commands/sys.py``, not in ``discover_all_eps`` itself.)
 
-To cover **non-current MSIX versions** (which `WinMlCatalogSource` collapses to one), `--list-ep` injects `list_msix_eps()` results as additional sources for the discovery walk. Note: appended via `extra_sources_after`, *not* prepended — MSIX entries should appear `[shadowed]`, not artificially override PyPI/Catalog precedence:
+To cover **non-current MSIX versions** (which `WinMLCatalogSource` collapses to one), `--list-ep` injects `list_msix_eps()` results as additional sources for the discovery walk. Note: appended via `extra_sources_after`, *not* prepended — MSIX entries should appear `[shadowed]`, not artificially override PyPI/Catalog precedence:
 
 ```python
 # Inside `winml sys --list-ep` handler:
@@ -420,7 +420,7 @@ shadowed_view = discover_all_eps(extra_sources_after=discovered_msix)
 
 `list_msix_eps()` is exposed as a Python helper for use from the CLI; it is NOT plumbed into the default `EP_PATH` (per "Default `EP_PATH` is unchanged" above). That keeps day-to-day `discover_eps()` behavior identical to today — only the CLI's inventory view sees the expanded set.
 
-The `(catalog default)` annotation is computed by separately calling `WinMlCatalogSource.resolve()` for each EP name and matching the resulting `library_path` against the `MsixPackageSource` entries.
+The `(catalog default)` annotation is computed by separately calling `WinMLCatalogSource.resolve()` for each EP name and matching the resulting `library_path` against the `MsixPackageSource` entries.
 
 ### What `--list-msix-eps` would have been
 
@@ -444,7 +444,7 @@ Implementation: rename `_parse_modelkit_ep_path()` to `_parse_winmlcli_ep_path()
 
 ### Unit tests for `MsixPackageSource.resolve()`
 
-Mock `_get_pkg_manager()` to return a fake `PackageManager` whose `find_packages_for_user` returns synthetic `Package` objects with controlled `id.family_name`, `id.version`, and `installed_path`. No live PackageManager calls in unit tests — same isolation pattern as `WinMlCatalogSource` uses for its fake binding.
+Mock `_get_pkg_manager()` to return a fake `PackageManager` whose `find_packages_for_user` returns synthetic `Package` objects with controlled `id.family_name`, `id.version`, and `installed_path`. No live PackageManager calls in unit tests — same isolation pattern as `WinMLCatalogSource` uses for its fake binding.
 
 Required cases:
 
@@ -513,7 +513,7 @@ In dependency order:
    - Add `_EP_VENDOR_REQUIREMENT` table and `_ep_is_compatible(ep_name)` helper.
    - Add `_get_detected_vendors()` with `@functools.cache` (queries sysinfo hardware).
    - Add `MsixPackageSource` dataclass with `resolve()` and `is_compatible()`.
-   - Add `is_compatible()` method to `PyPiSource`, `FilesystemSource`, `WinMlCatalogSource` (one line each, delegates to `_ep_is_compatible`).
+   - Add `is_compatible()` method to `PyPiSource`, `FilesystemSource`, `WinMLCatalogSource` (one line each, delegates to `_ep_is_compatible`).
    - Add `list_msix_eps()` helper.
    - Add `ResolvedEp` dataclass (ep_name, dll_path, source, status).
    - Add `discover_all_eps()` function. Returns `dict[str, list[ResolvedEp]]` with all matches per EP-name, sorted by precedence (primary first).
@@ -540,7 +540,7 @@ In dependency order:
 
 5. **Multi-arch packages.** Snapdragon X Elite has only `arm64` packages. On x64 machines with both x64 and arm64 EP MSIXes (unusual but possible — Windows on ARM with x64 emulation), `find_packages_for_user("")` may return both architectures. Architecture filter not yet in the design — for now we let the highest-version-wins rule pick deterministically. Revisit if a real cross-arch scenario surfaces.
 
-6. **Catalog-default detection for CLI display.** The `(catalog default)` annotation in `winml sys --list-ep` requires querying `WinMlCatalogSource` once and matching its `library_path` against each `MsixPackageSource`'s computed DLL path. This means the CLI command pulls in the WinAppSDK ML binding — fine, since both features live behind the `[winml-catalog]` extra. If the binding is not installed, the annotation is suppressed; still print the list.
+6. **Catalog-default detection for CLI display.** The `(catalog default)` annotation in `winml sys --list-ep` requires querying `WinMLCatalogSource` once and matching its `library_path` against each `MsixPackageSource`'s computed DLL path. This means the CLI command pulls in the WinAppSDK ML binding — fine, since both features live behind the `[winml-catalog]` extra. If the binding is not installed, the annotation is suppressed; still print the list.
 
 ## Sources
 

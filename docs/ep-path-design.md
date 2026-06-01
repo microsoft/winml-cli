@@ -112,7 +112,7 @@ class PyPiSource:
     arch_resolver: callable | None = None     # optional: returns a relative path tweaked per machine arch
 
 @dataclass(frozen=True)
-class WinMlCatalogSource:
+class WinMLCatalogSource:
     """An MSIX EP delivered via the WinAppSDK ExecutionProviderCatalog."""
     catalog_name: str                         # the name passed to WinMLEpCatalogFindProvider, e.g. "QNN"
     eps: tuple[str, ...]                      # canonical EP names this source provides
@@ -125,7 +125,7 @@ class FilesystemSource:
     env_var: str | None = None                # if set, root is `Path(os.environ[env_var])`; if envvar absent, source is skipped
     required_marker: str | None = None        # optional file inside root used as a sanity check before scanning
 
-EpSource = PyPiSource | WinMlCatalogSource | FilesystemSource
+EpSource = PyPiSource | WinMLCatalogSource | FilesystemSource
 
 EP_PATH: list[EpSource] = [...]               # see "Default contents"
 ```
@@ -153,7 +153,7 @@ for source in EP_PATH:
 Per-source `resolve()` semantics:
 
 - `PyPiSource.resolve()` calls `importlib.metadata.distribution(self.distribution)`; on `PackageNotFoundError`, yields nothing. Otherwise, computes `dist.locate_file(self.relative_dll)`; yields `(ep, path)` for each ep in `self.eps` if the file exists. The `arch_resolver` hook covers QNN's `amd64`/`arm64ec` split — see [`src/winml/modelkit/winml.py:22`](../src/winml/modelkit/winml.py).
-- `WinMlCatalogSource.resolve()` lazily imports the WinAppSDK ML Python binding (the fully qualified module name is **TODO**, see open questions). Calls `catalog.find_all_providers()`, filters by `provider.name == self.catalog_name`, and for any provider whose `ready_state != NotPresent`, calls `ensure_ready_async().get()` and yields `(ep, Path(provider.library_path))`. If the binding is unavailable (Linux, ORT 1.24 without WinAppSDK ML, or WinAppSDK < 1.8), `resolve()` yields nothing silently.
+- `WinMLCatalogSource.resolve()` lazily imports the WinAppSDK ML Python binding (the fully qualified module name is **TODO**, see open questions). Calls `catalog.find_all_providers()`, filters by `provider.name == self.catalog_name`, and for any provider whose `ready_state != NotPresent`, calls `ensure_ready_async().get()` and yields `(ep, Path(provider.library_path))`. If the binding is unavailable (Linux, ORT 1.24 without WinAppSDK ML, or WinAppSDK < 1.8), `resolve()` yields nothing silently.
 - `FilesystemSource.resolve()`: if `env_var` is set and `os.environ.get(env_var)` is empty, yield nothing. Otherwise, walks `self.root` (or `Path(os.environ[env_var]) / self.root` if root is relative) looking for each `dll_patterns[ep]` filename; supports glob through `Path.glob()`. Skips if `required_marker` is set and missing.
 
 ### Default contents
@@ -178,11 +178,11 @@ EP_PATH_WINDOWS = [
 
     # 2. WinAppSDK ExecutionProviderCatalog — opportunistic MSIX pickup for any
     #    EP we don't already have via PyPI. Order matters: PyPI wins if both are present.
-    WinMlCatalogSource(catalog_name="OpenVINO",     eps=("OpenVINOExecutionProvider",)),
-    WinMlCatalogSource(catalog_name="QNN",          eps=("QNNExecutionProvider",)),
-    WinMlCatalogSource(catalog_name="VitisAI",      eps=("VitisAIExecutionProvider",)),
-    WinMlCatalogSource(catalog_name="MIGraphX",     eps=("MIGraphXExecutionProvider",)),
-    WinMlCatalogSource(catalog_name="NvTensorRtRtx", eps=("NvTensorRTRTXExecutionProvider",)),
+    WinMLCatalogSource(catalog_name="OpenVINO",     eps=("OpenVINOExecutionProvider",)),
+    WinMLCatalogSource(catalog_name="QNN",          eps=("QNNExecutionProvider",)),
+    WinMLCatalogSource(catalog_name="VitisAI",      eps=("VitisAIExecutionProvider",)),
+    WinMLCatalogSource(catalog_name="MIGraphX",     eps=("MIGraphXExecutionProvider",)),
+    WinMLCatalogSource(catalog_name="NvTensorRtRtx", eps=("NvTensorRTRTXExecutionProvider",)),
 
     # 3. Well-known third-party installers, gated by envvar so they no-op on machines
     #    without the installer present.
@@ -247,9 +247,9 @@ Per-source failure modes and the registry's response:
 |---|---|---|
 | Distribution not installed | `PyPiSource` | Yield nothing; no log (this is the common case for optional EPs). |
 | File missing inside an installed distribution | `PyPiSource` | Log WARN with full path; yield nothing for that EP. |
-| WinAppSDK ML Python binding not importable | `WinMlCatalogSource` | Log DEBUG once per process; yield nothing. |
-| `ExecutionProviderCatalog.find_all_providers()` raises | `WinMlCatalogSource` | Log WARN; yield nothing. |
-| `ensure_ready_async().get()` returns non-Success status | `WinMlCatalogSource` | Log WARN with `result.status`; yield nothing. |
+| WinAppSDK ML Python binding not importable | `WinMLCatalogSource` | Log DEBUG once per process; yield nothing. |
+| `ExecutionProviderCatalog.find_all_providers()` raises | `WinMLCatalogSource` | Log WARN; yield nothing. |
+| `ensure_ready_async().get()` returns non-Success status | `WinMLCatalogSource` | Log WARN with `result.status`; yield nothing. |
 | `env_var` set but `Path(os.environ[env_var])` does not exist | `FilesystemSource` | Log WARN; yield nothing. |
 | `required_marker` missing | `FilesystemSource` | Log WARN with the expected marker; yield nothing. |
 | `register_execution_provider_library` raises | sink | Log ERROR with the EP name + path + exception; **continue** the walk (do not raise). The current `WinML.register_execution_providers` already does this with a `try/except Exception` ([`src/winml/modelkit/winml.py:111`](../src/winml/modelkit/winml.py)). Preserve the behavior. |
@@ -263,7 +263,7 @@ The brief in the task description offered three shapes. The full analysis:
 | Concern | Option A: raw `list[Path]` | Option B: tagged `list[EpSource]` (chosen) | Option C: manifest-driven |
 |---|---|---|---|
 | PyPI venv-portable resolution | Forces `Path(site_packages) / ...` to be computed eagerly per process; breaks when the venv moves. | Lazy via `importlib.metadata` — works regardless of venv layout. | Manifest must encode the distribution name; same lookup logic ends up living in the manifest parser. No win. |
-| MSIX (no static path) | Cannot represent — would need a sentinel. | Tag `WinMlCatalogSource` covers it cleanly. | Manifest can declare "look up via WinML catalog with this name" — but that's just option B in JSON. |
+| MSIX (no static path) | Cannot represent — would need a sentinel. | Tag `WinMLCatalogSource` covers it cleanly. | Manifest can declare "look up via WinML catalog with this name" — but that's just option B in JSON. |
 | Per-EP filtering inside one path | Impossible: a path is just a directory. | Native via `dll_patterns`. | Native, but every contributor must know the manifest schema. |
 | ABI-version pinning ("only load if plugin version matches host ORT") | Impossible. | Future extension via an `EpSource.compat: VersionRange` field. | Native, but unused today. |
 | Windows + Linux symmetry | Manual with `os.name` checks at every site. | One default list per platform, swapped at module init. | Same. |
@@ -288,13 +288,13 @@ EP_PATH walk:
         locate_file resolves to
         .../site-packages/onnxruntime_qnn/libs/arm64ec/onnxruntime_providers_qnn.dll
         yield ("QNNExecutionProvider", <abs path>)
-  WinMlCatalogSource("OpenVINO")       -> WinAppSDK ML binding not installed (likely),
+  WinMLCatalogSource("OpenVINO")       -> WinAppSDK ML binding not installed (likely),
         ImportError, yield nothing.  Even if it were installed, OpenVINO already registered;
         skip on dedup.
-  WinMlCatalogSource("QNN")            -> same; skip.
-  WinMlCatalogSource("VitisAI")        -> WinAppSDK absent, yield nothing.
-  WinMlCatalogSource("MIGraphX")       -> same.
-  WinMlCatalogSource("NvTensorRtRtx")  -> same.
+  WinMLCatalogSource("QNN")            -> same; skip.
+  WinMLCatalogSource("VitisAI")        -> WinAppSDK absent, yield nothing.
+  WinMLCatalogSource("MIGraphX")       -> same.
+  WinMLCatalogSource("NvTensorRtRtx")  -> same.
   FilesystemSource(RYZEN_AI_INSTALLATION_PATH) -> envvar unset, yield nothing.
 
 Result: {"OpenVINOExecutionProvider": [...], "QNNExecutionProvider": [...]}
@@ -308,11 +308,11 @@ Identical to today's behavior. No regression.
 EP_PATH walk:
   PyPiSource(onnxruntime-ep-openvino) -> PackageNotFoundError, yield nothing.
   PyPiSource(onnxruntime-qnn)         -> PackageNotFoundError, yield nothing.
-  WinMlCatalogSource("OpenVINO")       -> assume WinAppSDK ML installed; provider state
+  WinMLCatalogSource("OpenVINO")       -> assume WinAppSDK ML installed; provider state
         NotPresent (not on AMD hw), find_all_providers returns it but EnsureReadyAsync
         would fail with "incompatible hardware"; yield nothing.
-  WinMlCatalogSource("QNN")            -> NotPresent; yield nothing.
-  WinMlCatalogSource("VitisAI")        -> Ready (MSIX installed via Windows Update),
+  WinMLCatalogSource("QNN")            -> NotPresent; yield nothing.
+  WinMLCatalogSource("VitisAI")        -> Ready (MSIX installed via Windows Update),
         TryRegister/library_path returns
         C:\Program Files\WindowsApps\Microsoft.WindowsAppRuntime.WinML.VitisAI_1.8.59.0_x64__8wekyb3d8bbwe\onnxruntime_providers_vitisai.dll
         yield ("VitisAIExecutionProvider", <that path>).
@@ -321,7 +321,7 @@ EP_PATH walk:
         root resolves to "C:\Program Files\RyzenAI\1.7.1\deployment",
         required_marker "onnxruntime_providers_shared.dll" present,
         dll for VitisAI present, BUT VitisAIExecutionProvider already registered from
-        WinMlCatalogSource (earlier in list); skip on dedup.
+        WinMLCatalogSource (earlier in list); skip on dedup.
 
 Result: {"VitisAIExecutionProvider": [...]} from the MSIX path.
 ```
@@ -347,7 +347,7 @@ The dev build wins because the envvar source is prepended. This is the explicit 
 
 ### Interaction with the WinML 2.x `library_path` property
 
-A subtle point about `WinMlCatalogSource`: the WinAppSDK ML Python binding exposes `provider.library_path` (per [register-execution-providers.md](https://learn.microsoft.com/en-us/windows/ai/new-windows-ml/register-execution-providers), the Python `register_execution_provider_library` example). That property is populated only after `ensure_ready_async().get()` returns `Success` — before that, the EP is `NotPresent` or `NotReady` and the library is not on disk in a registrable form.
+A subtle point about `WinMLCatalogSource`: the WinAppSDK ML Python binding exposes `provider.library_path` (per [register-execution-providers.md](https://learn.microsoft.com/en-us/windows/ai/new-windows-ml/register-execution-providers), the Python `register_execution_provider_library` example). That property is populated only after `ensure_ready_async().get()` returns `Success` — before that, the EP is `NotPresent` or `NotReady` and the library is not on disk in a registrable form.
 
 The resolver MUST gate on the ready state:
 
@@ -377,11 +377,11 @@ Concrete entries for each (EP, origin) cell under the Option B design. "n/a" mea
 
 | EP | PyPI origin | MSIX origin | Third-party origin | Custom path origin |
 |---|---|---|---|---|
-| `OpenVINOExecutionProvider` | `PyPiSource(distribution="onnxruntime-ep-openvino", relative_dll="onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll", eps=("OpenVINOExecutionProvider",))` (verified, 1.4.0) | `WinMlCatalogSource(catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",))` (MSIX 1.8.69.0; runtime-resolved path) | n/a (Intel OpenVINO Toolkit standalone install does not ship an ORT plugin DLL) | `WINML_EP_PATH=D:\custom\openvino\` + `EP_DLL_NAMES["OpenVINOExecutionProvider"]` |
-| `QNNExecutionProvider` | `PyPiSource(distribution="onnxruntime-qnn", relative_dll="onnxruntime_qnn/libs/{arch}/onnxruntime_providers_qnn.dll", eps=("QNNExecutionProvider",), arch_resolver=...)` (verified, 2.1.0) | `WinMlCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))` (MSIX 2.2420.43.0; runtime-resolved path) | n/a (Qualcomm QAIRT SDK ZIP does not ship an ORT plugin DLL) | `WINML_EP_PATH=D:\custom\qnn\amd64\` |
-| `VitisAIExecutionProvider` | n/a (404 on PyPI; AMD placeholder names at 0.0.0) | `WinMlCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))` (MSIX 1.8.59.0; runtime-resolved path) | `FilesystemSource(env_var="RYZEN_AI_INSTALLATION_PATH", root=Path("deployment"), dll_patterns={"VitisAIExecutionProvider": "onnxruntime_providers_vitisai.dll"}, required_marker="onnxruntime_providers_shared.dll")` (verified DLL leaf via AMD docs; default install root `C:\Program Files\RyzenAI\1.7.1\`) | `WINML_EP_PATH=C:\Program Files\RyzenAI\1.7.1\deployment\` |
-| `MIGraphXExecutionProvider` | n/a (`onnxruntime-ep-migraphx` is 0.0.0 placeholder; `onnxruntime-migraphx` is a vendor distro, not a plugin) | `WinMlCatalogSource(catalog_name="MIGraphX", eps=("MIGraphXExecutionProvider",))` (MSIX 1.8.55.0; runtime-resolved path) | TODO — investigate whether AMD ROCm 6.x or HIP SDK installers ship a registrable MIGraphX plugin DLL outside MSIX. As of 2026-04-27 no evidence of a third-party plugin drop. | `WINML_EP_PATH=D:\custom\migraphx\` (DLL leaf TBD; **TODO verify name**) |
-| `NvTensorRtRtxExecutionProvider` | n/a (`onnxruntime-trt-rtx` is a vendor distro; `onnxruntime-ep-tensorrt`/`-ep-trt-rtx` 404) | `WinMlCatalogSource(catalog_name="NvTensorRtRtx", eps=("NvTensorRtRtxExecutionProvider",))` (MSIX 0.0.28.0; runtime-resolved path) | `FilesystemSource(env_var="NVIDIA_TRT_RTX_EP", root=Path("."), dll_patterns={"NvTensorRtRtxExecutionProvider": "onnxruntime_providers_nv_tensorrt_rtx.dll"})` — user unzips the GitHub release ZIP somewhere and sets `NVIDIA_TRT_RTX_EP` to that root. The release body documents the package contents (`onnxruntime_providers_nv_tensorrt_rtx.dll`, `tensorrt_rtx_1_4.dll`, `tensorrt_onnxparser_rtx_1_4.dll`, `tensorrt_plugins.dll`, plus license/notice files) without subdirectory annotations, suggesting a flat layout. | `WINML_EP_PATH=D:\unzipped\trt-rtx-ep\` |
+| `OpenVINOExecutionProvider` | `PyPiSource(distribution="onnxruntime-ep-openvino", relative_dll="onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll", eps=("OpenVINOExecutionProvider",))` (verified, 1.4.0) | `WinMLCatalogSource(catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",))` (MSIX 1.8.69.0; runtime-resolved path) | n/a (Intel OpenVINO Toolkit standalone install does not ship an ORT plugin DLL) | `WINML_EP_PATH=D:\custom\openvino\` + `EP_DLL_NAMES["OpenVINOExecutionProvider"]` |
+| `QNNExecutionProvider` | `PyPiSource(distribution="onnxruntime-qnn", relative_dll="onnxruntime_qnn/libs/{arch}/onnxruntime_providers_qnn.dll", eps=("QNNExecutionProvider",), arch_resolver=...)` (verified, 2.1.0) | `WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))` (MSIX 2.2420.43.0; runtime-resolved path) | n/a (Qualcomm QAIRT SDK ZIP does not ship an ORT plugin DLL) | `WINML_EP_PATH=D:\custom\qnn\amd64\` |
+| `VitisAIExecutionProvider` | n/a (404 on PyPI; AMD placeholder names at 0.0.0) | `WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))` (MSIX 1.8.59.0; runtime-resolved path) | `FilesystemSource(env_var="RYZEN_AI_INSTALLATION_PATH", root=Path("deployment"), dll_patterns={"VitisAIExecutionProvider": "onnxruntime_providers_vitisai.dll"}, required_marker="onnxruntime_providers_shared.dll")` (verified DLL leaf via AMD docs; default install root `C:\Program Files\RyzenAI\1.7.1\`) | `WINML_EP_PATH=C:\Program Files\RyzenAI\1.7.1\deployment\` |
+| `MIGraphXExecutionProvider` | n/a (`onnxruntime-ep-migraphx` is 0.0.0 placeholder; `onnxruntime-migraphx` is a vendor distro, not a plugin) | `WinMLCatalogSource(catalog_name="MIGraphX", eps=("MIGraphXExecutionProvider",))` (MSIX 1.8.55.0; runtime-resolved path) | TODO — investigate whether AMD ROCm 6.x or HIP SDK installers ship a registrable MIGraphX plugin DLL outside MSIX. As of 2026-04-27 no evidence of a third-party plugin drop. | `WINML_EP_PATH=D:\custom\migraphx\` (DLL leaf TBD; **TODO verify name**) |
+| `NvTensorRtRtxExecutionProvider` | n/a (`onnxruntime-trt-rtx` is a vendor distro; `onnxruntime-ep-tensorrt`/`-ep-trt-rtx` 404) | `WinMLCatalogSource(catalog_name="NvTensorRtRtx", eps=("NvTensorRtRtxExecutionProvider",))` (MSIX 0.0.28.0; runtime-resolved path) | `FilesystemSource(env_var="NVIDIA_TRT_RTX_EP", root=Path("."), dll_patterns={"NvTensorRtRtxExecutionProvider": "onnxruntime_providers_nv_tensorrt_rtx.dll"})` — user unzips the GitHub release ZIP somewhere and sets `NVIDIA_TRT_RTX_EP` to that root. The release body documents the package contents (`onnxruntime_providers_nv_tensorrt_rtx.dll`, `tensorrt_rtx_1_4.dll`, `tensorrt_onnxparser_rtx_1_4.dll`, `tensorrt_plugins.dll`, plus license/notice files) without subdirectory annotations, suggesting a flat layout. | `WINML_EP_PATH=D:\unzipped\trt-rtx-ep\` |
 
 ## Migration plan
 
@@ -471,7 +471,7 @@ src/winml/modelkit/winml.py
     # Public API:
     register_execution_providers(...)        # unchanged signature, plus extra_sources kwarg
     EP_PATH                                   # exported for inspection / tests
-    EpSource, PyPiSource, WinMlCatalogSource, FilesystemSource
+    EpSource, PyPiSource, WinMLCatalogSource, FilesystemSource
 
     # Internal:
     _DEFAULT_EP_PATH_WINDOWS / _LINUX / _DARWIN
@@ -501,7 +501,7 @@ def register_execution_providers(
 ### Step-by-step migration
 
 1. Land the dataclasses + the new `EP_PATH` Windows default with only the two `PyPiSource` entries that match today's `EP_PLUGIN_REGISTRY`. The output is byte-for-byte identical to today's registration on a stock install. No behavior change.
-2. Add `WinMlCatalogSource` and the WinAppSDK ML import gate. On any machine where the Python binding is missing (which is currently every machine in this repo's CI — verify with `uv run python -c "import winml"` returning ImportError), the source no-ops. Land it dark.
+2. Add `WinMLCatalogSource` and the WinAppSDK ML import gate. On any machine where the Python binding is missing (which is currently every machine in this repo's CI — verify with `uv run python -c "import winml"` returning ImportError), the source no-ops. Land it dark.
 3. Add `FilesystemSource` with the `RYZEN_AI_INSTALLATION_PATH` entry. This activates the AMD third-party path on Ryzen AI machines but does nothing on machines without the envvar.
 4. Add `WINML_EP_PATH` parsing and the `extra_sources` kwarg. Both are inert until used.
 5. Once 1-4 are stable, delete `EP_PLUGIN_REGISTRY` and `resolve_plugin_dll`.
@@ -540,7 +540,7 @@ We do **not** verify code signatures before `LoadLibrary`. ORT itself doesn't, a
 ### Non-goals
 
 - **No code-signature verification** of the loaded DLL. See above.
-- **No automatic MSIX download.** `WinMlCatalogSource` defaults to `auto_download=False`. Callers that want eager install pass `auto_download=True`.
+- **No automatic MSIX download.** `WinMLCatalogSource` defaults to `auto_download=False`. Callers that want eager install pass `auto_download=True`.
 - **No transitive dependency loading.** `register_execution_provider_library` triggers Win32's loader; if a plugin needs `openvino.dll` next to it and it's absent, ORT raises and we log + skip. We do not add the plugin's directory to `os.add_dll_directory()` ourselves. (The PyPI plugins ship their dependency DLLs sibling to the plugin DLL, where the loader finds them by default; the MSIX layout is OS-managed; the installer + ZIP cases are the user's responsibility per [`registration semantics on failure`](#registration-semantics-on-failure).)
 - **No version negotiation.** ORT 1.24's `register_execution_provider_library` does not surface a plugin's expected ABI version through the Python API. If a plugin compiled against ORT 1.25 is loaded into a process running ORT 1.24, the `LoadLibrary` may succeed and the failure manifests later as a missing entry point or undefined behavior. Detecting this in `EP_PATH` would require parsing each plugin's PE export table, which is out of scope for this design.
 - **No async / threaded discovery.** All of `EP_PATH` resolves synchronously on first call to `register_execution_providers()`. The PyPI lookups are microsecond-scale; the WinML catalog query is millisecond-scale; the filesystem walks are bounded by the size of the installer root. Total cost is dominated by `register_execution_provider_library` itself, which already loads each DLL synchronously. No win from threading.
@@ -556,4 +556,4 @@ The design above is internally consistent, but several concrete facts could not 
 5. **TensorRT-RTX EP name capitalization** — *resolved from MS Learn*. Microsoft's supported-execution-providers page is authoritative for the MSIX-delivered EP (`EpName: "NvTensorRtRtxExecutionProvider"`, camelCase), since the catalog API registers the EP under that exact name. NVIDIA's PascalCase `"NvTensorRTRTXExecutionProvider"` in their GitHub README is the registration string they chose for the standalone-ZIP path; treat it as an alias and normalize to the camelCase canonical at the registry boundary. The registry's `EP_DLL_NAMES` keys and `Per-origin × per-EP map` rows have been updated accordingly. **Empirical confirmation** via `ort.get_ep_devices().ep_name` on a machine with the MSIX EP installed is still desirable but no longer blocking.
 6. **QNN Linux PyPI status** — *resolved from PyPI metadata*. `onnxruntime-qnn` 2.1.0's PyPI release listing shows `manylinux_2_34_aarch64` wheels for cp311–cp314 (Linux ARM64) alongside the Windows wheels. **No `manylinux_x86_64` wheel exists** — Linux x86_64 is not supported via this package. Net: `EP_PATH` defaults for Linux can include the `onnxruntime-qnn` PyPI source on aarch64 only; on Linux x86_64 there is no PyPI plugin path and Qualcomm-direct downloads remain the only channel.
 7. **MIGraphX third-party install path**. The default-list entry for VitisAI works because AMD's Ryzen AI installer sets `RYZEN_AI_INSTALLATION_PATH`. AMD's ROCm installer does not appear to set an analogous variable, and MIGraphX's Windows ORT plugin DLL outside MSIX is unconfirmed. **Action**: install the latest ROCm-for-Windows / Adrenalin Pro stack on a Radeon test box and grep for `onnxruntime_providers_migraphx*.dll`.
-8. **Behavior under WinML 1.8.x vs 2.x branches**. `Microsoft.WindowsAppSDK.ML` 1.8.x and 2.x both expose `ExecutionProviderCatalog`, but only 2.x supports newer EP versions per the support-matrix table. The Python binding may differ between major versions. **Action**: verify the `WinMlCatalogSource` resolver works against both.
+8. **Behavior under WinML 1.8.x vs 2.x branches**. `Microsoft.WindowsAppSDK.ML` 1.8.x and 2.x both expose `ExecutionProviderCatalog`, but only 2.x supports newer EP versions per the support-matrix table. The Python binding may differ between major versions. **Action**: verify the `WinMLCatalogSource` resolver works against both.

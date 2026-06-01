@@ -23,7 +23,7 @@ Public API:
   (``~/.nuget/packages/<id>/<version>/runtimes/<rid>/native/...``).
 * :class:`FilesystemSource`: directory drops (installer, unzipped archive,
   custom build).
-* :class:`WinMlCatalogSource`: WinAppSDK ``ExecutionProviderCatalog``
+* :class:`WinMLCatalogSource`: WinAppSDK ``ExecutionProviderCatalog``
   MSIX-delivered EPs. Lazily imports the WinAppSDK ML Python binding;
   yields nothing silently when the binding is not installed.
 * :class:`MsixPackageSource`: WinRT ``PackageManager`` MSIX EP discovery
@@ -287,7 +287,7 @@ class EpSource(ABC):
 
     Five concrete subclasses cover the origins documented in
     ``docs/ep-path-design.md``: :class:`PyPiSource`, :class:`NuGetSource`,
-    :class:`FilesystemSource`, :class:`WinMlCatalogSource`, and
+    :class:`FilesystemSource`, :class:`WinMLCatalogSource`, and
     :class:`MsixPackageSource`. Subclasses are frozen dataclasses; this
     base provides the shared :meth:`is_compatible` body and documents
     the :meth:`resolve` / :meth:`iter_eps` contract.
@@ -632,7 +632,7 @@ def _get_catalog() -> Any | None:
         )
     except ImportError as e:
         logger.debug(
-            "WinMlCatalogSource: WinAppSDK ML Python binding not "
+            "WinMLCatalogSource: WinAppSDK ML Python binding not "
             "installed; install the 'winml-catalog' extra to enable "
             "MSIX-delivered EP discovery (%s)",
             e,
@@ -655,7 +655,7 @@ def _get_catalog() -> Any | None:
         handle.__enter__()
     except Exception as e:
         logger.debug(
-            "WinMlCatalogSource: WinAppSDK bootstrap initialize() "
+            "WinMLCatalogSource: WinAppSDK bootstrap initialize() "
             "failed (%s). Install the Windows App SDK runtime from "
             "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads "
             "to enable MSIX-delivered EP discovery.",
@@ -671,7 +671,7 @@ def _get_catalog() -> Any | None:
         return winml.ExecutionProviderCatalog.get_default()
     except Exception as e:
         logger.warning(
-            "WinMlCatalogSource: ExecutionProviderCatalog.get_default() "
+            "WinMLCatalogSource: ExecutionProviderCatalog.get_default() "
             "failed: %s",
             e,
         )
@@ -688,7 +688,7 @@ def _winml_warn_once(key: str, msg: str, *args: Any) -> None:
 
 
 @dataclass(frozen=True)
-class WinMlCatalogSource(EpSource):
+class WinMLCatalogSource(EpSource):
     """An MSIX EP delivered via the WinAppSDK ``ExecutionProviderCatalog``.
 
     The on-disk DLL path for an MSIX-delivered EP is decided by the
@@ -738,7 +738,7 @@ class WinMlCatalogSource(EpSource):
         except Exception as e:
             _winml_warn_once(
                 f"find_all_providers:{self.catalog_name}",
-                "WinMlCatalogSource(%s): find_all_providers() raised: %s",
+                "WinMLCatalogSource(%s): find_all_providers() raised: %s",
                 self.catalog_name,
                 e,
             )
@@ -751,7 +751,7 @@ class WinMlCatalogSource(EpSource):
             except Exception as e:
                 _winml_warn_once(
                     f"provider-error:{self.catalog_name}",
-                    "WinMlCatalogSource(%s): provider iteration raised %s",
+                    "WinMLCatalogSource(%s): provider iteration raised %s",
                     self.catalog_name,
                     e,
                 )
@@ -773,7 +773,7 @@ class WinMlCatalogSource(EpSource):
             and self._is_not_present(ready_state)
         ):
             logger.debug(
-                "WinMlCatalogSource(%s): provider in NotPresent state; "
+                "WinMLCatalogSource(%s): provider in NotPresent state; "
                 "skipping (auto_download=False)",
                 self.catalog_name,
             )
@@ -786,7 +786,7 @@ class WinMlCatalogSource(EpSource):
         except Exception as e:
             _winml_warn_once(
                 f"ensure-ready:{self.catalog_name}",
-                "WinMlCatalogSource(%s): ensure_ready_async raised %s",
+                "WinMLCatalogSource(%s): ensure_ready_async raised %s",
                 self.catalog_name,
                 e,
             )
@@ -796,7 +796,7 @@ class WinMlCatalogSource(EpSource):
         if status is not None and not self._is_success(status):
             _winml_warn_once(
                 f"ensure-ready-status:{self.catalog_name}",
-                "WinMlCatalogSource(%s): ensure_ready_async returned "
+                "WinMLCatalogSource(%s): ensure_ready_async returned "
                 "non-Success status %r; skipping",
                 self.catalog_name,
                 status,
@@ -809,7 +809,7 @@ class WinMlCatalogSource(EpSource):
             # downloaded (e.g., NotPresent provider whose runtime was
             # not gated above). Silent skip.
             logger.debug(
-                "WinMlCatalogSource(%s): library_path empty after "
+                "WinMLCatalogSource(%s): library_path empty after "
                 "ensure_ready; skipping",
                 self.catalog_name,
             )
@@ -1128,12 +1128,12 @@ def _default_ep_sources() -> list[EpSource]:
     Order: PyPI sources first (most deterministic, locked by pyproject),
     then ``NuGetSource`` entries (opportunistic pickup of plugin EPs the
     user already restored into the global NuGet cache via a .NET
-    project), then ``WinMlCatalogSource`` entries (opportunistic MSIX
+    project), then ``WinMLCatalogSource`` entries (opportunistic MSIX
     pickup for EPs we don't already have via PyPI / NuGet), then
     ``FilesystemSource`` entries gated by env vars (Ryzen AI for
     VitisAI; user-specified for NvTRT-RTX).
 
-    The ``WinMlCatalogSource`` rows are live: they yield nothing
+    The ``WinMLCatalogSource`` rows are live: they yield nothing
     silently when the optional ``winml-catalog`` extra is not installed
     (no ``wasdk-*`` packages on this machine). On machines with the
     extra installed, they pick up MSIX-delivered EPs that Windows Update
@@ -1185,23 +1185,23 @@ def _default_ep_sources() -> list[EpSource]:
         #    pickup for any EP we don't already have via PyPI. Order
         #    matters: PyPI wins if both are present (more deterministic,
         #    locked by pyproject vs Windows-Update-managed MSIX).
-        WinMlCatalogSource(
+        WinMLCatalogSource(
             catalog_name="OpenVINOExecutionProvider",
             eps=("OpenVINOExecutionProvider",),
         ),
-        WinMlCatalogSource(
+        WinMLCatalogSource(
             catalog_name="QNNExecutionProvider",
             eps=("QNNExecutionProvider",),
         ),
-        WinMlCatalogSource(
+        WinMLCatalogSource(
             catalog_name="VitisAIExecutionProvider",
             eps=("VitisAIExecutionProvider",),
         ),
-        WinMlCatalogSource(
+        WinMLCatalogSource(
             catalog_name="MIGraphXExecutionProvider",
             eps=("MIGraphXExecutionProvider",),
         ),
-        WinMlCatalogSource(
+        WinMLCatalogSource(
             catalog_name="NvTensorRtRtxExecutionProvider",
             eps=("NvTensorRtRtxExecutionProvider",),
         ),
@@ -1407,7 +1407,7 @@ __all__ = [
     "NuGetSource",
     "PyPiSource",
     "ResolvedEp",
-    "WinMlCatalogSource",
+    "WinMLCatalogSource",
     "discover_all_eps",
     "discover_eps",
     "list_msix_eps",

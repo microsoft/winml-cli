@@ -41,7 +41,7 @@ from ..ep_path import (
     MsixPackageSource,
     NuGetSource,
     PyPiSource,
-    WinMlCatalogSource,
+    WinMLCatalogSource,
 )
 from ..session import EP_DEVICE_SPECS
 from ..sysinfo import OS
@@ -526,7 +526,7 @@ def _describe_source(source: Any) -> dict[str, Any]:
         # compute the chosen one here (resolve() picks at iteration time).
         # Surface the package ID so the CLI can show "NuGet <id>".
         desc["nuget_id"] = source.distribution
-    elif isinstance(source, WinMlCatalogSource):
+    elif isinstance(source, WinMLCatalogSource):
         desc["catalog_name"] = source.catalog_name
     elif isinstance(source, FilesystemSource):
         desc["root"] = str(source.root)
@@ -557,10 +557,10 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
     full = discover_all_eps(extra_sources_after=msix)
 
     catalog_default_paths: set[Path] = set()
-    # Cross-reference WinMlCatalogSource's pick to tag (catalog default).
+    # Cross-reference WinMLCatalogSource's pick to tag (catalog default).
     for entries in full.values():
         for entry in entries:
-            if isinstance(entry.source, WinMlCatalogSource):
+            if isinstance(entry.source, WinMLCatalogSource):
                 catalog_default_paths.add(entry.dll_path)
 
     result: dict[str, dict[str, Any]] = {}
@@ -640,7 +640,7 @@ _SOURCE_KIND_LABEL = {
     "PyPiSource": "PyPI",
     "MsixPackageSource": "MSIX",
     "NuGetSource": "NuGet",
-    "WinMlCatalogSource": "Catalog",
+    "WinMLCatalogSource": "Catalog",
     "FilesystemSource": "FS",
     "built-in": "built-in",
 }
@@ -723,7 +723,7 @@ def _output_ep_text(eps: dict[str, dict[str, Any]]) -> None:
                 extras.append(f"{short_family} v{ver}")
                 if entry.get("is_catalog_default"):
                     extras.append("[dim](catalog default)[/dim]")
-            elif entry.get("is_catalog_default") and kind == "WinMlCatalogSource":
+            elif entry.get("is_catalog_default") and kind == "WinMLCatalogSource":
                 extras.append("[dim](catalog default)[/dim]")
             if "root" in entry:
                 extras.append(f"root={entry['root']}")

@@ -23,7 +23,7 @@ from winml.modelkit.ep_path import (
     FilesystemSource,
     MsixPackageSource,
     PyPiSource,
-    WinMlCatalogSource,
+    WinMLCatalogSource,
     _ep_is_compatible,
     _get_detected_vendors,
 )
@@ -310,7 +310,7 @@ class TestSourceIsCompatible:
             "winml.modelkit.ep_path._get_detected_vendors",
             lambda: frozenset({"NVIDIA Corp"}),
         )
-        src = WinMlCatalogSource(
+        src = WinMLCatalogSource(
             catalog_name="NvTensorRtRtxExecutionProvider",
             eps=("NvTensorRtRtxExecutionProvider",),
         )
@@ -382,7 +382,7 @@ class TestIterEps:
         ]
 
     def test_winml_catalog_source_iter_eps(self) -> None:
-        src = WinMlCatalogSource(
+        src = WinMLCatalogSource(
             catalog_name="QNNExecutionProvider",
             eps=("QNNExecutionProvider",),
         )

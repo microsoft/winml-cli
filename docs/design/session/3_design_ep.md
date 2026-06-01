@@ -142,7 +142,7 @@ The codebase exposes a single `discover_eps()` function that walks an ordered `E
 | `NuGetSource` | NuGet-cached plugin package (`~/.nuget/packages/`) | `Intel.ML.OnnxRuntime.EP.OpenVINO` |
 | `MsixPackageSource` | Microsoft Store / Windows-Workloads MSIX | `WindowsWorkload.EP.Intel.OpenVINO.1.8` |
 | `FilesystemSource` | Vendor-installer drop dir (`%RYZEN_AI_INSTALLATION_PATH%`, `%NVIDIA_TRT_RTX_EP%`) or arbitrary path via `WINMLCLI_EP_PATH` | `D:\src\onnxruntime\build\Release\` |
-| `WinMlCatalogSource` | Windows App SDK `ExecutionProviderCatalog` runtime API | MSIX EPs whose path is decided by OS package manager |
+| `WinMLCatalogSource` | Windows App SDK `ExecutionProviderCatalog` runtime API | MSIX EPs whose path is decided by OS package manager |
 
 `discover_eps()` returns `dict[ep_name -> (Path, EpSource)]` (first-match-wins) and the inventory variant `discover_eps(return_shadowed=True)` returns all hits per EP for the `winml sys --list-ep` inventory CLI.
 
