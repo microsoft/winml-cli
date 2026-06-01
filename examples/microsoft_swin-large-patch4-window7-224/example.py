@@ -97,10 +97,18 @@ def load_image(image_arg: Path | None) -> tuple[Image.Image, str | None]:
 
     from datasets import load_dataset
 
-    # streaming=False so we can read the ClassLabel feature's .names list
-    # to recover the WordNet synset for the sample's integer label.
-    dataset = load_dataset(DEFAULT_DATASET, split=DEFAULT_DATASET_SPLIT)
-    sample = dataset[0]
+    # streaming=True so we only fetch the first sample instead of downloading
+    # the whole split. The ClassLabel feature (and its .names list) is still
+    # available on the streamed dataset, so we can recover the WordNet synset
+    # for the sample's integer label. trust_remote_code=False refuses to run
+    # any dataset-bundled loading script.
+    dataset = load_dataset(
+        DEFAULT_DATASET,
+        split=DEFAULT_DATASET_SPLIT,
+        streaming=True,
+        trust_remote_code=False,
+    )
+    sample = next(iter(dataset))
 
     image = sample["image"]
     if not isinstance(image, Image.Image):
@@ -173,6 +181,7 @@ def main() -> None:
     # Match the processor's output size to the ONNX's static input shape so
     # pixel_values matches (B, C, H, W) exactly.
     input_shapes = (model.io_config.get("input_shapes") or [[]])[0]
+    # Only applies to 4D image inputs (B, C, H, W); skip for other shapes.
     if len(input_shapes) == 4:
         _, _, h, w = input_shapes
         image_processor.size = {"height": h, "width": w}
