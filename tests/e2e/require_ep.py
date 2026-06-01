@@ -89,3 +89,22 @@ def require_not_ep(ep: str) -> None:
 
     if WinMLEPRegistry.get_instance().is_ep_available(provider):
         pytest.skip(f"EP is available on this host (test requires it absent): {provider}")
+
+
+def _is_host(ep: str) -> bool:
+    """Return True iff ``ep`` is available on this host.
+
+    Non-skipping probe used to gate assertions whose tolerance depends on
+    the active EP (e.g. only enforce a metric-magnitude bound on QNN,
+    where quantization preserves accuracy, while still running the rest
+    of the test on every EP for pipeline-regression coverage).
+    """
+    from winml.modelkit.session import WinMLEPRegistry
+    from winml.modelkit.utils import normalize_ep_name
+
+    provider = normalize_ep_name(ep)
+    if provider is None:
+        return False
+    if provider in ("CPUExecutionProvider", "DmlExecutionProvider"):
+        return True
+    return WinMLEPRegistry.get_instance().is_ep_available(provider)
