@@ -179,19 +179,31 @@ jobs:
                           $uvArgs += @("--task", $task)
                       }
 
+                      # Only clean caches after the LAST EP/device pair for this
+                      # model — earlier pairs reuse the HF download and WinML build
+                      # cache across EPs (same model, different EP). The expression
+                      # `parameters.pairNames[sub(length(parameters.pairNames), 1)]`
+                      # is resolved at template-expansion time to the last entry of
+                      # the pair list, so this comparison is purely a string match
+                      # at runtime in PowerShell.
+                      $isLastPair = '${{ pairName }}' -eq '${{ parameters.pairNames[sub(length(parameters.pairNames), 1)] }}'
+                      if ($isLastPair) {
+                          $uvArgs += "--clean-cache"
+                      }
+
                       & uv @uvArgs
                       $code = $LASTEXITCODE
                       if ($code -ne 0) {
-                          Write-Error "Eval FAILED: $hfModel on $($pair.displayName) (exit=$code)"
+                          Write-Error "Eval FAILED: $hfModel (task='$task') on $($pair.displayName) (exit=$code)"
                       } else {
-                          Write-Host "Eval PASSED: $hfModel on $($pair.displayName)"
+                          Write-Host "Eval PASSED: $hfModel (task='$task') on $($pair.displayName)"
                       }
                       exit $code
                     workingDirectory: $(Build.SourcesDirectory)
                     # Always run so a failure on one pair does not hide failures on others.
                     # The job is still marked failed by ADO because of the non-zero exit.
                     condition: always()
-                    displayName: 'Eval: ${{ model.hf_id }} on ${{ pairName }}'
+                    displayName: 'Eval: ${{ model.hf_id }} / ${{ model.task }} on ${{ pairName }}'
 
       # ----------------------------------------------------------------------
       # Phase 2: pytest e2e suites. One step per entry in `pytestTargets`.
