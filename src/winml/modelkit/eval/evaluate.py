@@ -227,6 +227,7 @@ def to_hf_pipeline_task(task: str, model_id: str | None) -> str:
 
     try:
         from transformers import AutoConfig
+
         from ..export.io import _get_onnx_config
 
         hf_config = AutoConfig.from_pretrained(model_id)
@@ -235,13 +236,16 @@ def to_hf_pipeline_task(task: str, model_id: str | None) -> str:
         logger.debug("Static OnnxConfig probe failed for task %r: %s", task, e)
         return task
 
-    return next((mapping[n] for n in mapping if n in io_config), task)
+    hits = [mapping[n] for n in mapping if n in io_config]
+    if len(hits) != 1:
+        return task
+    return hits[0]
 
 
 def _resolve_task(config: WinMLEvaluationConfig) -> str:
     """Resolve task from config or model's HF config, and validate it is supported."""
     console = Console()
-    console.print("[bold]Detecting model task...[/bold]")
+    console.print("[bold]Resolving task...[/bold]")
 
     if config.task is not None:
         task = config.task
