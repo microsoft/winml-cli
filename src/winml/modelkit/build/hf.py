@@ -435,14 +435,28 @@ def _load_model(
     model_id: str | None,
     trust_remote_code: bool,
     random_init: bool = False,
+    hf_config: Any | None = None,
 ) -> Any:
-    """Load PyTorch model — pretrained or random weights."""
+    """Load PyTorch model — pretrained or random weights.
+
+    Args:
+        config: Build config (loader fields used).
+        model_id: HuggingFace model ID or local path.
+        trust_remote_code: Whether to trust remote code.
+        random_init: If True, build with random weights (no download).
+        hf_config: Optional pre-loaded ``PretrainedConfig`` to reuse. When
+            provided, skips the ``AutoConfig.from_pretrained`` round-trip in
+            both the random-init path and the pretrained ``load_hf_model``
+            path (PR #719 dedup pattern).
+    """
     task = config.loader.task
 
     if random_init:
         from transformers import AutoConfig
 
-        if model_id is not None:
+        if hf_config is not None:
+            pass
+        elif model_id is not None:
             hf_config = AutoConfig.from_pretrained(model_id)
         else:
             logger.warning(
@@ -493,6 +507,7 @@ def _load_model(
             model_name_or_path=model_id,
             task=task,
             trust_remote_code=effective_trust,
+            hf_config=hf_config,
         )
         return pytorch_model
 
