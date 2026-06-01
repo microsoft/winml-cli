@@ -52,7 +52,7 @@ class StaticAnalyzerConsoleWriter:
         """Format text in bright cyan."""
         return f"[bold cyan]{text}[/bold cyan]"
 
-    def _bright_green(self, text: str) -> str:
+    def _bright_green(self, text: str | int | float) -> str:
         """Format text in bright green."""
         return f"[bold green]{text}[/bold green]"
 

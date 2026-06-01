@@ -141,7 +141,7 @@ class DocConstraintChecker:
 
         return op_dfs
 
-    def _load_mapping_config(self) -> dict:
+    def _load_mapping_config(self) -> dict[Any, Any]:
         """Load ONNX to target EP operator mapping configuration.
 
         Returns:
@@ -162,7 +162,7 @@ class DocConstraintChecker:
             return {}
 
         with mapping_path.open(encoding="utf-8") as f:
-            mapping_config = json.load(f)
+            mapping_config: dict[Any, Any] = json.load(f)
 
         logger.debug(f"Loaded operator mapping config for {self.ep_name}")
         return mapping_config
@@ -301,7 +301,9 @@ class DocConstraintChecker:
         index = checker_info.get("index", 0)
 
         # Get the checker function
-        checker_func = self.CHECKER_FUNCTIONS.get(checker_name)
+        checker_func = (
+            self.CHECKER_FUNCTIONS.get(checker_name) if checker_name is not None else None
+        )
         if checker_func is None:
             logger.debug(f"Unknown checker function: {checker_name}")
             return False, f"Unknown checker function: {checker_name}"

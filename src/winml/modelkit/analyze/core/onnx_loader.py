@@ -135,7 +135,8 @@ class ONNXLoader:
         # Load model proto if not already loaded from memory
         if self._from_memory:
             # Type checker verified via constructor that _model_proto is not None here
-            model_proto = self._model_proto  # type: ignore[assignment]
+            assert self._model_proto is not None
+            model_proto = self._model_proto
             logger.info("Using ONNX model from memory")
         else:
             # Validate file extension (warning only, not blocking)
