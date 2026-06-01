@@ -182,12 +182,12 @@ class TestEpOverride:
         assert policy.device == "gpu"
 
     def test_ep_overrides_default_dml(self) -> None:
-        """Without ep, gpu maps to dml. With ep='nv_tensorrt_rtx', should be nv_tensorrt_rtx."""
+        """Without ep, gpu maps to dml. With ep='nvtensorrtrtx', should be nvtensorrtrtx."""
         default = resolve_precision(device="gpu")
         assert default.compile_provider == "dml"
 
-        override = resolve_precision(device="gpu", ep="nv_tensorrt_rtx")
-        assert override.compile_provider == "nv_tensorrt_rtx"
+        override = resolve_precision(device="gpu", ep="nvtensorrtrtx")
+        assert override.compile_provider == "nvtensorrtrtx"
 
     def test_ep_infers_device_from_gpu_ep(self) -> None:
         """ep='migraphx' with device='auto' should infer device='gpu'."""

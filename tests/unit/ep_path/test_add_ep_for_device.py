@@ -4,11 +4,16 @@
 # --------------------------------------------------------------------------
 """Unit tests for ``winml.add_ep_for_device``.
 
-Covers EP-name alias canonicalization at the user-facing boundary: the
-WinML EP Catalog registers NVIDIA's TensorRT-RTX EP under the camelCase
-spelling ``NvTensorRtRtxExecutionProvider``, while NVIDIA's own public
-docs use PascalCase ``NvTensorRTRTXExecutionProvider``. Both spellings
-must bind successfully.
+``add_ep_for_device`` is exact-match by design — the docstring on the
+function explicitly says "no alias normalization layer; callers must
+pass the spelling ORT registers under." These tests pin that contract:
+canonical camelCase input binds; mismatched device type does not bind;
+unknown spelling does not bind silently.
+
+(An earlier draft attempted PascalCase ⇄ camelCase aliasing for NVIDIA's
+public-docs spelling ``NvTensorRTRTXExecutionProvider``. That alias
+layer was intentionally removed; callers normalize at their own layer
+or use the canonical name directly.)
 """
 
 from __future__ import annotations
@@ -59,40 +64,14 @@ class _RecordingSessionOptions:
 # ---------------------------------------------------------------------------
 
 
-class TestAddEpForDevicePascalCase:
-    """The bug: PascalCase user input + camelCase ORT registration must bind."""
+class TestAddEpForDeviceExactMatch:
+    """``add_ep_for_device`` is exact-match by canonical EP name (no aliasing)."""
 
-    def test_pascalcase_input_matches_camelcase_registration(
+    def test_camelcase_input_binds(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # ORT reports the EP under the camelCase spelling that the WinML
-        # ``ExecutionProviderCatalog`` registered it with.
-        gpu = _FakeDevice(type=ort.OrtHardwareDeviceType.GPU)
-        registered = _FakeEpDevice(
-            ep_name="NvTensorRtRtxExecutionProvider", device=gpu
-        )
-        monkeypatch.setattr(ort, "get_ep_devices", lambda: [registered])
-
-        opts = _RecordingSessionOptions()
-
-        # User passes the PascalCase spelling that NVIDIA's docs (and
-        # several places in our own codebase) use.
-        add_ep_for_device(
-            opts, "NvTensorRTRTXExecutionProvider", ort.OrtHardwareDeviceType.GPU
-        )
-
-        # The fix routed the call to add_provider_for_devices despite
-        # the case mismatch.
-        assert len(opts.calls) == 1
-        bound_devices, bound_options = opts.calls[0]
-        assert bound_devices == [registered]
-        assert bound_options == {}
-
-    def test_camelcase_input_still_works(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # Symmetric case: callers that already use the canonical
-        # camelCase form must continue to work after the fix.
+        # Callers pass the canonical camelCase spelling that ORT registers
+        # under (e.g. ``NvTensorRtRtxExecutionProvider``).
         gpu = _FakeDevice(type=ort.OrtHardwareDeviceType.GPU)
         registered = _FakeEpDevice(
             ep_name="NvTensorRtRtxExecutionProvider", device=gpu
@@ -106,12 +85,15 @@ class TestAddEpForDevicePascalCase:
         )
 
         assert len(opts.calls) == 1
+        bound_devices, bound_options = opts.calls[0]
+        assert bound_devices == [registered]
+        assert bound_options == {}
 
     def test_device_type_mismatch_does_not_bind(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The case-fix must not relax the device-type guard: a GPU EP
-        # asked for on the NPU still does not bind.
+        # Device-type guard: a GPU EP asked for on the NPU does not bind
+        # even when the EP-name string is canonical.
         gpu = _FakeDevice(type=ort.OrtHardwareDeviceType.GPU)
         registered = _FakeEpDevice(
             ep_name="NvTensorRtRtxExecutionProvider", device=gpu
@@ -121,7 +103,7 @@ class TestAddEpForDevicePascalCase:
         opts = _RecordingSessionOptions()
 
         add_ep_for_device(
-            opts, "NvTensorRTRTXExecutionProvider", ort.OrtHardwareDeviceType.NPU
+            opts, "NvTensorRtRtxExecutionProvider", ort.OrtHardwareDeviceType.NPU
         )
 
         assert opts.calls == []
@@ -129,7 +111,7 @@ class TestAddEpForDevicePascalCase:
     def test_ep_options_are_forwarded(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Sanity check that the fix did not drop the ep_options argument.
+        # ep_options dict reaches add_provider_for_devices unchanged.
         gpu = _FakeDevice(type=ort.OrtHardwareDeviceType.GPU)
         registered = _FakeEpDevice(
             ep_name="NvTensorRtRtxExecutionProvider", device=gpu
@@ -141,7 +123,7 @@ class TestAddEpForDevicePascalCase:
 
         add_ep_for_device(
             opts,
-            "NvTensorRTRTXExecutionProvider",
+            "NvTensorRtRtxExecutionProvider",
             ort.OrtHardwareDeviceType.GPU,
             ep_options=ep_options,
         )

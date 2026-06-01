@@ -56,7 +56,7 @@ def test_expand_ep_name_short_form() -> None:
     assert expand_ep_name("openvino") == "OpenVINOExecutionProvider"
     assert expand_ep_name("vitisai") == "VitisAIExecutionProvider"
     assert expand_ep_name("migraphx") == "MIGraphXExecutionProvider"
-    assert expand_ep_name("nv_tensorrt_rtx") == "NvTensorRtRtxExecutionProvider"
+    assert expand_ep_name("nvtensorrtrtx") == "NvTensorRtRtxExecutionProvider"
     assert expand_ep_name("dml") == "DmlExecutionProvider"
     assert expand_ep_name("cpu") == "CPUExecutionProvider"
 
@@ -206,10 +206,15 @@ def test_short_ep_name_cuda_tensorrt_round_trip() -> None:
 
 
 def test_ep_device_specs_count() -> None:
-    """The catalog must contain exactly 13 variants."""
+    """The catalog must contain exactly 12 variants.
+
+    (CUDAExecutionProvider was dropped in the v1 catalog — not currently
+    measured by this project. Re-add an EpEntry + bump this count to 13
+    if/when CUDA support lands.)
+    """
     from winml.modelkit.session import EP_DEVICE_SPECS
 
-    assert len(EP_DEVICE_SPECS) == 13
+    assert len(EP_DEVICE_SPECS) == 12
 
 
 def test_lookup_device_spec_qnn_npu() -> None:
@@ -233,13 +238,15 @@ def test_lookup_device_spec_unknown_returns_none() -> None:
 
 
 def test_lookup_device_spec_empty_defaults() -> None:
-    """Non-QNN-NPU entries have empty default_provider_options (TODO entries)."""
+    """Non-QNN-NPU entries have empty default_provider_options (TODO entries).
+
+    CUDA is intentionally omitted — dropped from EP_DEVICE_SPECS in v1.
+    """
     from winml.modelkit.session import lookup_device_spec
 
     for ep, device in [
         ("DmlExecutionProvider", "gpu"),
         ("CPUExecutionProvider", "cpu"),
-        ("CUDAExecutionProvider", "gpu"),
         ("QNNExecutionProvider", "gpu"),
     ]:
         spec = lookup_device_spec(ep, device)

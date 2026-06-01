@@ -2823,11 +2823,11 @@ class TestResolveQuantCompileConfig:
         ):
             _quant, compile_cfg = resolve_quant_compile_config(
                 device="gpu",
-                ep="nv_tensorrt_rtx",
+                ep="nvtensorrtrtx",
             )
 
         assert compile_cfg is not None
-        assert compile_cfg.ep_config.provider == "nv_tensorrt_rtx"
+        assert compile_cfg.ep_config.provider == "nvtensorrtrtx"
 
     def test_task_forwarded_to_resolve_precision(self) -> None:
         """task parameter is forwarded to resolve_precision.

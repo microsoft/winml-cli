@@ -214,27 +214,12 @@ class TestDiscoverAllEpsFormerReturnShadowed:
         assert len(entries) == 1
         assert entries[0].status == "primary"
 
-    def test_canonicalization_collapses_aliases(self, tmp_path: Path) -> None:
-        """Two sources naming the same EP under different alias spellings
-        collapse to one entry name; later one is shadowed (or deduped if
-        same source+path)."""
-        _touch(tmp_path / "trtrtx.dll")
-        # NVIDIA's PascalCase alias and the canonical camelCase.
-        alias_src = _filesystem_source_for(
-            tmp_path, "NvTensorRTRTXExecutionProvider", "trtrtx.dll"
-        )
-        canon_src = _filesystem_source_for(
-            tmp_path, "NvTensorRtRtxExecutionProvider", "trtrtx.dll"
-        )
-        result = discover_all_eps(
-            extra_sources=[alias_src, canon_src],
-        )
-        # Only the canonical name appears; both sources contribute entries
-        # to the same bucket.
-        assert "NvTensorRtRtxExecutionProvider" in result
-        assert "NvTensorRTRTXExecutionProvider" not in result
-        entries = result["NvTensorRtRtxExecutionProvider"]
-        assert [e.status for e in entries] == ["primary", "shadowed"]
+    # NOTE: an earlier draft asserted that two sources spelling the same EP
+    # with different casing (NVIDIA's PascalCase vs canonical camelCase)
+    # would collapse into one bucket. That alias-normalization layer was
+    # intentionally removed — sources are now matched by exact EP-name
+    # string. The "test_canonicalization_collapses_aliases" check used to
+    # live here; deleted because it asserted behavior the design rejects.
 
 
 # ---------------------------------------------------------------------------
