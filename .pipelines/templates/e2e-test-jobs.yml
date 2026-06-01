@@ -160,8 +160,22 @@ jobs:
                       $task    = '${{ model.task }}'
                       $output  = "$(Agent.TempDirectory)/e2e-test/$name"
 
+                      # Determine if this is the LAST pair for this model so we
+                      # only clean caches once per model -- HF download and WinML
+                      # build cache are reused across EPs for the same model.
+                      # ADO template expressions have no arithmetic so we can't
+                      # compute "last index" at compile time, but `join()` IS
+                      # supported and lets us pass the full pair list as a CSV
+                      # string for runtime PowerShell to inspect. This mirrors
+                      # the pattern in eval-report-jobs.yml (which does the same
+                      # check via a single PowerShell `for` loop over pairs).
+                      $allPairs = @(('${{ join('','', parameters.pairNames) }}' -split ',') |
+                                    Where-Object { $_ -and $_.Trim() -ne '' } |
+                                    ForEach-Object { $_.Trim() })
+                      $isLastPair = ($name -eq $allPairs[-1])
+
                       Write-Host "============================================================"
-                      Write-Host "Eval: $hfModel  (task='$task')  on  $($pair.displayName) [name=$name]"
+                      Write-Host "Eval: $hfModel  (task='$task')  on  $($pair.displayName) [name=$name, last=$isLastPair]"
                       Write-Host "============================================================"
 
                       $uvArgs = @(
@@ -178,15 +192,6 @@ jobs:
                       if ($task) {
                           $uvArgs += @("--task", $task)
                       }
-
-                      # Only clean caches after the LAST EP/device pair for this
-                      # model — earlier pairs reuse the HF download and WinML build
-                      # cache across EPs (same model, different EP). The expression
-                      # `parameters.pairNames[sub(length(parameters.pairNames), 1)]`
-                      # is resolved at template-expansion time to the last entry of
-                      # the pair list, so this comparison is purely a string match
-                      # at runtime in PowerShell.
-                      $isLastPair = '${{ pairName }}' -eq '${{ parameters.pairNames[sub(length(parameters.pairNames), 1)] }}'
                       if ($isLastPair) {
                           $uvArgs += "--clean-cache"
                       }
