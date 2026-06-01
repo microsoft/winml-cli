@@ -169,7 +169,7 @@ jobs:
                       # string for runtime PowerShell to inspect. This mirrors
                       # the pattern in eval-report-jobs.yml (which does the same
                       # check via a single PowerShell `for` loop over pairs).
-                      $allPairs = @(('${{ join('','', parameters.pairNames) }}' -split ',') |
+                      $allPairs = @(('${{ join(',', parameters.pairNames) }}' -split ',') |
                                     Where-Object { $_ -and $_.Trim() -ne '' } |
                                     ForEach-Object { $_.Trim() })
                       $isLastPair = ($name -eq $allPairs[-1])
