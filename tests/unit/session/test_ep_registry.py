@@ -29,11 +29,10 @@ def _install_fake_windowsml(monkeypatch: pytest.MonkeyPatch) -> types.SimpleName
 
 
 def _install_fake_tqdm(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Inject a fake ``tqdm.tqdm`` whose ``n`` advances with ``update`` deltas."""
+    """Inject a fake ``tqdm.tqdm``. Helper writes ``bar.n`` directly + refresh()."""
 
     fake_bar = MagicMock()
     fake_bar.n = 0
-    fake_bar.update.side_effect = lambda d: setattr(fake_bar, "n", fake_bar.n + d)
 
     tqdm_mod = types.ModuleType("tqdm")
     tqdm_mod.tqdm = MagicMock(return_value=fake_bar)  # type: ignore[attr-defined]
@@ -86,7 +85,9 @@ def test_ensure_provider_ready_drives_progress_bar(monkeypatch: pytest.MonkeyPat
     op.cancel.assert_not_called()
     op.close.assert_called_once_with()
     fake_bar.close.assert_called_once_with()
+    # Success path forces bar.n to 100 even though the last fraction was 1.0.
     assert fake_bar.n == 100
+    fake_bar.refresh.assert_called()
 
 
 def test_ensure_provider_ready_warns_before_download(
@@ -117,11 +118,11 @@ def test_ensure_provider_ready_warns_before_download(
     assert any("FakeEP" in r.getMessage() for r in warnings)
 
 
-def test_ensure_provider_ready_finalizes_bar_when_no_progress_callbacks(
+def test_ensure_provider_ready_forces_bar_to_100_on_success_without_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If the async op completes without firing on_progress, the bar is still
-    advanced to 100 in the finally block so users see completion."""
+    """If the async op completes successfully without ever firing on_progress,
+    the success path forces the bar to 100 so the final render shows full."""
     from winml.modelkit.session import ep_registry
 
     ns = _install_fake_windowsml(monkeypatch)
@@ -170,6 +171,9 @@ def test_ensure_provider_ready_times_out_and_cancels(
     op.cancel.assert_called_once_with()
     op.close.assert_called_once_with()
     fake_bar.close.assert_called_once_with()
+    # Bar must NOT be force-filled on timeout — it should reflect where the
+    # download stalled (here: 0 because no progress callbacks ever fired).
+    assert fake_bar.n == 0
 
 
 def test_ensure_provider_ready_surfaces_get_status_error(
@@ -198,3 +202,38 @@ def test_ensure_provider_ready_surfaces_get_status_error(
 
     fake_bar.close.assert_called_once_with()
     op.close.assert_called_once_with()
+    # Native error must NOT force-fill the bar — it should reflect where
+    # the download failed (here: 0 because no progress callbacks fired).
+    assert fake_bar.n == 0
+
+
+class TestEpDownloadTimeoutDefault:
+    """`_ep_download_timeout_default` reads ``WINMLCLI_EP_DOWNLOAD_TIMEOUT``."""
+
+    def test_default_when_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from winml.modelkit.session import ep_registry
+
+        monkeypatch.delenv("WINMLCLI_EP_DOWNLOAD_TIMEOUT", raising=False)
+        assert ep_registry._ep_download_timeout_default() == 5 * 60
+
+    def test_override_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from winml.modelkit.session import ep_registry
+
+        monkeypatch.setenv("WINMLCLI_EP_DOWNLOAD_TIMEOUT", "1800")
+        assert ep_registry._ep_download_timeout_default() == 1800
+
+    def test_falls_back_to_default_on_invalid_value(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from winml.modelkit.session import ep_registry
+
+        monkeypatch.setenv("WINMLCLI_EP_DOWNLOAD_TIMEOUT", "not-a-number")
+        with caplog.at_level(logging.WARNING, logger=ep_registry.logger.name):
+            assert ep_registry._ep_download_timeout_default() == 5 * 60
+        assert any("WINMLCLI_EP_DOWNLOAD_TIMEOUT" in r.getMessage() for r in caplog.records)
+
+    def test_empty_string_uses_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from winml.modelkit.session import ep_registry
+
+        monkeypatch.setenv("WINMLCLI_EP_DOWNLOAD_TIMEOUT", "")
+        assert ep_registry._ep_download_timeout_default() == 5 * 60

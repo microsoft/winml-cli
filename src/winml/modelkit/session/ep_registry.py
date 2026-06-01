@@ -11,6 +11,7 @@ Windows Machine Learning API (WinML).
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Any, cast
 
 
@@ -21,7 +22,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-EP_DOWNLOAD_TIMEOUT_SECONDS = 5 * 60
+def _ep_download_timeout_default() -> int:
+    """Read ``WINMLCLI_EP_DOWNLOAD_TIMEOUT`` (seconds) or fall back to 5 minutes.
+
+    Lets users on slow networks raise the cap without code changes. Falls back
+    to the default when the env var is unset, empty, or non-integer.
+    """
+    raw = os.environ.get("WINMLCLI_EP_DOWNLOAD_TIMEOUT")
+    if not raw:
+        return 5 * 60
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Invalid WINMLCLI_EP_DOWNLOAD_TIMEOUT=%r; using default 300s.", raw)
+        return 5 * 60
+
+
+EP_DOWNLOAD_TIMEOUT_SECONDS = _ep_download_timeout_default()
 
 
 def _ensure_provider_ready(provider: Any) -> None:
@@ -60,10 +77,8 @@ def _ensure_provider_ready(provider: Any) -> None:
     done = threading.Event()
 
     def _on_progress(fraction: float) -> None:
-        current = max(0, min(100, int(fraction * 100)))
-        delta = current - bar.n
-        if delta > 0:
-            bar.update(delta)
+        bar.n = max(0, min(100, int(fraction * 100)))
+        bar.refresh()
 
     op = provider.ensure_ready_async(on_complete=done.set, on_progress=_on_progress)
     try:
@@ -75,9 +90,11 @@ def _ensure_provider_ready(provider: Any) -> None:
             )
         # Surface any native failure (raises OSError on error).
         op.get_status()
+        # Success: providers usually fire on_progress(1.0) before on_complete,
+        # but force the bar to 100 in case they didn't.
+        bar.n = 100
+        bar.refresh()
     finally:
-        if bar.n < 100:
-            bar.update(100 - bar.n)
         bar.close()
         op.close()
 
