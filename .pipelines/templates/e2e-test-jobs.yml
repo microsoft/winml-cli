@@ -118,6 +118,13 @@ jobs:
           artifactFeeds: 'windows.ai.toolkit/Modelkit'
         displayName: 'Authenticate pip with Azure Artifacts'
 
+      # NOTE: This is the single source of truth for installing project deps
+      # into the venv. Every later step uses `uv run --no-sync` to *skip*
+      # uv's lockfile sync and rely on what was installed here. Do NOT remove
+      # this step assuming `uv run` will install on demand -- it won't, with
+      # `--no-sync` -- and do NOT drop `--no-sync` below assuming it's a
+      # no-op: without it, `uv run` would re-resolve from uv.lock and may
+      # silently replace this editable install.
       - script: |
           uv pip install -e .[dev]
         workingDirectory: $(Build.SourcesDirectory)
@@ -126,6 +133,7 @@ jobs:
       # ----------------------------------------------------------------------
       # Phase 1: winml perf (gated by runEval).
       # One step per (model × pair); template-time expanded for granular UI.
+      # All `uv run` calls below use `--no-sync` -- see install step above.
       # ----------------------------------------------------------------------
       - ${{ if eq(parameters.runEval, true) }}:
           - ${{ each model in parameters.models }}:
