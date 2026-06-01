@@ -207,16 +207,47 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
     )
 
 
+# Evaluator uses HF pipeline and evaluate library,
+# which have their own task naming conventions.
+# Inner dict maps an ONNX input name (from the model's IO config) to the
+# corresponding HF task name, so we can resolve ambiguous tasks by modality.
+HF_TASK_NAME_MAPPING: dict[str, dict[str, str]] = {
+    "feature-extraction": {
+        "input_ids": "feature-extraction",
+        "pixel_values": "image-feature-extraction",
+    },
+}
+
+
+def to_hf_pipeline_task(task: str, model_id: str | None) -> str:
+    """Convert task name to an HF-pipeline-recognizable name."""
+    mapping = HF_TASK_NAME_MAPPING.get(task)
+    if mapping is None or model_id is None:
+        return task
+
+    try:
+        from transformers import AutoConfig
+        from ..export.io import _get_onnx_config
+
+        hf_config = AutoConfig.from_pretrained(model_id)
+        io_config = _get_onnx_config(hf_config.model_type, task, hf_config).inputs
+    except Exception as e:
+        logger.debug("Static OnnxConfig probe failed for task %r: %s", task, e)
+        return task
+
+    return next((mapping[n] for n in mapping if n in io_config), task)
+
+
 def _resolve_task(config: WinMLEvaluationConfig) -> str:
     """Resolve task from config or model's HF config, and validate it is supported."""
+    console = Console()
+    console.print("[bold]Detecting model task...[/bold]")
+
     if config.task is not None:
         task = config.task
     else:
         if config.model_id is None:
             raise ValueError("Cannot infer task without model_id. Provide --task.")
-
-        console = Console()
-        console.print("[bold]Detecting model task...[/bold]")
 
         from transformers import AutoConfig
 
@@ -224,7 +255,10 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
         task = _detect_task_from_config(hf_config)
-        console.print(f"[dim]Detected task:[/dim] {task}")
+
+    # Convert to an HF-pipeline-recognizable task before evaluator lookup.
+    task = to_hf_pipeline_task(task, config.model_id)
+    console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
 
     if task not in _EVALUATOR_REGISTRY:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
