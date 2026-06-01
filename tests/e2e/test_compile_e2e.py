@@ -681,6 +681,8 @@ def test_good_input_compiles_and_runs(
     can load and run on the requested EP+device.
     """
     require_ep(require_ep_name)
+    # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+    require_not_ep("vitisai")
 
     out = tmp_path / f"{device or 'nodev'}_{ep or 'noep'}.onnx"
     cmd = ["-m", str(simple_matmul_onnx), "-o", str(out)]
