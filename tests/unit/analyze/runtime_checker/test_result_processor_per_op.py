@@ -131,6 +131,43 @@ class TestDeduplicateRuleRows:
         assert dedup_df.iloc[0]["compile_reason"] == "compile_error_1"
         assert dedup_df.iloc[0]["run_reason"] == "run_error_1"
 
+    def test_deduplicate_aggregates_case_indices_from_group(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "case_index": "b_case",
+                    "T_Add": "FLOAT",
+                    "input_dim": 4,
+                    "compile_run_success": (True, True),
+                },
+                {
+                    "case_index": "a_case",
+                    "T_Add": "FLOAT",
+                    "input_dim": 4,
+                    "compile_run_success": (True, True),
+                },
+                {
+                    "case_index": "a_case",
+                    "T_Add": "FLOAT",
+                    "input_dim": 4,
+                    "compile_run_success": (True, True),
+                },
+            ]
+        )
+
+        dedup_df, conflict_df = _deduplicate_rule_rows(
+            df,
+            condition_cols=["T_Add", "input_dim"],
+            output_cols=["compile_run_success"],
+            compare_output_cols=["compile_run_success"],
+            aggregate_case_indices=True,
+        )
+
+        assert conflict_df is None
+        assert len(dedup_df) == 1
+        assert int(dedup_df.iloc[0]["rule_row_count"]) == 3
+        assert dedup_df.iloc[0]["case_indices"] == ("a_case", "b_case")
+
 
 class TestParquetConditionEncoding:
     """Validate parquet-safe condition encoding for mixed object values."""
