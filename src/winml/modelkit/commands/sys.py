@@ -386,11 +386,14 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
 
         console.print(torch_table)
 
-    # Backend SDKs — only show when at least one SDK is installed
-    backends = info["backends"]
-    qnn = backends["qnn"]
-    ov = backends["openvino"]
-    if qnn["installed"] or ov["installed"]:
+    # Backend SDKs and Export Readiness are diagnostic info — only render
+    # under --verbose so the default `winml sys` stays focused on Python,
+    # libraries, devices, and EPs.
+    if verbose:
+        backends = info["backends"]
+        qnn = backends["qnn"]
+        ov = backends["openvino"]
+
         console.print("\n[bold blue]Backend SDKs[/bold blue]")
         backend_table = Table(show_header=False, box=None, padding=(0, 2))
         backend_table.add_column("Backend", style="bold")
@@ -398,17 +401,17 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
         backend_table.add_column("Details")
 
         if qnn["installed"]:
-            qnn_details = qnn.get("path", "-")[:50]
-            backend_table.add_row("QNN SDK", "[green]Installed[/green]", qnn_details)
+            backend_table.add_row("QNN SDK", "[green]Installed[/green]", qnn.get("path", "-")[:50])
+        else:
+            backend_table.add_row("QNN SDK", "[yellow]Not found[/yellow]", "-")
         if ov["installed"]:
-            ov_details = ov.get("version", "-")
-            backend_table.add_row("OpenVINO", "[green]Installed[/green]", ov_details)
+            backend_table.add_row("OpenVINO", "[green]Installed[/green]", ov.get("version", "-"))
+        else:
+            backend_table.add_row("OpenVINO", "[yellow]Not found[/yellow]", "-")
 
         console.print(backend_table)
 
-    # Export Readiness — only show when at least one non-ONNX backend is ready
-    readiness = info["export_readiness"]
-    if readiness["qnn_ready"] or readiness["openvino_ready"]:
+        readiness = info["export_readiness"]
         console.print("\n[bold blue]Export Readiness[/bold blue]")
         ready_table = Table(show_header=False, box=None, padding=(0, 2))
         ready_table.add_column("Capability", style="bold")
@@ -416,10 +419,16 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
 
         onnx_ready = "[green]Ready[/green]" if readiness["onnx_export"] else "[red]Not ready[/red]"
         ready_table.add_row("ONNX Export", onnx_ready)
-        if readiness["qnn_ready"]:
-            ready_table.add_row("QNN Compilation", "[green]Ready[/green]")
-        if readiness["openvino_ready"]:
-            ready_table.add_row("OpenVINO Conversion", "[green]Ready[/green]")
+        qnn_status = (
+            "[green]Ready[/green]" if readiness["qnn_ready"] else "[yellow]SDK required[/yellow]"
+        )
+        ready_table.add_row("QNN Compilation", qnn_status)
+        ov_status = (
+            "[green]Ready[/green]"
+            if readiness["openvino_ready"]
+            else "[yellow]Not installed[/yellow]"
+        )
+        ready_table.add_row("OpenVINO Conversion", ov_status)
 
         console.print(ready_table)
 
@@ -704,7 +713,13 @@ def sysinfo(
     # Route winml.modelkit logs through Rich so they never interleave with CLI output.
     # In normal mode suppress everything below WARNING; in debug mode show all levels.
     # Restore logger state on exit so tests using caplog are not affected.
+    #
+    # For --format json, send log records to stderr so DEBUG/WARNING lines do
+    # not corrupt the JSON payload on stdout (verbose+json was unparseable).
+    from rich.console import Console as _RichConsole
     from rich.logging import RichHandler
+
+    use_json = output_format.lower() == "json"
 
     log_level = logging.DEBUG if verbose else logging.WARNING
     pkg_logger = logging.getLogger("winml.modelkit")
@@ -712,15 +727,14 @@ def sysinfo(
     _saved_level = pkg_logger.level
     _saved_propagate = pkg_logger.propagate
     pkg_logger.handlers = [h for h in pkg_logger.handlers if not isinstance(h, RichHandler)]
-    rich_handler = RichHandler(console=_get_console(), show_path=False)
+    log_console = _RichConsole(stderr=True) if use_json else _get_console()
+    rich_handler = RichHandler(console=log_console, show_path=False)
     rich_handler.setLevel(log_level)
     pkg_logger.setLevel(log_level)
     pkg_logger.addHandler(rich_handler)
     pkg_logger.propagate = False
 
     try:
-        use_json = output_format.lower() == "json"
-
         # Handle --list-device and/or --list-ep (combinable)
         if list_device or list_ep:
             if use_json:

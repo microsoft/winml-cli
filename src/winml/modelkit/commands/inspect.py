@@ -40,6 +40,25 @@ _stderr_console = Console(stderr=True, highlight=False)
 _LOCAL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin"})
 
 
+def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
+    """Click-time validation for --task against the hand-coded KNOWN_TASKS set.
+
+    Imports only ..loader.task to keep validation cheap — going through optimum
+    would cost ~10s on a warm cache and defeats fail-fast on bad input.
+    """
+    if value is None:
+        return None
+    from ..loader.task import KNOWN_TASKS
+
+    if value in KNOWN_TASKS:
+        return value
+    examples = ", ".join(sorted(KNOWN_TASKS)[:5])
+    raise click.UsageError(
+        f"Invalid task '{value}'. Valid: {examples}, ... ({len(KNOWN_TASKS)} total). "
+        f"See 'winml inspect --list-tasks' for the full list."
+    )
+
+
 def _looks_like_local_path(model_id: str) -> bool:
     """Return True when model_id is explicitly a local path.
 
@@ -86,6 +105,7 @@ def _looks_like_local_path(model_id: str) -> bool:
     "-t",
     "--task",
     default=None,
+    callback=_validate_task,
     help="Override auto-detected task (e.g., image-classification, feature-extraction)",
 )
 @click.option(
@@ -186,10 +206,13 @@ def inspect(
     # Print a banner BEFORE the heavy import chain / network calls so users
     # see immediate feedback instead of ~14 s of silence and assume the
     # command hung (see #543). Banner + spinner go to stderr so `--format
-    # json` consumers still get clean stdout. Suppressed in --quiet mode.
+    # json` consumers still get clean stdout. Suppressed in --quiet mode
+    # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
+    # and JSON consumers expect clean stdout regardless).
     quiet = bool(ctx.obj and ctx.obj.get("quiet"))
+    json_mode = output_format.lower() == "json"
     target = model_id or model_type or model_class
-    if not quiet:
+    if not quiet and not json_mode:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
 
     from ..inspect import InspectError, ModelNotFoundError, NetworkError
@@ -204,7 +227,7 @@ def inspect(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     try:
-        if quiet:
+        if quiet or json_mode:
             result = _inspect_model_v2(
                 model_id=model_id,
                 task_override=task,
@@ -401,11 +424,15 @@ def _inspect_model_v2(
             import optimum.exporters.onnx.model_configs  # noqa: F401
             from optimum.exporters.tasks import TasksManager
 
+            # TasksManager expects normalized task names
+            from ..export.io import map_task_synonym
+            from ..loader import resolve_optimum_library
+
             onnx_config_cls = TasksManager.get_exporter_config_constructor(
                 exporter="onnx",
                 model_type=model_type,
-                task=task,
-                library_name="transformers",
+                task=map_task_synonym(task),
+                library_name=resolve_optimum_library(model_type),
             )
             if onnx_config_cls:
                 config_name = (
@@ -479,9 +506,20 @@ def _inspect_model_v2(
         task=task,
     )
 
+    # Use the top-level model_type for the user-facing result.  For multimodal
+    # models (CLIP, etc.) `loader_config.model_type` is the narrowed sub-config
+    # type (e.g. "clip_text_model"), but users expect the top-level type ("clip").
+    #
+    # Precedence:
+    #   1. model_type_override  — user explicitly passed --model-type
+    #   2. parent_hf_config     — pre-narrowing config (only when model_id was
+    #                             provided and AutoConfig succeeded in step 1)
+    #   3. model_type           — narrowed loader_config.model_type (fallback)
+    display_model_type = model_type_override or getattr(parent_hf_config, "model_type", model_type)
+
     return InspectResult(
-        model_id=model_id or model_type or model_class_override or "unknown",
-        model_type=model_type,
+        model_id=model_id or display_model_type or model_class_override or "unknown",
+        model_type=display_model_type,
         architectures=architectures,
         task=task,
         task_source=task_source,

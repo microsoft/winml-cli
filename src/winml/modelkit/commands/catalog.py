@@ -275,14 +275,14 @@ def _build_list_renderable(
         header_style="bold",
         padding=(0, 2),
         show_edge=False,
-        expand=True,
+        expand=False,
     )
-    table.add_column("Model", ratio=4, overflow="fold")
-    table.add_column("Task", ratio=2, overflow="fold")
+    table.add_column("Model", overflow="fold")
+    table.add_column("Task", overflow="fold")
     table.add_column("Size", no_wrap=True, justify="right", width=5)
-    table.add_column("Model Type", ratio=1, overflow="fold")
+    table.add_column("Model Type", overflow="fold")
     if ep_col_header is not None:
-        table.add_column(ep_col_header, ratio=2, overflow="fold")
+        table.add_column(ep_col_header, overflow="fold")
 
     for m in models:
         color = _type_color(m["model_type"])
@@ -302,6 +302,7 @@ def _build_list_renderable(
         f"[bold cyan]{len(models)}[/bold cyan] validated model(s)",
         border_style="blue",
         padding=(0, 1),
+        expand=False,
     )
     return Group(panel)
 
@@ -362,14 +363,13 @@ def _save_json(data: Any, path: Path) -> None:
 @click.command()
 @click.option(
     "--model-type",
-    "-t",
     default=None,
     metavar="TYPE",
     help="Filter by model architecture (e.g. bert, roberta, vit).",
 )
 @click.option(
     "--task",
-    "-k",
+    "-t",
     default=None,
     metavar="TASK",
     help="Filter by HuggingFace task (e.g. text-classification, image-segmentation).",

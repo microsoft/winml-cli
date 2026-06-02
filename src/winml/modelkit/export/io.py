@@ -95,7 +95,7 @@ TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
 }
 
 
-def _map_task_synonym(task: str) -> str:
+def map_task_synonym(task: str) -> str:
     """Map task name to canonical form, extending Optimum's synonym mapping.
 
     Our extensions take priority over Optimum's built-in synonym map.
@@ -208,13 +208,21 @@ def _get_onnx_config(
     """
     ensure_hf_models_registered()
 
-    normalized_task = _map_task_synonym(task)
+    normalized_task = map_task_synonym(task)
+
+    # Route model_types whose Optimum OnnxConfig is registered under another
+    # library (e.g. timm via "timm_wrapper" -> "timm") so the lookup succeeds
+    # from every call site without an explicit --library flag.
+    from ..loader import resolve_optimum_library
+
+    library_name = resolve_optimum_library(model_type, library_name)
 
     logger.debug(
-        "Getting OnnxConfig: model_type=%s, task=%s -> %s",
+        "Getting OnnxConfig: model_type=%s, task=%s -> %s (library=%s)",
         model_type,
         task,
         normalized_task,
+        library_name,
     )
 
     try:

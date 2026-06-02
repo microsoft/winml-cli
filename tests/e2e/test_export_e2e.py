@@ -219,6 +219,32 @@ class TestExportHappyPath:
         _assert_all_nodes_have(model, "winml.hierarchy.depth")
 
 
+class TestExportDinoV2:
+
+    MODEL = "facebook/dinov2-base"
+
+    def test_image_feature_extraction(self, tmp_path: Path):
+        """``-t image-feature-extraction`` must produce a valid ONNX export."""
+        onnx_path = tmp_path / "model.onnx"
+        result = _invoke(["-m", self.MODEL, "-o", str(onnx_path),
+                          "-t", "image-feature-extraction"])
+        assert result.exit_code == 0, (
+            f"export failed (exit {result.exit_code}):\n{result.output}"
+        )
+        assert onnx_path.exists(), f"ONNX model not found at {onnx_path}"
+
+        model = onnx.load(str(onnx_path))
+        # Optimum-driven OnnxConfig for dinov2/feature-extraction produces
+        # last_hidden_state. If the patcher had fallen back to nullcontext,
+        # the trace-inferred output names (last_hidden_state, pooler_output)
+        # would have been used instead.
+        assert _output_names(model) == ["last_hidden_state"], (
+            f"expected outputs ['last_hidden_state'], got {_output_names(model)} "
+            "— Optimum patcher likely fell back to nullcontext because the "
+            "task wasn't normalised before TasksManager lookup."
+        )
+
+
 # ===========================================================================
 # Required-option failures
 # ===========================================================================

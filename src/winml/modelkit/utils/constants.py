@@ -173,17 +173,18 @@ SUPPORTED_DEVICES = [
 #
 # Iteration order also feeds ``sysinfo.device._DEVICE_EP_MAP`` (and therefore
 # ``resolve_eps``): the per-device priority is **IHV-first, native-last**
-# (Nvidia -> AMD -> Qualcomm -> Intel -> Microsoft -> CPU), so the keys are
-# listed in that order rather than alphabetically.
+# (Nvidia -> AMD -> Qualcomm -> Intel -> Microsoft -> CPU -> Vitis), so the
+# keys are listed in that order rather than alphabetically.
+# VitisAI is placed last because it is not yet fully supported.
 EP_SUPPORTED_DEVICES: dict[EPName, tuple[str, ...]] = {
     "NvTensorRTRTXExecutionProvider": ("gpu",),
     "CUDAExecutionProvider": ("gpu",),
     "MIGraphXExecutionProvider": ("gpu",),
-    "VitisAIExecutionProvider": ("npu",),
     "QNNExecutionProvider": ("npu", "gpu"),
     "OpenVINOExecutionProvider": ("npu", "gpu", "cpu"),
     "DmlExecutionProvider": ("gpu",),
     "CPUExecutionProvider": ("cpu",),
+    "VitisAIExecutionProvider": ("npu",),
 }
 
 # Device string to ORT device type mapping

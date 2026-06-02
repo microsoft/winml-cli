@@ -140,7 +140,7 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Print expected dataset schema for the given --task and exit.",
 )
-@cli_utils.build_config_option
+@cli_utils.build_config_option()
 @click.pass_context
 def eval(
     ctx: click.Context,
@@ -191,8 +191,7 @@ def eval(
         if schema is None:
             supported = ", ".join(sorted(TASK_SCHEMAS))
             raise click.UsageError(
-                f"Task '{task_arg}' is not supported by `winml eval`. "
-                f"Supported tasks: {supported}."
+                f"Task '{task_arg}' is not supported by `winml eval`. Supported tasks: {supported}."
             )
         _print_schema(task_arg, schema)
         return

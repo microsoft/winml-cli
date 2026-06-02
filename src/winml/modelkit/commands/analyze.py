@@ -649,7 +649,7 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     ),
 )
 @cli_utils.verbosity_options
-@cli_utils.build_config_option
+@cli_utils.build_config_option()
 @cli_utils.output_option("Save JSON output to file")
 @click.option(
     "--information/--no-information",
@@ -770,7 +770,8 @@ def analyze(
             (candidate_ep, candidate_device)
             for candidate_ep in eps
             for candidate_device in devices
-            if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+            if candidate_ep in EP_SUPPORTED_DEVICES
+            and candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
         ]
         execution_pairs = _sort_ep_device_pairs(execution_pairs)
 

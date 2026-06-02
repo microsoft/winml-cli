@@ -4,7 +4,7 @@ requires = [ "setuptools>=61", "wheel" ]
 
 [project]
 name = "winml-cli"
-version = "0.0.4"
+version = "0.1.0"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
 keywords = [ "onnx", "winml" ]
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
 requires-python = ">=3.11,<3.12"
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
@@ -25,6 +25,11 @@ dependencies = [
   "click>=8.4",
   "colorama>=0.4.6",
   "datasets>=4.1.1",
+  # pyarrow 24.0.0 crashes (0xC0000005) on Windows when its C extension is
+  # loaded after the WinML/ORT EP DLLs (see _preload_bundled_onnxruntime_dll
+  # in winml.modelkit.__init__). Cap to <24 until upstream is fixed; re-test
+  # 24.x patches / 25.x before relaxing.
+  "pyarrow>=21,<24",
   "diffusers>=0.36",
   "evaluate>=0.4.6",
   "fastapi>=0.135.3",
@@ -102,9 +107,13 @@ scripts.winml = "winml.modelkit.cli:main"
 [dependency-groups]
 dev = [
   "jupyter>=1.1.1",
+  "pandas-stubs>=3.0.0.260204",
   "pre-commit>=4.5.1",
   "pytest-cov>=7",
   "pytest-timeout>=2.4.0",
+  "types-jsonschema>=4.26.0.20260518",
+  "types-protobuf>=7.34.1.20260518",
+  "types-tqdm>=4.67.3.20260518",
 ]
 
 [tool.setuptools.packages.find]
@@ -422,6 +431,11 @@ exclude_lines = [
 [tool.mypy]
 python_version = "3.11"
 
+# Pydantic v2 plugin: teaches mypy about Field() defaults, so models with
+# Field(None, ...) or Field(default_factory=...) aren't reported as having
+# required call-args.
+plugins = [ "pydantic.mypy" ]
+
 # === Strict Mode ===
 strict = true
 
@@ -514,6 +528,14 @@ disable_error_code = [
   "name-defined",
   "has-type",
 ]
+
+# Fully skipped: vendored/generated ONNX opset definitions
+[[tool.mypy.overrides]]
+module = [
+  "winml.modelkit.analyze.onnx_opset",
+  "winml.modelkit.analyze.onnx_opset.*",
+]
+ignore_errors = true
 
 # =============================================================================
 # PYTEST - Testing Configuration

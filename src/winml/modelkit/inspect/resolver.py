@@ -10,13 +10,16 @@ Leverages existing loader, export, and models modules - NO NEW CONFIG LOGIC.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from ..loader.task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
+    WRAPPED_LIBRARY_MODEL_TYPES,
+    _detect_task_and_class_from_config,
     _detect_task_from_config,
     _get_custom_model_class,
+    resolve_optimum_library,
 )
 from ..models import (
     HF_MODEL_CLASS_MAPPING,
@@ -45,6 +48,11 @@ if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
 
 logger = logging.getLogger(__name__)
+
+# Task-detection provenance label returned by detect_task() for wrapped-library
+# model types (e.g. timm via "timm_wrapper"). Surfaced in `inspect` output as
+# "Task <task> (via <source>)" and in the JSON `task_source` field.
+WRAPPED_LIBRARY_SOURCE = "wrapped-library"
 
 # Mapping from pipeline stage verbs to the filenames build_hf_model() produces.
 # "export" is omitted because its stage name equals its filename — the
@@ -120,6 +128,16 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
     for mt, task in HF_MODEL_CLASS_MAPPING:
         if mt == model_type_normalized:
             return task, "HF_MODEL_CLASS_MAPPING"
+
+    # Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
+    # `architectures`; reuse the loader's resolution to derive the real task
+    # instead of falling through to the HF_TASK_DEFAULTS mislabel below.
+    if model_type in WRAPPED_LIBRARY_MODEL_TYPES and not getattr(config, "architectures", None):
+        try:
+            task, _ = _detect_task_and_class_from_config(config)
+            return task, WRAPPED_LIBRARY_SOURCE
+        except Exception:
+            logger.debug("wrapped-library task detection failed for %s", model_type, exc_info=True)
 
     # Use TasksManager detection
     try:
@@ -337,13 +355,16 @@ def resolve_exporter(
         import optimum.exporters.onnx.model_configs  # noqa: F401
         from optimum.exporters.tasks import TasksManager
 
+        # TasksManager expects normalized task names
+        from ..export.io import map_task_synonym
+
         # TasksManager uses underscores (sam2_video), not hyphens (sam2-video)
         # Use original model_type for TasksManager lookup
         onnx_config_cls = TasksManager.get_exporter_config_constructor(
             exporter="onnx",
             model_type=model_type,
-            task=task,
-            library_name="transformers",
+            task=map_task_synonym(task),
+            library_name=resolve_optimum_library(model_type),
         )
         if onnx_config_cls:
             # Handle functools.partial returned by TasksManager
@@ -869,20 +890,22 @@ def resolve_processor(
     # This is fast and doesn't require downloading/instantiating processors
     # NOTE: These JSON keys (processor_class, image_processor_type, etc.) are
     # standard HuggingFace config conventions, not model-specific hardcoding.
+    has_preprocessor_config = True
     try:
-        hub_proc, hub_tok, hub_img, hub_fe = _resolve_processor_from_hub_configs(model_id)
-        if hub_proc and processor_class is None:
-            processor_class = hub_proc
+        hub_result = _resolve_processor_from_hub_configs(model_id)
+        if hub_result.processor_class and processor_class is None:
+            processor_class = hub_result.processor_class
             processor_source = "hub_config"
-        if hub_tok and tokenizer_class is None:
-            tokenizer_class = hub_tok
+        if hub_result.tokenizer_class and tokenizer_class is None:
+            tokenizer_class = hub_result.tokenizer_class
             tokenizer_source = "hub_config"
-        if hub_img and image_processor_class is None:
-            image_processor_class = hub_img
+        if hub_result.image_processor_class and image_processor_class is None:
+            image_processor_class = hub_result.image_processor_class
             image_processor_source = "hub_config"
-        if hub_fe and feature_extractor_class is None:
-            feature_extractor_class = hub_fe
+        if hub_result.feature_extractor_class and feature_extractor_class is None:
+            feature_extractor_class = hub_result.feature_extractor_class
             feature_extractor_source = "hub_config"
+        has_preprocessor_config = hub_result.has_preprocessor_config
     except Exception as e:
         logger.debug("Failed to resolve processors from hub configs: %s", e)
 
@@ -890,10 +913,14 @@ def resolve_processor(
     # Skip entirely when Strategies 0 + 1 already populated every field —
     # each Auto* instantiation does its own HF Hub I/O plus class init
     # (AutoProcessor and AutoFeatureExtractor are several seconds each).
+    #
+    # When ``preprocessor_config.json`` is missing on the hub, the model
+    # has neither an image processor nor a feature extractor; skip those
+    # two Auto* round-trips (they would each spend ~1s confirming a 404).
     need_processor = processor_class is None
     need_tokenizer = tokenizer_class is None
-    need_image_processor = image_processor_class is None
-    need_feature_extractor = feature_extractor_class is None
+    need_image_processor = image_processor_class is None and has_preprocessor_config
+    need_feature_extractor = feature_extractor_class is None and has_preprocessor_config
 
     if need_processor or need_tokenizer or need_image_processor or need_feature_extractor:
         try:
@@ -938,9 +965,21 @@ def resolve_processor(
     )
 
 
-def _resolve_processor_from_hub_configs(
-    model_id: str,
-) -> tuple[str | None, str | None, str | None, str | None]:
+class _HubConfigResult(NamedTuple):
+    """Result of ``_resolve_processor_from_hub_configs``.
+
+    A NamedTuple rather than a plain tuple so the trailing boolean cannot be
+    silently swapped with the four ``str | None`` fields at the call site.
+    """
+
+    processor_class: str | None
+    tokenizer_class: str | None
+    image_processor_class: str | None
+    feature_extractor_class: str | None
+    has_preprocessor_config: bool
+
+
+def _resolve_processor_from_hub_configs(model_id: str) -> _HubConfigResult:
     """Resolve processor classes by fetching config files from HuggingFace Hub.
 
     This approach is fast because it only downloads small JSON config files,
@@ -950,7 +989,12 @@ def _resolve_processor_from_hub_configs(
         model_id: HuggingFace model identifier
 
     Returns:
-        Tuple of (processor_class, tokenizer_class, image_processor_class, feature_extractor_class)
+        A ``_HubConfigResult`` whose ``has_preprocessor_config`` reports
+        whether ``preprocessor_config.json`` actually exists on the hub —
+        the authoritative signal that the model has no image processor or
+        feature extractor, so the caller can skip the corresponding
+        ``AutoImageProcessor`` / ``AutoFeatureExtractor`` round-trips
+        (which would each spend ~1s confirming a 404 on text-only models).
     """
     import json
     from pathlib import Path
@@ -962,6 +1006,7 @@ def _resolve_processor_from_hub_configs(
     tokenizer_class: str | None = None
     image_processor_class: str | None = None
     feature_extractor_class: str | None = None
+    has_preprocessor_config = False
 
     # Try to download and parse preprocessor_config.json
     # This file contains image_processor_type or processor_class
@@ -970,6 +1015,11 @@ def _resolve_processor_from_hub_configs(
             repo_id=model_id,
             filename="preprocessor_config.json",
         )
+        # Set the flag as soon as the file exists on the hub, *before* parsing.
+        # A corrupt JSON is still proof that the model ships preprocessor
+        # config — fall back to Auto* lookups rather than declaring the model
+        # text-only and silently dropping its image/feature processor.
+        has_preprocessor_config = True
         with Path(preprocessor_config_path).open(encoding="utf-8") as f:
             preprocessor_config = json.load(f)
 
@@ -1009,7 +1059,34 @@ def _resolve_processor_from_hub_configs(
     except json.JSONDecodeError as e:
         logger.debug("Failed to parse tokenizer_config.json for %s: %s", model_id, e)
 
-    return processor_class, tokenizer_class, image_processor_class, feature_extractor_class
+    return _HubConfigResult(
+        processor_class=processor_class,
+        tokenizer_class=tokenizer_class,
+        image_processor_class=image_processor_class,
+        feature_extractor_class=feature_extractor_class,
+        has_preprocessor_config=has_preprocessor_config,
+    )
+
+
+def _is_tokenizer_class_name(name: str) -> bool:
+    """Heuristic: does this transformers class name look like a tokenizer?
+
+    Tokenizer classes follow the ``*Tokenizer`` / ``*TokenizerFast`` naming
+    convention (e.g. ``RobertaTokenizer``, ``BertTokenizerFast``). Used to
+    detect when ``AutoProcessor.from_pretrained`` returned a leaf tokenizer
+    rather than a multimodal ``ProcessorMixin`` wrapper.
+    """
+    return name.endswith(("Tokenizer", "TokenizerFast"))
+
+
+def _is_image_processor_class_name(name: str) -> bool:
+    """Heuristic: does this transformers class name look like an image processor?"""
+    return name.endswith(("ImageProcessor", "ImageProcessorFast"))
+
+
+def _is_feature_extractor_class_name(name: str) -> bool:
+    """Heuristic: does this transformers class name look like a feature extractor?"""
+    return name.endswith("FeatureExtractor")
 
 
 def _resolve_processor_from_auto_classes(
@@ -1058,28 +1135,31 @@ def _resolve_processor_from_auto_classes(
             processor = AutoProcessor.from_pretrained(model_id, use_fast=True)
             processor_class = type(processor).__name__
 
-            # AutoProcessor may wrap tokenizer and image_processor
-            if (
-                try_tokenizer
-                and hasattr(processor, "tokenizer")
-                and processor.tokenizer is not None
-            ):
-                tokenizer_class = type(processor.tokenizer).__name__
+            # AutoProcessor may wrap tokenizer / image_processor / feature_extractor
+            # as a multimodal `ProcessorMixin`.  For single-modality models it
+            # often returns the leaf class directly (e.g. RoBERTa →
+            # `RobertaTokenizerFast`), which has none of those attributes.
+            # Pattern-match the returned class name so the standalone Auto*
+            # calls below can be skipped — otherwise we pay for a second,
+            # redundant load (~2s for AutoTokenizer on warm cache).
+            wrapped_tokenizer = getattr(processor, "tokenizer", None)
+            wrapped_image_processor = getattr(processor, "image_processor", None)
+            wrapped_feature_extractor = getattr(processor, "feature_extractor", None)
 
-            if (
-                try_image_processor
-                and hasattr(processor, "image_processor")
-                and processor.image_processor is not None
-            ):
-                image_processor_class = type(processor.image_processor).__name__
+            if try_tokenizer and wrapped_tokenizer is not None:
+                tokenizer_class = type(wrapped_tokenizer).__name__
+            elif try_tokenizer and _is_tokenizer_class_name(processor_class):
+                tokenizer_class = processor_class
 
-            # Some older models use feature_extractor instead of image_processor
-            if (
-                try_feature_extractor
-                and hasattr(processor, "feature_extractor")
-                and processor.feature_extractor is not None
-            ):
-                feature_extractor_class = type(processor.feature_extractor).__name__
+            if try_image_processor and wrapped_image_processor is not None:
+                image_processor_class = type(wrapped_image_processor).__name__
+            elif try_image_processor and _is_image_processor_class_name(processor_class):
+                image_processor_class = processor_class
+
+            if try_feature_extractor and wrapped_feature_extractor is not None:
+                feature_extractor_class = type(wrapped_feature_extractor).__name__
+            elif try_feature_extractor and _is_feature_extractor_class_name(processor_class):
+                feature_extractor_class = processor_class
 
         except Exception as e:
             logger.debug("AutoProcessor failed for %s: %s", model_id, e)
