@@ -286,3 +286,31 @@ class TestInspectDETR:
         assert data["model_id"] == self.MODEL
         assert data["model_type"] == "detr"
         assert data["task"] == "object-detection"
+
+
+@pytest.mark.network
+class TestInspectDinoV2:
+
+    MODEL = "facebook/dinov2-base"
+
+    def test_image_feature_extraction_override(self):
+        """HF synonym 'image-feature-extraction' must resolve via TasksManager."""
+        data = _run_network(self.MODEL, task="image-feature-extraction")
+        _assert_common_structure(data, self.MODEL, "image-feature-extraction")
+        assert data["model_type"] == "dinov2"
+        exporter = data["exporter"]
+        assert exporter["onnx_config_class"] == "Dinov2OnnxConfig", (
+            f"expected Dinov2OnnxConfig, got {exporter['onnx_config_class']!r} "
+            "— task likely wasn't normalised before TasksManager lookup."
+        )
+        assert exporter["onnx_config_source"] == "TasksManager"
+        assert exporter["support_level"] != "unsupported"
+
+    def test_feature_extraction_override(self):
+        """'feature-extraction' (the Optimum task) must also resolve (control)."""
+        data = _run_network(self.MODEL, task="feature-extraction")
+        _assert_common_structure(data, self.MODEL, "feature-extraction")
+        assert data["model_type"] == "dinov2"
+        exporter = data["exporter"]
+        assert exporter["onnx_config_class"] == "Dinov2OnnxConfig"
+        assert exporter["onnx_config_source"] == "TasksManager"
