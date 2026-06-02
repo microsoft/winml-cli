@@ -355,12 +355,15 @@ def resolve_exporter(
         import optimum.exporters.onnx.model_configs  # noqa: F401
         from optimum.exporters.tasks import TasksManager
 
+        # TasksManager expects normalized task names
+        from ..export.io import map_task_synonym
+
         # TasksManager uses underscores (sam2_video), not hyphens (sam2-video)
         # Use original model_type for TasksManager lookup
         onnx_config_cls = TasksManager.get_exporter_config_constructor(
             exporter="onnx",
             model_type=model_type,
-            task=task,
+            task=map_task_synonym(task),
             library_name=resolve_optimum_library(model_type),
         )
         if onnx_config_cls:
