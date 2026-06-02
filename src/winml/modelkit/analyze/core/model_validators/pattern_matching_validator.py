@@ -151,7 +151,7 @@ class PatternMatchingValidator(ModelValidator):
         return None, None
 
     def _create_information(
-        self, error_config: PatternErrorConfig, actual_error_msg: str
+        self, error_config: PatternErrorConfig, actual_error_msg: str | None
     ) -> Information:
         """Create Information object with pattern matching error details.
 

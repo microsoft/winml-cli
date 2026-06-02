@@ -289,9 +289,6 @@ def _read_and_sanitize_parquet_table(parquet_path: Path) -> pd.DataFrame | None:
 
     try:
         table_df = pd.read_parquet(parquet_path)
-        if not isinstance(table_df, pd.DataFrame):
-            return None
-
         table_df = table_df.replace({np.nan: None})
         return _sanitize_df(table_df)
     except Exception as e:
@@ -625,7 +622,7 @@ def get_query_conditions_for_node(
         runtime_checker_op = get_runtime_checker_op(node.op_type, domain=domain.value)(schema)
     except KeyError:
         raise OpUnsupportedError(f"Node {node.op_type} is not supported") from None
-    type_vars = {}
+    type_vars: dict[str, Any] = {}
 
     # fill missing attrs with default values; set None for optional attrs without defaults
     for k, v in schema.attributes.items():
@@ -680,7 +677,7 @@ def get_query_conditions_for_node(
         is_constant: bool,
         shape: tuple[Any, ...] | list[Any] | None = None,
         value: Any | None = None,
-    ):
+    ) -> None:
         dyn_axes = _compute_dynamic_axes(shape, is_constant)
         if is_variadic:
             cond[f"{input_name}_is_constant"] = (
@@ -721,7 +718,7 @@ def get_query_conditions_for_node(
             try:
                 np_dtype = onnx.helper.tensor_dtype_to_np_dtype(tensor.data_type)
             except Exception:
-                np_dtype = np.float32
+                np_dtype = np.dtype(np.float32)
 
             shape = tuple(int(d) for d in tensor.dims)
             logger.warning(
@@ -829,9 +826,10 @@ def get_query_conditions_for_node(
                 type_vars[type_annotation] = dtype
         else:
             vi = valueinfo.get(inp_name)
-            shape, dtype = (None, None)
+            shape_seq: list | tuple[int, ...] | None = None
+            dtype = None
             if vi is not None:
-                shape, dtype = shape_and_dtype_from_valueinfo(vi)
+                shape_seq, dtype = shape_and_dtype_from_valueinfo(vi)
             else:
                 # Input is provided but valueinfo not found
                 # This commonly happens in quantized models where DequantizeLinear outputs
@@ -854,7 +852,7 @@ def get_query_conditions_for_node(
                 type_vars[type_annotation] = dtype
 
             is_constant = False  # QDQ doesn't care about constant status
-            update_conditions_(conditions, input_name, is_variadic, is_constant, shape, None)
+            update_conditions_(conditions, input_name, is_variadic, is_constant, shape_seq, None)
             conditions[f"{input_name}_is_none"] = False
 
     conditions["n_outputs"] = len(node.output)
@@ -873,9 +871,9 @@ def get_query_conditions_for_node(
             f"derive_properties: {e}"
         ) from e
 
-    for k, v in runtime_checker_op.type_var_dtypes_to_test.items():
-        if k not in type_vars:
-            type_vars[k] = v[0].annotation  # use first dtype as default
+    for tvar_name, dtypes in runtime_checker_op.type_var_dtypes_to_test.items():
+        if tvar_name not in type_vars:
+            type_vars[tvar_name] = dtypes[0].annotation  # use first dtype as default
     conditions.update(type_vars)
 
     qdq_conditions = _get_qdq_query_conditions_for_node(node, schema, input_to_dq, output_to_q)
@@ -950,7 +948,11 @@ def get_query_conditions_for_pattern(
         conditions[f"attr_{attr_name}"] = attr_value
         conditions[f"attr_{attr_name}_is_none"] = attr_value is None
 
-    conditions["n_outputs"] = len(pattern_match.skeleton_match_result.pattern.get_schema().outputs)
+    pattern_obj = pattern_match.skeleton_match_result.pattern
+    assert hasattr(pattern_obj, "get_schema"), (
+        f"Pattern {type(pattern_obj).__name__} does not provide get_schema()"
+    )
+    conditions["n_outputs"] = len(pattern_obj.get_schema().outputs)
 
     # Derive additional properties via pattern input generator
     if gen is not None:
@@ -1493,6 +1495,7 @@ class RuntimeCheckerQuery:
 
             np_dtype = SupportedONNXType.from_annotation(dtype_str).np_type
 
+            concrete_shape: tuple[int, ...]
             if shape is None:
                 concrete_shape = (default_dim_size,)
             else:
@@ -1536,7 +1539,7 @@ class RuntimeCheckerQuery:
                 try:
                     np_dtype = onnx.helper.tensor_dtype_to_np_dtype(init.data_type)
                 except Exception:
-                    np_dtype = np.float32
+                    np_dtype = np.dtype(np.float32)
 
                 shape = tuple(int(d) for d in init.dims)
                 input_feed[inp_name] = np.zeros(shape, dtype=np_dtype)
@@ -1552,7 +1555,7 @@ class RuntimeCheckerQuery:
                     f"not found in valueinfo"
                 )
 
-            shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
+            vi_shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
             if dtype_str is None:
                 raise ValueError(
                     f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
@@ -1562,13 +1565,14 @@ class RuntimeCheckerQuery:
             # Convert dtype string to numpy dtype
             np_dtype = SupportedONNXType.from_annotation(dtype_str).np_type
 
-            if shape is None:
+            concrete_shape: tuple[int, ...]
+            if vi_shape is None:
                 # No shape info at all - use a simple 1D array
                 concrete_shape = (default_dim_size,)
             else:
                 # Replace dynamic dimensions (strings or None) with default size
                 concrete_shape = tuple(
-                    d if isinstance(d, int) and d > 0 else default_dim_size for d in shape
+                    d if isinstance(d, int) and d > 0 else default_dim_size for d in vi_shape
                 )
 
             input_feed[inp_name] = np.zeros(concrete_shape, dtype=np_dtype)
@@ -2409,7 +2413,7 @@ class RuntimeCheckerQuery:
         # Phase 1: Extract conditions to determine if node is QDQ
         is_qdq = False
 
-        def get_pattern_id(is_qdq):
+        def get_pattern_id(is_qdq: bool) -> str:
             return (
                 pattern_match.pattern.pattern_id + QDQ_SUFFIX
                 if is_qdq
