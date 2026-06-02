@@ -312,7 +312,7 @@ def _validate_task_supported_for_model(
     # [2] HF-pipeline-only task names that Optimum's TasksManager does not
     #     know but the rest of the CLI accepts (e.g. ``next-sentence-prediction``
     #     handled via HF_TASK_DEFAULTS, ``mask-generation`` preserved for SAM2).
-    #     These are routed downstream by export/io.py::_map_task_synonym, so
+    #     These are routed downstream by export/io.py::map_task_synonym, so
     #     rejecting here would break invocations that ``winml config`` and
     #     ``winml export`` accept.
     if task in TASK_SYNONYM_EXTENSIONS:
