@@ -39,9 +39,7 @@ class OpTracer(ABC):
     @abstractmethod
     def run(self, iterations: int = 5, warmup: int = 2) -> OpTraceResult:
         """Run operator-level tracing and return structured results."""
-        ...
 
     @abstractmethod
     def is_available(self) -> bool:
         """Check if this tracer's runtime dependencies are available."""
-        ...

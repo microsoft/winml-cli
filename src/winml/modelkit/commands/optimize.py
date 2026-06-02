@@ -187,10 +187,9 @@ def capability_options(func: F) -> F:
     help="Enable verbose output",
 )
 @capability_options
-@click.pass_context
+@click.pass_context  # type: ignore[arg-type]  # capability_options widens the signature; click stubs want positional-only ctx but we keep it keyword-callable for back-compat
 def optimize(
     ctx: click.Context,
-    /,
     list_capabilities: bool,
     list_rewrites: bool,
     model: Path | None,

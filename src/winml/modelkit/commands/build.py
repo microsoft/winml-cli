@@ -1027,6 +1027,7 @@ def _run_optimize_stage(
         _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
+            nonlocal _current_ep
             _current_ep = ep_name
             _ep_counts[ep_name] = {}
             total = sum(operator_counts.values())
