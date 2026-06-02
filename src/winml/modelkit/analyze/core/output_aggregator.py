@@ -15,8 +15,10 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
+    from ...utils.constants import EPName
     from ..models.information import Information
     from ..models.runtime_checks import PatternRuntime
+
 
 from ..models.output import AnalysisOutput, EPSupport, ModelStats
 from ..models.support_level import SupportLevel
@@ -47,8 +49,8 @@ class OutputAggregator:
     def aggregate(
         self,
         metadata: ModelStats,
-        check_results: dict[str, list[PatternRuntime]],  # EP name -> check results
-        information_list: dict[str, list[Information]],  # EP name -> information
+        check_results: dict[EPName, list[PatternRuntime]],  # EP name -> check results
+        information_list: dict[EPName, list[Information]],  # EP name -> information
         device: str | None = None,  # Device type
     ) -> AnalysisOutput:
         """Aggregate all analysis results.
@@ -143,7 +145,7 @@ class OutputAggregator:
         self,
         check_results: list[PatternRuntime],
         information_list: list[Information],
-        ep_type: str,
+        ep_type: EPName,
         device_type: str | None = None,
         ep_version: str | None = None,
         driver_version: str | None = None,

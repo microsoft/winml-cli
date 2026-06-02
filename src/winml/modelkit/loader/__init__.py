@@ -32,6 +32,7 @@ from .task import (
     get_supported_tasks,
     get_task_abbrev,
     normalize_task,
+    resolve_optimum_library,
     resolve_task_and_model_class,
 )
 
@@ -46,6 +47,7 @@ __all__ = [
     "normalize_task",
     "resolve_hf_model_class",
     "resolve_loader_config",
+    "resolve_optimum_library",
     "resolve_task_and_model_class",
 ]
 

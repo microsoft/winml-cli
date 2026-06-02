@@ -16,14 +16,28 @@ Note: Previously included always_true and check_attribute_in, but these were
 removed in final design optimization (see ADR-002).
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 # Import from same op_checker package
 from .shape_checker import ShapeConstraintChecker
 from .value_checker import ValueConstraintChecker
 
 
-def check_input_rank(node, input_index: int, rank: int, valueinfo=None, **kwargs) -> bool:
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import onnx
+
+
+def check_input_rank(
+    node: onnx.NodeProto,
+    input_index: int,
+    rank: int,
+    valueinfo: dict[str, onnx.ValueInfoProto] | None = None,
+    **kwargs: Any,
+) -> bool:
     """Check if input at specified index has expected rank.
 
     Used to distinguish between 2D and 3D operator variants:
@@ -90,7 +104,12 @@ def check_input_rank(node, input_index: int, rank: int, valueinfo=None, **kwargs
     return success
 
 
-def check_attribute(node, attribute_name: str, expected_value: Any | list[Any], **kwargs) -> bool:
+def check_attribute(
+    node: onnx.NodeProto,
+    attribute_name: str,
+    expected_value: Any | list[Any],
+    **kwargs: Any,
+) -> bool:
     """Check if attribute matches expected value(s).
 
     Supports both single value comparison and multi-value matching.
@@ -139,6 +158,7 @@ def check_attribute(node, attribute_name: str, expected_value: Any | list[Any], 
     for attr in node.attribute:
         if attr.name == attribute_name:
             # Extract attribute value based on type
+            value: Any = None
             if hasattr(attr, "s"):  # String
                 value = attr.s.decode("utf-8") if isinstance(attr.s, bytes) else attr.s
             elif hasattr(attr, "i"):  # Integer
@@ -161,13 +181,19 @@ def check_attribute(node, attribute_name: str, expected_value: Any | list[Any], 
 
 # Checker function registry for operator mapping (only conditional mappings)
 # Note: Direct mappings don't need checkers - they map 1:1 without conditions
-CHECKER_REGISTRY = {
+# Callable[..., bool] because the two functions have different signatures but
+# are invoked uniformly via **kwargs at the call site.
+CHECKER_REGISTRY: dict[str, Callable[..., bool]] = {
     "check_input_rank": check_input_rank,
     "check_attribute": check_attribute,
 }
 
 
-def get_qnn_op_for_onnx_node(onnx_node, mapping_config, valueinfo=None):
+def get_qnn_op_for_onnx_node(
+    onnx_node: onnx.NodeProto,
+    mapping_config: dict[str, Any],
+    valueinfo: dict[str, onnx.ValueInfoProto] | None = None,
+) -> tuple[str | None, str]:
     """Determine QNN operator for an ONNX node using conditional checker framework.
 
     This is the main entry point for operator mapping resolution. It handles:

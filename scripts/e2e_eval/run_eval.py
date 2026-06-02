@@ -81,8 +81,31 @@ TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.js
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION_NPU = "w8a16"
 
+# EPs whose eval track keeps the model unquantized (the "fp" variant)
+# rather than running winml's QDQ pass on top.  This is an eval-setup
+# choice -- e.g. VitisAI / AMD Ryzen AI is benchmarked on the fp32/fp16
+# model -- not a claim about the EP's internal pipeline.  For these EPs
+# the harness passes ``--no-quant`` to both ``winml config`` and
+# ``winml build`` (see :func:`_run_build` and :func:`run_model`).
+#
+# Entries are canonical ``EPName`` values (the ``*ExecutionProvider`` form);
+# user-facing aliases like ``vitisai`` are normalised via
+# ``normalize_ep_name`` in :func:`_should_skip_winml_quant` so each EP only
+# needs to be listed once.
+_EPS_SKIP_WINML_QUANT = frozenset({"VitisAIExecutionProvider"})
 
-def _resolve_precision(device: str, explicit: str | None) -> str | None:
+
+def _should_skip_winml_quant(ep: str | None) -> bool:
+    """True if the eval harness should run this EP on the unquantized model."""
+    # Lazy import: keeps ``scripts/e2e_eval`` cheap to load (winml.modelkit
+    # transitively imports onnxruntime) and matches the existing in-function
+    # import pattern used elsewhere in this script.
+    from winml.modelkit.utils.constants import normalize_ep_name
+
+    return normalize_ep_name(ep) in _EPS_SKIP_WINML_QUANT
+
+
+def _resolve_precision(device: str, explicit: str | None, ep: str | None = None) -> str | None:
     """Return the precision to pass to winml config/perf, or None to omit the flag.
 
     w8a16 is only applied by default on NPU.  For CPU/GPU the flag is omitted
@@ -91,8 +114,22 @@ def _resolve_precision(device: str, explicit: str | None) -> str | None:
     (NHWC layout transformer inserts Conv nodes that QNN GPU's GetCapability
     does not claim).
 
-    An explicit per-model precision always takes precedence.
+    For EPs in :data:`_EPS_SKIP_WINML_QUANT` (e.g. VitisAI) the flag is forced
+    off regardless of ``explicit``: the harness pairs these EPs with
+    ``--no-quant`` at config/build time, so a non-empty ``--precision`` would
+    produce a config that says "quantize to X" while the build says "skip
+    quantization" -- a contradiction.  An explicit value is dropped with a
+    one-line warning so the override is visible in the log.
+
+    Otherwise an explicit per-model precision always takes precedence.
     """
+    if _should_skip_winml_quant(ep):
+        if explicit:
+            safe_print(
+                f"  [precision] Ignoring explicit precision={explicit!r} for EP {ep!r}: "
+                "this EP is run on the unquantized variant (--no-quant)."
+            )
+        return None
     if explicit:
         return explicit
     return _DEFAULT_PRECISION_NPU if device == "npu" else None
@@ -406,6 +443,13 @@ def _run_build(
         config_args += ["--task", entry.task]
     if ep:
         config_args += ["--ep", ep]
+    # EPs in _EPS_SKIP_WINML_QUANT are evaluated on the unquantized variant.
+    # Pass --no-quant to winml config so the generated build_config.json is
+    # written with quant=None up-front; otherwise on NPU the config command
+    # would still apply its default precision (w8a16) and we'd be relying on
+    # --no-quant at build time alone to override it.
+    if _should_skip_winml_quant(ep):
+        config_args += ["--no-quant"]
 
     config_proc = _run_subprocess(config_args, timeout)
     if config_proc["exit_code"] != 0:
@@ -446,6 +490,11 @@ def _run_build(
         ]
         if ep:
             build_args += ["--ep", ep]
+        # Mirror the --no-quant passed to winml config above so the build
+        # stage also skips QDQ regardless of what the config carries (defence
+        # in depth; see _EPS_SKIP_WINML_QUANT for the rationale).
+        if _should_skip_winml_quant(ep):
+            build_args += ["--no-quant"]
 
         build_proc = _run_subprocess(build_args, timeout)
         last_proc = build_proc
@@ -548,8 +597,10 @@ def run_model(
     code, concatenated stdout/stderr, summed elapsed).
     """
     if not onnx_paths:
-        # No pre-built paths: fall back to HF model ID (single model only)
-        precision = _resolve_precision(device, None)
+        # No pre-built paths: fall back to HF model ID (single model only).
+        # winml perf builds internally; the same --no-quant gating used by
+        # _run_build must apply here so the EP sees the unquantized variant.
+        precision = _resolve_precision(device, None, ep=ep)
         args = [
             *WINML_CLI,
             "perf",
@@ -564,6 +615,8 @@ def run_model(
             args += ["--task", entry.task]
         if ep:
             args += ["--ep", ep]
+        if _should_skip_winml_quant(ep):
+            args += ["--no-quant"]
         args += ["--iterations", "10", "--warmup", "2"]
         args += entry.perf_args
 
@@ -1340,7 +1393,7 @@ def main() -> None:
             build_result = _run_build(
                 entry,
                 args.device,
-                _resolve_precision(args.device, entry.precision),
+                _resolve_precision(args.device, entry.precision, ep=args.ep),
                 args.timeout,
                 model_dir,
                 ep=args.ep,

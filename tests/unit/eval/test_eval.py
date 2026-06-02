@@ -99,6 +99,32 @@ class TestResolveTask:
         ):
             assert _resolve_task(config) == "image-classification"
 
+    def test_feature_extraction_mapped_to_hf_image_feature_extraction_for_vision_model(self):
+        """Vision FE model with --task feature-extraction is mapped to the HF
+        pipeline task image-feature-extraction so the evaluator registry
+        lookup succeeds."""
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        fake_hf_config = MagicMock()
+        fake_hf_config.model_type = "dinov2"
+        fake_onnx_config = MagicMock()
+        fake_onnx_config.inputs = {"pixel_values": object()}
+
+        config = WinMLEvaluationConfig(
+            model_id="facebook/dinov2-base", task="feature-extraction"
+        )
+        with (
+            patch(
+                "transformers.AutoConfig.from_pretrained",
+                return_value=fake_hf_config,
+            ),
+            patch(
+                "winml.modelkit.export.io._get_onnx_config",
+                return_value=fake_onnx_config,
+            ),
+        ):
+            assert _resolve_task(config) == "image-feature-extraction"
+
 
 class TestGetEvaluatorClass:
     """Tests for get_evaluator_class registry lookup."""

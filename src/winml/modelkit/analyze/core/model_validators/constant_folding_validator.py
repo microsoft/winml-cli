@@ -66,7 +66,7 @@ class ConstantFoldingValidator(ModelValidator):
         Returns:
             List of dicts with node info: {name, op_type}
         """
-        constant_nodes = []
+        constant_nodes: list[dict] = []
 
         for runtime_result in self.op_runtime_results:
             # Check if this result has the ALL_INPUTS_CONSTANT tag

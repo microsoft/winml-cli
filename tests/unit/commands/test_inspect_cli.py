@@ -111,6 +111,43 @@ class TestInspectCliInterface:
         result = runner.invoke(inspect, ["-m", "test", "-f", "xml"], obj={})
         assert result.exit_code != 0
 
+    def test_invalid_task_rejected_at_click_time(self, runner: CliRunner) -> None:
+        """`--task bogus-task` must fail with a clean error before any heavy work.
+
+        Patches _inspect_model_v2 to assert validation kicks in *before* the API
+        is reached — fail-fast on bad input.
+        """
+        from winml.modelkit.commands.inspect import inspect
+
+        with patch(_INSPECT_MODEL) as mock_api:
+            result = runner.invoke(
+                inspect, ["-m", "test", "--task", "bogus-task"], obj={}
+            )
+            assert result.exit_code == 2, f"Expected exit 2, got {result.exit_code}"
+            mock_api.assert_not_called()
+            # User-facing error must name the bad value and point to --list-tasks,
+            # and must NOT leak internal optimum jargon (see issue #546).
+            assert "bogus-task" in result.output
+            assert "--list-tasks" in result.output
+            assert "TasksManager" not in result.output
+            assert "optimum" not in result.output.lower()
+
+    def test_valid_task_accepted(
+        self,
+        runner: CliRunner,
+        mock_inspect_result: MagicMock,
+    ) -> None:
+        from winml.modelkit.commands.inspect import inspect
+
+        with (
+            patch(_INSPECT_MODEL, return_value=mock_inspect_result),
+            patch(_OUTPUT_TABLE),
+        ):
+            result = runner.invoke(
+                inspect, ["-m", "test", "--task", "image-classification"], obj={}
+            )
+            assert result.exit_code == 0, f"Failed: {result.output}"
+
 
 # =============================================================================
 # OUTPUT FORMAT TESTS
