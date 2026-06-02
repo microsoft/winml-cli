@@ -186,6 +186,16 @@ class WinMLEPRegistry:
             for provider in catalog.find_all_providers():
                 try:
                     _ensure_provider_ready(provider)
+                except OSError as e:
+                    # windowsml maps native HRESULT failures to OSError; surface
+                    # winerror so the HRESULT is grep-able in logs.
+                    logger.info(
+                        "Failed to ensure EP %s is ready: %s (winerror=%s)",
+                        provider.name,
+                        e,
+                        getattr(e, "winerror", None),
+                    )
+                    continue
                 except Exception as e:
                     logger.info("Failed to ensure EP %s is ready: %s", provider.name, e)
                     continue
