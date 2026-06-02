@@ -1,4 +1,0 @@
-WARNING: trust_remote_code is enabled - custom Python from the model repository
-will be downloaded and executed. Proceed only if you trust the publisher.
-Error: Dataset script failed (exit 1): download.py", line 593, in xet_get
-ValueError: To use optimized download using Xet storage, you need to install the hf_xet package. Try `pip install "huggingface_hub[hf_xet]"` or `pip install hf_xet`.

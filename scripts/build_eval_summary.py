@@ -1,7 +1,7 @@
 """Build examples/eval_summary.md.
 
-Rows: (model, task, precision) for the 42 eval-supported pairs (read from
-examples/summary_2.md). Precisions = fp16, w8a16, w8a8.
+Rows: (model, task, precision) for the canonical 57 pairs (read from
+examples/summary_builtin_model.md). Precisions = fp16, w8a16, w8a8.
 
 Columns: 9 EPs. Cell content:
   - PASS  : ✓ with link to *_eval_result.json
@@ -17,9 +17,10 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+
 REPO = Path(__file__).resolve().parents[1]
 EX = REPO / "examples"
-SUMMARY_2 = EX / "summary_2.md"
+SUMMARY_2 = EX / "summary_builtin_model.md"
 OUT = EX / "eval_summary.md"
 
 # 9 EP columns (label, ep_folder, hardware)
@@ -39,7 +40,7 @@ PRECISIONS = ["fp16", "w8a16", "w8a8"]
 
 
 def load_pairs() -> list[tuple[str, str]]:
-    """Read the first (Model, Task) table in summary_2.md (the 42-pair list)."""
+    """Read the first (Model, Task) table in summary_builtin_model.md (the 57-pair list)."""
     pairs: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     in_table = False
@@ -130,7 +131,7 @@ def classify_error(text: str) -> str:
         return "Missing Python module"
     if "huggingface_hub" in t_full and ("404" in t_full or "not found" in t_full or "repository not found" in t_full):
         return "HF model not found"
-    if "connection" in t_full or "timed out" in t_full and "connection" in t_full:
+    if "connection" in t_full or ("timed out" in t_full and "connection" in t_full):
         return "Network/connection error"
     if "dataset" in t_full and ("not found" in t_full or "download" in t_full or "load_dataset" in t_full):
         return "Dataset/download error"
@@ -166,7 +167,7 @@ def classify_error(text: str) -> str:
 
 
 def build_failure_summary(pairs: list[tuple[str, str]]) -> str:
-    """Per-EP top failure categories from the .error.txt files within the 42 pairs."""
+    """Per-EP top failure categories from the .error.txt files within the target pairs."""
     by_ep: dict[str, Counter] = defaultdict(Counter)
     examples_by_cat: dict[tuple[str, str], list[Path]] = defaultdict(list)
     timeouts_by_ep: dict[str, int] = defaultdict(int)
@@ -206,7 +207,7 @@ def build_failure_summary(pairs: list[tuple[str, str]]) -> str:
     for label, _, _ in EPS:
         counts = by_ep.get(label)
         if not counts:
-            lines += [f"### {label}", "", "_No eval failures recorded for the 42 pairs._", ""]
+            lines += [f"### {label}", "", "_No eval failures recorded for the target pairs._", ""]
             continue
         total = sum(counts.values())
         lines += [f"### {label}", "", f"Total failures: **{total}**", "",
@@ -224,12 +225,12 @@ def build_failure_summary(pairs: list[tuple[str, str]]) -> str:
 
 def main() -> int:
     pairs = load_pairs()
-    assert len(pairs) == 42, f"Expected 42 pairs, got {len(pairs)}"
+    assert len(pairs) == 57, f"Expected 57 pairs, got {len(pairs)}"
 
     header = ["# Eval Result Summary",
               "",
-              ("Rows = (model, task, precision) for the 42 eval-supported pairs "
-               "in [summary_2.md](summary_2.md). Columns = 9 EPs."),
+              ("Rows = (model, task, precision) for the canonical 57 pairs "
+               "in [summary_builtin_model.md](summary_builtin_model.md). Columns = 9 EPs."),
               "",
               ("Cells: ✓ = eval pass (links to *_eval_result.json), "
                "✗ = eval failure (links to *_eval_result.error.txt), "

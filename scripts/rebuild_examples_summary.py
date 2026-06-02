@@ -1,21 +1,16 @@
-"""Rebuild examples/summary.md from real config/result files (no fabrication).
+#!/usr/bin/env python3
+"""Rebuild examples/summary.md from real config/result files (eval-only).
 
-Counts per row (matching scripts/generate_example_report.py semantics):
-  - Models       : distinct model slugs that have at least one config
-  - Configs      : config files in the row's bucket
-  - Perf Pass    : sibling *_perf_result.json existence
-  - Eval Pass    : sibling *_eval_result.json existence
+Counts per row:
+- Models       : distinct model slugs that have at least one config
+- Configs      : config files in the row's bucket
+- Eval Pass    : sibling *_eval_result.json exists
+- Eval Fail    : sibling *_eval_result.error.txt exists
+- Eval Timeout : sibling *_eval_result.timeout exists
 
 Buckets:
-  - For NPU folders, rows are split by precision (fp16 / w8a16 / w8a8).
-  - For CPU/GPU folders, single row.
-
-Also emits a top-level "Builtin Models" section listing (model_id, task) tuples
-that:
-  1. Have at least one config in every one of the 9 (ep, hardware) buckets,
-  2. Every existing config (across all 9 buckets, any precision) has a
-     sibling *_perf_result.json,
-  3. At least one config has a sibling *_eval_result.json.
+- For NPU folders, rows are split by precision (fp16 / w8a16 / w8a8)
+- For CPU/GPU folders, single row
 """
 
 from __future__ import annotations
@@ -23,10 +18,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
-# Display row label, (ep folder, hardware), optional precision (None = all),
-# and report path used in the table. Order matches the previous summary.md.
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+MODELS_57 = Path(__file__).resolve().parents[1] / "scripts" / "e2e_eval" / "testsets" / "models_57.txt"
+
 ROWS: list[tuple[str, str, str, str | None, str]] = [
     ("AMD (VitisAI, NPU) - fp16",        "vitisai",         "npu", "fp16",  "vitisai/npu/REPORT.md"),
     ("AMD (VitisAI, NPU) - w8a16",       "vitisai",         "npu", "w8a16", "vitisai/npu/REPORT.md"),
@@ -45,188 +40,91 @@ ROWS: list[tuple[str, str, str, str | None, str]] = [
     ("NVIDIA TensorRT RTX (GPU)",        "nv_tensorrt_rtx", "gpu", None,    "nv_tensorrt_rtx/gpu/REPORT.md"),
 ]
 
-# The 9 (ep folder, hardware) buckets each model must cover for "builtin" status.
-ALL_EP_BUCKETS: list[tuple[str, str]] = [
-    ("dml", "gpu"),
-    ("mlas", "cpu"),
-    ("nv_tensorrt_rtx", "gpu"),
-    ("openvino", "cpu"),
-    ("openvino", "gpu"),
-    ("openvino", "npu"),
-    ("qnn", "gpu"),
-    ("qnn", "npu"),
-    ("vitisai", "npu"),
-]
-
 _NPU_PRECISION_RE = re.compile(r"_(fp16|w8a16|w8a8)$")
 
 
-def collect(folder: Path, hardware: str, precision_filter: str | None) -> tuple[int, int, int, int]:
-    """Return (models, configs, perf_pass, eval_pass).
+def load_target_pairs() -> set[tuple[str, str]]:
+    """Load canonical target set as (model_slug, task)."""
+    pairs: set[tuple[str, str]] = set()
+    for line in MODELS_57.read_text(encoding="utf-8-sig").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        hf_id, task = s.split("|", 1)
+        pairs.add((hf_id.strip().replace("/", "_"), task.strip()))
+    return pairs
 
-    Matches the semantics of scripts/generate_example_report.py:
-    - All ``*_config.json`` files count as configs (CPU/GPU rows include any
-      precision suffix; only the NPU rows are filtered by precision).
-    - Perf/Eval pass = sibling ``*_perf_result.json`` / ``*_eval_result.json``
-      file exists for the same stem.
-    """
-    models: set[str] = set()
+
+def collect(
+    folder: Path,
+    hardware: str,
+    precision_filter: str | None,
+    target_pairs: set[tuple[str, str]],
+) -> tuple[int, int, int, int, int]:
+    """Return ((model,task), configs, eval_pass, eval_fail, eval_timeout)."""
+    model_tasks: set[tuple[str, str]] = set()
     configs = 0
-    perf_pass = 0
     eval_pass = 0
+    eval_fail = 0
+    eval_timeout = 0
 
     if not folder.is_dir():
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0, 0
 
     for model_dir in folder.iterdir():
         if not model_dir.is_dir():
             continue
         for cfg in model_dir.glob("*_config.json"):
-            stem = cfg.name[: -len("_config.json")]  # e.g. "image-classification" or "..._fp16"
+            stem = cfg.name[: -len("_config.json")]
+            task = stem
+            if hardware == "npu":
+                m = _NPU_PRECISION_RE.search(stem)
+                if m:
+                    task = stem[: m.start()]
+            else:
+                task = stem.removesuffix("_fp16")
+
+            if (model_dir.name, task) not in target_pairs:
+                continue
+
             if hardware == "npu" and precision_filter:
                 m = _NPU_PRECISION_RE.search(stem)
                 if not m or m.group(1) != precision_filter:
                     continue
             configs += 1
-            models.add(model_dir.name)
-            if (model_dir / f"{stem}_perf_result.json").exists():
-                perf_pass += 1
+            model_tasks.add((model_dir.name, task))
             if (model_dir / f"{stem}_eval_result.json").exists():
                 eval_pass += 1
+            elif (model_dir / f"{stem}_eval_result.error.txt").exists():
+                eval_fail += 1
+            elif (model_dir / f"{stem}_eval_result.timeout").exists():
+                eval_timeout += 1
 
-    return len(models), configs, perf_pass, eval_pass
-
-
-def _split_stem(stem: str) -> tuple[str, str | None]:
-    m = _NPU_PRECISION_RE.search(stem)
-    if m:
-        return stem[: m.start()], m.group(1)
-    return stem, None
-
-
-def _builtin_models() -> list[tuple[str, str, dict[tuple[str, str], list[str]]]]:
-    """Return list of (model_slug, task, bucket_to_precisions) for tuples that
-    qualify as builtin models per the criteria documented at the top of this file.
-
-    A (model, task) qualifies when, for every one of the 9 (ep, hardware)
-    buckets:
-      - at least one config exists,
-      - every existing config has a sibling *_perf_result.json,
-      - at least one existing config has a sibling *_eval_result.json.
-    """
-    # (slug, task) -> { (ep, hw): { "precisions": [..], "perf_all": bool, "eval_any": bool } }
-    by_key: dict[tuple[str, str], dict[tuple[str, str], dict]] = {}
-
-    for ep, hw in ALL_EP_BUCKETS:
-        folder = EXAMPLES / ep / hw
-        if not folder.is_dir():
-            continue
-        for model_dir in folder.iterdir():
-            if not model_dir.is_dir():
-                continue
-            for cfg in model_dir.glob("*_config.json"):
-                stem = cfg.name[: -len("_config.json")]
-                task, precision = _split_stem(stem)
-                key = (model_dir.name, task)
-                bucket = by_key.setdefault(key, {}).setdefault(
-                    (ep, hw), {"precisions": [], "perf_all": True, "eval_any": False}
-                )
-                bucket["precisions"].append(precision or "")
-                if not (model_dir / f"{stem}_perf_result.json").exists():
-                    bucket["perf_all"] = False
-                if (model_dir / f"{stem}_eval_result.json").exists():
-                    bucket["eval_any"] = True
-
-    qualified: list[tuple[str, str, dict[tuple[str, str], list[str]]]] = []
-    required = set(ALL_EP_BUCKETS)
-    for key, buckets in sorted(by_key.items()):
-        if set(buckets.keys()) != required:
-            continue
-        if not all(b["perf_all"] and b["eval_any"] for b in buckets.values()):
-            continue
-        qualified.append((key[0], key[1], {k: v["precisions"] for k, v in buckets.items()}))
-    return qualified
+    return len(model_tasks), configs, eval_pass, eval_fail, eval_timeout
 
 
 def main() -> int:
+    target_pairs = load_target_pairs()
+
     out_lines: list[str] = [
         "# Example Configs Test Summary",
         "",
         "## Overview",
         "",
-        "| EP | Models | Configs | Perf Pass | Eval Pass | Report |",
-        "|----|--------|---------|-----------|-----------|--------|",
-    ]
-    for label, ep, hw, prec, report in ROWS:
-        models, configs, p, e = collect(EXAMPLES / ep / hw, hw, prec)
-        pct = lambda x, tot: f"{x}/{tot} ({100 * x / tot:.0f}%)" if tot else f"{x}/0 (0%)"
-        out_lines.append(
-            f"| {label} | {models} | {configs} | {pct(p, configs)} | {pct(e, configs)} | [Report]({report}) |"
-        )
-
-    out_lines.append("")
-    out_path = EXAMPLES / "summary.md"
-    out_path.write_text("\n".join(out_lines), encoding="utf-8")
-    print(f"Wrote {out_path}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-_NPU_PRECISION_RE = re.compile(r"_(fp16|w8a16|w8a8)$")
-
-
-def collect(folder: Path, hardware: str, precision_filter: str | None) -> tuple[int, int, int, int]:
-    """Return (models, configs, perf_pass, eval_pass).
-
-    Matches the semantics of scripts/generate_example_report.py:
-    - All ``*_config.json`` files count as configs (CPU/GPU rows include any
-      precision suffix; only the NPU rows are filtered by precision).
-    - Perf/Eval pass = sibling ``*_perf_result.json`` / ``*_eval_result.json``
-      file exists for the same stem.
-    """
-    models: set[str] = set()
-    configs = 0
-    perf_pass = 0
-    eval_pass = 0
-
-    if not folder.is_dir():
-        return 0, 0, 0, 0
-
-    for model_dir in folder.iterdir():
-        if not model_dir.is_dir():
-            continue
-        for cfg in model_dir.glob("*_config.json"):
-            stem = cfg.name[: -len("_config.json")]  # e.g. "image-classification" or "..._fp16"
-            if hardware == "npu" and precision_filter:
-                m = _NPU_PRECISION_RE.search(stem)
-                if not m or m.group(1) != precision_filter:
-                    continue
-            configs += 1
-            models.add(model_dir.name)
-            if (model_dir / f"{stem}_perf_result.json").exists():
-                perf_pass += 1
-            if (model_dir / f"{stem}_eval_result.json").exists():
-                eval_pass += 1
-
-    return len(models), configs, perf_pass, eval_pass
-
-
-def main() -> int:
-    out_lines = [
-        "# Example Configs Test Summary",
+        "Count basis is canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57.txt`.",
         "",
-        "## Overview",
-        "",
-        "| EP | Models | Configs | Perf Pass | Eval Pass | Report |",
-        "|----|--------|---------|-----------|-----------|--------|",
+        "| EP | (Model, Task) | Configs | Eval Pass | Eval Fail | Eval Timeout | Report |",
+        "|----|---------------|---------|-----------|-----------|--------------|--------|",
     ]
+
     for label, ep, hw, prec, report in ROWS:
-        models, configs, p, e = collect(EXAMPLES / ep / hw, hw, prec)
-        pct = lambda x, tot: f"{x}/{tot} ({100 * x / tot:.0f}%)" if tot else f"{x}/0 (0%)"
+        model_tasks, configs, ok, fail, tmo = collect(EXAMPLES / ep / hw, hw, prec, target_pairs)
+
+        def pct(x: int, tot: int) -> str:
+            return f"{x}/{tot} ({100 * x / tot:.0f}%)" if tot else f"{x}/0 (0%)"
+
         out_lines.append(
-            f"| {label} | {models} | {configs} | {pct(p, configs)} | {pct(e, configs)} | [Report]({report}) |"
+            f"| {label} | {model_tasks} | {configs} | {pct(ok, configs)} | {pct(fail, configs)} | {pct(tmo, configs)} | [Report]({report}) |"
         )
 
     out_lines.append("")

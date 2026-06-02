@@ -1,8 +1,7 @@
-"""Regenerate examples/summary_2.md with 5 sections built from real eval results.
+"""Regenerate examples/summary_builtin_model.md with 5 sections built from real eval results.
 
 Sections:
-  1. Target Builtin Models (the 42 eval-supported pairs from the external 57
-     perf list joined with models_with_acc.json)
+    1. Target Builtin Models (the canonical 57 (model, task) pairs)
   2. fp16 eval pass on ALL 9 EPs
   3. fp16 eval pass on AT LEAST ONE EP
   4. w8a8 eval pass on ALL 3 NPU EPs
@@ -10,14 +9,13 @@ Sections:
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
 
 REPO = Path(__file__).resolve().parents[1]
 EX = REPO / "examples"
-ACC = REPO / "scripts/e2e_eval/testsets/models_with_acc.json"
-LIST57 = REPO / "temp/list57.txt"
-OUT = EX / "summary_2.md"
+LIST57 = REPO / "scripts/e2e_eval/testsets/models_57.txt"
+OUT = EX / "summary_builtin_model.md"
 
 EPS_ALL: list[tuple[str, str]] = [
     ("dml", "gpu"),
@@ -34,16 +32,14 @@ NPU_EPS: list[tuple[str, str]] = [("openvino", "npu"), ("qnn", "npu"), ("vitisai
 
 
 def load_target_pairs() -> list[tuple[str, str]]:
-    acc = json.loads(ACC.read_text(encoding="utf-8"))
-    acc_pairs = {(e["hf_id"], e["task"]) for e in acc}
-    ext = set()
+    ext: set[tuple[str, str]] = set()
     for line in LIST57.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line:
             continue
         m, t = line.split("|")
         ext.add((m, t))
-    return sorted(ext & acc_pairs)
+    return sorted(ext)
 
 
 def eval_pass_on(model_dir: Path, task: str, ep: str, hw: str, precision: str) -> bool:
@@ -112,9 +108,7 @@ def main() -> int:
         "",
         "## 1. Target Builtin Models",
         "",
-        "Models that:",
-        "1. Appear in the external 57 (model, task) perf list, AND",
-        "2. Are eval-supported (present in `scripts/e2e_eval/testsets/models_with_acc.json`).",
+        "Canonical 57 (model, task) pairs used by the config+eval workflow.",
         "",
         f"Total: **{len(target)}** (model, task) tuples.",
         "",

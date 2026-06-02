@@ -3,7 +3,7 @@
 
 Walks ``examples/<ep>/<hw>/`` and produces a Markdown table summarizing
 each ``*_config.json`` with relative links to the corresponding
-``*_perf_result.json`` / ``*_eval_result.json`` / ``*.error.txt`` / ``*.timeout`` artifacts.
+``*_eval_result.json`` / ``*.error.txt`` / ``*.timeout`` artifacts.
 
 Usage:
     python scripts/generate_example_report.py --ep openvino --hardware npu --title "OpenVINO (Intel, NPU)"
@@ -13,25 +13,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
-from collections import defaultdict
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PRECISIONS = ("fp16", "w8a16", "w8a8")
-
-
-def fmt_perf(perf_path: Path, link: str) -> str:
-    try:
-        data = json.loads(perf_path.read_text())
-        lat = data.get("latency_ms", {}).get("mean")
-        tput = data.get("throughput", {}).get("samples_per_sec")
-        if lat is None or tput is None:
-            return f"PASS ([metric]({link}))"
-        return f"{lat:.2f}ms, {tput:.1f}sps ([metric]({link}))"
-    except Exception:
-        return f"PASS ([metric]({link}))"
 
 
 def fmt_eval(eval_path: Path, link: str) -> str:
@@ -63,7 +49,7 @@ def status_cell(model_dir: Path, stem: str, kind: str) -> str:
     slug = model_dir.name
     if ok.exists():
         link = f"./{slug}/{ok.name}"
-        return fmt_perf(ok, link) if kind == "perf" else fmt_eval(ok, link)
+        return fmt_eval(ok, link)
     if err.exists():
         return "FAIL"
     if timeout.exists():
@@ -104,8 +90,9 @@ def main() -> None:
         return (c.parent / f"{stem}_{kind}_result.{ext}").exists()
 
     # Overall stats
-    perf_pass = sum(1 for c in configs if _has(c, "perf", "json"))
     eval_pass = sum(1 for c in configs if _has(c, "eval", "json"))
+    eval_fail = sum(1 for c in configs if _has(c, "eval", "error.txt"))
+    eval_timeout = sum(1 for c in configs if _has(c, "eval", "timeout"))
     total = max(len(configs), 1)
 
     # Per-precision stats
@@ -116,13 +103,15 @@ def main() -> None:
             continue
         p_models = len({c.parent.name for c in p_configs})
         p_total = len(p_configs)
-        p_perf = sum(1 for c in p_configs if _has(c, "perf", "json"))
         p_eval = sum(1 for c in p_configs if _has(c, "eval", "json"))
+        p_fail = sum(1 for c in p_configs if _has(c, "eval", "error.txt"))
+        p_timeout = sum(1 for c in p_configs if _has(c, "eval", "timeout"))
         prec_stats[p] = {
             "models": p_models,
             "configs": p_total,
-            "perf_pass": p_perf,
             "eval_pass": p_eval,
+            "eval_fail": p_fail,
+            "eval_timeout": p_timeout,
         }
 
     lines: list[str] = [
@@ -132,8 +121,9 @@ def main() -> None:
         "",
         f"- Models: {len(model_dirs)}",
         f"- Configs: {len(configs)}",
-        f"- Perf Pass: {perf_pass}/{len(configs)} ({100 * perf_pass / total:.0f}%)",
         f"- Eval Pass: {eval_pass}/{len(configs)} ({100 * eval_pass / total:.0f}%)",
+        f"- Eval Fail: {eval_fail}/{len(configs)} ({100 * eval_fail / total:.0f}%)",
+        f"- Eval Timeout: {eval_timeout}/{len(configs)} ({100 * eval_timeout / total:.0f}%)",
     ]
 
     if prec_stats:
@@ -141,23 +131,24 @@ def main() -> None:
             "",
             "### Per-precision breakdown",
             "",
-            "| Precision | Models | Configs | Perf Pass | Eval Pass |",
-            "|---|---|---|---|---|",
+            "| Precision | Models | Configs | Eval Pass | Eval Fail | Eval Timeout |",
+            "|---|---|---|---|---|---|",
         ]
         for p, s in prec_stats.items():
             pt = max(s["configs"], 1)
             lines.append(
                 f"| {p} | {s['models']} | {s['configs']} "
-                f"| {s['perf_pass']}/{s['configs']} ({100 * s['perf_pass'] / pt:.0f}%) "
-                f"| {s['eval_pass']}/{s['configs']} ({100 * s['eval_pass'] / pt:.0f}%) |"
+                f"| {s['eval_pass']}/{s['configs']} ({100 * s['eval_pass'] / pt:.0f}%) "
+                f"| {s['eval_fail']}/{s['configs']} ({100 * s['eval_fail'] / pt:.0f}%) "
+                f"| {s['eval_timeout']}/{s['configs']} ({100 * s['eval_timeout'] / pt:.0f}%) |"
             )
 
     lines += [
         "",
         "## Results",
         "",
-        "| Model | Task | Precision | Config | Perf | Eval |",
-        "|---|---|---|---|---|---|",
+        "| Model | Task | Precision | Config | Eval |",
+        "|---|---|---|---|---|",
     ]
 
     prev_slug = None
@@ -174,11 +165,8 @@ def main() -> None:
         prev_slug = slug
 
         cfg_link = f"[config](./{slug}/{cfg.name})"
-        perf_cell = status_cell(model_dir, stem, "perf")
         eval_cell = status_cell(model_dir, stem, "eval")
-        lines.append(
-            f"| {model_cell} | {task} | {precision} | {cfg_link} | {perf_cell} | {eval_cell} |"
-        )
+        lines.append(f"| {model_cell} | {task} | {precision} | {cfg_link} | {eval_cell} |")
 
     out = ep_dir / "REPORT.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -2,20 +2,22 @@
 
 ## Overview
 
-| EP | Models | Configs | Perf Pass | Eval Pass | Report |
-|----|--------|---------|-----------|-----------|--------|
-| AMD (VitisAI, NPU) - fp16 | 78 | 92 | 71/92 (77%) | 47/92 (51%) | [Report](vitisai/npu/REPORT.md) |
-| AMD (VitisAI, NPU) - w8a16 | 78 | 92 | 63/92 (68%) | 39/92 (42%) | [Report](vitisai/npu/REPORT.md) |
-| AMD (VitisAI, NPU) - w8a8 | 78 | 92 | 60/92 (65%) | 42/92 (46%) | [Report](vitisai/npu/REPORT.md) |
-| QNN (Qualcomm, NPU) - fp16 | 78 | 92 | 90/92 (98%) | 65/92 (71%) | [Report](qnn/npu/REPORT.md) |
-| QNN (Qualcomm, NPU) - w8a16 | 55 | 63 | 63/63 (100%) | 53/63 (84%) | [Report](qnn/npu/REPORT.md) |
-| QNN (Qualcomm, NPU) - w8a8 | 55 | 63 | 63/63 (100%) | 53/63 (84%) | [Report](qnn/npu/REPORT.md) |
-| OpenVINO (Intel, NPU) - fp16 | 71 | 85 | 84/85 (99%) | 49/85 (58%) | [Report](openvino/npu/REPORT.md) |
-| OpenVINO (Intel, NPU) - w8a16 | 48 | 56 | 55/56 (98%) | 51/56 (91%) | [Report](openvino/npu/REPORT.md) |
-| OpenVINO (Intel, NPU) - w8a8 | 48 | 56 | 55/56 (98%) | 51/56 (91%) | [Report](openvino/npu/REPORT.md) |
-| QNN (Qualcomm, GPU) | 78 | 92 | 57/92 (62%) | 54/92 (59%) | [Report](qnn/gpu/REPORT.md) |
-| OpenVINO (Intel, CPU) | 78 | 92 | 91/92 (99%) | 59/92 (64%) | [Report](openvino/cpu/REPORT.md) |
-| OpenVINO (Intel, GPU) | 78 | 92 | 87/92 (95%) | 69/92 (75%) | [Report](openvino/gpu/REPORT.md) |
-| DML (GPU) | 78 | 92 | 86/92 (93%) | 72/92 (78%) | [Report](dml/gpu/REPORT.md) |
-| MLAS (CPU) | 78 | 92 | 89/92 (97%) | 73/92 (79%) | [Report](mlas/cpu/REPORT.md) |
-| NVIDIA TensorRT RTX (GPU) | 78 | 92 | 80/92 (87%) | 57/92 (62%) | [Report](nv_tensorrt_rtx/gpu/REPORT.md) |
+Count basis is canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57.txt`.
+
+| EP | (Model, Task) | Configs | Eval Pass | Eval Fail | Eval Timeout | Report |
+|----|---------------|---------|-----------|-----------|--------------|--------|
+| AMD (VitisAI, NPU) - fp16 | 57 | 57 | 41/57 (72%) | 14/57 (25%) | 2/57 (4%) | [Report](vitisai/npu/REPORT.md) |
+| AMD (VitisAI, NPU) - w8a16 | 57 | 57 | 33/57 (58%) | 14/57 (25%) | 2/57 (4%) | [Report](vitisai/npu/REPORT.md) |
+| AMD (VitisAI, NPU) - w8a8 | 57 | 57 | 33/57 (58%) | 15/57 (26%) | 1/57 (2%) | [Report](vitisai/npu/REPORT.md) |
+| QNN (Qualcomm, NPU) - fp16 | 57 | 57 | 40/57 (70%) | 15/57 (26%) | 2/57 (4%) | [Report](qnn/npu/REPORT.md) |
+| QNN (Qualcomm, NPU) - w8a16 | 28 | 28 | 27/28 (96%) | 1/28 (4%) | 0/28 (0%) | [Report](qnn/npu/REPORT.md) |
+| QNN (Qualcomm, NPU) - w8a8 | 28 | 28 | 27/28 (96%) | 1/28 (4%) | 0/28 (0%) | [Report](qnn/npu/REPORT.md) |
+| OpenVINO (Intel, NPU) - fp16 | 56 | 56 | 25/56 (45%) | 2/56 (4%) | 0/56 (0%) | [Report](openvino/npu/REPORT.md) |
+| OpenVINO (Intel, NPU) - w8a16 | 27 | 27 | 25/27 (93%) | 2/27 (7%) | 0/27 (0%) | [Report](openvino/npu/REPORT.md) |
+| OpenVINO (Intel, NPU) - w8a8 | 27 | 27 | 25/27 (93%) | 2/27 (7%) | 0/27 (0%) | [Report](openvino/npu/REPORT.md) |
+| QNN (Qualcomm, GPU) | 57 | 57 | 38/57 (67%) | 19/57 (33%) | 0/57 (0%) | [Report](qnn/gpu/REPORT.md) |
+| OpenVINO (Intel, CPU) | 57 | 57 | 33/57 (58%) | 11/57 (19%) | 3/57 (5%) | [Report](openvino/cpu/REPORT.md) |
+| OpenVINO (Intel, GPU) | 57 | 57 | 38/57 (67%) | 11/57 (19%) | 0/57 (0%) | [Report](openvino/gpu/REPORT.md) |
+| DML (GPU) | 57 | 57 | 45/57 (79%) | 8/57 (14%) | 4/57 (7%) | [Report](dml/gpu/REPORT.md) |
+| MLAS (CPU) | 57 | 57 | 44/57 (77%) | 12/57 (21%) | 1/57 (2%) | [Report](mlas/cpu/REPORT.md) |
+| NVIDIA TensorRT RTX (GPU) | 57 | 57 | 24/57 (42%) | 21/57 (37%) | 0/57 (0%) | [Report](nv_tensorrt_rtx/gpu/REPORT.md) |
