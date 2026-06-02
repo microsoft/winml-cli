@@ -37,6 +37,8 @@ EP_CHOICES = [name for name in ALL_EP_NAMES if name not in ("cuda", "CUDAExecuti
 EP_CHOICES_MAP = {name.lower(): name for name in EP_CHOICES}
 DEVICE_CHOICES = ["cpu", "gpu", "npu"]
 
+KNOWN_PRECISIONS = ("fp16", "w8a16", "w8a8")
+
 ROLE_MAP_BY_TASK: dict[str, tuple[str, ...]] = {
     "zero-shot-image-classification": ("image-encoder", "text-encoder"),
     "image-to-text": ("encoder", "decoder"),
@@ -81,6 +83,13 @@ def infer_hf_id(config_path: Path) -> str | None:
         model_name = (cfg.get("quant") or {}).get("model_name")
         if model_name:
             return model_name
+        components = cfg.get("components") if isinstance(cfg.get("components"), list) else []
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+            model_name = (component.get("quant") or {}).get("model_name")
+            if model_name:
+                return model_name
         slug = config_path.parent.name
         return slug.replace("_", "/", 1)
     except Exception:
@@ -112,6 +121,100 @@ def needs_trust_remote_code(config_path: Path) -> bool:
         return bool(dataset.get("build_script"))
     except Exception:
         return False
+
+
+def has_eval_section(config_path: Path) -> bool:
+    """True when a config file carries an eval section."""
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return isinstance(cfg.get("eval"), dict)
+
+
+def split_config_stem(config_path: Path) -> tuple[str, str | None]:
+    """Return logical group stem and optional component role from config filename."""
+    stem = config_path.stem
+    if "_config_" in stem:
+        group_stem, role = stem.split("_config_", 1)
+        return group_stem, role or None
+    if stem.endswith("_config"):
+        return stem[: -len("_config")], None
+    return stem, None
+
+
+def split_task_precision(group_stem: str) -> tuple[str, str | None]:
+    """Split '<task>_<precision>' into (task, precision)."""
+    for precision in KNOWN_PRECISIONS:
+        suffix = f"_{precision}"
+        if group_stem.endswith(suffix):
+            return group_stem[: -len(suffix)], precision
+    return group_stem, None
+
+
+def infer_group_task(group_stem: str, config_paths: list[Path]) -> str | None:
+    """Infer eval task for a grouped config set."""
+    for config_path in config_paths:
+        task = infer_task(config_path)
+        if task and has_eval_section(config_path):
+            return task
+
+    task_stem, _precision = split_task_precision(group_stem)
+    return task_stem or None
+
+
+def select_build_configs(config_paths: list[Path]) -> list[tuple[Path, str | None]]:
+    """Choose config files to build, preserving any split-component suffixes."""
+    parsed = [(config_path, *split_config_stem(config_path)) for config_path in sorted(config_paths)]
+    split_entries = [(config_path, role) for config_path, _group_stem, role in parsed if role]
+    if split_entries:
+        return split_entries
+    return [(config_path, None) for config_path, _group_stem, _role in parsed]
+
+
+def build_grouped_configs(model_dirs: list[Path]) -> list[tuple[Path, str, list[Path]]]:
+    """Group configs by logical model+task prefix, with split/single safeguards.
+
+    We treat split-component configs ("*_config_<component>.json") as one logical
+    group. If the same prefix also has non-split configs, we only merge a single
+    eval wrapper config; other non-split configs are kept as standalone groups to
+    avoid cross-task mixing.
+    """
+    grouped_configs: list[tuple[Path, str, list[Path]]] = []
+    for model_dir in model_dirs:
+        groups: dict[tuple[str, str | None], list[Path]] = {}
+        group_stems: dict[tuple[str, str | None], str] = {}
+        for cfg_file in sorted(model_dir.glob("*_config*.json")):
+            group_stem, _role = split_config_stem(cfg_file)
+            task_name, precision = split_task_precision(group_stem)
+            group_key = (task_name, precision)
+            groups.setdefault(group_key, []).append(cfg_file)
+            # Keep one representative stem for naming/logging.
+            group_stems.setdefault(group_key, group_stem)
+
+        for group_key in sorted(groups):
+            group_stem = group_stems[group_key]
+            entries = sorted(groups[group_key])
+            split_entries = [p for p in entries if split_config_stem(p)[1] is not None]
+            single_entries = [p for p in entries if split_config_stem(p)[1] is None]
+
+            if split_entries and single_entries:
+                # Allow one explicit eval wrapper to stay with split configs.
+                wrapper_entries = [p for p in single_entries if has_eval_section(p)]
+                if len(wrapper_entries) == 1 and len(single_entries) == 1:
+                    grouped_configs.append((model_dir, group_stem, [*split_entries, wrapper_entries[0]]))
+                    continue
+
+                # Keep split configs as one group; keep each single config separate.
+                grouped_configs.append((model_dir, group_stem, split_entries))
+                for single_path in single_entries:
+                    single_stem, _ = split_config_stem(single_path)
+                    grouped_configs.append((model_dir, single_stem, [single_path]))
+                continue
+
+            grouped_configs.append((model_dir, group_stem, entries))
+
+    return grouped_configs
 
 
 def clean_caches() -> None:
@@ -290,11 +393,12 @@ def resolve_built_model_args(build_dir: Path, task: str | None) -> list[str] | N
 def run_eval(
     model_args: list[str],
     hf_id: str,
-    config_path: Path,
+    config_path: Path | None,
     output_path: Path,
     ep: str,
     device: str,
     timeout: int,
+    task: str | None = None,
     trust_remote_code: bool = False,
 ) -> str:
     """Run winml eval and return PASS, FAIL, or TIMEOUT."""
@@ -310,11 +414,13 @@ def run_eval(
         ep,
         "--device",
         device,
-        "-c",
-        str(config_path),
         "-o",
         str(output_path),
     ]
+    if config_path is not None:
+        cmd.extend(["-c", str(config_path)])
+    elif task:
+        cmd.extend(["--task", task])
     if trust_remote_code:
         cmd.append("--trust-remote-code")
 
@@ -372,10 +478,16 @@ def main() -> None:
         help="If set, delete existing *_eval_result.error.txt / *.timeout and retry those configs.",
     )
     parser.add_argument("--models", type=str, default=None, help="Comma-separated model slugs")
+    parser.add_argument(
+        "--examples-root",
+        type=Path,
+        default=REPO_ROOT / "examples",
+        help="Root folder containing examples/<ep>/<device> model directories (default: repo examples)",
+    )
     args = parser.parse_args()
 
     ep_for_winml, examples_ep = resolve_ep_and_examples_folder(args.ep)
-    ep_dir = REPO_ROOT / "examples" / examples_ep / args.device
+    ep_dir = args.examples_root / examples_ep / args.device
     if not ep_dir.exists():
         print(f"EP directory not found: {ep_dir}")
         sys.exit(1)
@@ -385,26 +497,28 @@ def main() -> None:
         allowed = set(args.models.split(","))
         model_dirs = [d for d in model_dirs if d.name in allowed]
 
-    configs = sorted(cfg_file for model_dir in model_dirs for cfg_file in model_dir.glob("*_config.json"))
+    grouped_configs = build_grouped_configs(model_dirs)
 
     print(f"EP: {ep_for_winml}, Device: {args.device} (examples/{examples_ep}/{args.device})")
-    print(f"Models: {len(model_dirs)}, Configs: {len(configs)}")
+    print(f"Models: {len(model_dirs)}, Config groups: {len(grouped_configs)}")
     print()
 
     results = {"PASS": 0, "FAIL": 0, "TIMEOUT": 0, "SKIP": 0}
     prev_model = None
 
-    for i, cfg_path in enumerate(configs, 1):
-        stem = cfg_path.stem.replace("_config", "")
-        model_slug = cfg_path.parent.name
-        hf_id = infer_hf_id(cfg_path)
-        task = infer_task(cfg_path)
+    for i, (model_dir, group_stem, group_paths) in enumerate(grouped_configs, 1):
+        model_slug = model_dir.name
+        build_entries = select_build_configs(group_paths)
+        config_label = ", ".join(path.name for path, _role in build_entries)
+        meta_config = next((path for path in group_paths if has_eval_section(path)), None)
+        hf_id = next((infer_hf_id(path) for path in group_paths if infer_hf_id(path)), None)
+        task = infer_group_task(group_stem, group_paths)
         if not hf_id:
-            print(f"[{i}/{len(configs)}] {model_slug}/{stem} ... SKIP (no model ID)")
+            print(f"[{i}/{len(grouped_configs)}] {model_slug}/{group_stem} ... SKIP (no model ID)")
             results["SKIP"] += 1
             continue
 
-        eval_output = cfg_path.parent / f"{stem}_eval_result.json"
+        eval_output = model_dir / f"{group_stem}_eval_result.json"
         eval_err = eval_output.with_suffix(".error.txt")
         eval_tmo = eval_output.with_suffix(".timeout")
 
@@ -427,42 +541,74 @@ def main() -> None:
             clean_caches()
         prev_model = model_slug
 
-        trust = needs_trust_remote_code(cfg_path)
-        build_dir = cfg_path.parent / f"{stem}_build_artifacts"
+        trust = needs_trust_remote_code(meta_config) if meta_config is not None else False
+        group_build_root = model_dir / f"{group_stem}_build_artifacts"
+        built_models: list[tuple[str | None, Path]] = []
+        build_failed = None
 
-        print(f"[{i}/{len(configs)}] {hf_id} / {stem} build ...", end=" ", flush=True)
-        build_status = run_build(
-            hf_id,
-            cfg_path,
-            build_dir,
-            ep_for_winml,
-            args.timeout,
-            rebuild=(args.rebuild or (args.retry_failed and had_failed_marker)),
-        )
-        print(build_status)
-        if build_status != "PASS":
-            results[build_status] += 1
+        for build_path, role in build_entries:
+            build_dir = group_build_root if role is None else group_build_root / role
+            label = role or build_path.name
+            print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} build {label} ...", end=" ", flush=True)
+            build_status = run_build(
+                hf_id,
+                build_path,
+                build_dir,
+                ep_for_winml,
+                args.timeout,
+                rebuild=(args.rebuild or (args.retry_failed and had_failed_marker)),
+            )
+            print(build_status)
+            if build_status != "PASS":
+                build_failed = build_status
+                break
+            built_models.append((role, build_dir))
+
+        if build_failed is not None:
+            results[build_failed] += 1
             continue
 
-        model_args = resolve_built_model_args(build_dir, task)
+        if any(role for role, _build_dir in built_models):
+            model_args: list[str] = []
+            missing_role = None
+            for role, build_dir in built_models:
+                onnx_path = _find_single_onnx(build_dir)
+                if role is None:
+                    continue
+                if onnx_path is None:
+                    missing_role = role
+                    break
+                model_args.extend(["-m", f"{role}={onnx_path}"])
+            if missing_role is not None:
+                eval_err.write_text(
+                    f"Could not resolve built ONNX artifact for role={missing_role!r} in {group_build_root}",
+                    encoding="utf-8",
+                )
+                results["FAIL"] += 1
+                print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} eval ... FAIL")
+                continue
+        else:
+            build_dir = built_models[0][1]
+            model_args = resolve_built_model_args(build_dir, task)
         if not model_args:
             eval_err.write_text(
-                f"Could not resolve built ONNX artifacts for task={task!r} in {build_dir}",
+                f"Could not resolve built ONNX artifacts for task={task!r} in {group_build_root}",
                 encoding="utf-8",
             )
             results["FAIL"] += 1
-            print(f"[{i}/{len(configs)}] {hf_id} / {stem} eval ... FAIL")
+            print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} eval ... FAIL")
             continue
 
-        print(f"[{i}/{len(configs)}] {hf_id} / {stem} eval ...", end=" ", flush=True)
+        print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} eval ...", end=" ", flush=True)
         status = run_eval(
             model_args,
             hf_id,
-            cfg_path,
+            meta_config,
             eval_output,
             ep_for_winml,
             args.device,
             args.timeout,
+            task,
             trust,
         )
         results[status] += 1
