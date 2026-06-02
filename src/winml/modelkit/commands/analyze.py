@@ -65,7 +65,7 @@ _COLORS = {
 
 
 _TRAILING_PAREN_RE = re.compile(r" \([^()]*\)$")
-_RUNTIME_DEBUG_LEVELS = ("supported", "partial", "unsupported")
+_RUNTIME_DEBUG_LEVELS = ("unsupported", "partial", "supported")
 
 
 def _display_name(pattern_id: str) -> str:
@@ -840,18 +840,29 @@ def analyze(
                     "take effect.",
                     WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
                 )
+                logger.error(
+                    "%s configured: %s",
+                    WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                    "yes" if configured_debug_dir else "no",
+                )
                 if configured_debug_dir:
                     logger.error(
-                        "Configured %s=%s",
+                        "Configured %s raw value: %s",
                         WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
                         configured_debug_dir,
                     )
-                    resolved_debug_dirs = (
-                        ", ".join(str(p) for p in debug_search_dirs)
-                        if debug_search_dirs
-                        else "(none)"
-                    )
-                    logger.error("Resolved debug search dirs: %s", resolved_debug_dirs)
+                    if debug_search_dirs:
+                        logger.error(
+                            "Resolved absolute path(s) from %s:",
+                            WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                        )
+                        for resolved_debug_dir in debug_search_dirs:
+                            logger.error("  - %s", resolved_debug_dir)
+                    else:
+                        logger.error(
+                            "Resolved absolute path(s) from %s: (none)",
+                            WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                        )
                 sys.exit(2)
 
         search_dirs = get_runtime_rules_search_dirs()

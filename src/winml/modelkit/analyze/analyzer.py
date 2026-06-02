@@ -15,11 +15,12 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from ..optim.config import WinMLOptimizationConfig
 from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 from .models.information import Information
+from .models.output import RuntimeDebugSummaryEntry
 from .models.support_level import SupportLevel
 from .utils.timing_utils import make_timing_logger
 
@@ -63,9 +64,9 @@ logger = logging.getLogger(__name__)
 _log_timing = make_timing_logger(logger)
 
 _RUNTIME_DEBUG_SUMMARY_LEVELS: tuple[SupportLevel, ...] = (
-    SupportLevel.SUPPORTED,
-    SupportLevel.PARTIAL,
     SupportLevel.UNSUPPORTED,
+    SupportLevel.PARTIAL,
+    SupportLevel.SUPPORTED,
 )
 
 
@@ -90,13 +91,14 @@ def _iter_runtime_test_results(pattern_runtime: PatternRuntime) -> list[RuntimeT
 
 def _build_runtime_debug_details_summary(
     runtime_summary: dict[str, list[PatternRuntime]],
-) -> dict[str, dict[str, dict[str, Any | None]]] | None:
+) -> dict[str, dict[str, RuntimeDebugSummaryEntry]] | None:
     """Build debug_details summary grouped by support level and node stable key.
 
-    The returned dict always uses level keys ``supported``, ``partial``, and
-    ``unsupported``. ``unknown`` results are intentionally filtered out.
+    The returned dict always uses level keys ``unsupported``, ``partial``, and
+    ``supported`` (in this output order). ``unknown`` results are intentionally
+    filtered out.
     """
-    summary: dict[str, dict[str, dict[str, Any | None]]] = {
+    summary: dict[str, dict[str, RuntimeDebugSummaryEntry]] = {
         level.value: {} for level in _RUNTIME_DEBUG_SUMMARY_LEVELS
     }
 
@@ -115,13 +117,13 @@ def _build_runtime_debug_details_summary(
                 if not node_stable_key:
                     continue
 
-                candidate_entry: dict[str, Any | None] = {
-                    "case_indices": _normalize_case_indices_for_summary(
+                candidate_entry = RuntimeDebugSummaryEntry(
+                    case_indices=_normalize_case_indices_for_summary(
                         debug_details.get("case_indices")
                     ),
-                    "table_path": debug_details.get("table_path"),
-                    "table_file": debug_details.get("table_file"),
-                }
+                    table_path=debug_details.get("table_path"),
+                    table_file=debug_details.get("table_file"),
+                )
 
                 level_bucket = summary[level.value]
                 existing_entry = level_bucket.get(node_stable_key)
@@ -129,9 +131,17 @@ def _build_runtime_debug_details_summary(
                     level_bucket[node_stable_key] = candidate_entry
                     continue
 
-                for field in ("case_indices", "table_path", "table_file"):
-                    if existing_entry.get(field) is None and candidate_entry.get(field) is not None:
-                        existing_entry[field] = candidate_entry[field]
+                if (
+                    existing_entry.case_indices is None
+                    and candidate_entry.case_indices is not None
+                ):
+                    existing_entry.case_indices = candidate_entry.case_indices
+
+                if existing_entry.table_path is None and candidate_entry.table_path is not None:
+                    existing_entry.table_path = candidate_entry.table_path
+
+                if existing_entry.table_file is None and candidate_entry.table_file is not None:
+                    existing_entry.table_file = candidate_entry.table_file
 
     has_any_entry = any(summary[level.value] for level in _RUNTIME_DEBUG_SUMMARY_LEVELS)
     if not has_any_entry:
@@ -813,7 +823,7 @@ class ONNXStaticAnalyzer:
         # Step 2: Check runtime support for each EP
         check_op_results: dict[EPName, list[PatternRuntime]] = {}
         information_list: dict[EPName, list[Information]] = {}
-        runtime_debug_details_summary: dict[str, dict[str, dict[str, Any | None]]] = {}
+        runtime_debug_details_summary: dict[str, dict[str, dict[str, RuntimeDebugSummaryEntry]]] = {}
         ep_runtime_timing: dict[str, int] = {}
         ep_info_timing: dict[str, int] = {}
         for current_ep in eps_to_analyze:
@@ -887,7 +897,7 @@ class ONNXStaticAnalyzer:
             for ep_support in output.results:
                 ep_debug_summary = runtime_debug_details_summary.get(ep_support.ep_type)
                 if ep_debug_summary is not None:
-                    ep_support.runtime_debug_details_summary = cast(Any, ep_debug_summary)
+                    ep_support.runtime_debug_details_summary = ep_debug_summary
 
         aggregate_ms = int((time.perf_counter() - aggregate_start) * 1000)
 

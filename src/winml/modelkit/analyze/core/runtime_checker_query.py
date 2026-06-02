@@ -2066,6 +2066,7 @@ class RuntimeCheckerQuery:
             if for_debug:
                 rules_not_found_debug_details = {
                     "op_type": node.op_type,
+                    "node_stable_key": node_stable_key,
                     "domain": str(op_domain),
                     "opset_version": opset_version,
                     "table_path": parquet_path_norm,
@@ -2165,6 +2166,7 @@ class RuntimeCheckerQuery:
                     )
                 debug_details = {
                     "type": "properties_not_found",
+                    "node_stable_key": node_stable_key,
                     "total_rows": len(table_df),
                     "table_path": parquet_path_norm,
                     "table_file": parquet_file,
@@ -2238,6 +2240,7 @@ class RuntimeCheckerQuery:
         debug_details: RuntimeDebugDetails | None = None
         if for_debug:
             debug_details = {
+                "node_stable_key": node_stable_key,
                 "table_path": parquet_path_norm,
                 "table_file": parquet_file,
                 "op_since_version": op_since_version,
