@@ -22,7 +22,9 @@ The script:
    - NPU targets: `examples/<ep>/<hardware>/<model_slug>/<task>_<precision>_config.json` for each of `w8a8`, `w8a16`, `fp16`
    - CPU/GPU targets: a single `examples/<ep>/<hardware>/<model_slug>/<task>_config.json` (no precision in name, EP default precision)
 3. Injects the new `eval` section from `scripts/e2e_eval/testsets/models_with_acc.json` when dataset metadata exists
-4. Skips files that already exist
+4. Uses canonical model list from `scripts/e2e_eval/testsets/models_57.txt` (57 `(model, task)` pairs)
+5. Keeps eval config device-agnostic (does **not** write `eval.device`)
+6. Skips files that already exist
 
 ## EP and Device Matrix Used by Generator
 
@@ -43,15 +45,14 @@ The generator currently writes 9 EP × hardware targets:
 Reference (`--help`) accepted EP names include:
 `qnn`, `dml`, `nv_tensorrt_rtx`, `vitisai`, `openvino`, `cpu`.
 
-## New Eval Schema
+## Eval Schema
 
-Configs now use `eval` (not `eval_option`):
+Configs use `eval` (not `eval_option`) and keep device selection in runtime CLI:
 
 ```json
 {
   "eval": {
     "task": "zero-shot-image-classification",
-    "device": "npu",
     "dataset": {
       "path": "uoft-cs/cifar100",
       "split": "test",
@@ -72,7 +73,6 @@ If a custom dataset builder is needed, use `dataset.build_script`:
 {
   "eval": {
     "task": "token-classification",
-    "device": "npu",
     "dataset": {
       "columns_mapping": { "label_column": "pos_tags" },
       "build_script": "scripts/e2e_eval/datasets/build_indonlu_posp.py"
@@ -83,7 +83,13 @@ If a custom dataset builder is needed, use `dataset.build_script`:
 
 ## Adding a New Model
 
-Add `(hf_id, task)` to `MODELS` in `scripts/generate_example_configs.py`, then rerun generation.
+Add a line to `scripts/e2e_eval/testsets/models_57.txt` in the format:
+
+```text
+<hf_id>|<task>
+```
+
+Then rerun generation.
 
 ## Precision Options
 

@@ -5,30 +5,31 @@ Before running tests, follow environment setup in the project README.
 
 ## Run All Tests
 
-Run perf + eval for all configs under a given EP and hardware:
+Run build + eval for all configs under a given EP and hardware:
 
 ```bash
-uv run python scripts/run_example_tests.py --ep qnn --hardware npu --device npu
-uv run python scripts/run_example_tests.py --ep qnn --hardware gpu --device gpu
-uv run python scripts/run_example_tests.py --ep openvino --hardware cpu --device cpu
+uv run python scripts/run_example_tests.py --ep qnn --device npu
+uv run python scripts/run_example_tests.py --ep qnn --device gpu
+uv run python scripts/run_example_tests.py --ep openvino --device cpu
 ```
 
 The script:
 1. Finds all `*_config.json` files under `examples/<ep>/<hardware>/`
-2. For each config, runs **perf** then **eval**:
-   - `winml perf -m <hf_id> --device <device> -c <config> -o <perf_output>`
-  - `winml eval -m <hf_id> --ep <ep> --device <device> -c <config> -o <eval_output>`
-3. Adds `--trust-remote-code` automatically when config has `dataset_script`
-4. Skips configs that already have `_perf_result.json`/`_eval_result.json`, `_error.txt`, or `.timeout` results
-5. Cleans HF/winml caches between different models to save disk space
-6. Safe to re-run — picks up where it left off
-
-Result files intentionally use `_perf_result.json` and `_eval_result.json` because
-`*_perf.json` is often covered by gitignore patterns and easy to miss in commits.
+2. For each config, runs **build** then **eval built ONNX**:
+  - `winml build -m <hf_id> -c <config> -o <build_output_dir>`
+  - `winml eval -m <built_onnx> --model-id <hf_id> --ep <ep> --device <device> -c <config> -o <eval_output>`
+3. Adds `--trust-remote-code` automatically when config has `dataset.build_script`
+4. Skips configs that already have `_eval_result.json`, `_eval_result.error.txt`, or `_eval_result.timeout`
+5. If `--retry-failed` is set, existing `*_eval_result.error.txt` / `*_eval_result.timeout` are removed and retried
+6. For VitisAI EP, build is executed with `--no-compile`
+7. If `--clean-cache` is set, cleans HF/winml caches between different models to save disk space
+8. Safe to re-run — picks up where it left off
 
 Options:
 - `--timeout` — Per-model timeout in seconds (default: 3600)
-- `--eval-only` — Skip perf, only run eval
+- `--clean-cache` — Clean `~/.cache/winml` and `~/.cache/huggingface` between different models (default: disabled)
+- `--rebuild` — Pass `--rebuild` to `winml build` to force rebuild instead of reusing existing build artifacts
+- `--retry-failed` — Re-run configs previously marked as eval fail/timeout
 - `--models` — Comma-separated model slugs to test a subset (e.g. `--models microsoft_resnet-50,BAAI_bge-base-en-v1.5`)
 
 Results are saved alongside configs. NPU targets have one config per precision; CPU/GPU
@@ -36,18 +37,16 @@ targets have a single precision-less config:
 ```
 examples/qnn/npu/microsoft_resnet-50/
 ├── image-classification_w8a8_config.json
-├── image-classification_w8a8_perf_result.json     # perf results
 ├── image-classification_w8a8_eval_result.json     # eval results
 ├── image-classification_w8a16_config.json
-├── image-classification_w8a16_perf_result.json
 ├── image-classification_w8a16_eval_result.json
 ├── image-classification_fp16_config.json
 ├── image-classification_fp16_eval_result.error.txt  # failure
+├── image-classification_fp16_build_artifacts/        # build output for eval input
 └── ...
 
 examples/mlas/cpu/microsoft_resnet-50/
 ├── image-classification_config.json
-├── image-classification_perf_result.json
 └── image-classification_eval_result.json
 ```
 
@@ -60,40 +59,39 @@ examples/mlas/cpu/microsoft_resnet-50/
 For each config, it runs the equivalent of:
 
 ```bash
-# 1. Perf (builds model if needed, then measures latency)
-winml perf -m microsoft/resnet-50 --device npu \
+# 1. Build (creates ONNX under build output dir)
+winml build -m microsoft/resnet-50 --device npu \
   -c examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_config.json \
-  -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_perf_result.json
+  -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_build_artifacts
 
-# 2. Eval (uses cached build artifacts from perf)
-winml eval -m microsoft/resnet-50 --device npu \
+# 2. Eval built ONNX
+winml eval -m examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_build_artifacts/model.onnx \
+  --model-id microsoft/resnet-50 --device npu \
   --ep qnn \
   -c examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_config.json \
   -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_eval_result.json
 
 # Model with dataset_script (adds --trust-remote-code to eval)
-winml eval -m w11wo/indonesian-roberta-base-posp-tagger --device npu \
+winml eval -m examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_build_artifacts/model.onnx \
+  --model-id w11wo/indonesian-roberta-base-posp-tagger --device npu \
   --ep qnn \
   -c examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json \
   -o examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_eval_result.json \
   --trust-remote-code
 ```
 
-Both `winml perf` and `winml eval` automatically build the model (export → optimize → quantize → compile) if no artifacts exist.
+`run_example_tests.py` performs build explicitly and then evaluates the built ONNX artifact.
 
 ### Testing individual steps
 
-You can also run build/perf/eval separately:
+You can also run build/eval separately:
 
 ```bash
 # Build only
 winml build -m <hf_id> --device npu -c <config_path> -o <output_dir>
 
-# Perf only
-winml perf -m <hf_id> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_perf_result.json
-
 # Eval only
-winml eval -m <hf_id> --ep <ep> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_eval_result.json
+winml eval -m <built_onnx_path> --model-id <hf_id> --ep <ep> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_eval_result.json
 ```
 
 ### Result status
