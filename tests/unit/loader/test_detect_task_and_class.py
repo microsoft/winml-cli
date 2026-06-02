@@ -16,7 +16,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.loader.task import _detect_task_and_class_from_config
+from winml.modelkit.loader.task import (
+    WRAPPED_LIBRARY_MODEL_TYPES,
+    _detect_task_and_class_from_config,
+    resolve_optimum_library,
+)
 
 
 class TestDetectTaskAndClassFromConfig:
@@ -148,3 +152,55 @@ class TestModelTaskDefaultsOverride:
         assert task == "image-classification"
         # TasksManager returns AutoModelForImageClassification, not the arch class
         assert resolved_class is not ResNetForImageClassification or task == "image-classification"
+
+
+class TestResolveOptimumLibrary:
+    """Unit tests for the resolve_optimum_library wrapped-library router."""
+
+    def test_timm_wrapper_routes_to_timm(self):
+        """timm_wrapper under the default library routes to Optimum's 'timm'."""
+        assert resolve_optimum_library("timm_wrapper", "transformers") == "timm"
+
+    def test_unmapped_model_type_unchanged(self):
+        """A normal transformers model_type is not rerouted."""
+        assert resolve_optimum_library("bert", "transformers") == "transformers"
+
+    def test_none_model_type_unchanged(self):
+        assert resolve_optimum_library(None, "transformers") == "transformers"
+
+    def test_explicit_library_is_respected(self):
+        """An explicit (non-default) library always wins over the wrapper routing."""
+        assert resolve_optimum_library("timm_wrapper", "timm") == "timm"
+        assert resolve_optimum_library("timm_wrapper", "diffusers") == "diffusers"
+
+
+class TestWrappedLibraryArchitecturesFallback:
+    """Auto-detection for wrapper model_types that carry no `architectures`.
+
+    timm checkpoints load through transformers' TimmWrapper as TimmWrapperConfig
+    (architectures=None); the loader resolves them via WRAPPED_LIBRARY_MODEL_TYPES
+    instead of raising.
+    """
+
+    def test_timm_wrapper_resolves_without_architectures(self):
+        config = MagicMock()
+        config.architectures = None
+        config.model_type = "timm_wrapper"
+        config._name_or_path = ""
+
+        task, resolved_class = _detect_task_and_class_from_config(config)
+
+        # Task is derived from Optimum's task list for the timm library, not hardcoded.
+        assert WRAPPED_LIBRARY_MODEL_TYPES["timm_wrapper"] == "timm"
+        assert task == "image-classification"
+        # A generic Auto* class is used; it dispatches to TimmWrapper at load time.
+        assert resolved_class.__name__ == "AutoModelForImageClassification"
+
+    def test_missing_architectures_without_wrapper_still_raises(self):
+        config = MagicMock()
+        config.architectures = None
+        config.model_type = "totally-unknown-model-xyz"
+        config._name_or_path = ""
+
+        with pytest.raises(ValueError, match="no 'architectures' field"):
+            _detect_task_and_class_from_config(config)
