@@ -11,7 +11,7 @@ raises and the patcher silently falls back to ``contextlib.nullcontext()``,
 producing ONNX exports without the Transformers >= 4.53 tracing patches.
 
 This test pins the contract that ``_get_optimum_patcher`` normalises the
-task argument via ``_map_task_synonym`` before the TasksManager lookup.
+task argument via ``map_task_synonym`` before the TasksManager lookup.
 
 Regression for https://github.com/microsoft/winml-cli/issues/777.
 """
@@ -65,7 +65,7 @@ class TestGetOptimumPatcherTaskSynonyms:
         assert captured.get("task") == "feature-extraction", (
             f"Expected normalised task 'feature-extraction' to reach "
             f"TasksManager.get_exporter_config_constructor, got {captured.get('task')!r}. "
-            "_get_optimum_patcher must call _map_task_synonym on the task argument."
+            "_get_optimum_patcher must call map_task_synonym on the task argument."
         )
 
     def test_canonical_task_passes_through_unchanged(self) -> None:

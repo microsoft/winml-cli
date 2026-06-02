@@ -11,7 +11,7 @@ aliases (e.g. ``image-feature-extraction``, ``sentence-similarity``) raise
 to ``SupportLevel.UNSUPPORTED``.
 
 These tests pin the contract that ``resolve_exporter`` normalises HF
-aliases via ``_map_task_synonym`` before the TasksManager lookup.
+aliases via ``map_task_synonym`` before the TasksManager lookup.
 
 Regression for https://github.com/microsoft/winml-cli/issues/782.
 """

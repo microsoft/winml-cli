@@ -427,12 +427,12 @@ def _inspect_model_v2(
             from optimum.exporters.tasks import TasksManager
 
             # TasksManager expects normalized task names
-            from ..export.io import _map_task_synonym
+            from ..export.io import map_task_synonym
 
             onnx_config_cls = TasksManager.get_exporter_config_constructor(
                 exporter="onnx",
                 model_type=model_type,
-                task=_map_task_synonym(task),
+                task=map_task_synonym(task),
                 library_name="transformers",
             )
             if onnx_config_cls:

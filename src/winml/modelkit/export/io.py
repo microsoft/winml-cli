@@ -95,7 +95,7 @@ TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
 }
 
 
-def _map_task_synonym(task: str) -> str:
+def map_task_synonym(task: str) -> str:
     """Map task name to canonical form, extending Optimum's synonym mapping.
 
     Our extensions take priority over Optimum's built-in synonym map.
@@ -208,7 +208,7 @@ def _get_onnx_config(
     """
     ensure_hf_models_registered()
 
-    normalized_task = _map_task_synonym(task)
+    normalized_task = map_task_synonym(task)
 
     logger.debug(
         "Getting OnnxConfig: model_type=%s, task=%s -> %s",
