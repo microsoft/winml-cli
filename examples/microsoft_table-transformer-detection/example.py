@@ -13,7 +13,7 @@ checkpoint.
 
 Usage::
 
-    uv run python examples/microsoft-table-transformer-detection/example.py `
+    uv run python examples/microsoft_table-transformer-detection/example.py `
       --onnx $HOME/.cache/winml/artifacts/microsoft_table-transformer-detection/`
             `objdet_<hash>_quantized.onnx
 """
