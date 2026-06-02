@@ -104,19 +104,29 @@ def merge_eval_section(
 
 
 def generate_config(
-    hf_id: str, task: str, device: str, ep: str, precision: str | None
-) -> dict | None:
-    """Run winml config and return the parsed JSON config.
+    hf_id: str, task: str, device: str, ep: str, precision: str | None,
+    out_file: Path,
+) -> list[Path] | None:
+    """Run `winml config -o <out_file>` and return the list of files it wrote.
 
-    For composite models (e.g., CLIP with image-encoder + text-encoder),
-    returns a dict with 'components' list containing all sub-configs.
+    - Single-model: returns ``[out_file]``.
+    - Composite model (e.g., CLIP zero-shot): `winml config` writes one file per
+      sub-component using its own naming (``<stem>_<role>.json``); we return
+      those paths. We do NOT merge them into a wrapper, because
+      ``winml build -c`` does not understand a ``{"components": [...]}`` shape.
     """
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    # Snapshot pre-existing sibling split files so we can identify newly-written ones.
+    stem = out_file.stem
+    pre_existing = set(out_file.parent.glob(f"{stem}_*.json"))
+
     cmd = [
         sys.executable, "-m", "winml.modelkit", "config",
         "-m", hf_id,
         "--task", task,
         "--device", device,
         "--ep", ep,
+        "-o", str(out_file),
     ]
     if precision is not None:
         cmd.extend(["--precision", precision])
@@ -127,48 +137,22 @@ def generate_config(
         if result.returncode != 0:
             print(f"  FAIL: {result.stderr.strip()[-200:]}")
             return None
-        # Extract JSON from stdout (may have non-JSON lines before it)
-        stdout = result.stdout.strip()
-
-        # Parse multiple JSON objects (for composite models like CLIP)
-        configs = []
-        pos = 0
-        while True:
-            json_start = stdout.find("{", pos)
-            if json_start < 0:
-                break
-            # Find matching closing brace
-            brace_count = 0
-            json_end = json_start
-            for i in range(json_start, len(stdout)):
-                if stdout[i] == "{":
-                    brace_count += 1
-                elif stdout[i] == "}":
-                    brace_count -= 1
-                    if brace_count == 0:
-                        json_end = i + 1
-                        break
-            try:
-                config = json.loads(stdout[json_start:json_end])
-                configs.append(config)
-                pos = json_end
-            except json.JSONDecodeError:
-                break
-
-        if not configs:
-            print("  FAIL: no JSON in output")
-            return None
-
-        # If single config, return as-is; if multiple, wrap in components
-        if len(configs) == 1:
-            return configs[0]
-        return {"components": configs}
     except subprocess.TimeoutExpired:
         print("  TIMEOUT")
         return None
-    except json.JSONDecodeError as e:
-        print(f"  FAIL: JSON parse error: {e}")
+
+    # Single-model: the exact file we asked for exists.
+    if out_file.exists():
+        return [out_file]
+
+    # Composite: collect newly-written split files matching `<stem>_*.json`.
+    split_files = sorted(
+        p for p in out_file.parent.glob(f"{stem}_*.json") if p not in pre_existing
+    )
+    if not split_files:
+        print("  FAIL: no config output")
         return None
+    return split_files
 
 
 def model_slug(hf_id: str) -> str:
@@ -182,22 +166,35 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Generate example configs")
     parser.add_argument("--ep", help="Filter by EP folder name (e.g. qnn, openvino)")
-    parser.add_argument("--hardware", help="Filter by hardware (e.g. npu, gpu, cpu)")
+    parser.add_argument("--device", help="Filter by device (e.g. npu, gpu, cpu)")
+    parser.add_argument(
+        "--models",
+        type=str,
+        default=None,
+        help="Comma-separated HF model IDs (e.g. 'laion/CLIP-ViT-B-32-laion2B-s34B-b79K') "
+             "to restrict generation to those models",
+    )
     args = parser.parse_args()
 
     eps = EPS
-    if args.ep or args.hardware:
+    if args.ep or args.device:
         eps = [
             (ef, folder, hw)
             for ef, folder, hw in EPS
-            if (not args.ep or folder == args.ep) and (not args.hardware or hw == args.hardware)
+            if (not args.ep or folder == args.ep) and (not args.device or hw == args.device)
         ]
         if not eps:
-            print(f"No matching EP config for --ep={args.ep} --hardware={args.hardware}")
+            print(f"No matching EP config for --ep={args.ep} --device={args.device}")
             sys.exit(1)
 
     eval_lookup = load_eval_lookup()
     models = load_model_pairs()
+    if args.models:
+        allowed = {m.strip() for m in args.models.split(",") if m.strip()}
+        models = [(hf, task) for hf, task in models if hf in allowed]
+        if not models:
+            print(f"No models match --models={args.models}")
+            sys.exit(1)
     examples_dir = REPO_ROOT / "examples"
 
     # Pre-compute precision list per EP target (NPU sweeps, CPU/GPU single config).
@@ -226,22 +223,28 @@ def main() -> None:
                     out_file = out_dir / f"{task}_{precision}_config.json"
                     label = precision
 
-                if out_file.exists():
+                # Skip if either the single-model file or any composite split
+                # file (``<stem>_*.json``) is already present.
+                if out_file.exists() or any(out_dir.glob(f"{out_file.stem}_*.json")):
                     skipped += 1
                     continue
 
                 print(f"[{done}/{total}] {hf_id} / {task} / {ep_folder} / {label} ...", end=" ")
-                config = generate_config(hf_id, task, hardware, ep_flag, precision)
-                if config is None:
+                written = generate_config(
+                    hf_id, task, hardware, ep_flag, precision, out_file
+                )
+                if written is None:
                     failed += 1
                     continue
 
-                merge_eval_section(config, task=task, dataset=eval_dataset)
-
-                out_dir.mkdir(parents=True, exist_ok=True)
-                out_file.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+                # Merge eval section into each emitted file (single or split).
+                for path in written:
+                    cfg = json.loads(path.read_text(encoding="utf-8"))
+                    merge_eval_section(cfg, task=task, dataset=eval_dataset)
+                    path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
                 created += 1
-                print("OK")
+                suffix = f" ({len(written)} files)" if len(written) > 1 else ""
+                print(f"OK{suffix}")
 
     print(f"\nDone: {created} created, {skipped} skipped, {failed} failed")
 

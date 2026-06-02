@@ -8,23 +8,25 @@ Run the generator:
 uv run python scripts/generate_example_configs.py
 ```
 
-To generate configs for a specific EP and/or hardware only:
+To generate configs for a specific EP, device, and/or model subset only:
 
 ```bash
-uv run python scripts/generate_example_configs.py --ep qnn --hardware gpu
+uv run python scripts/generate_example_configs.py --ep qnn --device gpu
 uv run python scripts/generate_example_configs.py --ep openvino
-uv run python scripts/generate_example_configs.py --hardware npu
+uv run python scripts/generate_example_configs.py --device npu
+uv run python scripts/generate_example_configs.py --models laion/CLIP-ViT-B-32-laion2B-s34B-b79K
 ```
 
 The script:
-1. Calls `winml config -m <hf_id> --task <task> --device <device> --ep <ep>` (with `--precision <precision>` only on NPU targets)
+1. Calls `winml config -m <hf_id> --task <task> --device <device> --ep <ep> -o <out_file>` (with `--precision <precision>` only on NPU targets)
 2. Writes:
-   - NPU targets: `examples/<ep>/<hardware>/<model_slug>/<task>_<precision>_config.json` for each of `w8a8`, `w8a16`, `fp16`
-   - CPU/GPU targets: a single `examples/<ep>/<hardware>/<model_slug>/<task>_config.json` (no precision in name, EP default precision)
+   - NPU targets: `examples/<ep>/<device>/<model_slug>/<task>_<precision>_config.json` for each of `w8a8`, `w8a16`, `fp16`
+   - CPU/GPU targets: a single `examples/<ep>/<device>/<model_slug>/<task>_config.json` (no precision in name, EP default precision)
+   - Composite models (e.g. CLIP zero-shot): one file per sub-component, named `<stem>_<role>.json` (e.g. `..._image-encoder.json`, `..._text-encoder.json`). No wrapper file is produced.
 3. Injects the new `eval` section from `scripts/e2e_eval/testsets/models_with_acc.json` when dataset metadata exists
 4. Uses canonical model list from `scripts/e2e_eval/testsets/models_57.txt` (57 `(model, task)` pairs)
 5. Keeps eval config device-agnostic (does **not** write `eval.device`)
-6. Skips files that already exist
+6. Skips files that already exist (including composite split files matching `<stem>_*.json`)
 
 ## EP and Device Matrix Used by Generator
 

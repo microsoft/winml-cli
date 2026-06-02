@@ -478,16 +478,10 @@ def main() -> None:
         help="If set, delete existing *_eval_result.error.txt / *.timeout and retry those configs.",
     )
     parser.add_argument("--models", type=str, default=None, help="Comma-separated model slugs")
-    parser.add_argument(
-        "--examples-root",
-        type=Path,
-        default=REPO_ROOT / "examples",
-        help="Root folder containing examples/<ep>/<device> model directories (default: repo examples)",
-    )
     args = parser.parse_args()
 
     ep_for_winml, examples_ep = resolve_ep_and_examples_folder(args.ep)
-    ep_dir = args.examples_root / examples_ep / args.device
+    ep_dir = REPO_ROOT / "examples" / examples_ep / args.device
     if not ep_dir.exists():
         print(f"EP directory not found: {ep_dir}")
         sys.exit(1)
