@@ -7,12 +7,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from .result import OpTraceResult
 
 
@@ -26,7 +25,6 @@ class OpTracer(ABC):
     at construction time, then call ``run()`` to execute profiling.
     """
 
-    @abstractmethod
     def __init__(self, onnx_path: Path, *, output_dir: Path, level: str = "basic") -> None:
         """Construct an OpTracer for an ONNX model.
 
@@ -35,6 +33,9 @@ class OpTracer(ABC):
             output_dir: Directory for profiling artifacts.
             level: Profiling level ("basic" or "detail").
         """
+        self.onnx_path = Path(onnx_path)
+        self.output_dir = Path(output_dir)
+        self.level = level
 
     @abstractmethod
     def run(self, iterations: int = 5, warmup: int = 2) -> OpTraceResult:

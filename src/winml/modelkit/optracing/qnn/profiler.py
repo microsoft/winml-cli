@@ -88,9 +88,7 @@ class QNNProfiler(OpTracer):
         output_dir: Path,
         level: str = "basic",
     ) -> None:
-        self.onnx_path = Path(onnx_path)
-        self.output_dir = Path(output_dir)
-        self.level = level
+        super().__init__(onnx_path, output_dir=output_dir, level=level)
 
     def is_available(self) -> bool:
         """Check if QNN EP is available for profiling."""
