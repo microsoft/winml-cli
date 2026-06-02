@@ -207,6 +207,27 @@ def test_ensure_provider_ready_surfaces_get_status_error(
     assert fake_bar.n == 0
 
 
+def test_ensure_provider_ready_closes_bar_when_ensure_ready_async_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If ensure_ready_async itself raises, the bar must still be closed
+    (op was never assigned, so op.close() is skipped via the None sentinel)."""
+    from winml.modelkit.session import ep_registry
+
+    ns = _install_fake_windowsml(monkeypatch)
+    fake_bar = _install_fake_tqdm(monkeypatch)
+
+    provider = MagicMock()
+    provider.name = "FakeEP"
+    provider.ready_state = ns.EpReadyState.NotPresent
+    provider.ensure_ready_async.side_effect = RuntimeError("native init failed")
+
+    with pytest.raises(RuntimeError, match="native init failed"):
+        ep_registry._ensure_provider_ready(provider)
+
+    fake_bar.close.assert_called_once_with()
+
+
 def test_ensure_provider_ready_works_without_tqdm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

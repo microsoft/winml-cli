@@ -104,8 +104,9 @@ def _ensure_provider_ready(provider: Any) -> None:
         bar.n = max(0, min(100, int(fraction * 100)))
         bar.refresh()
 
-    op = provider.ensure_ready_async(on_complete=done.set, on_progress=_on_progress)
+    op = None
     try:
+        op = provider.ensure_ready_async(on_complete=done.set, on_progress=_on_progress)
         if not done.wait(timeout=EP_DOWNLOAD_TIMEOUT_SECONDS):
             op.cancel()
             raise TimeoutError(
@@ -120,7 +121,8 @@ def _ensure_provider_ready(provider: Any) -> None:
         bar.refresh()
     finally:
         bar.close()
-        op.close()
+        if op is not None:
+            op.close()
 
 
 # Singleton instance
