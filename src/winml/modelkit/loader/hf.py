@@ -149,6 +149,7 @@ def load_hf_model(
     model_class: str | None = None,
     user_script: str | None = None,
     trust_remote_code: bool = False,
+    hf_config: PretrainedConfig | None = None,
 ) -> tuple[nn.Module, PretrainedConfig, str]:
     """Load, detect task, and prepare HuggingFace model.
 
@@ -173,6 +174,9 @@ def load_hf_model(
             The script must define a class matching `model_class` at module level.
             Requires trust_remote_code=True for security.
         trust_remote_code: Whether to trust remote code (required for user_script)
+        hf_config: Optional pre-loaded HF config. When supplied, the
+            ``AutoConfig.from_pretrained`` round-trip is skipped — same dedup
+            pattern as ``resolve_loader_config(hf_config=...)`` from PR #719.
 
     Returns:
         Tuple of (model, hf_config, task)
@@ -214,10 +218,11 @@ def load_hf_model(
             raise ValueError("model_class must be specified when using user_script")
 
     # [1] Load HF Config
-    hf_config = AutoConfig.from_pretrained(
-        model_name_or_path,
-        trust_remote_code=trust_remote_code,
-    )
+    if hf_config is None:
+        hf_config = AutoConfig.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=trust_remote_code,
+        )
 
     # [2] Task & Model Class Resolution
     if user_script is not None:
