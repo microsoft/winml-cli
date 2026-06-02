@@ -1,2 +1,0 @@
-[2026-05-27T18:01:01] WARNING: --dataset not specified; attempting default dataset 'fancyzhx/ag_news' for task 'zero-shot-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
-Error: Evaluation failed: Failed to load model 'lxyuan/distilbert-base-multilingual-cased-sentiments-student'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task zero-shot-classification' to see supported role=path model options.

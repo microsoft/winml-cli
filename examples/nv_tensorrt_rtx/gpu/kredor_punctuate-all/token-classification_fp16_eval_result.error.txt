@@ -1,2 +1,0 @@
-[2026-05-27T18:00:58] WARNING: --dataset not specified; attempting default dataset 'BramVanroy/conll2003' for task 'token-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
-Error: Evaluation failed: Failed to load model 'kredor/punctuate-all'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task token-classification' to see supported role=path model options.

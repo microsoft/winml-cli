@@ -1,2 +1,0 @@
-[2026-05-27T18:01:14] WARNING: --dataset not specified; attempting default dataset 'Salesforce/wikitext' for task 'fill-mask'. Any --split / --column / --streaming / --dataset-name options are ignored.
-Error: Evaluation failed: Failed to load model 'sentence-transformers/all-mpnet-base-v2'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task fill-mask' to see supported role=path model options.

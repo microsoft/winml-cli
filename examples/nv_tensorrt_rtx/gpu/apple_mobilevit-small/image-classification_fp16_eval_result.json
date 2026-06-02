@@ -1,0 +1,21 @@
+{
+  "model_id": "apple/mobilevit-small",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\apple_mobilevit-small\\image-classification_fp16_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "gpu",
+  "ep": "nv_tensorrt_rtx",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\apple_mobilevit-small\\image-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.75,
+    "total_time_in_seconds": 7.149631799999952,
+    "samples_per_second": 13.986734253923492,
+    "latency_in_seconds": 0.07149631799999952
+  }
+}

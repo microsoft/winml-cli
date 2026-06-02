@@ -1,2 +1,15 @@
-[2026-05-27T18:00:36] WARNING: --dataset not specified; attempting default dataset 'nyu-mll/glue' for task 'text-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
-Error: Evaluation failed: Failed to load model 'cross-encoder/ms-marco-MiniLM-L4-v2'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task text-classification' to see supported role=path model options.
+[2026-06-02T14:27:06] WARNING: --dataset not specified; attempting default dataset 'nyu-mll/glue' for task 'text-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+
+Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
+Generating train split:  27%|██▋       | 1000/3668 [00:02<00:07, 364.72 examples/s]
+Generating train split: 100%|██████████| 3668/3668 [00:02<00:00, 1337.79 examples/s]
+
+Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 408/408 [00:00<00:00, 26004.07 examples/s]
+
+Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 1725/1725 [00:00<00:00, 107027.62 examples/s]
+
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Error: Evaluation failed: Dataset 'nyu-mll/glue' is not compatible with task 'text-classification': label alignment failed for dataset 'nyu-mll/glue': 'equivalent'. Use --dataset to specify a different dataset, or run 'winml eval --schema --task text-classification' to see the expected schema.

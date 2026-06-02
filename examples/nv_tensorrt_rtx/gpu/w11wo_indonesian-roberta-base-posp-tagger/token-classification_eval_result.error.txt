@@ -1,5 +1,4 @@
 WARNING: trust_remote_code is enabled - custom Python from the model repository
 will be downloaded and executed. Proceed only if you trust the publisher.
-Error: Dataset script failed (exit 1): packaging\version.py", line 122, in parse
-  File "C:\Users\zhangchao\project\winml-cli\.venv\Lib\site-packages\packaging\version.py", line 414, in __init__
-TypeError: 'NoneType' object is not iterable
+[2026-06-02T16:23:30] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' (name=None, split='validation'): Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_indonlu_posp.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.

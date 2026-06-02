@@ -1,2 +1,0 @@
-[2026-05-27T18:01:17] WARNING: --dataset not specified; attempting default dataset 'mteb/stsbenchmark-sts' for task 'feature-extraction'. Any --split / --column / --streaming / --dataset-name options are ignored.
-Error: Evaluation failed: Failed to load model 'sentence-transformers/multi-qa-mpnet-base-dot-v1'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task feature-extraction' to see supported role=path model options.
