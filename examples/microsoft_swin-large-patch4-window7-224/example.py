@@ -128,8 +128,17 @@ def imagenet_synset_to_id() -> dict[str, int]:
     Uses ``timm.data.ImageNetInfo`` so we don't have to ship the 1000-entry
     list inline. The mapping is the canonical ImageNet-1k ordering that
     the model was trained against.
+
+    Requires the optional ``timm`` package (imported lazily here, like
+    ``datasets`` in ``load_image``); raises a clear error if it is missing.
     """
-    from timm.data import ImageNetInfo
+    try:
+        from timm.data import ImageNetInfo
+    except ImportError as e:
+        raise ImportError(
+            "imagenet_synset_to_id() requires the 'timm' package. "
+            "Install it with `pip install timm`."
+        ) from e
 
     info = ImageNetInfo()
     return {synset: idx for idx, synset in enumerate(info.label_names())}
