@@ -60,6 +60,7 @@ def reshape_quick_helper(
         ep_checker,
         capture_output=True,
     )
+    # check_on_ep returns a lazy iterator; materialize it now so results are captured once.
     result = {"check_results": list(test_results_iter), "sys_info": sys_info}
     with truth_file.open() as f:
         truth_object = json.load(f)
