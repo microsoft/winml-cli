@@ -40,9 +40,7 @@ _stderr_console = Console(stderr=True, highlight=False)
 _LOCAL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin"})
 
 
-def _validate_task(
-    ctx: click.Context, param: click.Parameter, value: str | None
-) -> str | None:
+def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
     """Click-time validation for --task against the hand-coded KNOWN_TASKS set.
 
     Imports only ..loader.task to keep validation cheap — going through optimum
@@ -426,11 +424,13 @@ def _inspect_model_v2(
             import optimum.exporters.onnx.model_configs  # noqa: F401
             from optimum.exporters.tasks import TasksManager
 
+            from ..loader import resolve_optimum_library
+
             onnx_config_cls = TasksManager.get_exporter_config_constructor(
                 exporter="onnx",
                 model_type=model_type,
                 task=task,
-                library_name="transformers",
+                library_name=resolve_optimum_library(model_type),
             )
             if onnx_config_cls:
                 config_name = (
