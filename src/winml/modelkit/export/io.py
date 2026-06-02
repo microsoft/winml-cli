@@ -40,6 +40,7 @@ from optimum.utils.input_generators import (
     DummyTextInputGenerator,
 )
 
+from ..loader import to_optimum_task
 from .value_range import intercept_value_ranges
 
 
@@ -79,53 +80,13 @@ def ensure_hf_models_registered() -> None:
 
 
 # =============================================================================
-# Task Synonym Extensions (extends Optimum's TasksManager.map_from_synonym)
+# Task Synonym Extensions (relocated to loader.task — single source of truth)
 # =============================================================================
-
-# Extends Optimum's built-in task synonym mapping for tasks it doesn't recognize.
-# Optimum's map_from_synonym handles known synonyms like:
-#   - "image-feature-extraction" → "feature-extraction"
-# This dict adds mappings for tasks Optimum doesn't support at all.
-TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
-    # next-sentence-prediction has same I/O as text-classification: input_ids → logits
-    "next-sentence-prediction": "text-classification",
-    # mask-generation is registered via register_onnx_overwrite for SAM2.
-    # Optimum incorrectly maps it to "feature-extraction"; preserve as-is.
-    "mask-generation": "mask-generation",
-}
-
-
-def map_task_synonym(task: str) -> str:
-    """Map task name to canonical form, extending Optimum's synonym mapping.
-
-    Our extensions take priority over Optimum's built-in synonym map.
-    If a task is found in ``TASK_SYNONYM_EXTENSIONS``, return immediately
-    without passing through Optimum (which may incorrectly normalize
-    custom-registered tasks like ``mask-generation``).
-
-    Args:
-        task: Task name (e.g., "next-sentence-prediction", "image-feature-extraction")
-
-    Returns:
-        Canonical task name (e.g., "text-classification", "feature-extraction")
-
-    Example:
-        >>> map_task_synonym("next-sentence-prediction")  # Our extension
-        'text-classification'
-        >>> map_task_synonym("mask-generation")  # Preserved (not Optimum-normalized)
-        'mask-generation'
-        >>> map_task_synonym("image-feature-extraction")  # Optimum's synonym
-        'feature-extraction'
-        >>> map_task_synonym("text-classification")  # Already canonical
-        'text-classification'
-    """
-    # Our extensions take priority — return early to prevent Optimum from
-    # incorrectly normalizing custom-registered tasks.
-    if task in TASK_SYNONYM_EXTENSIONS:
-        return TASK_SYNONYM_EXTENSIONS[task]
-
-    # Fallback: normalize via Optimum's built-in synonym mapping
-    return TasksManager.map_from_synonym(task)
+# ``TASK_SYNONYM_EXTENSIONS`` and the WinML -> Optimum collapse now live in
+# ``loader.task`` as ``to_optimum_task``. Both are imported above and re-exported
+# here; ``map_task_synonym`` is kept as a backward-compatible alias for existing
+# importers (and is identical to ``to_optimum_task``).
+map_task_synonym = to_optimum_task
 
 
 # =============================================================================
@@ -195,7 +156,7 @@ def _get_onnx_config(
 
     Args:
         model_type: HF model type (e.g., "bert", "clip_vision_model")
-        task: Task name (will be normalized via map_task_synonym)
+        task: Task name (will be collapsed to Optimum-canonical via to_optimum_task)
         hf_config: HuggingFace PretrainedConfig for OnnxConfig instantiation
         library_name: Source library (default: "transformers")
         exporter: Export backend (default: "onnx")
@@ -208,7 +169,7 @@ def _get_onnx_config(
     """
     ensure_hf_models_registered()
 
-    normalized_task = map_task_synonym(task)
+    normalized_task = to_optimum_task(task)
 
     # Route model_types whose Optimum OnnxConfig is registered under another
     # library (e.g. timm via "timm_wrapper" -> "timm") so the lookup succeeds
