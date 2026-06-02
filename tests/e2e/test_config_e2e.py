@@ -46,19 +46,28 @@ pytestmark = [pytest.mark.e2e, pytest.mark.network]
 @pytest.fixture(autouse=True)
 def _mock_resolve_device():
     """Mock hardware detection to avoid failures in CI/test environments."""
+    from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
 
     def _resolve_device_mock(
         device: str = "auto", *, ep: str | None = None
     ) -> tuple[str, list[str]]:
         # Keep tests deterministic while preserving explicit device requests.
+        ep_name = normalize_ep_name(ep)
         normalized = (device or "auto").lower()
+        if ep_name in EP_SUPPORTED_DEVICES:
+            supported = list(EP_SUPPORTED_DEVICES[ep_name])
+            chosen = normalized if normalized in supported else supported[0]
+            return chosen, supported
         if normalized in {"cpu", "gpu", "npu"}:
             return normalized, [normalized, "cpu"]
         return "cpu", ["cpu"]
 
-    with patch(
-        "winml.modelkit.sysinfo.resolve_device",
-        side_effect=_resolve_device_mock,
+    # Patch at the definition site so callers using ``from .device import`` —
+    # notably ``resolve_check_device_ep`` inside the same module — see the
+    # mock. Also patch the ``sysinfo`` re-export for direct importers.
+    with (
+        patch("winml.modelkit.sysinfo.device.resolve_device", side_effect=_resolve_device_mock),
+        patch("winml.modelkit.sysinfo.resolve_device", side_effect=_resolve_device_mock),
     ):
         yield
 
