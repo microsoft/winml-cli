@@ -115,6 +115,12 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--label-mapping",
+    # Distinct Python variable name so ctx.params["label_mapping_path"] does
+    # not collide with ``DatasetConfig.label_mapping`` (which is the *parsed*
+    # ``dict[str, int] | None``, not a Path). ``collect_cli_overrides`` is
+    # name-based, so without the rename the Path would be passed to the dict
+    # field with the wrong type.
+    "label_mapping_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
     help='Path to a JSON file with label mapping: {"label_name": id}.',
@@ -158,7 +164,7 @@ def eval(
     shuffle: bool,
     streaming: bool,
     column: tuple[str, ...],
-    label_mapping: Path | None,
+    label_mapping_path: Path | None,
     output: Path | None,
     verbose: bool,
     dataset_script: str | None,
@@ -203,7 +209,7 @@ def eval(
     from ..eval import evaluate
 
     # ── 1. Build config: defaults ← config file ← CLI ──
-    cfg = _build_eval_config(ctx, config_file, column, label_mapping)
+    cfg = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id)
@@ -234,7 +240,7 @@ def _build_eval_config(
     ctx: click.Context,
     config_file: Path | None,
     column: tuple[str, ...],
-    label_mapping: Path | None,
+    label_mapping_path: Path | None,
 ) -> WinMLEvaluationConfig:
     """Build a WinMLEvaluationConfig with precedence: defaults ← config file ← CLI.
 
@@ -248,6 +254,9 @@ def _build_eval_config(
     # Initialize config object from CLI ctx params. ``collect_cli_overrides``
     # filters to user-provided values and applies the cli_name → field_name
     # renames declared on the dataclass fields (e.g. output → output_path).
+    # The --label-mapping Click option binds to ``label_mapping_path`` (see the
+    # ``@click.option`` decorator) so it does NOT collide with the
+    # ``DatasetConfig.label_mapping`` field name.
     eval_kwargs = cli_utils.collect_cli_overrides(ctx, WinMLEvaluationConfig)
     dataset_kwargs = cli_utils.collect_cli_overrides(ctx, DatasetConfig)
     cfg = WinMLEvaluationConfig(dataset=DatasetConfig(**dataset_kwargs), **eval_kwargs)
@@ -288,8 +297,8 @@ def _build_eval_config(
             columns_mapping[k] = v
         ds_overrides["columns_mapping"] = columns_mapping
 
-    if label_mapping is not None:
-        ds_overrides["label_mapping_file"] = str(label_mapping)
+    if label_mapping_path is not None:
+        ds_overrides["label_mapping_file"] = str(label_mapping_path)
 
     if ds_overrides:
         overrides["dataset"] = ds_overrides

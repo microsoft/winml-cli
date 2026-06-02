@@ -23,6 +23,9 @@ class OpTracer(ABC):
 
     Concrete implementations receive the model path and output directory
     at construction time, then call ``run()`` to execute profiling.
+
+    Subclasses overriding ``__init__`` MUST call ``super().__init__(...)`` so
+    that ``onnx_path``, ``output_dir``, and ``level`` are stored on ``self``.
     """
 
     def __init__(self, onnx_path: Path, *, output_dir: Path, level: str = "basic") -> None:

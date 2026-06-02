@@ -215,6 +215,8 @@ def _run_analyze_loop(
         config.optim.update(discovered_optim)
         logger.info("  [autoconf] final config: %s", discovered_optim)
 
+    # analysis is None only when max_optim_iterations == 0 (the loop body never
+    # ran, so analyze_onnx was never called).
     final_optim_config = analysis.optimization_config if analysis else None
     if final_optim_config:
         logger.warning(

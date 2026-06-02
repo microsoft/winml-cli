@@ -330,21 +330,24 @@ def config(
 
             # Generate config(s) - module parameter selects overload:
             # module=str → list[WinMLBuildConfig], module=None → WinMLBuildConfig.
+            # ``module`` is the only differing kwarg, so build a shared dict
+            # once and add it only on the list-returning branch. This keeps
+            # the overload dispatch but avoids repeating the other 10 kwargs.
+            _shared_kwargs: dict[str, Any] = {
+                "model_id": hf_model,
+                "task": task,
+                "model_class": model_class,
+                "model_type": model_type,
+                "override": override,
+                "shape_config": shape_config,
+                "library_name": library_name,
+                "device": device,
+                "precision": precision,
+                "trust_remote_code": trust_remote_code,
+                "ep": ep,
+            }
             if module:
-                configs = generate_hf_build_config(
-                    model_id=hf_model,
-                    task=task,
-                    model_class=model_class,
-                    model_type=model_type,
-                    module=module,
-                    override=override,
-                    shape_config=shape_config,
-                    library_name=library_name,
-                    device=device,
-                    precision=precision,
-                    trust_remote_code=trust_remote_code,
-                    ep=ep,
-                )
+                configs = generate_hf_build_config(module=module, **_shared_kwargs)
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
                 output_data = [cfg.to_dict() for cfg in configs]
@@ -352,19 +355,7 @@ def config(
                 # Use first config for display metadata
                 config_obj = configs[0] if configs else None
             else:
-                config_obj = generate_hf_build_config(
-                    model_id=hf_model,
-                    task=task,
-                    model_class=model_class,
-                    model_type=model_type,
-                    override=override,
-                    shape_config=shape_config,
-                    library_name=library_name,
-                    device=device,
-                    precision=precision,
-                    trust_remote_code=trust_remote_code,
-                    ep=ep,
-                )
+                config_obj = generate_hf_build_config(**_shared_kwargs)
                 configs = []
                 _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
                 output_data = config_obj.to_dict()
