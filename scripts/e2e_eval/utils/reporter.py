@@ -341,9 +341,9 @@ def generate_html_report(
     output_path: Path,
     registry_path: Path | None = None,
 ) -> None:
+    """Generate interactive HTML report with Perf and Accuracy tabs."""
     from .accuracy import format_delta
 
-    """Generate interactive HTML report with Perf and Accuracy tabs."""
     results = report_data.get("results", [])
 
     # Load registry for enrichment

@@ -247,7 +247,7 @@ def _compute_onnx_size(onnx_paths: dict[str, str]) -> int | None:
         if p.exists():
             total += p.stat().st_size
             found_any = True
-        data_p = Path(path_str + ".data")
+        data_p = p.with_suffix(p.suffix + ".data")
         if data_p.exists():
             total += data_p.stat().st_size
     return total if found_any else None
@@ -287,7 +287,7 @@ def _sanitize_output(text: str) -> str:
         if stripped[0] in _BOX_CHARS:
             continue
         low = stripped.lower()
-        if any(pat in low for pat in _NOISE_PATTERNS):
+        if any(low.startswith(pat) for pat in _NOISE_PATTERNS):
             continue
         kept.append(stripped)
     return "\n".join(kept)
@@ -1087,7 +1087,7 @@ def save_environment_info(path: Path) -> None:
     # `winml sys --format json` captures hardware details (devices, EPs,
     # backends) that the lightweight package-version probes above miss.
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [sys.executable, "-m", "winml", "sys", "--format", "json"],
             capture_output=True,
             text=True,

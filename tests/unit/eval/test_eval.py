@@ -91,9 +91,7 @@ class TestResolveTask:
         fake_onnx_config = MagicMock()
         fake_onnx_config.inputs = {"pixel_values": object()}
 
-        config = WinMLEvaluationConfig(
-            model_id="facebook/dinov2-base", task="feature-extraction"
-        )
+        config = WinMLEvaluationConfig(model_id="facebook/dinov2-base", task="feature-extraction")
         with (
             patch(
                 "transformers.AutoConfig.from_pretrained",
@@ -1082,7 +1080,9 @@ class TestBuildEvalResultEpField:
 
         def strip_perf(text: str) -> str:
             return "\n".join(
-                l for l in text.splitlines() if "latency" not in l.lower() and "throughput" not in l.lower()
+                line
+                for line in text.splitlines()
+                if "latency" not in line.lower() and "throughput" not in line.lower()
             )
 
         result = reporter.build_eval_result(
