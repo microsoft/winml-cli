@@ -43,6 +43,8 @@ class DepthEstimationDataset(ImageDataset):
     instead of a class label.
     """
 
+    _revision: str | None = None
+
     def _get_default_dataset(self) -> None:
         """Set the built-in depth-estimation dataset defaults.
 

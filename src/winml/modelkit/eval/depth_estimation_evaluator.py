@@ -100,6 +100,7 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
                 skipped += 1
                 continue
 
+            self._validate_image_input(image)
             result = self.pipe(image)
             pred = self._extract_predicted_depth(result)
             gt = np.asarray(depth, dtype=np.float32)
@@ -109,6 +110,22 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
             logger.warning("Skipped %d samples with missing image or depth.", skipped)
 
         return metric.compute()
+
+    def _validate_image_input(self, image: Any) -> None:
+        """Raise a clear error for tensor-formatted image columns."""
+        import numpy as np
+        import torch
+        from PIL import Image as PILImage
+
+        if isinstance(image, PILImage.Image):
+            return
+
+        if isinstance(image, (np.ndarray, torch.Tensor)):
+            raise TypeError(
+                f"Depth-estimation input column {self._input_col!r} must yield PIL "
+                f"images; got {type(image).__name__}. Use a datasets.Image column "
+                "or remove tensor/NumPy formatting before evaluation.",
+            )
 
     @staticmethod
     def _extract_predicted_depth(result: Any) -> np.ndarray:

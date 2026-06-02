@@ -122,9 +122,9 @@ class DepthMetric:
             a = np.stack([pred_v, ones], axis=1)
             (scale, shift), *_ = np.linalg.lstsq(a, gt_v, rcond=None)
             pred_v = pred_v * scale + shift
-            # Drop pixels that fall below min_depth after alignment;
-            # leaving them in would dominate abs_rel via tiny gt-side ratios
-            # only when gt is small (already gated by _valid_mask).
+            # Affine alignment can introduce non-positive predicted depths.
+            # Re-filter them after scale-and-shift, following Eigen/MiDaS eval
+            # behavior; affine may therefore use fewer pixels than median/none.
             pos = pred_v > self._min_depth
             if not pos.any():
                 self._image_count += 1

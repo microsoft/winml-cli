@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from winml.modelkit.datasets.config import DatasetConfig
 from winml.modelkit.eval import WinMLDepthEstimationEvaluator
-from winml.modelkit.eval.config import WinMLEvaluationConfig
+from winml.modelkit.eval.config import DatasetConfig, WinMLEvaluationConfig
 
 
 # Representative checkpoints across the three families listed in issue #326.

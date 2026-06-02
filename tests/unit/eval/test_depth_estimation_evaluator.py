@@ -322,3 +322,14 @@ class TestCompute:
 
         with pytest.raises(ValueError, match="share shape"):
             ev.compute()
+
+    def test_compute_rejects_tensor_image_input(self):
+        """Tensor-formatted image columns fail with a task-specific message."""
+        ev = make_evaluator(align="none", min_depth=0.0, max_depth=None)
+        ev.pipe = _FakePipe()
+        depth = np.full((4, 4), 5.0, dtype=np.float32)
+        ev.data = [{"image": torch.zeros((3, 4, 4)), "depth_map": depth}]
+
+        with pytest.raises(TypeError, match="must yield PIL images"):
+            ev.compute()
+        assert ev.pipe.calls == 0
