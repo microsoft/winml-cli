@@ -2,22 +2,74 @@
 """Generate a REPORT.md for an example EP/hardware folder.
 
 Walks ``examples/<ep>/<hw>/`` and produces a Markdown table summarizing
-each ``*_config.json`` with relative links to the corresponding
-``*_eval_result.json`` / ``*.error.txt`` / ``*.timeout`` artifacts.
+each canonical (model, task) config with relative links to the
+corresponding ``*_eval_result.json`` / ``*_perf_result.json`` /
+``*.error.txt`` / ``*.timeout`` artifacts.
+
+Counting basis:
+- Only (model_slug, task) pairs in ``scripts/e2e_eval/testsets/models_57.txt``
+  are counted.
+- Composite models emit multiple split configs sharing one stem; they are
+  counted as a single config group (one eval / one perf entry).
 
 Usage:
     python scripts/generate_example_report.py --ep openvino --hardware npu --title "OpenVINO (Intel, NPU)"
+    python scripts/generate_example_report.py --all   # regenerate every EP/hw row
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+EXAMPLES = REPO_ROOT / "examples"
+MODELS_57 = REPO_ROOT / "scripts" / "e2e_eval" / "testsets" / "models_57.txt"
+
 PRECISIONS = ("fp16", "w8a16", "w8a8")
+_NPU_PRECISION_RE = re.compile(r"_(fp16|w8a16|w8a8)$")
+_CONFIG_NAME_RE = re.compile(r"^(?P<stem>.+?)_config(?:_(?P<role>.+))?\.json$")
+
+# (title, ep, hardware) for --all
+ROWS: list[tuple[str, str, str]] = [
+    ("AMD (VitisAI, NPU)", "vitisai", "npu"),
+    ("QNN (Qualcomm, NPU)", "qnn", "npu"),
+    ("OpenVINO (Intel, NPU)", "openvino", "npu"),
+    ("QNN (Qualcomm, GPU)", "qnn", "gpu"),
+    ("OpenVINO (Intel, CPU)", "openvino", "cpu"),
+    ("OpenVINO (Intel, GPU)", "openvino", "gpu"),
+    ("DML (GPU)", "dml", "gpu"),
+    ("MLAS (CPU)", "mlas", "cpu"),
+    ("NVIDIA TensorRT RTX (GPU)", "nv_tensorrt_rtx", "gpu"),
+]
+
+
+def load_target_pairs() -> set[tuple[str, str]]:
+    pairs: set[tuple[str, str]] = set()
+    for line in MODELS_57.read_text(encoding="utf-8-sig").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        hf_id, task = s.split("|", 1)
+        pairs.add((hf_id.strip().replace("/", "_"), task.strip()))
+    return pairs
+
+
+def extract_precision(stem: str) -> str:
+    m = _NPU_PRECISION_RE.search(stem)
+    return m.group(1) if m else ""
+
+
+def extract_task(stem: str, hardware: str) -> str:
+    if hardware == "npu":
+        m = _NPU_PRECISION_RE.search(stem)
+        if m:
+            return stem[: m.start()]
+        return stem
+    return stem.removesuffix("_fp16")
 
 
 def fmt_eval(eval_path: Path, link: str) -> str:
@@ -42,14 +94,14 @@ def fmt_eval(eval_path: Path, link: str) -> str:
         return f"PARSE_ERROR ([metric]({link}))"
 
 
-def status_cell(model_dir: Path, stem: str, kind: str) -> str:
+
+def status_cell(model_dir: Path, stem: str, kind: str, fmt) -> str:
     ok = model_dir / f"{stem}_{kind}_result.json"
     err = model_dir / f"{stem}_{kind}_result.error.txt"
     timeout = model_dir / f"{stem}_{kind}_result.timeout"
     slug = model_dir.name
     if ok.exists():
-        link = f"./{slug}/{ok.name}"
-        return fmt_eval(ok, link)
+        return fmt(ok, f"./{slug}/{ok.name}")
     if err.exists():
         return "FAIL"
     if timeout.exists():
@@ -57,73 +109,58 @@ def status_cell(model_dir: Path, stem: str, kind: str) -> str:
     return "\u2014"
 
 
-def extract_precision(stem: str) -> str:
-    for p in PRECISIONS:
-        if stem.endswith(f"_{p}"):
-            return p
-    return ""
-
-
-def extract_task(stem: str) -> str:
-    for p in PRECISIONS:
-        if stem.endswith(f"_{p}"):
-            return stem[: -(len(p) + 1)]
-    return stem
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate REPORT.md for an example EP folder")
-    parser.add_argument("--ep", required=True, help="EP folder, e.g. openvino")
-    parser.add_argument("--hardware", required=True, help="Hardware sub-folder, e.g. npu")
-    parser.add_argument("--title", required=True, help="Display name for report heading")
-    args = parser.parse_args()
-
-    ep_dir = REPO_ROOT / "examples" / args.ep / args.hardware
+def generate(ep: str, hardware: str, title: str) -> None:
+    ep_dir = EXAMPLES / ep / hardware
     if not ep_dir.exists():
         raise SystemExit(f"Directory not found: {ep_dir}")
 
-    model_dirs = sorted(d for d in ep_dir.iterdir() if d.is_dir())
-    configs = sorted(cfg for d in model_dirs for cfg in d.glob("*_config.json"))
+    target_pairs = load_target_pairs()
 
-    def _has(c: Path, kind: str, ext: str) -> bool:
-        stem = c.stem.replace("_config", "")
-        return (c.parent / f"{stem}_{kind}_result.{ext}").exists()
+    groups: list[tuple[Path, str]] = []
+    for model_dir in sorted(d for d in ep_dir.iterdir() if d.is_dir()):
+        seen: set[str] = set()
+        for cfg in sorted(model_dir.glob("*_config*.json")):
+            m = _CONFIG_NAME_RE.match(cfg.name)
+            if not m:
+                continue
+            stem = m.group("stem")
+            if stem in seen:
+                continue
+            seen.add(stem)
+            task = extract_task(stem, hardware)
+            if (model_dir.name, task) not in target_pairs:
+                continue
+            groups.append((model_dir, stem))
 
-    # Overall stats
-    eval_pass = sum(1 for c in configs if _has(c, "eval", "json"))
-    eval_fail = sum(1 for c in configs if _has(c, "eval", "error.txt"))
-    eval_timeout = sum(1 for c in configs if _has(c, "eval", "timeout"))
-    total = max(len(configs), 1)
+    def has(model_dir: Path, stem: str, kind: str, ext: str) -> bool:
+        return (model_dir / f"{stem}_{kind}_result.{ext}").exists()
 
-    # Per-precision stats
+    total = max(len(groups), 1)
+    eval_pass = sum(1 for d, s in groups if has(d, s, "eval", "json"))
+    distinct_pairs = {(d.name, extract_task(s, hardware)) for d, s in groups}
+
     prec_stats: dict[str, dict] = {}
-    for p in PRECISIONS:
-        p_configs = [c for c in configs if c.stem.replace("_config", "").endswith(f"_{p}")]
-        if not p_configs:
-            continue
-        p_models = len({c.parent.name for c in p_configs})
-        p_total = len(p_configs)
-        p_eval = sum(1 for c in p_configs if _has(c, "eval", "json"))
-        p_fail = sum(1 for c in p_configs if _has(c, "eval", "error.txt"))
-        p_timeout = sum(1 for c in p_configs if _has(c, "eval", "timeout"))
-        prec_stats[p] = {
-            "models": p_models,
-            "configs": p_total,
-            "eval_pass": p_eval,
-            "eval_fail": p_fail,
-            "eval_timeout": p_timeout,
-        }
+    if hardware == "npu":
+        for p in PRECISIONS:
+            p_groups = [(d, s) for d, s in groups if extract_precision(s) == p]
+            if not p_groups:
+                continue
+            prec_stats[p] = {
+                "pairs": len({(d.name, extract_task(s, hardware)) for d, s in p_groups}),
+                "configs": len(p_groups),
+                "eval_pass": sum(1 for d, s in p_groups if has(d, s, "eval", "json")),
+            }
 
     lines: list[str] = [
-        f"# {args.title} Report",
+        f"# {title} Report",
         "",
         "## Summary",
         "",
-        f"- Models: {len(model_dirs)}",
-        f"- Configs: {len(configs)}",
-        f"- Eval Pass: {eval_pass}/{len(configs)} ({100 * eval_pass / total:.0f}%)",
-        f"- Eval Fail: {eval_fail}/{len(configs)} ({100 * eval_fail / total:.0f}%)",
-        f"- Eval Timeout: {eval_timeout}/{len(configs)} ({100 * eval_timeout / total:.0f}%)",
+        "Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57.txt`.",
+        "",
+        f"- (Model, Task): {len(distinct_pairs)}",
+        f"- Configs: {len(groups)}",
+        f"- Eval Pass: {eval_pass}/{len(groups)} ({100 * eval_pass / total:.0f}%)",
     ]
 
     if prec_stats:
@@ -131,16 +168,14 @@ def main() -> None:
             "",
             "### Per-precision breakdown",
             "",
-            "| Precision | Models | Configs | Eval Pass | Eval Fail | Eval Timeout |",
-            "|---|---|---|---|---|---|",
+            "| Precision | (Model, Task) | Configs | Eval Pass |",
+            "|---|---|---|---|",
         ]
         for p, s in prec_stats.items():
             pt = max(s["configs"], 1)
             lines.append(
-                f"| {p} | {s['models']} | {s['configs']} "
-                f"| {s['eval_pass']}/{s['configs']} ({100 * s['eval_pass'] / pt:.0f}%) "
-                f"| {s['eval_fail']}/{s['configs']} ({100 * s['eval_fail'] / pt:.0f}%) "
-                f"| {s['eval_timeout']}/{s['configs']} ({100 * s['eval_timeout'] / pt:.0f}%) |"
+                f"| {p} | {s['pairs']} | {s['configs']} "
+                f"| {s['eval_pass']}/{s['configs']} ({100 * s['eval_pass'] / pt:.0f}%) |"
             )
 
     lines += [
@@ -152,25 +187,50 @@ def main() -> None:
     ]
 
     prev_slug = None
-    for cfg in configs:
-        model_dir = cfg.parent
+    for model_dir, stem in groups:
         slug = model_dir.name
-        stem = cfg.stem.replace("_config", "")
-        task = extract_task(stem)
+        task = extract_task(stem, hardware)
         precision = extract_precision(stem)
-
         hf_id = slug.replace("_", "/", 1)
 
         model_cell = hf_id if slug != prev_slug else ""
         prev_slug = slug
 
-        cfg_link = f"[config](./{slug}/{cfg.name})"
-        eval_cell = status_cell(model_dir, stem, "eval")
-        lines.append(f"| {model_cell} | {task} | {precision} | {cfg_link} | {eval_cell} |")
+        primary_cfg = model_dir / f"{stem}_config.json"
+        if not primary_cfg.exists():
+            split = sorted(model_dir.glob(f"{stem}_config_*.json"))
+            if split:
+                primary_cfg = split[0]
+        cfg_link = f"[config](./{slug}/{primary_cfg.name})"
+        eval_cell = status_cell(model_dir, stem, "eval", fmt_eval)
+        lines.append(
+            f"| {model_cell} | {task} | {precision} | {cfg_link} | {eval_cell} |"
+        )
 
     out = ep_dir / "REPORT.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"Wrote {out}")
+    print(
+        f"Wrote {out}  ((model,task)={len(distinct_pairs)}, configs={len(groups)}, "
+        f"eval={eval_pass})"
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate REPORT.md for an example EP folder")
+    parser.add_argument("--ep", help="EP folder, e.g. openvino")
+    parser.add_argument("--hardware", help="Hardware sub-folder, e.g. npu")
+    parser.add_argument("--title", help="Display name for report heading")
+    parser.add_argument("--all", action="store_true", help="Regenerate all known EP/hw reports")
+    args = parser.parse_args()
+
+    if args.all:
+        for title, ep, hw in ROWS:
+            generate(ep, hw, title)
+        return
+
+    if not (args.ep and args.hardware and args.title):
+        parser.error("--ep, --hardware, --title required unless --all is used")
+    generate(args.ep, args.hardware, args.title)
 
 
 if __name__ == "__main__":

@@ -125,18 +125,18 @@ def main() -> int:
         "",
         "Count basis is canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57.txt`.",
         "",
-        "| EP | (Model, Task) | Configs | Eval Pass | Eval Fail | Eval Timeout | Report |",
-        "|----|---------------|---------|-----------|-----------|--------------|--------|",
+        "| EP | (Model, Task) | Configs | Eval Pass | Report |",
+        "|----|---------------|---------|-----------|--------|",
     ]
 
     for label, ep, hw, prec, report in ROWS:
-        model_tasks, configs, ok, fail, tmo = collect(EXAMPLES / ep / hw, hw, prec, target_pairs)
+        model_tasks, configs, ok, _fail, _tmo = collect(EXAMPLES / ep / hw, hw, prec, target_pairs)
 
         def pct(x: int, tot: int) -> str:
             return f"{x}/{tot} ({100 * x / tot:.0f}%)" if tot else f"{x}/0 (0%)"
 
         out_lines.append(
-            f"| {label} | {model_tasks} | {configs} | {pct(ok, configs)} | {pct(fail, configs)} | {pct(tmo, configs)} | [Report]({report}) |"
+            f"| {label} | {model_tasks} | {configs} | {pct(ok, configs)} | [Report]({report}) |"
         )
 
     out_lines.append("")
