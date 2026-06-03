@@ -36,6 +36,25 @@ class TestEvaluationConfig:
         assert restored.dataset.path == config.dataset.path
         assert restored.dataset.columns_mapping == config.dataset.columns_mapping
 
+    def test_config_roundtrip_preserves_revision(self):
+        """DatasetConfig.revision survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="depth-estimation",
+            dataset=DatasetConfig(
+                path="sayakpaul/nyu_depth_v2",
+                revision="refs/convert/parquet",
+            ),
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.dataset.revision == "refs/convert/parquet"
+
+    def test_dataset_config_revision_default_is_none(self):
+        """Revision defaults to None when not specified."""
+        ds = DatasetConfig(path="some-dataset")
+        assert ds.revision is None
+        assert "revision" not in ds.to_dict()
+
     def test_eval_result_to_dict(self):
         config = WinMLEvaluationConfig(
             model_id="test/model",
@@ -370,6 +389,78 @@ class TestWinMLEvaluator:
         mock_ds.select.assert_called_once_with(range(50))
         # config.dataset.samples should NOT be mutated
         assert ev.config.dataset.samples == 100
+
+    @patch("evaluate.evaluator")
+    @patch("transformers.pipeline")
+    @patch("datasets.load_dataset")
+    def test_revision_passed_to_load_dataset(
+        self,
+        mock_load_ds,
+        mock_pipeline,
+        mock_hf_eval,
+    ):
+        """DatasetConfig.revision is forwarded to load_dataset()."""
+        from winml.modelkit.eval import WinMLEvaluator
+
+        mock_ds = MagicMock()
+        mock_ds.__len__ = lambda self: 10
+        mock_ds.shuffle.return_value = mock_ds
+        mock_ds.select.return_value = mock_ds
+        mock_load_ds.return_value = mock_ds
+        mock_pipeline.return_value = MagicMock()
+        mock_hf_eval.return_value = MagicMock(compute=MagicMock(return_value={}))
+
+        model = MagicMock()
+        model.config.label2id = None
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(
+                path="some/dataset",
+                samples=5,
+                revision="refs/convert/parquet",
+            ),
+        )
+
+        WinMLEvaluator(config, model)
+
+        mock_load_ds.assert_called_once()
+        assert mock_load_ds.call_args.kwargs["revision"] == "refs/convert/parquet"
+
+    @patch("evaluate.evaluator")
+    @patch("transformers.pipeline")
+    @patch("datasets.load_dataset")
+    def test_revision_defaults_to_none(
+        self,
+        mock_load_ds,
+        mock_pipeline,
+        mock_hf_eval,
+    ):
+        """When revision is unset, load_dataset receives revision=None."""
+        from winml.modelkit.eval import WinMLEvaluator
+
+        mock_ds = MagicMock()
+        mock_ds.__len__ = lambda self: 10
+        mock_ds.shuffle.return_value = mock_ds
+        mock_ds.select.return_value = mock_ds
+        mock_load_ds.return_value = mock_ds
+        mock_pipeline.return_value = MagicMock()
+        mock_hf_eval.return_value = MagicMock(compute=MagicMock(return_value={}))
+
+        model = MagicMock()
+        model.config.label2id = None
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="some/dataset", samples=5),
+        )
+
+        WinMLEvaluator(config, model)
+
+        mock_load_ds.assert_called_once()
+        assert mock_load_ds.call_args.kwargs["revision"] is None
 
     @patch("evaluate.evaluator")
     @patch("transformers.pipeline")
