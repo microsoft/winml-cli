@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import onnx
 import onnxruntime as ort
@@ -89,14 +89,14 @@ class CompileContext:
     @property
     def execution_provider(self) -> EPAlias:
         """Get target execution provider."""
-        return self.config.get("execution_provider", "qnn")
+        return cast("EPAlias", self.config.get("execution_provider", "qnn"))
 
     @property
     def enable_ep_context(self) -> bool:
         """Whether to generate EPContext model."""
-        return self.config.get("enable_ep_context", True)
+        return bool(self.config.get("enable_ep_context", True))
 
     @property
     def validate(self) -> bool:
         """Whether to validate compiled model."""
-        return self.config.get("validate", True)
+        return bool(self.config.get("validate", True))
