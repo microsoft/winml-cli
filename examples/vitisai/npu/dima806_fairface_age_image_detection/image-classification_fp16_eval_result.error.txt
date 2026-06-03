@@ -1,26 +1,3 @@
 WARNING: trust_remote_code is enabled - custom Python from the model repository
 will be downloaded and executed. Proceed only if you trust the publisher.
-[2026-05-27T12:19:44] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-
-  0%|          | 0/416 [00:00<?, ?it/s]
- 14%|█▍        | 59/416 [00:00<00:00, 530.74it/s]
- 47%|████▋     | 195/416 [00:00<00:00, 939.05it/s]
- 72%|███████▏  | 301/416 [00:00<00:00, 946.91it/s]
- 95%|█████████▌| 396/416 [00:00<00:00, 864.28it/s]
-100%|██████████| 416/416 [00:00<00:00, 847.84it/s]
-[2026-05-27T12:19:54] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-
-  0%|          | 0/368 [00:00<?, ?it/s]
- 15%|█▍        | 54/368 [00:00<00:00, 487.43it/s]
- 38%|███▊      | 140/368 [00:00<00:00, 693.02it/s]
- 68%|██████▊   | 249/368 [00:00<00:00, 850.91it/s]
- 91%|█████████ | 335/368 [00:00<00:00, 776.92it/s]
-100%|██████████| 368/368 [00:00<00:00, 775.37it/s]
-[2026-05-27T12:19:55] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-
-Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
-Aligning the labels: 100%|██████████| 10/10 [00:00<?, ? examples/s]
-
-Map:   0%|          | 0/10 [00:00<?, ? examples/s]
-Map: 100%|██████████| 10/10 [00:00<00:00, 212.75 examples/s]
 Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_fairface' is not compatible with task 'image-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_fairface' (name=None, split='validation'): Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_fairface.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task image-classification' to see the expected schema.

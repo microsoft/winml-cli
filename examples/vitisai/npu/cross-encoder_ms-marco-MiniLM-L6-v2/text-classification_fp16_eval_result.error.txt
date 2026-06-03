@@ -1,32 +1,13 @@
-, 92.08it/s]
- 64%|██████▍   | 129/202 [00:02<00:00, 105.90it/s]
- 71%|███████   | 143/202 [00:02<00:00, 107.11it/s]
- 79%|███████▉  | 160/202 [00:02<00:00, 114.55it/s]
- 86%|████████▌ | 174/202 [00:02<00:00, 117.76it/s]
- 95%|█████████▍| 191/202 [00:02<00:00, 127.18it/s]
-100%|██████████| 202/202 [00:03<00:00, 66.44it/s] 
-[2026-05-27T12:16:58] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-06-02T14:43:00] WARNING: --dataset not specified; attempting default dataset 'nyu-mll/glue' for task 'text-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
 
 Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
-Generating train split: 100%|██████████| 3668/3668 [00:00<00:00, 119864.33 examples/s]
+Generating train split: 100%|██████████| 3668/3668 [00:00<00:00, 527976.49 examples/s]
 
 Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
-Generating validation split: 100%|██████████| 408/408 [00:00<00:00, 30306.85 examples/s]
+Generating validation split: 100%|██████████| 408/408 [00:00<?, ? examples/s]
 
 Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
-Generating test split: 100%|██████████| 1725/1725 [00:00<00:00, 107208.42 examples/s]
-
-Map:   0%|          | 0/10 [00:00<?, ? examples/s]
-Map: 100%|██████████| 10/10 [00:00<00:00, 229.23 examples/s]
-
-Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
-Generating train split: 100%|██████████| 3668/3668 [00:00<00:00, 232085.37 examples/s]
-
-Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
-Generating validation split: 100%|██████████| 408/408 [00:00<00:00, 25447.24 examples/s]
-
-Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
-Generating test split: 100%|██████████| 1725/1725 [00:00<00:00, 108973.32 examples/s]
+Generating test split: 100%|██████████| 1725/1725 [00:00<?, ? examples/s]
 
 Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
 Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]

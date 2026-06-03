@@ -1,25 +1,2 @@
-000 [00:00<00:00, 8170.70 examples/s]
-Generating validation split:  39%|███▉      | 3934/10000 [00:00<00:00, 6805.44 examples/s]
-Generating validation split:  51%|█████▏    | 5134/10000 [00:00<00:00, 7485.25 examples/s]
-Generating validation split:  63%|██████▎   | 6334/10000 [00:00<00:00, 8345.84 examples/s]
-Generating validation split:  73%|███████▎  | 7267/10000 [00:00<00:00, 7651.41 examples/s]
-Generating validation split:  82%|████████▏ | 8167/10000 [00:01<00:00, 7691.32 examples/s]
-Generating validation split:  91%|█████████ | 9067/10000 [00:01<00:00, 7457.93 examples/s]
-Generating validation split: 100%|██████████| 10000/10000 [00:01<00:00, 7222.40 examples/s]
-Generating validation split: 100%|██████████| 10000/10000 [00:01<00:00, 7403.06 examples/s]
-
-Generating test split:   0%|          | 0/5000 [00:00<?, ? examples/s]
-Generating test split:  16%|█▌        | 800/5000 [00:00<00:00, 6192.04 examples/s]
-Generating test split:  40%|████      | 2000/5000 [00:00<00:00, 6243.04 examples/s]
-Generating test split:  64%|██████▍   | 3200/5000 [00:00<00:00, 6058.49 examples/s]
-Generating test split:  78%|███████▊  | 3900/5000 [00:00<00:00, 6131.38 examples/s]
-Generating test split:  92%|█████████▏| 4600/5000 [00:00<00:00, 6168.13 examples/s]
-Generating test split: 100%|██████████| 5000/5000 [00:00<00:00, 6045.53 examples/s]
-
-Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
-Aligning the labels: 100%|██████████| 100/100 [00:06<00:00, 14.40 examples/s]
-
-Filter:   0%|          | 0/100 [00:00<?, ? examples/s]
-Filter: 100%|██████████| 100/100 [00:00<00:00, 378.55 examples/s]
-Filter: 100%|██████████| 100/100 [00:00<00:00, 357.23 examples/s]
+[2026-06-02T14:21:59] WARNING: --dataset not specified; attempting default dataset 'timm/mini-imagenet' for task 'image-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
 Error: Evaluation failed: Dataset 'timm/mini-imagenet' is not compatible with task 'image-classification': No samples remain after label filtering. Dataset and model labels have no overlap.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task image-classification' to see the expected schema.

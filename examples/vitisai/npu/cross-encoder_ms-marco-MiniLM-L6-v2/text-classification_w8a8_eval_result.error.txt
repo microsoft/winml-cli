@@ -1,4 +1,4 @@
-[2026-05-27T22:06:44] WARNING: --dataset not specified; attempting default dataset 'nyu-mll/glue' for task 'text-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+[2026-06-02T14:45:38] WARNING: --dataset not specified; attempting default dataset 'nyu-mll/glue' for task 'text-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
 
 Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
 Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]

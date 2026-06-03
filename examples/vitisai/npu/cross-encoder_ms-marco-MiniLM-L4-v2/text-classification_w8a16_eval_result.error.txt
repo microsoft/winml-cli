@@ -1,13 +1,4 @@
-[2026-05-27T22:04:12] WARNING: --dataset not specified; attempting default dataset 'nyu-mll/glue' for task 'text-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
-
-Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
-Generating train split: 100%|██████████| 3668/3668 [00:00<00:00, 226192.47 examples/s]
-
-Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
-Generating validation split: 100%|██████████| 408/408 [00:00<00:00, 25302.01 examples/s]
-
-Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
-Generating test split: 100%|██████████| 1725/1725 [00:00<00:00, 418411.66 examples/s]
+[2026-06-02T14:40:42] WARNING: --dataset not specified; attempting default dataset 'nyu-mll/glue' for task 'text-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
 
 Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
 Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
