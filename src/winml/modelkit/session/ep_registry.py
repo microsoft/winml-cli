@@ -146,7 +146,7 @@ def _ensure_provider_ready(provider: Any) -> None:
 
     console = get_console()
     console.print(
-        f"[yellow][WinML] Installing Execution Provider: [bold]{provider.name}[/bold].[/yellow]"
+        f"[yellow][WinML] Installing Execution Provider: [bold]{provider.name}[/bold][/yellow]"
     )
 
     bar = _make_progress_bar()
