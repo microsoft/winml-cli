@@ -899,17 +899,17 @@ class TestONNXStaticAnalyzer:
 
         # Assertions
         assert isinstance(result, AnalysisResult)
-        # Should have results for all 4 EPs: QNN, OpenVINO, VitisAI, NvTensorRTRTX
-        assert len(result.output.results) == 4
+        # Should have results for all NPU-capable EPs: QNN, OpenVINO, VitisAI
+        # (NvTensorRTRTX only supports GPU, so it's excluded for device=NPU)
+        assert len(result.output.results) == 3
 
-        ihv_types = {r.ihv_type for r in result.output.results}
-        assert IHVType.QC in ihv_types
-        assert IHVType.INTEL in ihv_types
-        assert IHVType.AMD in ihv_types
-        assert IHVType.NVIDIA in ihv_types
+        ep_types = {r.ep_type for r in result.output.results}
+        assert "QNNExecutionProvider" in ep_types
+        assert "OpenVINOExecutionProvider" in ep_types
+        assert "VitisAIExecutionProvider" in ep_types
 
-        # Verify RuntimeChecker was called 4 times (once per EP)
-        assert mock_runtime_checker_cls.call_count == 4
+        # Verify RuntimeChecker was called 3 times (once per NPU-capable EP)
+        assert mock_runtime_checker_cls.call_count == 3
 
     @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
