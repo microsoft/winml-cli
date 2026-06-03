@@ -193,7 +193,7 @@ def device_option(
     )
 
 
-def verbosity_options(f: F) -> F:
+def verbosity_options():
     """Add verbose and quiet logging options to a Click command.
 
     Adds --verbose/-v (stackable: -v, -vv, -vvv) and --quiet/-q flags.
