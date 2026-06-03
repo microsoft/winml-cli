@@ -676,6 +676,99 @@ class TestPopulateImageSize:
         assert "height" not in shape_kwargs
         assert "width" not in shape_kwargs
 
+    def test_nested_dict_input_size_chw(self) -> None:
+        """``pretrained_cfg.input_size = [C, H, W]`` (timm) synthesizes a size dict."""
+        hf_config = SimpleNamespace(
+            pretrained_cfg={"input_size": [3, 224, 224], "mean": [0.485, 0.456, 0.406]},
+        )
+        shape_kwargs: dict = {}
+
+        # No preprocessor_config.json on the hub -> synthesize from hf_config.
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            side_effect=OSError("404"),
+        ):
+            _populate_image_size_from_preprocessor(
+                "timm/some-model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs["height"] == 224
+        assert shape_kwargs["width"] == 224
+
+    def test_preprocessor_takes_precedence_over_nested_dict(self) -> None:
+        """When preprocessor_config.json resolves, nested dict is not consulted."""
+        hf_config = SimpleNamespace(pretrained_cfg={"input_size": [3, 320, 320]})
+        shape_kwargs: dict = {}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            return_value=({"size": 384}, {}),
+        ):
+            _populate_image_size_from_preprocessor(
+                "some-model/id",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs["height"] == 384
+        assert shape_kwargs["width"] == 384
+
+    def test_nested_dict_input_size_scalar(self) -> None:
+        """``pretrained_cfg.input_size = [side]`` (length-1) maps to a square size."""
+        hf_config = SimpleNamespace(pretrained_cfg={"input_size": [320]})
+        shape_kwargs: dict = {}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            side_effect=OSError("404"),
+        ):
+            _populate_image_size_from_preprocessor(
+                "some/model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs["height"] == 320
+        assert shape_kwargs["width"] == 320
+
+    def test_pretrained_cfg_without_input_size_ignored(self) -> None:
+        """``pretrained_cfg`` without ``input_size`` (e.g. only mean/std) is skipped."""
+        hf_config = SimpleNamespace(
+            pretrained_cfg={"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]},
+        )
+        shape_kwargs: dict = {}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            side_effect=OSError("404"),
+        ):
+            _populate_image_size_from_preprocessor(
+                "some/model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs == {}
+
+    def test_existing_height_blocks_nested_dict_too(self) -> None:
+        """If height/width already set, nested-dict path must also be skipped."""
+        hf_config = SimpleNamespace(pretrained_cfg={"input_size": [3, 224, 224]})
+        shape_kwargs = {"height": 128}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            side_effect=OSError("404"),
+        ):
+            _populate_image_size_from_preprocessor(
+                "some/model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs == {"height": 128}
+
 
 # =============================================================================
 # PastKeyValueInputGenerator — shared KV cache dummy input generation

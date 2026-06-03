@@ -4840,6 +4840,28 @@
     "order": 6
   },
   {
+    "hf_id": "timm/mobilenetv3_small_100.lamb_in1k",
+    "task": "image-classification",
+    "model_type": "timm_wrapper",
+    "group": "Top200",
+    "priority": "P2",
+    "downloads": 0,
+    "last_update_time": "2024-01-01T00:00:00+00:00",
+    "optimum_supported": true,
+    "order": 1
+  },
+  {
+    "hf_id": "timm/repghostnet_200.in1k",
+    "task": "image-classification",
+    "model_type": "timm_wrapper",
+    "group": "Top200",
+    "priority": "P2",
+    "downloads": 0,
+    "last_update_time": "2024-01-01T00:00:00+00:00",
+    "optimum_supported": true,
+    "order": 2
+  },
+  {
     "hf_id": "timpal0l/mdeberta-v3-base-squad2",
     "task": "question-answering",
     "model_type": "deberta-v2",
