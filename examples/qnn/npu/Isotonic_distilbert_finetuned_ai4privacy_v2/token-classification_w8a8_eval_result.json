@@ -1,0 +1,352 @@
+{
+  "model_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\Isotonic_distilbert_finetuned_ai4privacy_v2\\token-classification_w8a8_build_artifacts\\model.onnx",
+  "task": "token-classification",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_ai4privacy",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_ai4privacy.py"
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\Isotonic_distilbert_finetuned_ai4privacy_v2\\token-classification_w8a8_eval_result.json",
+  "metrics": {
+    "ACCOUNTNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "ACCOUNTNUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "AGE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 9
+    },
+    "AMOUNT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "BIC": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "BITCOINADDRESS": {
+      "precision": 0.041666666666666664,
+      "recall": 0.07692307692307693,
+      "f1": 0.05405405405405406,
+      "number": 13
+    },
+    "BUILDINGNUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "CITY": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "COMPANYNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "COUNTY": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 4
+    },
+    "CREDITCARDCVV": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "CREDITCARDISSUER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "CREDITCARDNUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "CURRENCY": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "CURRENCYCODE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "CURRENCYNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "CURRENCYSYMBOL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "DATE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 16
+    },
+    "DOB": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "EMAIL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 9
+    },
+    "ETHEREUMADDRESS": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "FIRSTNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 32
+    },
+    "GENDER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 4
+    },
+    "HEIGHT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "IBAN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "IP": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "IPV4": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "IPV6": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "JOBAREA": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "JOBTITLE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 9
+    },
+    "JOBTYPE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "LASTNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 9
+    },
+    "LITECOINADDRESS": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "MASKEDNUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "MIDDLENAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "NEARBYGPSCOORDINATE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "ORDINALDIRECTION": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "PASSWORD": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 10
+    },
+    "PHONEIMEI": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "PHONENUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "PIN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 4
+    },
+    "PREFIX": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "SECONDARYADDRESS": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "SEX": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "SSN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "STATE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 9
+    },
+    "STREET": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 4
+    },
+    "TIME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "URL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "USERAGENT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "USERNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "VEHICLEVIN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "VEHICLEVRM": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "ZIPCODE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "overall_precision": 0.013513513513513514,
+    "overall_recall": 0.003194888178913738,
+    "overall_f1": 0.00516795865633075,
+    "overall_accuracy": 0.4958851674641148,
+    "total_time_in_seconds": 5.007567399996333,
+    "samples_per_second": 19.96977614321741,
+    "latency_in_seconds": 0.05007567399996333
+  }
+}

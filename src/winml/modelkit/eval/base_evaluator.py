@@ -89,8 +89,12 @@ class WinMLEvaluator:
             ds.samples,
         )
         try:
-            if ds.path and Path(ds.path).is_dir():
-                dataset = load_from_disk(ds.path)
+            ds_path_str = ds.path
+            ds_path_expanded = (
+                Path(ds_path_str).expanduser() if ds_path_str else None
+            )
+            if ds_path_expanded and ds_path_expanded.is_dir():
+                dataset = load_from_disk(str(ds_path_expanded))
             else:
                 dataset = load_dataset(
                     ds.path,

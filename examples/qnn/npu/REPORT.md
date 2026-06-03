@@ -6,15 +6,15 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 
 - (Model, Task): 57
 - Configs: 171
-- Eval Pass: 140/171 (82%)
+- Eval Pass: 146/171 (85%)
 
 ### Per-precision breakdown
 
 | Precision | (Model, Task) | Configs | Eval Pass |
 |---|---|---|---|
-| fp16 | 57 | 57 | 46/57 (81%) |
-| w8a16 | 57 | 57 | 47/57 (82%) |
-| w8a8 | 57 | 57 | 47/57 (82%) |
+| fp16 | 57 | 57 | 48/57 (84%) |
+| w8a16 | 57 | 57 | 49/57 (86%) |
+| w8a8 | 57 | 57 | 49/57 (86%) |
 
 ## Results
 
@@ -119,9 +119,9 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 | Intel/dpt-hybrid-midas | depth-estimation | fp16 | [config](./Intel_dpt-hybrid-midas/depth-estimation_fp16_config.json) | FAIL |
 |  | depth-estimation | w8a16 | [config](./Intel_dpt-hybrid-midas/depth-estimation_w8a16_config.json) | FAIL |
 |  | depth-estimation | w8a8 | [config](./Intel_dpt-hybrid-midas/depth-estimation_w8a8_config.json) | FAIL |
-| Isotonic/distilbert_finetuned_ai4privacy_v2 | token-classification | fp16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_config.json) | FAIL |
-|  | token-classification | w8a16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a16_config.json) | FAIL |
-|  | token-classification | w8a8 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a8_config.json) | FAIL |
+| Isotonic/distilbert_finetuned_ai4privacy_v2 | token-classification | fp16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_config.json) | overall_precision=0.7676, overall_recall=0.8339, overall_f1=0.7994, overall_accuracy=0.9409 ([metric](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_eval_result.json)) |
+|  | token-classification | w8a16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a16_config.json) | overall_precision=0.0000, overall_recall=0.0000, overall_f1=0.0000, overall_accuracy=0.5123 ([metric](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a16_eval_result.json)) |
+|  | token-classification | w8a8 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a8_config.json) | overall_precision=0.0135, overall_recall=0.0032, overall_f1=0.0052, overall_accuracy=0.4959 ([metric](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a8_eval_result.json)) |
 | Jean-Baptiste/camembert-ner-with-dates | token-classification | fp16 | [config](./Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_config.json) | FAIL |
 |  | token-classification | w8a16 | [config](./Jean-Baptiste_camembert-ner-with-dates/token-classification_w8a16_config.json) | FAIL |
 |  | token-classification | w8a8 | [config](./Jean-Baptiste_camembert-ner-with-dates/token-classification_w8a8_config.json) | FAIL |
@@ -188,6 +188,6 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 | valentinafeve/yolos-fashionpedia | object-detection | fp16 | [config](./valentinafeve_yolos-fashionpedia/object-detection_fp16_config.json) | map=0.0726, map_50=0.2095, map_75=0.0362, num_predictions=10000, num_ground_truths=726, num_images=100, map_small=0.0001, map_medium=0.0056, map_large=0.1203, mar_1=0.0966, mar_10=0.1410, mar_100=0.1420, mar_small=0.0008, mar_medium=0.0406, mar_large=0.2144, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./valentinafeve_yolos-fashionpedia/object-detection_fp16_eval_result.json)) |
 |  | object-detection | w8a16 | [config](./valentinafeve_yolos-fashionpedia/object-detection_w8a16_config.json) | map=0.0715, map_50=0.2082, map_75=0.0362, num_predictions=10000, num_ground_truths=726, num_images=100, map_small=0.0001, map_medium=0.0062, map_large=0.1192, mar_1=0.0937, mar_10=0.1399, mar_100=0.1410, mar_small=0.0008, mar_medium=0.0401, mar_large=0.2158, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./valentinafeve_yolos-fashionpedia/object-detection_w8a16_eval_result.json)) |
 |  | object-detection | w8a8 | [config](./valentinafeve_yolos-fashionpedia/object-detection_w8a8_config.json) | map=0.0831, map_50=0.1800, map_75=0.0686, num_predictions=10000, num_ground_truths=726, num_images=100, map_small=0.0015, map_medium=0.0133, map_large=0.1321, mar_1=0.1092, mar_10=0.1584, mar_100=0.1618, mar_small=0.0020, mar_medium=0.0517, mar_large=0.2524, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./valentinafeve_yolos-fashionpedia/object-detection_w8a8_eval_result.json)) |
-| w11wo/indonesian-roberta-base-posp-tagger | token-classification | fp16 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_fp16_config.json) | FAIL |
-|  | token-classification | w8a16 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a16_config.json) | FAIL |
-|  | token-classification | w8a8 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json) | FAIL |
+| w11wo/indonesian-roberta-base-posp-tagger | token-classification | fp16 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_fp16_config.json) | overall_precision=0.9676, overall_recall=0.9676, overall_f1=0.9676, overall_accuracy=0.9676 ([metric](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_fp16_eval_result.json)) |
+|  | token-classification | w8a16 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a16_config.json) | overall_precision=0.9680, overall_recall=0.9680, overall_f1=0.9680, overall_accuracy=0.9680 ([metric](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a16_eval_result.json)) |
+|  | token-classification | w8a8 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json) | overall_precision=0.2416, overall_recall=0.2416, overall_f1=0.2416, overall_accuracy=0.2416 ([metric](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_eval_result.json)) |
