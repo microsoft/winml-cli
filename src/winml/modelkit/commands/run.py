@@ -30,7 +30,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 
@@ -383,9 +383,9 @@ def _build_example_command(
     # Add a representative -P param with a sample value
     if params:
         for p in params:
-            val = p.get("sample_value")
-            if val is not None:
-                parts.append(f"-P {p['name']}={val}")
+            sample = p.get("sample_value")
+            if sample is not None:
+                parts.append(f"-P {p['name']}={sample}")
                 break
 
     return " ".join(parts)
@@ -561,11 +561,11 @@ def run(
     # Read file bytes (for --file shortcut)
     file_bytes_list: list[bytes] = []
     for fp in files:
-        p = Path(fp)
-        if not p.exists() or not p.is_file():
+        file_path = Path(fp)
+        if not file_path.exists() or not file_path.is_file():
             click.echo(f"Error: file not found: {fp}", err=True)
             ctx.exit(2)
-        file_bytes_list.append(p.read_bytes())
+        file_bytes_list.append(file_path.read_bytes())
 
     if len(file_bytes_list) > 1:
         click.echo(
@@ -643,7 +643,6 @@ def run(
     except click.ClickException as exc:
         click.echo(f"Error: {exc.format_message()}", err=True)
         ctx.exit(2)
-        return
 
     # Merge --file/--text shortcuts with --input
     try:
@@ -651,7 +650,6 @@ def run(
     except click.ClickException as exc:
         click.echo(f"Error: {exc.format_message()}", err=True)
         ctx.exit(2)
-        return
 
     # Check input / -P collision (after shortcuts are resolved so that
     # --file and --text shortcut keys are included in the check)
@@ -666,12 +664,12 @@ def run(
         ctx.exit(2)
 
     try:
-        result = engine.predict(inputs=inputs, **pipeline_kwargs)
+        prediction = engine.predict(inputs=inputs, **pipeline_kwargs)
     except (ValueError, TypeError, RuntimeError, OSError) as exc:
         click.echo(f"Error during inference: {exc}", err=True)
         ctx.exit(4)
 
-    _print_result(result.model_dump(), output_format=output_format, output_path=output)
+    _print_result(prediction.model_dump(), output_format=output_format, output_path=output)
 
 
 # ---------------------------------------------------------------------------
@@ -695,7 +693,7 @@ def _resolve_text_field_via_schema(client: Any, base_url: str) -> str:
             user_inputs = schema.get("user_inputs", [])
             text_fields = [f for f in user_inputs if f.get("type") == "text"]
             if len(text_fields) == 1:
-                return text_fields[0]["name"]
+                return str(text_fields[0]["name"])
     except Exception:
         logger.debug("Schema probe failed; falling back to field name 'text'", exc_info=True)
     return "text"
@@ -760,7 +758,7 @@ def _try_server_predict(
                     )
                 resp.raise_for_status()
                 logger.debug("Auto-connected to winml serve at %s", base_url)
-                return resp.json()
+                return cast("dict[Any, Any]", resp.json())
 
             # Route 2: no file → JSON /v1/predict with named inputs
             #   Coerce raw CLI strings (JSON arrays, numbers, booleans)
@@ -782,7 +780,7 @@ def _try_server_predict(
             )
             resp.raise_for_status()
             logger.debug("Auto-connected to winml serve at %s", base_url)
-            return resp.json()
+            return cast("dict[Any, Any]", resp.json())
     except (httpx.HTTPError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         logger.debug("Auto-connect failed (%s) — using embedded inference", exc)
         return None

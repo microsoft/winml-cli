@@ -386,6 +386,87 @@ class TestEvalConfigPrecedence:
 
 
 # ---------------------------------------------------------------------------
+# --label-mapping wiring (Click Path → label_mapping_file str)
+# ---------------------------------------------------------------------------
+
+
+class TestLabelMappingWiring:
+    """``--label-mapping`` is a Click ``Path`` that must land in
+    ``cfg.dataset.label_mapping_file`` (a ``str``), NOT in
+    ``cfg.dataset.label_mapping`` (the *parsed* ``dict[str, int] | None``).
+
+    The Click param name is ``label_mapping_path`` (distinct from the
+    ``DatasetConfig.label_mapping`` field) precisely so
+    ``cli_utils.collect_cli_overrides`` doesn't accidentally pass a Path
+    into the dict field. This test locks in that wiring.
+    """
+
+    def test_label_mapping_path_routes_to_file_field_not_dict_field(
+        self,
+        runner: CliRunner,
+        tmp_path,
+    ):
+        """--label-mapping <file> must set cfg.dataset.label_mapping_file (str)
+        and leave cfg.dataset.label_mapping (dict) untouched at this stage."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        # Sentinel mapping file; existence matters because Click validates the path.
+        label_file = tmp_path / "labels.json"
+        label_file.write_text(json.dumps({"cat": 0, "dog": 1}), encoding="utf-8")
+
+        captured_cfg: dict = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+
+            class _R:
+                config = cfg
+                metrics = {"accuracy": 1.0}  # noqa: RUF012
+
+                def to_dict(self):
+                    return {"metrics": self.metrics, "config": cfg.to_dict()}
+
+            return _R()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch(
+                "winml.modelkit.commands.eval._resolve_label_mapping",
+                return_value=None,
+            ),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "-m",
+                    "microsoft/resnet-50",
+                    "--task",
+                    "image-classification",
+                    "--label-mapping",
+                    str(label_file),
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+
+        # The CLI Path must land in label_mapping_file as a str — the field
+        # is serialized via to_dict(), so a Path would break JSON output.
+        assert cfg.dataset.label_mapping_file == str(label_file)
+        assert isinstance(cfg.dataset.label_mapping_file, str)
+
+        # label_mapping is the *parsed* dict and must stay at its default
+        # (None) until _resolve_label_mapping loads it at eval time. If the
+        # Click Path ever leaks into this field, this assertion fails — that
+        # was the bug introduced when ``collect_cli_overrides`` saw a Click
+        # param named ``label_mapping`` matching a same-named dataclass field.
+        assert cfg.dataset.label_mapping is None
+
+
+# ---------------------------------------------------------------------------
 # Per-task default dataset resolution
 # ---------------------------------------------------------------------------
 
