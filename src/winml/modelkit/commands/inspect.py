@@ -201,18 +201,18 @@ def inspect(
         if not _p.exists():
             raise click.ClickException(f"Local path '{model_id}' does not exist.")
 
+    # Merge top-level -v/-q with subcommand-level flags so either position
+    # works, once and up front. The banner decision below needs the merged
+    # --quiet (so both `winml --quiet inspect …` and `winml inspect -q`
+    # suppress it); configure_logging needs both. Single source of truth.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+
     # Print a banner BEFORE the heavy import chain / network calls so users
     # see immediate feedback instead of ~14 s of silence and assume the
     # command hung (see #543). Banner + spinner go to stderr so `--format
     # json` consumers still get clean stdout. Suppressed in --quiet mode
     # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
     # and JSON consumers expect clean stdout regardless).
-    #
-    # NOTE: this is an EARLY OR-merge of top-level --quiet, done before the
-    # banner so `winml --quiet inspect …` actually suppresses it. The full
-    # resolve_verbosity() merge happens below, before configure_logging() —
-    # the duplication is idempotent (OR), not a subtle ordering dependency.
-    quiet = quiet or bool(ctx.obj and ctx.obj.get("quiet"))
     json_mode = output_format.lower() == "json"
     target = model_id or model_type or model_class
     if not quiet and not json_mode:
@@ -221,8 +221,6 @@ def inspect(
     from ..inspect import InspectError, ModelNotFoundError, NetworkError
     from ..inspect.formatter import output_json, output_table
 
-    # Merge top-level -v/-q with subcommand-level flags so either position works.
-    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
     try:
