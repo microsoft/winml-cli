@@ -25,6 +25,8 @@ Usage:
     )
 """
 
+from typing import Any
+
 from .hf import BuildResult, build_hf_model
 from .onnx import build_onnx_model
 
@@ -42,7 +44,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load build helpers to avoid pulling in heavy deps at import time."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]

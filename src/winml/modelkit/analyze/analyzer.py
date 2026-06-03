@@ -838,14 +838,6 @@ class AnalyzeResult:
         """True if blocking errors (unsupported patterns) exist."""
         return self.lint.errors > 0
 
-    @property
-    def autoconf(self) -> WinMLOptimizationConfig | None:
-        """Auto-discovered optimization config, or None/empty if nothing found.
-
-        Falsy when no opportunities: ``if result.autoconf: ...``
-        """
-        return self.optimization_config
-
 
 def analyze_onnx(
     model: str | Path,
@@ -892,7 +884,7 @@ def analyze_onnx(
         >>> result = analyze_onnx("optimized.onnx", ep="qnn", device="NPU")
         >>> if result.has_errors:
         ...     print(f"Errors: {result.lint.error_patterns}")
-        >>> if result.autoconf:
+        >>> if result.optimization_config:
         ...     print(f"Autoconf: {result.optimization_config.to_dict()}")
 
         >>> # Save full analysis JSON alongside the model

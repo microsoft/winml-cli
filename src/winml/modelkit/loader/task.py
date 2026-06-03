@@ -8,7 +8,9 @@ Uses TasksManager.infer_task_from_model() as PRIMARY approach per design spec.
 
 Public API:
     resolve_task_and_model_class  - Main orchestrator (3 resolution cases)
+    resolve_optimum_library      - Route a model_type to the Optimum export library
     normalize_task               - Map task aliases to canonical names
+    to_optimum_task              - Collapse a WinMLTask to its Optimum-canonical form
     get_task_abbrev              - Abbreviated task name for cache keys
     get_supported_tasks          - List ONNX-exportable tasks for a model type
 
@@ -153,6 +155,40 @@ HF_TASK_DEFAULTS: dict[str, str] = {
 MODEL_TASK_MAPPING: dict[tuple[str, str | None], str] = {
     ("prajjwal1/bert-tiny", None): "feature-extraction",
 }
+
+# Some transformers model_types are generic wrappers that expose an entire other
+# library through a single type (e.g. timm via "timm_wrapper"). Such configs
+# carry no `architectures` field, and their Optimum ONNX export config is
+# registered under the wrapped library, not "transformers". This is a
+# library-routing concern handled at the common resolution layer (the loader
+# below and export.io._get_onnx_config), not a per-model OnnxConfig.
+#
+# Only the library is recorded here -- it is the irreducible Optimum-taxonomy
+# fact. The export task is derived from Optimum's task list for that library
+# (get_supported_tasks), not hardcoded.
+# model_type -> optimum_library
+WRAPPED_LIBRARY_MODEL_TYPES: dict[str, str] = {
+    "timm_wrapper": "timm",
+}
+
+
+def resolve_optimum_library(model_type: str | None, library_name: str = "transformers") -> str:
+    """Route a transformers model_type to the Optimum library that owns its export.
+
+    Most models export under the library they were requested with. A few
+    transformers model_types are thin wrappers whose Optimum OnnxConfig lives in
+    another library (see :data:`WRAPPED_LIBRARY_MODEL_TYPES`); route those so the
+    OnnxConfig lookup succeeds without an explicit ``--library`` flag.
+
+    Only the ``"transformers"`` library is rerouted, so an explicit
+    non-``"transformers"`` library is returned unchanged. (An explicit
+    ``--library transformers`` is indistinguishable from the default and is
+    still rerouted for wrapped types -- harmless, since those types have no
+    OnnxConfig registered under transformers anyway.)
+    """
+    if library_name == "transformers" and model_type in WRAPPED_LIBRARY_MODEL_TYPES:
+        return WRAPPED_LIBRARY_MODEL_TYPES[model_type]
+    return library_name
 
 
 # =============================================================================
@@ -314,8 +350,49 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
         return resolve_task_and_model_class(config, task=override_task)
 
     # [1] Resolve architecture class from config.
-    # If config.architectures is missing/empty, this raises ValueError and the
-    # caller should provide task explicitly.
+    # Some model_types (e.g. timm via "timm_wrapper") are generic library
+    # wrappers that carry no `architectures` field. Resolve those through their
+    # wrapped library: the task comes from Optimum's task list for that library
+    # (not hardcoded), and the class from get_model_class_for_task (a generic
+    # Auto* class that transformers dispatches to the wrapper at load).
+    if not getattr(config, "architectures", None):
+        model_type = getattr(config, "model_type", None)
+        library = WRAPPED_LIBRARY_MODEL_TYPES.get(model_type) if model_type else None
+        if library is not None:
+            # Populate Optimum's exporter registry (incl. the wrapped library's
+            # task list) before querying it; scoped to this rare branch so normal
+            # model loading never pays for the import.
+            import optimum.exporters.onnx.model_configs  # noqa: F401
+
+            supported = get_supported_tasks(model_type, library_name=library)
+            if supported:
+                # A wrapped library exposes a single ONNX export task today
+                # (timm -> "image-classification"), so supported[0] is the right
+                # default. If one ever exposes multiple, supported[0] is an
+                # arbitrary pick -- warn (listing the tasks) but still proceed;
+                # pass --task to choose a different one.
+                task = supported[0]
+                if len(supported) > 1:
+                    logger.warning(
+                        "config has no 'architectures' and the %s library exposes "
+                        "multiple export tasks for %s %s; defaulting to %r "
+                        "(pass --task to choose another).",
+                        library,
+                        model_type,
+                        supported,
+                        task,
+                    )
+                model_class = TasksManager.get_model_class_for_task(task, framework="pt")
+                logger.info(
+                    "config has no 'architectures'; resolved %s via %s library (task=%s, class=%s)",
+                    model_type,
+                    library,
+                    task,
+                    model_class.__name__,
+                )
+                return task, model_class
+    # If config.architectures is still missing/empty, this raises ValueError and
+    # the caller should provide task explicitly.
     arch_model_class = _resolve_model_class_from_config(config)
     arch_name = arch_model_class.__name__
 
@@ -426,6 +503,43 @@ def normalize_task(task: str) -> str:
     Returns:
         Canonical task name
     """
+    from optimum.exporters.tasks import TasksManager
+
+    return TasksManager.map_from_synonym(task)
+
+
+# WinML task-synonym extensions — extend Optimum's ``TasksManager.map_from_synonym``
+# for tasks it does not recognize or mis-maps. Entries here take priority over Optimum.
+TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
+    # next-sentence-prediction has the same I/O as text-classification: input_ids -> logits
+    "next-sentence-prediction": "text-classification",
+    # mask-generation is registered via register_onnx_overwrite for SAM2.
+    # Optimum incorrectly maps it to "feature-extraction"; preserve as-is.
+    "mask-generation": "mask-generation",
+}
+
+
+def to_optimum_task(task: str) -> str:
+    """Map a task name to its Optimum-canonical form, extending Optimum's synonyms.
+
+    This is the single WinML -> Optimum boundary translation: call it only at the
+    moment of an Optimum API call (e.g. ``TasksManager.get_exporter_config_constructor``).
+    The result is lossy — modality-aware names collapse
+    (``image-feature-extraction`` -> ``feature-extraction``).
+
+    WinML extensions in ``TASK_SYNONYM_EXTENSIONS`` take priority and short-circuit
+    before Optimum, which may otherwise mis-normalize custom-registered tasks such as
+    ``mask-generation``.
+
+    Args:
+        task: Task name (a WinMLTask or an alias).
+
+    Returns:
+        Optimum-canonical task name.
+    """
+    if task in TASK_SYNONYM_EXTENSIONS:
+        return TASK_SYNONYM_EXTENSIONS[task]
+
     from optimum.exporters.tasks import TasksManager
 
     return TasksManager.map_from_synonym(task)

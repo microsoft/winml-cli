@@ -7,12 +7,12 @@
       "input_constraints": {
         "X": {
           "type": "shape",
-          "shape": [
-            1
-          ]
+          "shape": [],
+          "min_max": null
         }
       },
       "attrs": {},
+      "dynamic_axes": {},
       "input_is_constant": {
         "X": false
       },
@@ -22,16 +22,53 @@
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (264 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (621 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (448 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (351 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (34 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (24 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (878 us)\nStarting stage: Completion\nCompleted stage: Completion (7 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (508 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (986 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (550 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (577 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (207 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (256 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (2890 us)\nStarting stage: Completion\nCompleted stage: Completion (64 us)\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         },
         "run": {
           "result": {
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (384 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (999 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (450 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (575 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (45 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (27 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (3628 us)\nStarting stage: Completion\nCompleted stage: Completion (13 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([False])]\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (511 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1082 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (597 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (607 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (218 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (280 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (898 us)\nStarting stage: Completion\nCompleted stage: Completion (67 us)\nRun outputs: [array(False)]\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
+        }
+      }
+    },
+    {
+      "type_vars": {
+        "T_Not": "BOOL"
+      },
+      "input_constraints": {
+        "X": {
+          "type": "shape",
+          "shape": [
+            1
+          ],
+          "min_max": null
+        }
+      },
+      "attrs": {},
+      "dynamic_axes": {},
+      "input_is_constant": {
+        "X": false
+      },
+      "check_result": {
+        "compile": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (604 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1030 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (562 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (592 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (209 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (259 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (2797 us)\nStarting stage: Completion\nCompleted stage: Completion (66 us)\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
+        },
+        "run": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (559 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (948 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (681 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (599 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (210 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (269 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (2789 us)\nStarting stage: Completion\nCompleted stage: Completion (72 us)\nRun outputs: [array([False])]\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         }
       }
     },
@@ -44,10 +81,12 @@
           "type": "shape",
           "shape": [
             6
-          ]
+          ],
+          "min_max": null
         }
       },
       "attrs": {},
+      "dynamic_axes": {},
       "input_is_constant": {
         "X": false
       },
@@ -57,16 +96,16 @@
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (312 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (926 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (449 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (500 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (51 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (31 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (3500 us)\nStarting stage: Completion\nCompleted stage: Completion (14 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (551 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (994 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (548 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (695 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (267 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (265 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (891 us)\nStarting stage: Completion\nCompleted stage: Completion (66 us)\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         },
         "run": {
           "result": {
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (496 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1071 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (474 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (480 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (45 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (23 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (873 us)\nStarting stage: Completion\nCompleted stage: Completion (10 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([ True, False, False, False, False,  True])]\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (745 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1152 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (568 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (584 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (206 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (257 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (2770 us)\nStarting stage: Completion\nCompleted stage: Completion (67 us)\nRun outputs: [array([False, False, False, False, False, False])]\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         }
       }
     },
@@ -80,10 +119,12 @@
           "shape": [
             4,
             5
-          ]
+          ],
+          "min_max": null
         }
       },
       "attrs": {},
+      "dynamic_axes": {},
       "input_is_constant": {
         "X": false
       },
@@ -93,16 +134,16 @@
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (338 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (524 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (354 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (336 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (33 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (23 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (828 us)\nStarting stage: Completion\nCompleted stage: Completion (7 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (557 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1404 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (643 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (692 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (223 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (269 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (915 us)\nStarting stage: Completion\nCompleted stage: Completion (66 us)\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         },
         "run": {
           "result": {
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (312 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1126 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (482 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (515 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (53 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (31 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (3391 us)\nStarting stage: Completion\nCompleted stage: Completion (9 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[ True, False, False, False, False],\n       [False,  True,  True, False,  True],\n       [ True, False,  True, False, False],\n       [False, False,  True, False,  True]])]\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (522 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (908 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (556 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (627 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (206 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (255 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (889 us)\nStarting stage: Completion\nCompleted stage: Completion (64 us)\nRun outputs: [array([[ True, False,  True,  True, False],\n       [False,  True,  True, False,  True],\n       [False,  True,  True,  True,  True],\n       [False,  True,  True, False, False]])]\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         }
       }
     },
@@ -117,10 +158,12 @@
             3,
             2,
             5
-          ]
+          ],
+          "min_max": null
         }
       },
       "attrs": {},
+      "dynamic_axes": {},
       "input_is_constant": {
         "X": false
       },
@@ -130,16 +173,16 @@
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (378 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (745 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (350 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (410 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (38 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (28 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (3359 us)\nStarting stage: Completion\nCompleted stage: Completion (31 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (563 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1090 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (592 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (871 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (692 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (333 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (763 us)\nStarting stage: Completion\nCompleted stage: Completion (72 us)\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         },
         "run": {
           "result": {
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (266 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (922 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (328 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (351 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (46 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (21 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (2439 us)\nStarting stage: Completion\nCompleted stage: Completion (9 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[[False, False, False,  True, False],\n        [False, False,  True,  True, False]],\n\n       [[ True,  True,  True,  True,  True],\n        [False,  True, False, False, False]],\n\n       [[ True,  True, False, False,  True],\n        [False,  True, False, False,  True]]])]\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (664 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1371 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (574 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (600 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (270 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (267 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (996 us)\nStarting stage: Completion\nCompleted stage: Completion (68 us)\nRun outputs: [array([[[ True,  True,  True, False,  True],\n        [False,  True, False, False, False]],\n\n       [[False, False, False,  True,  True],\n        [ True,  True,  True,  True, False]],\n\n       [[False,  True, False, False,  True],\n        [False, False,  True,  True, False]]])]\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         }
       }
     },
@@ -155,10 +198,12 @@
             4,
             5,
             6
-          ]
+          ],
+          "min_max": null
         }
       },
       "attrs": {},
+      "dynamic_axes": {},
       "input_is_constant": {
         "X": false
       },
@@ -168,16 +213,16 @@
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (272 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (665 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (327 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (399 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (36 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (21 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=4096\nread_total_bytes=4096\n\nCompleted stage: Finalizing Graph Sequence (896 us)\nStarting stage: Completion\nCompleted stage: Completion (8 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (489 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1125 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (592 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (830 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (477 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (290 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=4096\nread_total_bytes=4096\n\nCompleted stage: Finalizing Graph Sequence (1147 us)\nStarting stage: Completion\nCompleted stage: Completion (68 us)\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         },
         "run": {
           "result": {
             "success": true,
             "reason": null
           },
-          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (218 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (641 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (345 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (377 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (38 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (21 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=4096\nread_total_bytes=4096\n\nCompleted stage: Finalizing Graph Sequence (797 us)\nStarting stage: Completion\nCompleted stage: Completion (8 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[[[False,  True,  True, False,  True, False],\n         [False, False,  True, False,  True,  True],\n         [False, False, False,  True, False,  True],\n         [False,  True,  True, False, False,  True],\n         [False, False,  True, False,  True, False]],\n\n        [[ True,  True, False,  True,  True,  True],\n         [ True,  True,  True,  True, False,  True],\n         [False, False, False,  True, False, False],\n         [ True, False,  True, False,  True, False],\n         [False, False,  True,  True,  True,  True]],\n\n        [[ True, False,  True, False, False,  True],\n         [False,  True, False, False, False,  True],\n         [ True,  True, False,  True,  True,  True],\n         [False, False,  True,  True, False, False],\n         [ True,  True,  True,  True,  True,  True]],\n\n        [[ True, False, False, False,  True,  True],\n         [False,  True, False,  True, False,  True],\n         [False,  True,  True, False, False, False],\n         [ True, False, False,  True, False, False],\n         [ True,  True,  True,  True, False,  True]]],\n\n\n       [[[False, False,  True, False, False, False],\n         [ True, False,  True, False, False, False],\n         [ True, False, False,  True,  True, False],\n         [False, False, False, False,  True,  True],\n         [ True,  True, False,  True, False, False]],\n\n        [[ True,  True, False,  True, False, False],\n         [ True,  True,  True,  True, False,  True],\n         [ True,  True,  True, False, False,  True],\n         [False, False, False,  True,  True, False],\n         [ True,  True, False, False,  True, False]],\n\n        [[False, False,  True, False,  True,  True],\n         [ True, False, False, False, False, False],\n         [False,  True,  True, False, False,  True],\n         [False,  True,  True,  True, False,  True],\n         [ True, False, False, False, False, False]],\n\n        [[ True, False, False,  True,  True,  True],\n         [False,  True,  True, False, False, False],\n         [ True, False,  True,  True, False, False],\n         [False,  True,  True, False, False,  True],\n         [ True,  True, False,  True,  True,  True]]]])]\n",
-          "stderr": ""
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (502 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1147 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (694 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (640 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (212 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (289 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=4096\nread_total_bytes=4096\n\nCompleted stage: Finalizing Graph Sequence (1813 us)\nStarting stage: Completion\nCompleted stage: Completion (66 us)\nRun outputs: [array([[[[False, False, False,  True,  True,  True],\n         [False, False, False,  True,  True, False],\n         [False, False,  True, False, False, False],\n         [ True,  True,  True, False, False,  True],\n         [ True, False, False,  True, False,  True]],\n\n        [[ True,  True,  True, False,  True,  True],\n         [False,  True, False,  True, False, False],\n         [ True,  True, False,  True,  True, False],\n         [ True, False,  True,  True,  True,  True],\n         [False,  True, False, False, False, False]],\n\n        [[False, False,  True, False,  True, False],\n         [False, False, False, False, False,  True],\n         [ True,  True,  True, False, False, False],\n         [ True, False, False, False,  True,  True],\n         [ True,  True,  True,  True, False,  True]],\n\n        [[False,  True,  True,  True, False, False],\n         [ True,  True,  True,  True, False, False],\n         [False,  True, False, False,  True, False],\n         [False,  True,  True,  True, False, False],\n         [ True, False, False, False, False, False]]],\n\n\n       [[[False, False,  True,  True,  True,  True],\n         [ True, False,  True,  True, False,  True],\n         [ True, False,  True,  True,  True, False],\n         [False,  True,  True, False,  True, False],\n         [False,  True,  True, False, False,  True]],\n\n        [[False,  True, False, False, False, False],\n         [False,  True, False, False,  True, False],\n         [False,  True,  True,  True,  True, False],\n         [ True,  True,  True,  True, False, False],\n         [False,  True,  True, False, False,  True]],\n\n        [[False, False, False, False, False,  True],\n         [False, False,  True,  True,  True,  True],\n         [ True,  True,  True,  True, False, False],\n         [False, False,  True,  True, False, False],\n         [False,  True, False, False, False, False]],\n\n        [[ True, False, False,  True,  True,  True],\n         [ True,  True, False, False,  True,  True],\n         [ True, False,  True,  True, False, False],\n         [False, False,  True,  True, False, False],\n         [ True, False,  True, False, False, False]]]])]\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         }
       }
     },
@@ -194,10 +239,12 @@
             3,
             4,
             5
-          ]
+          ],
+          "min_max": null
         }
       },
       "attrs": {},
+      "dynamic_axes": {},
       "input_is_constant": {
         "X": false
       },
@@ -205,18 +252,18 @@
         "compile": {
           "result": {
             "success": false,
-            "reason": "[ONNXRuntimeError] : 1 : FAIL : graph_partitioner.cc:816 onnxruntime::CreateEpContextModel Unable to compile any nodes. Check that the session EPs support compilation and can execute at least one subgraph in the model."
+            "reason": "[ONNXRuntimeError] : 1 : FAIL : graph_partitioner.cc:825 onnxruntime::CreateEpContextModel Unable to compile any nodes. Check that the session EPs support compilation and can execute at least one subgraph in the model."
           },
-          "stdout": "Adding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
-          "stderr": "\u001b[0;93m2025-12-08 16:49:54.0737702 [W:onnxruntime:, qnn_model_wrapper.cc:263 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `n0` of type `ElementWiseNot` with error code 3110\n\u001b[m\n"
+          "stdout": "",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         },
         "run": {
           "result": {
             "success": true,
             "reason": null
           },
-          "stdout": "Adding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[[[[False, False,  True,  True, False],\n          [False,  True, False, False, False],\n          [ True, False, False, False, False],\n          [False, False,  True, False,  True]],\n\n         [[False, False,  True, False, False],\n          [ True, False,  True, False,  True],\n          [ True, False, False,  True,  True],\n          [False, False,  True,  True,  True]],\n\n         [[False,  True, False,  True, False],\n          [ True,  True,  True,  True,  True],\n          [ True, False,  True, False, False],\n          [ True, False, False, False,  True]]],\n\n\n        [[[False,  True, False, False,  True],\n          [False, False,  True,  True,  True],\n          [ True, False, False,  True, False],\n          [False,  True, False, False,  True]],\n\n         [[ True, False, False,  True,  True],\n          [False,  True,  True, False,  True],\n          [False, False,  True, False,  True],\n          [False, False,  True,  True,  True]],\n\n         [[False, False,  True,  True,  True],\n          [ True, False,  True,  True,  True],\n          [False,  True, False, False,  True],\n          [False,  True, False,  True,  True]]]],\n\n\n\n       [[[[False,  True,  True,  True, False],\n          [ True,  True,  True, False, False],\n          [False,  True, False,  True,  True],\n          [ True, False, False, False,  True]],\n\n         [[False,  True,  True, False,  True],\n          [ True,  True,  True, False,  True],\n          [False,  True, False,  True,  True],\n          [ True,  True,  True, False,  True]],\n\n         [[ True,  True,  True,  True, False],\n          [ True, False, False,  True,  True],\n          [ True,  True, False,  True,  True],\n          [False,  True, False,  True, False]]],\n\n\n        [[[ True,  True, False,  True,  True],\n          [ True,  True,  True,  True, False],\n          [ True, False, False,  True, False],\n          [False, False, False,  True,  True]],\n\n         [[False, False, False, False, False],\n          [False,  True,  True, False,  True],\n          [ True,  True,  True, False, False],\n          [ True,  True,  True, False, False]],\n\n         [[False,  True,  True, False, False],\n          [ True, False,  True,  True,  True],\n          [ True,  True,  True, False, False],\n          [ True,  True, False, False, False]]]]])]\n",
-          "stderr": "\u001b[0;93m2025-12-08 16:49:54.4804230 [W:onnxruntime:, qnn_model_wrapper.cc:263 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `n0` of type `ElementWiseNot` with error code 3110\n\u001b[m\n"
+          "stdout": "Run outputs: [array([[[[[False, False,  True,  True,  True],\n          [False, False, False, False, False],\n          [False,  True, False, False, False],\n          [False, False, False,  True, False]],\n\n         [[ True,  True, False,  True,  True],\n          [False,  True, False, False,  True],\n          [False, False, False,  True, False],\n          [ True, False,  True,  True, False]],\n\n         [[False, False,  True, False, False],\n          [False,  True,  True,  True, False],\n          [ True, False,  True,  True,  True],\n          [ True,  True, False,  True,  True]]],\n\n\n        [[[ True, False,  True,  True, False],\n          [False, False,  True, False, False],\n          [ True,  True,  True,  True,  True],\n          [False, False, False, False, False]],\n\n         [[False, False,  True, False, False],\n          [ True, False,  True,  True, False],\n          [False,  True, False, False, False],\n          [ True, False,  True,  True, False]],\n\n         [[ True,  True,  True, False,  True],\n          [False,  True,  True, False, False],\n          [ True, False, False, False, False],\n          [False,  True, False,  True,  True]]]],\n\n\n\n       [[[[False,  True,  True, False,  True],\n          [ True,  True,  True, False,  True],\n          [ True,  True, False,  True,  True],\n          [False, False, False, False, False]],\n\n         [[ True,  True,  True, False,  True],\n          [ True, False,  True, False,  True],\n          [False, False, False, False,  True],\n          [False, False, False,  True,  True]],\n\n         [[False,  True, False, False, False],\n          [ True, False,  True, False, False],\n          [False,  True,  True,  True,  True],\n          [ True,  True, False,  True,  True]]],\n\n\n        [[[ True, False,  True, False, False],\n          [False, False,  True,  True,  True],\n          [ True, False,  True,  True, False],\n          [ True, False, False, False, False]],\n\n         [[False,  True, False,  True,  True],\n          [ True, False, False, False, False],\n          [False,  True, False, False, False],\n          [ True,  True, False,  True, False]],\n\n         [[ True, False,  True,  True, False],\n          [ True, False,  True, False,  True],\n          [False, False,  True, False,  True],\n          [ True, False,  True, False,  True]]]]])]\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         }
       }
     },
@@ -234,10 +281,12 @@
             2,
             2,
             2
-          ]
+          ],
+          "min_max": null
         }
       },
       "attrs": {},
+      "dynamic_axes": {},
       "input_is_constant": {
         "X": false
       },
@@ -245,18 +294,18 @@
         "compile": {
           "result": {
             "success": false,
-            "reason": "[ONNXRuntimeError] : 1 : FAIL : graph_partitioner.cc:816 onnxruntime::CreateEpContextModel Unable to compile any nodes. Check that the session EPs support compilation and can execute at least one subgraph in the model."
+            "reason": "[ONNXRuntimeError] : 1 : FAIL : graph_partitioner.cc:825 onnxruntime::CreateEpContextModel Unable to compile any nodes. Check that the session EPs support compilation and can execute at least one subgraph in the model."
           },
-          "stdout": "Adding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
-          "stderr": "\u001b[0;93m2025-12-08 16:49:54.9575328 [W:onnxruntime:, qnn_model_wrapper.cc:263 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `n0` of type `ElementWiseNot` with error code 3110\n\u001b[m\n"
+          "stdout": "",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         },
         "run": {
           "result": {
             "success": true,
             "reason": null
           },
-          "stdout": "Adding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[[[[[ True, False],\n           [ True, False]],\n\n          [[ True,  True],\n           [False,  True]]],\n\n\n         [[[ True, False],\n           [False, False]],\n\n          [[ True,  True],\n           [ True, False]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[ True, False],\n           [False, False]]]],\n\n\n\n        [[[[False, False],\n           [ True, False]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[ True,  True],\n           [False, False]],\n\n          [[False, False],\n           [ True, False]]]],\n\n\n\n        [[[[False, False],\n           [ True, False]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[ True,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [ True,  True]]]],\n\n\n\n        [[[[False,  True],\n           [ True, False]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [ True,  True]]]],\n\n\n\n        [[[[ True,  True],\n           [ True,  True]],\n\n          [[False, False],\n           [ True,  True]]],\n\n\n         [[[ True, False],\n           [ True, False]],\n\n          [[False, False],\n           [ True,  True]]]]],\n\n\n\n\n       [[[[[ True,  True],\n           [ True, False]],\n\n          [[False, False],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[ True,  True],\n           [False,  True]]]],\n\n\n\n        [[[[ True, False],\n           [ True, False]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[ True, False],\n           [False, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[False, False],\n           [False,  True]],\n\n          [[False,  True],\n           [False, False]]]],\n\n\n\n        [[[[False,  True],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[ True,  True],\n           [False, False]],\n\n          [[ True, False],\n           [False,  True]]]],\n\n\n\n        [[[[False, False],\n           [ True,  True]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [ True, False]],\n\n          [[False,  True],\n           [False, False]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [ True,  True]]],\n\n\n         [[[False, False],\n           [False,  True]],\n\n          [[False, False],\n           [ True,  True]]]]],\n\n\n\n\n       [[[[[False, False],\n           [ True,  True]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[ True,  True],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[False,  True],\n           [False,  True]]],\n\n\n         [[[False, False],\n           [False, False]],\n\n          [[False,  True],\n           [False, False]]]],\n\n\n\n        [[[[False,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [False,  True]]],\n\n\n         [[[ True, False],\n           [False, False]],\n\n          [[ True, False],\n           [ True, False]]]],\n\n\n\n        [[[[False,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [ True,  True]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [ True, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[ True, False],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [ True,  True]],\n\n          [[ True, False],\n           [ True, False]]]]],\n\n\n\n\n       [[[[[ True, False],\n           [False,  True]],\n\n          [[ True,  True],\n           [False,  True]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[False, False],\n           [ True, False]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[ True, False],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [ True,  True]],\n\n          [[False, False],\n           [ True,  True]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[ True, False],\n           [ True,  True]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[False,  True],\n           [ True,  True]]],\n\n\n         [[[False, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False,  True]]]],\n\n\n\n        [[[[False,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[False,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [ True, False]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [ True,  True]],\n\n          [[ True, False],\n           [ True,  True]]]]],\n\n\n\n\n       [[[[[False,  True],\n           [False, False]],\n\n          [[ True, False],\n           [ True,  True]]],\n\n\n         [[[ True, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False, False]]]],\n\n\n\n        [[[[False,  True],\n           [False, False]],\n\n          [[False, False],\n           [False, False]]],\n\n\n         [[[ True,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [ True,  True]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [ True,  True]],\n\n          [[ True, False],\n           [ True,  True]]]],\n\n\n\n        [[[[False, False],\n           [ True, False]],\n\n          [[ True, False],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False, False]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[False, False],\n           [ True, False]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[False, False],\n           [ True,  True]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[ True, False],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [ True, False]],\n\n          [[ True,  True],\n           [False,  True]]]]],\n\n\n\n\n       [[[[[ True, False],\n           [False,  True]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [False, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [False,  True]]]],\n\n\n\n        [[[[False,  True],\n           [ True,  True]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[False, False],\n           [ True, False]]]],\n\n\n\n        [[[[ True,  True],\n           [ True,  True]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[False,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [ True, False]]]],\n\n\n\n        [[[[False, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [ True, False]],\n\n          [[ True, False],\n           [ True,  True]]]],\n\n\n\n        [[[[False,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [False,  True]]],\n\n\n         [[[False,  True],\n           [False, False]],\n\n          [[False,  True],\n           [False,  True]]]]]])]\n",
-          "stderr": "\u001b[0;93m2025-12-08 16:49:55.3357474 [W:onnxruntime:, qnn_model_wrapper.cc:263 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `n0` of type `ElementWiseNot` with error code 3110\n\u001b[m\n"
+          "stdout": "Run outputs: [array([[[[[[False,  True],\n           [False, False]],\n\n          [[False, False],\n           [ True, False]]],\n\n\n         [[[False,  True],\n           [ True,  True]],\n\n          [[ True, False],\n           [ True, False]]]],\n\n\n\n        [[[[ True, False],\n           [False,  True]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [ True,  True]],\n\n          [[False,  True],\n           [False,  True]]]],\n\n\n\n        [[[[ True, False],\n           [False,  True]],\n\n          [[ True,  True],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [ True, False]],\n\n          [[False,  True],\n           [False,  True]]]],\n\n\n\n        [[[[False, False],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[False, False],\n           [ True,  True]],\n\n          [[ True, False],\n           [False,  True]]]],\n\n\n\n        [[[[ True,  True],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [False, False]],\n\n          [[ True,  True],\n           [False, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False,  True]],\n\n          [[False, False],\n           [ True,  True]]],\n\n\n         [[[False, False],\n           [ True,  True]],\n\n          [[ True,  True],\n           [ True, False]]]]],\n\n\n\n\n       [[[[[ True, False],\n           [False, False]],\n\n          [[False, False],\n           [ True,  True]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[False, False],\n           [False, False]]]],\n\n\n\n        [[[[False,  True],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[ True, False],\n           [False, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [ True, False]],\n\n          [[False,  True],\n           [ True, False]]]],\n\n\n\n        [[[[ True, False],\n           [ True,  True]],\n\n          [[False,  True],\n           [ True,  True]]],\n\n\n         [[[ True, False],\n           [ True, False]],\n\n          [[False, False],\n           [ True, False]]]],\n\n\n\n        [[[[False,  True],\n           [False,  True]],\n\n          [[False, False],\n           [ True, False]]],\n\n\n         [[[False,  True],\n           [False, False]],\n\n          [[False, False],\n           [ True, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[False, False],\n           [False,  True]],\n\n          [[ True, False],\n           [ True,  True]]]]],\n\n\n\n\n       [[[[[ True,  True],\n           [False, False]],\n\n          [[False, False],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[False,  True],\n           [False,  True]]]],\n\n\n\n        [[[[ True, False],\n           [ True, False]],\n\n          [[ True, False],\n           [ True,  True]]],\n\n\n         [[[False,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [ True, False]]]],\n\n\n\n        [[[[False, False],\n           [False,  True]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[False, False],\n           [False, False]],\n\n          [[False,  True],\n           [ True, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[ True, False],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[False, False],\n           [ True,  True]]]],\n\n\n\n        [[[[ True,  True],\n           [ True, False]],\n\n          [[False,  True],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [False, False]],\n\n          [[ True,  True],\n           [False,  True]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[ True, False],\n           [ True, False]]],\n\n\n         [[[ True,  True],\n           [ True,  True]],\n\n          [[ True, False],\n           [False, False]]]]],\n\n\n\n\n       [[[[[ True, False],\n           [ True, False]],\n\n          [[ True,  True],\n           [ True, False]]],\n\n\n         [[[ True,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [False,  True]]]],\n\n\n\n        [[[[ True,  True],\n           [False,  True]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[False, False],\n           [False,  True]],\n\n          [[False,  True],\n           [False,  True]]]],\n\n\n\n        [[[[ True, False],\n           [ True, False]],\n\n          [[ True,  True],\n           [ True, False]]],\n\n\n         [[[False, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False,  True]]]],\n\n\n\n        [[[[ True,  True],\n           [ True,  True]],\n\n          [[ True, False],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [False, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False,  True]],\n\n          [[ True, False],\n           [ True,  True]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [ True, False]]]],\n\n\n\n        [[[[False,  True],\n           [ True,  True]],\n\n          [[False, False],\n           [ True, False]]],\n\n\n         [[[ True,  True],\n           [False,  True]],\n\n          [[ True, False],\n           [ True, False]]]]],\n\n\n\n\n       [[[[[False, False],\n           [False, False]],\n\n          [[ True, False],\n           [False, False]]],\n\n\n         [[[ True,  True],\n           [ True, False]],\n\n          [[False, False],\n           [False, False]]]],\n\n\n\n        [[[[False, False],\n           [ True,  True]],\n\n          [[ True, False],\n           [ True, False]]],\n\n\n         [[[ True,  True],\n           [ True, False]],\n\n          [[False,  True],\n           [False,  True]]]],\n\n\n\n        [[[[ True, False],\n           [ True, False]],\n\n          [[False, False],\n           [ True,  True]]],\n\n\n         [[[False,  True],\n           [False, False]],\n\n          [[ True,  True],\n           [False,  True]]]],\n\n\n\n        [[[[False,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [ True, False]]],\n\n\n         [[[False, False],\n           [ True,  True]],\n\n          [[ True, False],\n           [False,  True]]]],\n\n\n\n        [[[[ True,  True],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False,  True]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[ True, False],\n           [False,  True]]]],\n\n\n\n        [[[[False, False],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [False, False]]]]],\n\n\n\n\n       [[[[[False, False],\n           [ True,  True]],\n\n          [[ True, False],\n           [ True,  True]]],\n\n\n         [[[False,  True],\n           [ True,  True]],\n\n          [[False, False],\n           [ True, False]]]],\n\n\n\n        [[[[False,  True],\n           [ True, False]],\n\n          [[False, False],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False, False]]]],\n\n\n\n        [[[[ True, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[False, False],\n           [False,  True]],\n\n          [[False,  True],\n           [False, False]]]],\n\n\n\n        [[[[False,  True],\n           [False, False]],\n\n          [[ True, False],\n           [False,  True]]],\n\n\n         [[[False, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False,  True]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[ True, False],\n           [False,  True]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [False,  True]]]],\n\n\n\n        [[[[False, False],\n           [ True, False]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[False, False],\n           [False, False]],\n\n          [[False, False],\n           [False,  True]]]]]])]\n",
+          "stderr": "DSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\nDSP_INFO UNSUPPORTED_KEY: 49\nDSP_INFO UNSUPPORTED_KEY: 50\n"
         }
       }
     }
@@ -264,7 +313,7 @@
   "sys_info": {
     "cpuList": [
       {
-        "name": "Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU",
+        "name": "Snapdragon(R) X Elite - X1E78100 - Qualcomm(R) Oryon(TM) CPU",
         "manufacturer": "Qualcomm Technologies Inc",
         "coreCount": 12,
         "threadCount": 12,
@@ -273,9 +322,9 @@
     ],
     "gpuList": [
       {
-        "name": "Qualcomm(R) Adreno(TM) X1-85 GPU",
+        "name": "Snapdragon(R) X Elite - X1E78100 - Qualcomm(R) Adreno(TM) GPU",
         "manufacturer": "Qualcomm Incorporated",
-        "driverVersion": "31.0.114.0",
+        "driverVersion": "31.0.57.0",
         "vramMib": 0,
         "vendorId": 1297040209,
         "deviceId": 909329200
@@ -283,9 +332,9 @@
     ],
     "npuList": [
       {
-        "name": "Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Hexagon(TM) NPU",
+        "name": "Snapdragon(R) X Elite - X1E78100 - Qualcomm(R) Hexagon(TM) NPU",
         "manufacturer": "Qualcomm Technologies, Inc.",
-        "driverVersion": "30.0.143.0",
+        "driverVersion": "30.0.220.3000",
         "vendorId": 1297040209,
         "deviceId": 1093682224
       }
@@ -293,27 +342,33 @@
     "ramList": [
       {
         "capacityMib": 32768,
-        "speedMt": 8448,
-        "manufacturer": "HYNIX"
+        "speedMt": 7372,
+        "manufacturer": ""
       }
     ],
     "os": {
       "caption": "Microsoft Windows 11 Enterprise",
       "version": "10.0.26200",
       "architecture": "ARM 64-bit Processor",
-      "sku": 4
+      "sku": 4,
+      "buildNumber": "26200",
+      "isWindows11": true
     },
     "pythonRuntime": {
-      "version": "3.12.10",
+      "version": "3.11.15",
       "implementation": "CPython",
-      "architecture": "ARM64",
-      "compiler": "MSC v.1943 64 bit (AMD64)",
-      "buildNumber": "May 30 2025 05:39:07"
+      "architecture": "AMD64",
+      "compiler": "MSC v.1944 64 bit (AMD64)",
+      "buildNumber": "Mar 20 2026 00:32:44"
     },
     "pipPackages": [
       {
-        "name": "winml-modelkit",
+        "name": "winml-cli",
         "version": "0.1.0"
+      },
+      {
+        "name": "winml-modelkit",
+        "version": "0.0.2"
       },
       {
         "name": "aiohappyeyeballs",
@@ -321,11 +376,15 @@
       },
       {
         "name": "aiohttp",
-        "version": "3.13.2"
+        "version": "3.13.5"
       },
       {
         "name": "aiosignal",
         "version": "1.4.0"
+      },
+      {
+        "name": "annotated-doc",
+        "version": "0.0.4"
       },
       {
         "name": "annotated-types",
@@ -333,7 +392,7 @@
       },
       {
         "name": "anyio",
-        "version": "4.12.0"
+        "version": "4.13.0"
       },
       {
         "name": "argon2-cffi",
@@ -352,16 +411,20 @@
         "version": "3.0.1"
       },
       {
+        "name": "ast_serialize",
+        "version": "0.5.0"
+      },
+      {
         "name": "async-lru",
-        "version": "2.0.5"
+        "version": "2.3.0"
       },
       {
         "name": "attrs",
-        "version": "25.4.0"
+        "version": "26.1.0"
       },
       {
         "name": "babel",
-        "version": "2.17.0"
+        "version": "2.18.0"
       },
       {
         "name": "beautifulsoup4",
@@ -373,27 +436,27 @@
       },
       {
         "name": "certifi",
-        "version": "2025.11.12"
+        "version": "2026.2.25"
       },
       {
         "name": "cffi",
         "version": "2.0.0"
       },
       {
+        "name": "cfgv",
+        "version": "3.5.0"
+      },
+      {
         "name": "charset-normalizer",
-        "version": "3.4.4"
+        "version": "3.4.7"
       },
       {
         "name": "click",
-        "version": "8.3.1"
+        "version": "8.4.1"
       },
       {
         "name": "colorama",
         "version": "0.4.6"
-      },
-      {
-        "name": "coloredlogs",
-        "version": "15.0.1"
       },
       {
         "name": "comm",
@@ -405,7 +468,11 @@
       },
       {
         "name": "coverage",
-        "version": "7.12.0"
+        "version": "7.13.5"
+      },
+      {
+        "name": "cryptography",
+        "version": "46.0.7"
       },
       {
         "name": "cycler",
@@ -413,11 +480,11 @@
       },
       {
         "name": "datasets",
-        "version": "4.4.1"
+        "version": "4.8.4"
       },
       {
         "name": "debugpy",
-        "version": "1.8.17"
+        "version": "1.8.20"
       },
       {
         "name": "decorator",
@@ -428,7 +495,15 @@
         "version": "0.7.1"
       },
       {
+        "name": "diffusers",
+        "version": "0.37.1"
+      },
+      {
         "name": "dill",
+        "version": "0.4.1"
+      },
+      {
+        "name": "distlib",
         "version": "0.4.0"
       },
       {
@@ -440,20 +515,24 @@
         "version": "2.2.1"
       },
       {
+        "name": "fastapi",
+        "version": "0.136.0"
+      },
+      {
         "name": "fastjsonschema",
         "version": "2.21.2"
       },
       {
         "name": "filelock",
-        "version": "3.20.0"
+        "version": "3.25.2"
       },
       {
         "name": "flatbuffers",
-        "version": "25.9.23"
+        "version": "25.12.19"
       },
       {
         "name": "fonttools",
-        "version": "4.61.0"
+        "version": "4.63.0"
       },
       {
         "name": "fqdn",
@@ -465,31 +544,47 @@
       },
       {
         "name": "fsspec",
-        "version": "2025.10.0"
+        "version": "2026.2.0"
       },
       {
         "name": "h11",
         "version": "0.16.0"
       },
       {
+        "name": "hf-xet",
+        "version": "1.4.3"
+      },
+      {
         "name": "httpcore",
         "version": "1.0.9"
+      },
+      {
+        "name": "httptools",
+        "version": "0.7.1"
       },
       {
         "name": "httpx",
         "version": "0.28.1"
       },
       {
-        "name": "huggingface-hub",
-        "version": "0.36.0"
+        "name": "httpx-sse",
+        "version": "0.4.3"
       },
       {
-        "name": "humanfriendly",
-        "version": "10.0"
+        "name": "huggingface_hub",
+        "version": "0.36.2"
+      },
+      {
+        "name": "identify",
+        "version": "2.6.18"
       },
       {
         "name": "idna",
         "version": "3.11"
+      },
+      {
+        "name": "importlib_metadata",
+        "version": "8.7.1"
       },
       {
         "name": "iniconfig",
@@ -497,15 +592,11 @@
       },
       {
         "name": "ipykernel",
-        "version": "7.1.0"
+        "version": "7.2.0"
       },
       {
         "name": "ipython",
-        "version": "9.7.0"
-      },
-      {
-        "name": "ipython_pygments_lexers",
-        "version": "1.1.1"
+        "version": "8.39.0"
       },
       {
         "name": "ipywidgets",
@@ -525,19 +616,19 @@
       },
       {
         "name": "joblib",
-        "version": "1.5.2"
+        "version": "1.5.3"
       },
       {
         "name": "json5",
-        "version": "0.12.1"
+        "version": "0.14.0"
       },
       {
         "name": "jsonpointer",
-        "version": "3.0.0"
+        "version": "3.1.1"
       },
       {
         "name": "jsonschema",
-        "version": "4.25.1"
+        "version": "4.26.0"
       },
       {
         "name": "jsonschema-specifications",
@@ -549,7 +640,7 @@
       },
       {
         "name": "jupyterlab",
-        "version": "4.5.0"
+        "version": "4.5.6"
       },
       {
         "name": "jupyterlab_pygments",
@@ -565,7 +656,7 @@
       },
       {
         "name": "jupyter_client",
-        "version": "8.6.3"
+        "version": "8.8.0"
       },
       {
         "name": "jupyter-console",
@@ -581,7 +672,7 @@
       },
       {
         "name": "jupyter-lsp",
-        "version": "2.3.0"
+        "version": "2.3.1"
       },
       {
         "name": "jupyter_server",
@@ -589,11 +680,11 @@
       },
       {
         "name": "jupyter_server_terminals",
-        "version": "0.5.3"
+        "version": "0.5.4"
       },
       {
         "name": "kiwisolver",
-        "version": "1.4.9"
+        "version": "1.5.0"
       },
       {
         "name": "lark",
@@ -601,7 +692,11 @@
       },
       {
         "name": "librt",
-        "version": "0.6.3"
+        "version": "0.11.0"
+      },
+      {
+        "name": "lightning-utilities",
+        "version": "0.15.3"
       },
       {
         "name": "markdown-it-py",
@@ -613,11 +708,15 @@
       },
       {
         "name": "matplotlib",
-        "version": "3.10.7"
+        "version": "3.10.9"
       },
       {
         "name": "matplotlib-inline",
         "version": "0.2.1"
+      },
+      {
+        "name": "mcp",
+        "version": "1.27.0"
       },
       {
         "name": "mdurl",
@@ -625,7 +724,7 @@
       },
       {
         "name": "mistune",
-        "version": "3.1.4"
+        "version": "3.2.0"
       },
       {
         "name": "ml_dtypes",
@@ -637,15 +736,15 @@
       },
       {
         "name": "multidict",
-        "version": "6.7.0"
+        "version": "6.7.1"
       },
       {
         "name": "multiprocess",
-        "version": "0.70.18"
+        "version": "0.70.19"
       },
       {
         "name": "mypy",
-        "version": "1.19.0"
+        "version": "2.1.0"
       },
       {
         "name": "mypy_extensions",
@@ -653,11 +752,11 @@
       },
       {
         "name": "nbclient",
-        "version": "0.10.2"
+        "version": "0.10.4"
       },
       {
         "name": "nbconvert",
-        "version": "7.16.6"
+        "version": "7.17.1"
       },
       {
         "name": "nbformat",
@@ -669,11 +768,15 @@
       },
       {
         "name": "networkx",
-        "version": "3.6"
+        "version": "3.4.2"
+      },
+      {
+        "name": "nodeenv",
+        "version": "1.10.0"
       },
       {
         "name": "notebook",
-        "version": "7.5.0"
+        "version": "7.5.5"
       },
       {
         "name": "notebook_shim",
@@ -685,27 +788,47 @@
       },
       {
         "name": "onnx",
-        "version": "1.20.0"
+        "version": "1.18.0"
       },
       {
-        "name": "onnxruntime",
-        "version": "1.23.2"
+        "name": "onnxruntime-windowsml",
+        "version": "1.24.5.202604171637"
       },
       {
         "name": "onnxscript",
-        "version": "0.5.6"
+        "version": "0.6.2"
       },
       {
         "name": "onnx-ir",
-        "version": "0.1.12"
+        "version": "0.2.0"
+      },
+      {
+        "name": "opentelemetry-api",
+        "version": "1.41.0"
+      },
+      {
+        "name": "opentelemetry-sdk",
+        "version": "1.41.0"
+      },
+      {
+        "name": "opentelemetry-semantic-conventions",
+        "version": "0.62b0"
       },
       {
         "name": "optimum",
-        "version": "2.0.0"
+        "version": "2.1.0"
+      },
+      {
+        "name": "optimum-onnx",
+        "version": "0.1.0"
+      },
+      {
+        "name": "overrides",
+        "version": "7.7.0"
       },
       {
         "name": "packaging",
-        "version": "25.0"
+        "version": "26.0"
       },
       {
         "name": "pandas",
@@ -717,27 +840,35 @@
       },
       {
         "name": "parso",
-        "version": "0.8.5"
+        "version": "0.8.6"
       },
       {
         "name": "pathspec",
-        "version": "0.12.1"
+        "version": "1.1.1"
       },
       {
         "name": "pillow",
-        "version": "12.0.0"
+        "version": "12.2.0"
       },
       {
         "name": "platformdirs",
-        "version": "4.5.0"
+        "version": "4.9.6"
+      },
+      {
+        "name": "plotext",
+        "version": "5.3.2"
       },
       {
         "name": "pluggy",
         "version": "1.6.0"
       },
       {
+        "name": "pre_commit",
+        "version": "4.5.1"
+      },
+      {
         "name": "prometheus_client",
-        "version": "0.23.1"
+        "version": "0.25.0"
       },
       {
         "name": "prompt_toolkit",
@@ -749,11 +880,11 @@
       },
       {
         "name": "protobuf",
-        "version": "6.33.1"
+        "version": "7.34.1"
       },
       {
         "name": "psutil",
-        "version": "7.1.3"
+        "version": "7.2.2"
       },
       {
         "name": "pure_eval",
@@ -761,55 +892,83 @@
       },
       {
         "name": "pyarrow",
-        "version": "22.0.0"
+        "version": "23.0.1"
+      },
+      {
+        "name": "pycocotools",
+        "version": "2.0.11"
       },
       {
         "name": "pycparser",
-        "version": "2.23"
+        "version": "3.0"
       },
       {
         "name": "pydantic",
-        "version": "2.12.5"
+        "version": "2.13.0"
       },
       {
         "name": "pydantic_core",
-        "version": "2.41.5"
+        "version": "2.46.0"
+      },
+      {
+        "name": "pydantic-settings",
+        "version": "2.14.0"
       },
       {
         "name": "Pygments",
-        "version": "2.19.2"
+        "version": "2.20.0"
+      },
+      {
+        "name": "PyJWT",
+        "version": "2.12.1"
       },
       {
         "name": "pyparsing",
-        "version": "3.2.5"
-      },
-      {
-        "name": "pyreadline3",
-        "version": "3.5.4"
+        "version": "3.3.2"
       },
       {
         "name": "pytest",
-        "version": "9.0.1"
+        "version": "9.0.3"
       },
       {
         "name": "pytest-cov",
-        "version": "7.0.0"
+        "version": "7.1.0"
+      },
+      {
+        "name": "pytest-timeout",
+        "version": "2.4.0"
       },
       {
         "name": "python-dateutil",
         "version": "2.9.0.post0"
       },
       {
+        "name": "python-discovery",
+        "version": "1.2.2"
+      },
+      {
+        "name": "python-dotenv",
+        "version": "1.2.2"
+      },
+      {
         "name": "python-json-logger",
-        "version": "4.0.0"
+        "version": "4.1.0"
+      },
+      {
+        "name": "python-multipart",
+        "version": "0.0.26"
       },
       {
         "name": "pytz",
-        "version": "2025.2"
+        "version": "2026.1.post1"
+      },
+      {
+        "name": "pywin32",
+        "version": "311"
       },
       {
         "name": "pywinpty",
-        "version": "3.0.2"
+        "version": "3.0.3"
       },
       {
         "name": "PyYAML",
@@ -820,16 +979,20 @@
         "version": "27.1.0"
       },
       {
+        "name": "RapidFuzz",
+        "version": "3.14.5"
+      },
+      {
         "name": "referencing",
         "version": "0.37.0"
       },
       {
         "name": "regex",
-        "version": "2025.11.3"
+        "version": "2026.4.4"
       },
       {
         "name": "requests",
-        "version": "2.32.5"
+        "version": "2.33.1"
       },
       {
         "name": "rfc3339-validator",
@@ -845,7 +1008,7 @@
       },
       {
         "name": "rich",
-        "version": "14.2.0"
+        "version": "15.0.0"
       },
       {
         "name": "rpds-py",
@@ -853,7 +1016,7 @@
       },
       {
         "name": "ruff",
-        "version": "0.14.7"
+        "version": "0.15.13"
       },
       {
         "name": "safetensors",
@@ -873,11 +1036,19 @@
       },
       {
         "name": "Send2Trash",
-        "version": "1.8.3"
+        "version": "2.1.0"
+      },
+      {
+        "name": "sentencepiece",
+        "version": "0.2.1"
+      },
+      {
+        "name": "seqeval",
+        "version": "1.2.2"
       },
       {
         "name": "setuptools",
-        "version": "80.9.0"
+        "version": "81.0.0"
       },
       {
         "name": "six",
@@ -889,11 +1060,19 @@
       },
       {
         "name": "soupsieve",
-        "version": "2.8"
+        "version": "2.8.3"
+      },
+      {
+        "name": "sse-starlette",
+        "version": "3.3.4"
       },
       {
         "name": "stack-data",
         "version": "0.6.3"
+      },
+      {
+        "name": "starlette",
+        "version": "1.0.0"
       },
       {
         "name": "sympy",
@@ -909,7 +1088,7 @@
       },
       {
         "name": "timm",
-        "version": "1.0.22"
+        "version": "1.0.26"
       },
       {
         "name": "tinycss2",
@@ -917,27 +1096,31 @@
       },
       {
         "name": "tokenizers",
-        "version": "0.22.1"
+        "version": "0.22.2"
       },
       {
         "name": "torch",
-        "version": "2.9.1"
+        "version": "2.11.0"
       },
       {
         "name": "torchinfo",
         "version": "1.8.0"
       },
       {
+        "name": "torchmetrics",
+        "version": "1.9.0"
+      },
+      {
         "name": "torchvision",
-        "version": "0.24.1"
+        "version": "0.26.0"
       },
       {
         "name": "tornado",
-        "version": "6.5.2"
+        "version": "6.5.5"
       },
       {
         "name": "tqdm",
-        "version": "4.67.1"
+        "version": "4.67.3"
       },
       {
         "name": "traitlets",
@@ -945,11 +1128,11 @@
       },
       {
         "name": "transformers",
-        "version": "4.57.3"
+        "version": "4.57.6"
       },
       {
         "name": "types-colorama",
-        "version": "0.4.15.20250801"
+        "version": "0.4.15.20260508"
       },
       {
         "name": "typing_extensions",
@@ -961,7 +1144,7 @@
       },
       {
         "name": "tzdata",
-        "version": "2025.2"
+        "version": "2026.1"
       },
       {
         "name": "uri-template",
@@ -969,19 +1152,23 @@
       },
       {
         "name": "urllib3",
-        "version": "2.5.0"
+        "version": "2.6.3"
       },
       {
-        "name": "wasdk-Microsoft.Windows.AI.MachineLearning",
-        "version": "1.8.251106002"
+        "name": "uvicorn",
+        "version": "0.45.0"
       },
       {
-        "name": "wasdk-Microsoft.Windows.ApplicationModel.DynamicDependency.Bootstrap",
-        "version": "1.8.251106002"
+        "name": "virtualenv",
+        "version": "21.2.3"
+      },
+      {
+        "name": "watchfiles",
+        "version": "1.1.1"
       },
       {
         "name": "wcwidth",
-        "version": "0.2.14"
+        "version": "0.6.0"
       },
       {
         "name": "webcolors",
@@ -992,6 +1179,10 @@
         "version": "0.5.1"
       },
       {
+        "name": "websockets",
+        "version": "16.0"
+      },
+      {
         "name": "websocket-client",
         "version": "1.9.0"
       },
@@ -1000,20 +1191,12 @@
         "version": "4.0.15"
       },
       {
-        "name": "winml-modelkit",
+        "name": "windowsml",
+        "version": "2.0.300"
+      },
+      {
+        "name": "winml-cli",
         "version": "0.1.0"
-      },
-      {
-        "name": "winrt-runtime",
-        "version": "3.2.1"
-      },
-      {
-        "name": "winrt-Windows.Foundation",
-        "version": "3.2.1"
-      },
-      {
-        "name": "winrt-Windows.Foundation.Collections",
-        "version": "3.2.1"
       },
       {
         "name": "xxhash",
@@ -1021,21 +1204,66 @@
       },
       {
         "name": "yarl",
-        "version": "1.22.0"
+        "version": "1.23.0"
+      },
+      {
+        "name": "zipp",
+        "version": "3.23.1"
+      },
+      {
+        "name": "winml-cli",
+        "version": "0.1.0"
+      },
+      {
+        "name": "winml-modelkit",
+        "version": "0.0.2"
+      },
+      {
+        "name": "importlib_metadata",
+        "version": "8.7.1"
+      },
+      {
+        "name": "microvenv",
+        "version": "2025.0"
+      },
+      {
+        "name": "packaging",
+        "version": "26.0"
+      },
+      {
+        "name": "tomli",
+        "version": "2.4.0"
+      },
+      {
+        "name": "typing_extensions",
+        "version": "4.15.0"
+      },
+      {
+        "name": "zipp",
+        "version": "3.21.0"
       }
     ],
     "epPackages": [
       {
-        "name": "MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_1.8.21.0_arm64__8wekyb3d8bbwe",
-        "version": "1.8.21.0",
+        "name": "MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_1.8.30.0_arm64__8wekyb3d8bbwe",
+        "version": "1.8.30.0",
         "publisher": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
         "architecture": 12,
         "signatureKind": "Developer",
-        "installLocation": "C:\\Program Files\\WindowsApps\\MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_1.8.21.0_arm64__8wekyb3d8bbwe",
-        "epHash": "c62cee3f6a7ca26b76390f5158cf450373ac6caca058db519bf89867bf4c713c495b33deb11018342742eefe2f559f52239c2fd62ff039537e221e4589dbcbcf",
+        "installLocation": "C:\\Program Files\\WindowsApps\\MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_1.8.30.0_arm64__8wekyb3d8bbwe",
+        "epHash": "0b4dd71044175fb927d3b44a50b7dee4b003a3dfe86a9b09c3ca83f11150979215c256b0301bced2c7e684f84e42ec964532215c147b8b770399d6b9441afc1a",
+        "status": 0
+      },
+      {
+        "name": "MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.2_2.2450.47.0_arm64__8wekyb3d8bbwe",
+        "version": "2.2450.47.0",
+        "publisher": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
+        "architecture": 12,
+        "signatureKind": "Developer",
+        "installLocation": "C:\\Program Files\\WindowsApps\\MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.2_2.2450.47.0_arm64__8wekyb3d8bbwe",
+        "epHash": "343f2e6da7490f6721e40942a86a40fa01322c354d784b024491d151ec511e6dba7a9041c3594aa97ff0c0379cf627b88414b25328f931f8ddaabe78a6784102",
         "status": 0
       }
-    ],
-    "windowsAppRuntimeVersion": "1.8.251106002"
+    ]
   }
 }

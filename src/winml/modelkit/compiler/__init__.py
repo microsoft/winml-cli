@@ -24,6 +24,8 @@ Usage:
     result = compile_onnx("model.onnx", config)
 """
 
+from typing import TYPE_CHECKING, Any
+
 from .configs import (
     EPConfig,
     WinMLCompileConfig,
@@ -34,7 +36,18 @@ from .transforms import clear_transforms, get_transforms_for_ep, register_transf
 from .utils import QDQ_OP_TYPES, needs_format_conversion
 
 
-def __getattr__(name: str):
+# Names below are loaded lazily via ``__getattr__`` to avoid pulling in session/
+# torch at import time. The TYPE_CHECKING re-imports give static analyzers
+# (mypy, CodeQL) visibility into what ``__all__`` actually exports without
+# triggering the heavy imports at runtime.
+if TYPE_CHECKING:
+    from .compiler import Compiler, compile_onnx, list_compilers
+    from .stages.compile import CompileStage
+    from .stages.optimize import OptimizeStage
+    from .stages.qformat import QFormatConvertStage
+
+
+def __getattr__(name: str) -> Any:
     """Lazy-load heavy symbols that pull in session/torch to speed up import."""
     if name in {"Compiler", "compile_onnx", "list_compilers"}:
         from .compiler import Compiler, compile_onnx, list_compilers

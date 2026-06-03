@@ -470,11 +470,14 @@ class HTPExporter:
             logger.debug("Model has no config.model_type; skipping Optimum patcher.")
             return contextlib.nullcontext()
 
+        # TasksManager expects Optimum-canonical task names
+        from ...loader import to_optimum_task
+
         try:
             cfg_cls = TasksManager.get_exporter_config_constructor(
                 "onnx",
                 model_type=model_type,
-                task=task,
+                task=to_optimum_task(task),
                 library_name="transformers",
             )
             return cfg_cls(model_config).patch_model_for_export(model)

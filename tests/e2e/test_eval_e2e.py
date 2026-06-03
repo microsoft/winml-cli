@@ -292,15 +292,25 @@ class TestEvalPerTask:
         if is_host("qnn"):
             _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
+    @pytest.mark.parametrize(
+        "task",
+        ["image-feature-extraction", "feature-extraction"],
+    )
     def test_image_feature_extraction(
-        self, runner: CliRunner, tmp_path: Path,
+        self, runner: CliRunner, tmp_path: Path, task: str,
     ) -> None:
         # kNN accuracies reported as percentages 0..100.
         # --streaming avoids caching mini-imagenet.
+        # Parameterized over both task names accepted on the CLI:
+        #   - "image-feature-extraction" is the HF pipeline task name
+        #     and dispatches to the image evaluator directly.
+        #   - "feature-extraction" is bimodal; for a vision model it is
+        #     mapped internally to the HF pipeline name so the image
+        #     dataset and evaluator are selected.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "facebook/dinov2-small",
-            "--task", "image-feature-extraction",
+            "--task", task,
             "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),

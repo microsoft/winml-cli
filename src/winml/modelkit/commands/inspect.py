@@ -40,9 +40,7 @@ _stderr_console = Console(stderr=True, highlight=False)
 _LOCAL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin"})
 
 
-def _validate_task(
-    ctx: click.Context, param: click.Parameter, value: str | None
-) -> str | None:
+def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
     """Click-time validation for --task against the hand-coded KNOWN_TASKS set.
 
     Imports only ..loader.task to keep validation cheap — going through optimum
@@ -332,7 +330,7 @@ def _inspect_model_v2(
     # =========================================================================
     # STEP 2: Shared loader resolution (same call as config command)
     # =========================================================================
-    from huggingface_hub.utils import RepositoryNotFoundError
+    from huggingface_hub.errors import RepositoryNotFoundError
 
     try:
         loader_config, hf_config, _resolved_class = resolve_loader_config(
@@ -364,6 +362,10 @@ def _inspect_model_v2(
 
     model_type = loader_config.model_type
     task = loader_config.task
+    if model_type is None:
+        raise InspectError("Could not resolve model_type from loader config")
+    if task is None:
+        raise InspectError("Could not resolve task from loader config")
     architectures = getattr(parent_hf_config, "architectures", []) or []
 
     # =========================================================================
@@ -411,7 +413,7 @@ def _inspect_model_v2(
         export_cfg = registered.export
         input_tensors = [
             TensorInfo(name=s.name or "unknown", dtype=s.dtype, shape=s.shape)
-            for s in export_cfg.input_tensors
+            for s in (export_cfg.input_tensors or [])
         ]
         output_tensors = [
             TensorInfo(name=s.name or "unknown") for s in (export_cfg.output_tensors or [])
@@ -426,11 +428,14 @@ def _inspect_model_v2(
             import optimum.exporters.onnx.model_configs  # noqa: F401
             from optimum.exporters.tasks import TasksManager
 
+            # TasksManager expects Optimum-canonical task names
+            from ..loader import resolve_optimum_library, to_optimum_task
+
             onnx_config_cls = TasksManager.get_exporter_config_constructor(
                 exporter="onnx",
                 model_type=model_type,
-                task=task,
-                library_name="transformers",
+                task=to_optimum_task(task),
+                library_name=resolve_optimum_library(model_type),
             )
             if onnx_config_cls:
                 config_name = (
@@ -513,7 +518,9 @@ def _inspect_model_v2(
     #   2. parent_hf_config     — pre-narrowing config (only when model_id was
     #                             provided and AutoConfig succeeded in step 1)
     #   3. model_type           — narrowed loader_config.model_type (fallback)
-    display_model_type = model_type_override or getattr(parent_hf_config, "model_type", model_type)
+    display_model_type: str = (
+        model_type_override or getattr(parent_hf_config, "model_type", None) or model_type
+    )
 
     return InspectResult(
         model_id=model_id or display_model_type or model_class_override or "unknown",
