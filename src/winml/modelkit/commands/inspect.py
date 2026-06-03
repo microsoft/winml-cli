@@ -428,14 +428,13 @@ def _inspect_model_v2(
             import optimum.exporters.onnx.model_configs  # noqa: F401
             from optimum.exporters.tasks import TasksManager
 
-            # TasksManager expects normalized task names
-            from ..export.io import map_task_synonym
-            from ..loader import resolve_optimum_library
+            # TasksManager expects Optimum-canonical task names
+            from ..loader import resolve_optimum_library, to_optimum_task
 
             onnx_config_cls = TasksManager.get_exporter_config_constructor(
                 exporter="onnx",
                 model_type=model_type,
-                task=map_task_synonym(task),
+                task=to_optimum_task(task),
                 library_name=resolve_optimum_library(model_type),
             )
             if onnx_config_cls:

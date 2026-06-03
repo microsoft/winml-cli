@@ -276,8 +276,8 @@ def _validate_task_supported_for_model(
     Raises:
         ValueError: If the task is not supported for the model architecture.
     """
-    from ..export.io import TASK_SYNONYM_EXTENSIONS, ensure_hf_models_registered
-    from ..loader.task import get_supported_tasks, normalize_task
+    from ..export.io import ensure_hf_models_registered
+    from ..loader.task import TASK_SYNONYM_EXTENSIONS, get_supported_tasks, normalize_task
 
     if hf_config is None:
         from transformers import AutoConfig
