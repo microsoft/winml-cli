@@ -349,6 +349,8 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
             task = _detect_task_from_config(config)
             source = "TasksManager"
         except ValueError:
+            # TasksManager can't infer a task (e.g. no recognizable architecture);
+            # leave task unset and fall through to the HF_TASK_DEFAULTS fallback below.
             pass
 
     # 4. Fallback to task defaults.
