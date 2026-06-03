@@ -75,8 +75,11 @@ def configure_logging(
     own_handler = logging.StreamHandler(sys.stderr)
     own_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
     setattr(own_handler, _HANDLER_MARKER, True)
-    own_handler.setLevel(log_level)
     root.addHandler(own_handler)
+    # The root level is the sole gate: it already filters every record before
+    # it reaches any handler, so the handler is left at NOTSET (passes through)
+    # to avoid a redundant double-filter at the same threshold. This mirrors
+    # the prior ``logging.basicConfig`` behavior, which never set a handler level.
     root.setLevel(log_level)
 
 

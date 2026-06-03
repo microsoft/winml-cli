@@ -728,113 +728,103 @@ def sysinfo(
 
     use_json = output_format.lower() == "json"
 
-    # Snapshot the package logger so we can restore it on exit. configure_logging
-    # already wired stderr above; this block is purely for test isolation
-    # (caplog/CliRunner pick up handler list changes done downstream).
-    pkg_logger = logging.getLogger("winml.modelkit")
-    _saved_handlers = pkg_logger.handlers[:]
-    _saved_level = pkg_logger.level
-    _saved_propagate = pkg_logger.propagate
+    # Logging is configured via the shared, idempotent configure_logging above;
+    # no per-command logger snapshot/restore is needed (every other command
+    # relies on the same contract for test isolation).
 
-    try:
-        # Handle --list-device and/or --list-ep (combinable)
-        if list_device or list_ep:
-            if use_json:
-                # Combine both into a single JSON object so output is always valid JSON
-                result: dict[str, Any] = {}
-                if list_device:
-                    try:
-                        result["devices"] = _gather_device_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        result["executionProviders"] = _gather_ep_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-                click.echo(json.dumps(result, indent=2))
-            elif output_format.lower() == "compact":
-                if list_device:
-                    try:
-                        devices = _gather_device_info()
-                        parts = [f"{d['type']}: {d['name'].strip()}" for d in devices]
-                        click.echo(" | ".join(parts) if parts else "No devices found")
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        eps = _gather_ep_info()
-                        parts = [f"{ep['name']}({ep['device']})" for ep in eps]
-                        click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-            else:
-                if list_device:
-                    try:
-                        devices = _gather_device_info()
-                        _output_device_text(devices)
-                    except Exception as e:
-                        _get_console().print(f"[bold red]Error detecting devices:[/bold red] {e}")
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        eps = _gather_ep_info()
-                        _output_ep_text(eps)
-                    except Exception as e:
-                        _get_console().print(
-                            f"[bold red]Error detecting execution providers:[/bold red] {e}"
-                        )
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-            return
-
-        # Default: full sysinfo including devices and EPs
-        try:
-            info = _gather_system_info(verbose=bool(verbose))
-
-            if use_json:
-                # Add devices and EPs to JSON output
+    # Handle --list-device and/or --list-ep (combinable)
+    if list_device or list_ep:
+        if use_json:
+            # Combine both into a single JSON object so output is always valid JSON
+            result: dict[str, Any] = {}
+            if list_device:
                 try:
-                    info["devices"] = _gather_device_info()
-                except Exception:
-                    info["devices"] = []
+                    result["devices"] = _gather_device_info()
+                except Exception as e:
+                    logger.exception("Failed to detect devices")
+                    raise click.ClickException(f"Error detecting devices: {e}") from e
+            if list_ep:
                 try:
-                    info["executionProviders"] = _gather_ep_info()
-                except Exception:
-                    info["executionProviders"] = []
-                _output_json(info)
-            elif output_format.lower() == "compact":
-                _output_compact(info)
-            else:
-                _output_text(info, verbose=bool(verbose))
-                # Append devices and EPs to text output
-                _get_console().print()
+                    result["executionProviders"] = _gather_ep_info()
+                except Exception as e:
+                    logger.exception("Failed to detect execution providers")
+                    msg = f"Error detecting execution providers: {e}"
+                    raise click.ClickException(msg) from e
+            click.echo(json.dumps(result, indent=2))
+        elif output_format.lower() == "compact":
+            if list_device:
+                try:
+                    devices = _gather_device_info()
+                    parts = [f"{d['type']}: {d['name'].strip()}" for d in devices]
+                    click.echo(" | ".join(parts) if parts else "No devices found")
+                except Exception as e:
+                    logger.exception("Failed to detect devices")
+                    raise click.ClickException(f"Error detecting devices: {e}") from e
+            if list_ep:
+                try:
+                    eps = _gather_ep_info()
+                    parts = [f"{ep['name']}({ep['device']})" for ep in eps]
+                    click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
+                except Exception as e:
+                    logger.exception("Failed to detect execution providers")
+                    msg = f"Error detecting execution providers: {e}"
+                    raise click.ClickException(msg) from e
+        else:
+            if list_device:
                 try:
                     devices = _gather_device_info()
                     _output_device_text(devices)
-                except Exception:
-                    logger.debug("Device detection failed in default output")
-                _get_console().print()
+                except Exception as e:
+                    _get_console().print(f"[bold red]Error detecting devices:[/bold red] {e}")
+                    logger.exception("Failed to detect devices")
+                    raise click.ClickException(f"Error detecting devices: {e}") from e
+            if list_ep:
                 try:
                     eps = _gather_ep_info()
                     _output_ep_text(eps)
-                except Exception:
-                    logger.debug("EP detection failed in default output")
+                except Exception as e:
+                    _get_console().print(
+                        f"[bold red]Error detecting execution providers:[/bold red] {e}"
+                    )
+                    logger.exception("Failed to detect execution providers")
+                    msg = f"Error detecting execution providers: {e}"
+                    raise click.ClickException(msg) from e
+        return
 
-        except Exception as e:
-            _get_console().print(f"[bold red]Error gathering system information:[/bold red] {e}")
-            logger.exception("Failed to gather system information")
-            raise click.ClickException(f"Error gathering system information: {e}") from e
+    # Default: full sysinfo including devices and EPs
+    try:
+        info = _gather_system_info(verbose=bool(verbose))
 
-    finally:
-        pkg_logger.handlers = _saved_handlers
-        pkg_logger.setLevel(_saved_level)
-        pkg_logger.propagate = _saved_propagate
+        if use_json:
+            # Add devices and EPs to JSON output
+            try:
+                info["devices"] = _gather_device_info()
+            except Exception:
+                info["devices"] = []
+            try:
+                info["executionProviders"] = _gather_ep_info()
+            except Exception:
+                info["executionProviders"] = []
+            _output_json(info)
+        elif output_format.lower() == "compact":
+            _output_compact(info)
+        else:
+            _output_text(info, verbose=bool(verbose))
+            # Append devices and EPs to text output
+            _get_console().print()
+            try:
+                devices = _gather_device_info()
+                _output_device_text(devices)
+            except Exception:
+                logger.debug("Device detection failed in default output")
+            _get_console().print()
+            try:
+                eps = _gather_ep_info()
+                _output_ep_text(eps)
+            except Exception:
+                logger.debug("EP detection failed in default output")
+
+    except Exception as e:
+        _get_console().print(f"[bold red]Error gathering system information:[/bold red] {e}")
+        logger.exception("Failed to gather system information")
+        raise click.ClickException(f"Error gathering system information: {e}") from e
