@@ -151,6 +151,15 @@ def compile(
             embed = cc["embed_context"]
         if not cli_utils.is_cli_provided(ctx, "validate") and "validate" in cc:
             validate = cc["validate"]
+        # Config-file verbosity fallback. CLI flags always win: only honor the
+        # build config's `verbose` when the user gave no verbosity on either CLI
+        # position (resolve_verbosity above already merged top-level + subcommand
+        # -v, so a merged 0 means "none on the CLI") and did not ask for --quiet.
+        # ``int`` maps both `true`->1 (INFO) and an explicit count (e.g. 2->DEBUG).
+        # Currently compile-only; tracked for all commands in
+        # https://github.com/microsoft/winml-cli/issues/799
+        if verbose == 0 and not quiet and "verbose" in cc:
+            verbose = int(cc["verbose"])
 
     configure_logging(verbosity=verbose, quiet=quiet)
 
