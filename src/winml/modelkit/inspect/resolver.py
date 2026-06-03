@@ -15,8 +15,11 @@ from typing import TYPE_CHECKING, NamedTuple
 from ..loader.task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
+    WRAPPED_LIBRARY_MODEL_TYPES,
+    _detect_task_and_class_from_config,
     _detect_task_from_config,
     _get_custom_model_class,
+    resolve_optimum_library,
 )
 from ..models import (
     HF_MODEL_CLASS_MAPPING,
@@ -45,6 +48,11 @@ if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
 
 logger = logging.getLogger(__name__)
+
+# Task-detection provenance label returned by detect_task() for wrapped-library
+# model types (e.g. timm via "timm_wrapper"). Surfaced in `inspect` output as
+# "Task <task> (via <source>)" and in the JSON `task_source` field.
+WRAPPED_LIBRARY_SOURCE = "wrapped-library"
 
 # Mapping from pipeline stage verbs to the filenames build_hf_model() produces.
 # "export" is omitted because its stage name equals its filename — the
@@ -120,6 +128,16 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
     for mt, task in HF_MODEL_CLASS_MAPPING:
         if mt == model_type_normalized:
             return task, "HF_MODEL_CLASS_MAPPING"
+
+    # Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
+    # `architectures`; reuse the loader's resolution to derive the real task
+    # instead of falling through to the HF_TASK_DEFAULTS mislabel below.
+    if model_type in WRAPPED_LIBRARY_MODEL_TYPES and not getattr(config, "architectures", None):
+        try:
+            task, _ = _detect_task_and_class_from_config(config)
+            return task, WRAPPED_LIBRARY_SOURCE
+        except Exception:
+            logger.debug("wrapped-library task detection failed for %s", model_type, exc_info=True)
 
     # Use TasksManager detection
     try:
@@ -337,13 +355,16 @@ def resolve_exporter(
         import optimum.exporters.onnx.model_configs  # noqa: F401
         from optimum.exporters.tasks import TasksManager
 
+        # TasksManager expects Optimum-canonical task names
+        from ..loader import to_optimum_task
+
         # TasksManager uses underscores (sam2_video), not hyphens (sam2-video)
         # Use original model_type for TasksManager lookup
         onnx_config_cls = TasksManager.get_exporter_config_constructor(
             exporter="onnx",
             model_type=model_type,
-            task=task,
-            library_name="transformers",
+            task=to_optimum_task(task),
+            library_name=resolve_optimum_library(model_type),
         )
         if onnx_config_cls:
             # Handle functools.partial returned by TasksManager
