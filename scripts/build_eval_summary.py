@@ -125,6 +125,13 @@ def classify_error(text: str) -> str:
         return "ORT runtime exception (pass_main)"
     if "out of memory" in t_full or "cuda oom" in t_full or "cudnn_status_out_of_memory" in t_full:
         return "Out of memory"
+    # Specific eval-pipeline causes (winml CLI wraps these in "Evaluation failed:")
+    if "no samples remain after label filtering" in t_full or "labels have no overlap" in t_full:
+        return "Label mismatch (no overlap with dataset)"
+    if "is not supported. supported tasks" in t_full:
+        return "Unsupported task"
+    if "couldn't find any data file" in t_full or "failed to load dataset" in t_full:
+        return "Dataset missing / not built"
     if "failed to load model" in t:
         return "Model load failure"
     if "failed to load" in t_full and "tokeniz" in t_full:
@@ -163,7 +170,7 @@ def classify_error(text: str) -> str:
     # Heuristic for task-specific silent completion failures
     if "pppl" in t_full and "100%" in t_full:
         return "PPPL completed but no metric (likely NaN/overflow)"
-    if "100%" in t_full and ("evaluating" in t_full or "map:" in t_full or "aligning" in t_full):
+    if "100%" in t_full:
         return "Eval ran to completion but no metric file written"
     return "Unknown (no error line in stderr tail)"
 

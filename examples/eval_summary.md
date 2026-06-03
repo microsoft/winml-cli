@@ -188,8 +188,10 @@ Total failures: **11**
 
 | Category | Count | Example |
 |---|---|---|
-| Evaluation failed (generic) | 8 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](dml/gpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Label mismatch (no overlap with dataset) | 3 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](dml/gpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Evaluation failed (generic) | 3 | [cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt](dml/gpu/cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt) |
 | Timeout | 3 |  |
+| Unsupported task | 2 | [google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt](dml/gpu/google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt) |
 
 ### MLAS CPU
 
@@ -197,9 +199,11 @@ Total failures: **13**
 
 | Category | Count | Example |
 |---|---|---|
-| Evaluation failed (generic) | 11 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](mlas/cpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Dataset missing / not built | 4 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](mlas/cpu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
+| Label mismatch (no overlap with dataset) | 3 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](mlas/cpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Evaluation failed (generic) | 3 | [cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt](mlas/cpu/cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt) |
+| Unsupported task | 2 | [google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt](mlas/cpu/google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt) |
 | Timeout | 1 |  |
-| Dataset/download error | 1 | [Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_eval_result.error.txt](mlas/cpu/Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_eval_result.error.txt) |
 
 ### OV CPU
 
@@ -207,9 +211,12 @@ Total failures: **19**
 
 | Category | Count | Example |
 |---|---|---|
-| Evaluation failed (generic) | 7 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](openvino/cpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
-| Dataset/download error | 6 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](openvino/cpu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
 | Timeout | 6 |  |
+| Dataset missing / not built | 5 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](openvino/cpu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
+| Label mismatch (no overlap with dataset) | 3 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](openvino/cpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Evaluation failed (generic) | 2 | [cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt](openvino/cpu/cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt) |
+| Unsupported task | 2 | [google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt](openvino/cpu/google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt) |
+| Dataset/download error | 1 | [Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt](openvino/cpu/Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt) |
 
 ### OV GPU
 
@@ -217,8 +224,11 @@ Total failures: **13**
 
 | Category | Count | Example |
 |---|---|---|
-| Evaluation failed (generic) | 7 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](openvino/gpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
-| Dataset/download error | 6 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](openvino/gpu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
+| Dataset missing / not built | 5 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](openvino/gpu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
+| Label mismatch (no overlap with dataset) | 3 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](openvino/gpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Evaluation failed (generic) | 2 | [cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt](openvino/gpu/cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt) |
+| Unsupported task | 2 | [google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt](openvino/gpu/google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt) |
+| Dataset/download error | 1 | [Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt](openvino/gpu/Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt) |
 
 ### OV NPU
 
@@ -226,7 +236,7 @@ Total failures: **6**
 
 | Category | Count | Example |
 |---|---|---|
-| Dataset/download error | 6 | [rizvandwiki_gender-classification/image-classification_fp16_eval_result.error.txt](openvino/npu/rizvandwiki_gender-classification/image-classification_fp16_eval_result.error.txt) |
+| Dataset missing / not built | 6 | [rizvandwiki_gender-classification/image-classification_fp16_eval_result.error.txt](openvino/npu/rizvandwiki_gender-classification/image-classification_fp16_eval_result.error.txt) |
 
 ### QNN GPU
 
@@ -234,8 +244,11 @@ Total failures: **19**
 
 | Category | Count | Example |
 |---|---|---|
-| Evaluation failed (generic) | 12 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](qnn/gpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
-| Unknown (no error line in stderr tail) | 7 | [deepset_bert-large-uncased-whole-word-masking-squad2/question-answering_eval_result.error.txt](qnn/gpu/deepset_bert-large-uncased-whole-word-masking-squad2/question-answering_eval_result.error.txt) |
+| Eval ran to completion but no metric file written | 7 | [deepset_bert-large-uncased-whole-word-masking-squad2/question-answering_eval_result.error.txt](qnn/gpu/deepset_bert-large-uncased-whole-word-masking-squad2/question-answering_eval_result.error.txt) |
+| Dataset missing / not built | 4 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](qnn/gpu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
+| Label mismatch (no overlap with dataset) | 3 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](qnn/gpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Evaluation failed (generic) | 3 | [cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt](qnn/gpu/cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt) |
+| Unsupported task | 2 | [google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt](qnn/gpu/google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt) |
 
 ### QNN NPU
 
@@ -243,10 +256,12 @@ Total failures: **29**
 
 | Category | Count | Example |
 |---|---|---|
-| Evaluation failed (generic) | 20 | [AdamCodd_vit-base-nsfw-detector/image-classification_w8a16_eval_result.error.txt](qnn/npu/AdamCodd_vit-base-nsfw-detector/image-classification_w8a16_eval_result.error.txt) |
-| Dataset/download error | 7 | [Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_eval_result.error.txt](qnn/npu/Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_eval_result.error.txt) |
-| Network/connection error | 1 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](qnn/npu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Evaluation failed (generic) | 8 | [cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt](qnn/npu/cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt) |
+| Dataset missing / not built | 7 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](qnn/npu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Label mismatch (no overlap with dataset) | 6 | [AdamCodd_vit-base-nsfw-detector/image-classification_w8a16_eval_result.error.txt](qnn/npu/AdamCodd_vit-base-nsfw-detector/image-classification_w8a16_eval_result.error.txt) |
+| Unsupported task | 6 | [google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt](qnn/npu/google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt) |
 | Compilation failure | 1 | [hustvl_yolos-small/object-detection_fp16_eval_result.error.txt](qnn/npu/hustvl_yolos-small/object-detection_fp16_eval_result.error.txt) |
+| Dataset/download error | 1 | [Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt](qnn/npu/Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt) |
 
 ### VitisAI NPU
 
@@ -254,9 +269,12 @@ Total failures: **33**
 
 | Category | Count | Example |
 |---|---|---|
-| Evaluation failed (generic) | 23 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](vitisai/npu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
-| Dataset/download error | 9 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](vitisai/npu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
+| Label mismatch (no overlap with dataset) | 9 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](vitisai/npu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Evaluation failed (generic) | 8 | [cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt](vitisai/npu/cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt) |
+| Dataset missing / not built | 8 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](vitisai/npu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
+| Unsupported task | 6 | [google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt](vitisai/npu/google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt) |
 | Timeout | 1 |  |
+| Dataset/download error | 1 | [Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt](vitisai/npu/Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt) |
 
 ### TRTRTX GPU
 
@@ -264,5 +282,8 @@ Total failures: **12**
 
 | Category | Count | Example |
 |---|---|---|
-| Evaluation failed (generic) | 7 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](nv_tensorrt_rtx/gpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
-| Dataset/download error | 5 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](nv_tensorrt_rtx/gpu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
+| Dataset missing / not built | 4 | [dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt](nv_tensorrt_rtx/gpu/dima806_fairface_age_image_detection/image-classification_fp16_eval_result.error.txt) |
+| Label mismatch (no overlap with dataset) | 3 | [AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt](nv_tensorrt_rtx/gpu/AdamCodd_vit-base-nsfw-detector/image-classification_fp16_eval_result.error.txt) |
+| Evaluation failed (generic) | 2 | [cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt](nv_tensorrt_rtx/gpu/cross-encoder_ms-marco-MiniLM-L4-v2/text-classification_fp16_eval_result.error.txt) |
+| Unsupported task | 2 | [google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt](nv_tensorrt_rtx/gpu/google-bert_bert-base-multilingual-cased/masked-lm_fp16_eval_result.error.txt) |
+| Dataset/download error | 1 | [Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt](nv_tensorrt_rtx/gpu/Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_eval_result.error.txt) |
