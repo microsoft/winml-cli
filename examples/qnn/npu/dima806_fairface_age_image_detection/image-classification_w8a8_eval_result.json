@@ -1,0 +1,25 @@
+{
+  "model_id": "dima806/fairface_age_image_detection",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\dima806_fairface_age_image_detection\\image-classification_w8a8_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_fairface",
+    "columns_mapping": {
+      "label_column": "age"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_fairface.py"
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\dima806_fairface_age_image_detection\\image-classification_w8a8_eval_result.json",
+  "metrics": {
+    "accuracy": 0.05,
+    "total_time_in_seconds": 27.83247190000111,
+    "samples_per_second": 3.592925571228045,
+    "latency_in_seconds": 0.2783247190000111
+  }
+}

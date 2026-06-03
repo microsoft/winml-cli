@@ -1,7 +1,9 @@
 {
   "model_id": "deepset/tinyroberta-squad2",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\deepset_tinyroberta-squad2\\question-answering_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "gpu",
+  "ep": "openvino",
   "dataset": {
     "split": "validation",
     "samples": 100,
@@ -30,8 +32,8 @@
     "best_exact_thresh": 0.9948045015335083,
     "best_f1": 82.25,
     "best_f1_thresh": 0.9948045015335083,
-    "total_time_in_seconds": 1.312156799947843,
-    "samples_per_second": 76.21040412546344,
-    "latency_in_seconds": 0.01312156799947843
+    "total_time_in_seconds": 2.4483569000003627,
+    "samples_per_second": 40.843718495446964,
+    "latency_in_seconds": 0.024483569000003626
   }
 }

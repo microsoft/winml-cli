@@ -1,5 +1,6 @@
 {
   "model_id": "kredor/punctuate-all",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\kredor_punctuate-all\\token-classification_fp16_build_artifacts\\model.onnx",
   "task": "token-classification",
   "device": "gpu",
   "ep": "openvino",
@@ -43,8 +44,8 @@
     "overall_recall": 0.0,
     "overall_f1": 0.0,
     "overall_accuracy": 0.0,
-    "total_time_in_seconds": 1.234088100027293,
-    "samples_per_second": 81.03149199622653,
-    "latency_in_seconds": 0.012340881000272929
+    "total_time_in_seconds": 1.2003439999971306,
+    "samples_per_second": 83.30945129082917,
+    "latency_in_seconds": 0.012003439999971305
   }
 }

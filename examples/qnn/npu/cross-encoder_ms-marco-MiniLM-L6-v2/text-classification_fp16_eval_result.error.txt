@@ -1,24 +1,5 @@
-8<00:00, 53.16it/s]
- 80%|████████  | 162/202 [00:08<00:00, 44.74it/s]
- 83%|████████▎ | 168/202 [00:08<00:00, 37.30it/s]
- 86%|████████▌ | 173/202 [00:08<00:00, 37.74it/s]
- 92%|█████████▏| 186/202 [00:08<00:00, 52.20it/s]
- 95%|█████████▌| 192/202 [00:09<00:00, 42.99it/s]
- 98%|█████████▊| 197/202 [00:09<00:00, 35.57it/s]
-100%|██████████| 202/202 [00:09<00:00, 21.41it/s]
-[2026-05-27T10:31:35] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
-c:\repo\WinML-ModelKit\.venv\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\shzhen\.cache\huggingface\hub\datasets--glue. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
-To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
-  warnings.warn(message)
+[2026-06-03T01:19:31] WARNING: --dataset not specified; attempting default dataset 'nyu-mll/glue' for task 'text-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
 
-Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
-Generating train split: 100%|██████████| 3668/3668 [00:00<00:00, 73604.70 examples/s]
-
-Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
-Generating validation split: 100%|██████████| 408/408 [00:00<00:00, 14506.15 examples/s]
-
-Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
-Generating test split: 100%|██████████| 1725/1725 [00:00<00:00, 58075.60 examples/s]
-
-Map:   0%|          | 0/10 [00:00<?, ? examples/s]
-Map: 100%|██████████| 10/10 [00:00<00:00, 113.47 examples/s]
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Error: Evaluation failed: Dataset 'nyu-mll/glue' is not compatible with task 'text-classification': label alignment failed for dataset 'nyu-mll/glue': 'equivalent'. Use --dataset to specify a different dataset, or run 'winml eval --schema --task text-classification' to see the expected schema.

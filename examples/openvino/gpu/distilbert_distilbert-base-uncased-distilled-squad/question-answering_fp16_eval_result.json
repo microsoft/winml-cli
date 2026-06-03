@@ -1,5 +1,6 @@
 {
   "model_id": "distilbert/distilbert-base-uncased-distilled-squad",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\distilbert_distilbert-base-uncased-distilled-squad\\question-answering_fp16_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "gpu",
   "ep": "openvino",
@@ -20,8 +21,8 @@
   "metrics": {
     "exact_match": 81.0,
     "f1": 85.57126984126984,
-    "total_time_in_seconds": 1.0941083000507206,
-    "samples_per_second": 91.39863027760983,
-    "latency_in_seconds": 0.010941083000507204
+    "total_time_in_seconds": 2.2788059000013163,
+    "samples_per_second": 43.88263168879027,
+    "latency_in_seconds": 0.022788059000013166
   }
 }

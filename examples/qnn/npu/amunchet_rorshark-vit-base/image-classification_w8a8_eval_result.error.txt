@@ -1,0 +1,2 @@
+[2026-06-03T00:53:12] WARNING: --dataset not specified; attempting default dataset 'timm/mini-imagenet' for task 'image-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+Error: Evaluation failed: Dataset 'timm/mini-imagenet' is not compatible with task 'image-classification': No samples remain after label filtering. Dataset and model labels have no overlap.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task image-classification' to see the expected schema.

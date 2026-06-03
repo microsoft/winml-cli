@@ -1,0 +1,65 @@
+   resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\urllib3\connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\urllib3\util\retry.py", line 490, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\urllib3\util\util.py", line 39, in reraise
+    raise value
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\urllib3\connectionpool.py", line 775, in urlopen
+    self._raise_timeout(
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\urllib3\connectionpool.py", line 367, in _raise_timeout
+    raise ReadTimeoutError(
+urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out. (read timeout=10)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 118, in universal_calib_dataset
+    dataset = dataset_class(**dataset_kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\datasets\base.py", line 67, in __init__
+    self._initialize()
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\datasets\image.py", line 124, in _initialize
+    if should_align_labels(self._dataset_name):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\datasets\label_utils.py", line 82, in should_align_labels
+    return get_label_mapping(dataset_name) is not None
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\datasets\label_utils.py", line 67, in get_label_mapping
+    return get_imagenet_label_map()
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\datasets\label_utils.py", line 35, in get_imagenet_label_map
+    response = requests.get(url, timeout=10)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\requests\api.py", line 73, in get
+    return request("get", url, params=params, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\requests\api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\requests\sessions.py", line 592, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\requests\sessions.py", line 706, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\.venv\Lib\site-packages\requests\adapters.py", line 691, in send
+    raise ReadTimeout(e, request=request)
+requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out. (read timeout=10)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\quant\quantizer.py", line 112, in quantize_onnx
+    data_reader = DatasetCalibrationReader(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 192, in __init__
+    self._dataset = universal_calib_dataset(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 124, in universal_calib_dataset
+    raise RuntimeError(f"Failed to create {task} dataset: {e}") from e
+RuntimeError: Failed to create image-classification dataset: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out. (read timeout=10)
+

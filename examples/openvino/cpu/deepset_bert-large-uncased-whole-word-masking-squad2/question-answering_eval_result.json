@@ -1,7 +1,9 @@
 {
   "model_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\cpu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "cpu",
+  "ep": "openvino",
   "dataset": {
     "split": "validation",
     "samples": 100,
@@ -30,8 +32,8 @@
     "best_exact_thresh": 0.9954809546470642,
     "best_f1": 89.85,
     "best_f1_thresh": 0.9954809546470642,
-    "total_time_in_seconds": 153.79616729996633,
-    "samples_per_second": 0.6502112617992523,
-    "latency_in_seconds": 1.5379616729996632
+    "total_time_in_seconds": 147.146164400001,
+    "samples_per_second": 0.6795963755341986,
+    "latency_in_seconds": 1.47146164400001
   }
 }

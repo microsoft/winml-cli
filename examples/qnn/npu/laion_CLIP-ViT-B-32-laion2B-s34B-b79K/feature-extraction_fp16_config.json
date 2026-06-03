@@ -51,6 +51,7 @@
     "matmul_add_fusion": true
   },
   "quant": null,
+  "compile": null,
   "loader": {
     "task": "feature-extraction",
     "model_class": "CLIPTextModelWithProjection",

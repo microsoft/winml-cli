@@ -1,7 +1,9 @@
 {
   "model_id": "deepset/tinyroberta-squad2",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\cpu\\deepset_tinyroberta-squad2\\question-answering_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "cpu",
+  "ep": "openvino",
   "dataset": {
     "split": "validation",
     "samples": 100,
@@ -30,8 +32,8 @@
     "best_exact_thresh": 0.9947844743728638,
     "best_f1": 82.25,
     "best_f1_thresh": 0.9947844743728638,
-    "total_time_in_seconds": 18.332752499962226,
-    "samples_per_second": 5.454718269949155,
-    "latency_in_seconds": 0.18332752499962227
+    "total_time_in_seconds": 17.178686499999458,
+    "samples_per_second": 5.821166827859811,
+    "latency_in_seconds": 0.17178686499999457
   }
 }

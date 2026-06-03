@@ -1,5 +1,6 @@
 {
   "model_id": "microsoft/resnet-18",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\cpu\\microsoft_resnet-18\\image-classification_fp16_build_artifacts\\model.onnx",
   "task": "image-classification",
   "device": "cpu",
   "ep": "openvino",
@@ -13,8 +14,8 @@
   "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\cpu\\microsoft_resnet-18\\image-classification_fp16_eval_result.json",
   "metrics": {
     "accuracy": 0.66,
-    "total_time_in_seconds": 1.5368845999473706,
-    "samples_per_second": 65.06669401425742,
-    "latency_in_seconds": 0.015368845999473708
+    "total_time_in_seconds": 1.6481921000013244,
+    "samples_per_second": 60.67253932349248,
+    "latency_in_seconds": 0.016481921000013243
   }
 }

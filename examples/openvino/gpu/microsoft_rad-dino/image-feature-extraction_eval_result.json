@@ -1,7 +1,9 @@
 {
   "model_id": "microsoft/rad-dino",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\microsoft_rad-dino\\image-feature-extraction_build_artifacts\\model.onnx",
   "task": "image-feature-extraction",
   "device": "gpu",
+  "ep": "openvino",
   "dataset": {
     "split": "test",
     "samples": 582,

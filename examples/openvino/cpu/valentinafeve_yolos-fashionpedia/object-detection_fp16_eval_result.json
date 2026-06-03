@@ -1,5 +1,6 @@
 {
   "model_id": "valentinafeve/yolos-fashionpedia",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\cpu\\valentinafeve_yolos-fashionpedia\\object-detection_fp16_build_artifacts\\model.onnx",
   "task": "object-detection",
   "device": "cpu",
   "ep": "openvino",

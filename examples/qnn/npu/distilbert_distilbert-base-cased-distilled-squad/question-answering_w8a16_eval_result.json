@@ -1,0 +1,28 @@
+{
+  "model_id": "distilbert/distilbert-base-cased-distilled-squad",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\distilbert_distilbert-base-cased-distilled-squad\\question-answering_w8a16_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\distilbert_distilbert-base-cased-distilled-squad\\question-answering_w8a16_eval_result.json",
+  "metrics": {
+    "exact_match": 6.0,
+    "f1": 8.236187788819368,
+    "total_time_in_seconds": 24.467422499998065,
+    "samples_per_second": 4.08706720129625,
+    "latency_in_seconds": 0.24467422499998068
+  }
+}

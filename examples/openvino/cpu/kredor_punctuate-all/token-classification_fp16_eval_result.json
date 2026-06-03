@@ -1,5 +1,6 @@
 {
   "model_id": "kredor/punctuate-all",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\cpu\\kredor_punctuate-all\\token-classification_fp16_build_artifacts\\model.onnx",
   "task": "token-classification",
   "device": "cpu",
   "ep": "openvino",
@@ -43,8 +44,8 @@
     "overall_recall": 0.0,
     "overall_f1": 0.0,
     "overall_accuracy": 0.0,
-    "total_time_in_seconds": 27.757300200057216,
-    "samples_per_second": 3.602655851947513,
-    "latency_in_seconds": 0.27757300200057217
+    "total_time_in_seconds": 26.93680279999535,
+    "samples_per_second": 3.712393068416318,
+    "latency_in_seconds": 0.26936802799995346
   }
 }

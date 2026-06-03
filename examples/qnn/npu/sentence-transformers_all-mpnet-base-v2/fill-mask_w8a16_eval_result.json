@@ -1,0 +1,24 @@
+{
+  "model_id": "sentence-transformers/all-mpnet-base-v2",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_build_artifacts\\model.onnx",
+  "task": "fill-mask",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Salesforce/wikitext",
+    "name": "wikitext-2-raw-v1",
+    "columns_mapping": {
+      "input_column": "text"
+    },
+    "streaming": true
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_eval_result.json",
+  "metrics": {
+    "pseudo_perplexity": 1512905.0734,
+    "nll": 14.2295
+  }
+}

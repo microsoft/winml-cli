@@ -1,5 +1,6 @@
 {
   "model_id": "microsoft/resnet-18",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\microsoft_resnet-18\\image-classification_fp16_build_artifacts\\model.onnx",
   "task": "image-classification",
   "device": "gpu",
   "ep": "openvino",
@@ -13,8 +14,8 @@
   "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\microsoft_resnet-18\\image-classification_fp16_eval_result.json",
   "metrics": {
     "accuracy": 0.66,
-    "total_time_in_seconds": 1.4553094999864697,
-    "samples_per_second": 68.71390587426916,
-    "latency_in_seconds": 0.014553094999864699
+    "total_time_in_seconds": 1.8833952999993926,
+    "samples_per_second": 53.0955981466197,
+    "latency_in_seconds": 0.018833952999993925
   }
 }

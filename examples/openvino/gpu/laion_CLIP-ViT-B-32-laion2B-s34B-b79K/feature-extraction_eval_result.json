@@ -1,7 +1,9 @@
 {
   "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "gpu",
+  "ep": "openvino",
   "dataset": {
     "split": "test",
     "samples": 100,

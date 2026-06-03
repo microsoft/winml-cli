@@ -1,5 +1,6 @@
 {
   "model_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\cpu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_fp16_build_artifacts\\model.onnx",
   "task": "zero-shot-classification",
   "device": "cpu",
   "ep": "openvino",

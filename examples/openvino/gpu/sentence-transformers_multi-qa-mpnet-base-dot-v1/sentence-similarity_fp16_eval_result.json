@@ -1,5 +1,6 @@
 {
   "model_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\sentence-similarity_fp16_build_artifacts\\model.onnx",
   "task": "sentence-similarity",
   "device": "gpu",
   "ep": "openvino",

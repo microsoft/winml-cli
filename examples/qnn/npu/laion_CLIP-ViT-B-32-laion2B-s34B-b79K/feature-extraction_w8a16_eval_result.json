@@ -1,11 +1,12 @@
 {
   "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_w8a16_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "npu",
   "ep": "qnn",
   "dataset": {
     "split": "test",
-    "samples": 10,
+    "samples": 100,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -17,6 +18,6 @@
   },
   "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_w8a16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 79.2698
+    "cosine_spearman": 77.074
   }
 }

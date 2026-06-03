@@ -1,5 +1,6 @@
 {
   "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_fp16_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "npu",
   "ep": "qnn",
@@ -17,6 +18,6 @@
   },
   "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_fp16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 77.0097
+    "cosine_spearman": 75.4739
   }
 }
