@@ -275,6 +275,92 @@ def _detect_task_from_config(config: PretrainedConfig) -> str:
     return task
 
 
+def _is_top_level_vision_config(config: PretrainedConfig) -> bool:
+    """Return True when the config carries a top-level ``image_size`` or ``patch_size``.
+
+    These fields sit at the config root for vision backbones (ViT, DINOv2, ConvNeXt,
+    …) but are nested under ``vision_config`` for multimodal models (CLIP), so a
+    top-level check does not fire for those. Used by :func:`detect_task` to recover
+    modality for the otherwise-lossy ``feature-extraction`` task (D2 heuristic).
+    """
+    try:
+        keys = config.to_dict().keys()
+    except Exception:
+        keys = vars(config).keys()
+    return "image_size" in keys or "patch_size" in keys
+
+
+def _apply_vision_modality(config: PretrainedConfig, task: str) -> str:
+    """Upgrade lossy ``feature-extraction`` to ``image-feature-extraction`` for vision.
+
+    Applies the D2 heuristic when the config is a top-level vision backbone; no-op
+    otherwise. Used only on surfaced/returned tasks — never on a task headed into an
+    Optimum API, which does not recognise ``image-feature-extraction``.
+    """
+    if task == "feature-extraction" and _is_top_level_vision_config(config):
+        return "image-feature-extraction"
+    return task
+
+
+def detect_task(config: PretrainedConfig) -> tuple[str, str]:
+    """Single offline detection entry. Returns ``(WinMLTask, source)``.
+
+    ``WinMLTask`` is HF modality-aware (e.g. ``image-feature-extraction``) — the
+    only behavioural difference from :func:`_detect_task_from_config`, which stays
+    Optimum-canonical for internal model-class resolution.
+
+    Dispatch order mirrors the historical inspect resolver::
+
+        HF_MODEL_CLASS_MAPPING -> wrapped-library -> TasksManager -> HF_TASK_DEFAULTS
+
+    The D2 vision-modality upgrade is applied to the **returned** task only; no
+    Optimum API ever receives ``image-feature-extraction``. Offline / config-only —
+    no network.
+    """
+    from ..models import HF_MODEL_CLASS_MAPPING
+
+    model_type = getattr(config, "model_type", "unknown")
+    model_type_normalized = model_type.lower().replace("_", "-")
+
+    task: str | None = None
+    source = "none"
+
+    # 1. Explicit (model_type, task) mapping wins.
+    for mt, mapped_task in HF_MODEL_CLASS_MAPPING:
+        if mt == model_type_normalized:
+            task, source = mapped_task, "HF_MODEL_CLASS_MAPPING"
+            break
+
+    # 2. Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
+    #    `architectures`; resolve through their wrapped library instead of the
+    #    HF_TASK_DEFAULTS mislabel below. Use the raw model_type for the lookup.
+    if task is None and (
+        model_type in WRAPPED_LIBRARY_MODEL_TYPES and not getattr(config, "architectures", None)
+    ):
+        try:
+            task, _ = _detect_task_and_class_from_config(config)
+            source = "wrapped-library"
+        except Exception:
+            logger.debug("wrapped-library task detection failed for %s", model_type, exc_info=True)
+
+    # 3. TasksManager (Optimum) detection.
+    if task is None:
+        try:
+            task = _detect_task_from_config(config)
+            source = "TasksManager"
+        except ValueError:
+            pass
+
+    # 4. Fallback to task defaults.
+    if task is None:
+        if not HF_TASK_DEFAULTS:
+            return "unknown", "none"
+        task, source = next(iter(HF_TASK_DEFAULTS.keys())), "HF_TASK_DEFAULTS"
+
+    # D2 — vision modality upgrade, applied to the surfaced task only.
+    return _apply_vision_modality(config, task), source
+
+
 def _get_custom_model_class(model_type: str, task: str) -> type | None:
     """Get model class for a (model_type, task) combination.
 
@@ -615,7 +701,11 @@ def resolve_task_and_model_class(
 
     # Case 1: Auto-detect both task and model class
     if task is None and model_class is None:
-        return _detect_task_and_class_from_config(config)
+        # Resolve task + class from config, then surface the modality-aware task
+        # (D2). The class was resolved from the pre-upgrade Optimum task, so model
+        # loading is unchanged. Case 2/3 are intentionally left untouched.
+        detected_task, resolved_class = _detect_task_and_class_from_config(config)
+        return _apply_vision_modality(config, detected_task), resolved_class
 
     # Case 2: User specified task only -> resolve model class for that task
     if task is not None and model_class is None:

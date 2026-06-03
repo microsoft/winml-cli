@@ -15,9 +15,6 @@ from typing import TYPE_CHECKING, NamedTuple
 from ..loader.task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
-    WRAPPED_LIBRARY_MODEL_TYPES,
-    _detect_task_and_class_from_config,
-    _detect_task_from_config,
     _get_custom_model_class,
     resolve_optimum_library,
 )
@@ -48,11 +45,6 @@ if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
 
 logger = logging.getLogger(__name__)
-
-# Task-detection provenance label returned by detect_task() for wrapped-library
-# model types (e.g. timm via "timm_wrapper"). Surfaced in `inspect` output as
-# "Task <task> (via <source>)" and in the JSON `task_source` field.
-WRAPPED_LIBRARY_SOURCE = "wrapped-library"
 
 # Mapping from pipeline stage verbs to the filenames build_hf_model() produces.
 # "export" is omitted because its stage name equals its filename — the
@@ -113,45 +105,14 @@ def validate_task(task: str) -> None:
 
 
 def detect_task(config: PretrainedConfig) -> tuple[str, str]:
-    """Detect task from HF config.
+    """Detect task from HF config — delegates to the single loader detector.
 
-    Args:
-        config: HuggingFace PretrainedConfig
-
-    Returns:
-        Tuple of (task_name, detection_source)
+    Returns ``(task, detection_source)``. The task is modality-aware (e.g.
+    ``image-feature-extraction``); see :func:`winml.modelkit.loader.detect_task`.
     """
-    model_type = getattr(config, "model_type", "unknown")
-    model_type_normalized = model_type.lower().replace("_", "-")
+    from ..loader import detect_task as _loader_detect_task
 
-    # Check if we have explicit mapping for this model_type
-    for mt, task in HF_MODEL_CLASS_MAPPING:
-        if mt == model_type_normalized:
-            return task, "HF_MODEL_CLASS_MAPPING"
-
-    # Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
-    # `architectures`; reuse the loader's resolution to derive the real task
-    # instead of falling through to the HF_TASK_DEFAULTS mislabel below.
-    if model_type in WRAPPED_LIBRARY_MODEL_TYPES and not getattr(config, "architectures", None):
-        try:
-            task, _ = _detect_task_and_class_from_config(config)
-            return task, WRAPPED_LIBRARY_SOURCE
-        except Exception:
-            logger.debug("wrapped-library task detection failed for %s", model_type, exc_info=True)
-
-    # Use TasksManager detection
-    try:
-        task = _detect_task_from_config(config)
-        return task, "TasksManager"
-    except ValueError:
-        pass
-
-    # Fallback to task defaults
-    if HF_TASK_DEFAULTS:
-        first_task = next(iter(HF_TASK_DEFAULTS.keys()))
-        return first_task, "HF_TASK_DEFAULTS"
-
-    return "unknown", "none"
+    return _loader_detect_task(config)
 
 
 def resolve_loader(model_type: str, task: str) -> LoaderInfo:
