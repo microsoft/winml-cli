@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..optim.config import WinMLOptimizationConfig
-from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
+from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
 from .models.information import Information
 from .models.support_level import SupportLevel
 from .utils.timing_utils import make_timing_logger
@@ -684,20 +684,6 @@ class ONNXStaticAnalyzer:
 
         logger.info("Analyzing model from ModelProto")
 
-        # Determine which EPs to analyze
-        eps_to_analyze: list[EPName] = []
-        if ep_normalized is None:
-            # Analyze all supported EPs
-            eps_to_analyze = [
-                "QNNExecutionProvider",
-                "OpenVINOExecutionProvider",
-                "VitisAIExecutionProvider",
-                "NvTensorRTRTXExecutionProvider",
-            ]
-            logger.info("No EP specified, analyzing all supported EPs: %s", eps_to_analyze)
-        else:
-            eps_to_analyze = [ep_normalized]
-
         # Resolve device — rule files are device-specific (CPU/GPU/NPU).
         if device is not None and device.lower() == "auto":
             from ..sysinfo import resolve_device
@@ -708,6 +694,19 @@ class ONNXStaticAnalyzer:
         else:
             device_to_use = device if device is not None else "NPU"
             logger.info("Using device: %s", device_to_use)
+
+        # Determine which EPs to analyze
+        eps_to_analyze: list[EPName] = []
+        if ep_normalized is None:
+            # Analyze all EPs that support the target device
+            eps_to_analyze = [
+                ep_name
+                for ep_name, supported_devices in EP_SUPPORTED_DEVICES.items()
+                if device_to_use.lower() in supported_devices
+            ]
+            logger.info("No EP specified, analyzing all supported EPs: %s", eps_to_analyze)
+        else:
+            eps_to_analyze = [ep_normalized]
 
         # Step 1: Create ONNXModel and extract patterns (once)
         extraction_start = time.perf_counter()
@@ -838,14 +837,6 @@ class AnalyzeResult:
         """True if blocking errors (unsupported patterns) exist."""
         return self.lint.errors > 0
 
-    @property
-    def autoconf(self) -> WinMLOptimizationConfig | None:
-        """Auto-discovered optimization config, or None/empty if nothing found.
-
-        Falsy when no opportunities: ``if result.autoconf: ...``
-        """
-        return self.optimization_config
-
 
 def analyze_onnx(
     model: str | Path,
@@ -892,7 +883,7 @@ def analyze_onnx(
         >>> result = analyze_onnx("optimized.onnx", ep="qnn", device="NPU")
         >>> if result.has_errors:
         ...     print(f"Errors: {result.lint.error_patterns}")
-        >>> if result.autoconf:
+        >>> if result.optimization_config:
         ...     print(f"Autoconf: {result.optimization_config.to_dict()}")
 
         >>> # Save full analysis JSON alongside the model
