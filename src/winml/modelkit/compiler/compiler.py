@@ -93,7 +93,7 @@ class Compiler:
         if config is None:
             return CompileResult(
                 success=True,
-                output_path=str(model_path),
+                output_path=model_path,
                 errors=[],
                 warnings=["No compile config provided, skipping compilation (passthrough)"],
             )

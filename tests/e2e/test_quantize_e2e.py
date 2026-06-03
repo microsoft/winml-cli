@@ -165,6 +165,13 @@ def onnx_imgseg() -> Path:
     )
 
 
+@pytest.fixture(scope="session")
+def onnx_dinov2() -> Path:
+    return _export_hf_to_onnx(
+        "facebook/dinov2-small", "image-feature-extraction", "dinov2_small",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Standard assertions
 # ---------------------------------------------------------------------------
@@ -563,6 +570,30 @@ class TestPerTaskDatasets:
         assert "falling back to RandomDataset" in r.output, (
             f"fallback warning not emitted in CLI output:\n{r.output}"
         )
+
+    @pytest.mark.network
+    def test_feature_extraction_with_pixel_values_uses_image_dataset(
+        self, runner: CliRunner, onnx_dinov2: Path, tmp_path: Path
+    ):
+        # For a vision model the bimodal task 'feature-extraction' must
+        # dispatch via the model's ONNX inputs (pixel_values) to
+        # ImageDataset for calibration. The task label in the log stays
+        # 'feature-extraction' (the resolver only swaps the dataset class).
+        out = tmp_path / "d7.onnx"
+
+        r = _invoke(
+            runner,
+            [
+                "-m", str(onnx_dinov2), "-o", str(out),
+                "--task", "feature-extraction",
+                "--model-name", "facebook/dinov2-small",
+                "--samples", "4", "-v",
+            ],
+        )
+        _assert_quantized_output(input_onnx=onnx_dinov2, output_onnx=out, stdout=r.output)
+        assert (
+            "Creating feature-extraction dataset with ImageDataset" in r.output
+        ), r.output
 
 
 # ===========================================================================

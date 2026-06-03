@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import click
 from rich.console import Console
@@ -17,7 +17,13 @@ from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ..config import WinMLBuildConfig
+
+
+# TypeVar for signature-preserving Click decorators.
+F = TypeVar("F", bound="Callable[..., Any]")
 
 
 # Shared stderr console for security/diagnostic messages emitted from utils.
@@ -54,7 +60,7 @@ def warn_trust_remote_code() -> None:
     )
 
 
-def model_path_option(required=True):
+def model_path_option(required: bool = True) -> Callable[[F], F]:
     """Add --model option that accepts a local ONNX file path.
 
     The path is validated for existence on disk.
@@ -74,7 +80,7 @@ def model_path_option(required=True):
     )
 
 
-def model_option(required=True, optional_message=None):
+def model_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
     """Add --model option that accepts any model reference.
 
     Accepts a HuggingFace model ID, build output directory, or .onnx file path.
@@ -98,7 +104,7 @@ def model_option(required=True, optional_message=None):
     )
 
 
-def output_option(help_text: str, required: bool = False):
+def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     """Add ``-o/--output`` option that accepts a file path.
 
     The path is delivered to the callback as a :class:`pathlib.Path`.
@@ -118,7 +124,7 @@ def output_option(help_text: str, required: bool = False):
     return click.option("--output", "-o", **kwargs)
 
 
-def ep_option(required=True, optional_message=None):
+def ep_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
     """Add --ep (execution provider) option to a Click command.
 
     Args:
@@ -150,7 +156,12 @@ def ep_option(required=True, optional_message=None):
     )
 
 
-def device_option(required=True, optional_message=None, default="NPU", include_auto=False):
+def device_option(
+    required: bool = True,
+    optional_message: str | None = None,
+    default: str | None = "NPU",
+    include_auto: bool = False,
+) -> Callable[[F], F]:
     """Add --device option to a Click command.
 
     Args:
@@ -182,7 +193,7 @@ def device_option(required=True, optional_message=None, default="NPU", include_a
     )
 
 
-def verbosity_options(f):
+def verbosity_options():
     """Add verbose and quiet logging options to a Click command.
 
     Adds --verbose/-v (stackable: -v, -vv, -vvv) and --quiet/-q flags.
@@ -191,29 +202,62 @@ def verbosity_options(f):
 
     See :mod:`winml.modelkit.utils.logging` for the verbosity convention.
 
+    Returns:
+        Decorator function adding verbose and quiet options.
+    """
+
+    def decorator(f):
+        f = click.option(
+            "--quiet",
+            "-q",
+            is_flag=True,
+            default=False,
+            help="Quiet mode - errors only to stderr",
+        )(f)
+        return click.option(
+            "--verbose",
+            "-v",
+            count=True,
+            help="Increase verbosity (-v=INFO, -vv=DEBUG)",
+        )(f)
+
+    return decorator
+
+
+def resolve_verbosity(ctx: click.Context, verbose: int, quiet: bool) -> tuple[int, bool]:
+    """Merge subcommand ``--verbose``/``--quiet`` with the parent group's values.
+
+    The top-level ``winml`` group also accepts ``-v``/``-q`` and stores the
+    resolved values in ``ctx.obj``. Both positions are equally valid:
+    ``winml -v export …`` and ``winml export -v …`` should behave the same.
+    This helper takes the max verbosity and OR of quiet so users can supply
+    the flag at either level (or both).
+
+    Precedence: ``-q``/``--quiet`` always wins over verbosity, including the
+    ``--debug`` alias — ``winml --debug export -q …`` runs at ERROR. ``-q`` is
+    an explicit "shut up" signal and trumps any verbosity raise, so the user
+    is never surprised by debug spam after they asked for quiet.
+
     Args:
-        f: Click command function to decorate
+        ctx: Click context for the current subcommand.
+        verbose: Subcommand-level ``-v`` count.
+        quiet: Subcommand-level ``--quiet`` flag.
 
     Returns:
-        Decorated function with verbose and quiet options
+        Tuple ``(verbose, quiet)`` ready to pass to ``configure_logging``.
     """
-    f = click.option(
-        "--quiet",
-        "-q",
-        is_flag=True,
-        default=False,
-        help="Quiet mode - errors only to stderr",
-    )(f)
-    f = click.option(
-        "--verbose",
-        "-v",
-        count=True,
-        help="Increase verbosity (-v=INFO, -vv=DEBUG)",
-    )(f)
-    return f  # noqa: RET504
+    if ctx.obj:
+        verbose = max(verbose, int(ctx.obj.get("verbosity", 0)))
+        # ``debug`` is the historical backward-compat alias for ``-vv``; keep
+        # honoring it so tests that bypass ``main()`` and stuff ``debug=True``
+        # straight into ctx.obj still raise the verbosity floor.
+        if ctx.obj.get("debug"):
+            verbose = max(verbose, 2)
+        quiet = quiet or bool(ctx.obj.get("quiet", False))
+    return verbose, quiet
 
 
-def build_config_option(help: str | None = None):
+def build_config_option(help: str | None = None) -> Callable[[F], F]:
     """Add -c/--config option for WinMLBuildConfig JSON file."""
     if help is None:
         help = (
@@ -230,7 +274,7 @@ def build_config_option(help: str | None = None):
     )
 
 
-def trust_remote_code_option(optional_message: str | None = None):
+def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add shared --trust-remote-code option to a Click command.
 
     Args:
@@ -316,7 +360,7 @@ def is_cli_provided(ctx: click.Context, param_name: str) -> bool:
     return source == click.core.ParameterSource.COMMANDLINE
 
 
-def collect_cli_overrides(ctx: click.Context, cls: type) -> dict[str, object]:
+def collect_cli_overrides(ctx: click.Context, cls: type) -> dict[str, Any]:
     """Collect CLI-provided values that match fields on a dataclass.
 
     Iterates ``ctx.params`` and returns ``{field_name: value}`` for every
@@ -343,7 +387,7 @@ def collect_cli_overrides(ctx: click.Context, cls: type) -> dict[str, object]:
         if cli_name:
             rename[cli_name] = f.name
 
-    overrides: dict[str, object] = {}
+    overrides: dict[str, Any] = {}
     for cli_name, value in ctx.params.items():
         field_name = rename.get(cli_name, cli_name)
         if field_name in valid_fields and is_cli_provided(ctx, cli_name):
