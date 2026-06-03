@@ -91,9 +91,10 @@ def test_ensure_provider_ready_drives_progress_bar(monkeypatch: pytest.MonkeyPat
 
 
 def test_ensure_provider_ready_warns_before_download(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A WARNING log is emitted before download so users know the wait is expected."""
+    """A yellow notice is printed to the stderr Console before download
+    so users know the wait is expected."""
     from winml.modelkit.session import ep_registry
 
     ns = _install_fake_windowsml(monkeypatch)
@@ -110,12 +111,11 @@ def test_ensure_provider_ready_warns_before_download(
     provider.ready_state = ns.EpReadyState.NotPresent
     provider.ensure_ready_async.side_effect = fake_ensure_async
 
-    with caplog.at_level(logging.WARNING, logger=ep_registry.logger.name):
-        ep_registry._ensure_provider_ready(provider)
+    ep_registry._ensure_provider_ready(provider)
 
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("Downloading execution provider" in r.getMessage() for r in warnings)
-    assert any("FakeEP" in r.getMessage() for r in warnings)
+    err = capsys.readouterr().err
+    assert "[WinML] Installing Execution Provider" in err
+    assert "FakeEP" in err
 
 
 def test_ensure_provider_ready_forces_bar_to_100_on_success_without_progress(
@@ -205,6 +205,87 @@ def test_ensure_provider_ready_surfaces_get_status_error(
     # Native error must NOT force-fill the bar — it should reflect where
     # the download failed (here: 0 because no progress callbacks fired).
     assert fake_bar.n == 0
+
+
+def test_ensure_provider_ready_prints_success_with_metadata(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """After a successful install, print '<EP> EP installed successfully.'
+    followed by Version and Package Family Name lines."""
+    from winml.modelkit.session import ep_registry
+
+    ns = _install_fake_windowsml(monkeypatch)
+    _install_fake_tqdm(monkeypatch)
+
+    op = MagicMock()
+
+    def fake_ensure_async(on_complete=None, on_progress=None):
+        on_complete()
+        return op
+
+    provider = MagicMock()
+    provider.name = "OpenVINOExecutionProvider"
+    provider.version = "1.2.0"
+    provider.package_family_name = "Microsoft.OpenVINOExecutionProvider_8wekyb3d8bbwe"
+    provider.ready_state = ns.EpReadyState.NotPresent
+    provider.ensure_ready_async.side_effect = fake_ensure_async
+
+    ep_registry._ensure_provider_ready(provider)
+
+    err = capsys.readouterr().err
+    assert "OpenVINOExecutionProvider EP installed successfully." in err
+    assert "- Version: 1.2.0" in err
+    assert "- Package Family Name: Microsoft.OpenVINOExecutionProvider_8wekyb3d8bbwe" in err
+
+
+def test_ensure_provider_ready_prints_failure_message_on_timeout(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A timed-out download prints the ❌ failure notice with retry hints,
+    and does NOT emit the 'installed successfully.' line."""
+    from winml.modelkit.session import ep_registry
+
+    ns = _install_fake_windowsml(monkeypatch)
+    _install_fake_tqdm(monkeypatch)
+    monkeypatch.setattr(ep_registry, "EP_DOWNLOAD_TIMEOUT_SECONDS", 0.05)
+
+    provider = MagicMock()
+    provider.name = "SlowEP"
+    provider.ready_state = ns.EpReadyState.NotPresent
+    provider.ensure_ready_async.return_value = MagicMock()
+
+    with pytest.raises(TimeoutError):
+        ep_registry._ensure_provider_ready(provider)
+
+    err = capsys.readouterr().err
+    assert "installed successfully" not in err
+    assert "Failed to download SlowEP EP" in err
+    assert "Check your internet connection" in err
+    assert "Troubleshoot:" in err
+    assert "learn.microsoft.com" in err
+    assert "execution-provider-errors" in err
+
+
+def test_ensure_provider_ready_prints_failure_message_on_async_launch_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failure at the ensure_ready_async() launch also prints the ❌ block."""
+    from winml.modelkit.session import ep_registry
+
+    ns = _install_fake_windowsml(monkeypatch)
+    _install_fake_tqdm(monkeypatch)
+
+    provider = MagicMock()
+    provider.name = "BadEP"
+    provider.ready_state = ns.EpReadyState.NotPresent
+    provider.ensure_ready_async.side_effect = OSError("native launch failed")
+
+    with pytest.raises(OSError, match="native launch failed"):
+        ep_registry._ensure_provider_ready(provider)
+
+    err = capsys.readouterr().err
+    assert "Failed to download BadEP EP" in err
+    assert "installed successfully" not in err
 
 
 def test_ensure_provider_ready_closes_bar_when_ensure_ready_async_raises(

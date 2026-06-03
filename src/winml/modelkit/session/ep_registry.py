@@ -58,18 +58,25 @@ class _NoopBar:
         return None
 
 
-def _make_progress_bar(name: str) -> Any:
+def _make_progress_bar() -> Any:
     """Return a tqdm bar if tqdm is installed, else a silent no-op stand-in.
 
     tqdm is a dev-only optional dep in this package, so production installs
     without it must still complete EP downloads — they just lose the live bar.
-    The pre-download warning log is emitted by the caller and is unaffected.
+    The pre-download Console notice is emitted by the caller and is unaffected.
+
+    Format: ``Downloading... ████████████░░░░░░ 62%``
     """
     try:
         from tqdm import tqdm
     except ImportError:
         return _NoopBar()
-    return tqdm(total=100, desc=f"Downloading {name}", unit="%", leave=True)
+    return tqdm(
+        total=100,
+        bar_format="Downloading... {bar} {percentage:3.0f}%",
+        ascii="░█",
+        leave=True,
+    )
 
 
 def _ensure_provider_ready(provider: Any) -> None:
@@ -90,14 +97,16 @@ def _ensure_provider_ready(provider: Any) -> None:
         provider.ensure_ready()
         return
 
-    logger.warning(
-        "Downloading execution provider %r. This may take several minutes "
-        "depending on network speed (timeout: %ds).",
-        provider.name,
-        EP_DOWNLOAD_TIMEOUT_SECONDS,
+    # Lazy-import to keep ep_registry import cheap (rich pulls in pygments etc.);
+    # this branch only runs on the cold "EP needs download" path.
+    from ..utils.console import get_console
+
+    console = get_console()
+    console.print(
+        f"[yellow][WinML] Installing Execution Provider: [bold]{provider.name}[/bold].[/yellow]"
     )
 
-    bar = _make_progress_bar(provider.name)
+    bar = _make_progress_bar()
     done = threading.Event()
 
     def _on_progress(fraction: float) -> None:
@@ -105,6 +114,7 @@ def _ensure_provider_ready(provider: Any) -> None:
         bar.refresh()
 
     op = None
+    success = False
     try:
         op = provider.ensure_ready_async(on_complete=done.set, on_progress=_on_progress)
         if not done.wait(timeout=EP_DOWNLOAD_TIMEOUT_SECONDS):
@@ -119,10 +129,27 @@ def _ensure_provider_ready(provider: Any) -> None:
         # but force the bar to 100 in case they didn't.
         bar.n = 100
         bar.refresh()
+        success = True
     finally:
         bar.close()
         if op is not None:
             op.close()
+        if not success:
+            # Failure-path notice — kept in finally so it fires for every
+            # non-success exit (launch failure, timeout, get_status OSError).
+            # Printed after bar.close() so it appears below the bar's last frame.
+            console.print(f"[red]❌ Failed to download {provider.name} EP[/red]")
+            console.print("Try:")
+            console.print("  1. Check your internet connection")
+            console.print(
+                "  2. Troubleshoot: "
+                "https://learn.microsoft.com/en-us/windows/ai/new-windows-ml/execution-provider-errors",
+                soft_wrap=True,
+            )
+
+    console.print(f"[green]{provider.name} EP installed successfully.[/green]")
+    console.print(f"- Version: {provider.version}")
+    console.print(f"- Package Family Name: {provider.package_family_name}")
 
 
 # Singleton instance
