@@ -28,6 +28,7 @@ from rich.table import Table
 
 from ..utils import cli as cli_utils
 from ..utils.constants import EPName, EPNameOrAlias
+from ..utils.logging import configure_logging
 from ._live_chart import LiveMonitorDisplay
 
 
@@ -1196,14 +1197,8 @@ def _run_onnx_benchmark(
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
     hidden=True,  # Not ready, so hide from --help for now
 )
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output",
-)
 @cli_utils.build_config_option()
+@cli_utils.verbosity_options()
 @click.pass_context
 def perf(
     ctx: click.Context,
@@ -1223,7 +1218,8 @@ def perf(
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     config_file: Path | None,
 ) -> None:
     r"""Benchmark model inference performance.
@@ -1270,9 +1266,9 @@ def perf(
         if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
             ep = cc["execution_provider"]
 
-    # Setup logging
-    if verbose or (ctx.obj and ctx.obj.get("debug")):
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     console = Console()
 
@@ -1305,7 +1301,7 @@ def perf(
             batch_size=batch_size,
             no_quantize=no_quantize,
             output=output,
-            verbose=verbose,
+            verbose=bool(verbose),
             console=console,
             monitor=monitor,
             device=device.lower(),
