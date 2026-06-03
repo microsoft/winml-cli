@@ -118,26 +118,6 @@ class TestAnalyzeResult:
         result = AnalyzeResult(lint=lint, optimization_config=WinMLOptimizationConfig())
         assert result.has_errors is False
 
-    def test_autoconf_truthy_with_nonempty_config(self) -> None:
-        """autoconf is truthy when config has flags."""
-        lint = _make_lint_result()
-        config = WinMLOptimizationConfig(gelu_fusion=True)
-        result = AnalyzeResult(lint=lint, optimization_config=config)
-        assert result.autoconf  # truthy — has flags
-        assert result.autoconf["gelu_fusion"] is True
-
-    def test_autoconf_falsy_with_empty_config(self) -> None:
-        """autoconf is falsy when config is empty."""
-        lint = _make_lint_result()
-        result = AnalyzeResult(lint=lint, optimization_config=WinMLOptimizationConfig())
-        assert not result.autoconf  # falsy — empty dict
-
-    def test_autoconf_falsy_when_none(self) -> None:
-        """autoconf is falsy when optimization_config is None."""
-        lint = _make_lint_result()
-        result = AnalyzeResult(lint=lint, optimization_config=None)
-        assert not result.autoconf  # falsy — None
-
     def test_lint_field_accessible(self) -> None:
         """lint field is directly accessible."""
         lint = _make_lint_result(errors=1, warnings=2, info=3)
@@ -364,8 +344,8 @@ class TestAnalyzeOnnx:
 
             result = analyze_onnx(str(model_file), ep="QNNExecutionProvider", device="NPU")
 
-        assert result.autoconf  # truthy — has flags
-        assert result.autoconf["gelu_fusion"] is True
+        assert result.optimization_config  # truthy — has flags
+        assert result.optimization_config["gelu_fusion"] is True
 
     def test_autoconf_with_multiple_patterns(self, tmp_path) -> None:
         """Autoconf picks up multiple fusion flags from action items."""

@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import click
 from rich.console import Console
@@ -35,6 +35,8 @@ from ..utils.logging import configure_logging
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+F = TypeVar("F", bound="Callable[..., Any]")
 
 
 logger = logging.getLogger(__name__)
@@ -107,7 +109,7 @@ def _load_json(path: Path) -> dict[str, Any]:
         raise click.ClickException(f"Invalid JSON in config file: {e}") from e
 
 
-def capability_options(func: Callable) -> Callable:
+def capability_options(func: F) -> F:
     """Decorator that adds CLI options for all registered capabilities.
 
     This decorator auto-generates CLI options from the capability registry,
@@ -178,9 +180,9 @@ def capability_options(func: Callable) -> Callable:
     default=None,
     help="Configuration file (YAML/JSON)",
 )
-@capability_options
 @cli_utils.verbosity_options()
-@click.pass_context
+@capability_options
+@click.pass_context  # type: ignore[arg-type]  # capability_options widens the signature; click stubs want positional-only ctx but we keep it keyword-callable for back-compat
 def optimize(
     ctx: click.Context,
     list_capabilities: bool,

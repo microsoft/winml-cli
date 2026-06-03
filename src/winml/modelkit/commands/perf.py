@@ -289,6 +289,7 @@ class PerfBenchmark:
         # [1] Load model
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
+        assert self._model is not None
 
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
@@ -336,7 +337,7 @@ class PerfBenchmark:
         use_cache = not self.config.ignore_cache
         force_rebuild = self.config.rebuild or self.config.ignore_cache
 
-        common_kwargs = {
+        common_kwargs: dict[str, Any] = {
             "task": self.config.task,
             "config": override,
             "device": self.config.device,
@@ -360,6 +361,7 @@ class PerfBenchmark:
 
     def _generate_inputs(self) -> None:
         """Generate random inputs based on model io_config."""
+        assert self._model is not None
         io_config = self._model.io_config
         self._inputs = generate_random_inputs(
             io_config=io_config,
@@ -374,6 +376,8 @@ class PerfBenchmark:
 
     def _run_benchmark_simple(self) -> PerfStats:
         """Execute benchmark without live monitoring."""
+        assert self._model is not None
+        assert self._inputs is not None
         session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
@@ -394,6 +398,8 @@ class PerfBenchmark:
         from ..session.monitor.hw_monitor import HWMonitor
         from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
+        assert self._model is not None
+        assert self._inputs is not None
         session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
@@ -417,9 +423,9 @@ class PerfBenchmark:
 
         # EP-specific proof-of-execution monitor.
         # When QNN/OpenVINO monitors become real, add entries here.
-        _ep_monitors = {"vitisai": VitisAIMonitor}
-        ep = self.config.ep
-        monitor_cls = _ep_monitors.get(ep)
+        _ep_monitors: dict[EPName, Any] = {"VitisAIExecutionProvider": VitisAIMonitor}
+        monitor_cls = _ep_monitors.get(session.ep_name) if session.ep_name else None
+        ep_monitor: Any
         if monitor_cls and monitor_cls.is_available():
             ep_monitor = monitor_cls()
         else:
@@ -451,6 +457,7 @@ class PerfBenchmark:
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
+        assert self._model is not None
         io_config = self._model.io_config
 
         # Calculate throughput
@@ -1405,7 +1412,13 @@ def perf(
             # Determine the ONNX model path from the benchmark flow.
             # For HF models the ONNX is built internally by PerfBenchmark.
             try:
-                onnx_for_trace = model_path if is_onnx else benchmark._model._onnx_path
+                onnx_for_trace = (
+                    model_path
+                    if is_onnx
+                    else (benchmark._model._onnx_path if benchmark._model else None)
+                )
+                if onnx_for_trace is None:
+                    raise AttributeError("benchmark._model not initialized")
             except AttributeError:
                 console.print(
                     "[red]Error:[/red] Could not determine ONNX model path for op-tracing"

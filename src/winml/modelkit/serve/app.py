@@ -875,7 +875,7 @@ def print_startup_banner(
     *,
     host: str,
     port: int,
-    model_path: str,
+    model_path: str | None,
     task: str | None,
     device: str,
     ep: EPNameOrAlias | None,
