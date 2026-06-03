@@ -1573,7 +1573,7 @@ class OpInputGenerator(ABC):
                     def _dry_run_result() -> dict[str, Any]:
                         return {
                             "result": {
-                                "success": True,
+                                "success": False,
                                 "reason": "not_run",
                             },
                             "stdout": "not run",
