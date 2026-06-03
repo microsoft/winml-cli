@@ -77,8 +77,10 @@ def cell(model_dir: Path, stems: list[str]) -> str:
         return "—"
     cfg_found = False
     for stem in stems:
+        # Single config file OR composite split configs (`_config_<role>.json`).
         cfg = model_dir / f"{stem}_config.json"
-        if not cfg.exists():
+        has_cfg = cfg.exists() or any(model_dir.glob(f"{stem}_config_*.json"))
+        if not has_cfg:
             continue
         cfg_found = True
         ok = model_dir / f"{stem}_eval_result.json"

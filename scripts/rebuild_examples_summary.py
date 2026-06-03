@@ -41,6 +41,7 @@ ROWS: list[tuple[str, str, str, str | None, str]] = [
 ]
 
 _NPU_PRECISION_RE = re.compile(r"_(fp16|w8a16|w8a8)$")
+_CONFIG_NAME_RE = re.compile(r"^(?P<stem>.+?)_config(?:_(?P<role>.+))?\.json$")
 
 
 def load_target_pairs() -> set[tuple[str, str]]:
@@ -74,13 +75,24 @@ def collect(
     for model_dir in folder.iterdir():
         if not model_dir.is_dir():
             continue
-        for cfg in model_dir.glob("*_config.json"):
-            stem = cfg.name[: -len("_config.json")]
+        # Group by stem (everything before `_config` / `_config_<role>`).
+        # Composite models emit multiple split config files sharing one stem
+        # and one eval_result; non-composite models have a single config file.
+        seen_stems: set[str] = set()
+        for cfg in model_dir.glob("*_config*.json"):
+            m = _CONFIG_NAME_RE.match(cfg.name)
+            if not m:
+                continue
+            stem = m.group("stem")
+            if stem in seen_stems:
+                continue
+            seen_stems.add(stem)
+
             task = stem
             if hardware == "npu":
-                m = _NPU_PRECISION_RE.search(stem)
-                if m:
-                    task = stem[: m.start()]
+                pm = _NPU_PRECISION_RE.search(stem)
+                if pm:
+                    task = stem[: pm.start()]
             else:
                 task = stem.removesuffix("_fp16")
 
@@ -88,8 +100,8 @@ def collect(
                 continue
 
             if hardware == "npu" and precision_filter:
-                m = _NPU_PRECISION_RE.search(stem)
-                if not m or m.group(1) != precision_filter:
+                pm = _NPU_PRECISION_RE.search(stem)
+                if not pm or pm.group(1) != precision_filter:
                     continue
             configs += 1
             model_tasks.add((model_dir.name, task))
