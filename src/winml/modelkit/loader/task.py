@@ -10,6 +10,7 @@ Public API:
     resolve_task_and_model_class  - Main orchestrator (3 resolution cases)
     resolve_optimum_library      - Route a model_type to the Optimum export library
     normalize_task               - Map task aliases to canonical names
+    to_optimum_task              - Collapse a WinMLTask to its Optimum-canonical form
     get_task_abbrev              - Abbreviated task name for cache keys
     get_supported_tasks          - List ONNX-exportable tasks for a model type
 
@@ -502,6 +503,43 @@ def normalize_task(task: str) -> str:
     Returns:
         Canonical task name
     """
+    from optimum.exporters.tasks import TasksManager
+
+    return TasksManager.map_from_synonym(task)
+
+
+# WinML task-synonym extensions — extend Optimum's ``TasksManager.map_from_synonym``
+# for tasks it does not recognize or mis-maps. Entries here take priority over Optimum.
+TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
+    # next-sentence-prediction has the same I/O as text-classification: input_ids -> logits
+    "next-sentence-prediction": "text-classification",
+    # mask-generation is registered via register_onnx_overwrite for SAM2.
+    # Optimum incorrectly maps it to "feature-extraction"; preserve as-is.
+    "mask-generation": "mask-generation",
+}
+
+
+def to_optimum_task(task: str) -> str:
+    """Map a task name to its Optimum-canonical form, extending Optimum's synonyms.
+
+    This is the single WinML -> Optimum boundary translation: call it only at the
+    moment of an Optimum API call (e.g. ``TasksManager.get_exporter_config_constructor``).
+    The result is lossy — modality-aware names collapse
+    (``image-feature-extraction`` -> ``feature-extraction``).
+
+    WinML extensions in ``TASK_SYNONYM_EXTENSIONS`` take priority and short-circuit
+    before Optimum, which may otherwise mis-normalize custom-registered tasks such as
+    ``mask-generation``.
+
+    Args:
+        task: Task name (a WinMLTask or an alias).
+
+    Returns:
+        Optimum-canonical task name.
+    """
+    if task in TASK_SYNONYM_EXTENSIONS:
+        return TASK_SYNONYM_EXTENSIONS[task]
+
     from optimum.exporters.tasks import TasksManager
 
     return TasksManager.map_from_synonym(task)
