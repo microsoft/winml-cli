@@ -32,6 +32,7 @@ import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
+from ..utils.logging import configure_logging
 
 
 logger = logging.getLogger(__name__)
@@ -69,13 +70,6 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     help="HuggingFace model name or local path (e.g., prajjwal1/bert-tiny)",
 )
 @cli_utils.output_option("Output ONNX file path (e.g., model.onnx)", required=True)
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose console output (8-step format)",
-)
 @click.option(
     "--with-report",
     is_flag=True,
@@ -129,12 +123,14 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
 @cli_utils.build_config_option()
+@cli_utils.verbosity_options()
 @click.pass_context
 def export(
     ctx: click.Context,
     model: str,
     output: Path,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     with_report: bool,
     no_hierarchy: bool,
     dynamo: bool,
@@ -186,9 +182,8 @@ def export(
         # Custom ONNX export configuration
         winml export -m bert-base-uncased -o bert.onnx --export-config config.json
     """
-    # Inherit debug mode from parent
-    if ctx.obj.get("debug"):
-        verbose = True
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
@@ -209,9 +204,8 @@ def export(
     from ..export import export_pytorch as export_onnx
     from ..loader import load_hf_model
 
-    # Configure logging based on verbose flag
-    if verbose:
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    # Configure logging — stderr only, shared format with the rest of the CLI.
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     # Show export info
     console.print(f"[bold blue]Model:[/bold blue] {model}")
@@ -341,7 +335,7 @@ def export(
     if cli_utils.is_cli_provided(ctx, "no_hierarchy"):
         config_kwargs["enable_hierarchy_tags"] = not no_hierarchy
     if cli_utils.is_cli_provided(ctx, "verbose"):
-        config_kwargs["verbose"] = verbose
+        config_kwargs["verbose"] = bool(verbose)
     if cli_utils.is_cli_provided(ctx, "dynamo"):
         config_kwargs["dynamo"] = dynamo
 
@@ -401,7 +395,7 @@ def export(
             export_config=cfg,
             model_id=model,
             task=detected_task,
-            verbose=verbose,
+            verbose=bool(verbose),
             enable_reporting=with_report,
         )
         logger.debug("Export stats: %s", export_stats)

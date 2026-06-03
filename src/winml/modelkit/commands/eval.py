@@ -17,6 +17,7 @@ from rich.console import Console
 
 from ..utils import cli as cli_utils
 from ..utils.eval_utils import TASK_SCHEMAS, TaskSchema
+from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
@@ -127,13 +128,6 @@ logger = logging.getLogger(__name__)
 )
 @cli_utils.output_option("Output JSON file path.")
 @click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output.",
-)
-@click.option(
     "--dataset-script",
     type=str,
     default=None,
@@ -148,6 +142,7 @@ logger = logging.getLogger(__name__)
     help="Print expected dataset schema for the given --task and exit.",
 )
 @cli_utils.build_config_option()
+@cli_utils.verbosity_options()
 @click.pass_context
 def eval(
     ctx: click.Context,
@@ -166,7 +161,8 @@ def eval(
     column: tuple[str, ...],
     label_mapping_path: Path | None,
     output: Path | None,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     dataset_script: str | None,
     trust_remote_code: bool,
     show_schema: bool,
@@ -203,8 +199,8 @@ def eval(
         _print_schema(task_arg, schema)
         return
 
-    if verbose or (ctx.obj and ctx.obj.get("debug")):
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     from ..eval import evaluate
 
