@@ -79,6 +79,49 @@ def _make_progress_bar() -> Any:
     )
 
 
+def _parse_ep_metadata_from_path(library_path: str) -> tuple[str, str]:
+    r"""Best-effort ``(version, package_family_name)`` from an EP's install path.
+
+    WinML's ``ExecutionProvider`` handle sometimes returns empty ``version`` /
+    ``package_family_name`` even after the EP is Ready. When the EP is delivered
+    as an MSIX package its ``library_path`` lives under ``WindowsApps`` in a
+    folder named with the full package identity::
+
+        ...\\WindowsApps\\<Name>_<Version>_<Arch>_<ResourceId>_<PublisherId>\\...
+
+    e.g. ``MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_1.8.79.0_x64__8wekyb3d8bbwe``
+    yields version ``1.8.79.0`` and package family name
+    ``MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_8wekyb3d8bbwe`` (the
+    package family name is ``<Name>_<PublisherId>``).
+
+    Returns ``("", "")`` when the path is empty or does not match this layout.
+    """
+    import re
+    from itertools import pairwise
+    from pathlib import PurePath
+
+    if not library_path:
+        return "", ""
+
+    parts = PurePath(library_path).parts
+    pkg_folder = next(
+        (child for parent, child in pairwise(parts) if parent.lower() == "windowsapps"),
+        "",
+    )
+    # Full MSIX package name: Name_Version_Arch_ResourceId_PublisherId (ResourceId
+    # is usually empty, giving the doubled "__" before the publisher id).
+    segments = pkg_folder.split("_")
+    if len(segments) < 5:
+        return "", ""
+
+    name, version, publisher = segments[0], segments[1], segments[-1]
+    # Guard against unexpected folder shapes: version must be dotted-numeric.
+    if not re.fullmatch(r"\d+(\.\d+)*", version):
+        version = ""
+    package_family_name = f"{name}_{publisher}" if name and publisher else ""
+    return version, package_family_name
+
+
 def _ensure_provider_ready(provider: Any) -> None:
     """Ensure an EP is ready, showing a tqdm progress bar when downloading.
 
@@ -148,8 +191,21 @@ def _ensure_provider_ready(provider: Any) -> None:
             )
 
     console.print(f"[green]{provider.name} EP installed successfully.[/green]")
-    console.print(f"- Version: {provider.version}")
-    console.print(f"- Package Family Name: {provider.package_family_name}")
+
+    # The native handle sometimes reports empty version/PFN even once Ready;
+    # fall back to parsing them from the MSIX install path. Skip a line entirely
+    # when its value can't be determined rather than printing a blank field.
+    version = provider.version
+    package_family_name = provider.package_family_name
+    if not version or not package_family_name:
+        parsed_version, parsed_pfn = _parse_ep_metadata_from_path(provider.library_path)
+        version = version or parsed_version
+        package_family_name = package_family_name or parsed_pfn
+    if version:
+        console.print(f"- Version: {version}", soft_wrap=True)
+    if package_family_name:
+        # soft_wrap so long package family names aren't hard-wrapped mid-string.
+        console.print(f"- Package Family Name: {package_family_name}", soft_wrap=True)
 
 
 # Singleton instance

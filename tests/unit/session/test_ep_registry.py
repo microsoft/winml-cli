@@ -238,6 +238,76 @@ def test_ensure_provider_ready_prints_success_with_metadata(
     assert "- Package Family Name: Microsoft.OpenVINOExecutionProvider_8wekyb3d8bbwe" in err
 
 
+def test_ensure_provider_ready_falls_back_to_path_metadata_when_native_empty(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When the native handle reports empty version/PFN, recover both from the
+    MSIX install path."""
+    from winml.modelkit.session import ep_registry
+
+    ns = _install_fake_windowsml(monkeypatch)
+    _install_fake_tqdm(monkeypatch)
+
+    op = MagicMock()
+
+    def fake_ensure_async(on_complete=None, on_progress=None):
+        on_complete()
+        return op
+
+    provider = MagicMock()
+    provider.name = "OpenVINOExecutionProvider"
+    provider.version = ""
+    provider.package_family_name = ""
+    provider.library_path = (
+        r"C:\Program Files\WindowsApps"
+        r"\MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_1.8.79.0_x64__8wekyb3d8bbwe"
+        r"\ExecutionProvider\onnxruntime_providers_openvino_plugin.dll"
+    )
+    provider.ready_state = ns.EpReadyState.NotPresent
+    provider.ensure_ready_async.side_effect = fake_ensure_async
+
+    ep_registry._ensure_provider_ready(provider)
+
+    err = capsys.readouterr().err
+    assert "- Version: 1.8.79.0" in err
+    assert (
+        "- Package Family Name: MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_8wekyb3d8bbwe"
+        in err
+    )
+
+
+def test_ensure_provider_ready_skips_metadata_lines_when_unavailable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """If neither the native handle nor the path yields metadata, omit the
+    Version / Package Family Name lines entirely (no blank fields)."""
+    from winml.modelkit.session import ep_registry
+
+    ns = _install_fake_windowsml(monkeypatch)
+    _install_fake_tqdm(monkeypatch)
+
+    op = MagicMock()
+
+    def fake_ensure_async(on_complete=None, on_progress=None):
+        on_complete()
+        return op
+
+    provider = MagicMock()
+    provider.name = "MysteryEP"
+    provider.version = ""
+    provider.package_family_name = ""
+    provider.library_path = r"C:\some\local\path\provider.dll"
+    provider.ready_state = ns.EpReadyState.NotPresent
+    provider.ensure_ready_async.side_effect = fake_ensure_async
+
+    ep_registry._ensure_provider_ready(provider)
+
+    err = capsys.readouterr().err
+    assert "MysteryEP EP installed successfully." in err
+    assert "- Version:" not in err
+    assert "- Package Family Name:" not in err
+
+
 def test_ensure_provider_ready_prints_failure_message_on_timeout(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -337,6 +407,42 @@ def test_ensure_provider_ready_works_without_tqdm(
 
     op.get_status.assert_called_once_with()
     op.close.assert_called_once_with()
+
+
+class TestParseEpMetadataFromPath:
+    """`_parse_ep_metadata_from_path` recovers (version, PFN) from install paths."""
+
+    def test_parses_openvino_windowsapps_path(self) -> None:
+        from winml.modelkit.session import ep_registry
+
+        path = (
+            r"C:\Program Files\WindowsApps"
+            r"\MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_1.8.79.0_x64__8wekyb3d8bbwe"
+            r"\ExecutionProvider\onnxruntime_providers_openvino_plugin.dll"
+        )
+        version, pfn = ep_registry._parse_ep_metadata_from_path(path)
+        assert version == "1.8.79.0"
+        assert pfn == "MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_8wekyb3d8bbwe"
+
+    def test_empty_path_returns_empty(self) -> None:
+        from winml.modelkit.session import ep_registry
+
+        assert ep_registry._parse_ep_metadata_from_path("") == ("", "")
+
+    def test_non_windowsapps_path_returns_empty(self) -> None:
+        from winml.modelkit.session import ep_registry
+
+        assert ep_registry._parse_ep_metadata_from_path(r"C:\local\ep\provider.dll") == ("", "")
+
+    def test_non_numeric_version_segment_dropped_but_pfn_kept(self) -> None:
+        """A folder that doesn't carry a dotted-numeric version still yields a
+        PFN, but the version is left empty rather than guessed."""
+        from winml.modelkit.session import ep_registry
+
+        path = r"C:\Program Files\WindowsApps\Some.Package_notaversion_x64__pubhash\ep.dll"
+        version, pfn = ep_registry._parse_ep_metadata_from_path(path)
+        assert version == ""
+        assert pfn == "Some.Package_pubhash"
 
 
 class TestEpDownloadTimeoutDefault:
