@@ -1,0 +1,24 @@
+{
+  "model_id": "sentence-transformers/all-mpnet-base-v2",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\sentence-transformers_all-mpnet-base-v2\\feature-extraction_w8a8_build_artifacts\\model.onnx",
+  "task": "feature-extraction",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    },
+    "streaming": true
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\sentence-transformers_all-mpnet-base-v2\\feature-extraction_w8a8_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 0.2081
+  }
+}
