@@ -111,7 +111,7 @@ class TestGetEvaluatorClass:
     """Tests for get_evaluator_class registry lookup."""
 
     def test_registered_task_returns_class(self):
-        from winml.modelkit.eval import WinMLEvaluator, get_evaluator_class
+        from winml.modelkit.eval import WinMLEvaluationConfig, WinMLEvaluator, get_evaluator_class
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
 
         # _EVALUATOR_REGISTRY stores "module_path:ClassName" strings so that
@@ -123,25 +123,31 @@ class TestGetEvaluatorClass:
             assert isinstance(spec, str) and ":" in spec, (
                 f"Registry value for {task!r} must be a 'module:Class' string."
             )
-            cls = get_evaluator_class(task)
+            cls = get_evaluator_class(WinMLEvaluationConfig(task=task))
             assert isinstance(cls, type)
-            assert issubclass(cls, WinMLEvaluator)
+            # Task evaluators inherit from WinMLEvaluator; "compare-tensor"
+            # is a non-task entry (TensorSimilarityEvaluator) with its own
+            # shape and is exempt from the base-class check.
+            if task != "compare-tensor":
+                assert issubclass(cls, WinMLEvaluator)
             # The resolved class must match the qualified name in the spec.
             module_path, class_name = spec.rsplit(":", 1)
             assert cls.__module__ == module_path
             assert cls.__name__ == class_name
 
     def test_unsupported_task_raises_value_error(self):
-        from winml.modelkit.eval import get_evaluator_class
+        from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
 
         with pytest.raises(ValueError, match="not supported by `winml eval`"):
-            get_evaluator_class("made-up-task")
+            get_evaluator_class(WinMLEvaluationConfig(task="made-up-task"))
 
     def test_evaluator_registry_matches_schema_tasks(self):
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
         from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
 
-        assert set(_EVALUATOR_REGISTRY) == set(TASK_SCHEMAS)
+        # "compare-tensor" is a non-task evaluator entry (no labeled-dataset
+        # schema); exclude it from the task<->schema equivalence check.
+        assert set(_EVALUATOR_REGISTRY) - {"compare-tensor"} == set(TASK_SCHEMAS)
 
 
 class TestEvaluate:

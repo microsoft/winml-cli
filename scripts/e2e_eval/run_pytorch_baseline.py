@@ -339,7 +339,7 @@ def main() -> None:
 
         from winml.modelkit.eval.evaluate import get_evaluator_class
 
-        evaluator_cls = get_evaluator_class(task)
+        evaluator_cls = get_evaluator_class(eval_config)
         task_evaluator = evaluator_cls(eval_config, pytorch_model)
 
         metrics = task_evaluator.compute()

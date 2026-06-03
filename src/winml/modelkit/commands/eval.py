@@ -147,6 +147,18 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Print expected dataset schema for the given --task and exit.",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(["onnx", "compare"], case_sensitive=False),
+    default="onnx",
+    show_default=True,
+    help=(
+        "Evaluation mode. "
+        "'onnx' (default): evaluate the ONNX candidate on the dataset. "
+        "'compare': compare ONNX vs HF reference output tensors on identical "
+        "random inputs and report tensor-similarity metrics per output tensor."
+    ),
+)
 @cli_utils.build_config_option()
 @click.pass_context
 def eval(
@@ -170,6 +182,7 @@ def eval(
     dataset_script: str | None,
     trust_remote_code: bool,
     show_schema: bool,
+    mode: str,
     config_file: Path | None,
 ) -> None:
     r"""Evaluate a model for a task.
@@ -505,7 +518,8 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
-    console.print(f"[dim]Dataset:[/dim]    {ds.path}")
+    if ds.path:
+        console.print(f"[dim]Dataset:[/dim]    {ds.path}")
     console.print(f"[dim]Samples:[/dim]    {ds.samples}")
     if cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
