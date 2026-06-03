@@ -22,7 +22,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 from rich.logging import RichHandler
@@ -140,10 +140,13 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
     """
     from ..loader import resolve_loader_config
 
-    _, hf_config, resolved_class = resolve_loader_config(
+    _, hf_config, resolved_class_typed = resolve_loader_config(
         model_type=model_type,
         task=task,
     )
+    # Annotated Any: resolver returns bare `type` but the class is a HF model
+    # with extra methods (from_config) that bare `type` doesn't expose.
+    resolved_class: Any = resolved_class_typed
 
     try:
         model = resolved_class(hf_config)
@@ -152,7 +155,7 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
         model = resolved_class.from_config(hf_config)
 
     model.eval()
-    return model
+    return cast("nn.Module", model)
 
 
 def _build_modules(
@@ -599,8 +602,6 @@ def build(
             if no_compile:
                 config_or_configs.compile = None
 
-        is_module_mode = isinstance(config_or_configs, list)
-
         # If --device was explicitly provided, patch compile config and clear
         # quant for CPU/GPU (neither device uses quantization by default).
         if cli_utils.is_cli_provided(ctx, "device") and device:
@@ -631,7 +632,7 @@ def build(
                     if patched is not None:
                         cfg.compile = patched
 
-            if is_module_mode:
+            if isinstance(config_or_configs, list):
                 for _cfg in config_or_configs:
                     _patch_device(_cfg)
             else:
@@ -642,7 +643,11 @@ def build(
         # surfaces malformed configs immediately and prevents partial
         # scratch state when the user passes the wrong file or a
         # hand-edited config (#P1 UX).
-        _configs_to_validate = config_or_configs if is_module_mode else [config_or_configs]
+        _configs_to_validate: list[WinMLBuildConfig] = (
+            config_or_configs
+            if isinstance(config_or_configs, list)
+            else [config_or_configs]
+        )
         try:
             for _cfg in _configs_to_validate:
                 _cfg.validate()
@@ -666,7 +671,7 @@ def build(
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
 
-        if is_module_mode:
+        if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
             if use_cache:
                 raise click.UsageError(
@@ -685,7 +690,7 @@ def build(
             print_setup(
                 console,
                 model=model_id or "random-init",
-                config=Path(config_file).name,
+                config=Path(config_file).name if config_file else "(auto)",
                 output=str(resolved_dir),
                 source="HuggingFace",
             )
@@ -760,6 +765,9 @@ def build(
                     config.generate_cache_key(),
                 )
             else:
+                # Guarded earlier (line ~381: `if not output_dir and not use_cache`).
+                if output_dir is None:
+                    raise click.UsageError("--output-dir is required when --use-cache is not set.")
                 resolved_dir = Path(output_dir)
 
             _run_single_build(
@@ -868,6 +876,7 @@ def _run_single_build(
 
     try:
         if _is_onnx:
+            assert model_id is not None  # _is_onnx implies this
             stage_timings = _build_onnx_pipeline(
                 config=config,
                 onnx_path=Path(model_id),
@@ -937,13 +946,13 @@ def _show_io(sl: Any, config: WinMLBuildConfig) -> None:
         return
     inputs = export_cfg.input_tensors or []
     outputs = export_cfg.output_tensors or []
-    for i, t in enumerate(inputs):
-        name = t.name or "(unnamed)"
-        shape = str(list(t.shape)) if getattr(t, "shape", None) else "dynamic"
-        dtype = getattr(t, "dtype", None) or "?"
+    for i, in_spec in enumerate(inputs):
+        name = in_spec.name or "(unnamed)"
+        shape = str(list(in_spec.shape)) if in_spec.shape else "dynamic"
+        dtype = getattr(in_spec, "dtype", None) or "?"
         sl.io_input(name, shape, dtype, first=(i == 0))
-    for i, t in enumerate(outputs):
-        name = t.name or "(unnamed)"
+    for i, out_spec in enumerate(outputs):
+        name = out_spec.name or "(unnamed)"
         # OutputTensorSpec has name only — show name, no shape/dtype
         label = "Output:       " if i == 0 else "              "
         sl.detail(f"{label}[cyan]{name}[/cyan]")
@@ -998,7 +1007,7 @@ def _run_optimize_stage(
         _ep_bars: dict[str, int] = {}
         _ep_counts: dict[str, dict[str, int]] = {}
         _ep_totals: dict[str, int] = {}
-        _current_ep = [""]
+        _current_ep: EPName | None = None
         _current_iter = [0, 0]  # [iteration, max_iter]
         _header_shown = [False]
 
@@ -1018,7 +1027,8 @@ def _run_optimize_stage(
         _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
-            _current_ep[0] = ep_name
+            nonlocal _current_ep
+            _current_ep = ep_name
             _ep_counts[ep_name] = {}
             total = sum(operator_counts.values())
             _ep_totals[ep_name] = total
@@ -1034,7 +1044,9 @@ def _run_optimize_stage(
                 _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
 
         def _on_node_result(pattern_runtime: Any) -> None:
-            ep_name = _current_ep[0]
+            ep_name = _current_ep
+            if ep_name is None:
+                return  # pre-init: _on_ep_start hasn't fired yet
             level = pattern_runtime.result.classification.value
             counts = _ep_counts.setdefault(ep_name, {})
             counts[level] = counts.get(level, 0) + 1
@@ -1134,7 +1146,7 @@ def _run_quantize_stage(
         return current_path
 
     with StageLive("quantize", console) as sl:
-        wt = config.quant.weight_type or "?"
+        wt = config.quant.weight_type
         sl.set_status(f"Quantizing ({wt})...")
         # Calibration info before blocking call
         ds = config.quant.dataset_name or "default"
