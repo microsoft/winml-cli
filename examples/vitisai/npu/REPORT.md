@@ -6,15 +6,15 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/example_m
 
 - (Model, Task): 77
 - Configs: 231
-- Eval Pass: 135/231 (58%)
+- Eval Pass: 143/231 (62%)
 
 ### Per-precision breakdown
 
 | Precision | (Model, Task) | Configs | Eval Pass |
 |---|---|---|---|
-| fp16 | 77 | 77 | 46/77 (60%) |
-| w8a16 | 77 | 77 | 45/77 (58%) |
-| w8a8 | 77 | 77 | 44/77 (57%) |
+| fp16 | 77 | 77 | 48/77 (62%) |
+| w8a16 | 77 | 77 | 47/77 (61%) |
+| w8a8 | 77 | 77 | 48/77 (62%) |
 
 ## Results
 
@@ -77,9 +77,9 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/example_m
 | deepset/tinyroberta-squad2 | question-answering | fp16 | [config](./deepset_tinyroberta-squad2/question-answering_fp16_config.json) | exact=1.0000, f1=2.5715, total=100, HasAns_exact=2.0833, HasAns_f1=5.3573, HasAns_total=48, NoAns_exact=0.0000, NoAns_f1=0.0000, NoAns_total=52, best_exact=53.0000, best_exact_thresh=0.0014, best_f1=53.0000, best_f1_thresh=0.0014 ([metric](./deepset_tinyroberta-squad2/question-answering_fp16_eval_result.json)) |
 |  | question-answering | w8a16 | [config](./deepset_tinyroberta-squad2/question-answering_w8a16_config.json) | exact=0.0000, f1=4.0000, total=10, HasAns_exact=0.0000, HasAns_f1=13.3333, HasAns_total=3, NoAns_exact=0.0000, NoAns_f1=0.0000, NoAns_total=7, best_exact=70.0000, best_exact_thresh=0.0000, best_f1=70.0000, best_f1_thresh=0.0000 ([metric](./deepset_tinyroberta-squad2/question-answering_w8a16_eval_result.json)) |
 |  | question-answering | w8a8 | [config](./deepset_tinyroberta-squad2/question-answering_w8a8_config.json) | exact=0.0000, f1=4.0000, total=10, HasAns_exact=0.0000, HasAns_f1=13.3333, HasAns_total=3, NoAns_exact=0.0000, NoAns_f1=0.0000, NoAns_total=7, best_exact=70.0000, best_exact_thresh=0.0000, best_f1=70.0000, best_f1_thresh=0.0000 ([metric](./deepset_tinyroberta-squad2/question-answering_w8a8_eval_result.json)) |
-| dima806/fairface_age_image_detection | image-classification | fp16 | [config](./dima806_fairface_age_image_detection/image-classification_fp16_config.json) | FAIL |
-|  | image-classification | w8a16 | [config](./dima806_fairface_age_image_detection/image-classification_w8a16_config.json) | FAIL |
-|  | image-classification | w8a8 | [config](./dima806_fairface_age_image_detection/image-classification_w8a8_config.json) | FAIL |
+| dima806/fairface_age_image_detection | image-classification | fp16 | [config](./dima806_fairface_age_image_detection/image-classification_fp16_config.json) | accuracy=0.6100 ([metric](./dima806_fairface_age_image_detection/image-classification_fp16_eval_result.json)) |
+|  | image-classification | w8a16 | [config](./dima806_fairface_age_image_detection/image-classification_w8a16_config.json) | accuracy=0.3200 ([metric](./dima806_fairface_age_image_detection/image-classification_w8a16_eval_result.json)) |
+|  | image-classification | w8a8 | [config](./dima806_fairface_age_image_detection/image-classification_w8a8_config.json) | accuracy=0.1200 ([metric](./dima806_fairface_age_image_detection/image-classification_w8a8_eval_result.json)) |
 | distilbert/distilbert-base-cased-distilled-squad | question-answering | fp16 | [config](./distilbert_distilbert-base-cased-distilled-squad/question-answering_fp16_config.json) | exact_match=2.0000, f1=10.4194 ([metric](./distilbert_distilbert-base-cased-distilled-squad/question-answering_fp16_eval_result.json)) |
 |  | question-answering | w8a16 | [config](./distilbert_distilbert-base-cased-distilled-squad/question-answering_w8a16_config.json) | exact_match=2.0000, f1=10.4194 ([metric](./distilbert_distilbert-base-cased-distilled-squad/question-answering_w8a16_eval_result.json)) |
 |  | question-answering | w8a8 | [config](./distilbert_distilbert-base-cased-distilled-squad/question-answering_w8a8_config.json) | exact_match=2.0000, f1=10.4194 ([metric](./distilbert_distilbert-base-cased-distilled-squad/question-answering_w8a8_eval_result.json)) |
@@ -155,9 +155,9 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/example_m
 | Intel/dpt-hybrid-midas | depth-estimation | fp16 | [config](./Intel_dpt-hybrid-midas/depth-estimation_fp16_config.json) | FAIL |
 |  | depth-estimation | w8a16 | [config](./Intel_dpt-hybrid-midas/depth-estimation_w8a16_config.json) | FAIL |
 |  | depth-estimation | w8a8 | [config](./Intel_dpt-hybrid-midas/depth-estimation_w8a8_config.json) | FAIL |
-| Isotonic/distilbert_finetuned_ai4privacy_v2 | token-classification | fp16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_config.json) | FAIL |
-|  | token-classification | w8a16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a16_config.json) | FAIL |
-|  | token-classification | w8a8 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a8_config.json) | FAIL |
+| Isotonic/distilbert_finetuned_ai4privacy_v2 | token-classification | fp16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_config.json) | overall_precision=0.7676, overall_recall=0.8339, overall_f1=0.7994, overall_accuracy=0.9407 ([metric](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_fp16_eval_result.json)) |
+|  | token-classification | w8a16 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a16_config.json) | overall_precision=0.0455, overall_recall=0.0799, overall_f1=0.0580, overall_accuracy=0.5520 ([metric](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a16_eval_result.json)) |
+|  | token-classification | w8a8 | [config](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a8_config.json) | overall_precision=0.0375, overall_recall=0.0703, overall_f1=0.0489, overall_accuracy=0.5458 ([metric](./Isotonic_distilbert_finetuned_ai4privacy_v2/token-classification_w8a8_eval_result.json)) |
 | Jean-Baptiste/camembert-ner-with-dates | token-classification | fp16 | [config](./Jean-Baptiste_camembert-ner-with-dates/token-classification_fp16_config.json) | FAIL |
 |  | token-classification | w8a16 | [config](./Jean-Baptiste_camembert-ner-with-dates/token-classification_w8a16_config.json) | FAIL |
 |  | token-classification | w8a8 | [config](./Jean-Baptiste_camembert-ner-with-dates/token-classification_w8a8_config.json) | FAIL |
@@ -208,7 +208,7 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/example_m
 |  | text-classification | w8a8 | [config](./ProsusAI_finbert/text-classification_w8a8_config.json) | — |
 | rizvandwiki/gender-classification | image-classification | fp16 | [config](./rizvandwiki_gender-classification/image-classification_fp16_config.json) | accuracy=0.8400 ([metric](./rizvandwiki_gender-classification/image-classification_fp16_eval_result.json)) |
 |  | image-classification | w8a16 | [config](./rizvandwiki_gender-classification/image-classification_w8a16_config.json) | accuracy=0.6000 ([metric](./rizvandwiki_gender-classification/image-classification_w8a16_eval_result.json)) |
-|  | image-classification | w8a8 | [config](./rizvandwiki_gender-classification/image-classification_w8a8_config.json) | FAIL |
+|  | image-classification | w8a8 | [config](./rizvandwiki_gender-classification/image-classification_w8a8_config.json) | accuracy=0.4300 ([metric](./rizvandwiki_gender-classification/image-classification_w8a8_eval_result.json)) |
 | sentence-transformers/all-MiniLM-L6-v2 | feature-extraction | fp16 | [config](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_fp16_config.json) | cosine_spearman=21.7974 ([metric](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_fp16_eval_result.json)) |
 |  | feature-extraction | w8a16 | [config](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_w8a16_config.json) | cosine_spearman=-16.4637 ([metric](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_w8a16_eval_result.json)) |
 |  | feature-extraction | w8a8 | [config](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_w8a8_config.json) | cosine_spearman=-16.4637 ([metric](./sentence-transformers_all-MiniLM-L6-v2/feature-extraction_w8a8_eval_result.json)) |
@@ -250,4 +250,4 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/example_m
 |  | object-detection | w8a8 | [config](./valentinafeve_yolos-fashionpedia/object-detection_w8a8_config.json) | map=0.0001, map_50=0.0004, map_75=0.0000, num_predictions=10000, num_ground_truths=726, num_images=100, map_small=0.0000, map_medium=0.0000, map_large=0.0002, mar_1=0.0007, mar_10=0.0016, mar_100=0.0016, mar_small=0.0000, mar_medium=0.0007, mar_large=0.0027, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./valentinafeve_yolos-fashionpedia/object-detection_w8a8_eval_result.json)) |
 | w11wo/indonesian-roberta-base-posp-tagger | token-classification | fp16 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_fp16_config.json) | overall_precision=0.7269, overall_recall=0.7269, overall_f1=0.7269, overall_accuracy=0.7269 ([metric](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_fp16_eval_result.json)) |
 |  | token-classification | w8a16 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a16_config.json) | overall_precision=0.7374, overall_recall=0.7374, overall_f1=0.7374, overall_accuracy=0.7374 ([metric](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a16_eval_result.json)) |
-|  | token-classification | w8a8 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json) | FAIL |
+|  | token-classification | w8a8 | [config](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json) | overall_precision=0.2088, overall_recall=0.2088, overall_f1=0.2088, overall_accuracy=0.2088 ([metric](./w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_eval_result.json)) |

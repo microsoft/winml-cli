@@ -6,9 +6,9 @@ Count basis is canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/e
 
 | EP | (Model, Task) | Configs | Eval Pass | Report |
 |----|---------------|---------|-----------|--------|
-| AMD (VitisAI, NPU) - fp16 | 77 | 77 | 46/77 (60%) | [Report](vitisai/npu/REPORT.md) |
-| AMD (VitisAI, NPU) - w8a16 | 77 | 77 | 45/77 (58%) | [Report](vitisai/npu/REPORT.md) |
-| AMD (VitisAI, NPU) - w8a8 | 77 | 77 | 44/77 (57%) | [Report](vitisai/npu/REPORT.md) |
+| AMD (VitisAI, NPU) - fp16 | 77 | 77 | 48/77 (62%) | [Report](vitisai/npu/REPORT.md) |
+| AMD (VitisAI, NPU) - w8a16 | 77 | 77 | 47/77 (61%) | [Report](vitisai/npu/REPORT.md) |
+| AMD (VitisAI, NPU) - w8a8 | 77 | 77 | 48/77 (62%) | [Report](vitisai/npu/REPORT.md) |
 | QNN (Qualcomm, NPU) - fp16 | 77 | 77 | 48/77 (62%) | [Report](qnn/npu/REPORT.md) |
 | QNN (Qualcomm, NPU) - w8a16 | 77 | 77 | 49/77 (64%) | [Report](qnn/npu/REPORT.md) |
 | QNN (Qualcomm, NPU) - w8a8 | 77 | 77 | 49/77 (64%) | [Report](qnn/npu/REPORT.md) |
