@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import logging
 import os
 import platform
 import shutil
@@ -68,6 +69,8 @@ from utils.reporter import (
     write_summary_md,
 )
 
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -234,7 +237,11 @@ def _utc_now() -> str:
 
 
 def _compute_onnx_size(onnx_paths: dict[str, str]) -> int | None:
-    """Return combined size in bytes of all ONNX files + their .data companions.
+    """Return combined size in bytes of all ONNX files + their external data companions.
+
+    Parses the ONNX proto to discover all referenced external data files (not just
+    the conventional `.data` suffix). Falls back to the `.data` companion heuristic
+    if proto parsing is unavailable.
 
     Returns None if onnx_paths is empty or no files exist on disk.
     """
@@ -244,12 +251,24 @@ def _compute_onnx_size(onnx_paths: dict[str, str]) -> int | None:
     found_any = False
     for path_str in onnx_paths.values():
         p = Path(path_str)
-        if p.exists():
-            total += p.stat().st_size
-            found_any = True
-        data_p = p.with_suffix(p.suffix + ".data")
-        if data_p.exists():
-            total += data_p.stat().st_size
+        if not p.exists():
+            continue
+        total += p.stat().st_size
+        found_any = True
+        # Try to enumerate all external data files from the proto
+        try:
+            from winml.modelkit.onnx.external_data import get_external_data_files
+
+            ext_files = get_external_data_files(p)
+            for ext_name in ext_files:
+                ext_path = p.parent / ext_name
+                if ext_path.exists():
+                    total += ext_path.stat().st_size
+        except Exception:
+            # Fallback: check conventional .data companion
+            data_p = p.with_suffix(p.suffix + ".data")
+            if data_p.exists():
+                total += data_p.stat().st_size
     return total if found_any else None
 
 
@@ -1091,7 +1110,7 @@ def save_environment_info(path: Path) -> None:
     # `winml sys --format json` captures hardware details (devices, EPs,
     # backends) that the lightweight package-version probes above miss.
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             [sys.executable, "-m", "winml", "sys", "--format", "json"],
             capture_output=True,
             text=True,
@@ -1099,8 +1118,8 @@ def save_environment_info(path: Path) -> None:
         )
         if result.returncode == 0:
             info["winml_sys"] = json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
-        pass  # winml sys unavailable or returned invalid JSON; skip optional field
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as exc:
+        logger.debug("winml sys skipped: %s", exc)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(info, indent=2), encoding="utf-8")
@@ -1213,6 +1232,11 @@ def parse_args() -> argparse.Namespace:
         help="Skip report generation (useful when running per-model in a pipeline loop)",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument(
+        "--raw-output",
+        action="store_true",
+        help="Keep raw subprocess output in eval_result.json without sanitization",
+    )
     parser.add_argument(
         "--continue",
         dest="continue_run",
@@ -1525,7 +1549,7 @@ def main() -> None:
             accuracy_result,
             ep=args.ep,
             onnx_size_bytes=onnx_size,
-            sanitize_fn=_sanitize_output,
+            sanitize_fn=None if args.raw_output else _sanitize_output,
         )
         results.append(result)
 
