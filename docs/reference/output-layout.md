@@ -104,12 +104,16 @@ data file by name.
 ```json
 {
   "schema_version": 1,
-  "source": "hf",
   "model_id": "microsoft/resnet-50",
   "task": "image-classification",
+  "cache_key": "a1b2c3d4e5f6",
+  "config_hash": "f7e8d9c0b1a2",
   "timestamp": "2026-01-15T10:30:00.000000+00:00",
   "elapsed_seconds": 45.1,
   "final_artifact": "model.onnx",
+  "analyze_iterations": 2,
+  "analyze_unsupported_node_count": 0,
+  "analyze_details": { "lint": {}, "autoconf": {} },
   "stages": [
     {
       "name": "export",

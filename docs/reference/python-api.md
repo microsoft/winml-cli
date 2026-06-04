@@ -77,7 +77,13 @@ WinMLAutoModel.from_onnx(
     device: str = "auto",
     precision: str = "auto",
     ep: str | None = None,
+    cache_dir: str | Path | None = None,
+    use_cache: bool = True,
+    force_rebuild: bool = False,
     skip_build: bool = False,
+    session_options: Any | None = None,
+    hf_config: PretrainedConfig | None = None,
+    **kwargs: Any,
 ) -> WinMLPreTrainedModel | WinMLCompositeModel
 ```
 
@@ -85,6 +91,7 @@ WinMLAutoModel.from_onnx(
 |-----------|------|---------|-------------|
 | `onnx_path` | `str \| Path \| dict` | required | ONNX file path, or dict of submodel paths for composite models. |
 | `skip_build` | `bool` | `False` | Load ONNX directly without running optimize/quantize/compile. |
+| `hf_config` | `PretrainedConfig \| None` | `None` | Required for composite models (dict inputs). |
 
 ---
 
@@ -112,9 +119,14 @@ result = build_hf_model(
     output_dir: Path,
     *,
     model_id: str | None = None,
+    pytorch_model: nn.Module | None = None,
     rebuild: bool = False,
     trust_remote_code: bool = False,
+    random_init: bool = False,
     cache_key: str | None = None,
+    ep: str | None = None,
+    device: str | None = None,
+    **kwargs: Any,
 ) -> BuildResult
 ```
 
@@ -132,6 +144,9 @@ result = build_onnx_model(
     config: WinMLBuildConfig,
     output_dir: Path | str,
     rebuild: bool = False,
+    ep: str | None = None,
+    device: str | None = None,
+    **kwargs: Any,
 ) -> BuildResult
 ```
 
@@ -166,15 +181,23 @@ config = generate_build_config(
     model_id: str | None = None,
     *,
     task: str | None = None,
+    model_class: str | None = None,
+    model_type: str | None = None,
+    module: str | None = None,
+    override: WinMLBuildConfig | None = None,
+    shape_config: dict | None = None,
+    library_name: str = "transformers",
     device: str = "auto",
     precision: str = "auto",
+    trust_remote_code: bool = False,
     ep: str | None = None,
-    no_compile: bool = False,
-) -> WinMLBuildConfig
+    onnx_path: str | Path | None = None,
+) -> WinMLBuildConfig | list[WinMLBuildConfig]
 ```
 
 Auto-generates a complete build config by probing the model's `config.json`
 (does not download weights). Equivalent to what `winml config` produces.
+Returns a list when `module` is specified (one config per submodule).
 
 ---
 

@@ -25,7 +25,7 @@ uv run winml inspect --list-tasks
 
 ## Supported Tasks
 
-winml-cli supports **34 tasks** across vision, NLP, audio, and multimodal domains.
+winml-cli supports **35 tasks** across vision, NLP, audio, and multimodal domains.
 
 ### Vision
 
@@ -141,12 +141,14 @@ tracing, or composite pipelines):
 | Architecture | Type | Components |
 |-------------|------|------------|
 | CLIP | Vision-Language | text_encoder + vision_encoder |
+| SigLIP | Vision-Language | text_model + vision_model |
 | BLIP | Vision-Language | vision + text + decoder |
 | T5 / BART | Encoder-Decoder | encoder + decoder |
 | Marian | Translation | encoder + decoder |
+| MU2 | Encoder-Decoder | encoder + decoder |
+| VisionEncoderDecoder | Image-to-Text | encoder + decoder |
 | SAM / SAM2 | Segmentation | image_encoder + mask_decoder |
 | Qwen3 | LLM | prefill + generation (composite) |
-| Whisper | Speech | encoder + decoder |
 
 ---
 
