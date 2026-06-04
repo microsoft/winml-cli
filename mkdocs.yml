@@ -116,7 +116,7 @@ nav:
   - Tutorials:
       - Overview: tutorials/index.md
       - ConvNeXt on NPU: tutorials/npu-convnext.md
-      - Build from ONNX: tutorials/build-from-onnx.md
+      - Bring Your Own Model: tutorials/build-from-onnx.md
   - Reference:
       - Build Config Schema: reference/index.md
       - Python API: reference/python-api.md
