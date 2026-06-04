@@ -55,8 +55,5 @@
     "task": "image-classification",
     "model_class": "AutoModelForImageClassification",
     "model_type": "vit"
-  },
-  "eval": {
-    "task": "image-classification"
   }
 }

@@ -1,3 +1,0 @@
-[2026-06-03T07:36:04] WARNING: --dataset not specified; attempting default dataset 'BramVanroy/conll2003' for task 'token-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
-[2026-06-03T07:36:30] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
-Error: Evaluation failed: list index out of range

@@ -13,6 +13,8 @@ Flow per config:
 Notes:
 - Perf is intentionally not run in this workflow.
 - For VitisAI EP, build is forced with --no-compile.
+- Config groups without an ``eval`` section in any of their config files are
+  skipped (treated as not supported for evaluation).
 """
 
 from __future__ import annotations
@@ -509,6 +511,10 @@ def main() -> None:
         task = infer_group_task(group_stem, group_paths)
         if not hf_id:
             print(f"[{i}/{len(grouped_configs)}] {model_slug}/{group_stem} ... SKIP (no model ID)")
+            results["SKIP"] += 1
+            continue
+        if meta_config is None:
+            print(f"[{i}/{len(grouped_configs)}] {model_slug}/{group_stem} ... SKIP (no eval section)")
             results["SKIP"] += 1
             continue
 

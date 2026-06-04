@@ -78,8 +78,5 @@
     "task": "text-classification",
     "model_class": "AutoModelForSequenceClassification",
     "model_type": "bert"
-  },
-  "eval": {
-    "task": "text-classification"
   }
 }
