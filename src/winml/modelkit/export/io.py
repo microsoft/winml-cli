@@ -268,18 +268,17 @@ def _get_preprocessor_dict(
     so downstream parsing logic does not need to know which source it came
     from. Returns an empty dict when neither source yields a usable size.
     """
-    if model_id:
-        try:
-            from transformers.image_processing_utils import ImageProcessingMixin
+    try:
+        from transformers.image_processing_utils import ImageProcessingMixin
 
-            config, _ = ImageProcessingMixin.get_image_processor_dict(model_id)
-            return config
-        except (OSError, ValueError, KeyError) as e:
-            logger.debug("Could not load preprocessor_config.json for %s: %s", model_id, e)
-
-    if hf_config is not None:
-        return _synthesize_preprocessor_dict(hf_config)
-    return {}
+        config, _ = ImageProcessingMixin.get_image_processor_dict(model_id)
+        return config
+    except (OSError, ValueError, KeyError) as e:
+        # if model_id is None, OSError is raised
+        logger.debug("Could not load preprocessor_config.json for %s: %s", model_id, e)
+        if hf_config is not None:
+            return _synthesize_preprocessor_dict(hf_config)
+        return {}
 
 
 def _synthesize_preprocessor_dict(hf_config: PretrainedConfig) -> dict:
