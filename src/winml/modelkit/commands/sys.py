@@ -581,7 +581,7 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
             # mis-styles driver version strings, so opt out of it here and apply
             # the green via markup we control.
             console.print(
-                f"             Driver: [green]{details.get('driver', 'N/A')}[/green] | "
+                f"             Driver: [bold bright_green]{details.get('driver', 'N/A')}[/] | "
                 f"Manufacturer: {details.get('manufacturer', 'N/A')}",
                 highlight=False,
             )
