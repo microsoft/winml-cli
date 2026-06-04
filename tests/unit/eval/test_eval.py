@@ -110,9 +110,7 @@ class TestResolveTask:
         fake_onnx_config = MagicMock()
         fake_onnx_config.inputs = {"pixel_values": object()}
 
-        config = WinMLEvaluationConfig(
-            model_id="facebook/dinov2-base", task="feature-extraction"
-        )
+        config = WinMLEvaluationConfig(model_id="facebook/dinov2-base", task="feature-extraction")
         with (
             patch(
                 "transformers.AutoConfig.from_pretrained",
@@ -1157,6 +1155,45 @@ class TestBuildEvalResultEpField:
             ep="qnn",
         )
         assert result["ep"] == "qnn"
+
+    def test_sanitize_fn_preserves_raw_perf_output(self):
+        reporter = self._load_reporter()
+
+        perf_proc = {
+            "exit_code": 0,
+            "stdout": "Latency (ms): 12.5\nThroughput: 80 samples/sec\nsome error line",
+            "stderr": "warning: device busy",
+            "elapsed": 5.0,
+            "timeout": False,
+            "command": "winml perf",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+
+        def strip_perf(text: str) -> str:
+            return "\n".join(
+                line
+                for line in text.splitlines()
+                if "latency" not in line.lower() and "throughput" not in line.lower()
+            )
+
+        result = reporter.build_eval_result(
+            entry=self._make_entry(),
+            perf_proc=perf_proc,
+            device="cpu",
+            eval_types_run=["perf"],
+            accuracy_result=None,
+            ep=None,
+            sanitize_fn=strip_perf,
+        )
+
+        perf = result["perf"]
+        # sanitized output should not contain latency/throughput lines
+        assert "Latency" not in perf["stdout_output"]
+        assert "Throughput" not in perf["stdout_output"]
+        # raw output preserves the original perf data
+        assert "Latency (ms): 12.5" in perf["raw_stdout"]
+        assert "Throughput: 80 samples/sec" in perf["raw_stdout"]
+        assert perf["raw_stderr"] == "warning: device busy"
 
 
 class TestDefaultDatasetImmutability:
