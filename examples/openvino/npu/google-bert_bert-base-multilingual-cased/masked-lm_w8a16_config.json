@@ -79,8 +79,5 @@
     "task": "masked-lm",
     "model_class": "AutoModelForMaskedLM",
     "model_type": "bert"
-  },
-  "eval": {
-    "task": "masked-lm"
   }
 }

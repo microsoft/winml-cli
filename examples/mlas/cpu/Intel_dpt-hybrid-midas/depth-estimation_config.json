@@ -38,8 +38,5 @@
     "task": "depth-estimation",
     "model_class": "AutoModelForDepthEstimation",
     "model_type": "dpt"
-  },
-  "eval": {
-    "task": "depth-estimation"
   }
 }
