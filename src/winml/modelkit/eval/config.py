@@ -29,6 +29,9 @@ class DatasetConfig:
         columns_mapping: Column name overrides as key=value pairs.
             If empty, consumer uses its own defaults.
         streaming: Whether to stream dataset (avoids full download).
+        revision: Git revision (branch, tag, or commit) to load. Useful for
+            datasets pinned to a specific snapshot (e.g.
+            ``refs/convert/parquet``).
         build_script: Path to a Python script that builds the dataset locally.
             When set alongside ``path``, the script is invoked with
             ``--output <path>`` before the dataset is loaded.
@@ -45,6 +48,7 @@ class DatasetConfig:
     columns_mapping: dict[str, str] = field(default_factory=dict)
     label_mapping: dict[str, int] | None = None
     streaming: bool = False
+    revision: str | None = field(default=None, metadata={"cli_name": "dataset_revision"})
     build_script: str | None = field(default=None, metadata={"cli_name": "dataset_script"})
     label_mapping_file: str | None = None
 
@@ -66,6 +70,8 @@ class DatasetConfig:
             result["label_mapping"] = self.label_mapping
         if self.streaming:
             result["streaming"] = self.streaming
+        if self.revision is not None:
+            result["revision"] = self.revision
         if self.build_script is not None:
             result["build_script"] = self.build_script
         if self.label_mapping_file is not None:
@@ -147,6 +153,7 @@ class WinMLEvaluationConfig:
             seed=ds_data.get("seed", 42),
             columns_mapping=ds_data.get("columns_mapping", {}),
             streaming=ds_data.get("streaming", False),
+            revision=ds_data.get("revision"),
             build_script=ds_data.get("build_script"),
             label_mapping_file=ds_data.get("label_mapping_file"),
         )

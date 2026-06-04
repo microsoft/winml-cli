@@ -85,7 +85,7 @@ class TestDefaultDatasetStreaming:
             def select(self, *a, **kw):
                 return self
 
-        def fake_load(name, split, streaming):
+        def fake_load(name, split, streaming, **kwargs):
             captured["streaming"] = streaming
             return _FakeBulk()
 
@@ -108,7 +108,7 @@ class TestDefaultDatasetStreaming:
 
         fake = _FakeStreamingDataset()
 
-        def fake_load(name, split, streaming):
+        def fake_load(name, split, streaming, **kwargs):
             assert streaming is True
             return fake
 
