@@ -145,9 +145,7 @@ def _ensure_provider_ready(provider: Any) -> None:
     from ..utils.console import get_console
 
     console = get_console()
-    console.print(
-        f"[yellow][WinML] Installing Execution Provider: [bold]{provider.name}[/bold][/yellow]"
-    )
+    console.print(f"[WinML] Installing Execution Provider: [bold]{provider.name}[/bold]")
 
     bar = _make_progress_bar()
     done = threading.Event()
@@ -184,13 +182,9 @@ def _ensure_provider_ready(provider: Any) -> None:
             console.print(f"[red]❌ Failed to download {provider.name} EP[/red]")
             console.print("Try:")
             console.print("  1. Check your internet connection")
-            console.print(
-                "  2. Troubleshoot: "
-                "https://learn.microsoft.com/en-us/windows/ai/new-windows-ml/execution-provider-errors",
-                soft_wrap=True,
-            )
+            console.print("  2. Troubleshoot: https://aka.ms/winmlcli/ep-errors")
 
-    console.print(f"[green]{provider.name} EP installed successfully.[/green]")
+    console.print(f"{provider.name} EP installed successfully.")
 
     # The native handle sometimes reports empty version/PFN even once Ready;
     # fall back to parsing them from the MSIX install path. Skip a line entirely

@@ -332,8 +332,7 @@ def test_ensure_provider_ready_prints_failure_message_on_timeout(
     assert "Failed to download SlowEP EP" in err
     assert "Check your internet connection" in err
     assert "Troubleshoot:" in err
-    assert "learn.microsoft.com" in err
-    assert "execution-provider-errors" in err
+    assert "https://aka.ms/winmlcli/ep-errors" in err
 
 
 def test_ensure_provider_ready_prints_failure_message_on_async_launch_error(
