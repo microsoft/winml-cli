@@ -170,10 +170,10 @@ Once you understand the analyze → optimize → re-analyze loop (which you now 
 ### CPU target (optimize only)
 
 ```bash
-uv run winml build -m my_model.onnx -d cpu -o output/ --no-quant --no-compile
+uv run winml build -m my_model.onnx -d cpu -o output/
 ```
 
-This runs the analyze–optimize convergence loop and writes the optimized model:
+Since `-d cpu` resolves to fp16 precision (no quantization) and compilation is off by default, this just runs the analyze–optimize convergence loop:
 
 ```text
 output/
@@ -186,15 +186,16 @@ output/
 
 ### NPU target (full pipeline)
 
-To get a quantized, compiled model for NPU in one shot, generate a config first:
+To get a quantized, compiled model for NPU in one shot, pass `--compile`:
+
+```bash
+uv run winml build -m my_model.onnx -d npu --compile -o output/
+```
+
+Or generate a config first for more control:
 
 ```bash
 uv run winml config --onnx my_model.onnx -d npu --precision int8 -o config.json
-```
-
-Then build:
-
-```bash
 uv run winml build -m my_model.onnx -c config.json -o output/
 ```
 
@@ -218,12 +219,31 @@ output/
 
 ### Selectively skip stages
 
-- `--no-quant` — skip quantization (produces a floating-point optimized model)
-- `--no-compile` — skip compilation (useful if you'll compile on the target device later)
+By default when auto-generating config (no `-c` flag):
+
+- **Compilation is OFF** — pass `--compile` to enable it
+- **Quantization depends on device**:
+    - `-d npu` → quantization ON (w8a16 precision by default)
+    - `-d gpu` / `-d cpu` → quantization OFF (fp16, no quantization)
+
+Override flags:
+
+- `--no-quant` — force skip quantization (even on NPU)
+- `--compile` — force enable compilation (requires EP SDK)
+- `--no-compile` — force skip compilation (default when no config file)
 
 ```bash
-# Optimize + quantize, but skip compilation
-uv run winml build -m my_model.onnx -d npu --no-compile -o output/
+# NPU: optimize + quantize (w8a16), skip compilation
+uv run winml build -m my_model.onnx -d npu -o output/
+
+# NPU: full pipeline including compilation
+uv run winml build -m my_model.onnx -d npu --compile -o output/
+
+# NPU: optimize only, no quantize, no compile
+uv run winml build -m my_model.onnx -d npu --no-quant -o output/
+
+# CPU/GPU: optimize only (quantize and compile are already off)
+uv run winml build -m my_model.onnx -d cpu -o output/
 ```
 
 ---
