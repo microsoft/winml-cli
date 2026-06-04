@@ -19,7 +19,6 @@ from unittest.mock import patch
 import pytest
 import torch
 from transformers import (
-    AutoConfig,
     CLIPTextConfig,
     CLIPTextModelWithProjection,
     CLIPVisionConfig,
@@ -792,18 +791,42 @@ def _make_normalized_config(
 
 @pytest.fixture(scope="module")
 def t5_config():
-    """T5-small config with n_positions overridden to 32 for fast tests."""
-    cfg = AutoConfig.from_pretrained("google-t5/t5-small")
-    cfg.n_positions = 32
-    return cfg
+    """Synthetic T5Config — small dims, no network.
+
+    ``n_positions`` maps to ``max_cache_len`` (decoder static buffer size) via
+    the T5 NormalizedConfig, so it fixes the KV cache length at 32.
+    """
+    from transformers import T5Config
+
+    return T5Config(
+        d_model=32,
+        num_layers=2,
+        num_heads=2,
+        d_kv=16,
+        vocab_size=100,
+        n_positions=32,
+    )
 
 
 @pytest.fixture(scope="module")
 def qwen_config():
-    """Qwen3-0.6B config with max_position_embeddings overridden to 256."""
-    cfg = AutoConfig.from_pretrained("Qwen/Qwen3-0.6B")
-    cfg.max_position_embeddings = 256
-    return cfg
+    """Synthetic Qwen3Config — small dims, no network.
+
+    ``max_position_embeddings`` maps to ``max_cache_len`` via the Qwen
+    NormalizedConfig, so it fixes the KV cache length at 256.
+    """
+    from transformers import Qwen3Config
+
+    return Qwen3Config(
+        hidden_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=8,
+        vocab_size=100,
+        intermediate_size=64,
+        max_position_embeddings=256,
+    )
 
 
 class TestPastKeyValueInputGenerator:
@@ -869,7 +892,7 @@ class TestT5DecoderKVInputs:
 
     def test_kv_input_names(self, t5_config) -> None:
         inputs = generate_dummy_inputs("t5", "text2text-generation", t5_config)
-        num_layers = t5_config.num_layers  # 6
+        num_layers = t5_config.num_layers  # 2 (synthetic)
         for i in range(num_layers):
             assert f"past_{i}_key" in inputs
             assert f"past_{i}_value" in inputs
@@ -877,7 +900,7 @@ class TestT5DecoderKVInputs:
     def test_kv_shape(self, t5_config) -> None:
         inputs = generate_dummy_inputs("t5", "text2text-generation", t5_config)
         kv = inputs["past_0_key"]
-        # [batch=1, heads=8, max_cache_len=32, d_kv=64]
+        # [batch=1, heads=num_heads, max_cache_len=32 (n_positions), d_kv]
         assert kv.shape == (1, t5_config.num_heads, 32, t5_config.d_kv)
 
     def test_decoder_attention_mask_matches_cache_len(self, t5_config) -> None:
@@ -895,7 +918,7 @@ class TestQwenPrefillKVInputs:
 
     def test_kv_input_names(self, qwen_config) -> None:
         inputs = generate_dummy_inputs("qwen3", "feature-extraction", qwen_config)
-        num_layers = qwen_config.num_hidden_layers  # 28
+        num_layers = qwen_config.num_hidden_layers  # 2 (synthetic)
         for i in range(num_layers):
             assert f"past_{i}_key" in inputs
             assert f"past_{i}_value" in inputs
@@ -903,7 +926,7 @@ class TestQwenPrefillKVInputs:
     def test_kv_shape(self, qwen_config) -> None:
         inputs = generate_dummy_inputs("qwen3", "feature-extraction", qwen_config)
         kv = inputs["past_0_key"]
-        # [batch=1, kv_heads=8, max_cache_len=256, head_dim=128]
+        # [batch=1, kv_heads, max_cache_len=256 (max_position_embeddings), head_dim]
         assert kv.shape == (1, qwen_config.num_key_value_heads, 256, qwen_config.head_dim)
 
     def test_attention_mask_matches_cache_len(self, qwen_config) -> None:
