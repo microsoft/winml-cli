@@ -133,25 +133,6 @@ Each validated model is tested against available EPs:
 
 ---
 
-## Models with Custom Build Logic
-
-These architectures have specialized export handling (multi-component, custom
-tracing, or composite pipelines):
-
-| Architecture | Type | Components |
-|-------------|------|------------|
-| CLIP | Vision-Language | clip_text_model + clip_vision_model |
-| SigLIP | Vision-Language | siglip_text_model + siglip_vision_model |
-| BLIP | Vision-Language | vision_encoder + decoder |
-| T5 / BART | Encoder-Decoder | encoder + decoder |
-| Marian | Translation | encoder + decoder |
-| MU2 | Encoder-Decoder | encoder + decoder |
-| VisionEncoderDecoder | Image-to-Text | encoder + decoder |
-| SAM / SAM2 | Segmentation | vision_encoder + prompt_encoder + mask_decoder |
-| Qwen | LLM | prefill + generation (composite) |
-
----
-
 ## Adding Unsupported Models
 
 If your model architecture isn't in the catalog, winml-cli may still support it
