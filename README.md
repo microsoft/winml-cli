@@ -272,6 +272,24 @@ Each arrow is a WinML CLI command. You can enter the pipeline at any stage (for 
 
 ---
 
+## :lock: Data / Telemetry
+
+Official WinML CLI releases can collect **unlinked pseudonymized** usage telemetry
+to help improve the product. Telemetry is classified as **Optional**. A one-time
+prompt on your first run asks for consent (default: accept — press **Enter** to
+enable, type `n` to decline).
+
+**Control** — edit `%USERPROFILE%\.winml\config.json`:
+
+- Set `telemetry.consent` to `"disabled"` to opt out
+- Set `telemetry.consent` to `"enabled"` to opt in
+- Delete the file to re-show the first-run prompt on the next run
+
+See [docs/Privacy.md](docs/Privacy.md) for the full list of what is and is not
+collected, event schemas, CI auto-disable behavior, and storage locations.
+
+---
+
 ## :handshake: Contributing
 
 We welcome contributions! Please see the [contribution guidelines](CONTRIBUTING.md).

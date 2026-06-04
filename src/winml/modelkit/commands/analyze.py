@@ -655,7 +655,7 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
         "all = all rule-data-backed devices; auto = infer from local availability"
     ),
 )
-@cli_utils.verbosity_options
+@cli_utils.verbosity_options()
 @cli_utils.build_config_option()
 @cli_utils.output_option("Save JSON output to file")
 @click.option(
@@ -730,7 +730,9 @@ def analyze(
         if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
             ep = cc["execution_provider"]
 
-    # Configure logging
+    # Configure logging — merge with top-level group so `winml -v analyze …`
+    # and `winml analyze -v …` are equivalent.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
     try:

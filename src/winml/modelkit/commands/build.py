@@ -37,6 +37,7 @@ from ..utils.console import (
     print_stage_skip,
     print_stages_header,
 )
+from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
@@ -276,8 +277,8 @@ def _validate_task_supported_for_model(
     Raises:
         ValueError: If the task is not supported for the model architecture.
     """
-    from ..export.io import TASK_SYNONYM_EXTENSIONS, ensure_hf_models_registered
-    from ..loader.task import get_supported_tasks, normalize_task
+    from ..export.io import ensure_hf_models_registered
+    from ..loader.task import TASK_SYNONYM_EXTENSIONS, get_supported_tasks, normalize_task
 
     if hf_config is None:
         from transformers import AutoConfig
@@ -488,13 +489,7 @@ def _validate_loader_tasks_for_model(
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Enable verbose logging",
-)
+@cli_utils.verbosity_options()
 @click.pass_context
 def build(
     ctx: click.Context,
@@ -511,7 +506,8 @@ def build(
     no_analyze: bool,
     max_optim_iterations: int | None,
     trust_remote_code: bool,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
 ) -> None:
     r"""Build a WinML-optimized ONNX model from a HuggingFace model or .onnx file.
 
@@ -541,12 +537,9 @@ def build(
         # Force rebuild
         winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild
     """
-    # Inherit debug flag from parent context
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
-
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     # Validate mutual exclusion
     if output_dir and use_cache:
