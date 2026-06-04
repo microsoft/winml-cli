@@ -10,7 +10,7 @@ The table below lists every Execution Provider that winml-cli has explicit suppo
 
 | EP | Device | Hardware | When to use |
 |----|--------|----------|-------------|
-| `QNNExecutionProvider` | npu | Qualcomm NPU (Hexagon DSP) | Snapdragon-based Copilot+ PCs; best latency and power efficiency on Qualcomm silicon |
+| `QNNExecutionProvider` | npu / gpu | Qualcomm NPU (Hexagon DSP) / Qualcomm GPU (Adreno) | Snapdragon-based Copilot+ PCs; best latency and power efficiency on Qualcomm silicon |
 | `VitisAIExecutionProvider` | npu | AMD NPU (XDNA) | AMD Ryzen AI platforms; targets the AMD AI Engine via the Vitis AI stack |
 | `OpenVINOExecutionProvider` | npu / gpu / cpu | Intel CPU / GPU / NPU | Intel Core Ultra platforms; flexible device targeting across all three Intel compute types |
 | `DmlExecutionProvider` | gpu | GPU (DirectML) | Any DirectX 12 GPU on Windows; broad compatibility across AMD, Intel, and NVIDIA discrete/integrated graphics |
