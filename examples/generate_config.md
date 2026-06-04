@@ -24,7 +24,7 @@ The script:
    - CPU/GPU targets: a single `examples/<ep>/<device>/<model_slug>/<task>_config.json` (no precision in name, EP default precision)
    - Composite models (e.g. CLIP zero-shot): one file per sub-component, named `<stem>_<role>.json` (e.g. `..._image-encoder.json`, `..._text-encoder.json`). No wrapper file is produced.
 3. Injects the new `eval` section from `scripts/e2e_eval/testsets/models_with_acc.json` when dataset metadata exists
-4. Uses canonical model list from `scripts/e2e_eval/testsets/models_57.txt` (57 `(model, task)` pairs)
+4. Uses canonical model list from `scripts/e2e_eval/testsets/example_model_tasks.txt`
 5. Keeps eval config device-agnostic (does **not** write `eval.device`)
 6. Skips files that already exist (including composite split files matching `<stem>_*.json`)
 
@@ -85,7 +85,7 @@ If a custom dataset builder is needed, use `dataset.build_script`:
 
 ## Adding a New Model
 
-Add a line to `scripts/e2e_eval/testsets/models_57.txt` in the format:
+Add a line to `scripts/e2e_eval/testsets/example_model_tasks.txt` in the format:
 
 ```text
 <hf_id>|<task>

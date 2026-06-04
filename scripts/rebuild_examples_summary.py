@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
-MODELS_57 = Path(__file__).resolve().parents[1] / "scripts" / "e2e_eval" / "testsets" / "models_57.txt"
+MODEL_TASK_LIST = Path(__file__).resolve().parents[1] / "scripts" / "e2e_eval" / "testsets" / "example_model_tasks.txt"
 
 ROWS: list[tuple[str, str, str, str | None, str]] = [
     ("AMD (VitisAI, NPU) - fp16",        "vitisai",         "npu", "fp16",  "vitisai/npu/REPORT.md"),
@@ -47,7 +47,7 @@ _CONFIG_NAME_RE = re.compile(r"^(?P<stem>.+?)_config(?:_(?P<role>.+))?\.json$")
 def load_target_pairs() -> set[tuple[str, str]]:
     """Load canonical target set as (model_slug, task)."""
     pairs: set[tuple[str, str]] = set()
-    for line in MODELS_57.read_text(encoding="utf-8-sig").splitlines():
+    for line in MODEL_TASK_LIST.read_text(encoding="utf-8-sig").splitlines():
         s = line.strip()
         if not s or s.startswith("#"):
             continue
@@ -75,26 +75,28 @@ def collect(
     for model_dir in folder.iterdir():
         if not model_dir.is_dir():
             continue
-        # Group by stem (everything before `_config` / `_config_<role>`).
-        # Composite models emit multiple split config files sharing one stem
-        # and one eval_result; non-composite models have a single config file.
-        seen_stems: set[str] = set()
+        # Group by logical config bucket.
+        # - NPU: one bucket per (task, precision)
+        # - CPU/GPU: one bucket per task, even if both `<task>_config.json`
+        #   and legacy `<task>_fp16_config.json` exist.
+        grouped_stems: dict[str, str] = {}
         for cfg in model_dir.glob("*_config*.json"):
             m = _CONFIG_NAME_RE.match(cfg.name)
             if not m:
                 continue
             stem = m.group("stem")
-            if stem in seen_stems:
-                continue
-            seen_stems.add(stem)
 
             task = stem
             if hardware == "npu":
                 pm = _NPU_PRECISION_RE.search(stem)
                 if pm:
                     task = stem[: pm.start()]
+                    group_key = stem
+                else:
+                    group_key = stem
             else:
                 task = stem.removesuffix("_fp16")
+                group_key = task
 
             if (model_dir.name, task) not in target_pairs:
                 continue
@@ -103,6 +105,20 @@ def collect(
                 pm = _NPU_PRECISION_RE.search(stem)
                 if not pm or pm.group(1) != precision_filter:
                     continue
+
+            existing = grouped_stems.get(group_key)
+            if existing is None or existing.endswith("_fp16"):
+                grouped_stems[group_key] = stem
+
+        for stem in grouped_stems.values():
+            task = stem
+            if hardware == "npu":
+                pm = _NPU_PRECISION_RE.search(stem)
+                if pm:
+                    task = stem[: pm.start()]
+            else:
+                task = stem.removesuffix("_fp16")
+
             configs += 1
             model_tasks.add((model_dir.name, task))
             if (model_dir / f"{stem}_eval_result.json").exists():
@@ -123,7 +139,7 @@ def main() -> int:
         "",
         "## Overview",
         "",
-        "Count basis is canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57.txt`.",
+        "Count basis is canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/example_model_tasks.txt`.",
         "",
         "| EP | (Model, Task) | Configs | Eval Pass | Report |",
         "|----|---------------|---------|-----------|--------|",

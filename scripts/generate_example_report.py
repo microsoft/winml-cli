@@ -7,7 +7,7 @@ corresponding ``*_eval_result.json`` / ``*_perf_result.json`` /
 ``*.error.txt`` / ``*.timeout`` artifacts.
 
 Counting basis:
-- Only (model_slug, task) pairs in ``scripts/e2e_eval/testsets/models_57.txt``
+- Only (model_slug, task) pairs in ``scripts/e2e_eval/testsets/example_model_tasks.txt``
   are counted.
 - Composite models emit multiple split configs sharing one stem; they are
   counted as a single config group (one eval / one perf entry).
@@ -27,7 +27,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
-MODELS_57 = REPO_ROOT / "scripts" / "e2e_eval" / "testsets" / "models_57.txt"
+MODEL_TASK_LIST = REPO_ROOT / "scripts" / "e2e_eval" / "testsets" / "example_model_tasks.txt"
 
 PRECISIONS = ("fp16", "w8a16", "w8a8")
 _NPU_PRECISION_RE = re.compile(r"_(fp16|w8a16|w8a8)$")
@@ -49,7 +49,7 @@ ROWS: list[tuple[str, str, str]] = [
 
 def load_target_pairs() -> set[tuple[str, str]]:
     pairs: set[tuple[str, str]] = set()
-    for line in MODELS_57.read_text(encoding="utf-8-sig").splitlines():
+    for line in MODEL_TASK_LIST.read_text(encoding="utf-8-sig").splitlines():
         s = line.strip()
         if not s or s.startswith("#"):
             continue
@@ -118,19 +118,20 @@ def generate(ep: str, hardware: str, title: str) -> None:
 
     groups: list[tuple[Path, str]] = []
     for model_dir in sorted(d for d in ep_dir.iterdir() if d.is_dir()):
-        seen: set[str] = set()
+        grouped_stems: dict[str, str] = {}
         for cfg in sorted(model_dir.glob("*_config*.json")):
             m = _CONFIG_NAME_RE.match(cfg.name)
             if not m:
                 continue
             stem = m.group("stem")
-            if stem in seen:
-                continue
-            seen.add(stem)
             task = extract_task(stem, hardware)
             if (model_dir.name, task) not in target_pairs:
                 continue
-            groups.append((model_dir, stem))
+            group_key = stem if hardware == "npu" else task
+            existing = grouped_stems.get(group_key)
+            if existing is None or existing.endswith("_fp16"):
+                grouped_stems[group_key] = stem
+        groups.extend((model_dir, stem) for stem in grouped_stems.values())
 
     def has(model_dir: Path, stem: str, kind: str, ext: str) -> bool:
         return (model_dir / f"{stem}_{kind}_result.{ext}").exists()
@@ -156,7 +157,7 @@ def generate(ep: str, hardware: str, title: str) -> None:
         "",
         "## Summary",
         "",
-        "Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57.txt`.",
+        "Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/example_model_tasks.txt`.",
         "",
         f"- (Model, Task): {len(distinct_pairs)}",
         f"- Configs: {len(groups)}",

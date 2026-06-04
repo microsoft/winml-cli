@@ -1,7 +1,7 @@
 """Regenerate examples/summary_builtin_model.md with 5 sections built from real eval results.
 
 Sections:
-    1. Target Builtin Models (the canonical 57 (model, task) pairs)
+    1. Target Builtin Models (the canonical model-task pairs)
   2. fp16 eval pass on ALL 9 EPs
   3. fp16 eval pass on AT LEAST ONE EP
   4. w8a8 eval pass on ALL 3 NPU EPs
@@ -14,7 +14,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 EX = REPO / "examples"
-LIST57 = REPO / "scripts/e2e_eval/testsets/models_57.txt"
+MODEL_TASK_LIST = REPO / "scripts/e2e_eval/testsets/example_model_tasks.txt"
 OUT = EX / "summary_builtin_model.md"
 
 EPS_ALL: list[tuple[str, str]] = [
@@ -33,7 +33,7 @@ NPU_EPS: list[tuple[str, str]] = [("openvino", "npu"), ("qnn", "npu"), ("vitisai
 
 def load_target_pairs() -> list[tuple[str, str]]:
     ext: set[tuple[str, str]] = set()
-    for line in LIST57.read_text(encoding="utf-8-sig").splitlines():
+    for line in MODEL_TASK_LIST.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -108,7 +108,7 @@ def main() -> int:
         "",
         "## 1. Target Builtin Models",
         "",
-        "Canonical 57 (model, task) pairs used by the config+eval workflow.",
+        "Canonical model-task pairs used by the config+eval workflow.",
         "",
         f"Total: **{len(target)}** (model, task) tuples.",
         "",

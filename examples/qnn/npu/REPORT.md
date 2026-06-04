@@ -2,19 +2,19 @@
 
 ## Summary
 
-Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57.txt`.
+Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/example_model_tasks.txt`.
 
-- (Model, Task): 57
-- Configs: 171
-- Eval Pass: 146/171 (85%)
+- (Model, Task): 77
+- Configs: 231
+- Eval Pass: 146/231 (63%)
 
 ### Per-precision breakdown
 
 | Precision | (Model, Task) | Configs | Eval Pass |
 |---|---|---|---|
-| fp16 | 57 | 57 | 48/57 (84%) |
-| w8a16 | 57 | 57 | 49/57 (86%) |
-| w8a8 | 57 | 57 | 49/57 (86%) |
+| fp16 | 77 | 77 | 48/77 (62%) |
+| w8a16 | 77 | 77 | 49/77 (64%) |
+| w8a8 | 77 | 77 | 49/77 (64%) |
 
 ## Results
 
@@ -32,12 +32,33 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 | apple/mobilevit-small | image-classification | fp16 | [config](./apple_mobilevit-small/image-classification_fp16_config.json) | accuracy=0.7500 ([metric](./apple_mobilevit-small/image-classification_fp16_eval_result.json)) |
 |  | image-classification | w8a16 | [config](./apple_mobilevit-small/image-classification_w8a16_config.json) | accuracy=0.6200 ([metric](./apple_mobilevit-small/image-classification_w8a16_eval_result.json)) |
 |  | image-classification | w8a8 | [config](./apple_mobilevit-small/image-classification_w8a8_config.json) | accuracy=0.1700 ([metric](./apple_mobilevit-small/image-classification_w8a8_eval_result.json)) |
+| BAAI/bge-base-en-v1.5 | feature-extraction | fp16 | [config](./BAAI_bge-base-en-v1.5/feature-extraction_fp16_config.json) | — |
+|  | feature-extraction | w8a16 | [config](./BAAI_bge-base-en-v1.5/feature-extraction_w8a16_config.json) | — |
+|  | feature-extraction | w8a8 | [config](./BAAI_bge-base-en-v1.5/feature-extraction_w8a8_config.json) | — |
+|  | sentence-similarity | fp16 | [config](./BAAI_bge-base-en-v1.5/sentence-similarity_fp16_config.json) | — |
+|  | sentence-similarity | w8a16 | [config](./BAAI_bge-base-en-v1.5/sentence-similarity_w8a16_config.json) | — |
+|  | sentence-similarity | w8a8 | [config](./BAAI_bge-base-en-v1.5/sentence-similarity_w8a8_config.json) | — |
 | BAAI/bge-large-en-v1.5 | sentence-similarity | fp16 | [config](./BAAI_bge-large-en-v1.5/sentence-similarity_fp16_config.json) | cosine_spearman=89.6971 ([metric](./BAAI_bge-large-en-v1.5/sentence-similarity_fp16_eval_result.json)) |
 |  | sentence-similarity | w8a16 | [config](./BAAI_bge-large-en-v1.5/sentence-similarity_w8a16_config.json) | cosine_spearman=79.2698 ([metric](./BAAI_bge-large-en-v1.5/sentence-similarity_w8a16_eval_result.json)) |
 |  | sentence-similarity | w8a8 | [config](./BAAI_bge-large-en-v1.5/sentence-similarity_w8a8_config.json) | cosine_spearman=79.2698 ([metric](./BAAI_bge-large-en-v1.5/sentence-similarity_w8a8_eval_result.json)) |
-| BAAI/bge-small-en-v1.5 | sentence-similarity | fp16 | [config](./BAAI_bge-small-en-v1.5/sentence-similarity_fp16_config.json) | cosine_spearman=88.6564 ([metric](./BAAI_bge-small-en-v1.5/sentence-similarity_fp16_eval_result.json)) |
+| BAAI/bge-m3 | feature-extraction | fp16 | [config](./BAAI_bge-m3/feature-extraction_fp16_config.json) | — |
+|  | feature-extraction | w8a16 | [config](./BAAI_bge-m3/feature-extraction_w8a16_config.json) | — |
+|  | feature-extraction | w8a8 | [config](./BAAI_bge-m3/feature-extraction_w8a8_config.json) | — |
+|  | sentence-similarity | fp16 | [config](./BAAI_bge-m3/sentence-similarity_fp16_config.json) | — |
+|  | sentence-similarity | w8a16 | [config](./BAAI_bge-m3/sentence-similarity_w8a16_config.json) | — |
+|  | sentence-similarity | w8a8 | [config](./BAAI_bge-m3/sentence-similarity_w8a8_config.json) | — |
+| BAAI/bge-reranker-v2-m3 | text-classification | fp16 | [config](./BAAI_bge-reranker-v2-m3/text-classification_fp16_config.json) | — |
+|  | text-classification | w8a16 | [config](./BAAI_bge-reranker-v2-m3/text-classification_w8a16_config.json) | — |
+|  | text-classification | w8a8 | [config](./BAAI_bge-reranker-v2-m3/text-classification_w8a8_config.json) | — |
+| BAAI/bge-small-en-v1.5 | feature-extraction | fp16 | [config](./BAAI_bge-small-en-v1.5/feature-extraction_fp16_config.json) | — |
+|  | feature-extraction | w8a16 | [config](./BAAI_bge-small-en-v1.5/feature-extraction_w8a16_config.json) | — |
+|  | feature-extraction | w8a8 | [config](./BAAI_bge-small-en-v1.5/feature-extraction_w8a8_config.json) | — |
+|  | sentence-similarity | fp16 | [config](./BAAI_bge-small-en-v1.5/sentence-similarity_fp16_config.json) | cosine_spearman=88.6564 ([metric](./BAAI_bge-small-en-v1.5/sentence-similarity_fp16_eval_result.json)) |
 |  | sentence-similarity | w8a16 | [config](./BAAI_bge-small-en-v1.5/sentence-similarity_w8a16_config.json) | cosine_spearman=79.2698 ([metric](./BAAI_bge-small-en-v1.5/sentence-similarity_w8a16_eval_result.json)) |
 |  | sentence-similarity | w8a8 | [config](./BAAI_bge-small-en-v1.5/sentence-similarity_w8a8_config.json) | cosine_spearman=79.2698 ([metric](./BAAI_bge-small-en-v1.5/sentence-similarity_w8a8_eval_result.json)) |
+| Babelscape/wikineural-multilingual-ner | token-classification | fp16 | [config](./Babelscape_wikineural-multilingual-ner/token-classification_fp16_config.json) | — |
+|  | token-classification | w8a16 | [config](./Babelscape_wikineural-multilingual-ner/token-classification_w8a16_config.json) | — |
+|  | token-classification | w8a8 | [config](./Babelscape_wikineural-multilingual-ner/token-classification_w8a8_config.json) | — |
 | cardiffnlp/twitter-roberta-base-sentiment-latest | text-classification | fp16 | [config](./cardiffnlp_twitter-roberta-base-sentiment-latest/text-classification_fp16_config.json) | accuracy=0.8200 ([metric](./cardiffnlp_twitter-roberta-base-sentiment-latest/text-classification_fp16_eval_result.json)) |
 |  | text-classification | w8a16 | [config](./cardiffnlp_twitter-roberta-base-sentiment-latest/text-classification_w8a16_config.json) | accuracy=1.0000 ([metric](./cardiffnlp_twitter-roberta-base-sentiment-latest/text-classification_w8a16_eval_result.json)) |
 |  | text-classification | w8a8 | [config](./cardiffnlp_twitter-roberta-base-sentiment-latest/text-classification_w8a8_config.json) | accuracy=1.0000 ([metric](./cardiffnlp_twitter-roberta-base-sentiment-latest/text-classification_w8a8_eval_result.json)) |
@@ -71,6 +92,12 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 | distilbert/distilbert-base-uncased-finetuned-sst-2-english | text-classification | fp16 | [config](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_fp16_config.json) | accuracy=0.9100 ([metric](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_fp16_eval_result.json)) |
 |  | text-classification | w8a16 | [config](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_w8a16_config.json) | accuracy=0.7100 ([metric](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_w8a16_eval_result.json)) |
 |  | text-classification | w8a8 | [config](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_w8a8_config.json) | accuracy=0.5400 ([metric](./distilbert_distilbert-base-uncased-finetuned-sst-2-english/text-classification_w8a8_eval_result.json)) |
+| dslim/bert-base-NER | token-classification | fp16 | [config](./dslim_bert-base-NER/token-classification_fp16_config.json) | — |
+|  | token-classification | w8a16 | [config](./dslim_bert-base-NER/token-classification_w8a16_config.json) | — |
+|  | token-classification | w8a8 | [config](./dslim_bert-base-NER/token-classification_w8a8_config.json) | — |
+| facebook/convnext-tiny-224 | image-classification | fp16 | [config](./facebook_convnext-tiny-224/image-classification_fp16_config.json) | — |
+|  | image-classification | w8a16 | [config](./facebook_convnext-tiny-224/image-classification_w8a16_config.json) | — |
+|  | image-classification | w8a8 | [config](./facebook_convnext-tiny-224/image-classification_w8a8_config.json) | — |
 | facebook/dino-vitb16 | image-feature-extraction | fp16 | [config](./facebook_dino-vitb16/image-feature-extraction_fp16_config.json) | knn_top1_accuracy=82.9000, knn_top5_accuracy=95.3000 ([metric](./facebook_dino-vitb16/image-feature-extraction_fp16_eval_result.json)) |
 |  | image-feature-extraction | w8a16 | [config](./facebook_dino-vitb16/image-feature-extraction_w8a16_config.json) | knn_top1_accuracy=82.9000, knn_top5_accuracy=95.3000 ([metric](./facebook_dino-vitb16/image-feature-extraction_w8a16_eval_result.json)) |
 |  | image-feature-extraction | w8a8 | [config](./facebook_dino-vitb16/image-feature-extraction_w8a8_config.json) | knn_top1_accuracy=82.9000, knn_top5_accuracy=95.3000 ([metric](./facebook_dino-vitb16/image-feature-extraction_w8a8_eval_result.json)) |
@@ -95,7 +122,10 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 | Falconsai/nsfw_image_detection | image-classification | fp16 | [config](./Falconsai_nsfw_image_detection/image-classification_fp16_config.json) | FAIL |
 |  | image-classification | w8a16 | [config](./Falconsai_nsfw_image_detection/image-classification_w8a16_config.json) | FAIL |
 |  | image-classification | w8a8 | [config](./Falconsai_nsfw_image_detection/image-classification_w8a8_config.json) | FAIL |
-| google-bert/bert-base-multilingual-cased | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_config.json) | pseudo_perplexity=5.7760, nll=1.7537 ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_eval_result.json)) |
+| google-bert/bert-base-multilingual-cased | feature-extraction | fp16 | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_fp16_config.json) | — |
+|  | feature-extraction | w8a16 | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a16_config.json) | — |
+|  | feature-extraction | w8a8 | [config](./google-bert_bert-base-multilingual-cased/feature-extraction_w8a8_config.json) | — |
+|  | fill-mask | fp16 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_config.json) | pseudo_perplexity=5.7760, nll=1.7537 ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_fp16_eval_result.json)) |
 |  | fill-mask | w8a16 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_w8a16_config.json) | pseudo_perplexity=5.7760, nll=1.7537 ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_w8a16_eval_result.json)) |
 |  | fill-mask | w8a8 | [config](./google-bert_bert-base-multilingual-cased/fill-mask_w8a8_config.json) | pseudo_perplexity=6152.9174, nll=8.7247 ([metric](./google-bert_bert-base-multilingual-cased/fill-mask_w8a8_eval_result.json)) |
 |  | masked-lm | fp16 | [config](./google-bert_bert-base-multilingual-cased/masked-lm_fp16_config.json) | FAIL |
@@ -116,6 +146,12 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 | hustvl/yolos-small | object-detection | fp16 | [config](./hustvl_yolos-small/object-detection_fp16_config.json) | FAIL |
 |  | object-detection | w8a16 | [config](./hustvl_yolos-small/object-detection_w8a16_config.json) | map=0.3837, map_50=0.6071, map_75=0.4089, num_predictions=10000, num_ground_truths=752, num_images=100, map_small=0.1279, map_medium=0.3232, map_large=0.6211, mar_1=0.3307, mar_10=0.4920, mar_100=0.5246, mar_small=0.1918, mar_medium=0.4652, mar_large=0.7376, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./hustvl_yolos-small/object-detection_w8a16_eval_result.json)) |
 |  | object-detection | w8a8 | [config](./hustvl_yolos-small/object-detection_w8a8_config.json) | map=0.2154, map_50=0.3859, map_75=0.2141, num_predictions=10000, num_ground_truths=752, num_images=100, map_small=0.0191, map_medium=0.1512, map_large=0.4395, mar_1=0.1921, mar_10=0.3241, mar_100=0.3423, mar_small=0.0307, mar_medium=0.2547, mar_large=0.5900, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./hustvl_yolos-small/object-detection_w8a8_eval_result.json)) |
+| Intel/bert-base-uncased-mrpc | feature-extraction | fp16 | [config](./Intel_bert-base-uncased-mrpc/feature-extraction_fp16_config.json) | — |
+|  | feature-extraction | w8a16 | [config](./Intel_bert-base-uncased-mrpc/feature-extraction_w8a16_config.json) | — |
+|  | feature-extraction | w8a8 | [config](./Intel_bert-base-uncased-mrpc/feature-extraction_w8a8_config.json) | — |
+|  | text-classification | fp16 | [config](./Intel_bert-base-uncased-mrpc/text-classification_fp16_config.json) | — |
+|  | text-classification | w8a16 | [config](./Intel_bert-base-uncased-mrpc/text-classification_w8a16_config.json) | — |
+|  | text-classification | w8a8 | [config](./Intel_bert-base-uncased-mrpc/text-classification_w8a8_config.json) | — |
 | Intel/dpt-hybrid-midas | depth-estimation | fp16 | [config](./Intel_dpt-hybrid-midas/depth-estimation_fp16_config.json) | FAIL |
 |  | depth-estimation | w8a16 | [config](./Intel_dpt-hybrid-midas/depth-estimation_w8a16_config.json) | FAIL |
 |  | depth-estimation | w8a8 | [config](./Intel_dpt-hybrid-midas/depth-estimation_w8a8_config.json) | FAIL |
@@ -137,12 +173,21 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 | lxyuan/distilbert-base-multilingual-cased-sentiments-student | zero-shot-classification | fp16 | [config](./lxyuan_distilbert-base-multilingual-cased-sentiments-student/zero-shot-classification_fp16_config.json) | accuracy=0.2100, f1=0.1383 ([metric](./lxyuan_distilbert-base-multilingual-cased-sentiments-student/zero-shot-classification_fp16_eval_result.json)) |
 |  | zero-shot-classification | w8a16 | [config](./lxyuan_distilbert-base-multilingual-cased-sentiments-student/zero-shot-classification_w8a16_config.json) | accuracy=0.2100, f1=0.1384 ([metric](./lxyuan_distilbert-base-multilingual-cased-sentiments-student/zero-shot-classification_w8a16_eval_result.json)) |
 |  | zero-shot-classification | w8a8 | [config](./lxyuan_distilbert-base-multilingual-cased-sentiments-student/zero-shot-classification_w8a8_config.json) | accuracy=0.2200, f1=0.1802 ([metric](./lxyuan_distilbert-base-multilingual-cased-sentiments-student/zero-shot-classification_w8a8_eval_result.json)) |
+| microsoft/beit-base-patch16-224-pt22k-ft22k | image-classification | fp16 | [config](./microsoft_beit-base-patch16-224-pt22k-ft22k/image-classification_fp16_config.json) | — |
+|  | image-classification | w8a16 | [config](./microsoft_beit-base-patch16-224-pt22k-ft22k/image-classification_w8a16_config.json) | — |
+|  | image-classification | w8a8 | [config](./microsoft_beit-base-patch16-224-pt22k-ft22k/image-classification_w8a8_config.json) | — |
 | microsoft/rad-dino | image-feature-extraction | fp16 | [config](./microsoft_rad-dino/image-feature-extraction_fp16_config.json) | knn_top1_accuracy=94.8454, knn_top5_accuracy=99.3127 ([metric](./microsoft_rad-dino/image-feature-extraction_fp16_eval_result.json)) |
 |  | image-feature-extraction | w8a16 | [config](./microsoft_rad-dino/image-feature-extraction_w8a16_config.json) | knn_top1_accuracy=94.8454, knn_top5_accuracy=99.3127 ([metric](./microsoft_rad-dino/image-feature-extraction_w8a16_eval_result.json)) |
 |  | image-feature-extraction | w8a8 | [config](./microsoft_rad-dino/image-feature-extraction_w8a8_config.json) | knn_top1_accuracy=94.8454, knn_top5_accuracy=99.3127 ([metric](./microsoft_rad-dino/image-feature-extraction_w8a8_eval_result.json)) |
 | microsoft/resnet-18 | image-classification | fp16 | [config](./microsoft_resnet-18/image-classification_fp16_config.json) | accuracy=0.6700 ([metric](./microsoft_resnet-18/image-classification_fp16_eval_result.json)) |
 |  | image-classification | w8a16 | [config](./microsoft_resnet-18/image-classification_w8a16_config.json) | accuracy=0.6700 ([metric](./microsoft_resnet-18/image-classification_w8a16_eval_result.json)) |
 |  | image-classification | w8a8 | [config](./microsoft_resnet-18/image-classification_w8a8_config.json) | accuracy=0.6700 ([metric](./microsoft_resnet-18/image-classification_w8a8_eval_result.json)) |
+| microsoft/swin-large-patch4-window7-224 | image-classification | fp16 | [config](./microsoft_swin-large-patch4-window7-224/image-classification_fp16_config.json) | — |
+|  | image-classification | w8a16 | [config](./microsoft_swin-large-patch4-window7-224/image-classification_w8a16_config.json) | — |
+|  | image-classification | w8a8 | [config](./microsoft_swin-large-patch4-window7-224/image-classification_w8a8_config.json) | — |
+| microsoft/swinv2-tiny-patch4-window16-256 | image-classification | fp16 | [config](./microsoft_swinv2-tiny-patch4-window16-256/image-classification_fp16_config.json) | — |
+|  | image-classification | w8a16 | [config](./microsoft_swinv2-tiny-patch4-window16-256/image-classification_w8a16_config.json) | — |
+|  | image-classification | w8a8 | [config](./microsoft_swinv2-tiny-patch4-window16-256/image-classification_w8a8_config.json) | — |
 | monologg/koelectra-small-v2-distilled-korquad-384 | question-answering | fp16 | [config](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_fp16_config.json) | exact_match=1.0000, f1=1.6667 ([metric](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_fp16_eval_result.json)) |
 |  | question-answering | w8a16 | [config](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_w8a16_config.json) | exact_match=1.0000, f1=1.6667 ([metric](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_w8a16_eval_result.json)) |
 |  | question-answering | w8a8 | [config](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_w8a8_config.json) | exact_match=1.0000, f1=1.0000 ([metric](./monologg_koelectra-small-v2-distilled-korquad-384/question-answering_w8a8_eval_result.json)) |
@@ -152,6 +197,15 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 | openai/clip-vit-base-patch32 | feature-extraction | fp16 | [config](./openai_clip-vit-base-patch32/feature-extraction_fp16_config.json) | cosine_spearman=62.9980 ([metric](./openai_clip-vit-base-patch32/feature-extraction_fp16_eval_result.json)) |
 |  | feature-extraction | w8a16 | [config](./openai_clip-vit-base-patch32/feature-extraction_w8a16_config.json) | cosine_spearman=82.9284 ([metric](./openai_clip-vit-base-patch32/feature-extraction_w8a16_eval_result.json)) |
 |  | feature-extraction | w8a8 | [config](./openai_clip-vit-base-patch32/feature-extraction_w8a8_config.json) | cosine_spearman=82.9284 ([metric](./openai_clip-vit-base-patch32/feature-extraction_w8a8_eval_result.json)) |
+|  | zero-shot-image-classification | fp16 | [config](./openai_clip-vit-base-patch32/zero-shot-image-classification_fp16_config_image-encoder.json) | — |
+|  | zero-shot-image-classification | w8a16 | [config](./openai_clip-vit-base-patch32/zero-shot-image-classification_w8a16_config_image-encoder.json) | — |
+|  | zero-shot-image-classification | w8a8 | [config](./openai_clip-vit-base-patch32/zero-shot-image-classification_w8a8_config_image-encoder.json) | — |
+| patrickjohncyh/fashion-clip | zero-shot-image-classification | fp16 | [config](./patrickjohncyh_fashion-clip/zero-shot-image-classification_fp16_config_image-encoder.json) | — |
+|  | zero-shot-image-classification | w8a16 | [config](./patrickjohncyh_fashion-clip/zero-shot-image-classification_w8a16_config_image-encoder.json) | — |
+|  | zero-shot-image-classification | w8a8 | [config](./patrickjohncyh_fashion-clip/zero-shot-image-classification_w8a8_config_image-encoder.json) | — |
+| ProsusAI/finbert | text-classification | fp16 | [config](./ProsusAI_finbert/text-classification_fp16_config.json) | — |
+|  | text-classification | w8a16 | [config](./ProsusAI_finbert/text-classification_w8a16_config.json) | — |
+|  | text-classification | w8a8 | [config](./ProsusAI_finbert/text-classification_w8a8_config.json) | — |
 | rizvandwiki/gender-classification | image-classification | fp16 | [config](./rizvandwiki_gender-classification/image-classification_fp16_config.json) | accuracy=0.8400 ([metric](./rizvandwiki_gender-classification/image-classification_fp16_eval_result.json)) |
 |  | image-classification | w8a16 | [config](./rizvandwiki_gender-classification/image-classification_w8a16_config.json) | accuracy=0.6000 ([metric](./rizvandwiki_gender-classification/image-classification_w8a16_eval_result.json)) |
 |  | image-classification | w8a8 | [config](./rizvandwiki_gender-classification/image-classification_w8a8_config.json) | accuracy=0.6000 ([metric](./rizvandwiki_gender-classification/image-classification_w8a8_eval_result.json)) |
@@ -179,12 +233,18 @@ Counts canonical `(model, task)` pairs from `scripts/e2e_eval/testsets/models_57
 |  | sentence-similarity | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_fp16_config.json) | cosine_spearman=10.4162 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_fp16_eval_result.json)) |
 |  | sentence-similarity | w8a16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_w8a16_config.json) | cosine_spearman=10.7383 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_w8a16_eval_result.json)) |
 |  | sentence-similarity | w8a8 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_w8a8_config.json) | cosine_spearman=-9.8809 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_w8a8_eval_result.json)) |
-| sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 | sentence-similarity | fp16 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_fp16_config.json) | cosine_spearman=84.1603 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_fp16_eval_result.json)) |
+| sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 | feature-extraction | fp16 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_fp16_config.json) | — |
+|  | feature-extraction | w8a16 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a16_config.json) | — |
+|  | feature-extraction | w8a8 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a8_config.json) | — |
+|  | sentence-similarity | fp16 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_fp16_config.json) | cosine_spearman=84.1603 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_fp16_eval_result.json)) |
 |  | sentence-similarity | w8a16 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_w8a16_config.json) | cosine_spearman=64.0256 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_w8a16_eval_result.json)) |
 |  | sentence-similarity | w8a8 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_w8a8_config.json) | cosine_spearman=64.0256 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/sentence-similarity_w8a8_eval_result.json)) |
 | sentence-transformers/paraphrase-multilingual-mpnet-base-v2 | sentence-similarity | fp16 | [config](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_fp16_config.json) | cosine_spearman=86.3390 ([metric](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_fp16_eval_result.json)) |
 |  | sentence-similarity | w8a16 | [config](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_w8a16_config.json) | cosine_spearman=67.6842 ([metric](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_w8a16_eval_result.json)) |
 |  | sentence-similarity | w8a8 | [config](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_w8a8_config.json) | cosine_spearman=67.6842 ([metric](./sentence-transformers_paraphrase-multilingual-mpnet-base-v2/sentence-similarity_w8a8_eval_result.json)) |
+| tau/splinter-base | question-answering | fp16 | [config](./tau_splinter-base/question-answering_fp16_config.json) | — |
+|  | question-answering | w8a16 | [config](./tau_splinter-base/question-answering_w8a16_config.json) | — |
+|  | question-answering | w8a8 | [config](./tau_splinter-base/question-answering_w8a8_config.json) | — |
 | valentinafeve/yolos-fashionpedia | object-detection | fp16 | [config](./valentinafeve_yolos-fashionpedia/object-detection_fp16_config.json) | map=0.0726, map_50=0.2095, map_75=0.0362, num_predictions=10000, num_ground_truths=726, num_images=100, map_small=0.0001, map_medium=0.0056, map_large=0.1203, mar_1=0.0966, mar_10=0.1410, mar_100=0.1420, mar_small=0.0008, mar_medium=0.0406, mar_large=0.2144, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./valentinafeve_yolos-fashionpedia/object-detection_fp16_eval_result.json)) |
 |  | object-detection | w8a16 | [config](./valentinafeve_yolos-fashionpedia/object-detection_w8a16_config.json) | map=0.0715, map_50=0.2082, map_75=0.0362, num_predictions=10000, num_ground_truths=726, num_images=100, map_small=0.0001, map_medium=0.0062, map_large=0.1192, mar_1=0.0937, mar_10=0.1399, mar_100=0.1410, mar_small=0.0008, mar_medium=0.0401, mar_large=0.2158, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./valentinafeve_yolos-fashionpedia/object-detection_w8a16_eval_result.json)) |
 |  | object-detection | w8a8 | [config](./valentinafeve_yolos-fashionpedia/object-detection_w8a8_config.json) | map=0.0831, map_50=0.1800, map_75=0.0686, num_predictions=10000, num_ground_truths=726, num_images=100, map_small=0.0015, map_medium=0.0133, map_large=0.1321, mar_1=0.1092, mar_10=0.1584, mar_100=0.1618, mar_small=0.0020, mar_medium=0.0517, mar_large=0.2524, map_per_class=-1.0000, mar_100_per_class=-1.0000 ([metric](./valentinafeve_yolos-fashionpedia/object-detection_w8a8_eval_result.json)) |

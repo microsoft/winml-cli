@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate example configs for the canonical 57 models across EPs and precisions.
+"""Generate example configs for the canonical model-task list across EPs and precisions.
 
 Usage:
     python scripts/generate_example_configs.py
@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MODELS_57 = REPO_ROOT / "scripts" / "e2e_eval" / "testsets" / "models_57.txt"
+MODEL_TASK_LIST = REPO_ROOT / "scripts" / "e2e_eval" / "testsets" / "example_model_tasks.txt"
 
 # EP configurations: (ep_flag, ep_folder, hardware)
 # EP names/aliases are validated by `winml config --help`.
@@ -40,9 +40,9 @@ NPU_PRECISIONS = ["w8a8", "w8a16", "fp16"]
 CPU_GPU_PRECISIONS: list[str | None] = [None]
 
 def load_model_pairs() -> list[tuple[str, str]]:
-    """Load the canonical 57 (hf_id, task) tuples from the shared list."""
+    """Load the canonical (hf_id, task) tuples from the shared list."""
     out: list[tuple[str, str]] = []
-    for line in MODELS_57.read_text(encoding="utf-8-sig").splitlines():
+    for line in MODEL_TASK_LIST.read_text(encoding="utf-8-sig").splitlines():
         s = line.strip()
         if not s or s.startswith("#"):
             continue
@@ -132,7 +132,13 @@ def generate_config(
         cmd.extend(["--precision", precision])
     try:
         result = subprocess.run(  # noqa: S603
-            cmd, capture_output=True, text=True, timeout=120, cwd=str(REPO_ROOT)
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+            cwd=str(REPO_ROOT),
         )
         if result.returncode != 0:
             print(f"  FAIL: {result.stderr.strip()[-200:]}")

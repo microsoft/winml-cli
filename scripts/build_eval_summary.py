@@ -1,7 +1,7 @@
 """Build examples/eval_summary.md.
 
-Rows: (model, task, precision) for the canonical 57 pairs (read from
-examples/summary_builtin_model.md). Precisions = fp16, w8a16, w8a8.
+Rows: (model, task, precision) for the canonical model-task list.
+Precisions = fp16, w8a16, w8a8.
 
 Columns: 9 EPs. Cell content:
   - PASS  : ✓ with link to *_eval_result.json
@@ -20,7 +20,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 EX = REPO / "examples"
-SUMMARY_2 = EX / "summary_builtin_model.md"
+MODEL_TASK_LIST = REPO / "scripts" / "e2e_eval" / "testsets" / "example_model_tasks.txt"
 OUT = EX / "eval_summary.md"
 
 # 9 EP columns (label, ep_folder, hardware)
@@ -40,24 +40,14 @@ PRECISIONS = ["fp16", "w8a16", "w8a8"]
 
 
 def load_pairs() -> list[tuple[str, str]]:
-    """Read the first (Model, Task) table in summary_builtin_model.md (the 57-pair list)."""
+    """Read canonical (model, task) pairs from the shared list file."""
     pairs: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    in_table = False
-    for line in SUMMARY_2.read_text(encoding="utf-8").splitlines():
+    for line in MODEL_TASK_LIST.read_text(encoding="utf-8-sig").splitlines():
         s = line.strip()
-        if s.startswith("## ") and pairs:
-            break  # second section starts; stop
-        if s.startswith("| Model"):
-            in_table = True
+        if not s or s.startswith("#"):
             continue
-        if s.startswith("|---"):
-            continue
-        if in_table and s.startswith("|"):
-            parts = [p.strip() for p in s.strip("|").split("|")]
-            if len(parts) == 2 and (parts[0], parts[1]) not in seen:
-                seen.add((parts[0], parts[1]))
-                pairs.append((parts[0], parts[1]))
+        hf_id, task = s.split("|", 1)
+        pairs.append((hf_id.strip(), task.strip()))
     return pairs
 
 
@@ -234,12 +224,13 @@ def build_failure_summary(pairs: list[tuple[str, str]]) -> str:
 
 def main() -> int:
     pairs = load_pairs()
-    assert len(pairs) == 57, f"Expected 57 pairs, got {len(pairs)}"
+    if not pairs:
+        raise SystemExit(f"No model-task pairs found in {MODEL_TASK_LIST}")
 
     header = ["# Eval Result Summary",
               "",
-              ("Rows = (model, task, precision) for the canonical 57 pairs "
-               "in [summary_builtin_model.md](summary_builtin_model.md). Columns = 9 EPs."),
+              ("Rows = (model, task, precision) for the canonical model-task list "
+               "in `scripts/e2e_eval/testsets/example_model_tasks.txt`. Columns = 9 EPs."),
               "",
               ("Cells: ✓ = eval pass (links to *_eval_result.json), "
                "✗ = eval failure (links to *_eval_result.error.txt), "
