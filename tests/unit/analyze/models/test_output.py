@@ -228,8 +228,8 @@ class TestAnalysisOutputValidation:
         )
         assert len(output.results) == 2
 
-        # Invalid: duplicate IHV types
-        with pytest.raises(ValidationError, match="Duplicate IHV types found"):
+        # Invalid: duplicate EP types
+        with pytest.raises(ValidationError, match="Duplicate EP types found"):
             AnalysisOutput(
                 metadata=ModelStats(
                     model_path="/test.onnx",

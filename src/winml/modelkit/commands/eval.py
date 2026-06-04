@@ -61,6 +61,14 @@ logger = logging.getLogger(__name__)
     help="Dataset config name for multi-config datasets (e.g. 'mrpc').",
 )
 @click.option(
+    "--dataset-revision",
+    "revision",
+    type=str,
+    default=None,
+    help="Git revision (branch, tag, or commit) to load. Useful for script-based "
+    "datasets that have a parquet mirror at 'refs/convert/parquet'.",
+)
+@click.option(
     "--task",
     type=str,
     default=None,
@@ -150,6 +158,7 @@ def eval(
     model_id: str | None,
     dataset_path: str,
     dataset_name: str | None,
+    revision: str | None,
     task: str | None,
     device: str,
     precision: str,
