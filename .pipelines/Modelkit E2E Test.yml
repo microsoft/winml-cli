@@ -1,8 +1,32 @@
+# Modelkit E2E Test — scheduled daily e2e validation pipeline.
+#
+# Runs two kinds of e2e checks on the three self-hosted agents (QNN, OV,
+# AMD) in parallel stages:
+#
+#   1. winml perf against a small inline list of models (the `models`
+#      parameter, defaults to facebook/convnext-tiny-224), once per
+#      EP/device pair available on each agent. Gated by `runEval`.
+#
+#   2. A configurable list of pytest e2e suites under `tests/e2e/`,
+#      controlled by the `pytestTargets` parameter (default: all 11).
+#      Edit the list at queue time for a minimal run (e.g. keep only
+#      `analyze`). Each entry maps 1:1 to `tests/e2e/test_<name>_e2e.py`.
+#      Tests use `require_ep()` to self-skip when the target EP is not
+#      present on the host, so it is safe to run all suites on all
+#      three agents — irrelevant tests just skip.
+#
+# Trigger model:
+#   * Manual queue-time runs (with selectable parameters) for ad-hoc
+#     validation.
+#   * Daily scheduled run at 00:00 Beijing time (16:00 UTC the prior
+#     day), staggered 8 h away from the weekly Eval Report cron.
+#   * No PR/CI trigger. Failures do not block PR merges.
+
 trigger: none
 
 schedules:
-  - cron: '0 0 * * Fri'
-    displayName: 'Weekly run — Friday 08:00 (UTC+8)'
+  - cron: '0 16 * * *'
+    displayName: 'Daily run — 00:00 (UTC+8) every day'
     branches:
       include:
         - main
@@ -17,18 +41,98 @@ resources:
       ref: main
 
 parameters:
-  - name: evalDate
-    displayName: 'Eval date (auto = today, e.g. 2026-04-01)'
-    type: string
-    default: 'auto'
-  - name: continueRun
-    displayName: 'Skip already-evaluated models (--continue)'
+  # --------------------------------------------------------------------
+  # winml perf section
+  # --------------------------------------------------------------------
+  - name: runEval
+    displayName: 'Run winml perf eval on inline `models` list'
     type: boolean
     default: true
-  - name: retryFailed
-    displayName: 'Retry previously failed models (--retry-failed)'
-    type: boolean
-    default: false
+
+  # Inline model list. Each entry: { hf_id: <str>, task: <str> }.
+  # Curated to cover one small representative model per supported task
+  # (P0 first, P1/P2 supplements to fill missing tasks). Edit at queue
+  # time (delete rows) to trim a one-off run.
+  - name: models
+    displayName: 'Models to test (inline list, used by runEval)'
+    type: object
+    default:
+      # --- P0 ---
+      - hf_id: facebook/convnext-tiny-224
+        task: image-classification
+      - hf_id: openai/clip-vit-base-patch32
+        task: feature-extraction
+      # NOTE: zero-shot-classification ideally would be covered by the
+      # P0 model openai/clip-vit-base-patch32, but CLIP does not yet
+      # pass on every supported EP for this task. cross-encoder/nli-deberta-v3-small
+      # was tried as a temporary substitute but also fails on some EPs, so it is
+      # commented out for now — out of scope for this round. Re-enable once CLIP
+      # (or another candidate) passes on all EPs.
+      # - hf_id: cross-encoder/nli-deberta-v3-small
+      #   task: zero-shot-classification
+      - hf_id: openai/clip-vit-base-patch32
+        task: zero-shot-image-classification
+      # facebook/detr-resnet-50 cannot pass on every supported EP yet — commented
+      # out and treated as out of scope for this round. Re-enable once it passes
+      # on all EPs.
+      # - hf_id: facebook/detr-resnet-50
+      #   task: object-detection
+      - hf_id: google-bert/bert-base-multilingual-cased
+        task: fill-mask
+      - hf_id: google-bert/bert-base-multilingual-cased
+        task: masked-lm
+      # --- P1/P2 to cover remaining supported tasks ---
+      # NOTE: P1/P2 models are commented out — not in scope for this round.
+      # Re-enable individual entries (or the whole block) as coverage expands.
+      # - hf_id: Intel/dpt-hybrid-midas
+      #   task: depth-estimation
+      # - hf_id: facebook/dinov2-small
+      #   task: image-feature-extraction
+      # - hf_id: deepset/roberta-base-squad2
+      #   task: question-answering
+      # - hf_id: sentence-transformers/all-MiniLM-L6-v2
+      #   task: sentence-similarity
+      # - hf_id: cross-encoder/ms-marco-MiniLM-L4-v2
+      #   task: text-classification
+      # - hf_id: dslim/bert-base-NER
+      #   task: token-classification
+
+  - name: modelTimeout
+    displayName: 'Per-model perf timeout (seconds)'
+    type: number
+    default: 1800
+
+  # --------------------------------------------------------------------
+  # pytest e2e section — single editable list of test file short names.
+  # Each entry `<name>` runs `tests/e2e/test_<name>_e2e.py`.
+  # Edit the list at queue time (delete unwanted entries) to do a
+  # minimal run. Setting it to an empty list skips the pytest phase
+  # entirely.
+  # --------------------------------------------------------------------
+  - name: pytestTargets
+    displayName: 'pytest e2e targets (one entry per tests/e2e/test_<name>_e2e.py)'
+    type: object
+    default:
+      - analyze
+      - inspect
+      - build
+      - compile
+      - config
+      - export
+      - optimize
+      - quantize
+      - sys
+      - perf
+      - eval
+
+  - name: pytestTimeout
+    displayName: 'Per-test pytest --timeout (seconds)'
+    type: number
+    default: 1000
+
+  # --------------------------------------------------------------------
+  # Agent / EP-device pair configuration
+  # --------------------------------------------------------------------
   - name: qnnAgentName
     displayName: 'QNN: self-hosted agent name (Agent.Name)'
     type: string
@@ -39,6 +143,7 @@ parameters:
     default:
       - qnn_npu
       - qnn_gpu
+
   - name: ovAgentName
     displayName: 'OV: self-hosted agent name (Agent.Name)'
     type: string
@@ -52,6 +157,7 @@ parameters:
       - ov_cpu
       - ov_gpu
       - ov_npu
+
   - name: amdAgentName
     displayName: 'AMD: self-hosted agent name (Agent.Name)'
     type: string
@@ -64,39 +170,45 @@ parameters:
 
 stages:
   - stage: NPU_QNN
-    displayName: 'E2E Eval — QNN'
+    displayName: 'E2E Test — QNN'
     jobs:
-      - template: templates/e2e-eval-jobs.yml
+      - template: templates/e2e-test-jobs.yml
         parameters:
           agentName: ${{ parameters.qnnAgentName }}
           agentSuffix: qnn
-          evalDate: ${{ parameters.evalDate }}
-          continueRun: ${{ parameters.continueRun }}
-          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.qnnPairs }}
+          models: ${{ parameters.models }}
+          modelTimeout: ${{ parameters.modelTimeout }}
+          runEval: ${{ parameters.runEval }}
+          pytestTargets: ${{ parameters.pytestTargets }}
+          pytestTimeout: ${{ parameters.pytestTimeout }}
 
   - stage: NPU_OV
-    displayName: 'E2E Eval — OV'
+    displayName: 'E2E Test — OV'
     dependsOn: []
     jobs:
-      - template: templates/e2e-eval-jobs.yml
+      - template: templates/e2e-test-jobs.yml
         parameters:
           agentName: ${{ parameters.ovAgentName }}
           agentSuffix: ov
-          evalDate: ${{ parameters.evalDate }}
-          continueRun: ${{ parameters.continueRun }}
-          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.ovPairs }}
+          models: ${{ parameters.models }}
+          modelTimeout: ${{ parameters.modelTimeout }}
+          runEval: ${{ parameters.runEval }}
+          pytestTargets: ${{ parameters.pytestTargets }}
+          pytestTimeout: ${{ parameters.pytestTimeout }}
 
   - stage: NPU_AMD
-    displayName: 'E2E Eval — AMD'
+    displayName: 'E2E Test — AMD'
     dependsOn: []
     jobs:
-      - template: templates/e2e-eval-jobs.yml
+      - template: templates/e2e-test-jobs.yml
         parameters:
           agentName: ${{ parameters.amdAgentName }}
           agentSuffix: amd
-          evalDate: ${{ parameters.evalDate }}
-          continueRun: ${{ parameters.continueRun }}
-          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.amdPairs }}
+          models: ${{ parameters.models }}
+          modelTimeout: ${{ parameters.modelTimeout }}
+          runEval: ${{ parameters.runEval }}
+          pytestTargets: ${{ parameters.pytestTargets }}
+          pytestTimeout: ${{ parameters.pytestTimeout }}
