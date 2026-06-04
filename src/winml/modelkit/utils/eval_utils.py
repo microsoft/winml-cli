@@ -13,6 +13,11 @@ that importing it does not load the heavy ``winml.modelkit.eval`` package
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal, TypeAlias, get_args
+
+EvalMode: TypeAlias = Literal["onnx", "compare"]
+
+EVAL_MODES: tuple[EvalMode, ...] = get_args(EvalMode)
 
 
 @dataclass(frozen=True)

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..utils.constants import EPNameOrAlias
+from ..utils.eval_utils import EvalMode
 
 
 @dataclass
@@ -87,7 +88,7 @@ class WinMLEvaluationConfig:
             device-to-provider mapping when provided.
         dataset: Dataset configuration.
         output_path: Path to write JSON results.
-        mode: Evaluation mode.
+        mode: Evaluation mode (see :data:`EvalMode`).
 
             - ``"onnx"`` (default): evaluate the ONNX candidate on the
               labeled dataset.
@@ -110,7 +111,7 @@ class WinMLEvaluationConfig:
     ep: EPNameOrAlias | None = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
-    mode: str = "onnx"
+    mode: EvalMode = "onnx"
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""

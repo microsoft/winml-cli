@@ -16,7 +16,7 @@ import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
-from ..utils.eval_utils import TASK_SCHEMAS, TaskSchema
+from ..utils.eval_utils import EVAL_MODES, TASK_SCHEMAS, EvalMode, TaskSchema
 
 
 if TYPE_CHECKING:
@@ -149,7 +149,7 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--mode",
-    type=click.Choice(["onnx", "compare"], case_sensitive=False),
+    type=click.Choice(EVAL_MODES, case_sensitive=False),
     default="onnx",
     show_default=True,
     help=(
@@ -182,7 +182,7 @@ def eval(
     dataset_script: str | None,
     trust_remote_code: bool,
     show_schema: bool,
-    mode: str,
+    mode: EvalMode,
     config_file: Path | None,
 ) -> None:
     r"""Evaluate a model for a task.
