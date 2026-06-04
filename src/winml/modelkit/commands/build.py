@@ -603,7 +603,7 @@ def build(
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
-                resolved_quant, _ = resolve_quant_compile_config(device=device)
+                resolved_quant, _ = resolve_quant_compile_config(device=device, ep=ep)
                 if no_quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
