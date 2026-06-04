@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .classification import ClassificationMetric
+    from .depth import DepthMetric
     from .knn_accuracy import KNNAccuracyMetric
     from .mean_average_precision import MAPMetric
     from .mean_iou import IGNORE_INDEX, MeanIoUMetric
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 # that do not actually use the metric in question.
 _LAZY_ATTRS: dict[str, str] = {
     "ClassificationMetric": ".classification:ClassificationMetric",
+    "DepthMetric": ".depth:DepthMetric",
     "IGNORE_INDEX": ".mean_iou:IGNORE_INDEX",
     "KNNAccuracyMetric": ".knn_accuracy:KNNAccuracyMetric",
     "MAPMetric": ".mean_average_precision:MAPMetric",
@@ -55,6 +57,7 @@ def __dir__() -> list[str]:
 __all__ = [
     "IGNORE_INDEX",
     "ClassificationMetric",
+    "DepthMetric",
     "KNNAccuracyMetric",
     "MAPMetric",
     "MeanIoUMetric",

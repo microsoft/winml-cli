@@ -21,6 +21,8 @@ from ..utils.constants import EPAlias, EPName
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ..utils.constants import EPNameOrAlias
 
 
@@ -115,7 +117,7 @@ class WinMLCompileConfig:
         canonical = normalize_ep_name(provider)
         if canonical is None:
             return None
-        factories: dict[EPName, Any] = {
+        factories: dict[EPName, Callable[[], WinMLCompileConfig]] = {
             "QNNExecutionProvider": lambda: cls.for_qnn(device=device),
             "DmlExecutionProvider": cls.for_dml,
             "CUDAExecutionProvider": cls.for_cuda,
