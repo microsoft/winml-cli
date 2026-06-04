@@ -27,16 +27,34 @@
     ],
     "output_tensors": [
       {
-        "name": "logits"
+        "name": "encoder_hidden_states"
       }
     ]
   },
-  "optim": {},
+  "optim": {
+    "gelu_fusion": true,
+    "layer_norm_fusion": true,
+    "matmul_add_fusion": true,
+    "remove_isnan_in_attention_mask": true,
+    "reshape_mergedreshape": true
+  },
   "quant": null,
   "compile": null,
   "loader": {
-    "task": "image-classification",
-    "model_class": "AutoModelForImageClassification",
-    "model_type": "vit"
+    "task": "image-feature-extraction",
+    "model_class": "VisionEncoderWrapper",
+    "model_type": "vision-encoder-decoder"
+  },
+  "eval": {
+    "task": "image-to-text",
+    "dataset": {
+      "path": "priyank-m/SROIE_2019_text_recognition",
+      "split": "test",
+      "samples": 200,
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "text"
+      }
+    }
   }
 }

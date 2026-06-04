@@ -27,16 +27,32 @@
     ],
     "output_tensors": [
       {
-        "name": "logits"
+        "name": "encoder_hidden_states"
       }
     ]
   },
-  "optim": {},
+  "optim": {
+    "gelu_fusion": true,
+    "layer_norm_fusion": true,
+    "matmul_add_fusion": true
+  },
   "quant": null,
   "compile": null,
   "loader": {
-    "task": "image-classification",
-    "model_class": "AutoModelForImageClassification",
-    "model_type": "vit"
+    "task": "image-feature-extraction",
+    "model_class": "BlipVisionEncoderWrapper",
+    "model_type": "blip"
+  },
+  "eval": {
+    "task": "image-to-text",
+    "dataset": {
+      "path": "lmms-lab/flickr30k",
+      "split": "test",
+      "samples": 500,
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "caption"
+      }
+    }
   }
 }

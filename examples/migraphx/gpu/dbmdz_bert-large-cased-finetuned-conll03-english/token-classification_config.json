@@ -19,11 +19,23 @@
         ],
         "value_range": [
           0,
-          32005
+          28996
         ]
       },
       {
         "name": "attention_mask",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          2
+        ]
+      },
+      {
+        "name": "token_type_ids",
         "dtype": "int32",
         "shape": [
           1,
@@ -49,6 +61,15 @@
   "loader": {
     "task": "token-classification",
     "model_class": "AutoModelForTokenClassification",
-    "model_type": "camembert"
+    "model_type": "bert"
+  },
+  "eval": {
+    "task": "token-classification",
+    "dataset": {
+      "path": "BramVanroy/conll2003",
+      "columns_mapping": {
+        "label_column": "ner_tags"
+      }
+    }
   }
 }

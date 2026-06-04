@@ -19,7 +19,7 @@
         ],
         "value_range": [
           0,
-          32005
+          30522
         ]
       },
       {
@@ -33,11 +33,26 @@
           0,
           2
         ]
+      },
+      {
+        "name": "token_type_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          2
+        ]
       }
     ],
     "output_tensors": [
       {
-        "name": "logits"
+        "name": "start_logits"
+      },
+      {
+        "name": "end_logits"
       }
     ]
   },
@@ -47,8 +62,21 @@
   "quant": null,
   "compile": null,
   "loader": {
-    "task": "token-classification",
-    "model_class": "AutoModelForTokenClassification",
-    "model_type": "camembert"
+    "task": "question-answering",
+    "model_class": "AutoModelForQuestionAnswering",
+    "model_type": "bert"
+  },
+  "eval": {
+    "task": "question-answering",
+    "dataset": {
+      "path": "rajpurkar/squad",
+      "split": "validation",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
   }
 }

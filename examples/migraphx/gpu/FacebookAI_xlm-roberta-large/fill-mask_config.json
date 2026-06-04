@@ -19,7 +19,7 @@
         ],
         "value_range": [
           0,
-          32005
+          250002
         ]
       },
       {
@@ -47,8 +47,20 @@
   "quant": null,
   "compile": null,
   "loader": {
-    "task": "token-classification",
-    "model_class": "AutoModelForTokenClassification",
-    "model_type": "camembert"
+    "task": "fill-mask",
+    "model_class": "AutoModelForMaskedLM",
+    "model_type": "xlm-roberta"
+  },
+  "eval": {
+    "task": "fill-mask",
+    "dataset": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
   }
 }
