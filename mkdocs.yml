@@ -116,6 +116,10 @@ nav:
   - Tutorials:
       - Overview: tutorials/index.md
       - ConvNeXt on NPU: tutorials/npu-convnext.md
-  - Reference: reference/index.md
+  - Reference:
+      - Build Config Schema: reference/index.md
+      - Python API: reference/python-api.md
+      - Output Layout: reference/output-layout.md
+      - Supported Models: reference/supported-models.md
   - Troubleshooting: troubleshooting.md
   - Contributing: contributing.md
