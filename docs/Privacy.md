@@ -1,7 +1,7 @@
 # WinML CLI Privacy Statement
 
-WinML CLI collects limited, anonymous telemetry to help improve the
-product. This page describes exactly what is collected, what is not,
+WinML CLI collects limited, unlinked pseudonymized telemetry to help
+improve the product. This page describes exactly what is collected, what is not,
 and how to control it.
 
 ## Data category
