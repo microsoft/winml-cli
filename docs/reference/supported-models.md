@@ -140,15 +140,15 @@ tracing, or composite pipelines):
 
 | Architecture | Type | Components |
 |-------------|------|------------|
-| CLIP | Vision-Language | text_encoder + vision_encoder |
-| SigLIP | Vision-Language | text_model + vision_model |
-| BLIP | Vision-Language | vision + text + decoder |
+| CLIP | Vision-Language | clip_text_model + clip_vision_model |
+| SigLIP | Vision-Language | siglip_text_model + siglip_vision_model |
+| BLIP | Vision-Language | vision_encoder + decoder |
 | T5 / BART | Encoder-Decoder | encoder + decoder |
 | Marian | Translation | encoder + decoder |
 | MU2 | Encoder-Decoder | encoder + decoder |
 | VisionEncoderDecoder | Image-to-Text | encoder + decoder |
-| SAM / SAM2 | Segmentation | image_encoder + mask_decoder |
-| Qwen3 | LLM | prefill + generation (composite) |
+| SAM / SAM2 | Segmentation | vision_encoder + prompt_encoder + mask_decoder |
+| Qwen | LLM | prefill + generation (composite) |
 
 ---
 
@@ -165,8 +165,8 @@ uv run winml inspect -m your-org/your-model
 uv run winml build -m your-org/your-model -d auto -o output/
 ```
 
-For truly custom architectures, use `--trust-remote-code` and optionally provide
-a `--user-script` with your model class definition.
+For truly custom architectures, use `--trust-remote-code` to allow execution of
+model code from the Hugging Face Hub.
 
 ---
 
