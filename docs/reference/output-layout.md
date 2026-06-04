@@ -15,7 +15,9 @@ output/
 ├── model.onnx                  ← FINAL artifact (deploy this)
 ├── model.onnx.data             ← External weights (if model ≥ 100 MiB)
 ├── winml_build_config.json     ← Persisted build config
-├── build_manifest.json         ← Build provenance and timing
+├── analyze_result.json         ← Static analysis (EP compatibility)
+├── build_manifest.json         ← Build provenance (Python API only)
+├── export_htp_metadata.json    ← HTP export metadata (hierarchy info)
 ├── export.onnx                 ← Intermediate: raw ONNX export
 ├── export.onnx.data
 ├── optimized.onnx              ← Intermediate: after graph optimization
@@ -37,7 +39,9 @@ output/
 | `model.onnx` | The deployment-ready model. Always present. |
 | `model.onnx.data` | External weight data (only if model ≥ 100 MiB). Must stay alongside `model.onnx`. |
 | `winml_build_config.json` | The config used for this build (includes auto-discovered flags). Useful for reproducibility. |
-| `build_manifest.json` | Build metadata: stages run, timings, quantization stats. |
+| `analyze_result.json` | Static analysis output: EP compatibility, operator classification, detected patterns. |
+| `build_manifest.json` | Build provenance with stage timings. Only generated via the Python API (`build_hf_model`/`build_onnx_model`). |
+| `export_htp_metadata.json` | HTP export metadata: module hierarchy, tracing info, tagging coverage. |
 
 ### Intermediate Files (Can Delete After Build)
 
@@ -94,6 +98,74 @@ data file by name.
 !!! warning
     If you move `model.onnx`, always move `model.onnx.data` alongside it.
     The ONNX file references the data file by relative path.
+
+---
+
+## Analyzer Result
+
+`analyze_result.json` contains the static analysis output from the build pipeline's
+analyze stage. It reports EP compatibility and operator classification:
+
+```json
+{
+  "analysis_timestamp": "2026-06-04T19:45:17.496169",
+  "metadata": {
+    "model_path": "iter.onnx",
+    "opset_version": 17,
+    "producer_name": "pytorch",
+    "producer_version": "2.12.0",
+    "total_operators": 122,
+    "operator_counts": {
+      "Conv": 53,
+      "Relu": 49,
+      "MaxPool": 1,
+      "Add": 16,
+      "GlobalAveragePool": 1,
+      "Flatten": 1,
+      "Gemm": 1
+    },
+    "unique_operator_types": 7,
+    "detected_pattern_count": {}
+  },
+  "results": [
+    {
+      "ihv_type": "Microsoft",
+      "ep_type": "CPUExecutionProvider",
+      "device_type": "cpu",
+      "runtime_support": false,
+      "has_errors": false,
+      "has_warnings": false,
+      "classification": {
+        "supported": [],
+        "partial": [],
+        "unsupported": [],
+        "unknown": [
+          "OP/ai.onnx/Conv",
+          "OP/ai.onnx/Relu",
+          "OP/ai.onnx/MaxPool",
+          "OP/ai.onnx/Add",
+          "OP/ai.onnx/GlobalAveragePool",
+          "OP/ai.onnx/Flatten",
+          "OP/ai.onnx/Gemm"
+        ]
+      },
+      "information": []
+    }
+  ]
+}
+```
+
+Key fields:
+
+| Field | Description |
+|-------|-------------|
+| `metadata.total_operators` | Total ONNX operator nodes in the model graph |
+| `metadata.operator_counts` | Frequency of each operator type |
+| `metadata.detected_pattern_count` | Fused subgraph patterns (GeLU, LayerNorm, etc.) |
+| `results[].ihv_type` | Hardware vendor (`"Microsoft"`, `"QC"`, `"Intel"`, etc.) |
+| `results[].runtime_support` | `true` if the EP can run all operators |
+| `results[].classification` | Operators grouped by support level: `supported`, `partial`, `unsupported`, `unknown` |
+| `results[].has_errors` | `true` if unsupported ops exist (model won't run on that EP) |
 
 ---
 
