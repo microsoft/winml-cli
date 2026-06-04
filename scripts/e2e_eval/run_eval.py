@@ -34,6 +34,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -273,7 +274,7 @@ def _compute_onnx_size(onnx_paths: dict[str, str]) -> int | None:
 
 
 # Lines that carry no diagnostic value in eval_result.json.
-# Matching is case-insensitive, applied per-line.
+# Matching is case-insensitive, anchored at line start.
 _NOISE_PATTERNS = (
     "benchmarking onnx",
     "device:",
@@ -285,6 +286,7 @@ _NOISE_PATTERNS = (
     "outputs:",
     "samples/sec",
 )
+_NOISE_RE = re.compile("|".join(re.escape(p) for p in _NOISE_PATTERNS), re.IGNORECASE)
 
 # Box-drawing characters used by Rich tables.
 _BOX_CHARS = frozenset("─│┌┐└┘├┤┬┴┼")
@@ -305,8 +307,7 @@ def _sanitize_output(text: str) -> str:
         # Drop box-drawing table rows
         if stripped[0] in _BOX_CHARS:
             continue
-        low = stripped.lower()
-        if any(low.startswith(pat) for pat in _NOISE_PATTERNS):
+        if _NOISE_RE.match(stripped):
             continue
         kept.append(stripped)
     return "\n".join(kept)
