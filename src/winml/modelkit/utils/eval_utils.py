@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias, get_args
 
+
 EvalMode: TypeAlias = Literal["onnx", "compare"]
 
 EVAL_MODES: tuple[EvalMode, ...] = get_args(EvalMode)
