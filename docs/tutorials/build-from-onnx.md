@@ -27,18 +27,18 @@ Working through the primitive commands one at a time reveals how the analyze–o
 
 ### Step 1: Analyze the original model
 
-Before any optimization, run the static analyzer to understand your model's EP compatibility and operator profile:
+Before any optimization, run the static analyzer to understand your model's EP compatibility and get optimization recommendations:
 
 ```bash
-uv run winml analyze --model my_model.onnx --ep qnn --device npu
+uv run winml analyze --model my_model.onnx --optim-config optim_config.json
 ```
 
-The analyzer classifies every operator in the graph as **supported**, **partial**, **unsupported**, or **unknown** for the target EP. It also detects fusible subgraph patterns (GeLU, LayerNorm, Attention, etc.) that the optimizer can collapse.
+The analyzer classifies every operator in the graph as **supported**, **partial**, **unsupported**, or **unknown** for each EP. It also detects fusible subgraph patterns (GeLU, LayerNorm, Attention, etc.) and writes the recommended optimization flags to `optim_config.json`.
 
-Save the results to a file for reference:
+To target a specific EP:
 
 ```bash
-uv run winml analyze --model my_model.onnx --ep qnn --device npu --output before_optim.json
+uv run winml analyze --model my_model.onnx --ep qnn --device npu --optim-config optim_config.json
 ```
 
 A representative output looks like:
@@ -53,25 +53,23 @@ EP:                 QNNExecutionProvider (NPU)
 Runtime support:    ✓ (all operators supported)
 Patterns detected:  SUBGRAPH/GELU_Erf (12), SUBGRAPH/LayerNorm (6)
 
-Recommendation:     Enable gelu_fusion and layer_norm_fusion to reduce
-                    node count and improve NPU throughput.
+Optimization config saved to: optim_config.json
 ```
 
 !!! note "What we just did"
-    The analyzer performs static analysis — no runtime or hardware required. It tells you two things: (1) can the model run on your target EP at all, and (2) are there graph patterns that the optimizer can fuse to improve performance. The "Recommendation" section is the key output — it tells you exactly which optimization flags to pass to the next step.
+    The analyzer performs static analysis — no runtime or hardware required. It tells you two things: (1) can the model run on your target EP at all, and (2) are there graph patterns that the optimizer can fuse to improve performance. The `--optim-config` flag is the key — it outputs a JSON file with the exact optimization settings the optimizer needs to resolve the detected patterns.
 
 ---
 
-### Step 2: Optimize with recommended options
+### Step 2: Optimize with the generated config
 
-Take the analyzer's recommendations and pass them as flags to the optimizer:
+Pass the analyzer's output config directly to the optimizer:
 
 ```bash
-uv run winml optimize -m my_model.onnx -o my_model_optimized.onnx \
-    --enable-gelu-fusion --enable-layer-norm-fusion
+uv run winml optimize -m my_model.onnx -c optim_config.json -o my_model_optimized.onnx
 ```
 
-The optimizer reports how many nodes were reduced. Typical output:
+The optimizer applies the fusions specified in the config and reports how many nodes were reduced. Typical output:
 
 ```text
 Input:     245 nodes (12 unique op types)
@@ -80,16 +78,10 @@ Output:    209 nodes (8 unique op types)
 Saved:     my_model_optimized.onnx
 ```
 
-To see all available optimization flags:
+To see all available optimization capabilities:
 
 ```bash
 uv run winml optimize --list-capabilities
-```
-
-You can also drive optimization from a config file rather than CLI flags:
-
-```bash
-uv run winml optimize -m my_model.onnx -o my_model_optimized.onnx -c config.json
 ```
 
 !!! note "What we just did"
@@ -102,7 +94,7 @@ uv run winml optimize -m my_model.onnx -o my_model_optimized.onnx -c config.json
 Run the analyzer again on the optimized output to confirm that the fusions resolved and no new issues appeared:
 
 ```bash
-uv run winml analyze --model my_model_optimized.onnx --ep qnn --device npu --output after_optim.json
+uv run winml analyze --model my_model_optimized.onnx --ep qnn --device npu
 ```
 
 Compare the results:
