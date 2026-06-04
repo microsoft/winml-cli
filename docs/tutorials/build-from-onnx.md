@@ -33,7 +33,7 @@ Before any optimization, run the static analyzer to understand your model's EP c
 uv run winml analyze --model my_model.onnx --optim-config optim_config.json
 ```
 
-The analyzer classifies every operator in the graph as **supported**, **partial**, **unsupported**, or **unknown** for each EP. It also detects fusible subgraph patterns (GeLU, LayerNorm, Attention, etc.) and writes the recommended optimization flags to `optim_config.json`.
+The analyzer classifies every operator in the graph as **supported**, **partial**, **unsupported**, or **unknown** for each available EP. It also detects fusible subgraph patterns and writes the recommended optimization flags to `optim_config.json`.
 
 To target a specific EP:
 
@@ -41,23 +41,39 @@ To target a specific EP:
 uv run winml analyze --model my_model.onnx --ep qnn --device npu --optim-config optim_config.json
 ```
 
-A representative output looks like:
+The output shows per-EP compatibility results:
 
 ```text
-Model:              my_model.onnx
-Opset:              17
-Total operators:    245
-Unique op types:    12
-
-EP:                 QNNExecutionProvider (NPU)
-Runtime support:    ✓ (all operators supported)
-Patterns detected:  SUBGRAPH/GELU_Erf (12), SUBGRAPH/LayerNorm (6)
-
-Optimization config saved to: optim_config.json
+══════════════════════════════════════════════════════════════════════════
+📊 OP CHECK
+══════════════════════════════════════════════════════════════════════════
+   📚 Model: my_model.onnx
+   🔺 Opset: 17  Producer: pytorch v2.12.0
+   📏 Operators: 122 total, 7 unique types
+   🏗️ Analysis targets: QNNExecutionProvider (NPU), QNNExecutionProvider (GPU)
+────────────────────────────────────────────────────────────────────────
+👻 EP 1: QNNExecutionProvider on NPU
+────────────────────────────────────────────────────────────────────────
+ Op Type                       S/P/U/Unk
+ 🃓 Conv (53)                  53/0/0/0
+ 🃓 Relu (49)                  49/0/0/0
+ 🃓 Add (16)                   16/0/0/0
+ 🃓 MaxPool (1)                1/0/0/0
+ 🃓 GlobalAveragePool (1)      1/0/0/0
+ 🃓 Flatten (1)                1/0/0/0
+ 🃓 Gemm (1)                   1/0/0/0
+ TOTAL (122)                   122/0/0/0
+══════════════════════════════════════════════════════════════════════════
+📊 ANALYSIS SUMMARY
+══════════════════════════════════════════════════════════════════════════
+   🃓 QNNExecutionProvider (NPU): 122/0/0/0
+      Ready to deploy
 ```
 
+If the analyzer detects fusible patterns (GeLU, LayerNorm, etc.), they will appear in the output and the `optim_config.json` will contain the recommended fusion settings. If no patterns are detected (as with simple architectures like ResNet), the config will be empty `{}`.
+
 !!! note "What we just did"
-    The analyzer performs static analysis — no runtime or hardware required. It tells you two things: (1) can the model run on your target EP at all, and (2) are there graph patterns that the optimizer can fuse to improve performance. The `--optim-config` flag is the key — it outputs a JSON file with the exact optimization settings the optimizer needs to resolve the detected patterns.
+    The analyzer performs static analysis — no runtime or hardware required. It tells you two things: (1) can the model run on your target EP at all, and (2) are there graph patterns that the optimizer can fuse to improve performance. The `--optim-config` flag outputs a JSON file with the exact optimization settings the optimizer needs. S/P/U/Unk = Supported/Partial/Unsupported/Unknown.
 
 ---
 
@@ -69,14 +85,21 @@ Pass the analyzer's output config directly to the optimizer:
 uv run winml optimize -m my_model.onnx -c optim_config.json -o my_model_optimized.onnx
 ```
 
-The optimizer applies the fusions specified in the config and reports how many nodes were reduced. Typical output:
+The optimizer applies the fusions specified in the config. Output:
 
 ```text
-Input:     245 nodes (12 unique op types)
-Fusions:   gelu_fusion (12 matches), layer_norm_fusion (6 matches)
-Output:    209 nodes (8 unique op types)
-Saved:     my_model_optimized.onnx
+Input: my_model.onnx
+Output: my_model_optimized.onnx
+Loading model...
+Running optimizer...
+Saving optimized model...
+
+Success! Model optimized: my_model_optimized.onnx
+Nodes: 122 -> 122 (0.0% reduction)
 ```
+
+!!! tip
+    The node reduction depends on your model's architecture. Simple models like ResNet (only Conv, Relu, Add) have no fusible patterns. Transformer-based models (BERT, ViT) typically see 10–30% node reduction from GeLU, LayerNorm, and Attention fusions.
 
 To see all available optimization capabilities:
 
@@ -97,20 +120,7 @@ Run the analyzer again on the optimized output to confirm that the fusions resol
 uv run winml analyze --model my_model_optimized.onnx --ep qnn --device npu
 ```
 
-Compare the results:
-
-```text
-Model:              my_model_optimized.onnx
-Opset:              17
-Total operators:    209
-Unique op types:    8
-
-EP:                 QNNExecutionProvider (NPU)
-Runtime support:    ✓ (all operators supported)
-Patterns detected:  (none remaining — all fused)
-
-No further optimizations recommended.
-```
+If the original analysis found fusible patterns that were optimized away, this run should show zero detected patterns and the same or better EP compatibility score.
 
 !!! note "What we just did"
     The analyze → optimize → re-analyze cycle is the fundamental feedback loop in winml-cli. In Section B you'll see that `winml build` automates this loop — it calls the analyzer, applies recommendations, re-analyzes, and repeats until convergence (typically 1–3 iterations). Doing it manually here teaches you what the automation is actually doing under the hood.
