@@ -90,6 +90,44 @@ def test_ensure_provider_ready_drives_progress_bar(monkeypatch: pytest.MonkeyPat
     fake_bar.refresh.assert_called()
 
 
+def test_ensure_provider_ready_ignores_stale_progress_after_complete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale on_progress fired after on_complete must NOT clobber bar.n.
+
+    The native layer can fire a late progress callback from its own thread
+    after on_complete; once `done` is set, the main thread owns bar.n and the
+    callback should drop instead of writing an earlier fraction back over the
+    forced 100 (or worse, writing to an already-closed bar)."""
+    from winml.modelkit.session import ep_registry
+
+    ns = _install_fake_windowsml(monkeypatch)
+    fake_bar = _install_fake_tqdm(monkeypatch)
+
+    op = MagicMock()
+    saved_progress: list = []
+
+    def fake_ensure_async(on_complete=None, on_progress=None):
+        on_progress(0.5)
+        on_complete()
+        saved_progress.append(on_progress)  # Fire a stale callback after.
+        return op
+
+    provider = MagicMock()
+    provider.name = "FakeEP"
+    provider.ready_state = ns.EpReadyState.NotPresent
+    provider.ensure_ready_async.side_effect = fake_ensure_async
+
+    ep_registry._ensure_provider_ready(provider)
+
+    # Fire the stale callback as if it arrived after _ensure_provider_ready
+    # already set bar.n = 100 and closed the bar.
+    assert fake_bar.n == 100
+    saved_progress[0](0.62)
+    # Stale callback must have been dropped — bar.n stays at 100.
+    assert fake_bar.n == 100
+
+
 def test_ensure_provider_ready_warns_before_download(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

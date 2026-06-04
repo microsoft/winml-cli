@@ -38,6 +38,10 @@ def _ep_download_timeout_default() -> int:
         return 5 * 60
 
 
+# Evaluated once at module import. Changing WINMLCLI_EP_DOWNLOAD_TIMEOUT
+# after import does NOT take effect for the running process; tests that need
+# a different value should monkeypatch ep_registry.EP_DOWNLOAD_TIMEOUT_SECONDS
+# directly.
 EP_DOWNLOAD_TIMEOUT_SECONDS = _ep_download_timeout_default()
 
 
@@ -151,6 +155,12 @@ def _ensure_provider_ready(provider: Any) -> None:
     done = threading.Event()
 
     def _on_progress(fraction: float) -> None:
+        # Native ops may fire a stale on_progress after on_complete; once done
+        # is set the main thread owns bar.n (forces it to 100 and closes the
+        # bar), so silently drop late callbacks instead of clobbering 100 with
+        # an earlier fraction or writing to a closed bar.
+        if done.is_set():
+            return
         bar.n = max(0, min(100, int(fraction * 100)))
         bar.refresh()
 
