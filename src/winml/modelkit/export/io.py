@@ -259,10 +259,12 @@ def _get_preprocessor_dict(
 
     Resolution order:
 
-    1. ``preprocessor_config.json`` fetched from the hub (standard HF vision).
+    1. ``preprocessor_config.json`` fetched from the hub (standard HF vision),
+       used only when it carries a ``size`` key.
     2. Synthesized from a nested plain-dict attribute on ``hf_config``
        carrying ``input_size`` or ``image_size`` (e.g.
-       ``TimmWrapperConfig.pretrained_cfg``).
+       ``TimmWrapperConfig.pretrained_cfg``). Reached when the hub file is
+       unavailable *or* present but missing ``size`` (a partial config).
 
     Returns the dict in the standard preprocessor schema (``{"size": ...}``)
     so downstream parsing logic does not need to know which source it came
@@ -272,13 +274,17 @@ def _get_preprocessor_dict(
         from transformers.image_processing_utils import ImageProcessingMixin
 
         config, _ = ImageProcessingMixin.get_image_processor_dict(model_id)
-        return config
+        if "size" in config:
+            return config
+        # Partial preprocessor_config.json without a "size" key: fall through
+        # to synthesis so we don't silently use Optimum's 64x64 default.
     except (OSError, ValueError, KeyError) as e:
         # if model_id is None, OSError is raised
         logger.debug("Could not load preprocessor_config.json for %s: %s", model_id, e)
-        if hf_config is not None:
-            return _synthesize_preprocessor_dict(hf_config)
-        return {}
+
+    if hf_config is not None:
+        return _synthesize_preprocessor_dict(hf_config)
+    return {}
 
 
 def _synthesize_preprocessor_dict(hf_config: PretrainedConfig) -> dict:

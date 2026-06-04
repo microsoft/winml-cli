@@ -675,6 +675,29 @@ class TestPopulateImageSize:
         assert "height" not in shape_kwargs
         assert "width" not in shape_kwargs
 
+    def test_partial_preprocessor_without_size_falls_back_to_synthesis(self) -> None:
+        """A partial preprocessor_config.json (no ``size``) synthesizes from hf_config.
+
+        Without the fall-through, a hub dict carrying only mean/std would leave
+        ``size`` unresolved and Optimum would default to 64x64.
+        """
+        mock_config = {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]}  # no "size"
+        hf_config = SimpleNamespace(pretrained_cfg={"input_size": [3, 224, 224]})
+        shape_kwargs: dict = {}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            return_value=(mock_config, {}),
+        ):
+            _populate_image_size_from_preprocessor(
+                "timm/some-model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs["height"] == 224
+        assert shape_kwargs["width"] == 224
+
     def test_nested_dict_input_size_chw(self) -> None:
         """``pretrained_cfg.input_size = [C, H, W]`` (timm) synthesizes a size dict."""
         hf_config = SimpleNamespace(
