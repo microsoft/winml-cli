@@ -32,17 +32,24 @@ winml-cli exposes two overlapping flags for targeting hardware. Understanding th
 
 Accepts one of four values: `auto`, `cpu`, `gpu`, or `npu`. When set to `auto` (the default), winml-cli inspects the machine and selects the highest-priority device class that has a compatible EP available, in the order NPU > GPU > CPU. Setting an explicit value such as `--device npu` requests a device category without naming the EP.
 
+For `winml analyze`, `--device` also accepts `all` — this evaluates the model against every device that has rule data, producing a side-by-side compatibility report.
+
 ```bash
 # Let winml-cli pick the best available device
 winml analyze --model model.onnx --device auto
 
 # Target the NPU device class
 winml analyze --model model.onnx --device npu
+
+# Analyze against all devices at once (analyze only)
+winml analyze --model model.onnx --device all
 ```
 
 **`--ep` (low-level override)**
 
-Accepts a valid EP name (for example `qnn`, `vitisai`, `dml`, `openvino`). When `--ep` is provided it takes precedence over `--device` and bypasses device-class resolution entirely. Use `--ep` when you need to pin a specific provider — for instance to compare `QNNExecutionProvider` against `DmlExecutionProvider` on the same machine.
+Accepts a valid EP name or alias (for example `qnn`, `vitisai`, `dml`, `openvino`), or `auto` to let winml-cli resolve the EP from the device. When `--ep` is provided with a specific value it takes precedence over `--device` and bypasses device-class resolution entirely. Use `--ep` when you need to pin a specific provider — for instance to compare `QNNExecutionProvider` against `DmlExecutionProvider` on the same machine.
+
+For `winml analyze`, `--ep` also accepts `all` — this evaluates the model against every registered EP simultaneously.
 
 ```bash
 # Force Qualcomm QNN regardless of device selection
@@ -50,6 +57,9 @@ winml analyze --model model.onnx --ep QNNExecutionProvider --device npu
 
 # Use the short alias; winml-cli normalizes it to the full name
 winml analyze --model model.onnx --ep qnn
+
+# Analyze against all EPs at once (analyze only)
+winml analyze --model model.onnx --ep all
 ```
 
 The `--ep` flag accepts a free-form string and is not restricted to the choices listed above. This allows forward compatibility with EP names that winml-cli does not yet enumerate.
