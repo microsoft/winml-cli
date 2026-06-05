@@ -19,10 +19,19 @@
 #   * Manual queue-time runs (with selectable parameters) for ad-hoc
 #     validation.
 #   * Daily scheduled run at 00:00 Beijing time (16:00 UTC the prior
-#     day), staggered 8 h away from the weekly Eval Report cron.
-#   * No PR/CI trigger. Failures do not block PR merges.
+#     day) on `main`, staggered 8 h away from the weekly Eval Report cron.
+#   * CI trigger on `release/*` branches — fires on the initial push
+#     that creates a new release branch so each new release branch gets
+#     an automatic E2E run. (Subsequent pushes to a release branch will
+#     also trigger a run, which is acceptable since release branches
+#     typically see few commits.)
+#   * No PR trigger. Failures do not block PR merges.
 
-trigger: none
+trigger:
+  batch: true
+  branches:
+    include:
+      - release/*
 
 schedules:
   - cron: '0 16 * * *'
