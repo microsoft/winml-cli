@@ -151,7 +151,7 @@ If your target is NPU deployment, continue the pipeline with quantization and co
 # Quantize (INT8, QDQ format)
 uv run winml quantize -m my_model_optimized.onnx -o my_model_int8.onnx --precision int8 --samples 32
 
-# Compile for QNN NPU
+# Compile for NPU (default --compiler ort; use --compiler qairt for QAIRT SDK)
 uv run winml compile -m my_model_int8.onnx --device npu
 ```
 

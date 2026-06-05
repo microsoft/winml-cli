@@ -98,16 +98,23 @@ Compilation pre-bakes an EP-specific binary cache into the ONNX graph so the run
     winml compile -m convnext_int8.onnx --output-dir . --device gpu
     ```
 
-=== "NPU"
+=== "NPU (ORT, default)"
 
     ```bash
-    winml compile -m convnext_int8.onnx --output-dir . --device npu --qnn-sdk-root <path-to-qnn-sdk>
+    winml compile -m convnext_int8.onnx --output-dir . --device npu
     ```
 
-!!! note "NPU requires the QNN SDK"
-    Compilation for `--device npu` invokes the Qualcomm QNN offline compiler, which must be installed separately. Pass `--qnn-sdk-root` pointing at the root of your QAIRT SDK installation, or set the `QNN_SDK_ROOT` environment variable to the same path. If the SDK is absent, compile for CPU or GPU instead. For a full explanation of how EPs relate to device targets see [ONNX & Execution Providers](../concepts/eps-and-devices.md).
+=== "NPU (QAIRT SDK)"
 
-Only the NPU invocation writes a new compiled artifact — `convnext_int8_npu_ctx.onnx` — which contains an EPContext node embedding the pre-compiled Hexagon binary. CPU and GPU compile with `enable_ep_context=False` by default: the compile step validates the model against the target EP but does not produce a new file. For CPU and GPU perf benchmarks (Step 6), use the quantized `convnext_int8.onnx` directly.
+    ```bash
+    # Requires QNN_SDK_ROOT env var or --qnn-sdk-root
+    winml compile -m convnext_int8.onnx --output-dir . --device npu --compiler qairt --qnn-sdk-root <path-to-qnn-sdk>
+    ```
+
+!!! note "NPU compiler backends"
+    The default `--compiler ort` backend uses ONNX Runtime's built-in QNN compilation — no separate SDK installation is needed. The `--compiler qairt` backend calls the QAIRT SDK's offline compiler directly and requires either `--qnn-sdk-root` or the `QNN_SDK_ROOT` environment variable. Both produce the same EPContext output format. For a full explanation of how EPs relate to device targets see [ONNX & Execution Providers](../concepts/eps-and-devices.md).
+
+Only the NPU invocation writes a new compiled artifact — `convnext_int8_npu_ctx.onnx` — which contains an EPContext node embedding the pre-compiled binary. CPU and GPU compile with `enable_ep_context=False` by default: the compile step validates the model against the target EP but does not produce a new file. For CPU and GPU perf benchmarks (Step 6), use the quantized `convnext_int8.onnx` directly.
 
 ## Step 6: Benchmark
 
