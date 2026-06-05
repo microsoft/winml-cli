@@ -275,30 +275,42 @@ def _detect_task_from_config(config: PretrainedConfig) -> str:
     return task
 
 
-def _is_top_level_vision_config(config: PretrainedConfig) -> bool:
-    """Return True when the config carries a top-level ``image_size`` or ``patch_size``.
+# Data-driven task-modality disambiguation (D2). Maps a modality-blind task to its
+# modality-aware variants, each keyed by the top-level config fields that signal that
+# modality. Extend this table — not the code — to add new modalities. First match wins.
+_TASK_MODALITY_DISAMBIGUATION: dict[str, dict[str, tuple[str, ...]]] = {
+    "feature-extraction": {
+        # Vision backbones (ViT, DINOv2, ConvNeXt, …) carry image_size/patch_size at the
+        # config root; multimodal models (CLIP) nest them under vision_config, so the
+        # top-level check does not fire for those.
+        "image-feature-extraction": ("image_size", "patch_size"),
+        # Future, when supported: "audio-feature-extraction": ("sampling_rate", ...),
+    },
+}
 
-    These fields sit at the config root for vision backbones (ViT, DINOv2, ConvNeXt,
-    …) but are nested under ``vision_config`` for multimodal models (CLIP), so a
-    top-level check does not fire for those. Used by :func:`detect_task` to recover
-    modality for the otherwise-lossy ``feature-extraction`` task (D2 heuristic).
-    """
+
+def _top_level_config_keys(config: PretrainedConfig) -> set[str]:
+    """Top-level field names of an HF config (nested sub-configs are not flattened)."""
     try:
-        keys = config.to_dict().keys()
+        return set(config.to_dict().keys())
     except Exception:
-        keys = vars(config).keys()
-    return "image_size" in keys or "patch_size" in keys
+        return set(vars(config).keys())
 
 
 def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
-    """Upgrade lossy ``feature-extraction`` to ``image-feature-extraction`` for vision.
+    """Disambiguate a modality-blind task using top-level config fields (D2).
 
-    Applies the D2 heuristic when the config is a top-level vision backbone; no-op
-    otherwise. Used only on surfaced/returned tasks — never on a task headed into an
-    Optimum API, which does not recognise ``image-feature-extraction``.
+    Data-driven via :data:`_TASK_MODALITY_DISAMBIGUATION`. Applied only to surfaced/
+    returned tasks — never to a task headed into an Optimum API, which does not
+    recognise modality-aware names like ``image-feature-extraction``.
     """
-    if task == "feature-extraction" and _is_top_level_vision_config(config):
-        return "image-feature-extraction"
+    candidates = _TASK_MODALITY_DISAMBIGUATION.get(task)
+    if not candidates:
+        return task
+    keys = _top_level_config_keys(config)
+    for modality_task, signal_fields in candidates.items():
+        if any(field in keys for field in signal_fields):
+            return modality_task
     return task
 
 
