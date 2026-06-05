@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Optimize command for winml CLI.
+"""Optimize command for WinML CLI.
 
 This module provides the optimize command that uses the capability-driven
 optimizer for ONNX model optimization with fusion and graph optimizations.

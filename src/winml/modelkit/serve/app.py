@@ -721,7 +721,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         "/v1/cli/{command}",
         response_model=CliResponse,
         tags=["cli"],
-        summary="Run any winml CLI command",
+        summary="Run any WinML CLI command",
     )
     async def cli_command(command: str, request: CliRequest) -> CliResponse:
         """Proxy to the CLI wrapper — available in all server modes."""
