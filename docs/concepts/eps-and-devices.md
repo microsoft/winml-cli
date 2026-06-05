@@ -6,17 +6,17 @@ A **device** is the hardware category that an EP targets — one of `npu`, `gpu`
 
 ## EPs winml-cli supports
 
-The table below lists every Execution Provider that winml-cli has explicit support for. EP names are the canonical ONNX Runtime strings accepted by `--ep`.
+The table below lists every Execution Provider that winml-cli has explicit support for. EP names are the canonical ONNX Runtime strings accepted by `--ep`. You can also use the short **alias** (case-insensitive) anywhere the full name is accepted.
 
-| EP | Device | Hardware | When to use |
-|----|--------|----------|-------------|
-| `QNNExecutionProvider` | npu / gpu | Qualcomm NPU (Hexagon DSP) / Qualcomm GPU (Adreno) | Snapdragon-based Copilot+ PCs; best latency and power efficiency on Qualcomm silicon |
-| `VitisAIExecutionProvider` | npu | AMD NPU (XDNA) | AMD Ryzen AI platforms; targets the AMD AI Engine via the Vitis AI stack |
-| `OpenVINOExecutionProvider` | npu / gpu / cpu | Intel CPU / GPU / NPU | Intel Core Ultra platforms; flexible device targeting across all three Intel compute types |
-| `DmlExecutionProvider` | gpu | GPU (DirectML) | Any DirectX 12 GPU on Windows; broad compatibility across AMD, Intel, and NVIDIA discrete/integrated graphics |
-| `NvTensorRTRTXExecutionProvider` | gpu | NVIDIA GPU (TensorRT RTX) | NVIDIA RTX GPUs; maximum throughput via TensorRT graph optimization |
-| `MIGraphXExecutionProvider` | gpu | AMD GPU (MIGraphX) | AMD discrete GPUs; hardware-accelerated inference via the MIGraphX graph engine |
-| `CPUExecutionProvider` | cpu | CPU | Universal fallback; always available regardless of hardware |
+| EP | Alias | Device | Hardware | When to use |
+|----|-------|--------|----------|-------------|
+| `QNNExecutionProvider` | `qnn` | npu / gpu | Qualcomm NPU (Hexagon DSP) / Qualcomm GPU (Adreno) | Snapdragon-based Copilot+ PCs; best latency and power efficiency on Qualcomm silicon |
+| `VitisAIExecutionProvider` | `vitisai` | npu | AMD NPU (XDNA) | AMD Ryzen AI platforms; targets the AMD AI Engine via the Vitis AI stack |
+| `OpenVINOExecutionProvider` | `openvino` | npu / gpu / cpu | Intel CPU / GPU / NPU | Intel Core Ultra platforms; flexible device targeting across all three Intel compute types |
+| `DmlExecutionProvider` | `dml` | gpu | GPU (DirectML) | Any DirectX 12 GPU on Windows; broad compatibility across AMD, Intel, and NVIDIA discrete/integrated graphics |
+| `NvTensorRTRTXExecutionProvider` | `nv_tensorrt_rtx` | gpu | NVIDIA GPU (TensorRT RTX) | NVIDIA RTX GPUs; maximum throughput via TensorRT graph optimization |
+| `MIGraphXExecutionProvider` | `migraphx` | gpu | AMD GPU (MIGraphX) | AMD discrete GPUs; hardware-accelerated inference via the MIGraphX graph engine |
+| `CPUExecutionProvider` | `cpu` | cpu | CPU | Universal fallback; always available regardless of hardware |
 
 To see which EPs are available on the current machine, run:
 
