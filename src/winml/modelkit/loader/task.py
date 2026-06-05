@@ -290,7 +290,7 @@ def _is_top_level_vision_config(config: PretrainedConfig) -> bool:
     return "image_size" in keys or "patch_size" in keys
 
 
-def _apply_vision_modality(config: PretrainedConfig, task: str) -> str:
+def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
     """Upgrade lossy ``feature-extraction`` to ``image-feature-extraction`` for vision.
 
     Applies the D2 heuristic when the config is a top-level vision backbone; no-op
@@ -360,7 +360,7 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
         task, source = next(iter(HF_TASK_DEFAULTS.keys())), "HF_TASK_DEFAULTS"
 
     # D2 — vision modality upgrade, applied to the surfaced task only.
-    return _apply_vision_modality(config, task), source
+    return _resolve_task_modality(config, task), source
 
 
 def _get_custom_model_class(model_type: str, task: str) -> type | None:
@@ -707,7 +707,7 @@ def resolve_task_and_model_class(
         # (D2). The class was resolved from the pre-upgrade Optimum task, so model
         # loading is unchanged. Case 2/3 are intentionally left untouched.
         detected_task, resolved_class = _detect_task_and_class_from_config(config)
-        return _apply_vision_modality(config, detected_task), resolved_class
+        return _resolve_task_modality(config, detected_task), resolved_class
 
     # Case 2: User specified task only -> resolve model class for that task
     if task is not None and model_class is None:

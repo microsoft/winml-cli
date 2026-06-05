@@ -7,8 +7,8 @@
 The whole point of the modality-aware ``detect_task`` refactor: the same model
 must resolve to the same WinMLTask through every detection entry point. These
 tests load real HF configs (small JSON, cached) and assert the loader detector
-and the inspect resolver (which delegates to it) agree, with modality-aware
-results for vision feature models.
+and the inspect entry point (which re-exports the single loader detector) agree,
+with modality-aware results for vision feature models.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 from transformers import AutoConfig
 
-from winml.modelkit.inspect.resolver import detect_task as inspect_detect_task
+from winml.modelkit.inspect import detect_task as inspect_detect_task
 from winml.modelkit.loader import detect_task
 
 
@@ -37,7 +37,7 @@ def test_detect_task_agrees_across_resolvers(model_id: str, expected: str) -> No
     inspect_task, inspect_source = inspect_detect_task(cfg)
 
     assert loader_task == expected, f"{model_id}: loader detect_task gave {loader_task!r}"
-    # The inspect resolver must agree (it delegates to the loader detector).
+    # inspect re-exports the single loader detector, so it must agree.
     assert (inspect_task, inspect_source) == (loader_task, loader_source)
 
 

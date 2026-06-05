@@ -104,17 +104,6 @@ def validate_task(task: str) -> None:
         raise ValueError(f"Unknown task '{task}'. Known tasks: {', '.join(sorted_tasks)}")
 
 
-def detect_task(config: PretrainedConfig) -> tuple[str, str]:
-    """Detect task from HF config — delegates to the single loader detector.
-
-    Returns ``(task, detection_source)``. The task is modality-aware (e.g.
-    ``image-feature-extraction``); see :func:`winml.modelkit.loader.detect_task`.
-    """
-    from ..loader import detect_task as _loader_detect_task
-
-    return _loader_detect_task(config)
-
-
 def resolve_loader(model_type: str, task: str) -> LoaderInfo:
     """Resolve loader configuration for a model.
 
