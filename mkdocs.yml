@@ -122,5 +122,6 @@ nav:
       - Python API: reference/python-api.md
       - Output Layout: reference/output-layout.md
       - Supported Models: reference/supported-models.md
+      - Agent Skill: reference/agent-skill.md
   - Troubleshooting: troubleshooting.md
   - Contributing: contributing.md
