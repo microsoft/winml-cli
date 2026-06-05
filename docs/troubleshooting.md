@@ -67,17 +67,28 @@ RuntimeError: Unsupported nodes persist after analysis
 
 **Cause:** The model contains operators that the selected EP cannot dispatch natively.
 
-**Solution:** Run `winml analyze` first to identify which operators are problematic:
+**Solution:** Run `winml analyze` with `--optim-config` to identify problematic operators and get recommended graph optimizations:
 
 ```bash
-uv run winml analyze -m model.onnx --ep qnn
+# Analyze and output optimization recommendations
+uv run winml analyze -m model.onnx --ep qnn --optim-config optim_config.json
 ```
 
-Then consider:
+This produces `optim_config.json` with the auto-discovered optimization flags. Apply them with `winml optimize`, then re-analyze:
 
-- Using a different EP (`--ep dml` or `--ep cpu`)
-- Running optimization to fuse unsupported patterns into supported ones
-- Checking if a newer opset version resolves the compatibility gap
+```bash
+# Apply recommended optimizations
+uv run winml optimize -m model.onnx -o model_optimized.onnx -c optim_config.json
+
+# Re-analyze to check if unsupported nodes are resolved
+uv run winml analyze -m model_optimized.onnx --ep qnn
+```
+
+If unsupported nodes still remain after optimization, consider:
+
+- **Manually modifying problematic nodes** — use tools like `onnx-graphsurgeon` to replace or remove operators the EP cannot handle
+- **Using a different EP** (`--ep dml` or `--ep cpu`) that supports the operators in question
+- **Checking if a newer opset version** resolves the compatibility gap (re-export with `--opset-version 18`)
 
 ---
 
