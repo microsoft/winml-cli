@@ -128,7 +128,7 @@ class TestGetEvaluatorClass:
     """Tests for get_evaluator_class registry lookup."""
 
     def test_registered_task_returns_class(self):
-        from winml.modelkit.eval import WinMLEvaluator, get_evaluator_class
+        from winml.modelkit.eval import WinMLEvaluationConfig, WinMLEvaluator, get_evaluator_class
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
 
         # _EVALUATOR_REGISTRY stores "module_path:ClassName" strings so that
@@ -140,29 +140,75 @@ class TestGetEvaluatorClass:
             assert isinstance(spec, str) and ":" in spec, (
                 f"Registry value for {task!r} must be a 'module:Class' string."
             )
-            cls = get_evaluator_class(task)
+            cls = get_evaluator_class(WinMLEvaluationConfig(task=task))
             assert isinstance(cls, type)
-            assert issubclass(cls, WinMLEvaluator)
+            # Task evaluators inherit from WinMLEvaluator; "compare-tensor"
+            # is a non-task entry (TensorSimilarityEvaluator) with its own
+            # shape and is exempt from the base-class check.
+            if task != "compare-tensor":
+                assert issubclass(cls, WinMLEvaluator)
             # The resolved class must match the qualified name in the spec.
             module_path, class_name = spec.rsplit(":", 1)
             assert cls.__module__ == module_path
             assert cls.__name__ == class_name
 
     def test_unsupported_task_raises_value_error(self):
-        from winml.modelkit.eval import get_evaluator_class
+        from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
 
         with pytest.raises(ValueError, match="not supported by `winml eval`"):
-            get_evaluator_class("made-up-task")
+            get_evaluator_class(WinMLEvaluationConfig(task="made-up-task"))
 
     def test_evaluator_registry_matches_schema_tasks(self):
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
         from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
 
-        assert set(_EVALUATOR_REGISTRY) == set(TASK_SCHEMAS)
+        # "compare-tensor" is a non-task evaluator entry (no labeled-dataset
+        # schema); exclude it from the task<->schema equivalence check.
+        assert set(_EVALUATOR_REGISTRY) - {"compare-tensor"} == set(TASK_SCHEMAS)
 
 
 class TestEvaluate:
     """Tests for evaluate() entry point."""
+
+    def test_invalid_mode_raises(self):
+        """evaluate() rejects unknown mode values with a clear error."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(model_id="test/model", task="feature-extraction")
+        config.mode = "hf"  # bypass dataclass type hint
+
+        with pytest.raises(ValueError, match="Invalid mode"):
+            eval_mod.evaluate(config)
+
+    def test_none_mode_normalizes_to_onnx(self):
+        """evaluate() treats mode=None as the default onnx mode."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="imagenet-1k"),
+        )
+        config.mode = None  # bypass dataclass type hint
+
+        evaluator = MagicMock()
+        evaluator.compute.return_value = {"accuracy": 1.0}
+        with (
+            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
+        ):
+            result = eval_mod.evaluate(config)
+        assert result.config.mode == "onnx"
 
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""

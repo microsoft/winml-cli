@@ -11,7 +11,7 @@ import pytest
 import torch
 from PIL import Image as PILImage
 
-from winml.modelkit.eval import WinMLDepthEstimationEvaluator
+from winml.modelkit.eval import WinMLDepthEstimationEvaluator, WinMLEvaluationConfig
 from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
 
 
@@ -69,7 +69,10 @@ class TestRegistry:
     def test_depth_estimation_get_evaluator_class(self):
         from winml.modelkit.eval import get_evaluator_class
 
-        assert get_evaluator_class("depth-estimation") is WinMLDepthEstimationEvaluator
+        assert (
+            get_evaluator_class(WinMLEvaluationConfig(task="depth-estimation"))
+            is WinMLDepthEstimationEvaluator
+        )
 
 
 # ---------------------------------------------------------------------------

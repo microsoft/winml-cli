@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..utils.constants import EPNameOrAlias
+from ..utils.eval_utils import EvalMode
 
 
 @dataclass
@@ -93,6 +94,13 @@ class WinMLEvaluationConfig:
             device-to-provider mapping when provided.
         dataset: Dataset configuration.
         output_path: Path to write JSON results.
+        mode: Evaluation mode (see :data:`EvalMode`).
+
+            - ``"onnx"`` (default): evaluate the ONNX candidate on the
+              labeled dataset.
+            - ``"compare"``: compare ONNX vs HF reference output tensors
+              on identical random inputs and report tensor-similarity
+              metrics per output tensor.
 
     Usage:
         config = WinMLEvaluationConfig(
@@ -109,6 +117,7 @@ class WinMLEvaluationConfig:
     ep: EPNameOrAlias | None = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
+    mode: EvalMode = "onnx"
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -127,6 +136,8 @@ class WinMLEvaluationConfig:
         result["dataset"] = self.dataset.to_dict()
         if self.output_path is not None:
             result["output_path"] = str(self.output_path)
+        if self.mode != "onnx":
+            result["mode"] = self.mode
         return result
 
     @classmethod
@@ -155,4 +166,5 @@ class WinMLEvaluationConfig:
             ep=data.get("ep"),
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
+            mode=data.get("mode", "onnx"),
         )
