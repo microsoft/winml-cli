@@ -1,0 +1,28 @@
+{
+  "model_id": "distilbert/distilbert-base-uncased-distilled-squad",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\distilbert_distilbert-base-uncased-distilled-squad\\question-answering_fp16_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\distilbert_distilbert-base-uncased-distilled-squad\\question-answering_fp16_eval_result.json",
+  "metrics": {
+    "exact_match": 81.0,
+    "f1": 85.57126984126984,
+    "total_time_in_seconds": 2.2788059000013163,
+    "samples_per_second": 43.88263168879027,
+    "latency_in_seconds": 0.022788059000013166
+  }
+}

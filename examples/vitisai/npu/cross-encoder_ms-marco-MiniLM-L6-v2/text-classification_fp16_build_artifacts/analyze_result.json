@@ -1,0 +1,64 @@
+{
+  "analysis_timestamp": "2026-06-02T14:42:57.367810",
+  "metadata": {
+    "model_path": "C:\\Users\\ZHANGC~1\\AppData\\Local\\Temp\\tmpm8ruvl4d\\iter.onnx",
+    "opset_version": 17,
+    "producer_name": "pytorch",
+    "producer_version": "2.12.0",
+    "total_operators": 202,
+    "operator_counts": {
+      "Gather": 3,
+      "Add": 20,
+      "LayerNormalization": 13,
+      "Reshape": 60,
+      "Gemm": 38,
+      "Transpose": 24,
+      "Unsqueeze": 2,
+      "Expand": 1,
+      "Cast": 2,
+      "Sub": 1,
+      "Where": 1,
+      "Mul": 12,
+      "MatMul": 12,
+      "Softmax": 6,
+      "Gelu": 6,
+      "Tanh": 1
+    },
+    "unique_operator_types": 16,
+    "detected_pattern_count": {}
+  },
+  "results": [
+    {
+      "ihv_type": "AMD",
+      "ep_type": "VitisAIExecutionProvider",
+      "device_type": "npu",
+      "runtime_support": false,
+      "has_errors": false,
+      "has_warnings": false,
+      "classification": {
+        "supported": [],
+        "partial": [],
+        "unsupported": [],
+        "unknown": [
+          "OP/ai.onnx/Gather",
+          "OP/ai.onnx/Add",
+          "OP/ai.onnx/LayerNormalization",
+          "OP/ai.onnx/Reshape",
+          "OP/ai.onnx/Gemm",
+          "OP/ai.onnx/Transpose",
+          "OP/ai.onnx/Unsqueeze",
+          "OP/ai.onnx/Expand",
+          "OP/ai.onnx/Cast",
+          "OP/ai.onnx/Sub",
+          "OP/ai.onnx/Where",
+          "OP/ai.onnx/Mul",
+          "OP/ai.onnx/MatMul",
+          "OP/ai.onnx/Softmax",
+          "OP/com.microsoft/Gelu",
+          "OP/ai.onnx/Tanh"
+        ]
+      },
+      "information": []
+    }
+  ]
+}

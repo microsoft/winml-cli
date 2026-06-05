@@ -264,3 +264,10 @@ specs/
 
 # Runtime check rule artifacts (hosted in external repo)
 src/winml/modelkit/analyze/rules/runtime_check_rules/**/*.parquet
+
+# Build artifacts produced under examples/ by run_example_tests.py
+# (error.txt / .timeout are kept on purpose to help debugging)
+examples/**/*_build_artifacts/
+
+# Local QNN/runtime data dumps
+*.data

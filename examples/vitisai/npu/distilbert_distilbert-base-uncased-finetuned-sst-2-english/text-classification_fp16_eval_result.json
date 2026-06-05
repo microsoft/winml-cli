@@ -1,0 +1,24 @@
+{
+  "model_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+  "task": "text-classification",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "sst2",
+    "columns_mapping": {
+      "input_column": "sentence"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.54,
+    "total_time_in_seconds": 6.5347107000416145,
+    "samples_per_second": 15.302896270429107,
+    "latency_in_seconds": 0.06534710700041614
+  }
+}

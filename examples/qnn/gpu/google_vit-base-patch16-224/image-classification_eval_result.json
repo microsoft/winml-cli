@@ -1,0 +1,19 @@
+{
+  "model_id": "google/vit-base-patch16-224",
+  "task": "image-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "D:\\ModelKit_Public\\worker3\\WinML-ModelKit\\examples\\qnn\\gpu\\google_vit-base-patch16-224\\image-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.7,
+    "total_time_in_seconds": 7.2203723000129685,
+    "samples_per_second": 13.849701351247552,
+    "latency_in_seconds": 0.07220372300012969
+  }
+}

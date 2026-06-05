@@ -1,0 +1,358 @@
+{
+  "model_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\Isotonic_distilbert_finetuned_ai4privacy_v2\\token-classification_w8a8_build_artifacts\\model.onnx",
+  "task": "token-classification",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_ai4privacy",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_ai4privacy.py"
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\Isotonic_distilbert_finetuned_ai4privacy_v2\\token-classification_w8a8_eval_result.json",
+  "metrics": {
+    "ACCOUNTNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "ACCOUNTNUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "AGE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 9
+    },
+    "AMOUNT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "BIC": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "BITCOINADDRESS": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 13
+    },
+    "BUILDINGNUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "CITY": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "COMPANYNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "COUNTY": {
+      "precision": 0.3333333333333333,
+      "recall": 0.25,
+      "f1": 0.28571428571428575,
+      "number": 4
+    },
+    "CREDITCARDCVV": {
+      "precision": 0.015625,
+      "recall": 0.5,
+      "f1": 0.030303030303030304,
+      "number": 2
+    },
+    "CREDITCARDISSUER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "CREDITCARDNUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "CURRENCY": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "CURRENCYCODE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "CURRENCYNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "CURRENCYSYMBOL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "DATE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 16
+    },
+    "DOB": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "EMAIL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 9
+    },
+    "ETHEREUMADDRESS": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "FIRSTNAME": {
+      "precision": 0.125,
+      "recall": 0.125,
+      "f1": 0.125,
+      "number": 32
+    },
+    "GENDER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 4
+    },
+    "HEIGHT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "IBAN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "IP": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "IPV4": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "IPV6": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "JOBAREA": {
+      "precision": 0.1875,
+      "recall": 0.42857142857142855,
+      "f1": 0.26086956521739124,
+      "number": 7
+    },
+    "JOBTITLE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 9
+    },
+    "JOBTYPE": {
+      "precision": 0.18181818181818182,
+      "recall": 1.0,
+      "f1": 0.3076923076923077,
+      "number": 2
+    },
+    "LASTNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 9
+    },
+    "LITECOINADDRESS": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "MAC": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 0
+    },
+    "MASKEDNUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "MIDDLENAME": {
+      "precision": 0.05,
+      "recall": 0.3333333333333333,
+      "f1": 0.08695652173913045,
+      "number": 6
+    },
+    "NEARBYGPSCOORDINATE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "ORDINALDIRECTION": {
+      "precision": 0.25,
+      "recall": 1.0,
+      "f1": 0.4,
+      "number": 1
+    },
+    "PASSWORD": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 10
+    },
+    "PHONEIMEI": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "PHONENUMBER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "PIN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 4
+    },
+    "PREFIX": {
+      "precision": 0.09090909090909091,
+      "recall": 0.2,
+      "f1": 0.12500000000000003,
+      "number": 5
+    },
+    "SECONDARYADDRESS": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "SEX": {
+      "precision": 0.5555555555555556,
+      "recall": 1.0,
+      "f1": 0.7142857142857143,
+      "number": 5
+    },
+    "SSN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "STATE": {
+      "precision": 0.044444444444444446,
+      "recall": 0.2222222222222222,
+      "f1": 0.07407407407407407,
+      "number": 9
+    },
+    "STREET": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 4
+    },
+    "TIME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "URL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "USERAGENT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "USERNAME": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "VEHICLEVIN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "VEHICLEVRM": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "ZIPCODE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "overall_precision": 0.03747870528109029,
+    "overall_recall": 0.07028753993610223,
+    "overall_f1": 0.04888888888888889,
+    "overall_accuracy": 0.5458373205741627,
+    "total_time_in_seconds": 5.66174080001656,
+    "samples_per_second": 17.662412238954406,
+    "latency_in_seconds": 0.0566174080001656
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "model_id": "apple/mobilevit-small",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\apple_mobilevit-small\\image-classification_w8a16_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\apple_mobilevit-small\\image-classification_w8a16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.64,
+    "total_time_in_seconds": 9.3047218999709,
+    "samples_per_second": 10.747231467531849,
+    "latency_in_seconds": 0.09304721899970901
+  }
+}

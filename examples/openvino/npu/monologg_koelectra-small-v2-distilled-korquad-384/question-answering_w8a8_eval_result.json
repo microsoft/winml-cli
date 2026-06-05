@@ -1,0 +1,28 @@
+{
+  "model_id": "monologg/koelectra-small-v2-distilled-korquad-384",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_w8a8_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "KorQuAD/squad_kor_v1",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_w8a8_eval_result.json",
+  "metrics": {
+    "exact_match": 1.0,
+    "f1": 1.0,
+    "total_time_in_seconds": 17.47650250000879,
+    "samples_per_second": 5.721968683376419,
+    "latency_in_seconds": 0.17476502500008792
+  }
+}

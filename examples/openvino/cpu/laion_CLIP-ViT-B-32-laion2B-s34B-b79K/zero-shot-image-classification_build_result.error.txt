@@ -1,0 +1,5 @@
+Usage: python -m winml.modelkit build [OPTIONS]
+Try 'python -m winml.modelkit build --help' for help.
+
+Error: Config validation failed: Invalid WinMLBuildConfig:
+  - loader.task is required for full model builds

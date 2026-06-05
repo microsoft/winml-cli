@@ -1,0 +1,39 @@
+{
+  "model_id": "ahotrod/electra_large_discriminator_squad2_512",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_w8a8_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_w8a8_eval_result.json",
+  "metrics": {
+    "exact": 8.0,
+    "f1": 8.952380952380953,
+    "total": 100,
+    "HasAns_exact": 0.0,
+    "HasAns_f1": 1.9841269841269842,
+    "HasAns_total": 48,
+    "NoAns_exact": 15.384615384615385,
+    "NoAns_f1": 15.384615384615385,
+    "NoAns_total": 52,
+    "best_exact": 52.0,
+    "best_exact_thresh": 0.0,
+    "best_f1": 52.0,
+    "best_f1_thresh": 0.0,
+    "total_time_in_seconds": 118.5485944999964,
+    "samples_per_second": 0.8435359391798023,
+    "latency_in_seconds": 1.185485944999964
+  }
+}

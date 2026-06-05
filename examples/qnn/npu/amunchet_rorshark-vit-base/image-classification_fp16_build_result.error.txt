@@ -1,0 +1,40 @@
+ Failed to establish a new   
+                             connection: [WinError 10061]                      
+                             由于目标计算机积极拒绝，无法连接。"))'), '(Request
+                             ID: a10c1823-2814-4329-8c88-72eeb31f00ba)')'      
+                             thrown while requesting HEAD                      
+                             https://huggingface.co/amunchet/rorshark-vit-base/
+                             resolve/main/pytorch_model.bin.index.json         
+Retrying in 8s [Retry 4/5].
+                    WARNING  Retrying in 8s [Retry 4/5].                       
+'(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /amunchet/rorshark-vit-base/resolve/main/pytorch_model.bin.index.json (Caused by ConnectTimeoutError(<HTTPSConnection(host='huggingface.co', port=443) at 0x1c84c2979d0>, 'Connection to huggingface.co timed out. (connect timeout=10)'))"), '(Request ID: 40516a9d-28ae-4f40-9914-05f77e3277d9)')' thrown while requesting HEAD https://huggingface.co/amunchet/rorshark-vit-base/resolve/main/pytorch_model.bin.index.json
+[06/02/26 21:39:21] WARNING  '(MaxRetryError("HTTPSConnectionPool(host='hugging
+                             face.co', port=443): Max retries exceeded with    
+                             url:                                              
+                             /amunchet/rorshark-vit-base/resolve/main/pytorch_m
+                             odel.bin.index.json (Caused by                    
+                             ConnectTimeoutError(<HTTPSConnection(host='hugging
+                             face.co', port=443) at 0x1c84c2979d0>, 'Connection
+                             to huggingface.co timed out. (connect             
+                             timeout=10)'))"), '(Request ID:                   
+                             40516a9d-28ae-4f40-9914-05f77e3277d9)')' thrown   
+                             while requesting HEAD                             
+                             https://huggingface.co/amunchet/rorshark-vit-base/
+                             resolve/main/pytorch_model.bin.index.json         
+Retrying in 8s [Retry 5/5].
+                    WARNING  Retrying in 8s [Retry 5/5].                       
+'(MaxRetryError('HTTPSConnectionPool(host=\'huggingface.co\', port=443): Max retries exceeded with url: /amunchet/rorshark-vit-base/resolve/main/pytorch_model.bin.index.json (Caused by NewConnectionError("HTTPSConnection(host=\'huggingface.co\', port=443): Failed to establish a new connection: [WinError 10061] 由于目标计算机积极拒绝，无法连接。"))'), '(Request ID: e7c3d651-69be-40ab-8230-519f73ab56bb)')' thrown while requesting HEAD https://huggingface.co/amunchet/rorshark-vit-base/resolve/main/pytorch_model.bin.index.json
+[06/02/26 21:39:31] WARNING  '(MaxRetryError('HTTPSConnectionPool(host=\'huggin
+                             gface.co\', port=443): Max retries exceeded with  
+                             url:                                              
+                             /amunchet/rorshark-vit-base/resolve/main/pytorch_m
+                             odel.bin.index.json (Caused by                    
+                             NewConnectionError("HTTPSConnection(host=\'hugging
+                             face.co\', port=443): Failed to establish a new   
+                             connection: [WinError 10061]                      
+                             由于目标计算机积极拒绝，无法连接。"))'), '(Request
+                             ID: e7c3d651-69be-40ab-8230-519f73ab56bb)')'      
+                             thrown while requesting HEAD                      
+                             https://huggingface.co/amunchet/rorshark-vit-base/
+                             resolve/main/pytorch_model.bin.index.json         
+⏳ Export  Exporting to ONNX...Error: Build failed: amunchet/rorshark-vit-base does not appear to have a file named pytorch_model.bin, model.safetensors, tf_model.h5, model.ckpt or flax_model.msgpack.

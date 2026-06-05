@@ -1,0 +1,25 @@
+{
+  "model_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_build_artifacts\\model.onnx",
+  "task": "text-classification",
+  "device": "gpu",
+  "ep": "migraphx",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "sst2",
+    "columns_mapping": {
+      "input_column": "sentence"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.91,
+    "total_time_in_seconds": 34.138236800034065,
+    "samples_per_second": 2.929266692528778,
+    "latency_in_seconds": 0.34138236800034066
+  }
+}
