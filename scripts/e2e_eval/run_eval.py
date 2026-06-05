@@ -809,7 +809,9 @@ def _build_dataset(ds_config: dict, timeout: int) -> None:
         return
 
     script_path = Path(build_script)
-    cache_dir = Path(ds_config.get("dataset", EVAL_DATASETS_CACHE / script_path.stem))
+    cache_dir = Path(
+        ds_config.get("dataset", EVAL_DATASETS_CACHE / script_path.stem)
+    ).expanduser()
 
     if (cache_dir / "dataset_info.json").exists():
         safe_print(f"    dataset: cached ({cache_dir})")
