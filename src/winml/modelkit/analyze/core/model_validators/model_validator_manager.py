@@ -15,6 +15,7 @@ import time
 from typing import TYPE_CHECKING, ClassVar
 
 from ...utils.timing_utils import make_timing_logger
+from .batched_const_matmul_validator import BatchedConstMatMulValidator
 from .constant_folding_validator import ConstantFoldingValidator
 from .dynamic_input_validator import DynamicInputValidator
 from .pattern_matching_validator import PatternMatchingValidator
@@ -64,6 +65,11 @@ class ModelValidatorManager:
             "class": PatternMatchingValidator,
             "enabled_devices": None,  # All devices
         },
+        "batched_const_matmul": {
+            "class": BatchedConstMatMulValidator,
+            "enabled_devices": ["GPU"],  # OpenVINO GPU gemm impl-selection issue
+            "needs_context": True,  # validator self-gates on EP (Intel IHV)
+        },
     }
 
     def __init__(
@@ -72,6 +78,7 @@ class ModelValidatorManager:
         enabled_validators: list[str] | None = None,
         op_runtime_results: list[PatternRuntime] | None = None,
         device: str | None = None,
+        ep: str | None = None,
     ) -> None:
         """Initialize validator manager.
 
@@ -92,6 +99,7 @@ class ModelValidatorManager:
         self.model_proto = model.get_model()
         self.op_runtime_results = op_runtime_results or []
         self.device = device or "NPU"
+        self.ep = ep
         self.enabled_validators = enabled_validators or list(self.VALIDATORS.keys())
 
         # Instantiate enabled validators
@@ -102,18 +110,24 @@ class ModelValidatorManager:
                 validator_class = validator_config["class"]
                 enabled_devices = validator_config.get("enabled_devices")
 
-                # Check device constraint
-                if enabled_devices is not None and self.device not in enabled_devices:
+                # Check device constraint (case-insensitive: callers may pass
+                # "gpu" or "GPU" depending on the build/analyze entry point).
+                if enabled_devices is not None and (self.device or "").upper() not in {
+                    d.upper() for d in enabled_devices
+                }:
                     logger.info(
                         f"Validator '{name}' is not enabled for device '{self.device}'. "
                         f"Only enabled for: {enabled_devices}"
                     )
                     continue
 
+                ctor_kwargs: dict = {"op_runtime_results": self.op_runtime_results}
+                if validator_config.get("needs_context"):
+                    ctor_kwargs["ep"] = self.ep
+                    ctor_kwargs["device"] = self.device
+
                 try:
-                    self.validators.append(
-                        validator_class(self.model, op_runtime_results=self.op_runtime_results)
-                    )
+                    self.validators.append(validator_class(self.model, **ctor_kwargs))
                     logger.debug(f"Initialized validator: {name}")
                 except Exception:
                     logger.exception(f"Failed to initialize validator {name}")
