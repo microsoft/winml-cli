@@ -142,11 +142,22 @@ The quantizer generates 32 random calibration samples, runs them through the mod
 
 Compilation converts the portable quantized ONNX into an EP-specific binary format that the execution provider can load directly, skipping JIT compilation at inference time. This is the step that produces a device-locked artifact — the output is tied to the specific EP and, for QNN, to the QNN SDK version.
 
-=== "QNN (Snapdragon NPU)"
+Two compiler backends are available:
+
+- **`--compiler ort`** (default) — uses ONNX Runtime's built-in EP context compiler. Works for QNN and OpenVINO targets without needing the vendor SDK on the build machine (the ORT package bundles the necessary libraries).
+- **`--compiler qairt`** — uses the QAIRT SDK's offline compiler directly. Requires `QNN_SDK_ROOT` to point at a local QAIRT SDK installation. Produces the same EPContext output but goes through Qualcomm's native toolchain.
+
+=== "QNN via ORT (default)"
+
+    ```bash
+    uv run winml compile -m convnext_int8.onnx --device npu
+    ```
+
+=== "QNN via QAIRT SDK"
 
     ```bash
     # Requires QNN_SDK_ROOT env var set to your QAIRT SDK root
-    uv run winml compile -m convnext_int8.onnx --device npu
+    uv run winml compile -m convnext_int8.onnx --device npu --compiler qairt
     ```
 
 === "OpenVINO (Intel CPU/GPU/NPU)"
@@ -155,10 +166,10 @@ Compilation converts the portable quantized ONNX into an EP-specific binary form
     uv run winml compile -m convnext_int8.onnx --device npu --ep openvino
     ```
 
-The compiled output file appears in the same directory as the input model. For QNN, the file name follows the pattern `convnext_int8_npu_ctx.onnx` (using the resolved device string `npu`, not the EP name) and an accompanying `.bin` context binary is written alongside it. For OpenVINO targeting the NPU, the compiled artifact is also named `convnext_int8_npu_ctx.onnx`. CPU builds do not produce a new artifact — the compile step validates EP compatibility but writes no output file; use `convnext_int8.onnx` directly for CPU inference.
+The compiled output file appears in the same directory as the input model. The file name follows the pattern `convnext_int8_npu_ctx.onnx` (using the resolved device string `npu`, not the EP name) and an accompanying `.bin` context binary is written alongside it (unless `--embed` is passed, which embeds the binary inside the ONNX file). CPU builds do not produce a new artifact — the compile step validates EP compatibility but writes no output file; use `convnext_int8.onnx` directly for CPU inference.
 
 !!! note "What we just did"
-    Compilation embeds EP context — the compiled binary — inside or alongside the ONNX file using the `EPContext` node convention. At inference time the runtime loads the pre-compiled binary directly rather than re-compiling from the ONNX graph, eliminating the 15–60 second JIT penalty on first load. winml-cli locates the QAIRT SDK libraries needed for QNN compilation through `QNN_SDK_ROOT` (set as an environment variable, or passed with `--qnn-sdk-root` on `winml compile`). `winml build` reads only the env var. See [Concepts → Compile and EPContext](../concepts/compile-and-epcontext.md) for the full picture of what gets embedded and how the context is consumed at runtime.
+    Compilation embeds EP context — the compiled binary — inside or alongside the ONNX file using the `EPContext` node convention. At inference time the runtime loads the pre-compiled binary directly rather than re-compiling from the ONNX graph, eliminating the 15–60 second JIT penalty on first load. The default `--compiler ort` backend bundles compilation within ONNX Runtime itself. The `--compiler qairt` backend calls the QAIRT SDK directly and requires `QNN_SDK_ROOT` (set as an environment variable, or passed with `--qnn-sdk-root` on `winml compile`). `winml build` reads only the env var. See [Concepts → Compile and EPContext](../concepts/compile-and-epcontext.md) for the full picture of what gets embedded and how the context is consumed at runtime.
 
 ---
 
