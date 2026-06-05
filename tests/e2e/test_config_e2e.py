@@ -14,8 +14,9 @@ Note: Device resolution (resolve_device) requires hardware detection that
 may fail in test environments. We mock it to return ("cpu", ["cpu"]).
 
 Note: The config command writes JSON to stdout via print() and Rich status
-messages to stderr via Console(stderr=True). CliRunner captures both in
-result.output. We extract JSON by finding the first '{' or '[' character.
+messages to stderr via Console(stderr=True). We parse result.stdout (the
+clean JSON channel) so that -v/--verbose log lines on stderr never corrupt
+the payload. _extract_json still scans defensively for the JSON object.
 
 Markers:
     e2e: Full end-to-end test with real models
@@ -88,11 +89,11 @@ def _mock_resolve_device():
 
 
 def _extract_json(output: str) -> dict | list:
-    """Extract JSON object/array from mixed CLI output.
+    """Extract JSON object/array from CLI stdout.
 
-    The config command mixes Rich status messages (stderr) with JSON
-    (stdout) in CliRunner output. Find the first '{' or '[' that
-    starts a valid JSON payload.
+    The config command prints JSON to stdout; this defensively scans for
+    the first '{' or '[' that starts a valid JSON payload in case any
+    non-JSON noise (e.g. a stray print) leaks onto stdout.
     """
     decoder = json.JSONDecoder()
     # JSON is printed as its own line; probing only line starts avoids
@@ -113,7 +114,7 @@ def _run_config(*args: str) -> dict:
     runner = CliRunner()
     result = runner.invoke(config, list(args), catch_exceptions=False)
     assert result.exit_code == 0, f"config failed (exit {result.exit_code}):\n{result.output}"
-    return _extract_json(result.output)
+    return _extract_json(result.stdout)
 
 
 def _assert_hf_config_structure(data: dict) -> None:
