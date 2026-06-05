@@ -49,7 +49,7 @@ measure speed and accuracy.
 
 ## Global flags
 
-`-v` / `--verbose`, `-q` / `--quiet`, `--debug`, `--version`, and `-h` /
+`-v` / `--verbose`, `-q` / `--quiet`, `--version`, and `-h` /
 `--help` live on the root `winml` group only. Subcommands access them through
 `ctx.obj` and do not redefine them. See
 `src/winml/modelkit/cli.py` for the canonical contract.
@@ -58,9 +58,10 @@ measure speed and accuracy.
 
 Several flags share semantics across the commands that accept them:
 `-m` / `--model`, `-d` / `--device`, `--ep`, `-o` / `--output`,
-`-t` / `--task`, and `-p` / `--precision`. Defaults and accepted values can
-differ per command; check the **Flags** section of each command page rather
-than assuming they transfer.
+`-t` / `--task`, and `--precision`. Defaults and accepted values can
+differ per command (e.g., `-p` is a short form for `--precision` only on
+`config` and `quantize`); check the **Flags** section of each command page
+rather than assuming they transfer.
 
 ## See also
 
