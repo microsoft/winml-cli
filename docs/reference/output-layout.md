@@ -38,7 +38,7 @@ output/
 |------|---------|
 | `model.onnx` | The deployment-ready model. Always present. |
 | `model.onnx.data` | External weight data (only if model ≥ 100 MiB). Must stay alongside `model.onnx`. |
-| `winml_build_config.json` | The config used for this build (includes auto-discovered flags). Useful for reproducibility. |
+| `winml_build_config.json` | The complete pipeline config used for this build (includes auto-discovered optimization flags). This file is a **reproducible pipeline specification** — check it into version control or feed it directly to `winml build -c` in a CI/CD pipeline to guarantee identical model processing across machines and runs (set `"auto": false` for fully deterministic builds). |
 | `analyze_result.json` | Static analysis output: EP compatibility, operator classification, detected patterns. |
 | `build_manifest.json` | Build provenance with stage timings. Only generated via the Python API (`build_hf_model`/`build_onnx_model`). |
 | `export_htp_metadata.json` | HTP export metadata: module hierarchy, tracing info, tagging coverage. |
