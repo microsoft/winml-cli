@@ -14,6 +14,10 @@ exclude_docs: |
   /pytest-best-practices.md
   /README.md
 
+extra:
+  version:
+    provider: mike
+
 theme:
   name: material
   features:
@@ -45,6 +49,10 @@ theme:
 
 plugins:
   - search
+  - mike:
+      version_selector: true
+      css_dir: css
+      javascript_dir: js
 
 markdown_extensions:
   - admonition
