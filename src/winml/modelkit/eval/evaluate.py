@@ -60,17 +60,22 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.zero_shot_classification_evaluator:WinMLZeroShotClassificationEvaluator",
     "zero-shot-image-classification":
         "winml.modelkit.eval.zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
+    "depth-estimation":
+        "winml.modelkit.eval.depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
+    "compare-tensor":
+        "winml.modelkit.eval.tensor_similarity_evaluator:TensorSimilarityEvaluator",
 }
 # fmt: on
 
 
-def get_evaluator_class(task: str) -> type[WinMLEvaluator]:
+def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
     """Return the evaluator class for *task*, or raise ValueError if unsupported."""
-    spec = _EVALUATOR_REGISTRY.get(task)
+    key = "compare-tensor" if config.mode == "compare" else config.task
+    spec = _EVALUATOR_REGISTRY.get(key)
     if spec is None:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
         raise ValueError(
-            f"Task '{task}' is not supported by `winml eval`. Supported tasks: {supported}."
+            f"Task '{key}' is not supported by `winml eval`. Supported tasks: {supported}."
         )
     module_path, class_name = spec.rsplit(":", 1)
     module = importlib.import_module(module_path)
@@ -159,6 +164,13 @@ _DEFAULT_DATASETS: dict[str, dict] = {
             "input_column": "img",
             "label_column": "fine_label",
         },
+    },
+    "depth-estimation": {
+        "path": "sayakpaul/nyu_depth_v2",
+        "split": "validation",
+        # Loaded via the parquet-mirror revision so the dataset works without
+        # the legacy `nyu_depth_v2.py` loader script.
+        "revision": "refs/convert/parquet",
     },
 }
 
@@ -251,8 +263,15 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     copies via ``dataclasses.replace`` and ``deepcopy`` so the original
     config and any module-level defaults remain untouched.
     """
-    config = replace(config, task=_resolve_task(config), dataset=deepcopy(config.dataset))
-    if config.dataset.path is None:
+    from ..utils.eval_utils import EVAL_MODES
+
+    mode = config.mode if config.mode is not None else "onnx"
+    if mode not in EVAL_MODES:
+        raise ValueError(f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None.")
+    config = replace(
+        config, mode=mode, task=_resolve_task(config), dataset=deepcopy(config.dataset)
+    )
+    if config.mode != "compare" and config.dataset.path is None:
         default = _DEFAULT_DATASETS.get(config.task)
         if default is None:
             raise ValueError(
@@ -283,7 +302,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
 
     from ..utils.eval_utils import DatasetValidationError
 
-    cls = get_evaluator_class(config.task)
+    cls = get_evaluator_class(config)
     try:
         console.print("[bold]Loading dataset and evaluating...[/bold]")
         task_evaluator = cls(config, model)
@@ -316,15 +335,16 @@ def print_config(config: WinMLEvaluationConfig) -> None:
     if config.ep is not None:
         output_console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
     output_console.print(f"[bold blue]Precision:[/bold blue] {config.precision}")
-    output_console.print(f"[bold blue]Dataset:[/bold blue] {ds.path}")
-    if ds.name:
-        output_console.print(f"[bold blue]Dataset name:[/bold blue] {ds.name}")
-    output_console.print(f"[bold blue]Split:[/bold blue] {ds.split}")
-    output_console.print(f"[bold blue]Samples:[/bold blue] {ds.samples}")
-    output_console.print(f"[bold blue]Shuffle:[/bold blue] {ds.shuffle} (seed={ds.seed})")
-    output_console.print(f"[bold blue]Streaming:[/bold blue] {ds.streaming}")
-    if ds.columns_mapping:
-        cols = ", ".join(f"{k}={v}" for k, v in ds.columns_mapping.items())
-        output_console.print(f"[bold blue]Columns:[/bold blue] {cols}")
+    if config.mode != "compare":
+        output_console.print(f"[bold blue]Dataset:[/bold blue] {ds.path}")
+        if ds.name:
+            output_console.print(f"[bold blue]Dataset name:[/bold blue] {ds.name}")
+        output_console.print(f"[bold blue]Split:[/bold blue] {ds.split}")
+        output_console.print(f"[bold blue]Samples:[/bold blue] {ds.samples}")
+        output_console.print(f"[bold blue]Shuffle:[/bold blue] {ds.shuffle} (seed={ds.seed})")
+        output_console.print(f"[bold blue]Streaming:[/bold blue] {ds.streaming}")
+        if ds.columns_mapping:
+            cols = ", ".join(f"{k}={v}" for k, v in ds.columns_mapping.items())
+            output_console.print(f"[bold blue]Columns:[/bold blue] {cols}")
     if config.output_path is not None:
         output_console.print(f"[bold blue]Output:[/bold blue] {config.output_path}")

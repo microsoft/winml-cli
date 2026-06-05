@@ -773,14 +773,16 @@ def resolve_io_config(
         if val is not None:
             extra[attr] = val
 
-    # Step 5: Fallback — read image_size from preprocessor_config.json
-    # for models like ResNet where HF config lacks image_size
+    # Step 5: Fallback — read image_size from a preprocessor-style dict
+    # (preprocessor_config.json on the hub, or synthesized from a nested
+    # dict on hf_config such as TimmWrapperConfig.pretrained_cfg) when the
+    # top-level HF config lacks image_size.
     if image_size is None and model_id is not None:
         try:
             from ..export.io import _populate_image_size_from_preprocessor
 
             shape_kwargs: dict = {}
-            _populate_image_size_from_preprocessor(model_id, shape_kwargs)
+            _populate_image_size_from_preprocessor(model_id, shape_kwargs, config)
             if "height" in shape_kwargs:
                 h, w = shape_kwargs["height"], shape_kwargs["width"]
                 image_size = h if h == w else (h, w)

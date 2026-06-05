@@ -13,6 +13,12 @@ that importing it does not load the heavy ``winml.modelkit.eval`` package
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal, TypeAlias, get_args
+
+
+EvalMode: TypeAlias = Literal["onnx", "compare"]
+
+EVAL_MODES: tuple[EvalMode, ...] = get_args(EvalMode)
 
 
 @dataclass(frozen=True)
@@ -242,6 +248,45 @@ _ZERO_SHOT_IMAGE_CLASSIFICATION_SCHEMA = TaskSchema(
     roles=("image-encoder", "text-encoder"),
 )
 
+_DEPTH_ESTIMATION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column", "input image (PIL.Image)",
+            default="image", remap_hint="<your_image_column>",
+        ),
+        SchemaItem(
+            "depth_column", "single-channel ground-truth depth image",
+            default="depth_map", remap_hint="<your_depth_column>",
+        ),
+    ),
+    params=(
+        SchemaItem(
+            "align",
+            "alignment strategy for predictions",
+            default="affine",
+            remap_hint="<affine|median|none>",
+        ),
+        SchemaItem(
+            "depth_kind",
+            "prediction space",
+            default="depth",
+            remap_hint="<depth|disparity>",
+        ),
+        SchemaItem(
+            "min_depth",
+            "minimum valid ground-truth depth",
+            default="1e-3",
+            remap_hint="<float>",
+        ),
+        SchemaItem(
+            "max_depth",
+            "maximum valid ground-truth depth",
+            default="10.0",
+            remap_hint="<float|none>",
+        ),
+    ),
+)
+
 TASK_SCHEMAS: dict[str, TaskSchema] = {
     "image-classification": _IMAGE_CLASSIFICATION_SCHEMA,
     "text-classification": _TEXT_CLASSIFICATION_SCHEMA,
@@ -258,6 +303,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "fill-mask": _FILL_MASK_SCHEMA,
     "zero-shot-classification": _ZERO_SHOT_CLASSIFICATION_SCHEMA,
     "zero-shot-image-classification": _ZERO_SHOT_IMAGE_CLASSIFICATION_SCHEMA,
+    "depth-estimation": _DEPTH_ESTIMATION_SCHEMA,
 }
 
 

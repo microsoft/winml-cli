@@ -193,6 +193,7 @@ def _build_dataset_config(ds_dict: dict, num_samples: int):
         samples=num_samples,
         columns_mapping=columns_mapping,
         label_mapping=label_mapping,
+        revision=ds_dict.get("revision"),
     )
 
 
@@ -225,6 +226,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default=None, help="Dataset split (e.g. test, validation)")
     parser.add_argument(
         "--dataset-config", default=None, help="HuggingFace dataset config/subset name"
+    )
+    parser.add_argument(
+        "--dataset-revision",
+        default=None,
+        help="Git revision (branch, tag, or commit) for the dataset (e.g. "
+        "'refs/convert/parquet' to load the parquet mirror of a script-based dataset).",
     )
     parser.add_argument(
         "--columns-mapping",
@@ -297,6 +304,7 @@ def main() -> None:
             "dataset": args.dataset,
             "split": args.split or "validation",
             **({"dataset_config": args.dataset_config} if args.dataset_config else {}),
+            **({"revision": args.dataset_revision} if args.dataset_revision else {}),
             **({"columns_mapping": columns_mapping} if columns_mapping else {}),
             **({"label_mapping_file": args.label_mapping_file} if args.label_mapping_file else {}),
             "winml_metric_key": args.winml_metric_key,
@@ -339,7 +347,7 @@ def main() -> None:
 
         from winml.modelkit.eval.evaluate import get_evaluator_class
 
-        evaluator_cls = get_evaluator_class(task)
+        evaluator_cls = get_evaluator_class(eval_config)
         task_evaluator = evaluator_cls(eval_config, pytorch_model)
 
         metrics = task_evaluator.compute()

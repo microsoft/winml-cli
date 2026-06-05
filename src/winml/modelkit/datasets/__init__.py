@@ -17,6 +17,7 @@ from onnxruntime.quantization import CalibrationDataReader
 
 from .base import BaseTaskDataset
 from .data_utils import format_data
+from .depth_estimation import DEFAULT_DEPTH_ESTIMATION_SIZE, DepthEstimationDataset
 from .image import ImageDataset
 from .image_segmentation import ImageSegmentationDataset
 from .object_detection import DEFAULT_OBJECT_DETECTION_SIZE, ObjectDetectionDataset
@@ -46,6 +47,7 @@ TASK_DATASET_MAPPING = {
     "fill-mask": TextDataset,
     "zero-shot-classification": TextDataset,
     "image-segmentation": ImageSegmentationDataset,
+    "depth-estimation": DepthEstimationDataset,
     "random": RandomDataset,
     # Add more task types as needed
 }
@@ -286,8 +288,10 @@ __all__ = [  # noqa: RUF022
     "DatasetCalibrationReader",
     # Config
     "DEFAULT_OBJECT_DETECTION_SIZE",
+    "DEFAULT_DEPTH_ESTIMATION_SIZE",
     # Dataset classes
     "BaseTaskDataset",
+    "DepthEstimationDataset",
     "ImageDataset",
     "ImageSegmentationDataset",
     "ObjectDetectionDataset",
