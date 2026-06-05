@@ -16,6 +16,7 @@ programmatic entry point for `WinMLAutoModel.from_pretrained()`.
 ```mermaid
 flowchart TD
     A[PyTorch / HF model] --> B[winml export]
+    O[Existing ONNX file] --> C
     B --> C[winml optimize]
     C --> D[winml quantize]
     D --> E[winml compile]
