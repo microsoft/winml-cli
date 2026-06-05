@@ -118,9 +118,13 @@ class TensorSimilarityMetric:
                 arr = np.asarray(finite, dtype=np.float64)
                 mean_val = float(arr.mean())
                 std_val = float(arr.std())
+            elif all(v == math.inf for v in values):
+                mean_val, std_val = math.inf, 0.0
+            elif all(v == -math.inf for v in values):
+                mean_val, std_val = -math.inf, 0.0
             else:
-                mean_val = math.inf
-                std_val = 0.0
+                # Any NaN, or a mix of +inf and -inf: un-summarizable.
+                mean_val, std_val = math.nan, math.nan
             result[f"{metric}_mean"] = mean_val
             result[f"{metric}_std"] = std_val
             result[f"{metric}_min"] = float(min(values))

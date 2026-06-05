@@ -826,15 +826,16 @@ class TestEvalAdditionalOptions:
                 f"cosine outside [-1, 1] for {output_name}: min={lo}, max={hi}"
             )
 
-        # fp16 parity on QNN should be near-perfect (>= 0.95). VitisAI/CPU
-        # paths can degrade more, so gate the magnitude check on QNN.
-        if is_host("qnn"):
-            cos_mean = metrics["cosine_similarity_mean"]
-            for output_name, value in cos_mean.items():
-                assert value >= 0.95, (
-                    f"cosine_similarity_mean[{output_name}]={value} "
-                    "unexpectedly low"
-                )
+        # fp16 parity: QNN should be near-perfect (>= 0.95); CPU/VitisAI
+        # paths can degrade more, but a 0.5 sanity floor still catches
+        # total-breakage regressions on non-QNN runners.
+        cos_mean = metrics["cosine_similarity_mean"]
+        threshold = 0.95 if is_host("qnn") else 0.5
+        for output_name, value in cos_mean.items():
+            assert value >= threshold, (
+                f"cosine_similarity_mean[{output_name}]={value} "
+                f"below {threshold} sanity floor"
+            )
 
 
 # ===========================================================================

@@ -289,7 +289,16 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     copies via ``dataclasses.replace`` and ``deepcopy`` so the original
     config and any module-level defaults remain untouched.
     """
-    config = replace(config, task=_resolve_task(config), dataset=deepcopy(config.dataset))
+    from ..utils.eval_utils import EVAL_MODES
+
+    mode = config.mode if config.mode is not None else "onnx"
+    if mode not in EVAL_MODES:
+        raise ValueError(
+            f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None."
+        )
+    config = replace(
+        config, mode=mode, task=_resolve_task(config), dataset=deepcopy(config.dataset)
+    )
     if config.mode != "compare" and config.dataset.path is None:
         default = _DEFAULT_DATASETS.get(config.task)
         if default is None:

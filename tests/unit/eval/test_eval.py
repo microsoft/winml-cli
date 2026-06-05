@@ -172,6 +172,46 @@ class TestGetEvaluatorClass:
 class TestEvaluate:
     """Tests for evaluate() entry point."""
 
+    def test_invalid_mode_raises(self):
+        """evaluate() rejects unknown mode values with a clear error."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(model_id="test/model", task="feature-extraction")
+        config.mode = "hf"  # bypass dataclass type hint
+
+        with pytest.raises(ValueError, match="Invalid mode"):
+            eval_mod.evaluate(config)
+
+    def test_none_mode_normalizes_to_onnx(self):
+        """evaluate() treats mode=None as the default onnx mode."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="imagenet-1k"),
+        )
+        config.mode = None  # bypass dataclass type hint
+
+        evaluator = MagicMock()
+        evaluator.compute.return_value = {"accuracy": 1.0}
+        with (
+            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
+        ):
+            result = eval_mod.evaluate(config)
+        assert result.config.mode == "onnx"
+
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""
         import importlib

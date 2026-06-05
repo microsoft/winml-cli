@@ -39,7 +39,7 @@ class TensorSimilarityEvaluator:
         from ..models.winml.composite_model import WinMLCompositeModel
 
         if isinstance(model, WinMLCompositeModel):
-            sub_tasks = list(type(model)._SUB_MODEL_CONFIG.values())
+            sub_tasks = list(getattr(type(model), "_SUB_MODEL_CONFIG", {}).values())
             raise TypeError(
                 "--mode compare does not support composite models directly. "
                 f"Run compare per sub-component instead (sub-tasks: {sub_tasks}). "
@@ -81,9 +81,9 @@ class TensorSimilarityEvaluator:
 
         ds = self.config.dataset
         return RandomDataset(
-            model_path=str(self.model._onnx_path),
-            max_samples=int(ds.samples or 100),
-            seed=int(ds.seed or 42),
+            model_path=str(self.model.onnx_path),
+            max_samples=int(ds.samples if ds.samples is not None else 100),
+            seed=int(ds.seed if ds.seed is not None else 42),
         )
 
     def compute(self) -> dict[str, dict[str, float]]:
@@ -98,7 +98,7 @@ class TensorSimilarityEvaluator:
 
         from .metrics.tensor_similarity import TensorSimilarityMetric
 
-        input_names = list(self.data._io_config["input_names"])
+        input_names = list(self.model.io_config["input_names"])
         metrics: dict[str, TensorSimilarityMetric] = {}
         common_keys: list[str] | None = None
         ort_keys: set[str] = set()

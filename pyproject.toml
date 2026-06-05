@@ -63,6 +63,7 @@ dependencies = [
   "torchinfo>=1.8",
   "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
+  "tqdm>=4.67",
   "transformers>=4.57",
   "uvicorn[standard]>=0.42.0",
   "windowsml==2.0.300",
@@ -82,7 +83,6 @@ optional-dependencies.dev = [
   "ruff>=0.14",
   "seaborn>=0.13",
   "timm>=1.0.20",
-  "tqdm>=4.67",
   "types-colorama>=0.4.15.20250801",
 ]
 optional-dependencies.audio = [ "soundfile>=0.13" ]

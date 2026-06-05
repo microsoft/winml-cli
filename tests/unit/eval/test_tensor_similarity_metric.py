@@ -121,6 +121,54 @@ class TestDegenerateSignal:
 
 
 # ---------------------------------------------------------------------------
+# All-non-finite aggregation: must NOT misreport as +inf "perfect"
+# ---------------------------------------------------------------------------
+
+class TestAllNonFiniteAggregation:
+    def test_all_nan_predictions_aggregate_to_nan(self):
+        # A model that emits NaN poisons cosine / MSE; the aggregate must
+        # surface this as NaN, not as a false "+inf perfect match".
+        ref = np.array([1.0, 2.0, 3.0, 4.0])
+        nan_pred = np.full(4, math.nan)
+        m = TensorSimilarityMetric()
+        m.update(nan_pred, ref)
+        m.update(nan_pred, ref)
+        r = m.compute()
+        assert math.isnan(r["cosine_similarity_mean"])
+        assert math.isnan(r["cosine_similarity_std"])
+        assert math.isnan(r["mse_mean"])
+
+    def test_all_neg_inf_aggregates_to_neg_inf(self):
+        # Two samples of (zero ref, non-zero test) -> SQNR/PSNR are all -inf.
+        ref = np.zeros(4)
+        test = np.array([0.1, 0.2, 0.3, 0.4])
+        m = TensorSimilarityMetric()
+        m.update(test, ref)
+        m.update(test, ref)
+        r = m.compute()
+        assert r["sqnr_db_mean"] == -math.inf
+        assert r["sqnr_db_std"] == 0.0
+        assert r["psnr_db_mean"] == -math.inf
+        assert r["psnr_db_std"] == 0.0
+
+    def test_mixed_pos_inf_and_neg_inf_aggregates_to_nan(self):
+        # One identical sample (+inf SQNR) + one zero-ref/nonzero-test sample
+        # (-inf SQNR). No finite values, mixed signs -> NaN.
+        ref_a = np.array([1.0, 2.0, 3.0, 4.0])
+        ref_b = np.zeros(4)
+        test_b = np.array([0.1, 0.2, 0.3, 0.4])
+        m = TensorSimilarityMetric()
+        m.update(ref_a, ref_a)   # SQNR = +inf
+        m.update(test_b, ref_b)  # SQNR = -inf
+        r = m.compute()
+        assert math.isnan(r["sqnr_db_mean"])
+        assert math.isnan(r["sqnr_db_std"])
+        # min/max remain well-defined.
+        assert r["sqnr_db_min"] == -math.inf
+        assert r["sqnr_db_max"] == math.inf
+
+
+# ---------------------------------------------------------------------------
 # Multi-sample aggregation (mean/std/min/max)
 # ---------------------------------------------------------------------------
 
