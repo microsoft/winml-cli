@@ -84,7 +84,7 @@ Saved: convnext_int8.onnx
 
 ## Step 5: Compile for each EP
 
-Compilation pre-bakes an EP-specific binary cache into the ONNX graph so the runtime can skip per-session JIT compilation.
+Compilation pre-bakes an EP-specific binary cache into the ONNX graph so the runtime can skip per-session JIT compilation. Two compiler backends are available: `ort` (default, uses ONNX Runtime's built-in compiler) and `qairt` (uses the QAIRT SDK's offline compiler directly). Pass `--compiler qairt` if you have the QAIRT SDK and want direct QNN compilation.
 
 === "CPU"
 
