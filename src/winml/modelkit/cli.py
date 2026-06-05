@@ -240,7 +240,7 @@ class LazyGroup(ActionGroup):
     invoke_without_command=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
-@click.version_option(version=__version__, prog_name="winml")
+@click.version_option(version=__version__, prog_name="WinML CLI")
 @verbosity_options()
 @click.option(
     "--debug",
@@ -251,9 +251,9 @@ class LazyGroup(ActionGroup):
 )
 @click.pass_context
 def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
-    """WinML CLI - Accelerate Model Deployment on WinML.
+    """WinML CLI - Accelerate Model Deployment on Windows ML.
 
-    Universal ONNX export with various WinML execution providers support.
+    Universal ONNX export with various Windows ML execution providers support.
     """
     # --debug is a backward-compat alias for -vv
     if debug:

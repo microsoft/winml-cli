@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WinML CLI - Accelerate Model Deployment on WinML.
+"""WinML CLI - Accelerate Model Deployment on Windows ML.
 
 WinML CLI provides tools for converting PyTorch models to optimized ONNX format
 with support for QNN (Qualcomm Neural Processing SDK) and OpenVINO backends.
