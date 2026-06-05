@@ -24,26 +24,28 @@ The skill teaches the agent:
 
 ## How to use it
 
-### In GitHub Copilot (Chat / Workspace)
+### With GitHub Copilot Coding Agent
 
-The skill is automatically available when working in this repository. Ask
-Copilot to build, benchmark, or debug a model and it will follow the skill's
-guidance:
+The [Copilot Coding Agent](https://docs.github.com/en/copilot/using-github-copilot/using-the-copilot-coding-agent)
+(the cloud agent that creates PRs) automatically reads `skills/use-winml-cli/SKILL.md`
+when working on this repository. No setup needed — assign an issue or ask
+Copilot to build/optimize a model and it will follow the skill's guidance to
+run the correct `winml` commands.
 
-```
-@workspace Build microsoft/resnet-50 for my NPU and show me the latency
-```
+### With other AI agents
 
-### In other agents (Copilot Extensions, custom MCP)
-
-Point the agent at the skill file:
+For agents that support custom instructions (e.g., Copilot Extensions, Claude,
+ChatGPT with file uploads, or custom MCP tool servers), attach the skill file
+as context:
 
 ```
 skills/use-winml-cli/SKILL.md
 ```
 
-The skill uses standard Copilot Skill format (YAML front-matter + markdown
-body). Any agent that supports skill ingestion can consume it directly.
+You can copy the file contents into your agent's system prompt, upload it as a
+reference document, or include it in a `.github/copilot-instructions.md` for
+VS Code Copilot Chat. The skill uses standard markdown with YAML front-matter —
+any agent that accepts text context can benefit from it.
 
 ---
 
