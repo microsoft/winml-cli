@@ -1,9 +1,9 @@
 # Quickstart
 
-This page proves your winml-cli install works end-to-end. You will export a
-Hugging Face image classifier to ONNX and then inspect the resulting artifact.
-No quantization, no execution-provider selection — just the two commands you
-need to confirm everything is wired up correctly. Estimated time: 5 minutes.
+This page proves your winml-cli install works end-to-end. You will inspect a
+Hugging Face image classifier, then export it to ONNX. No quantization, no
+execution-provider selection — just the commands you need to confirm everything
+is wired up correctly. Estimated time: 5 minutes.
 
 ## Verify the install
 
@@ -19,7 +19,33 @@ skipping SDK versions and Python environment details that plain `winml sys`
 would include. If the command exits without error, your winml-cli install is
 ready. See [`winml sys`](../commands/sys.md) for the full flag reference.
 
-## Export your first model
+## Inspect the model
+
+Before downloading any weights, confirm that winml-cli recognises the model:
+
+```bash
+uv run winml inspect -m microsoft/resnet-50
+```
+
+```text
+╭─────────────────────────── microsoft/resnet-50 ───────────────────────────╮
+│ Task          image-classification                                         │
+│ Model Class   ResNetForImageClassification                                 │
+│ Exporter      OptimumExporter                                              │
+│ WinML Class   WinMLImageClassificationModel                                │
+│ Status        Supported                                                    │
+╰────────────────────────────────────────────────────────────────────────────╯
+```
+
+!!! note "What just happened"
+    `winml inspect` read only the model's `config.json` from Hugging Face Hub —
+    no weights downloaded — and confirmed that `microsoft/resnet-50` maps to a
+    supported task, a known model class, and a compatible ONNX exporter. Always
+    inspect before export to catch unsupported architectures early. See
+    [`winml inspect`](../commands/inspect.md) for output-format and hierarchy
+    options.
+
+## Export the model
 
 ```bash
 uv run winml export -m microsoft/resnet-50 -o resnet50.onnx
@@ -33,30 +59,6 @@ uv run winml export -m microsoft/resnet-50 -o resnet50.onnx
     ancestry, which downstream quantization and compilation steps use to reason
     about the graph. See [`winml export`](../commands/export.md) for the full
     flag reference.
-
-## Inspect the artifact
-
-```bash
-uv run winml inspect -m resnet50.onnx
-```
-
-```text
-╭─────────────────────────── microsoft/resnet-50 ───────────────────────────╮
-│ Task          image-classification                                         │
-│ Model Class   ResNetForImageClassification                                 │
-│ Exporter      OptimumExporter                                              │
-│ WinML Class   WinMLImageClassificationModel                                │
-│ Status        Supported                                                    │
-╰────────────────────────────────────────────────────────────────────────────╯
-```
-
-When you pass a local `.onnx` file, `winml inspect` reads the embedded model
-metadata directly. When you pass a Hugging Face model ID instead, it reads
-the model's `config.json` from the Hub without downloading weights. In both
-cases it resolves the loader, exporter, and WinML inference class that
-winml-cli will use for this architecture. See
-[`winml inspect`](../commands/inspect.md) for output-format and hierarchy
-options.
 
 ## What's next
 
