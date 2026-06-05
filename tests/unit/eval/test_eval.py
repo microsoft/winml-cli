@@ -99,26 +99,33 @@ class TestResolveTask:
         ):
             assert _resolve_task(config) == "image-classification"
 
-    def test_feature_extraction_mapped_to_hf_image_feature_extraction_for_vision_model(self):
-        """Vision FE model with --task feature-extraction is mapped to the HF
-        pipeline task image-feature-extraction so the evaluator registry
-        lookup succeeds."""
+    def test_explicit_feature_extraction_preserved_verbatim(self):
+        """Explicit --task is surfaced verbatim (explicit means explicit).
+
+        The old reverse io_config upgrade (feature-extraction -> image-feature-extraction
+        for vision models) is intentionally gone: per the canonical rule, a vision
+        model's task is image-feature-extraction, so an explicit feature-extraction is
+        out-of-domain and is not silently rewritten.
+        """
         from winml.modelkit.eval.evaluate import _resolve_task
 
-        fake_hf_config = MagicMock()
-        fake_hf_config.model_type = "dinov2"
-        fake_onnx_config = MagicMock()
-        fake_onnx_config.inputs = {"pixel_values": object()}
-
         config = WinMLEvaluationConfig(model_id="facebook/dinov2-base", task="feature-extraction")
+        # feature-extraction is itself a registered (text) evaluator key, so resolution
+        # returns it as-is; a vision model would then fail downstream at eval-run.
+        assert _resolve_task(config) == "feature-extraction"
+
+    def test_auto_detect_vision_feature_model_resolves_image_feature_extraction(self):
+        """Auto-detect (no --task) for a vision embedding model resolves the
+        modality-aware image-feature-extraction via detect_task — the source-level
+        fix for #778 that replaces the reverse io_config reconstruction."""
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        config = WinMLEvaluationConfig(model_id="facebook/dinov2-base")  # no explicit task
         with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=MagicMock()),
             patch(
-                "transformers.AutoConfig.from_pretrained",
-                return_value=fake_hf_config,
-            ),
-            patch(
-                "winml.modelkit.export.io._get_onnx_config",
-                return_value=fake_onnx_config,
+                "winml.modelkit.loader.detect_task",
+                return_value=("image-feature-extraction", "TasksManager"),
             ),
         ):
             assert _resolve_task(config) == "image-feature-extraction"
