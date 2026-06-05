@@ -6,23 +6,6 @@ Common issues and solutions when working with winml-cli.
 
 ## Build and Pipeline Errors
 
-### Config file is empty or invalid JSON
-
-```text
-UsageError: Config file is empty: config.json
-UsageError: Invalid JSON in config: Expecting value: line 1 column 1
-```
-
-**Cause:** The config file passed to `winml build -c` is empty, malformed, or not valid JSON.
-
-**Solution:** Validate the file with `python -m json.tool config.json`, or regenerate it:
-
-```bash
-uv run winml config -m <model> -d <device> -o output/
-```
-
----
-
 ### Cannot enable compilation: no compile section
 
 ```text
