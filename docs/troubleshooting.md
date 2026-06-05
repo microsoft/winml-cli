@@ -118,6 +118,7 @@ This baseline pass collapses constant subgraphs into initializers and propagates
 | **Check EP compatibility** | `uv run winml analyze -m model.onnx --ep <ep>` |
 | **Verbose output** | Add `-v` or `--verbose` to any command |
 | **Skip a pipeline stage** | `--no-quant`, `--no-compile`, `--no-optimize` |
+| **Force rebuild (ignore cache)** | `uv run winml build -c config.json -m <model> -o output/ --rebuild` |
 | **Regenerate config** | `uv run winml config -m <model> -d <device> -o dir/` |
 
 ## See also
