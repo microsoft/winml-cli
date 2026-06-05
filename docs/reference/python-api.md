@@ -101,7 +101,7 @@ WinMLAutoModel.from_onnx(
 WinMLAutoModel.supported_tasks() -> list[str]
 ```
 
-Returns all task strings the toolkit supports (34 tasks).
+Returns all task strings with dedicated inference classes (16 tasks).
 
 ---
 

@@ -115,7 +115,7 @@ The model validators run regardless of whether there are runtime check results â
 | **ORTFusionPipe** | ORT Python transformer optimizer: attention, LayerNorm, and RMSNorm fusions  |
 | **SurgeryPipe**   | Post-optimization model surgery (constant clamping, NaN guard removal)       |
 
-Every optimization is a named **capability** toggled via `--enable-<name>` and `--disable-<name>` flags. Run `--list-capabilities` to see all registered optimizations and their defaults. The optimizer currently ships 43 static capabilities across 13 categories:
+Every optimization is a named **capability** toggled via `--enable-<name>` and `--disable-<name>` flags. Run `--list-capabilities` to see all registered optimizations and their defaults. The optimizer currently ships 57 static capabilities across 13 categories:
 
 | Category     | Capabilities | Examples                                        |
 | ------------ | :----------: | ----------------------------------------------- |
@@ -130,6 +130,7 @@ Every optimization is a named **capability** toggled via `--enable-<name>` and `
 | Activation   | 2            | bias-softmax-fusion, bias-dropout-fusion         |
 | Attention    | 1            | attention-fusion                                 |
 | Misc         | 4            | pad-fusion, gather-to-slice-fusion               |
+| Rewrite      | 14           | attention-expandedattention, matmuladd-conv2d4d, layernormalization-singlelayernorm |
 | Surgery      | 2            | clamp-constant-values, remove-isnan-in-attention-mask |
 
 This granularity matters when a specific fusion breaks a downstream step or when you need an exact optimization profile for a given EP. Some capabilities declare dependencies (e.g., `bias-gelu-fusion` requires `gelu-fusion`); the optimizer resolves these automatically when you enable a flag.

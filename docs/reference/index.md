@@ -129,7 +129,7 @@ Set to `null` (default) to skip evaluation.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `model_id` | `str \| null` | `null` | HuggingFace model ID for config resolution. |
-| `model_path` | `str \| null` | `null` | Path to .onnx file. |
+| `model_path` | `str \| dict[str, str] \| null` | `null` | Path to .onnx file, or a `{role: path}` dict for composite models. |
 | `task` | `str \| null` | `null` | Task type. |
 | `device` | `str` | `"auto"` | Inference device. |
 | `precision` | `str` | `"auto"` | Precision (`fp32`, `fp16`, `w8a16`, etc.). |

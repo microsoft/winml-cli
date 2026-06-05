@@ -25,7 +25,7 @@ uv run winml inspect --list-tasks
 
 ## Supported Tasks
 
-winml-cli supports **35 tasks** across vision, NLP, audio, and multimodal domains.
+winml-cli recognizes **35 task types** across vision, NLP, audio, and multimodal domains. Of these, 16 have dedicated inference classes; the remainder are supported via the generic task fallback.
 
 ### Vision
 
