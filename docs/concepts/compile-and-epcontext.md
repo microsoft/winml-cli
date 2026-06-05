@@ -30,9 +30,9 @@ If you are iterating on quantization settings or ONNX graphs and want to check w
 
 ## Skipping validation
 
-By default `winml compile` runs a validation pass after compilation finishes — it loads the compiled model, feeds it random inputs, and checks that the outputs are numerically consistent with the original. This catches compilation regressions early.
+By default `winml compile` runs a validation pass after compilation finishes — it loads the compiled model into an inference session, feeds it dummy inputs (all-ones tensors), and checks that the outputs do not contain NaN or Inf values. This catches basic compilation failures early (e.g., the EP rejecting the graph or producing garbage outputs).
 
-The `--no-validate` flag skips that pass. It is useful during rapid iteration when you only want to confirm that the EP can accept the model without the overhead of a full inference run. Do not use `--no-validate` for production builds. Shipping an unvalidated compiled artifact risks silent correctness regressions that are difficult to diagnose in the field.
+The `--no-validate` flag skips that pass. It is useful during rapid iteration when you only want to confirm that compilation succeeds without the overhead of a trial inference run.
 
 ## See also
 
