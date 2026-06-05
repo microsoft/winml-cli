@@ -21,6 +21,13 @@ or feed a pre-processed file into a later stage directly.
 
 ## Pipeline Stages
 
+### Export — `winml export`
+
+`winml export` loads a Hugging Face model (pretrained or random-weight), traces it with
+torch.export or an Optimum-based exporter, and writes a portable, device-agnostic ONNX
+file. The output at this stage is a plain ONNX graph with float32 weights and no
+EP-specific nodes.
+
 ### Analyze — `winml analyze`
 
 `winml analyze` performs static compatibility analysis on an ONNX graph against a target
@@ -36,13 +43,6 @@ winml analyze -m model.onnx --ep qnn --device npu
 Add `--optim-config optim.json` to output auto-discovered optimization recommendations
 that can be fed directly into `winml optimize`. The same analyzer also drives the
 autoconf feedback loop inside `winml build`.
-
-### Export — `winml export`
-
-`winml export` loads a Hugging Face model (pretrained or random-weight), traces it with
-torch.export or an Optimum-based exporter, and writes a portable, device-agnostic ONNX
-file. The output at this stage is a plain ONNX graph with float32 weights and no
-EP-specific nodes.
 
 ### Optimize — `winml optimize`
 
