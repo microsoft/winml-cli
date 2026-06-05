@@ -91,6 +91,44 @@ uv run python scripts/e2e_eval/run_eval.py --retry-failed
 | `--verbose` | off | Print stderr for failed models |
 | `--continue` | off | Skip models with existing results |
 | `--retry-failed [TYPE ...]` | — | Re-run failed models (implies `--continue`) |
+| `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
+
+#### `--build-only` — Generate per-stage models (no EP required)
+
+`--build-only` runs config + build with `--no-compile`, writing each stage's ONNX —
+`export.onnx`, `optimized.onnx`, `quantized.onnx`. Because compile is skipped, this
+needs **no execution-provider hardware** and runs on any CPU machine. Perf and accuracy
+phases are skipped.
+
+When `--ep`/`--device` are **omitted**, every model is built once per EP in the
+build-only matrix, each into a `<ep>_<device>/` subdir:
+
+| Label | EP | Device |
+|---|---|---|
+| `qnn_npu` | qnn | npu |
+| `qnn_gpu` | qnn | gpu |
+| `ov_cpu` | openvino | cpu |
+| `ov_npu` | openvino | npu |
+| `ov_gpu` | openvino | gpu |
+| `mlas_cpu` | cpu (MLAS) | cpu |
+| `dml_gpu` | dml | gpu |
+| `vitisai_npu` | vitisai | npu |
+
+Precision per combo follows the eval policy: NPU defaults to `w8a16`, CPU/GPU omit the
+flag (winml auto), and native-quant EPs (VitisAI) are built unquantized (`--no-quant`).
+When `--ep` or `--device` is pinned, a single build is written directly into
+`<output-dir>/models/<slug>/`.
+
+```bash
+# Build all EP-matrix variants for P0 models (8 builds per model)
+uv run python scripts/e2e_eval/run_eval.py --build-only --priority P0
+
+# Pin a single EP/device (no matrix; writes directly to model dir)
+uv run python scripts/e2e_eval/run_eval.py --build-only --hf-model microsoft/resnet-50 --ep qnn --device npu
+```
+
+Composite models (multiple sub-components) are built into per-component subdirectories
+under each EP subdir.
 
 ### `generate_report.py` — Regenerate Reports
 
