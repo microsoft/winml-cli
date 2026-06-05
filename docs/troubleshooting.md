@@ -110,49 +110,6 @@ This baseline pass collapses constant subgraphs into initializers and propagates
 
 ---
 
-## Device and EP Issues
-
-### Unknown EP or device mismatch
-
-```text
-UsageError: Unknown EP: invalid_ep
-UsageError: --ep QNNExecutionProvider cannot run on --device gpu
-```
-
-**Cause:** The specified EP doesn't exist or doesn't support the requested device.
-
-**Solution:** Check available EPs on your system:
-
-```bash
-uv run winml sys --list-ep
-```
-
-Valid EP aliases: `qnn`, `openvino`, `dml`, `cpu`, `tensorrt`, `migraphx`, `vitisai`.
-
----
-
-### No NPU device detected
-
-```text
-Available Devices (priority order)
-  #1  GPU   ...
-  #2  CPU   ...
-```
-
-**Cause:** NPU driver not installed, or Windows version is too old.
-
-**Solution:**
-
-1. Verify Windows 11 24H2 or later
-2. Check for NPU driver updates in Device Manager → Neural processors
-3. Install the latest Qualcomm AI Engine Direct SDK (for Snapdragon NPUs)
-4. Re-run `uv run winml sys` to confirm
-
-!!! note
-    All winml-cli commands work without NPU hardware. Use `--device auto` to fall back to GPU or CPU.
-
----
-
 ## Quantization and Compilation Failures
 
 ### Quantization failed
