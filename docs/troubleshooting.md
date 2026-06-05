@@ -12,13 +12,16 @@ Common issues and solutions when working with winml-cli.
 UsageError: Cannot enable compilation: no compile section found in the config file
 ```
 
-**Cause:** You passed `--compile` but the config JSON has no `"compile"` section (it's `null`).
+**Cause:** Compilation is **off by default** in `winml build`. You passed `--compile` to explicitly enable it, but the config JSON has no `"compile"` section (it's `null`). This happens when the config was generated without a device target that supports EPContext (e.g., `--device cpu` or `--device auto` on a machine without NPU).
 
-**Solution:** Regenerate the config with compilation enabled, or add a compile section manually:
+**Solution:** Regenerate the config targeting a device that supports compilation (NPU or GPU with an EP that produces EPContext):
 
 ```bash
 uv run winml config -m <model> -d npu -o output/
 ```
+
+!!! note
+    By default `winml build` skips the compile stage unless `--compile` is passed or the config contains a non-null `"compile"` section. To include compilation in the generated config, specify a device that maps to an EPContext-capable EP (e.g., `-d npu`).
 
 ---
 
