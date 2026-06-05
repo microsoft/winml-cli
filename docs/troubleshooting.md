@@ -17,7 +17,7 @@ UsageError: Cannot enable compilation: no compile section found in the config fi
 **Solution:** Regenerate the config targeting a device that supports compilation (NPU or GPU with an EP that produces EPContext):
 
 ```bash
-uv run winml config -m <model> -d npu -o output/
+uv run winml config -m <model> -d npu --compile -o output/
 ```
 
 !!! note
