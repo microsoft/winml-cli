@@ -83,6 +83,9 @@ hardware and writes the winning device (NPU, GPU, or CPU) together with
 matching precision and compile settings into `convnext_config.json`. You can
 open the file to see exactly what was picked before committing to a full build.
 
+!!! tip "Config as CI/CD artifact"
+    The generated `convnext_config.json` is a self-contained, reproducible pipeline specification. Check it into version control and use it in CI/CD pipelines (`winml build -c convnext_config.json -m ... -o ...`) to guarantee identical model processing across machines and runs. Set `"auto": false` in the config for fully deterministic builds (disables the autoconf discovery loop). See [Why version a config](../concepts/config-and-build.md#why-version-a-config) for details.
+
 For a field-by-field explanation of every section in the generated JSON and how
 the `quant` and `compile` blocks interact, see
 [Config and build](../concepts/config-and-build.md).

@@ -47,6 +47,9 @@ and applies further passes; `--no-analyze` disables it for a deterministic
 single-pass build. Individual stages can be suppressed with `--no-quant`,
 `--no-compile`, and `--no-optimize` without touching the config file.
 
+!!! tip "Reproducible CI/CD builds"
+    The config file is a portable, self-contained pipeline specification. Check it into source control and invoke `winml build -c config.json` in CI to produce identical artifacts without manual flag management. Set `"auto": false` in the config to disable the autoconf discovery loop for fully deterministic output.
+
 ## Examples
 
 ```bash

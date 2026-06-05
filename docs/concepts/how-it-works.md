@@ -113,6 +113,8 @@ which is convenient for one-off experiments.
 
 The config file is written (or updated) to the output directory after the optimize stage
 completes, capturing any autoconf-adjusted fusion flags so the build is reproducible.
+This persisted `winml_build_config.json` is a self-contained pipeline specification that
+you can check into version control and run in CI/CD (`winml build -c winml_build_config.json -m <model> -o output/`) for repeatable, unattended builds across environments.
 
 ## See Also
 
