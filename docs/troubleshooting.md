@@ -92,6 +92,24 @@ If unsupported nodes still remain after optimization, consider:
 
 ---
 
+### Many "unknown" results from constant nodes
+
+When `winml analyze` reports a large number of nodes as "unknown", the model likely hasn't been normalized — it contains raw constant-folding subgraphs, missing shape annotations, or redundant initializer nodes that the analyzer cannot classify.
+
+**Solution:** Run `winml optimize` with no optimization flags to normalize the model (constant folding, shape inference, dead-node elimination), then re-analyze:
+
+```bash
+# Normalize only (no fusion flags)
+uv run winml optimize -m model.onnx -o model_normalized.onnx
+
+# Re-analyze — constant nodes are now folded, shapes are inferred
+uv run winml analyze -m model_normalized.onnx --ep qnn
+```
+
+This baseline pass collapses constant subgraphs into initializers and propagates tensor shapes throughout the graph, giving the analyzer enough information to classify nodes correctly.
+
+---
+
 ## Device and EP Issues
 
 ### Unknown EP or device mismatch
