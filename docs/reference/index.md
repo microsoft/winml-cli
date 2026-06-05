@@ -181,6 +181,17 @@ Set to `null` (default) to skip evaluation.
 }
 ```
 
+### The `auto` field
+
+The top-level `"auto"` field (default: `true`) controls whether the build pipeline runs the **autoconf loop** — an iterative analyze → discover → re-optimize cycle that automatically detects which additional graph optimizations the model needs for the target EP.
+
+| Value | Behavior |
+|-------|----------|
+| `true` (default) | After initial optimization, the analyzer inspects the graph for unsupported or sub-optimal nodes and proposes additional optimization flags. The pipeline re-optimizes using the discovered flags and repeats (up to `--max-optim-iterations`, default 3). The final optimization result depends on what the analyzer discovers at runtime, so **outputs may vary** if the model or EP support changes between runs. |
+| `false` | The pipeline applies only the explicit `optim` flags from the config — no autoconf discovery, no re-optimization loop. Builds are **fully deterministic** given the same config and input model. Use this for reproducible CI builds or when you have already tuned the optimization flags manually. |
+
+When `auto` is `true` and the autoconf loop discovers additional flags, the final persisted config (written to the output directory) includes the merged result so you can inspect what was discovered.
+
 ## See also
 
 - [winml config](../commands/config.md) — generate a config interactively
