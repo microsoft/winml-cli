@@ -125,10 +125,13 @@ Each validated model is tested against available EPs:
 
 | EP | Alias | Devices | Notes |
 |----|-------|---------|-------|
-| CPUExecutionProvider | `cpu` | CPU | Always available |
-| QNNExecutionProvider | `qnn` | NPU, GPU | Qualcomm Snapdragon; requires QNN SDK |
-| OpenVINOExecutionProvider | `openvino` | CPU, GPU, NPU | Intel hardware; install with `--extra openvino` |
+| NvTensorRTRTXExecutionProvider | `nvtensorrtrtx`, `nv_tensorrt_rtx` | GPU | NVIDIA TensorRT-RTX; NVIDIA GPU with TensorRT runtime |
+| CUDAExecutionProvider | `cuda` | GPU | NVIDIA CUDA; any CUDA-capable GPU |
+| MIGraphXExecutionProvider | `migraphx` | GPU | AMD ROCm MIGraphX |
+| QNNExecutionProvider | `qnn` | NPU, GPU | Qualcomm Snapdragon; bundled in ORT (`--compiler qairt` needs QNN SDK) |
+| OpenVINOExecutionProvider | `openvino` | NPU, GPU, CPU | Intel hardware; install with `--extra openvino` |
 | DmlExecutionProvider | `dml` | GPU | DirectML; any DirectX 12 GPU |
+| CPUExecutionProvider | `cpu` | CPU | Always available |
 | VitisAIExecutionProvider | `vitisai` | NPU | AMD/Xilinx |
 
 ---
