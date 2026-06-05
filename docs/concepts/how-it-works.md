@@ -13,22 +13,29 @@ programmatic entry point for `WinMLAutoModel.from_pretrained()`.
 
 ## The Pipeline at a Glance
 
-```mermaid
-flowchart TD
-    A[PyTorch / HF model] --> B[winml export]
-    O[Existing ONNX file] --> C
-    B --> C[winml optimize]
-    C --> D[winml quantize]
-    D --> E[winml compile]
-    E --> F[EP-ready ONNX]
-    F --> G[winml perf / eval]
-```
+![winml-cli workflow](../assets/workflow-only.svg)
 
 The stages run in order, and each one writes an intermediate ONNX file to the output
 directory. All intermediate artifacts are preserved so you can inspect any stage's output
 or feed a pre-processed file into a later stage directly.
 
 ## Pipeline Stages
+
+### Analyze — `winml analyze`
+
+`winml analyze` performs static compatibility analysis on an ONNX graph against a target
+execution provider. It classifies every node as Supported, Partial, Unsupported, or
+Unknown — without running the model on the device. Use it before building to check if
+your model (or an intermediate artifact from any pipeline stage) will run cleanly on the
+target EP:
+
+```bash
+winml analyze -m model.onnx --ep qnn --device npu
+```
+
+Add `--optim-config optim.json` to output auto-discovered optimization recommendations
+that can be fed directly into `winml optimize`. The same analyzer also drives the
+autoconf feedback loop inside `winml build`.
 
 ### Export — `winml export`
 

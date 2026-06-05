@@ -17,6 +17,7 @@ exclude_docs: |
 extra:
   version:
     provider: mike
+    default: latest
 
 theme:
   name: material
@@ -90,8 +91,8 @@ nav:
           - How winml-cli works: concepts/how-it-works.md
           - Graph and IR: concepts/graphs-and-ir.md
           - Weight and Activation: concepts/weight-and-activation.md
-          - EP and Device: concepts/eps-and-devices.md
           - Datatype and Quantization: concepts/quantization.md
+          - EP and Device: concepts/eps-and-devices.md
       - WinML CLI:
           - Primitives and pipeline: concepts/primitives-and-pipeline.md
           - Load and export: concepts/load-and-export.md

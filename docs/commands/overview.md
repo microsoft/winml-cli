@@ -15,7 +15,7 @@ configuration and tunes the ONNX graph. **Build** (`export`, `quantize`,
 The typical workflow follows that order: run `winml sys` to confirm hardware
 and EPs, then `winml inspect` or `winml catalog` to verify model support. Use
 `winml config` to generate a build configuration, then `winml build` to execute
-the full pipeline — or chain `export` → `optimize` → `quantize` → `compile`
+the full pipeline — or chain `export` → `analyze` → `optimize` → `quantize` → `compile`
 individually for finer control. Close with `winml perf` and `winml eval` to
 measure speed and accuracy.
 

@@ -4,7 +4,7 @@ Common issues and solutions when working with winml-cli.
 
 ---
 
-## Build and Pipeline Errors
+## Compile
 
 ### Cannot enable compilation: no compile section
 
@@ -57,7 +57,7 @@ uv run winml build -c config.json -m model -o output/ --no-compile
 
 ---
 
-## Analysis and Compatibility
+## Analyze
 
 ### Unsupported nodes persist after analysis
 
@@ -110,6 +110,26 @@ This baseline pass collapses constant subgraphs into initializers and propagates
 
 ---
 
+## Build / Cache
+
+### Disk full / out of space
+
+Build artifacts (exported ONNX, optimized graphs, quantized models, compiled EPContext files) are cached under:
+
+```
+C:\Users\<user>\.cache\winml
+```
+
+This directory can grow significantly after multiple builds with large models. If you encounter disk-full errors or want to reclaim space, it is safe to delete the entire folder:
+
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\.cache\winml"
+```
+
+The next `winml build` will re-create the cache as needed. Use `--rebuild` to force a full rebuild without relying on cached intermediates.
+
+---
+
 ## General Tips
 
 | Tip | Command |
@@ -120,6 +140,7 @@ This baseline pass collapses constant subgraphs into initializers and propagates
 | **Skip a pipeline stage** | `--no-quant`, `--no-compile`, `--no-optimize` |
 | **Force rebuild (ignore cache)** | `uv run winml build -c config.json -m <model> -o output/ --rebuild` |
 | **Regenerate config** | `uv run winml config -m <model> -d <device> -o dir/` |
+| **Free disk space** | Delete `C:\Users\<user>\.cache\winml` |
 
 ## See also
 
