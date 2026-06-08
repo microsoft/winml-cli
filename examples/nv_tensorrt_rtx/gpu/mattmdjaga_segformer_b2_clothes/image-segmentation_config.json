@@ -44,6 +44,7 @@
     "dataset": {
       "path": "mattmdjaga/human_parsing_dataset",
       "split": "train",
+      "samples": 1000,
       "columns_mapping": {
         "annotation_column": "mask"
       }

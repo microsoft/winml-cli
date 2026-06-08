@@ -42,7 +42,8 @@
     "task": "image-classification",
     "dataset": {
       "path": "timm/mini-imagenet",
-      "split": "test"
+      "split": "test",
+      "samples": 1000
     }
   }
 }

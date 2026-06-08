@@ -67,7 +67,8 @@
     "task": "text-classification",
     "dataset": {
       "path": "privet1mir/finbert_dataset",
-      "split": "val"
+      "split": "val",
+      "samples": 1000
     }
   }
 }

@@ -64,6 +64,7 @@
     "dataset": {
       "path": "detection-datasets/fashionpedia",
       "split": "val",
+      "samples": 1000,
       "columns_mapping": {
         "annotation_column": "objects",
         "bbox_key": "bbox",

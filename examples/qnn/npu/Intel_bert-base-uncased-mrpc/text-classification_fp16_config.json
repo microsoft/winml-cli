@@ -68,6 +68,7 @@
     "dataset": {
       "path": "nyu-mll/glue",
       "name": "mrpc",
+      "samples": 1000,
       "columns_mapping": {
         "input_column": "sentence1",
         "second_input_column": "sentence2"
