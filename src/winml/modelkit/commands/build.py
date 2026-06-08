@@ -22,7 +22,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 from rich.logging import RichHandler
@@ -37,6 +37,7 @@ from ..utils.console import (
     print_stage_skip,
     print_stages_header,
 )
+from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
@@ -140,10 +141,13 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
     """
     from ..loader import resolve_loader_config
 
-    _, hf_config, resolved_class = resolve_loader_config(
+    _, hf_config, resolved_class_typed = resolve_loader_config(
         model_type=model_type,
         task=task,
     )
+    # Annotated Any: resolver returns bare `type` but the class is a HF model
+    # with extra methods (from_config) that bare `type` doesn't expose.
+    resolved_class: Any = resolved_class_typed
 
     try:
         model = resolved_class(hf_config)
@@ -152,7 +156,7 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
         model = resolved_class.from_config(hf_config)
 
     model.eval()
-    return model
+    return cast("nn.Module", model)
 
 
 def _build_modules(
@@ -222,6 +226,179 @@ def _build_modules(
         results.append(result)
 
     return results
+
+
+def _validate_task_supported_for_model(
+    model_id: str,
+    task: str,
+    *,
+    task_field_name: str = "task",
+    trust_remote_code: bool = False,
+    library_name: str = "transformers",
+    hf_config: Any | None = None,
+) -> Any:
+    """Validate that a task is supported for a model's architecture.
+
+    Private helper for ``winml build`` only. Loads HuggingFace config metadata
+    and validates against ``TasksManager`` supported-task mapping.
+
+    Why this lives here and not in ``loader/`` as public API:
+        Only ``winml build`` accepts task and model from independent sources
+        (config JSON's ``loader.task`` + ``--model``) and runs the full
+        export+optimize+quantize+compile pipeline that benefits from a fast
+        upfront fail. Other CLI entrypoints get equivalent coverage through
+        their existing resolution paths:
+
+        - ``winml config`` derives task from the model when both are present,
+          so the mismatch can't be silently constructed.
+        - ``winml export`` / ``winml perf`` surface incompatibilities through
+          ``resolve_cfg`` -> ``ONNXConfigNotFoundError`` later in the call.
+
+        Promoting this to public API would signal that any command should
+        wire it in, which is not the current design. If a second caller
+        appears, move this back to ``loader/`` and re-export it.
+
+    Args:
+        model_id: HuggingFace model ID or local path.
+        task: Requested task name.
+        task_field_name: Field label used in user-facing error messages.
+        trust_remote_code: Whether to trust remote/custom code while loading config.
+        library_name: Source library for TasksManager lookup.
+        hf_config: Optional pre-loaded HF config. When supplied, the
+            ``AutoConfig.from_pretrained`` round-trip is skipped. Used by
+            ``_validate_loader_tasks_for_model`` to preflight multiple tasks
+            against the same model without re-fetching.
+
+    Returns:
+        The loaded (or passed-through) HuggingFace config. Callers can reuse
+        this to avoid a duplicate ``AutoConfig.from_pretrained`` later
+        (see PR #719 -- same deduping pattern as ``resolve_loader_config``).
+
+    Raises:
+        ValueError: If the task is not supported for the model architecture.
+    """
+    from ..export.io import ensure_hf_models_registered
+    from ..loader.task import TASK_SYNONYM_EXTENSIONS, get_supported_tasks, normalize_task
+
+    if hf_config is None:
+        from transformers import AutoConfig
+
+        hf_config = AutoConfig.from_pretrained(
+            model_id,
+            trust_remote_code=trust_remote_code,
+        )
+    model_type = getattr(hf_config, "model_type", None)
+    if not model_type:
+        return hf_config
+
+    # Ensure optimum.exporters.onnx.model_configs is imported before querying
+    # the registry. TasksManager._SUPPORTED_MODEL_TYPE is populated lazily
+    # when optimum's ONNX model_configs module is first imported (triggered by
+    # any import of optimum.exporters.onnx). Without this, get_supported_tasks
+    # returns [] for models like resnet that are registered there, not in the
+    # winml custom registry.
+    ensure_hf_models_registered()
+
+    supported_tasks = get_supported_tasks(model_type, library_name=library_name)
+    # If the upstream registry has no task list for this architecture,
+    # defer to downstream loader resolution instead of hard-failing here.
+    if not supported_tasks:
+        return hf_config
+
+    # [1] Verbatim canonical match — definitive accept. Comparing without
+    #     normalization first means an arch that lists `image-feature-extraction`
+    #     in its supported set accepts that name as-is, while a text-only arch
+    #     that lists only `feature-extraction` does not silently accept it via
+    #     Optimum's synonym collapse on this branch.
+    if task in supported_tasks:
+        return hf_config
+
+    # [2] HF-pipeline-only task names that Optimum's TasksManager does not
+    #     know but the rest of the CLI accepts (e.g. ``next-sentence-prediction``
+    #     handled via HF_TASK_DEFAULTS, ``mask-generation`` preserved for SAM2).
+    #     These are routed downstream by export/io.py::map_task_synonym, so
+    #     rejecting here would break invocations that ``winml config`` and
+    #     ``winml export`` accept.
+    if task in TASK_SYNONYM_EXTENSIONS:
+        return hf_config
+
+    # [3] Optimum synonym fallback — e.g. ``masked-lm`` -> ``fill-mask``.
+    #     Accept, but warn so users converge on the canonical spelling.
+    #
+    #     Known limitation: Optimum collapses text/image variants of
+    #     feature-extraction (``image-feature-extraction`` -> ``feature-extraction``)
+    #     and routes ``sentence-similarity`` -> ``feature-extraction``. This
+    #     branch therefore silently accepts cross-modality combinations such as
+    #     ``--task image-feature-extraction`` against a text-only arch. Such
+    #     mismatches must be caught downstream where the HF-pipeline-keyed
+    #     registries see the un-collapsed ``loader.task`` value.
+    normalized = normalize_task(task)
+    normalized_supported = {normalize_task(t) for t in supported_tasks}
+    if normalized in normalized_supported:
+        if normalized != task:
+            logger.warning(
+                "%s=%r matches via Optimum synonym mapping; consider using the canonical name %r.",
+                task_field_name,
+                task,
+                normalized,
+            )
+        return hf_config
+
+    supported_list = ", ".join(supported_tasks)
+    raise ValueError(
+        f"{task_field_name}='{task}' is not supported for --model {model_id} "
+        f"(architecture: {model_type}).\n"
+        f"Supported tasks: {supported_list}."
+    )
+
+
+def _validate_loader_tasks_for_model(
+    *,
+    model_id: str | None,
+    configs: list[WinMLBuildConfig],
+    trust_remote_code: bool,
+) -> Any | None:
+    """Validate config loader task(s) against --model architecture.
+
+    This runs at command entry before setup/stage output so incompatible
+    config/model combinations fail with an actionable one-line error.
+
+    Loads ``AutoConfig`` at most once and reuses it across every per-task
+    check, then returns it so the build pipeline can plumb it down to
+    ``load_hf_model`` and avoid the second/third round-trip that PR #719
+    deduped on the inspect path.
+
+    See ``_validate_task_supported_for_model`` for the rationale on why this
+    preflight is wired into ``winml build`` only.
+
+    Returns:
+        Pre-loaded ``PretrainedConfig`` (caller should pass this into
+        ``_run_single_build`` so ``load_hf_model`` skips its own
+        ``AutoConfig.from_pretrained`` call), or ``None`` when no model_id
+        was provided / model_id is an ONNX file / no task to validate.
+    """
+    if model_id is None:
+        return None
+
+    if cli_utils.is_onnx_file_path(model_id):
+        return None
+
+    tasks = {
+        cfg.loader.task for cfg in configs if cfg.loader is not None and cfg.loader.task is not None
+    }
+    if not tasks:
+        return None
+
+    hf_config: Any | None = None
+    for task in sorted(tasks):
+        hf_config = _validate_task_supported_for_model(
+            model_id=model_id,
+            task=task,
+            task_field_name="config.loader.task",
+            trust_remote_code=trust_remote_code,
+            hf_config=hf_config,
+        )
+    return hf_config
 
 
 # =============================================================================
@@ -312,13 +489,7 @@ def _build_modules(
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Enable verbose logging",
-)
+@cli_utils.verbosity_options()
 @click.pass_context
 def build(
     ctx: click.Context,
@@ -335,7 +506,8 @@ def build(
     no_analyze: bool,
     max_optim_iterations: int | None,
     trust_remote_code: bool,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
 ) -> None:
     r"""Build a WinML-optimized ONNX model from a HuggingFace model or .onnx file.
 
@@ -365,12 +537,9 @@ def build(
         # Force rebuild
         winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild
     """
-    # Inherit debug flag from parent context
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
-
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     # Validate mutual exclusion
     if output_dir and use_cache:
@@ -426,8 +595,6 @@ def build(
             if no_compile:
                 config_or_configs.compile = None
 
-        is_module_mode = isinstance(config_or_configs, list)
-
         # If --device was explicitly provided, patch compile config and clear
         # quant for CPU/GPU (neither device uses quantization by default).
         if cli_utils.is_cli_provided(ctx, "device") and device:
@@ -436,8 +603,8 @@ def build(
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
-                resolved_quant, _ = resolve_quant_compile_config(device=device)
-                if resolved_quant is None:
+                resolved_quant, _ = resolve_quant_compile_config(device=device, ep=ep)
+                if no_quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
@@ -458,7 +625,7 @@ def build(
                     if patched is not None:
                         cfg.compile = patched
 
-            if is_module_mode:
+            if isinstance(config_or_configs, list):
                 for _cfg in config_or_configs:
                     _patch_device(_cfg)
             else:
@@ -469,12 +636,22 @@ def build(
         # surfaces malformed configs immediately and prevents partial
         # scratch state when the user passes the wrong file or a
         # hand-edited config (#P1 UX).
-        _configs_to_validate = config_or_configs if is_module_mode else [config_or_configs]
+        _configs_to_validate: list[WinMLBuildConfig] = (
+            config_or_configs
+            if isinstance(config_or_configs, list)
+            else [config_or_configs]
+        )
         try:
             for _cfg in _configs_to_validate:
                 _cfg.validate()
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
+
+        preloaded_hf_config = _validate_loader_tasks_for_model(
+            model_id=model_id,
+            configs=_configs_to_validate,
+            trust_remote_code=trust_remote_code,
+        )
 
         # Build extra kwargs for pipeline control
         extra_kwargs: dict[str, Any] = {}
@@ -487,7 +664,7 @@ def build(
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
 
-        if is_module_mode:
+        if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
             if use_cache:
                 raise click.UsageError(
@@ -506,7 +683,7 @@ def build(
             print_setup(
                 console,
                 model=model_id or "random-init",
-                config=Path(config_file).name,
+                config=Path(config_file).name if config_file else "(auto)",
                 output=str(resolved_dir),
                 source="HuggingFace",
             )
@@ -581,6 +758,9 @@ def build(
                     config.generate_cache_key(),
                 )
             else:
+                # Guarded earlier (line ~381: `if not output_dir and not use_cache`).
+                if output_dir is None:
+                    raise click.UsageError("--output-dir is required when --use-cache is not set.")
                 resolved_dir = Path(output_dir)
 
             _run_single_build(
@@ -593,6 +773,7 @@ def build(
                 ep=ep,
                 device=device,
                 extra_kwargs=extra_kwargs,
+                preloaded_hf_config=preloaded_hf_config,
             )
 
     except click.UsageError:
@@ -639,11 +820,10 @@ def _run_single_build(
     ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
+    preloaded_hf_config: Any | None = None,
 ) -> None:
     """Run single-model build with Rich Live progress per stage."""
-    from .config import _is_onnx_file
-
-    _is_onnx = model_id is not None and _is_onnx_file(model_id)
+    _is_onnx = model_id is not None and cli_utils.is_onnx_file_path(model_id)
     # Derive source from _is_onnx to guarantee header label matches pipeline
     source = "ONNX" if _is_onnx else detect_model_source(model_id)
 
@@ -689,6 +869,7 @@ def _run_single_build(
 
     try:
         if _is_onnx:
+            assert model_id is not None  # _is_onnx implies this
             stage_timings = _build_onnx_pipeline(
                 config=config,
                 onnx_path=Path(model_id),
@@ -708,6 +889,7 @@ def _run_single_build(
                 ep=ep,
                 device=device,
                 extra_kwargs=extra_kwargs,
+                preloaded_hf_config=preloaded_hf_config,
             )
 
         elapsed = time.monotonic() - start_time
@@ -757,13 +939,13 @@ def _show_io(sl: Any, config: WinMLBuildConfig) -> None:
         return
     inputs = export_cfg.input_tensors or []
     outputs = export_cfg.output_tensors or []
-    for i, t in enumerate(inputs):
-        name = t.name or "(unnamed)"
-        shape = str(list(t.shape)) if getattr(t, "shape", None) else "dynamic"
-        dtype = getattr(t, "dtype", None) or "?"
+    for i, in_spec in enumerate(inputs):
+        name = in_spec.name or "(unnamed)"
+        shape = str(list(in_spec.shape)) if in_spec.shape else "dynamic"
+        dtype = getattr(in_spec, "dtype", None) or "?"
         sl.io_input(name, shape, dtype, first=(i == 0))
-    for i, t in enumerate(outputs):
-        name = t.name or "(unnamed)"
+    for i, out_spec in enumerate(outputs):
+        name = out_spec.name or "(unnamed)"
         # OutputTensorSpec has name only — show name, no shape/dtype
         label = "Output:       " if i == 0 else "              "
         sl.detail(f"{label}[cyan]{name}[/cyan]")
@@ -818,7 +1000,7 @@ def _run_optimize_stage(
         _ep_bars: dict[str, int] = {}
         _ep_counts: dict[str, dict[str, int]] = {}
         _ep_totals: dict[str, int] = {}
-        _current_ep = [""]
+        _current_ep: EPName | None = None
         _current_iter = [0, 0]  # [iteration, max_iter]
         _header_shown = [False]
 
@@ -838,7 +1020,8 @@ def _run_optimize_stage(
         _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
-            _current_ep[0] = ep_name
+            nonlocal _current_ep
+            _current_ep = ep_name
             _ep_counts[ep_name] = {}
             total = sum(operator_counts.values())
             _ep_totals[ep_name] = total
@@ -854,7 +1037,9 @@ def _run_optimize_stage(
                 _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
 
         def _on_node_result(pattern_runtime: Any) -> None:
-            ep_name = _current_ep[0]
+            ep_name = _current_ep
+            if ep_name is None:
+                return  # pre-init: _on_ep_start hasn't fired yet
             level = pattern_runtime.result.classification.value
             counts = _ep_counts.setdefault(ep_name, {})
             counts[level] = counts.get(level, 0) + 1
@@ -954,7 +1139,7 @@ def _run_quantize_stage(
         return current_path
 
     with StageLive("quantize", console) as sl:
-        wt = config.quant.weight_type or "?"
+        wt = config.quant.weight_type
         sl.set_status(f"Quantizing ({wt})...")
         # Calibration info before blocking call
         ds = config.quant.dataset_name or "default"
@@ -1098,6 +1283,7 @@ def _build_hf_pipeline(
     ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
+    preloaded_hf_config: Any | None = None,
 ) -> list[tuple[str, float | None]] | None:
     """HF build pipeline with cascading StageLive per stage.
 
@@ -1151,7 +1337,9 @@ def _build_hf_pipeline(
         sl.set_status("Exporting to ONNX...")
 
         # Load + export (blocking)
-        pytorch_model = _load_model(config, model_id, trust_remote_code=False)
+        pytorch_model = _load_model(
+            config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
+        )
         t0 = time.monotonic()
         export_onnx(
             model=pytorch_model,

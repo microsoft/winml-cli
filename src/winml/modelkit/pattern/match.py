@@ -20,7 +20,8 @@ import numpy as np
 if TYPE_CHECKING:
     from onnx import NodeProto
 
-    from winml.modelkit.pattern.base import Pattern, PatternMatcher
+    from .base import Pattern, PatternMatcher
+    from .models import Pattern as PatternModel
 
 
 @dataclass
@@ -59,7 +60,7 @@ class SkeletonMatchResult:
         matched_node_keys: List of stable node keys aligned with matched_nodes.
     """
 
-    pattern: "Pattern"  # Pattern instance
+    pattern: "Pattern | PatternModel"  # Pattern ABC instance or Pydantic Pattern model
     matched_nodes: list["NodeProto"]
     matcher: "PatternMatcher" = field(repr=False)  # PatternMatcher reference
     inputs: list[str] = field(default_factory=list)
@@ -102,7 +103,7 @@ class PatternMatchResult:
     match_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     @property
-    def pattern(self):
+    def pattern(self) -> Pattern | PatternModel:
         """Get the pattern that was matched."""
         return self.skeleton_match_result.pattern
 

@@ -52,12 +52,16 @@ class ImageDataset(BaseTaskDataset):
             self._data_split = "train"
             self._config.setdefault("streaming", True)
 
-    def _load_and_sample(self) -> Any:
+    def _load_and_sample(self, revision: str | None = None) -> Any:
         """Load the configured dataset and apply sample/shuffle.
 
         Shared by ImageDataset and ObjectDetectionDataset. Column detection
         is *not* done here — callers run their own detection on the returned
         dataset because the column schema differs by task.
+
+        Args:
+            revision: Optional dataset revision (branch, tag, or commit) for
+                datasets that need to be pinned (e.g. ``refs/convert/parquet``).
 
         Returns:
             A materialized arrow Dataset of up to ``self._max_samples`` rows.
@@ -68,7 +72,12 @@ class ImageDataset(BaseTaskDataset):
         streaming = self._config.get("streaming", False) and self._max_samples is not None
         logger.info(f"Loading dataset: {self._dataset_name} with split: {self._data_split}")
         try:
-            dataset = load_dataset(self._dataset_name, split=self._data_split, streaming=streaming)
+            dataset = load_dataset(
+                self._dataset_name,
+                split=self._data_split,
+                streaming=streaming,
+                revision=revision,
+            )
         except Exception as e:
             logger.error(f"Failed to load dataset {self._dataset_name}: {e}")
             raise

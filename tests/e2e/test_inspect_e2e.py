@@ -60,10 +60,15 @@ def _run_json(*args: str) -> dict:
     """Invoke inspect with *args + '-f json' and return parsed JSON.
 
     Asserts exit_code == 0 and that the output is valid JSON.
+
+    Parses ``result.stdout`` (not ``result.output``): under Click 8.4
+    ``result.output`` interleaves stderr into stdout, so ``-v`` log lines
+    emitted on stderr would corrupt the JSON. stdout carries only the
+    structured payload, matching how real JSON consumers read the command.
     """
     result = _run(*args, "-f", "json")
     assert result.exit_code == 0, f"inspect exited {result.exit_code}:\n{result.output}"
-    return json.loads(result.output)
+    return json.loads(result.stdout)
 
 
 def _run_network(model: str, task: str | None = None) -> dict:
@@ -77,7 +82,7 @@ def _run_network(model: str, task: str | None = None) -> dict:
         args.extend(["-t", task])
     result = CliRunner().invoke(inspect, args, obj={}, catch_exceptions=False)
     assert result.exit_code == 0, f"inspect failed (exit {result.exit_code}):\n{result.output}"
-    return json.loads(result.output)
+    return json.loads(result.stdout)
 
 
 def _assert_common_structure(data: dict, model_id: str, expected_task: str) -> None:
@@ -229,7 +234,7 @@ class TestInspectBert:
             obj={},
         )
         if result.exit_code == 0:
-            data = json.loads(result.output)
+            data = json.loads(result.stdout)
             assert "model_id" in data
         else:
             assert "Traceback (most recent call last)" not in result.output
@@ -286,3 +291,31 @@ class TestInspectDETR:
         assert data["model_id"] == self.MODEL
         assert data["model_type"] == "detr"
         assert data["task"] == "object-detection"
+
+
+@pytest.mark.network
+class TestInspectDinoV2:
+
+    MODEL = "facebook/dinov2-base"
+
+    def test_image_feature_extraction_override(self):
+        """HF synonym 'image-feature-extraction' must resolve via TasksManager."""
+        data = _run_network(self.MODEL, task="image-feature-extraction")
+        _assert_common_structure(data, self.MODEL, "image-feature-extraction")
+        assert data["model_type"] == "dinov2"
+        exporter = data["exporter"]
+        assert exporter["onnx_config_class"] == "Dinov2OnnxConfig", (
+            f"expected Dinov2OnnxConfig, got {exporter['onnx_config_class']!r} "
+            "— task likely wasn't normalised before TasksManager lookup."
+        )
+        assert exporter["onnx_config_source"] == "TasksManager"
+        assert exporter["support_level"] != "unsupported"
+
+    def test_feature_extraction_override(self):
+        """'feature-extraction' (the Optimum task) must also resolve (control)."""
+        data = _run_network(self.MODEL, task="feature-extraction")
+        _assert_common_structure(data, self.MODEL, "feature-extraction")
+        assert data["model_type"] == "dinov2"
+        exporter = data["exporter"]
+        assert exporter["onnx_config_class"] == "Dinov2OnnxConfig"
+        assert exporter["onnx_config_source"] == "TasksManager"

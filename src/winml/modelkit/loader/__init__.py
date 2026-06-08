@@ -29,24 +29,32 @@ from .config import WinMLLoaderConfig, resolve_loader_config
 from .task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
+    TASK_SYNONYM_EXTENSIONS,
+    detect_task,
     get_supported_tasks,
     get_task_abbrev,
     normalize_task,
+    resolve_optimum_library,
     resolve_task_and_model_class,
+    to_optimum_task,
 )
 
 
 __all__ = [
     "HF_TASK_DEFAULTS",
     "KNOWN_TASKS",
+    "TASK_SYNONYM_EXTENSIONS",
     "WinMLLoaderConfig",
+    "detect_task",
     "get_supported_tasks",
     "get_task_abbrev",
     "load_hf_model",
     "normalize_task",
     "resolve_hf_model_class",
     "resolve_loader_config",
+    "resolve_optimum_library",
     "resolve_task_and_model_class",
+    "to_optimum_task",
 ]
 
 

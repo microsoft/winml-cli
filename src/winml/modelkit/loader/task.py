@@ -8,7 +8,9 @@ Uses TasksManager.infer_task_from_model() as PRIMARY approach per design spec.
 
 Public API:
     resolve_task_and_model_class  - Main orchestrator (3 resolution cases)
+    resolve_optimum_library      - Route a model_type to the Optimum export library
     normalize_task               - Map task aliases to canonical names
+    to_optimum_task              - Collapse a WinMLTask to its Optimum-canonical form
     get_task_abbrev              - Abbreviated task name for cache keys
     get_supported_tasks          - List ONNX-exportable tasks for a model type
 
@@ -154,6 +156,40 @@ MODEL_TASK_MAPPING: dict[tuple[str, str | None], str] = {
     ("prajjwal1/bert-tiny", None): "feature-extraction",
 }
 
+# Some transformers model_types are generic wrappers that expose an entire other
+# library through a single type (e.g. timm via "timm_wrapper"). Such configs
+# carry no `architectures` field, and their Optimum ONNX export config is
+# registered under the wrapped library, not "transformers". This is a
+# library-routing concern handled at the common resolution layer (the loader
+# below and export.io._get_onnx_config), not a per-model OnnxConfig.
+#
+# Only the library is recorded here -- it is the irreducible Optimum-taxonomy
+# fact. The export task is derived from Optimum's task list for that library
+# (get_supported_tasks), not hardcoded.
+# model_type -> optimum_library
+WRAPPED_LIBRARY_MODEL_TYPES: dict[str, str] = {
+    "timm_wrapper": "timm",
+}
+
+
+def resolve_optimum_library(model_type: str | None, library_name: str = "transformers") -> str:
+    """Route a transformers model_type to the Optimum library that owns its export.
+
+    Most models export under the library they were requested with. A few
+    transformers model_types are thin wrappers whose Optimum OnnxConfig lives in
+    another library (see :data:`WRAPPED_LIBRARY_MODEL_TYPES`); route those so the
+    OnnxConfig lookup succeeds without an explicit ``--library`` flag.
+
+    Only the ``"transformers"`` library is rerouted, so an explicit
+    non-``"transformers"`` library is returned unchanged. (An explicit
+    ``--library transformers`` is indistinguishable from the default and is
+    still rerouted for wrapped types -- harmless, since those types have no
+    OnnxConfig registered under transformers anyway.)
+    """
+    if library_name == "transformers" and model_type in WRAPPED_LIBRARY_MODEL_TYPES:
+        return WRAPPED_LIBRARY_MODEL_TYPES[model_type]
+    return library_name
+
 
 # =============================================================================
 # Internal Helpers
@@ -239,6 +275,106 @@ def _detect_task_from_config(config: PretrainedConfig) -> str:
     return task
 
 
+# Data-driven task-modality disambiguation (D2). Maps a modality-blind task to its
+# modality-aware variants, each keyed by the top-level config fields that signal that
+# modality. Extend this table — not the code — to add new modalities. First match wins.
+_TASK_MODALITY_DISAMBIGUATION: dict[str, dict[str, tuple[str, ...]]] = {
+    "feature-extraction": {
+        # Vision backbones (ViT, DINOv2, ConvNeXt, …) carry image_size/patch_size at the
+        # config root; multimodal models (CLIP) nest them under vision_config, so the
+        # top-level check does not fire for those.
+        "image-feature-extraction": ("image_size", "patch_size"),
+        # Future, when supported: "audio-feature-extraction": ("sampling_rate", ...),
+    },
+}
+
+
+def _top_level_config_keys(config: PretrainedConfig) -> set[str]:
+    """Top-level field names of an HF config (nested sub-configs are not flattened)."""
+    try:
+        return set(config.to_dict().keys())
+    except Exception:
+        return set(vars(config).keys())
+
+
+def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
+    """Disambiguate a modality-blind task using top-level config fields (D2).
+
+    Data-driven via :data:`_TASK_MODALITY_DISAMBIGUATION`. Applied only to surfaced/
+    returned tasks — never to a task headed into an Optimum API, which does not
+    recognise modality-aware names like ``image-feature-extraction``.
+    """
+    candidates = _TASK_MODALITY_DISAMBIGUATION.get(task)
+    if not candidates:
+        return task
+    keys = _top_level_config_keys(config)
+    for modality_task, signal_fields in candidates.items():
+        if any(field in keys for field in signal_fields):
+            return modality_task
+    return task
+
+
+def detect_task(config: PretrainedConfig) -> tuple[str, str]:
+    """Single offline detection entry. Returns ``(WinMLTask, source)``.
+
+    ``WinMLTask`` is HF modality-aware (e.g. ``image-feature-extraction``) — the
+    only behavioural difference from :func:`_detect_task_from_config`, which stays
+    Optimum-canonical for internal model-class resolution.
+
+    Dispatch order mirrors the historical inspect resolver::
+
+        HF_MODEL_CLASS_MAPPING -> wrapped-library -> TasksManager -> HF_TASK_DEFAULTS
+
+    The D2 vision-modality upgrade is applied to the **returned** task only; no
+    Optimum API ever receives ``image-feature-extraction``. Offline / config-only —
+    no network.
+    """
+    from ..models import HF_MODEL_CLASS_MAPPING
+
+    model_type = getattr(config, "model_type", "unknown")
+    model_type_normalized = model_type.lower().replace("_", "-")
+
+    task: str | None = None
+    source = "none"
+
+    # 1. Explicit (model_type, task) mapping wins.
+    for mt, mapped_task in HF_MODEL_CLASS_MAPPING:
+        if mt == model_type_normalized:
+            task, source = mapped_task, "HF_MODEL_CLASS_MAPPING"
+            break
+
+    # 2. Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
+    #    `architectures`; resolve through their wrapped library instead of the
+    #    HF_TASK_DEFAULTS mislabel below. Use the raw model_type for the lookup.
+    if task is None and (
+        model_type in WRAPPED_LIBRARY_MODEL_TYPES and not getattr(config, "architectures", None)
+    ):
+        try:
+            task, _ = _detect_task_and_class_from_config(config)
+            source = "wrapped-library"
+        except Exception:
+            logger.debug("wrapped-library task detection failed for %s", model_type, exc_info=True)
+
+    # 3. TasksManager (Optimum) detection.
+    if task is None:
+        try:
+            task = _detect_task_from_config(config)
+            source = "TasksManager"
+        except ValueError:
+            # TasksManager can't infer a task (e.g. no recognizable architecture);
+            # leave task unset and fall through to the HF_TASK_DEFAULTS fallback below.
+            pass
+
+    # 4. Fallback to task defaults.
+    if task is None:
+        if not HF_TASK_DEFAULTS:
+            return "unknown", "none"
+        task, source = next(iter(HF_TASK_DEFAULTS.keys())), "HF_TASK_DEFAULTS"
+
+    # D2 — vision modality upgrade, applied to the surfaced task only.
+    return _resolve_task_modality(config, task), source
+
+
 def _get_custom_model_class(model_type: str, task: str) -> type | None:
     """Get model class for a (model_type, task) combination.
 
@@ -314,8 +450,49 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
         return resolve_task_and_model_class(config, task=override_task)
 
     # [1] Resolve architecture class from config.
-    # If config.architectures is missing/empty, this raises ValueError and the
-    # caller should provide task explicitly.
+    # Some model_types (e.g. timm via "timm_wrapper") are generic library
+    # wrappers that carry no `architectures` field. Resolve those through their
+    # wrapped library: the task comes from Optimum's task list for that library
+    # (not hardcoded), and the class from get_model_class_for_task (a generic
+    # Auto* class that transformers dispatches to the wrapper at load).
+    if not getattr(config, "architectures", None):
+        model_type = getattr(config, "model_type", None)
+        library = WRAPPED_LIBRARY_MODEL_TYPES.get(model_type) if model_type else None
+        if library is not None:
+            # Populate Optimum's exporter registry (incl. the wrapped library's
+            # task list) before querying it; scoped to this rare branch so normal
+            # model loading never pays for the import.
+            import optimum.exporters.onnx.model_configs  # noqa: F401
+
+            supported = get_supported_tasks(model_type, library_name=library)
+            if supported:
+                # A wrapped library exposes a single ONNX export task today
+                # (timm -> "image-classification"), so supported[0] is the right
+                # default. If one ever exposes multiple, supported[0] is an
+                # arbitrary pick -- warn (listing the tasks) but still proceed;
+                # pass --task to choose a different one.
+                task = supported[0]
+                if len(supported) > 1:
+                    logger.warning(
+                        "config has no 'architectures' and the %s library exposes "
+                        "multiple export tasks for %s %s; defaulting to %r "
+                        "(pass --task to choose another).",
+                        library,
+                        model_type,
+                        supported,
+                        task,
+                    )
+                model_class = TasksManager.get_model_class_for_task(task, framework="pt")
+                logger.info(
+                    "config has no 'architectures'; resolved %s via %s library (task=%s, class=%s)",
+                    model_type,
+                    library,
+                    task,
+                    model_class.__name__,
+                )
+                return task, model_class
+    # If config.architectures is still missing/empty, this raises ValueError and
+    # the caller should provide task explicitly.
     arch_model_class = _resolve_model_class_from_config(config)
     arch_name = arch_model_class.__name__
 
@@ -431,6 +608,43 @@ def normalize_task(task: str) -> str:
     return TasksManager.map_from_synonym(task)
 
 
+# WinML task-synonym extensions — extend Optimum's ``TasksManager.map_from_synonym``
+# for tasks it does not recognize or mis-maps. Entries here take priority over Optimum.
+TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
+    # next-sentence-prediction has the same I/O as text-classification: input_ids -> logits
+    "next-sentence-prediction": "text-classification",
+    # mask-generation is registered via register_onnx_overwrite for SAM2.
+    # Optimum incorrectly maps it to "feature-extraction"; preserve as-is.
+    "mask-generation": "mask-generation",
+}
+
+
+def to_optimum_task(task: str) -> str:
+    """Map a task name to its Optimum-canonical form, extending Optimum's synonyms.
+
+    This is the single WinML -> Optimum boundary translation: call it only at the
+    moment of an Optimum API call (e.g. ``TasksManager.get_exporter_config_constructor``).
+    The result is lossy — modality-aware names collapse
+    (``image-feature-extraction`` -> ``feature-extraction``).
+
+    WinML extensions in ``TASK_SYNONYM_EXTENSIONS`` take priority and short-circuit
+    before Optimum, which may otherwise mis-normalize custom-registered tasks such as
+    ``mask-generation``.
+
+    Args:
+        task: Task name (a WinMLTask or an alias).
+
+    Returns:
+        Optimum-canonical task name.
+    """
+    if task in TASK_SYNONYM_EXTENSIONS:
+        return TASK_SYNONYM_EXTENSIONS[task]
+
+    from optimum.exporters.tasks import TasksManager
+
+    return TasksManager.map_from_synonym(task)
+
+
 def get_task_abbrev(task: str) -> str:
     """Get abbreviated task name for cache keys.
 
@@ -501,7 +715,11 @@ def resolve_task_and_model_class(
 
     # Case 1: Auto-detect both task and model class
     if task is None and model_class is None:
-        return _detect_task_and_class_from_config(config)
+        # Resolve task + class from config, then surface the modality-aware task
+        # (D2). The class was resolved from the pre-upgrade Optimum task, so model
+        # loading is unchanged. Case 2/3 are intentionally left untouched.
+        detected_task, resolved_class = _detect_task_and_class_from_config(config)
+        return _resolve_task_modality(config, detected_task), resolved_class
 
     # Case 2: User specified task only -> resolve model class for that task
     if task is not None and model_class is None:

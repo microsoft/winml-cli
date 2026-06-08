@@ -19,12 +19,14 @@ from .evaluate import EvalResult, evaluate, get_evaluator_class
 
 
 if TYPE_CHECKING:
+    from .depth_estimation_evaluator import WinMLDepthEstimationEvaluator
     from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
     from .fill_mask_evaluator import WinMLFillMaskEvaluator
     from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
     from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
     from .image_to_text_evaluator import WinMLImageToTextEvaluator
     from .metrics.classification import ClassificationMetric
+    from .metrics.depth import DepthMetric
     from .metrics.knn_accuracy import KNNAccuracyMetric
     from .metrics.mean_average_precision import MAPMetric
     from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
@@ -33,6 +35,7 @@ if TYPE_CHECKING:
     from .metrics.top_k_accuracy import TopKAccuracyMetric
     from .object_detection_evaluator import WinMLObjectDetectionEvaluator
     from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
+    from .tensor_similarity_evaluator import TensorSimilarityEvaluator
     from .text_classification_evaluator import WinMLTextClassificationEvaluator
     from .token_classification_evaluator import WinMLTokenClassificationEvaluator
     from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
@@ -41,6 +44,8 @@ if TYPE_CHECKING:
 
 _LAZY_ATTRS: dict[str, str] = {
     # Evaluators
+    "WinMLDepthEstimationEvaluator":
+        ".depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
     "WinMLFeatureExtractionEvaluator":
         ".feature_extraction_evaluator:WinMLFeatureExtractionEvaluator",
     "WinMLFillMaskEvaluator":
@@ -63,9 +68,13 @@ _LAZY_ATTRS: dict[str, str] = {
         ".zero_shot_classification_evaluator:WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator":
         ".zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
+    "TensorSimilarityEvaluator":
+        ".tensor_similarity_evaluator:TensorSimilarityEvaluator",
     # Metrics (defer numpy / scipy / torch / torchmetrics until first use)
     "ClassificationMetric":
         ".metrics.classification:ClassificationMetric",
+    "DepthMetric":
+        ".metrics.depth:DepthMetric",
     "IGNORE_INDEX":
         ".metrics.mean_iou:IGNORE_INDEX",
     "KNNAccuracyMetric":
@@ -104,13 +113,16 @@ __all__ = [
     "IGNORE_INDEX",
     "ClassificationMetric",
     "DatasetConfig",
+    "DepthMetric",
     "EvalResult",
     "KNNAccuracyMetric",
     "MAPMetric",
     "MeanIoUMetric",
     "PseudoPerplexityMetric",
     "SpearmanCorrelationMetric",
+    "TensorSimilarityEvaluator",
     "TopKAccuracyMetric",
+    "WinMLDepthEstimationEvaluator",
     "WinMLEvaluationConfig",
     "WinMLEvaluator",
     "WinMLFeatureExtractionEvaluator",

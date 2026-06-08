@@ -16,10 +16,12 @@ import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
-from ..utils.eval_utils import TASK_SCHEMAS, TaskSchema
+from ..utils.eval_utils import EVAL_MODES, TASK_SCHEMAS, EvalMode, TaskSchema
+from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
+    from ..eval import EvalResult, WinMLEvaluationConfig
     from ..utils.constants import EPNameOrAlias
 
 
@@ -57,6 +59,14 @@ logger = logging.getLogger(__name__)
     type=str,
     default=None,
     help="Dataset config name for multi-config datasets (e.g. 'mrpc').",
+)
+@click.option(
+    "--dataset-revision",
+    "revision",
+    type=str,
+    default=None,
+    help="Git revision (branch, tag, or commit) to load. Useful for script-based "
+    "datasets that have a parquet mirror at 'refs/convert/parquet'.",
 )
 @click.option(
     "--task",
@@ -114,18 +124,17 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--label-mapping",
+    # Distinct Python variable name so ctx.params["label_mapping_path"] does
+    # not collide with ``DatasetConfig.label_mapping`` (which is the *parsed*
+    # ``dict[str, int] | None``, not a Path). ``collect_cli_overrides`` is
+    # name-based, so without the rename the Path would be passed to the dict
+    # field with the wrong type.
+    "label_mapping_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
     help='Path to a JSON file with label mapping: {"label_name": id}.',
 )
 @cli_utils.output_option("Output JSON file path.")
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output.",
-)
 @click.option(
     "--dataset-script",
     type=str,
@@ -140,7 +149,20 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Print expected dataset schema for the given --task and exit.",
 )
-@cli_utils.build_config_option
+@click.option(
+    "--mode",
+    type=click.Choice(EVAL_MODES, case_sensitive=False),
+    default="onnx",
+    show_default=True,
+    help=(
+        "Evaluation mode. "
+        "'onnx' (default): evaluate the ONNX candidate on the dataset. "
+        "'compare': compare ONNX vs HF reference output tensors on identical "
+        "random inputs and report tensor-similarity metrics per output tensor."
+    ),
+)
+@cli_utils.build_config_option()
+@cli_utils.verbosity_options()
 @click.pass_context
 def eval(
     ctx: click.Context,
@@ -148,6 +170,7 @@ def eval(
     model_id: str | None,
     dataset_path: str,
     dataset_name: str | None,
+    revision: str | None,
     task: str | None,
     device: str,
     precision: str,
@@ -157,12 +180,14 @@ def eval(
     shuffle: bool,
     streaming: bool,
     column: tuple[str, ...],
-    label_mapping: Path | None,
+    label_mapping_path: Path | None,
     output: Path | None,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     dataset_script: str | None,
     trust_remote_code: bool,
     show_schema: bool,
+    mode: EvalMode,
     config_file: Path | None,
 ) -> None:
     r"""Evaluate a model for a task.
@@ -191,19 +216,18 @@ def eval(
         if schema is None:
             supported = ", ".join(sorted(TASK_SCHEMAS))
             raise click.UsageError(
-                f"Task '{task_arg}' is not supported by `winml eval`. "
-                f"Supported tasks: {supported}."
+                f"Task '{task_arg}' is not supported by `winml eval`. Supported tasks: {supported}."
             )
         _print_schema(task_arg, schema)
         return
 
-    if verbose or (ctx.obj and ctx.obj.get("debug")):
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     from ..eval import evaluate
 
     # ── 1. Build config: defaults ← config file ← CLI ──
-    cfg = _build_eval_config(ctx, config_file, column, label_mapping)
+    cfg = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id)
@@ -234,8 +258,8 @@ def _build_eval_config(
     ctx: click.Context,
     config_file: Path | None,
     column: tuple[str, ...],
-    label_mapping: Path | None,
-) -> object:
+    label_mapping_path: Path | None,
+) -> WinMLEvaluationConfig:
     """Build a WinMLEvaluationConfig with precedence: defaults ← config file ← CLI.
 
     Reads raw JSON for config-file values so only explicitly-present keys
@@ -245,24 +269,15 @@ def _build_eval_config(
     from ..eval import DatasetConfig, WinMLEvaluationConfig
     from ..utils.config_utils import merge_config
 
-    # Initialize config object from CLI ctx params.
-    p = ctx.params
-    cfg = WinMLEvaluationConfig(
-        task=p.get("task"),
-        device=p.get("device"),
-        precision=p.get("precision"),
-        ep=p.get("ep"),
-        output_path=p.get("output"),
-        dataset=DatasetConfig(
-            path=p.get("dataset_path"),
-            name=p.get("dataset_name"),
-            split=p.get("split"),
-            samples=p.get("samples"),
-            shuffle=p.get("shuffle"),
-            streaming=p.get("streaming"),
-            build_script=p.get("dataset_script"),
-        ),
-    )
+    # Initialize config object from CLI ctx params. ``collect_cli_overrides``
+    # filters to user-provided values and applies the cli_name → field_name
+    # renames declared on the dataclass fields (e.g. output → output_path).
+    # The --label-mapping Click option binds to ``label_mapping_path`` (see the
+    # ``@click.option`` decorator) so it does NOT collide with the
+    # ``DatasetConfig.label_mapping`` field name.
+    eval_kwargs = cli_utils.collect_cli_overrides(ctx, WinMLEvaluationConfig)
+    dataset_kwargs = cli_utils.collect_cli_overrides(ctx, DatasetConfig)
+    cfg = WinMLEvaluationConfig(dataset=DatasetConfig(**dataset_kwargs), **eval_kwargs)
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
@@ -300,8 +315,8 @@ def _build_eval_config(
             columns_mapping[k] = v
         ds_overrides["columns_mapping"] = columns_mapping
 
-    if label_mapping is not None:
-        ds_overrides["label_mapping_file"] = str(label_mapping)
+    if label_mapping_path is not None:
+        ds_overrides["label_mapping_file"] = str(label_mapping_path)
 
     if ds_overrides:
         overrides["dataset"] = ds_overrides
@@ -313,7 +328,7 @@ def _build_eval_config(
 
 
 def _resolve_model(
-    cfg: object,
+    cfg: WinMLEvaluationConfig,
     model: tuple[str, ...],
     model_id: str | None,
 ) -> None:
@@ -323,7 +338,7 @@ def _resolve_model(
     cfg.model_id = resolved_id
 
 
-def _resolve_device(cfg: object) -> None:
+def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     """Resolve ``'auto'`` → concrete device string on *cfg* in place."""
     if cfg.device and cfg.device.lower() != "auto":
         return
@@ -337,14 +352,14 @@ def _resolve_device(cfg: object) -> None:
     console.print(f"[dim]Using device:[/dim] {resolved}")
 
 
-def _resolve_label_mapping(cfg: object) -> None:
+def _resolve_label_mapping(cfg: WinMLEvaluationConfig) -> None:
     """Load label-mapping JSON file (if any) into ``cfg.dataset.label_mapping``."""
     if cfg.dataset.label_mapping_file:
         with Path(cfg.dataset.label_mapping_file).open() as f:
             cfg.dataset.label_mapping = json.load(f)
 
 
-def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
+def _run_dataset_script(cfg: WinMLEvaluationConfig, trust_remote_code: bool) -> None:
     """Run the dataset build script referenced by *cfg*, if any.
 
     The script is invoked with ``--output <dataset.path>`` so the built
@@ -385,7 +400,7 @@ def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
         )
 
 
-def _write_and_display(result: object, output_path: Path | None) -> None:
+def _write_and_display(result: EvalResult, output_path: Path | None) -> None:
     """Display evaluation results and optionally save to JSON."""
     console = Console()
     display_eval_report(result, console)
@@ -486,7 +501,7 @@ def _json_default(obj: object) -> object:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-def display_eval_report(result: object, console: object) -> None:
+def display_eval_report(result: EvalResult, console: Console) -> None:
     """Display evaluation results in formatted console output."""
     from rich.panel import Panel
     from rich.table import Table
@@ -508,7 +523,8 @@ def display_eval_report(result: object, console: object) -> None:
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
-    console.print(f"[dim]Dataset:[/dim]    {ds.path}")
+    if ds.path:
+        console.print(f"[dim]Dataset:[/dim]    {ds.path}")
     console.print(f"[dim]Samples:[/dim]    {ds.samples}")
     if cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")

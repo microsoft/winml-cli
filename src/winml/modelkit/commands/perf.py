@@ -28,6 +28,7 @@ from rich.table import Table
 
 from ..utils import cli as cli_utils
 from ..utils.constants import EPName, EPNameOrAlias
+from ..utils.logging import configure_logging
 from ._live_chart import LiveMonitorDisplay
 
 
@@ -288,6 +289,7 @@ class PerfBenchmark:
         # [1] Load model
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
+        assert self._model is not None
 
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
@@ -335,7 +337,7 @@ class PerfBenchmark:
         use_cache = not self.config.ignore_cache
         force_rebuild = self.config.rebuild or self.config.ignore_cache
 
-        common_kwargs = {
+        common_kwargs: dict[str, Any] = {
             "task": self.config.task,
             "config": override,
             "device": self.config.device,
@@ -359,6 +361,7 @@ class PerfBenchmark:
 
     def _generate_inputs(self) -> None:
         """Generate random inputs based on model io_config."""
+        assert self._model is not None
         io_config = self._model.io_config
         self._inputs = generate_random_inputs(
             io_config=io_config,
@@ -373,6 +376,8 @@ class PerfBenchmark:
 
     def _run_benchmark_simple(self) -> PerfStats:
         """Execute benchmark without live monitoring."""
+        assert self._model is not None
+        assert self._inputs is not None
         session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
@@ -393,6 +398,8 @@ class PerfBenchmark:
         from ..session.monitor.hw_monitor import HWMonitor
         from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
+        assert self._model is not None
+        assert self._inputs is not None
         session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
@@ -416,9 +423,9 @@ class PerfBenchmark:
 
         # EP-specific proof-of-execution monitor.
         # When QNN/OpenVINO monitors become real, add entries here.
-        _ep_monitors = {"vitisai": VitisAIMonitor}
-        ep = self.config.ep
-        monitor_cls = _ep_monitors.get(ep)
+        _ep_monitors: dict[EPName, Any] = {"VitisAIExecutionProvider": VitisAIMonitor}
+        monitor_cls = _ep_monitors.get(session.ep_name) if session.ep_name else None
+        ep_monitor: Any
         if monitor_cls and monitor_cls.is_available():
             ep_monitor = monitor_cls()
         else:
@@ -450,6 +457,7 @@ class PerfBenchmark:
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
+        assert self._model is not None
         io_config = self._model.io_config
 
         # Calculate throughput
@@ -755,6 +763,7 @@ def _perf_modules(
 # =============================================================================
 # Report Generation
 # =============================================================================
+
 
 def _device_string(req_device: str, act_device: str, ep_name: EPName | None) -> str:
     device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
@@ -1188,14 +1197,8 @@ def _run_onnx_benchmark(
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
     hidden=True,  # Not ready, so hide from --help for now
 )
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output",
-)
-@cli_utils.build_config_option
+@cli_utils.build_config_option()
+@cli_utils.verbosity_options()
 @click.pass_context
 def perf(
     ctx: click.Context,
@@ -1215,7 +1218,8 @@ def perf(
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     config_file: Path | None,
 ) -> None:
     r"""Benchmark model inference performance.
@@ -1262,9 +1266,9 @@ def perf(
         if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
             ep = cc["execution_provider"]
 
-    # Setup logging
-    if verbose or (ctx.obj and ctx.obj.get("debug")):
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     console = Console()
 
@@ -1297,7 +1301,7 @@ def perf(
             batch_size=batch_size,
             no_quantize=no_quantize,
             output=output,
-            verbose=verbose,
+            verbose=bool(verbose),
             console=console,
             monitor=monitor,
             device=device.lower(),
@@ -1408,7 +1412,13 @@ def perf(
             # Determine the ONNX model path from the benchmark flow.
             # For HF models the ONNX is built internally by PerfBenchmark.
             try:
-                onnx_for_trace = model_path if is_onnx else benchmark._model._onnx_path
+                onnx_for_trace = (
+                    model_path
+                    if is_onnx
+                    else (benchmark._model._onnx_path if benchmark._model else None)
+                )
+                if onnx_for_trace is None:
+                    raise AttributeError("benchmark._model not initialized")
             except AttributeError:
                 console.print(
                     "[red]Error:[/red] Could not determine ONNX model path for op-tracing"

@@ -33,3 +33,12 @@ jobs:
 
       - name: Lint
         run: uv run ruff check src/ tests/
+
+      # Type-checking is currently advisory: src/ has many pre-existing
+      # mypy errors against the strict config in pyproject.toml. The job
+      # surfaces type issues in CI logs without blocking PRs while the
+      # backlog is worked down. Flip continue-on-error to false (or drop
+      # it) once src/ is clean.
+      - name: Type check (advisory)
+        continue-on-error: true
+        run: uv run mypy -p winml.modelkit

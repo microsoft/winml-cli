@@ -31,8 +31,10 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -69,6 +71,8 @@ from utils.reporter import (
 )
 
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -81,8 +85,31 @@ TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.js
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION_NPU = "w8a16"
 
+# EPs whose eval track keeps the model unquantized (the "fp" variant)
+# rather than running winml's QDQ pass on top.  This is an eval-setup
+# choice -- e.g. VitisAI / AMD Ryzen AI is benchmarked on the fp32/fp16
+# model -- not a claim about the EP's internal pipeline.  For these EPs
+# the harness passes ``--no-quant`` to both ``winml config`` and
+# ``winml build`` (see :func:`_run_build` and :func:`run_model`).
+#
+# Entries are canonical ``EPName`` values (the ``*ExecutionProvider`` form);
+# user-facing aliases like ``vitisai`` are normalised via
+# ``normalize_ep_name`` in :func:`_should_skip_winml_quant` so each EP only
+# needs to be listed once.
+_EPS_SKIP_WINML_QUANT = frozenset({"VitisAIExecutionProvider"})
 
-def _resolve_precision(device: str, explicit: str | None) -> str | None:
+
+def _should_skip_winml_quant(ep: str | None) -> bool:
+    """True if the eval harness should run this EP on the unquantized model."""
+    # Lazy import: keeps ``scripts/e2e_eval`` cheap to load (winml.modelkit
+    # transitively imports onnxruntime) and matches the existing in-function
+    # import pattern used elsewhere in this script.
+    from winml.modelkit.utils.constants import normalize_ep_name
+
+    return normalize_ep_name(ep) in _EPS_SKIP_WINML_QUANT
+
+
+def _resolve_precision(device: str, explicit: str | None, ep: str | None = None) -> str | None:
     """Return the precision to pass to winml config/perf, or None to omit the flag.
 
     w8a16 is only applied by default on NPU.  For CPU/GPU the flag is omitted
@@ -91,8 +118,22 @@ def _resolve_precision(device: str, explicit: str | None) -> str | None:
     (NHWC layout transformer inserts Conv nodes that QNN GPU's GetCapability
     does not claim).
 
-    An explicit per-model precision always takes precedence.
+    For EPs in :data:`_EPS_SKIP_WINML_QUANT` (e.g. VitisAI) the flag is forced
+    off regardless of ``explicit``: the harness pairs these EPs with
+    ``--no-quant`` at config/build time, so a non-empty ``--precision`` would
+    produce a config that says "quantize to X" while the build says "skip
+    quantization" -- a contradiction.  An explicit value is dropped with a
+    one-line warning so the override is visible in the log.
+
+    Otherwise an explicit per-model precision always takes precedence.
     """
+    if _should_skip_winml_quant(ep):
+        if explicit:
+            safe_print(
+                f"  [precision] Ignoring explicit precision={explicit!r} for EP {ep!r}: "
+                "this EP is run on the unquantized variant (--no-quant)."
+            )
+        return None
     if explicit:
         return explicit
     return _DEFAULT_PRECISION_NPU if device == "npu" else None
@@ -194,6 +235,82 @@ def safe_print(text: str) -> None:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _compute_onnx_size(onnx_paths: dict[str, str]) -> int | None:
+    """Return combined size in bytes of all ONNX files + their external data companions.
+
+    Parses the ONNX proto to discover all referenced external data files (not just
+    the conventional `.data` suffix). Falls back to the `.data` companion heuristic
+    if proto parsing is unavailable.
+
+    Returns None if onnx_paths is empty or no files exist on disk.
+    """
+    if not onnx_paths:
+        return None
+    total = 0
+    found_any = False
+    for path_str in onnx_paths.values():
+        p = Path(path_str)
+        if not p.exists():
+            continue
+        total += p.stat().st_size
+        found_any = True
+        # Try to enumerate all external data files from the proto
+        try:
+            from winml.modelkit.onnx.external_data import get_external_data_files
+
+            ext_files = get_external_data_files(p)
+            for ext_name in ext_files:
+                ext_path = p.parent / ext_name
+                if ext_path.exists():
+                    total += ext_path.stat().st_size
+        except Exception:
+            # Fallback: check conventional .data companion
+            data_p = p.with_suffix(p.suffix + ".data")
+            if data_p.exists():
+                total += data_p.stat().st_size
+    return total if found_any else None
+
+
+# Lines that carry no diagnostic value in eval_result.json.
+# Matching is case-insensitive, anchored at line start.
+_NOISE_PATTERNS = (
+    "benchmarking onnx",
+    "device:",
+    "task:",
+    "latency (ms)",
+    "throughput:",
+    "results saved to",
+    "inputs:",
+    "outputs:",
+    "samples/sec",
+)
+_NOISE_RE = re.compile("|".join(re.escape(p) for p in _NOISE_PATTERNS), re.IGNORECASE)
+
+# Box-drawing characters used by Rich tables.
+_BOX_CHARS = frozenset("─│┌┐└┘├┤┬┴┼")
+
+
+def _sanitize_output(text: str) -> str:
+    """Strip routine CLI chrome from subprocess output, keeping error content.
+
+    Removes Rich benchmark tables, device/IO banners, and path lines that
+    bloat eval_result.json without aiding failure diagnosis. All classifier
+    patterns (see classifier.py) are error-related and survive this filter.
+    """
+    kept: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Drop box-drawing table rows
+        if stripped[0] in _BOX_CHARS:
+            continue
+        if _NOISE_RE.match(stripped):
+            continue
+        kept.append(stripped)
+    return "\n".join(kept)
 
 
 def _kill_process_tree(pid: int) -> None:
@@ -406,6 +523,13 @@ def _run_build(
         config_args += ["--task", entry.task]
     if ep:
         config_args += ["--ep", ep]
+    # EPs in _EPS_SKIP_WINML_QUANT are evaluated on the unquantized variant.
+    # Pass --no-quant to winml config so the generated build_config.json is
+    # written with quant=None up-front; otherwise on NPU the config command
+    # would still apply its default precision (w8a16) and we'd be relying on
+    # --no-quant at build time alone to override it.
+    if _should_skip_winml_quant(ep):
+        config_args += ["--no-quant"]
 
     config_proc = _run_subprocess(config_args, timeout)
     if config_proc["exit_code"] != 0:
@@ -446,6 +570,11 @@ def _run_build(
         ]
         if ep:
             build_args += ["--ep", ep]
+        # Mirror the --no-quant passed to winml config above so the build
+        # stage also skips QDQ regardless of what the config carries (defence
+        # in depth; see _EPS_SKIP_WINML_QUANT for the rationale).
+        if _should_skip_winml_quant(ep):
+            build_args += ["--no-quant"]
 
         build_proc = _run_subprocess(build_args, timeout)
         last_proc = build_proc
@@ -548,8 +677,10 @@ def run_model(
     code, concatenated stdout/stderr, summed elapsed).
     """
     if not onnx_paths:
-        # No pre-built paths: fall back to HF model ID (single model only)
-        precision = _resolve_precision(device, None)
+        # No pre-built paths: fall back to HF model ID (single model only).
+        # winml perf builds internally; the same --no-quant gating used by
+        # _run_build must apply here so the EP sees the unquantized variant.
+        precision = _resolve_precision(device, None, ep=ep)
         args = [
             *WINML_CLI,
             "perf",
@@ -564,6 +695,8 @@ def run_model(
             args += ["--task", entry.task]
         if ep:
             args += ["--ep", ep]
+        if _should_skip_winml_quant(ep):
+            args += ["--no-quant"]
         args += ["--iterations", "10", "--warmup", "2"]
         args += entry.perf_args
 
@@ -676,7 +809,9 @@ def _build_dataset(ds_config: dict, timeout: int) -> None:
         return
 
     script_path = Path(build_script)
-    cache_dir = Path(ds_config.get("dataset", EVAL_DATASETS_CACHE / script_path.stem))
+    cache_dir = Path(
+        ds_config.get("dataset", EVAL_DATASETS_CACHE / script_path.stem)
+    ).expanduser()
 
     if (cache_dir / "dataset_info.json").exists():
         safe_print(f"    dataset: cached ({cache_dir})")
@@ -742,6 +877,8 @@ def _run_winml_eval(
     args += ["--samples", str(num_samples)]
     if ds_config.get("dataset_config"):
         args += ["--dataset-name", ds_config["dataset_config"]]
+    if ds_config.get("revision"):
+        args += ["--dataset-revision", ds_config["revision"]]
     for k, v in ds_config.get("columns_mapping", {}).items():
         args += ["--column", f"{k}={v}"]
     if ds_config.get("label_mapping_file"):
@@ -864,6 +1001,8 @@ def _run_pytorch_baseline(entry: ModelEntry, device: str, timeout: int) -> dict:
         args += ["--split", ds_config["split"]]
     if ds_config.get("dataset_config"):
         args += ["--dataset-config", ds_config["dataset_config"]]
+    if ds_config.get("revision"):
+        args += ["--dataset-revision", ds_config["revision"]]
     if ds_config.get("columns_mapping"):
         args += ["--columns-mapping", json.dumps(ds_config["columns_mapping"])]
     if ds_config.get("label_mapping_file"):
@@ -970,6 +1109,20 @@ def save_environment_info(path: Path) -> None:
             info["git_commit_date"] = lines[2] if len(lines) > 2 else ""
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass  # git not available or timed out; commit info stays empty
+
+    # `winml sys --format json` captures hardware details (devices, EPs,
+    # backends) that the lightweight package-version probes above miss.
+    try:
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "winml", "sys", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            info["winml_sys"] = json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as exc:
+        logger.debug("winml sys skipped: %s", exc)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(info, indent=2), encoding="utf-8")
@@ -1082,6 +1235,11 @@ def parse_args() -> argparse.Namespace:
         help="Skip report generation (useful when running per-model in a pipeline loop)",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument(
+        "--raw-output",
+        action="store_true",
+        help="Keep raw subprocess output in eval_result.json without sanitization",
+    )
     parser.add_argument(
         "--continue",
         dest="continue_run",
@@ -1336,12 +1494,13 @@ def main() -> None:
             build_result = _run_build(
                 entry,
                 args.device,
-                _resolve_precision(args.device, entry.precision),
+                _resolve_precision(args.device, entry.precision, ep=args.ep),
                 args.timeout,
                 model_dir,
                 ep=args.ep,
             )
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
+            onnx_size = _compute_onnx_size(onnx_paths)
 
             if not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
@@ -1386,7 +1545,14 @@ def main() -> None:
             break
 
         result = build_eval_result(
-            entry, perf_proc, args.device, eval_types_run, accuracy_result, ep=args.ep
+            entry,
+            perf_proc,
+            args.device,
+            eval_types_run,
+            accuracy_result,
+            ep=args.ep,
+            onnx_size_bytes=onnx_size,
+            sanitize_fn=None if args.raw_output else _sanitize_output,
         )
         results.append(result)
 

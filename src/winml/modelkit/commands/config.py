@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from ..utils import cli as cli_utils
+from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
@@ -57,21 +58,8 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
         cfg.compile = None
 
 
-def _is_onnx_file(model_input: str) -> bool:
-    """Check if input is a path to an existing .onnx file."""
-    path = Path(model_input)
-    return path.suffix == ".onnx" and path.exists()
-
-
 @click.command("config")
-@click.option(
-    "-m",
-    "--model",
-    "hf_model",
-    default=None,
-    help="HuggingFace model ID (e.g., microsoft/resnet-50) or path to .onnx file. "
-    "Optional when --model-type is provided.",
-)
+@cli_utils.model_option(required=False, optional_message="Optional when --model-type is provided.")
 @click.option(
     "-t",
     "--task",
@@ -97,12 +85,7 @@ def _is_onnx_file(model_input: str) -> bool:
     default=None,
     help="Generate configs for submodules matching this class name (e.g., ResNetConvLayer)",
 )
-@click.option(
-    "-c",
-    "--config",
-    "config_file",
-    type=click.Path(exists=True),
-    default=None,
+@cli_utils.build_config_option(
     help="JSON config file with overrides (WinMLBuildConfig format)",
 )
 @click.option(
@@ -115,13 +98,11 @@ def _is_onnx_file(model_input: str) -> bool:
     "vision: height, width, num_channels; "
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
 )
-@click.option(
-    "-d",
-    "--device",
-    "device",
-    type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
+@cli_utils.device_option(
+    required=False,
+    optional_message="Affects quant/compile config.",
     default="auto",
-    help="Target device (affects quant/compile config). Default: auto (no changes to config).",
+    include_auto=True,
 )
 @cli_utils.ep_option(
     required=False,
@@ -145,13 +126,6 @@ def _is_onnx_file(model_input: str) -> bool:
     help="Source library for TasksManager (default: transformers)",
 )
 @click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Enable verbose logging",
-)
-@click.option(
     "--no-quant",
     is_flag=True,
     default=False,
@@ -164,8 +138,11 @@ def _is_onnx_file(model_input: str) -> bool:
     help="Exclude compilation from generated config (sets compile=None). Default: exclude.",
 )
 @cli_utils.trust_remote_code_option()
+@cli_utils.verbosity_options()
+@click.pass_context
 def config(
-    hf_model: str | None,
+    ctx: click.Context,
+    model: str | None,
     task: str | None,
     model_class: str | None,
     model_type: str | None,
@@ -177,7 +154,8 @@ def config(
     precision: str,
     output: Path | None,
     library_name: str,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     no_quant: bool,
     no_compile: bool,
     trust_remote_code: bool,
@@ -190,6 +168,9 @@ def config(
     export=None for the ONNX build path.
 
     Requires at least one of -m/--model, --model-type, or --model-class.
+
+    If device is auto or EP is None, they are inferred from the system configuration.
+    If both are specified, the combination is only validated but not against the system.
 
     \b
     Examples:
@@ -223,9 +204,10 @@ def config(
         # Generate configs for submodules
         winml config -m microsoft/resnet-50 --module ResNetConvLayer
     """
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
+    hf_model = model  # rename for clarity in this function
     # Validate: at least one of -m, --model-type, or --model-class is required
     if hf_model is None and model_type is None and model_class is None:
         # Show header even for errors
@@ -289,12 +271,14 @@ def config(
             _shape_config_file = shape_config_path.name
 
         # ONNX file detection: generate simpler config without loader/export
-        if hf_model and _is_onnx_file(hf_model) and module:
+        if hf_model and cli_utils.is_onnx_file_path(hf_model) and module:
             raise click.UsageError(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
             )
-        if hf_model and _is_onnx_file(hf_model):
+        config_obj: WinMLBuildConfig | None = None
+        output_data: dict[str, Any] | list[Any]
+        if hf_model and cli_utils.is_onnx_file_path(hf_model):
             config_obj = generate_onnx_build_config(
                 hf_model,
                 task=task,
@@ -342,26 +326,26 @@ def config(
                 )
                 return
 
-            # Generate config(s) - returns single or list based on module parameter
-            result = generate_hf_build_config(
-                model_id=hf_model,
-                task=task,
-                model_class=model_class,
-                model_type=model_type,
-                module=module,
-                override=override,
-                shape_config=shape_config,
-                library_name=library_name,
-                device=device,
-                precision=precision,
-                trust_remote_code=trust_remote_code,
-                ep=ep,
-            )
-
-            # Handle output format
+            # Generate config(s) - module parameter selects overload:
+            # module=str → list[WinMLBuildConfig], module=None → WinMLBuildConfig.
+            # ``module`` is the only differing kwarg, so build a shared dict
+            # once and add it only on the list-returning branch. This keeps
+            # the overload dispatch but avoids repeating the other 10 kwargs.
+            _shared_kwargs: dict[str, Any] = {
+                "model_id": hf_model,
+                "task": task,
+                "model_class": model_class,
+                "model_type": model_type,
+                "override": override,
+                "shape_config": shape_config,
+                "library_name": library_name,
+                "device": device,
+                "precision": precision,
+                "trust_remote_code": trust_remote_code,
+                "ep": ep,
+            }
             if module:
-                # Module mode: result is list[WinMLBuildConfig]
-                configs = result
+                configs = generate_hf_build_config(module=module, **_shared_kwargs)
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
                 output_data = [cfg.to_dict() for cfg in configs]
@@ -369,8 +353,7 @@ def config(
                 # Use first config for display metadata
                 config_obj = configs[0] if configs else None
             else:
-                # Normal mode: result is WinMLBuildConfig
-                config_obj = result
+                config_obj = generate_hf_build_config(**_shared_kwargs)
                 configs = []
                 _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
                 output_data = config_obj.to_dict()
@@ -443,18 +426,12 @@ def config(
 
             console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
 
-            # Fix #4: Device from resolve_device (existing API)
-            from ..sysinfo import resolve_device as _rd
+            # Use the same resolution logic as the config generation to determine what to display
+            from ..sysinfo import resolve_check_device_ep
 
-            _resolved_dev, _ = _rd(device, ep=ep)
+            _resolved_dev, _, _resolved_eps = resolve_check_device_ep(device=device, ep=ep)
             console.print(f"      Device:     [cyan]{_resolved_dev.upper()}[/cyan]")
-
-            # EP — only shown when user explicitly passed --ep
-            if ep:
-                from ..utils.constants import normalize_ep_name
-
-                _ep_full = normalize_ep_name(ep) or ep
-                console.print(f"      EP:         [cyan]{_ep_full}[/cyan]")
+            console.print(f"      EP:         [cyan]{_resolved_eps[0]}[/cyan]")
 
             # Quant types — display exactly what config contains
             if _quant:
