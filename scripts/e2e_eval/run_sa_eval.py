@@ -1064,6 +1064,17 @@ def main() -> None:
         help="Run a single model by HF ID",
     )
     parser.add_argument(
+        "--priority",
+        nargs="+",
+        choices=["P0", "P1", "P2", "P3"],
+        default=["P0", "P1", "P2"],
+        metavar="{P0,P1,P2,P3}",
+        help="Filter by priority (default: P0 P1 P2, P3 excluded). Only used with --registry.",
+    )
+    parser.add_argument("--task", help="Filter by HF task. Only used with --registry.")
+    parser.add_argument("--model-type", help="Filter by model_type. Only used with --registry.")
+    parser.add_argument("--group", help="Filter by group. Only used with --registry.")
+    parser.add_argument(
         "--use-cache",
         action="store_true",
         help="Skip stages whose output artifacts already exist",
@@ -1146,12 +1157,19 @@ def main() -> None:
 
     # Load model list from --registry (preferred) or --models-file
     if args.registry:
-        from utils.registry import load_registry
+        from utils.registry import filter_registry, load_registry
 
         if not args.registry.exists():
             safe_print(f"[ERROR] Registry not found: {args.registry}")
             sys.exit(1)
         registry_entries = load_registry(args.registry)
+        registry_entries = filter_registry(
+            registry_entries,
+            task=args.task,
+            priority=args.priority,
+            model_type=getattr(args, "model_type", None),
+            group=args.group,
+        )
         all_models = [
             {
                 "hf_id": e.hf_id,
