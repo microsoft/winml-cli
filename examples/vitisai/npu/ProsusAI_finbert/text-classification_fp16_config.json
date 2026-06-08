@@ -68,7 +68,7 @@
     "dataset": {
       "path": "privet1mir/finbert_dataset",
       "split": "val",
-      "samples": 1000
+      "samples": 100
     }
   }
 }

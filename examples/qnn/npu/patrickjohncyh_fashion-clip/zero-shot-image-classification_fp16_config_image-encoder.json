@@ -52,7 +52,7 @@
     "dataset": {
       "path": "zalando-datasets/fashion_mnist",
       "split": "test",
-      "samples": 1000,
+      "samples": 100,
       "columns_mapping": {
         "input_column": "image"
       }

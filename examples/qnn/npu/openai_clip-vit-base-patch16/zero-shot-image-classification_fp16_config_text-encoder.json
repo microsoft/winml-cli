@@ -62,7 +62,7 @@
     "dataset": {
       "path": "uoft-cs/cifar100",
       "split": "test",
-      "samples": 1000,
+      "samples": 100,
       "columns_mapping": {
         "input_column": "img",
         "label_column": "fine_label"
