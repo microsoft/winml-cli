@@ -122,7 +122,7 @@ nav:
   - Samples:
       - ConvNeXt — Primitives Walkthrough: samples/convnext-primitives.md
       - BERT — Config + Build + Perf: samples/bert-config-build.md
-      - Qwen3 — Composite Models: samples/qwen3-composite.md
+      - CLIP — Composite Models: samples/clip-composite.md
   - Tutorials:
       - Overview: tutorials/index.md
       - ConvNeXt on NPU: tutorials/npu-convnext.md
