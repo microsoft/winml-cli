@@ -30,6 +30,7 @@ from .base import ModelValidator
 if TYPE_CHECKING:
     from ...models.onnx_model import ONNXModel
     from ...models.runtime_checks import PatternRuntime
+    from ....utils.constants import EPName
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class BatchedConstMatMulValidator(ModelValidator):
         self,
         model: ONNXModel,
         op_runtime_results: list[PatternRuntime] | None = None,
-        ep: str | None = None,
+        ep: EPName | None = None,
         device: str | None = None,
     ) -> None:
         super().__init__(model, op_runtime_results=op_runtime_results)
@@ -121,7 +122,8 @@ class BatchedConstMatMulValidator(ModelValidator):
             f"operand, causing a '[GPU] Failed to select implementation ... gemm' "
             f"compile failure. The untie-constant-batched-matmul surgery makes "
             f"the operand runtime-valued without changing numerics. "
-            f"It is fixed in openvino==2026.2.0, so no need to apply the surgery if using that version or later."
+            f"It is fixed in openvino==2026.2.0, so no need to apply the surgery "
+            f"if using that version or later."
         )
         return Information(
             explanation=explanation,
