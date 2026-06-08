@@ -49,7 +49,7 @@ def mock_resolve_device():
             "winml.modelkit.session.WinMLEPRegistry"
         ) as mock_reg,
     ):
-        mock_reg.get_instance.return_value.auto_device.return_value = fake_winml_ep_device
+        mock_reg.instance.return_value.auto_device.return_value = fake_winml_ep_device
         yield
 
 

@@ -29,7 +29,7 @@ def mock_resolve_device():
 
     The build command calls auto_detect_device() / get_available_devices() for I/O
     and resolve_device() for EP auto-selection (since #540). It also touches
-    WinMLEPRegistry.get_instance() when --ep is not specified. All must be
+    WinMLEPRegistry.instance() when --ep is not specified. All must be
     mocked to avoid slow DLL scanning and WinML SDK discovery on CI runners
     without WinML installed.
     """
@@ -54,7 +54,7 @@ def mock_resolve_device():
             return_value=fake_cpu_ep_device,
         ),
         patch(
-            "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+            "winml.modelkit.session.ep_registry.WinMLEPRegistry.instance",
             return_value=mock_registry,
         ),
     ):

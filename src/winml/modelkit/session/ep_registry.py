@@ -146,7 +146,7 @@ class WinMLEPRegistry:
     env-var override) and registers them with ONNX Runtime.
 
     Usage:
-        registry = WinMLEPRegistry.get_instance()
+        registry = WinMLEPRegistry.instance()
         registry.register_to_ort()
         available = registry.get_available_eps()
     """
@@ -263,9 +263,9 @@ class WinMLEPRegistry:
                 f"OrtEpDevices visible in ort.get_ep_devices()."
             )
 
-        # Mirror old bookkeeping so module-level helpers (available_eps,
-        # ensure_initialized) and existing tests that probe these lists keep
-        # working without rewiring.
+        # Mirror old bookkeeping so module-level helpers (available_eps)
+        # and existing tests that probe these lists keep working without
+        # rewiring.
         if entry.ep_name not in self._registered_eps:
             self._registered_eps.append(entry.ep_name)
 
@@ -371,7 +371,7 @@ class WinMLEPRegistry:
         return self._registration_failures.copy()
 
     @classmethod
-    def get_instance(cls) -> WinMLEPRegistry:
+    def instance(cls) -> WinMLEPRegistry:
         """Get singleton instance."""
         return cls()
 
@@ -389,7 +389,7 @@ def available_eps() -> frozenset[str]:
     eps: set[str] = set()
 
     try:
-        registry = WinMLEPRegistry.get_instance()
+        registry = WinMLEPRegistry.instance()
         eps.update(registry.get_available_eps().keys())
     except (ImportError, RuntimeError):
         pass  # WinML not available
@@ -429,7 +429,7 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
 
     if use_winml:
         try:
-            registry = WinMLEPRegistry.get_instance()
+            registry = WinMLEPRegistry.instance()
             registry.register_to_ort()
         except Exception as e:
             # NFR-2: surface real failures at WARNING so users can diagnose.
@@ -440,29 +440,3 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
     return ort.get_available_providers()
 
 
-def ensure_initialized() -> None:
-    """Idempotent module-level entry point for WinML EP registration.
-
-    Wraps ``WinMLEPRegistry.get_instance().register_to_ort()`` so callers
-    (e.g. ``QNNMonitor.is_available``) can trigger EP registration without
-    importing ``WinMLSession`` — breaks a latent import cycle.
-
-    Safe to call multiple times. No-op if WinML is unavailable on this system.
-
-    Failures during registration are logged at WARNING (NFR-2: must not be
-    silent) and swallowed so callers can probe availability without raising.
-    Subsequent calls retry — there is no module-level latch on failure.
-    """
-    try:
-        registry = WinMLEPRegistry.get_instance()
-        if registry.winml_available:
-            registry.register_to_ort()
-    except Exception as exc:
-        # NFR-2: surface real environmental failures at WARNING with the
-        # exception class so users can distinguish "not on Windows" from
-        # "registration crashed".
-        logger.warning(
-            "ensure_initialized: WinML EP registration failed (%s: %s)",
-            type(exc).__name__,
-            exc,
-        )

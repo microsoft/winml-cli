@@ -805,7 +805,7 @@ class TestLoadModel:
                 "winml.modelkit.session.WinMLEPRegistry"
             ) as mock_reg,
         ):
-            mock_reg.get_instance.return_value.auto_device.return_value = MagicMock()
+            mock_reg.instance.return_value.auto_device.return_value = MagicMock()
             yield
 
     def test_load_model_no_model_id_raises(self):

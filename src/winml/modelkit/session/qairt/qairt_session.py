@@ -58,7 +58,7 @@ class WinMLQairtSession(WinMLSession):
         # Default to QNN NPU if no ep_device is provided.
         if ep_device is None:
             target = resolve_device("qnn", "npu")
-            ep_device = WinMLEPRegistry.get_instance().auto_device(target)
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
         # Initialize parent WinMLSession
         super().__init__(onnx_path, ep_device, ep_config=ep_config)
 

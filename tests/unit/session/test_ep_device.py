@@ -200,7 +200,7 @@ def test_resolve_device_does_not_load_dll() -> None:
     with patch("winml.modelkit.session.ep_registry.WinMLEPRegistry") as mock_reg:
         result = resolve_device("qnn", "npu")
     assert result.ep == "QNNExecutionProvider"
-    mock_reg.get_instance.assert_not_called()
+    mock_reg.instance.assert_not_called()
 
 
 # --- short_ep_name tests ---------------------------------------------------

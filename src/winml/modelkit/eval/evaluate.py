@@ -156,7 +156,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
     # config has no explicit ep field; resolve_device deduces from device.
     device = config.device.lower()
     target = resolve_device(device=device)
-    ep_device = WinMLEPRegistry.get_instance().auto_device(target)
+    ep_device = WinMLEPRegistry.instance().auto_device(target)
 
     if config.model_path is not None:
         from transformers import AutoConfig

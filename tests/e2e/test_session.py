@@ -29,7 +29,7 @@ class TestWinMLRegistryEPDiscovery:
     @pytest.mark.e2e
     def test_winml_registry_ep_discovery(self):
         """Test that WinMLEPRegistry can discover EPs when WinML SDK is present."""
-        registry = WinMLEPRegistry.get_instance()
+        registry = WinMLEPRegistry.instance()
 
         # Registry should be accessible
         assert registry is not None

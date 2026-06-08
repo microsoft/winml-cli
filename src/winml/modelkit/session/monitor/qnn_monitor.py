@@ -147,10 +147,16 @@ class QNNMonitor(WinMLEPMonitor):
 
         1. ``onnxruntime-qnn`` bundled wheel: ``QNNExecutionProvider`` is
            already in :func:`onnxruntime.get_available_providers`.
-        2. ``onnxruntime-windowsml``: call
-           :func:`ep_registry.ensure_initialized` to trigger WinML EP
-           registration, then look for a QNN device in
+        2. ``onnxruntime-windowsml``: instantiate :class:`WinMLEPRegistry`
+           to trigger plugin discovery (filesystem scan only — no eager
+           DLL loading), then look for a QNN device in
            :func:`onnxruntime.get_ep_devices`.
+
+        .. note::
+           Behavior change (Batch D): the WinML path no longer eagerly
+           preloads EP DLLs via the legacy ``ensure_initialized`` helper.
+           Discovery is filesystem-only; DLL loading is deferred to
+           :meth:`WinMLEPRegistry.register_ep` per the lazy-load contract.
         """
         try:
             import onnxruntime as ort
@@ -162,12 +168,17 @@ class QNNMonitor(WinMLEPMonitor):
 
         # WinML-registered path.
         try:
-            from ..ep_registry import ensure_initialized
+            from ..ep_registry import WinMLEPRegistry
         except ImportError:
             return False
 
         try:
-            ensure_initialized()
+            # TODO(qnn_monitor): WinMLEPRegistry.instance() runs the
+            # filesystem-only discovery in __init__; it does NOT eagerly
+            # load EP DLLs. If this probe later needs a specific DLL to be
+            # loaded for ort.get_ep_devices() to see it, switch to calling
+            # register_ep on the matching EPEntry directly.
+            WinMLEPRegistry.instance()
             return any(
                 getattr(d, "ep_name", None) == "QNNExecutionProvider" for d in ort.get_ep_devices()
             )

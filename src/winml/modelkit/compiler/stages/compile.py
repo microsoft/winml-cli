@@ -79,7 +79,7 @@ class CompileStage(BaseStage):
             else:
                 ep_str = context.execution_provider
                 target = resolve_device(ep=ep_str)
-            ep_device = WinMLEPRegistry.get_instance().auto_device(target)
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
             context.log(
                 f"Creating {session_cls.__name__} for {target.ep}/{target.device}"
             )

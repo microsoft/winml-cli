@@ -36,7 +36,6 @@ def mock_ep_registration():
     fake_qnn_target = EPDeviceTarget(ep="QNNExecutionProvider", device="npu")
     fake_qnn_ep_device = make_stub_winml_ep_device(fake_ort_npu, "QNNExecutionProvider")
     with (
-        patch("winml.modelkit.session.ep_registry.ensure_initialized"),
         # Patch resolve_device where it is imported (in qairt_session module)
         patch(
             "winml.modelkit.session.qairt.qairt_session.resolve_device",
@@ -52,7 +51,7 @@ def mock_ep_registration():
             return_value=MagicMock(),
         ),
     ):
-        mock_reg.get_instance.return_value.auto_device.return_value = fake_qnn_ep_device
+        mock_reg.instance.return_value.auto_device.return_value = fake_qnn_ep_device
         yield
 
 

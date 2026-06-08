@@ -467,7 +467,7 @@ class PerfBenchmark:
         # Resolve (ep, device) to EPDeviceTarget at the CLI boundary; then
         # bind a WinMLEPDevice via auto_device (loads the plugin DLL).
         target = resolve_device(ep=self.config.ep or None, device=self.config.device)
-        ep_device = WinMLEPRegistry.get_instance().auto_device(target)
+        ep_device = WinMLEPRegistry.instance().auto_device(target)
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -766,7 +766,7 @@ def _perf_modules(
 
                 # CPU sniff — uses live resolve_device; future opt: cache
                 cpu_target = resolve_device("cpu", "cpu")
-                cpu_ep_device = WinMLEPRegistry.get_instance().auto_device(cpu_target)
+                cpu_ep_device = WinMLEPRegistry.instance().auto_device(cpu_target)
                 session = WinMLSession(
                     str(build_result.final_onnx_path),
                     ep_device=cpu_ep_device,
@@ -1544,7 +1544,7 @@ def perf(
 
             # Resolve to a EPDeviceTarget then bind via auto_device.
             target = resolve_device(ep=config.ep or None, device=config.device)
-            ep_device = WinMLEPRegistry.get_instance().auto_device(target)
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
 
             result = _run_onnx_benchmark(
                 model_path,

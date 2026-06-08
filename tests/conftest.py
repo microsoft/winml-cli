@@ -35,15 +35,6 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
     """Mock WinML EP initialization for non-e2e tests."""
     if "e2e" in {m.name for m in request.node.iter_markers()}:
         return
-    try:
-        monkeypatch.setattr(
-            "winml.modelkit.session.ep_registry.ensure_initialized",
-            lambda: None,
-        )
-    except ImportError as e:
-        import warnings
-
-        warnings.warn(f"Could not mock ensure_initialized: {e}", stacklevel=2)
 
     try:
         monkeypatch.setattr(

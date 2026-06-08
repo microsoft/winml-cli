@@ -12,7 +12,6 @@ the returned WinMLEP wraps every device the EP exposed.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -20,7 +19,7 @@ import pytest
 
 from winml.modelkit.ep_path import EPEntry, PyPISource
 from winml.modelkit.session import WinMLEP, WinMLEPRegistrationFailed
-from winml.modelkit.session.ep_registry import WinMLEPRegistry, ensure_initialized
+from winml.modelkit.session.ep_registry import WinMLEPRegistry
 
 from .conftest import QNN_VENDOR_ID
 
@@ -41,7 +40,7 @@ def _ep_entry(ep_name: str, dll: str = "C:/fake/qnn.dll") -> EPEntry:
 @pytest.fixture
 def fresh_registry() -> WinMLEPRegistry:
     """Singleton with stubbed catalog + cleared registration caches."""
-    reg = WinMLEPRegistry.get_instance()
+    reg = WinMLEPRegistry.instance()
     reg._ep_paths = {"QNNExecutionProvider": "C:/fake/qnn.dll"}
     reg._registered_eps = []
     reg._registered = {}
@@ -58,68 +57,9 @@ def _fake_ort_device(ep_name: str, dev_type: str) -> MagicMock:
     return d
 
 
-def test_ensure_initialized_calls_registry_once():
-    """ensure_initialized() calls register_to_ort() via singleton; idempotent across calls.
-
-    A2-I3 (PR review): the previous loose ``call_count >= 1`` assertion would
-    pass if the wrapper accidentally amplified calls (e.g., re-instantiating
-    the registry on every entry). Pin the contract:
-
-    * ``WinMLEPRegistry.get_instance()`` is hit exactly once per
-      ``ensure_initialized()`` call (no extra allocations).
-    * ``register_to_ort()`` is invoked once per call — the singleton's
-      internal ``_registered_eps`` skip-list provides actual no-op
-      idempotency, NOT the wrapper.
-    * No exception is raised for any number of calls.
-    """
-    with patch("winml.modelkit.session.ep_registry.WinMLEPRegistry") as mock_registry_cls:
-        instance = mock_registry_cls.get_instance.return_value
-        instance.winml_available = True
-
-        ensure_initialized()
-        ensure_initialized()
-        ensure_initialized()
-
-        # Wrapper makes exactly one get_instance + one register_to_ort per call.
-        assert mock_registry_cls.get_instance.call_count == 3
-        assert instance.register_to_ort.call_count == 3
-
-
-def test_ensure_initialized_failure_logs_warning(caplog):
-    """NFR-2: registration failure must log at WARNING (not DEBUG) with exception class."""
-    with patch("winml.modelkit.session.ep_registry.WinMLEPRegistry") as mock_registry_cls:
-        instance = mock_registry_cls.get_instance.return_value
-        instance.winml_available = True
-        instance.register_to_ort.side_effect = RuntimeError("boom")
-
-        with caplog.at_level(logging.WARNING):
-            ensure_initialized()  # must NOT raise
-
-        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-        assert any(
-            "WinML EP registration failed" in r.message and "RuntimeError" in r.message
-            for r in warnings
-        ), f"expected WARNING surfacing RuntimeError, got: {[r.message for r in warnings]}"
-
-
-def test_ensure_initialized_allows_retry_after_failure(caplog):
-    """A first-call failure does not latch — the next call retries registration."""
-    with patch("winml.modelkit.session.ep_registry.WinMLEPRegistry") as mock_registry_cls:
-        instance = mock_registry_cls.get_instance.return_value
-        instance.winml_available = True
-        instance.register_to_ort.side_effect = [RuntimeError("transient"), None]
-
-        with caplog.at_level(logging.WARNING):
-            ensure_initialized()  # fails
-            ensure_initialized()  # should retry
-
-        # register_to_ort should have been called both times.
-        assert instance.register_to_ort.call_count == 2
-
-
 def test_register_to_ort_failure_records_per_ep_state():
     """NFR-2: per-EP registration failures must be tracked in registration_failures."""
-    registry = WinMLEPRegistry.get_instance()
+    registry = WinMLEPRegistry.instance()
     registry._ep_paths = {"FakeEP": "C:/nonexistent/fake.dll"}
     registry._registered_eps = []
     registry._registration_failures = {}

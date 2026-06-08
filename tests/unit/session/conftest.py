@@ -13,7 +13,7 @@ EP Markers:
         @pytest.mark.ep("qnn")
         def test_qnn_inference(self, simple_matmul_onnx, qnn_npu_ep_device, fake_ort_npu):
             with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-                mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
+                mock_reg.instance.return_value.register_ep.return_value = [fake_ort_npu]
                 session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=qnn_npu_ep_device)
             ...
 """
@@ -140,7 +140,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     from winml.modelkit.session import WinMLEPRegistry
 
     # Register WinML EPs so ort.get_ep_devices() includes them
-    registry = WinMLEPRegistry.get_instance()
+    registry = WinMLEPRegistry.instance()
     registry.register_to_ort()
 
     # Use ort.get_ep_devices() for hardware-accurate availability (only returns

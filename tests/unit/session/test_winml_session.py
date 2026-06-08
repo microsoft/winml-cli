@@ -85,7 +85,7 @@ class TestWinMLSessionCompilation:
         - _init_session() (called by run()) creates InferenceSession
         """
         with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-            mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
+            mock_reg.instance.return_value.register_ep.return_value = [fake_ort_npu]
             session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=qnn_npu_ep_device)
 
         # Compile creates EPContext file

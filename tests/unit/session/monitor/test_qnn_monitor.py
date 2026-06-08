@@ -222,7 +222,7 @@ def test_is_available_via_winml():
     with (
         patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"]),
         patch("onnxruntime.get_ep_devices", return_value=[fake_ep]),
-        patch("winml.modelkit.session.ep_registry.ensure_initialized"),
+        patch("winml.modelkit.session.ep_registry.WinMLEPRegistry.instance"),
     ):
         assert QNNMonitor.is_available() is True
 
@@ -233,7 +233,7 @@ def test_is_available_neither():
     with (
         patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"]),
         patch("onnxruntime.get_ep_devices", return_value=[]),
-        patch("winml.modelkit.session.ep_registry.ensure_initialized"),
+        patch("winml.modelkit.session.ep_registry.WinMLEPRegistry.instance"),
     ):
         assert QNNMonitor.is_available() is False
 
@@ -243,8 +243,9 @@ def test_is_available_winml_path_failure_logs_warning(caplog, monkeypatch):
 
     The bare-Exception swallow downgraded broken Windows App SDK / denied
     registry access to "feature unavailable" silently. Any non-ImportError
-    in ``ensure_initialized()`` MUST surface at WARNING with the exception
-    class, so users can diagnose the underlying environment problem.
+    raised by :meth:`WinMLEPRegistry.instance` MUST surface at WARNING with
+    the exception class, so users can diagnose the underlying environment
+    problem.
     """
     import logging
 
@@ -257,11 +258,11 @@ def test_is_available_winml_path_failure_logs_warning(caplog, monkeypatch):
     monkeypatch.setattr(ort, "get_available_providers", lambda: ["CPUExecutionProvider"])
     monkeypatch.setattr(ort, "get_ep_devices", list)
 
-    # Make ensure_initialized raise a non-ImportError exception
+    # Make WinMLEPRegistry.instance() raise a non-ImportError exception
     def _raises() -> None:
         raise RuntimeError("simulated WinML init failure")
 
-    monkeypatch.setattr(ep_registry, "ensure_initialized", _raises)
+    monkeypatch.setattr(ep_registry.WinMLEPRegistry, "instance", classmethod(lambda cls: _raises()))
 
     with caplog.at_level(logging.WARNING):
         assert QNNMonitor.is_available() is False
