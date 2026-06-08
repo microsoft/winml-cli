@@ -591,6 +591,7 @@ def build(
                 model_id,
                 trust_remote_code=trust_remote_code,
                 device=device,
+                onnx_path=model_id if cli_utils.is_onnx_file_path(model_id) else None,
             )
             if no_quant:
                 config_or_configs.quant = None
@@ -643,9 +644,7 @@ def build(
         # scratch state when the user passes the wrong file or a
         # hand-edited config (#P1 UX).
         _configs_to_validate: list[WinMLBuildConfig] = (
-            config_or_configs
-            if isinstance(config_or_configs, list)
-            else [config_or_configs]
+            config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
         )
         try:
             for _cfg in _configs_to_validate:
