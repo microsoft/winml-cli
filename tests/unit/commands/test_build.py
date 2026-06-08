@@ -33,12 +33,12 @@ def mock_resolve_device():
     mocked to avoid slow DLL scanning and WinML SDK discovery on CI runners
     without WinML installed.
     """
-    from winml.modelkit.session import WinMLEPDevice
+    from winml.modelkit.session import EPDeviceTarget
 
     mock_registry = MagicMock()
     mock_registry.is_ep_available.return_value = False
 
-    fake_cpu_ep_device = WinMLEPDevice(
+    fake_cpu_ep_device = EPDeviceTarget(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=0x0000,

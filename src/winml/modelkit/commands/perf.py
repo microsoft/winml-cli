@@ -34,7 +34,7 @@ from ._pre_bench import print_pre_bench_block
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
-    from ..session import WinMLEPDevice
+    from ..session import EPDeviceTarget
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.stats import PerfStats
 
@@ -464,7 +464,7 @@ class PerfBenchmark:
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
 
-        # Resolve (ep, device) to WinMLEPDevice at the CLI boundary.
+        # Resolve (ep, device) to EPDeviceTarget at the CLI boundary.
         # resolve_device deduces missing sides and normalizes "auto".
         ep_device = resolve_device(ep=self.config.ep or None, device=self.config.device)
 
@@ -1086,7 +1086,7 @@ def _run_simple_loop(
 def _run_onnx_benchmark(
     onnx_path: Path,
     *,
-    ep_device: WinMLEPDevice,
+    ep_device: EPDeviceTarget,
     iterations: int,
     warmup: int,
     batch_size: int,
@@ -1539,7 +1539,7 @@ def perf(
 
             from ..session import resolve_device
 
-            # Resolve to a WinMLEPDevice: resolve_device handles "auto" and
+            # Resolve to a EPDeviceTarget: resolve_device handles "auto" and
             # deduces missing ep or device.
             ep_device = resolve_device(ep=config.ep or None, device=config.device)
 

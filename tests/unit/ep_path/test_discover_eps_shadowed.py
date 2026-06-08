@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from winml.modelkit import ep_path as _ep
 from winml.modelkit.ep_path import (
-    EpSource,
+    EPSource,
     FilesystemSource,
     ResolvedEp,
     discover_all_eps,
@@ -88,7 +88,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
     def test_three_sources_one_primary_two_shadowed(self, tmp_path: Path) -> None:
         for sub in ("a", "b", "c"):
             _touch(tmp_path / sub / "qnn.dll")
-        srcs: list[EpSource] = [
+        srcs: list[EPSource] = [
             _filesystem_source_for(tmp_path / sub, "QNNExecutionProvider", "qnn.dll")
             for sub in ("a", "b", "c")
         ]
@@ -100,7 +100,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
     def test_multiple_eps_grouped_correctly(self, tmp_path: Path) -> None:
         _touch(tmp_path / "qnn.dll")
         _touch(tmp_path / "ov.dll")
-        srcs: list[EpSource] = [
+        srcs: list[EPSource] = [
             _filesystem_source_for(tmp_path, "QNNExecutionProvider", "qnn.dll"),
             _filesystem_source_for(tmp_path, "OpenVINOExecutionProvider", "ov.dll"),
         ]

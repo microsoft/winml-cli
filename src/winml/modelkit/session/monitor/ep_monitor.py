@@ -109,7 +109,7 @@ class WinMLEPMonitor(ABC):
         Default: no-op. Op-tracing monitors override this to store the map
         for use during their ``__exit__`` parsing pass. Non-op-tracing
         monitors (:class:`NullEPMonitor`, ``VitisAIMonitor``,
-        ``OpenVinoMonitor``) inherit the default and ignore the call.
+        ``OpenVINOMonitor``) inherit the default and ignore the call.
 
         Called unconditionally by :meth:`WinMLSession.perf` immediately
         before ``mon.__enter__()`` so the monitor has the map available
@@ -123,7 +123,7 @@ class WinMLEPMonitor(ABC):
         Op-tracing monitors set ``self._result`` during ``__exit__`` after
         parsing. The default :func:`getattr` returns ``None`` for monitors
         that never set it (the no-op subclasses :class:`NullEPMonitor`,
-        ``VitisAIMonitor``, ``OpenVinoMonitor``).
+        ``VitisAIMonitor``, ``OpenVINOMonitor``).
         """
         return getattr(self, "_result", None)
 

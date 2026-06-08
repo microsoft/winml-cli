@@ -57,7 +57,7 @@ def test_list_msix_eps_returns_list() -> None:
 
     results = list_msix_eps()
     assert isinstance(results, list)
-    # Each result must be a fully-pinned MsixPackageSource.
+    # Each result must be a fully-pinned MSIXPackageSource.
     for src in results:
         assert src.family_name_prefix
         assert src.relative_dll

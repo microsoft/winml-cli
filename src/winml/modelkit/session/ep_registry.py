@@ -14,10 +14,9 @@ from __future__ import annotations
 import functools
 import logging
 
-from ..ep_path import EpSource, discover_eps
-
 import onnxruntime as ort
 
+from ..ep_path import EPSource, discover_eps
 from .ep_device import WinMLEPNotDiscovered, WinMLEPRegistrationFailed
 
 
@@ -56,7 +55,7 @@ class WinMLEPRegistry:
         self._initialized = True
 
         self._ep_paths: dict[str, str] = {}
-        self._ep_sources: dict[str, EpSource] = {}
+        self._ep_sources: dict[str, EPSource] = {}
         self._registered_eps: list[str] = []
         self._registration_failures: dict[str, str] = {}
 

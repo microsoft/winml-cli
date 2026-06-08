@@ -32,7 +32,7 @@ def cpu_session(tmp_path: Path) -> WinMLSession:
     import onnx
     import onnxruntime as _ort
 
-    from winml.modelkit.session import WinMLEPDevice
+    from winml.modelkit.session import EPDeviceTarget
 
     # Discover the real CPU OrtEpDevice so add_provider_for_devices() gets
     # a genuine handle and ORT can run inference.
@@ -41,7 +41,7 @@ def cpu_session(tmp_path: Path) -> WinMLSession:
         pytest.skip("CPUExecutionProvider not available in ort.get_ep_devices()")
     real_cpu_dev = cpu_ort_devs[0]
 
-    cpu_ep_device = WinMLEPDevice(
+    cpu_ep_device = EPDeviceTarget(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=real_cpu_dev.device.vendor_id,

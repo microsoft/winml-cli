@@ -6,7 +6,7 @@
 
 This module replaces the legacy ``EP_PLUGIN_REGISTRY`` dict (which only
 modeled PyPI-installed plugin EPs) with an ordered list of typed
-``EpSource`` entries, analogous to the OS ``PATH`` environment variable.
+``EPSource`` entries, analogous to the OS ``PATH`` environment variable.
 Each entry knows how to resolve itself for the current machine and yields
 ``(ep_name, absolute_dll_path)`` pairs.
 
@@ -15,10 +15,10 @@ the per-origin x per-EP map and the migration plan.
 
 Public API:
 
-* :data:`EP_CATALOG`: canonical EP metadata registry (:class:`EpCatalog`).
-* :class:`EpEntry`: frozen dataclass for one EP's metadata (name, DLL, vendor).
-* :class:`EpCatalog`: registry with forward/inverse lookups and vendor compat.
-* :class:`PyPiSource`: pip-installed plugin EP wheels.
+* :data:`EP_CATALOG`: canonical EP metadata registry (:class:`EPCatalog`).
+* :class:`EPCatalog.Row`: frozen dataclass for one EP's metadata (name, DLL, vendor).
+* :class:`EPCatalog`: registry with forward/inverse lookups and vendor compat.
+* :class:`PyPISource`: pip-installed plugin EP wheels.
 * :class:`NuGetSource`: NuGet-cached plugin EP packages
   (``~/.nuget/packages/<id>/<version>/runtimes/<rid>/native/...``).
 * :class:`FilesystemSource`: directory drops (installer, unzipped archive,
@@ -26,10 +26,10 @@ Public API:
 * :class:`WinMLCatalogSource`: WinAppSDK ``ExecutionProviderCatalog``
   MSIX-delivered EPs. Lazily imports the WinAppSDK ML Python binding;
   yields nothing silently when the binding is not installed.
-* :class:`MsixPackageSource`: WinRT ``PackageManager`` MSIX EP discovery
+* :class:`MSIXPackageSource`: WinRT ``PackageManager`` MSIX EP discovery
   by family-name prefix (handles non-current versions and the
   ``WindowsWorkload.EP.*`` OEM channel).
-* :class:`EpSource`: abstract base for the five concrete sources.
+* :class:`EPSource`: abstract base for the five concrete sources.
 * :func:`discover_eps`: walk the default EP source list (plus any extras)
   and return ``{ep_name: (dll_path, source)}`` with first-hit-wins
   semantics. One precedence winner per EP.
@@ -65,20 +65,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class EpEntry:
-    """One canonical EP's metadata: name, DLL filename, vendor requirement.
-
-    The ``dll_name`` is empty for bundled EPs (CPU, DML, Azure) — they
-    ship with ORT itself and never need plugin DLL loading.
-    """
-
-    name: str
-    dll_name: str
-    vendor_requirements: frozenset[str]
-
-
-class EpCatalog:
+class EPCatalog:
     """Canonical EP metadata registry: forward + inverse lookups + vendor compat.
 
     Replaces the three legacy module-level dicts (``EP_DLL_NAMES``,
@@ -88,14 +75,26 @@ class EpCatalog:
     Immutable after construction: the internal lookup dicts are wrapped
     in ``MappingProxyType`` (no in-place mutation) and ``__setattr__`` is
     locked after ``__init__`` (no attribute rebinding). Tests swap by
-    constructing a fresh ``EpCatalog`` and patching the module-level
+    constructing a fresh ``EPCatalog`` and patching the module-level
     ``EP_CATALOG`` binding.
     """
 
-    __slots__ = ("_by_name", "_by_dll", "_initialized")
+    @dataclass(frozen=True)
+    class Row:
+        """One canonical EP's metadata: name, DLL filename, vendor requirement.
 
-    def __init__(self, entries: Iterable[EpEntry]) -> None:
-        by_name: dict[str, EpEntry] = {e.name: e for e in entries}
+        The ``dll_name`` is empty for bundled EPs (CPU, DML, Azure) — they
+        ship with ORT itself and never need plugin DLL loading.
+        """
+
+        name: str
+        dll_name: str
+        vendor_requirements: frozenset[str]
+
+    __slots__ = ("_by_dll", "_by_name", "_initialized")
+
+    def __init__(self, entries: Iterable[EPCatalog.Row]) -> None:
+        by_name: dict[str, EPCatalog.Row] = {e.name: e for e in entries}
         by_dll: dict[str, str] = {
             e.dll_name: e.name for e in by_name.values() if e.dll_name
         }
@@ -105,7 +104,7 @@ class EpCatalog:
 
     def __setattr__(self, name: str, value: object) -> None:
         if getattr(self, "_initialized", False):
-            raise AttributeError(f"EpCatalog is immutable; cannot set {name!r}")
+            raise AttributeError(f"EPCatalog is immutable; cannot set {name!r}")
         object.__setattr__(self, name, value)
 
     def dll_name_for(self, ep: str) -> str | None:
@@ -152,18 +151,18 @@ class EpCatalog:
         return tuple(self._by_dll)
 
 
-EP_CATALOG = EpCatalog([
-    EpEntry(
+EP_CATALOG = EPCatalog([
+    EPCatalog.Row(
         name="OpenVINOExecutionProvider",
         dll_name="onnxruntime_providers_openvino_plugin.dll",
         vendor_requirements=frozenset({"Intel"}),
     ),
-    EpEntry(
+    EPCatalog.Row(
         name="QNNExecutionProvider",
         dll_name="onnxruntime_providers_qnn.dll",
         vendor_requirements=frozenset({"Qualcomm"}),
     ),
-    EpEntry(
+    EPCatalog.Row(
         name="VitisAIExecutionProvider",
         dll_name="onnxruntime_providers_vitisai.dll",
         vendor_requirements=frozenset({"AMD"}),
@@ -171,19 +170,19 @@ EP_CATALOG = EpCatalog([
     # TODO(ep_path): MIGraphX DLL leaf is unverified; mirrors the VitisAI
     # naming convention. Confirm by inspecting an installed MSIX. See
     # docs/ep-path-design.md TODO #4.
-    EpEntry(
+    EPCatalog.Row(
         name="MIGraphXExecutionProvider",
         dll_name="onnxruntime_providers_migraphx.dll",
         vendor_requirements=frozenset({"AMD"}),
     ),
-    EpEntry(
+    EPCatalog.Row(
         name="NvTensorRtRtxExecutionProvider",
         dll_name="onnxruntime_providers_nv_tensorrt_rtx.dll",
         vendor_requirements=frozenset({"NVIDIA"}),
     ),
-    EpEntry(name="DmlExecutionProvider", dll_name="", vendor_requirements=frozenset()),
-    EpEntry(name="CPUExecutionProvider", dll_name="", vendor_requirements=frozenset()),
-    EpEntry(name="AzureExecutionProvider", dll_name="", vendor_requirements=frozenset()),
+    EPCatalog.Row(name="DmlExecutionProvider", dll_name="", vendor_requirements=frozenset()),
+    EPCatalog.Row(name="CPUExecutionProvider", dll_name="", vendor_requirements=frozenset()),
+    EPCatalog.Row(name="AzureExecutionProvider", dll_name="", vendor_requirements=frozenset()),
 ])
 
 
@@ -224,7 +223,7 @@ def _get_detected_vendors() -> frozenset[str]:
 def _ep_is_compatible(ep_name: str) -> bool:
     """Return True iff ``ep_name`` has compatible hardware on this machine.
 
-    Delegates to :meth:`EpCatalog.is_compatible` on :data:`EP_CATALOG`:
+    Delegates to :meth:`EPCatalog.is_compatible` on :data:`EP_CATALOG`:
 
     * Empty / missing vendor requirement -> always compatible (CPU, DML, Azure).
     * Non-empty requirement -> compatible iff at least one required vendor
@@ -278,17 +277,17 @@ def _nuget_packages_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# EpSource ABC + concrete dataclass implementations.
+# EPSource ABC + concrete dataclass implementations.
 # ---------------------------------------------------------------------------
 
 
-class EpSource(ABC):
+class EPSource(ABC):
     """Abstract base for any source that can yield ``(ep_name, dll_path)``.
 
     Five concrete subclasses cover the origins documented in
-    ``docs/ep-path-design.md``: :class:`PyPiSource`, :class:`NuGetSource`,
+    ``docs/ep-path-design.md``: :class:`PyPISource`, :class:`NuGetSource`,
     :class:`FilesystemSource`, :class:`WinMLCatalogSource`, and
-    :class:`MsixPackageSource`. Subclasses are frozen dataclasses; this
+    :class:`MSIXPackageSource`. Subclasses are frozen dataclasses; this
     base provides the shared :meth:`is_compatible` body and documents
     the :meth:`resolve` / :meth:`iter_eps` contract.
     """
@@ -317,7 +316,7 @@ class EpSource(ABC):
 
 
 @dataclass(frozen=True)
-class PyPiSource(EpSource):
+class PyPISource(EPSource):
     """A pip-installed plugin EP wheel.
 
     The DLL path is computed lazily via
@@ -352,7 +351,7 @@ class PyPiSource(EpSource):
             dist = metadata.distribution(self.distribution)
         except metadata.PackageNotFoundError:
             logger.debug(
-                "PyPiSource: distribution %r not installed; skipping", self.distribution
+                "PyPISource: distribution %r not installed; skipping", self.distribution
             )
             return
 
@@ -363,7 +362,7 @@ class PyPiSource(EpSource):
         path = Path(str(dist.locate_file(rel)))
         if not path.exists():
             logger.warning(
-                "PyPiSource: distribution %r installed but DLL missing at %s",
+                "PyPISource: distribution %r installed but DLL missing at %s",
                 self.distribution,
                 path,
             )
@@ -378,10 +377,10 @@ class PyPiSource(EpSource):
 
 
 @dataclass(frozen=True)
-class NuGetSource(EpSource):
+class NuGetSource(EPSource):
     """A NuGet-cached EP plugin package (``~/.nuget/packages/<id>/<ver>/...``).
 
-    Mirrors :class:`PyPiSource` but resolves against the global NuGet
+    Mirrors :class:`PyPISource` but resolves against the global NuGet
     packages cache instead of the active Python environment. Useful for
     .NET-installed EP plugins (``Intel.ML.OnnxRuntime.EP.OpenVINO``,
     ``Qualcomm.ML.OnnxRuntime.QNN``) on machines where the user has the
@@ -411,7 +410,7 @@ class NuGetSource(EpSource):
             the version directory. May contain ``{...}`` placeholders that
             ``arch_resolver`` substitutes (e.g., ``{rid}``).
         eps: Canonical EP names this source provides. Tuple-shaped for
-            symmetry with :class:`PyPiSource`; almost always a single name
+            symmetry with :class:`PyPISource`; almost always a single name
             since one NuGet package maps to one EP.
         arch_resolver: Optional ``Callable[[str], str]`` that takes the
             ``relative_dll`` template and returns a substituted relative
@@ -503,7 +502,7 @@ class NuGetSource(EpSource):
 
 
 @dataclass(frozen=True)
-class FilesystemSource(EpSource):
+class FilesystemSource(EPSource):
     r"""A directory tree containing one or more registrable plugin DLLs.
 
     Covers the third-party-installer case (Ryzen AI), the unzipped-GitHub
@@ -688,7 +687,7 @@ def _winml_warn_once(key: str, msg: str, *args: Any) -> None:
 
 
 @dataclass(frozen=True)
-class WinMLCatalogSource(EpSource):
+class WinMLCatalogSource(EPSource):
     """An MSIX EP delivered via the WinAppSDK ``ExecutionProviderCatalog``.
 
     The on-disk DLL path for an MSIX-delivered EP is decided by the
@@ -850,7 +849,7 @@ class WinMLCatalogSource(EpSource):
 
 
 # ---------------------------------------------------------------------------
-# Windows.Management.Deployment.PackageManager singleton (for MsixPackageSource).
+# Windows.Management.Deployment.PackageManager singleton (for MSIXPackageSource).
 # ---------------------------------------------------------------------------
 
 
@@ -866,7 +865,7 @@ def _get_pkg_manager() -> Any | None:
         from winrt.windows.management.deployment import PackageManager
     except ImportError as e:
         logger.debug(
-            "MsixPackageSource: WinRT PackageManager binding not installed; "
+            "MSIXPackageSource: WinRT PackageManager binding not installed; "
             "install the 'winml-catalog' extra to enable MSIX EP version "
             "discovery (%s)",
             e,
@@ -875,7 +874,7 @@ def _get_pkg_manager() -> Any | None:
     try:
         return PackageManager()
     except Exception as e:
-        logger.warning("MsixPackageSource: PackageManager() failed: %s", e)
+        logger.warning("MSIXPackageSource: PackageManager() failed: %s", e)
         return None
 
 
@@ -895,7 +894,7 @@ def _pkg_version_str(version: Any) -> str:
 
 
 @dataclass(frozen=True)
-class MsixPackageSource(EpSource):
+class MSIXPackageSource(EPSource):
     """An MSIX-delivered EP, identified by package-family-name prefix.
 
     Bypasses the WinAppSDK ``ExecutionProviderCatalog`` (which exposes
@@ -951,7 +950,7 @@ class MsixPackageSource(EpSource):
         """
         if "\\" in self.relative_dll:
             raise ValueError(
-                f"MsixPackageSource.relative_dll must be POSIX-style "
+                f"MSIXPackageSource.relative_dll must be POSIX-style "
                 f"(forward-slash separators); got {self.relative_dll!r}"
             )
         manager = _get_pkg_manager()
@@ -962,7 +961,7 @@ class MsixPackageSource(EpSource):
             packages = list(manager.find_packages_by_user_security_id(""))
         except Exception as e:
             logger.warning(
-                "MsixPackageSource: find_packages_by_user_security_id raised %s",
+                "MSIXPackageSource: find_packages_by_user_security_id raised %s",
                 e,
             )
             return
@@ -976,7 +975,7 @@ class MsixPackageSource(EpSource):
 
         if not matching:
             logger.debug(
-                "MsixPackageSource: no installed package matches prefix=%r version=%r",
+                "MSIXPackageSource: no installed package matches prefix=%r version=%r",
                 self.family_name_prefix,
                 self.version,
             )
@@ -987,7 +986,7 @@ class MsixPackageSource(EpSource):
         dll_path = installed_path / self.relative_dll
         if not dll_path.is_file():
             logger.warning(
-                "MsixPackageSource: package %s installed at %s but DLL missing at %s",
+                "MSIXPackageSource: package %s installed at %s but DLL missing at %s",
                 selected.id.full_name,
                 installed_path,
                 dll_path,
@@ -1007,15 +1006,15 @@ def list_msix_eps(
         "MicrosoftCorporationII.WinML.",
         "WindowsWorkload.EP.",
     ),
-) -> list[MsixPackageSource]:
+) -> list[MSIXPackageSource]:
     """Enumerate installed MSIX EP packages.
 
-    Returns one fully-pinned :class:`MsixPackageSource` per (family,
+    Returns one fully-pinned :class:`MSIXPackageSource` per (family,
     version) found. Each return value is ready to drop into the default
     EP source list and resolvable via ``.resolve()``.
 
     EP names are auto-detected from the DLL filename inside each package,
-    using :meth:`EpCatalog.ep_for_dll` on :data:`EP_CATALOG`. Packages with
+    using :meth:`EPCatalog.ep_for_dll` on :data:`EP_CATALOG`. Packages with
     no recognizable EP DLL are skipped silently.
 
     Args:
@@ -1033,7 +1032,7 @@ def list_msix_eps(
             package.
 
     Returns:
-        List of :class:`MsixPackageSource` with ``family_name_prefix``
+        List of :class:`MSIXPackageSource` with ``family_name_prefix``
         set to the exact PackageFamilyName (no trailing separator) and
         ``version`` set to the exact installed ``Package.Id.Version``
         string. Round-trip exactness comes from the family-name plus
@@ -1067,7 +1066,7 @@ def list_msix_eps(
         key=lambda p: (str(p.id.family_name), _pkg_version_tuple(p.id.version)),
     )
 
-    results: list[MsixPackageSource] = []
+    results: list[MSIXPackageSource] = []
     for p in matching:
         installed_path = Path(str(p.installed_path))
         try:
@@ -1106,7 +1105,7 @@ def list_msix_eps(
         # generated source resolves the same package via startswith().
         # Combined with self.version pin, this is exact-match round-trip.
         results.append(
-            MsixPackageSource(
+            MSIXPackageSource(
                 family_name_prefix=str(p.id.family_name),
                 relative_dll=rel,
                 eps=(ep_name,),
@@ -1122,7 +1121,7 @@ def list_msix_eps(
 # ---------------------------------------------------------------------------
 
 
-def _default_ep_sources() -> list[EpSource]:
+def _default_ep_sources() -> list[EPSource]:
     """Default EP source list for this project.
 
     Order: PyPI sources first (most deterministic, locked by pyproject),
@@ -1147,14 +1146,14 @@ def _default_ep_sources() -> list[EpSource]:
     """
     return [
         # 1. PyPI plugin wheels — primary source today.
-        PyPiSource(
+        PyPISource(
             distribution="onnxruntime-ep-openvino",
             relative_dll=(
                 "onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"
             ),
             eps=("OpenVINOExecutionProvider",),
         ),
-        PyPiSource(
+        PyPISource(
             distribution="onnxruntime-qnn",
             relative_dll="onnxruntime_qnn/libs/{arch}/onnxruntime_providers_qnn.dll",
             eps=("QNNExecutionProvider",),
@@ -1237,7 +1236,7 @@ def _default_ep_sources() -> list[EpSource]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_winmlcli_ep_path() -> list[EpSource]:
+def _parse_winmlcli_ep_path() -> list[EPSource]:
     """Parse the ``WINMLCLI_EP_PATH`` env var into ``FilesystemSource`` entries.
 
     The env var is a path-list using OS-conventional separators (``;`` on
@@ -1257,7 +1256,7 @@ def _parse_winmlcli_ep_path() -> list[EpSource]:
     if not entries:
         return []
 
-    sources: list[EpSource] = []
+    sources: list[EPSource] = []
     for entry in entries:
         p = Path(entry)
         if not p.is_dir():
@@ -1290,13 +1289,13 @@ class ResolvedEp:
 
     ep_name: str
     dll_path: Path
-    source: EpSource
+    source: EPSource
     status: str  # "primary" | "shadowed"
 
 
 def _walk_sources(
-    extra_sources: list[EpSource] | None,
-    extra_sources_after: list[EpSource] | None,
+    extra_sources: list[EPSource] | None,
+    extra_sources_after: list[EPSource] | None,
 ) -> dict[str, list[ResolvedEp]]:
     """Walk the assembled source list and collect all matches per EP.
 
@@ -1304,7 +1303,7 @@ def _walk_sources(
     winner per EP) and :func:`discover_all_eps` (returns primary + every
     shadowed match).
     """
-    sources: list[EpSource] = []
+    sources: list[EPSource] = []
     if extra_sources:
         sources.extend(extra_sources)
     sources.extend(_parse_winmlcli_ep_path())
@@ -1359,10 +1358,10 @@ def _walk_sources(
 
 
 def discover_eps(
-    extra_sources: list[EpSource] | None = None,
+    extra_sources: list[EPSource] | None = None,
     *,
-    extra_sources_after: list[EpSource] | None = None,
-) -> dict[str, tuple[Path, EpSource]]:
+    extra_sources_after: list[EPSource] | None = None,
+) -> dict[str, tuple[Path, EPSource]]:
     """Walk the default EP source list and return one ``(dll_path, source)`` per EP.
 
     Returns the precedence winner per EP. Use :func:`discover_all_eps`
@@ -1382,9 +1381,9 @@ def discover_eps(
 
 
 def discover_all_eps(
-    extra_sources: list[EpSource] | None = None,
+    extra_sources: list[EPSource] | None = None,
     *,
-    extra_sources_after: list[EpSource] | None = None,
+    extra_sources_after: list[EPSource] | None = None,
 ) -> dict[str, list[ResolvedEp]]:
     """Walk the default EP source list and return all matches per EP — primary first then shadowed.
 
@@ -1399,13 +1398,12 @@ def discover_all_eps(
 
 __all__ = [
     "EP_CATALOG",
-    "EpCatalog",
-    "EpEntry",
-    "EpSource",
+    "EPCatalog",
+    "EPSource",
     "FilesystemSource",
-    "MsixPackageSource",
+    "MSIXPackageSource",
     "NuGetSource",
-    "PyPiSource",
+    "PyPISource",
     "ResolvedEp",
     "WinMLCatalogSource",
     "discover_all_eps",

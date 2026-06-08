@@ -563,30 +563,30 @@ class TestHWMonitor:
 
 
 # ============================================================================
-# OpenVinoMonitor tests (placeholder)
+# OpenVINOMonitor tests (placeholder)
 # ============================================================================
 
 
-class TestOpenVinoMonitor:
-    """Test OpenVinoMonitor placeholder."""
+class TestOpenVINOMonitor:
+    """Test OpenVINOMonitor placeholder."""
 
     def test_is_available_returns_false(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        assert OpenVinoMonitor.is_available() is False
+        assert OpenVINOMonitor.is_available() is False
 
     def test_context_manager_noop(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        with OpenVinoMonitor() as hw:
+        with OpenVINOMonitor() as hw:
             pass
 
         assert hw.to_dict()["ep"] == "OpenVINO"
 
     def test_to_dict_returns_stub(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        with OpenVinoMonitor() as hw:
+        with OpenVINOMonitor() as hw:
             pass
 
         d = hw.to_dict()
@@ -614,9 +614,9 @@ class TestMonitorImports:
         assert QNNMonitor is not None
 
     def test_import_openvino_monitor_from_submodule(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        assert OpenVinoMonitor is not None
+        assert OpenVINOMonitor is not None
 
     def test_import_hw_monitor_from_session(self):
         from winml.modelkit.session import HWMonitor
@@ -629,9 +629,9 @@ class TestMonitorImports:
         assert QNNMonitor is not None
 
     def test_import_openvino_monitor_from_session(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        assert OpenVinoMonitor is not None
+        assert OpenVINOMonitor is not None
 
 
 # ============================================================================
@@ -734,9 +734,9 @@ class TestToDictJsonSerializable:
         assert isinstance(serialized, str)
 
     def test_openvino_monitor_to_dict_json(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        with OpenVinoMonitor() as hw:
+        with OpenVINOMonitor() as hw:
             pass
         d = hw.to_dict()
         serialized = json.dumps(d)

@@ -33,8 +33,7 @@ from .qnn.viewer import find_qnn_sdk, run_qhas_viewer
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    from typing_extensions import Self
+    from typing import Self
 
 
 logger = logging.getLogger(__name__)

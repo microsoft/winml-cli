@@ -22,7 +22,7 @@ from ..onnx import is_compiled_onnx
 from .ep_device import (
     AmbiguousMatch,
     DeviceNotFound,
-    WinMLEPDevice,
+    EPDeviceTarget,
     WinMLEPMonitorMismatch,
     expand_ep_name,
     lookup_device_spec,
@@ -85,8 +85,8 @@ class PerfContext:
     monitor: WinMLEPMonitor  # NullEPMonitor when no monitor was passed
 
 
-def _ep_defaults(ep_device: WinMLEPDevice) -> dict[str, str]:
-    """EP-specific defaults from the WinMLEPDeviceSpec catalog.
+def _ep_defaults(ep_device: EPDeviceTarget) -> dict[str, str]:
+    """EP-specific defaults from the EPDeviceSpec catalog.
 
     Most EPs return {} — they pick up settings via ep_config.provider_options
     and ep_monitor.get_provider_options(). Only EPs that have measured
@@ -105,7 +105,7 @@ def _ep_defaults(ep_device: WinMLEPDevice) -> dict[str, str]:
 
 
 def _build_provider_options(
-    ep_device: WinMLEPDevice,
+    ep_device: EPDeviceTarget,
     ep_config: EPConfig | None,
     ep_monitor: WinMLEPMonitor | None,
 ) -> dict[str, str]:
@@ -169,15 +169,15 @@ class NotCompiledError(WinMLSessionError):
 
 
 def _build_session_options(
-    ep_device: WinMLEPDevice,
+    ep_device: EPDeviceTarget,
     ep_config: EPConfig | None = None,
     ep_monitor: WinMLEPMonitor | None = None,
     base_session_options: ort.SessionOptions | None = None,
 ) -> ort.SessionOptions:
-    """Build a fully-bound ort.SessionOptions for one WinMLEPDevice target.
+    """Build a fully-bound ort.SessionOptions for one EPDeviceTarget target.
 
     Free function (not a method): pure inputs -> pure outputs.
-    Bridges the WinMLEPDevice descriptor to an OrtEpDevice handle inline —
+    Bridges the EPDeviceTarget descriptor to an OrtEpDevice handle inline —
     no _select_one / to_ort_ep_device helper.
     """
     so = base_session_options if base_session_options is not None else ort.SessionOptions()
@@ -205,7 +205,7 @@ def _build_session_options(
         )
     # Some hosts (dual-iGPU listings, OpenVINO on Intel) report multiple
     # OrtEpDevices with identical (ep, type, vendor_id, device_id) — already
-    # collapsed to a single WinMLEPDevice by resolve_device(). Mirror that dedup
+    # collapsed to a single EPDeviceTarget by resolve_device(). Mirror that dedup
     # here so add_provider_for_devices sees one handle.
     if len(matching) > 1:
         unique_keys = {
@@ -230,7 +230,7 @@ class WinMLSession:
     def __init__(
         self,
         onnx_path: str | Path,
-        ep_device: WinMLEPDevice,
+        ep_device: EPDeviceTarget,
         *,
         ep_config: EPConfig | None = None,
         base_session_options: ort.SessionOptions | None = None,
@@ -857,7 +857,7 @@ class WinMLSession:
         """Test if a single ONNX node is compatible with an EP.
 
         Wraps the node in a minimal graph, attempts to create an
-        InferenceSession with the session's WinMLEPDevice binding.
+        InferenceSession with the session's EPDeviceTarget binding.
 
         Args:
             node: ONNX node to test.
@@ -927,7 +927,7 @@ class WinMLSession:
             test_model = helper.make_model(test_graph, opset_imports=[helper.make_opsetid("", 17)])
             test_model.ir_version = 8
 
-            # 3. Try creating session with same WinMLEPDevice binding
+            # 3. Try creating session with same EPDeviceTarget binding
             sess_options = _build_session_options(
                 self._ep_device,
                 self._ep_config,

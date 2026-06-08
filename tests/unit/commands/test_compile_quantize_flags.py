@@ -9,11 +9,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from winml.modelkit.commands.quantize import _resolve_quant_types
-from winml.modelkit.session import WinMLEPDevice
+from winml.modelkit.session import EPDeviceTarget
 
 
-def _fake_ep_device(ep: str, device: str) -> WinMLEPDevice:
-    return WinMLEPDevice(ep=ep, device=device, vendor_id=0, device_id=0, vendor="")
+def _fake_ep_device(ep: str, device: str) -> EPDeviceTarget:
+    return EPDeviceTarget(ep=ep, device=device, vendor_id=0, device_id=0, vendor="")
 
 
 # =============================================================================
@@ -79,7 +79,7 @@ class TestResolveQuantTypes:
 
 
 class TestCompileDeviceDisplayLabel:
-    """Device label in compile summary must reflect the resolved WinMLEPDevice.device."""
+    """Device label in compile summary must reflect the resolved EPDeviceTarget.device."""
 
     def test_dml_ep_shows_gpu_device(self, tmp_path):
         from click.testing import CliRunner

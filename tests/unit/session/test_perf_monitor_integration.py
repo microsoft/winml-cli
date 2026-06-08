@@ -38,11 +38,11 @@ def _make_cpu_session(model_path):
     The real OrtEpDevice is passed to register_ep() so that
     add_provider_for_devices() receives a genuine handle and ORT can run.
     """
-    from winml.modelkit.session import WinMLEPDevice
+    from winml.modelkit.session import EPDeviceTarget
     from winml.modelkit.session.session import WinMLSession
 
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = WinMLEPDevice(
+    cpu_ep_device = EPDeviceTarget(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=cpu_dev.device.vendor_id,
@@ -171,7 +171,7 @@ def test_monitor_enter_raises_leaves_session_clean():
     (which calls WinMLEPRegistry). The mock therefore must stay active across the
     entire perf() call.
     """
-    from winml.modelkit.session import WinMLEPDevice
+    from winml.modelkit.session import EPDeviceTarget
     from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
     from winml.modelkit.session.session import WinMLSession
 
@@ -193,7 +193,7 @@ def test_monitor_enter_raises_leaves_session_clean():
             return {"some_key": "1"}
 
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = WinMLEPDevice(
+    cpu_ep_device = EPDeviceTarget(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=cpu_dev.device.vendor_id,

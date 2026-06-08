@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Unit tests for ``MsixPackageSource`` and ``list_msix_eps``.
+"""Unit tests for ``MSIXPackageSource`` and ``list_msix_eps``.
 
 The WinRT ``PackageManager`` is mocked via ``_get_pkg_manager`` so the
 tests are hermetic and run on any platform. Synthetic ``Package`` shapes
@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from winml.modelkit import ep_path as _ep
-from winml.modelkit.ep_path import MsixPackageSource, list_msix_eps
+from winml.modelkit.ep_path import MSIXPackageSource, list_msix_eps
 
 
 if TYPE_CHECKING:
@@ -93,7 +93,7 @@ def _make_qnn_package(
     """Build a fake QNN MSIX package on disk under tmp_path.
 
     Uses the real on-disk layout (``ExecutionProvider/<dll>``) so
-    ``MsixPackageSource.resolve()`` sees a real DLL file. Returns the
+    ``MSIXPackageSource.resolve()`` sees a real DLL file. Returns the
     fake Package with installed_path pointing at the layout.
     """
     family_name = f"MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.{family_short}_8wekyb3d8bbwe"
@@ -102,7 +102,7 @@ def _make_qnn_package(
     if create_dll:
         # POSIX path joined via Path / str works on both Windows and POSIX
         # without explicit separator translation. The invariant being
-        # tested: MsixPackageSource.relative_dll is POSIX-style; resolve()
+        # tested: MSIXPackageSource.relative_dll is POSIX-style; resolve()
         # rejects backslash inputs. Don't mask that with a manual replace.
         dll = install_root / dll_relative
         dll.parent.mkdir(parents=True, exist_ok=True)
@@ -111,12 +111,12 @@ def _make_qnn_package(
 
 
 # ---------------------------------------------------------------------------
-# MsixPackageSource.resolve()
+# MSIXPackageSource.resolve()
 # ---------------------------------------------------------------------------
 
 
-class TestMsixPackageSourceResolve:
-    """Selection rules for ``MsixPackageSource.resolve``."""
+class TestMSIXPackageSourceResolve:
+    """Selection rules for ``MSIXPackageSource.resolve``."""
 
     def test_single_match_yields_dll(
         self,
@@ -127,7 +127,7 @@ class TestMsixPackageSourceResolve:
         pkg = _make_qnn_package(tmp_path, "1.8", (1, 8, 30, 0))
         monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: _FakeManager([pkg]))
 
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_",
             relative_dll="ExecutionProvider/onnxruntime_providers_qnn.dll",
             eps=("QNNExecutionProvider",),
@@ -152,7 +152,7 @@ class TestMsixPackageSourceResolve:
             _ep, "_get_pkg_manager", lambda: _FakeManager([pkg_old, pkg_new])
         )
 
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.2_",
             relative_dll="ExecutionProvider/onnxruntime_providers_qnn.dll",
             eps=("QNNExecutionProvider",),
@@ -174,7 +174,7 @@ class TestMsixPackageSourceResolve:
             _ep, "_get_pkg_manager", lambda: _FakeManager([pkg_v1, pkg_v2])
         )
 
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.",  # spans both
             relative_dll="ExecutionProvider/onnxruntime_providers_qnn.dll",
             eps=("QNNExecutionProvider",),
@@ -194,7 +194,7 @@ class TestMsixPackageSourceResolve:
         pkg = _make_qnn_package(tmp_path, "1.8", (1, 8, 30, 0))
         monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: _FakeManager([pkg]))
 
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_",
             relative_dll="ExecutionProvider/onnxruntime_providers_qnn.dll",
             eps=("QNNExecutionProvider",),
@@ -211,7 +211,7 @@ class TestMsixPackageSourceResolve:
         pkg = _make_qnn_package(tmp_path, "1.8", (1, 8, 30, 0))
         monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: _FakeManager([pkg]))
 
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.",
             relative_dll="ignored",
             eps=("OpenVINOExecutionProvider",),
@@ -230,7 +230,7 @@ class TestMsixPackageSourceResolve:
         )
         monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: _FakeManager([pkg]))
 
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_",
             relative_dll="ExecutionProvider/onnxruntime_providers_qnn.dll",
             eps=("QNNExecutionProvider",),
@@ -246,7 +246,7 @@ class TestMsixPackageSourceResolve:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_",
             relative_dll="ignored",
             eps=("QNNExecutionProvider",),
@@ -264,7 +264,7 @@ class TestMsixPackageSourceResolve:
         # returning empty on Linux.
         pkg = _make_qnn_package(tmp_path, "1.8", (1, 8, 30, 0))
         monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: _FakeManager([pkg]))
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_",
             relative_dll="ExecutionProvider\\onnxruntime_providers_qnn.dll",
             eps=("QNNExecutionProvider",),
@@ -283,7 +283,7 @@ class TestMsixPackageSourceResolve:
             "_get_pkg_manager",
             lambda: _FakeManager(RuntimeError("WinRT failure")),
         )
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="...QNN.EP.1.8_",
             relative_dll="ignored",
             eps=("QNNExecutionProvider",),
@@ -300,7 +300,7 @@ class TestMsixPackageSourceResolve:
 
 
 class TestListMsixEps:
-    """``list_msix_eps`` returns one fully-pinned MsixPackageSource per match."""
+    """``list_msix_eps`` returns one fully-pinned MSIXPackageSource per match."""
 
     def test_returns_one_per_family_version(
         self,
@@ -334,7 +334,7 @@ class TestListMsixEps:
 
         results = list_msix_eps()
         assert len(results) == 1
-        # The returned MsixPackageSource must resolve back to the same DLL.
+        # The returned MSIXPackageSource must resolve back to the same DLL.
         listed = results[0]
         resolved = list(listed.resolve())
         assert len(resolved) == 1

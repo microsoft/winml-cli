@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 
 from ...onnx import load_onnx, save_onnx
-from ...session import WinMLEPDevice, WinMLQairtSession, WinMLSession, resolve_device
+from ...session import EPDeviceTarget, WinMLQairtSession, WinMLSession, resolve_device
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -67,7 +67,7 @@ class CompileStage(BaseStage):
             # Fall back to inferring from execution_provider for non-CLI invocations.
             ep_device_dict = context.config.get("ep_device")
             if ep_device_dict:
-                ep_device: WinMLEPDevice = WinMLEPDevice.from_dict(ep_device_dict)
+                ep_device: EPDeviceTarget = EPDeviceTarget.from_dict(ep_device_dict)
             elif compile_cfg.ep_device is not None:
                 ep_device = compile_cfg.ep_device
             else:

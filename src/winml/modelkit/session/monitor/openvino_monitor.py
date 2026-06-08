@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""OpenVinoMonitor - Placeholder for future Intel OpenVINO-specific NPU monitoring.
+"""OpenVINOMonitor - Placeholder for future Intel OpenVINO-specific NPU monitoring.
 
 For real-time NPU utilization monitoring with OpenVINO EP, use HWMonitor
 (universal PDH-based). This module is reserved for future Intel-specific
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from typing import Self
 
 
-class OpenVinoMonitor(WinMLEPMonitor):
+class OpenVINOMonitor(WinMLEPMonitor):
     """Placeholder for future Intel OpenVINO-specific NPU monitoring.
 
     For real-time NPU utilization monitoring with OpenVINO EP,

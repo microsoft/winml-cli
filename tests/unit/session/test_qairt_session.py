@@ -24,9 +24,9 @@ from .conftest import QNN_VENDOR_ID
 @pytest.fixture(autouse=True)
 def mock_ep_registration():
     """Prevent WinML EP registration from loading native DLLs."""
-    from winml.modelkit.session import WinMLEPDevice
+    from winml.modelkit.session import EPDeviceTarget
 
-    fake_qnn_npu = WinMLEPDevice(
+    fake_qnn_npu = EPDeviceTarget(
         ep="QNNExecutionProvider",
         device="npu",
         vendor_id=QNN_VENDOR_ID,

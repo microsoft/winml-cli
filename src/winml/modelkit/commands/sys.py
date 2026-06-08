@@ -38,9 +38,9 @@ from rich.table import Table
 
 from ..ep_path import (
     FilesystemSource,
-    MsixPackageSource,
+    MSIXPackageSource,
     NuGetSource,
-    PyPiSource,
+    PyPISource,
     WinMLCatalogSource,
 )
 from ..session import EP_DEVICE_SPECS
@@ -497,12 +497,12 @@ def _format_device_types(ep_name: str) -> str:
 def _describe_source(source: Any) -> dict[str, Any]:
     """Build a JSON-friendly per-source descriptor for ``--list-ep``.
 
-    Dispatches on concrete EpSource subclass via ``isinstance`` so a
+    Dispatches on concrete EPSource subclass via ``isinstance`` so a
     future field-name collision (e.g. a new source class adding its
     own ``distribution`` attribute) cannot misclassify rows.
     """
     desc: dict[str, Any] = {"source_kind": type(source).__name__}
-    if isinstance(source, PyPiSource):
+    if isinstance(source, PyPISource):
         from importlib import metadata
 
         desc["distribution"] = source.distribution
@@ -518,7 +518,7 @@ def _describe_source(source: Any) -> dict[str, Any]:
                 e,
             )
             desc["distribution_version"] = None
-    elif isinstance(source, MsixPackageSource):
+    elif isinstance(source, MSIXPackageSource):
         desc["family_name_prefix"] = source.family_name_prefix
         desc["version"] = source.version
     elif isinstance(source, NuGetSource):
@@ -599,7 +599,7 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
             ep_record["entries"].append(desc)
         result[ep_name] = ep_record
 
-    # Append ORT built-ins that no EpSource provides (CPU, Azure).
+    # Append ORT built-ins that no EPSource provides (CPU, Azure).
     try:
         import onnxruntime as ort
 
@@ -637,8 +637,8 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
 
 
 _SOURCE_KIND_LABEL = {
-    "PyPiSource": "PyPI",
-    "MsixPackageSource": "MSIX",
+    "PyPISource": "PyPI",
+    "MSIXPackageSource": "MSIX",
     "NuGetSource": "NuGet",
     "WinMLCatalogSource": "Catalog",
     "FilesystemSource": "FS",

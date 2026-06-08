@@ -793,9 +793,9 @@ class TestLoadModel:
     @pytest.fixture(autouse=True)
     def _mock_resolve_device(self):
         """Mock resolve_device in evaluate so unit tests don't hit live EP registry."""
-        from winml.modelkit.session import WinMLEPDevice
+        from winml.modelkit.session import EPDeviceTarget
 
-        fake_cpu = WinMLEPDevice(
+        fake_cpu = EPDeviceTarget(
             ep="CPUExecutionProvider",
             device="cpu",
             vendor_id=0x1234,
@@ -842,7 +842,7 @@ class TestLoadModel:
 
         mock_auto.from_pretrained.assert_called_once()
         call_args = mock_auto.from_pretrained.call_args
-        # _load_model now passes ep_device as 2nd positional arg (WinMLEPDevice object)
+        # _load_model now passes ep_device as 2nd positional arg (EPDeviceTarget object)
         assert call_args.args[0] == "test/model"
         ep_device = call_args.args[1]
         assert ep_device.device == "cpu"

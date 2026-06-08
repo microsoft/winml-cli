@@ -8,7 +8,7 @@ Covers:
     - ``EP_CATALOG`` vendor requirement contents.
     - ``_get_detected_vendors()`` aggregation across GPU/NPU.
     - ``_ep_is_compatible()`` matching rules.
-    - ``is_compatible()`` method on every EpSource subclass.
+    - ``is_compatible()`` method on every EPSource subclass.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ import pytest
 from winml.modelkit.ep_path import (
     EP_CATALOG,
     FilesystemSource,
-    MsixPackageSource,
-    PyPiSource,
+    MSIXPackageSource,
+    PyPISource,
     WinMLCatalogSource,
     _ep_is_compatible,
     _get_detected_vendors,
@@ -60,15 +60,15 @@ class TestVendorRequirementTable:
     def test_unconstrained_eps_have_empty_set(self) -> None:
         # CPU/DML/Azure work everywhere — empty requirement, never marked
         # incompatible.
-        from winml.modelkit.ep_path import EpEntry
+        from winml.modelkit.ep_path import EPCatalog
 
         for ep in ("CPUExecutionProvider", "DmlExecutionProvider", "AzureExecutionProvider"):
             # Access the internal entry to inspect vendor_requirements directly.
-            entry: EpEntry = EP_CATALOG._by_name[ep]
+            entry: EPCatalog.Row = EP_CATALOG._by_name[ep]
             assert entry.vendor_requirements == frozenset()
 
     def test_vendor_constrained_eps_have_nonempty_set(self) -> None:
-        from winml.modelkit.ep_path import EpEntry
+        from winml.modelkit.ep_path import EPCatalog
 
         for ep in (
             "QNNExecutionProvider",
@@ -77,7 +77,7 @@ class TestVendorRequirementTable:
             "MIGraphXExecutionProvider",
             "NvTensorRtRtxExecutionProvider",
         ):
-            entry: EpEntry = EP_CATALOG._by_name[ep]
+            entry: EPCatalog.Row = EP_CATALOG._by_name[ep]
             assert entry.vendor_requirements, f"{ep} must declare ≥1 vendor"
 
 
@@ -254,7 +254,7 @@ class TestGetDetectedVendors:
 
 
 # ---------------------------------------------------------------------------
-# is_compatible() on each EpSource subclass.
+# is_compatible() on each EPSource subclass.
 # ---------------------------------------------------------------------------
 
 
@@ -268,7 +268,7 @@ class TestSourceIsCompatible:
             "winml.modelkit.ep_path._get_detected_vendors",
             lambda: frozenset({"Qualcomm Inc"}),
         )
-        src = PyPiSource(
+        src = PyPISource(
             distribution="onnxruntime-qnn",
             relative_dll="ignored",
             eps=("QNNExecutionProvider",),
@@ -283,7 +283,7 @@ class TestSourceIsCompatible:
             "winml.modelkit.ep_path._get_detected_vendors",
             lambda: frozenset({"Qualcomm Inc"}),
         )
-        src = PyPiSource(
+        src = PyPISource(
             distribution="onnxruntime-ep-openvino",
             relative_dll="ignored",
             eps=("OpenVINOExecutionProvider",),
@@ -323,7 +323,7 @@ class TestSourceIsCompatible:
             "winml.modelkit.ep_path._get_detected_vendors",
             lambda: frozenset({"Qualcomm"}),
         )
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="...OpenVINO.EP._...",
             relative_dll="ignored",
             eps=("OpenVINOExecutionProvider",),
@@ -333,7 +333,7 @@ class TestSourceIsCompatible:
     def test_multi_ep_source_all_must_match(
         self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # An EpSource that provides multiple EPs is compatible iff ALL
+        # An EPSource that provides multiple EPs is compatible iff ALL
         # of them are. (Mostly theoretical — current sources provide one
         # EP — but the contract should be strict.)
         monkeypatch.setattr(
@@ -360,7 +360,7 @@ class TestIterEps:
     """``iter_eps()`` returns the canonical EP names a source declares."""
 
     def test_pypi_source_iter_eps(self) -> None:
-        src = PyPiSource(
+        src = PyPISource(
             distribution="onnxruntime-qnn",
             relative_dll="ignored",
             eps=("QNNExecutionProvider",),
@@ -389,7 +389,7 @@ class TestIterEps:
         assert list(src.iter_eps()) == ["QNNExecutionProvider"]
 
     def test_msix_package_source_iter_eps(self) -> None:
-        src = MsixPackageSource(
+        src = MSIXPackageSource(
             family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_",
             relative_dll="ExecutionProvider/onnxruntime_providers_qnn.dll",
             eps=("QNNExecutionProvider",),

@@ -5,7 +5,7 @@
 """Unit tests for the ep_path EP discovery module.
 
 Covers:
-    - PyPiSource.resolve(): present/missing distribution.
+    - PyPISource.resolve(): present/missing distribution.
     - FilesystemSource.resolve(): env-var gating, required marker,
       glob patterns, multiple EPs in one root.
     - WinMLCatalogSource.resolve(): graceful no-yield when the
@@ -23,10 +23,10 @@ import pytest
 
 from winml.modelkit.ep_path import (
     EP_CATALOG,
-    EpSource,
+    EPSource,
     FilesystemSource,
     NuGetSource,
-    PyPiSource,
+    PyPISource,
     WinMLCatalogSource,
     _default_ep_sources,
     _get_detected_vendors,
@@ -90,18 +90,18 @@ class TestPublicAPI:
         for entry in sources:
             assert isinstance(
                 entry,
-                (PyPiSource, NuGetSource, FilesystemSource, WinMLCatalogSource),
+                (PyPISource, NuGetSource, FilesystemSource, WinMLCatalogSource),
             )
 
     def test_ep_source_subclasses_inherit_from_abc(self) -> None:
-        # EpSource is the abstract base class for all source kinds.
-        assert PyPiSource is not None
+        # EPSource is the abstract base class for all source kinds.
+        assert PyPISource is not None
         assert NuGetSource is not None
         assert FilesystemSource is not None
         assert WinMLCatalogSource is not None
         # Every concrete source kind must subclass the ABC.
-        for cls in (PyPiSource, NuGetSource, FilesystemSource, WinMLCatalogSource):
-            assert issubclass(cls, EpSource)
+        for cls in (PyPISource, NuGetSource, FilesystemSource, WinMLCatalogSource):
+            assert issubclass(cls, EPSource)
 
 
 # ---------------------------------------------------------------------------
@@ -145,17 +145,17 @@ class TestQnnArchResolver:
 
 
 # ---------------------------------------------------------------------------
-# PyPiSource.
+# PyPISource.
 # ---------------------------------------------------------------------------
 
 
-class TestPyPiSource:
-    """PyPiSource resolves via importlib.metadata against the live env."""
+class TestPyPISource:
+    """PyPISource resolves via importlib.metadata against the live env."""
 
     def test_resolves_installed_distribution(self) -> None:
         # ``onnxruntime-ep-openvino`` is in pyproject.toml deps and
         # installed in the venv used to run the test suite.
-        source = PyPiSource(
+        source = PyPISource(
             distribution="onnxruntime-ep-openvino",
             relative_dll=(
                 "onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"
@@ -170,7 +170,7 @@ class TestPyPiSource:
         assert path.name == "onnxruntime_providers_openvino_plugin.dll"
 
     def test_yields_nothing_for_missing_distribution(self) -> None:
-        source = PyPiSource(
+        source = PyPISource(
             distribution="this-distribution-does-not-exist-xyz",
             relative_dll="ignored.dll",
             eps=("FakeEP",),
@@ -181,7 +181,7 @@ class TestPyPiSource:
         # The QNN entry uses an arch_resolver; verify it's actually
         # called by checking the resolved path includes a known arch
         # directory.
-        source = PyPiSource(
+        source = PyPISource(
             distribution="onnxruntime-qnn",
             relative_dll="onnxruntime_qnn/libs/{arch}/onnxruntime_providers_qnn.dll",
             eps=("QNNExecutionProvider",),
@@ -199,7 +199,7 @@ class TestPyPiSource:
     def test_yields_nothing_when_dll_missing_from_distribution(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        source = PyPiSource(
+        source = PyPISource(
             distribution="onnxruntime-ep-openvino",
             relative_dll="onnxruntime_ep_openvino/this_file_does_not_exist.dll",
             eps=("OpenVINOExecutionProvider",),
@@ -528,7 +528,7 @@ class TestDiscoverEps:
     def test_discover_eps_returns_tuple_shape(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """discover_eps() (no flag) returns dict[str, (Path, EpSource)]."""
+        """discover_eps() (no flag) returns dict[str, (Path, EPSource)]."""
         fake_dll = _touch(tmp_path / "fake.dll")
         src = FilesystemSource(
             root=tmp_path,
@@ -617,8 +617,8 @@ class TestNuGetSource:
 # ---------------------------------------------------------------------------
 
 
-class TestEpCatalog:
-    """EpCatalog: forward/inverse lookups, bundled-EP handling, immutability."""
+class TestEPCatalog:
+    """EPCatalog: forward/inverse lookups, bundled-EP handling, immutability."""
 
     def test_ep_catalog_dll_name_for_known_ep(self) -> None:
         """EP_CATALOG.dll_name_for returns the DLL filename for known plugin EPs."""
@@ -647,7 +647,7 @@ class TestEpCatalog:
         assert EP_CATALOG.ep_for_dll("nonexistent.dll") is None
 
     def test_ep_catalog_is_frozen(self) -> None:
-        """EpCatalog must be truly immutable — both attribute rebinding and
+        """EPCatalog must be truly immutable — both attribute rebinding and
         underlying dict mutation must fail at runtime."""
         import pytest
         from winml.modelkit.ep_path import EP_CATALOG

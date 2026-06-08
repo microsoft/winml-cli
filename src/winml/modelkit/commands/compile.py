@@ -205,7 +205,7 @@ def compile(
     # Import compiler (late import to speed up CLI)
     from ..compiler import WinMLCompileConfig, compile_onnx
 
-    # Build config from the already-resolved WinMLEPDevice (ep_device is never None here).
+    # Build config from the already-resolved EPDeviceTarget (ep_device is never None here).
     config = WinMLCompileConfig.for_ep_device(ep_device_resolved)
 
     config.validate = validate
@@ -224,7 +224,7 @@ def compile(
             "Use 'winml quantize' before 'winml compile' to control quantization."
         )
 
-    # Show info — device and provider come directly from the resolved WinMLEPDevice.
+    # Show info — device and provider come directly from the resolved EPDeviceTarget.
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Device:[/bold blue] {ep_device_resolved.device}")
     if ep:

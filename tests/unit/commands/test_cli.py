@@ -288,15 +288,15 @@ class TestSysListEpEndToEnd:
     def test_incompatible_ep_section_marks_entries(
         self, runner: CliRunner, monkeypatch
     ) -> None:
-        # Inject a PyPiSource for OpenVINO into the default EP source list;
+        # Inject a PyPISource for OpenVINO into the default EP source list;
         # with detected vendors = {"Qualcomm Inc"}, OpenVINO must be marked
         # incompatible at the section level AND at every entry level.
         from winml.modelkit import ep_path as _ep
-        from winml.modelkit.ep_path import PyPiSource
+        from winml.modelkit.ep_path import PyPISource
 
         # Provide a real installed distribution so the source resolves;
         # onnxruntime-ep-openvino is installed in this venv.
-        ov_source = PyPiSource(
+        ov_source = PyPISource(
             distribution="onnxruntime-ep-openvino",
             relative_dll=(
                 "onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"

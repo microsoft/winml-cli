@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import statistics as _stats
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 
@@ -120,7 +120,7 @@ class OpTraceResult:
     # Optional metadata
     ep: str = ""
     tracing_backend: str = ""
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     num_samples: int = 0
 
     # Summary (model-level aggregates)

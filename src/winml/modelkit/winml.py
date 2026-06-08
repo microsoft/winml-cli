@@ -27,13 +27,12 @@ if TYPE_CHECKING:
 
 from .ep_path import (
     EP_CATALOG,
-    EpCatalog,
-    EpEntry,
-    EpSource,
+    EPCatalog,
+    EPSource,
     FilesystemSource,
-    MsixPackageSource,
+    MSIXPackageSource,
     NuGetSource,
-    PyPiSource,
+    PyPISource,
     ResolvedEp,
     WinMLCatalogSource,
     _default_ep_sources,
@@ -50,13 +49,13 @@ logger = logging.getLogger(__name__)
 # Backwards-compat shims.
 # ---------------------------------------------------------------------------
 # The two PyPI-only entries we historically advertised. Kept as a frozen
-# view of the default EP source list's ``PyPiSource`` rows so callers that
+# view of the default EP source list's ``PyPISource`` rows so callers that
 # still iterate this dict (none in-tree at time of writing) keep working.
 # New code should use ``_default_ep_sources()`` and ``discover_eps()`` instead.
 def _legacy_ep_plugin_registry() -> dict[str, tuple[str, str]]:
     out: dict[str, tuple[str, str]] = {}
     for source in _default_ep_sources():
-        if not isinstance(source, PyPiSource):
+        if not isinstance(source, PyPISource):
             continue
         rel = source.relative_dll
         if source.arch_resolver is not None:
@@ -113,7 +112,7 @@ class WinML:
         # Walk the default EP source list (plus WINMLCLI_EP_PATH env var
         # entries, if any) and capture (ep_name -> abs path) for every
         # discovered plugin.
-        self._resolved: dict[str, tuple[Path, EpSource]] = discover_eps()
+        self._resolved: dict[str, tuple[Path, EPSource]] = discover_eps()
         # Preserve the legacy attribute name and shape so any external
         # caller that introspects the singleton sees the same dict it
         # used to. Only the abs path is exposed (not the source).
@@ -130,14 +129,14 @@ class WinML:
         self,
         ort: bool = True,
         ort_genai: bool = False,
-        extra_sources: list[EpSource] | None = None,
+        extra_sources: list[EPSource] | None = None,
     ) -> dict[str, list[str]]:
         """Register WinML execution providers for ONNX Runtime modules.
 
         Args:
             ort: Whether to register for ONNX Runtime.
             ort_genai: Whether to register for ONNX Runtime GenAI.
-            extra_sources: Optional list of additional ``EpSource`` entries
+            extra_sources: Optional list of additional ``EPSource`` entries
                 to consult before the default EP source list. Useful for
                 tests and embedded apps. Has highest precedence.
 
@@ -203,14 +202,14 @@ class WinML:
 def register_execution_providers(
     ort: bool = True,
     ort_genai: bool = False,
-    extra_sources: list[EpSource] | None = None,
+    extra_sources: list[EPSource] | None = None,
 ) -> dict[str, list[str]]:
     """Register WinML execution providers for ONNX Runtime and ORT GenAI.
 
     Args:
         ort (bool): Whether to register for ONNX Runtime.
         ort_genai (bool): Whether to register for ONNX Runtime GenAI.
-        extra_sources: Optional list of additional ``EpSource`` entries
+        extra_sources: Optional list of additional ``EPSource`` entries
             with highest precedence. Defaults to ``None`` (no extras).
 
     Returns:
@@ -262,13 +261,12 @@ def add_ep_for_device(
 __all__ = [
     "EP_CATALOG",
     "EP_PLUGIN_REGISTRY",
-    "EpCatalog",
-    "EpEntry",
-    "EpSource",
+    "EPCatalog",
+    "EPSource",
     "FilesystemSource",
-    "MsixPackageSource",
+    "MSIXPackageSource",
     "NuGetSource",
-    "PyPiSource",
+    "PyPISource",
     "ResolvedEp",
     "WinML",
     "WinMLCatalogSource",

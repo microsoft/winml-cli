@@ -251,16 +251,16 @@ class TestDefaultEpPathIncludesCatalogEntries:
     def test_pypi_sources_precede_catalog_entries(self) -> None:
         # Per the design's "list order is precedence" rule (line 230):
         # PyPI sources are more deterministic than MSIX, so they win.
-        from winml.modelkit.ep_path import PyPiSource
+        from winml.modelkit.ep_path import PyPISource
 
         sources = _default_ep_sources()
         first_catalog_idx = next(
             i for i, s in enumerate(sources) if isinstance(s, WinMLCatalogSource)
         )
         pypi_indices = [
-            i for i, s in enumerate(sources) if isinstance(s, PyPiSource)
+            i for i, s in enumerate(sources) if isinstance(s, PyPISource)
         ]
-        assert pypi_indices, "default EP source list must include PyPiSource rows"
+        assert pypi_indices, "default EP source list must include PyPISource rows"
         assert max(pypi_indices) < first_catalog_idx
 
 

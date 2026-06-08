@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 
 # tests/unit/session/test_ep_device.py
-"""Unit tests for WinMLEPDevice descriptor and resolution helpers."""
+"""Unit tests for EPDeviceTarget descriptor and resolution helpers."""
 
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +13,7 @@ import pytest
 from winml.modelkit.session import (
     AmbiguousMatch,
     DeviceNotFound,
-    WinMLEPDevice,
+    EPDeviceTarget,
     expand_ep_name,
     resolve_device,
     short_ep_name,
@@ -23,15 +23,15 @@ from .conftest import QNN_VENDOR_ID
 
 
 def test_ep_device_round_trip() -> None:
-    """WinMLEPDevice -> to_dict -> from_dict yields an equal instance."""
-    original = WinMLEPDevice(
+    """EPDeviceTarget -> to_dict -> from_dict yields an equal instance."""
+    original = EPDeviceTarget(
         ep="QNNExecutionProvider",
         device="npu",
         vendor_id=QNN_VENDOR_ID,
         device_id=0x0001,
         vendor="Qualcomm",
     )
-    rehydrated = WinMLEPDevice.from_dict(original.to_dict())
+    rehydrated = EPDeviceTarget.from_dict(original.to_dict())
     assert rehydrated == original
     assert rehydrated.ep == "QNNExecutionProvider"
     assert rehydrated.device == "npu"
@@ -42,13 +42,57 @@ def test_ep_device_round_trip() -> None:
 
 def test_ep_device_lowercase_invariant() -> None:
     """`device` field is forced to lowercase by __post_init__."""
-    ep_device = WinMLEPDevice(
+    ep_device = EPDeviceTarget(
         ep="QNNExecutionProvider",
         device="NPU",
         vendor_id=QNN_VENDOR_ID,
         device_id=0x0001,
     )
     assert ep_device.device == "npu"
+
+
+def test_from_dict_forward_compat_with_optional_source() -> None:
+    """EPDeviceTarget.from_dict round-trips both legacy and new JSON shapes.
+
+    Legacy persisted configs predate the ``source`` field — they must rehydrate
+    with ``source=None``.  New configs that carry ``source`` (e.g. ``"pypi"``,
+    ``"msix"``) must round-trip the value through to_dict / from_dict.
+
+    Pins the forward-compatibility contract for the EPDeviceTarget JSON shape.
+    """
+    # Legacy JSON (no source field) — must default to source=None.
+    legacy = EPDeviceTarget.from_dict(
+        {
+            "ep": "QNNExecutionProvider",
+            "device": "npu",
+            "vendor_id": QNN_VENDOR_ID,
+            "device_id": 0x0001,
+        }
+    )
+    assert legacy == EPDeviceTarget(
+        ep="QNNExecutionProvider",
+        device="npu",
+        vendor_id=QNN_VENDOR_ID,
+        device_id=0x0001,
+        source=None,
+    )
+    assert legacy.source is None
+
+    # New JSON with source — must round-trip via to_dict / from_dict.
+    new = EPDeviceTarget.from_dict(
+        {
+            "ep": "QNNExecutionProvider",
+            "device": "npu",
+            "vendor_id": QNN_VENDOR_ID,
+            "device_id": 0x0001,
+            "source": "pypi",
+        }
+    )
+    assert new.source == "pypi"
+    # to_dict must serialize source so persistence round-trips cleanly.
+    serialized = new.to_dict()
+    assert serialized["source"] == "pypi"
+    assert EPDeviceTarget.from_dict(serialized) == new
 
 
 def test_expand_ep_name_short_form() -> None:
@@ -202,14 +246,14 @@ def test_short_ep_name_cuda_tensorrt_round_trip() -> None:
         assert short_ep_name(expand_ep_name(short)) == short
 
 
-# --- WinMLEPDeviceSpec catalog tests -------------------------------------------
+# --- EPDeviceSpec catalog tests -------------------------------------------
 
 
 def test_ep_device_specs_count() -> None:
     """The catalog must contain exactly 12 variants.
 
     (CUDAExecutionProvider was dropped in the v1 catalog — not currently
-    measured by this project. Re-add an EpEntry + bump this count to 13
+    measured by this project. Re-add an EPCatalog.Row + bump this count to 13
     if/when CUDA support lands.)
     """
     from winml.modelkit.session import EP_DEVICE_SPECS
@@ -495,22 +539,22 @@ def test_resolve_device_device_only_picks_registered_ep() -> None:
 
 
 def test_ep_device_spec_is_frozen() -> None:
-    """WinMLEPDeviceSpec is frozen — mutation raises FrozenInstanceError."""
+    """EPDeviceSpec is frozen — mutation raises FrozenInstanceError."""
     from dataclasses import FrozenInstanceError
 
-    from winml.modelkit.session import WinMLEPDeviceSpec
+    from winml.modelkit.session import EPDeviceSpec
 
-    spec = WinMLEPDeviceSpec(ep="QNNExecutionProvider", device="npu")
+    spec = EPDeviceSpec(ep="QNNExecutionProvider", device="npu")
     with pytest.raises(FrozenInstanceError):
         spec.ep = "DmlExecutionProvider"  # type: ignore[misc]
 
 
 def test_ep_device_spec_default_factory_is_fresh() -> None:
-    """Each WinMLEPDeviceSpec with no options gets a new empty dict (not shared)."""
-    from winml.modelkit.session import WinMLEPDeviceSpec
+    """Each EPDeviceSpec with no options gets a new empty dict (not shared)."""
+    from winml.modelkit.session import EPDeviceSpec
 
-    s1 = WinMLEPDeviceSpec(ep="DmlExecutionProvider", device="gpu")
-    s2 = WinMLEPDeviceSpec(ep="CUDAExecutionProvider", device="gpu")
+    s1 = EPDeviceSpec(ep="DmlExecutionProvider", device="gpu")
+    s2 = EPDeviceSpec(ep="CUDAExecutionProvider", device="gpu")
     # They should be equal (both empty) but not the same object
     assert dict(s1.default_provider_options) == {}
     assert dict(s2.default_provider_options) == {}

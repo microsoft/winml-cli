@@ -6,8 +6,8 @@
 
 Per Decision A in docs/plans/2026-05-13-ep-taxonomy-consolidation-plan.md:
 
-* Import shape for source code: ``from ..session import WinMLEPDevice, resolve_device, ...``
-* Import shape for tests:       ``from winml.modelkit.session import WinMLEPDevice, ...``
+* Import shape for source code: ``from ..session import EPDeviceTarget, resolve_device, ...``
+* Import shape for tests:       ``from winml.modelkit.session import EPDeviceTarget, ...``
 * Never:                        ``from ..session.ep_device import ...``
                                 (drills past the session/ facade)
 
@@ -112,8 +112,8 @@ def test_no_direct_ep_device_imports_in_src() -> None:
 def test_no_direct_ep_device_imports_in_tests() -> None:
     """Test files must not import directly from session/ep_device.py.
 
-    Use ``from winml.modelkit.session import WinMLEPDevice`` (the facade) instead of
-    ``from winml.modelkit.session.ep_device import WinMLEPDevice``.
+    Use ``from winml.modelkit.session import EPDeviceTarget`` (the facade) instead of
+    ``from winml.modelkit.session.ep_device import EPDeviceTarget``.
     """
     tests_root = pathlib.Path(__file__).parents[2]  # tests/unit/
     assert tests_root.is_dir(), f"tests/unit/ root not found at {tests_root}"
@@ -135,8 +135,8 @@ def test_no_direct_ep_device_imports_in_tests() -> None:
     "source",
     [
         # Absolute ImportFrom — most common violation shape
-        "from winml.modelkit.session.ep_device import WinMLEPDevice",
-        "from winml.modelkit.session.ep_device import WinMLEPDevice, resolve_device",
+        "from winml.modelkit.session.ep_device import EPDeviceTarget",
+        "from winml.modelkit.session.ep_device import EPDeviceTarget, resolve_device",
         "from winml.modelkit.session.ep_device import _EP_TO_DEVICE",
         # Deleted names — sentinels so the detector catches re-additions
         "from winml.modelkit.session.ep_device import _DEVICE_TO_PROVIDER",
@@ -147,7 +147,7 @@ def test_no_direct_ep_device_imports_in_tests() -> None:
         "import winml.modelkit.session.ep_device",
         "import winml.modelkit.session.ep_device as epd",
         # Relative ImportFrom with explicit ep_device module name
-        "from .ep_device import WinMLEPDevice",
+        "from .ep_device import EPDeviceTarget",
     ],
 )
 def test_detector_catches_forbidden_forms(source: str) -> None:
@@ -163,13 +163,13 @@ def test_detector_catches_forbidden_forms(source: str) -> None:
     "source",
     [
         # Facade import — correct shape
-        "from winml.modelkit.session import WinMLEPDevice",
-        "from winml.modelkit.session import WinMLEPDevice, resolve_device, VALID_EPS",
+        "from winml.modelkit.session import EPDeviceTarget",
+        "from winml.modelkit.session import EPDeviceTarget, resolve_device, VALID_EPS",
         # Unrelated imports
         "from winml.modelkit.session import WinMLSession",
         "from winml.modelkit.session.session import WinMLSession",
         # Session-package-internal relative import (session/__init__.py style)
-        "from .session import WinMLEPDevice",
+        "from .session import EPDeviceTarget",
         # Importing session module itself (not ep_device sub-module)
         "import winml.modelkit.session",
         "from winml.modelkit import session",

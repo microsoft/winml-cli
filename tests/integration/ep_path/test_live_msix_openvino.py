@@ -8,12 +8,12 @@ The OEM/Windows-Workloads channel provisions EP MSIXes that the public
 WinML ``ExecutionProviderCatalog`` API refuses to bind (family-name gate
 restricted to ``MicrosoftCorporationII.WinML.*``). On Lunar Lake silicon
 the Intel OpenVINO EP arrives as ``WindowsWorkload.EP.Intel.OpenVINO.*``
-— invisible to the catalog, but discoverable via :class:`MsixPackageSource`
+— invisible to the catalog, but discoverable via :class:`MSIXPackageSource`
 once the prefix-default covers the ``WindowsWorkload.EP.`` family.
 
 Scope of this test (what we own): the discovery → registration →
 engagement path for the OEM-channel DLL. We assert that
-:class:`MsixPackageSource` resolves to a real DLL, that
+:class:`MSIXPackageSource` resolves to a real DLL, that
 :func:`register_execution_providers` with ``extra_sources=[msix]`` plumbs
 that DLL into ORT 1.24+ via ``register_execution_provider_library`` (NOT
 the legacy ``providers=[name]`` kwarg, which silently falls back to CPU
@@ -103,14 +103,14 @@ def test_windows_workload_openvino_ep_runs_inference(tmp_path):
     msix = oem_sources[0]
     if not msix.is_compatible():
         pytest.skip(
-            f"MsixPackageSource {msix.family_name_prefix} reports "
+            f"MSIXPackageSource {msix.family_name_prefix} reports "
             "incompatible hardware on this machine"
         )
 
     # Sanity-check the source resolves to a real DLL on disk before
     # touching ORT (registering a missing path raises an opaque error).
     resolved = list(msix.resolve())
-    assert resolved, "MsixPackageSource did not resolve to any (ep_name, path) entries"
+    assert resolved, "MSIXPackageSource did not resolve to any (ep_name, path) entries"
     ep_name, dll_path = resolved[0]
     assert dll_path.exists(), f"discovered DLL does not exist: {dll_path}"
     assert ep_name == "OpenVINOExecutionProvider"
