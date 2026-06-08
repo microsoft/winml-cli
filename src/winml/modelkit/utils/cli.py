@@ -193,7 +193,7 @@ def device_option(
     )
 
 
-def verbosity_options():
+def verbosity_options() -> Callable[[F], F]:
     """Add verbose and quiet logging options to a Click command.
 
     Adds --verbose/-v (stackable: -v, -vv, -vvv) and --quiet/-q flags.
@@ -206,7 +206,7 @@ def verbosity_options():
         Decorator function adding verbose and quiet options.
     """
 
-    def decorator(f):
+    def decorator(f: F) -> F:
         f = click.option(
             "--quiet",
             "-q",
