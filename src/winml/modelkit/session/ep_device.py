@@ -48,6 +48,61 @@ class WinMLEPMonitorMismatch(Exception):  # noqa: N818
     """Monitor.ep_name does not agree with EPDeviceTarget.ep."""
 
 
+class UnknownListingPick(Exception):  # noqa: N818
+    """Raised when target.source tag doesn't match any discovered EPEntry for target.ep.
+
+    Args:
+        ep_name: The EP short or full name the user requested.
+        source_tag: The source tag string from target.source (or '@<tag>' in CLI).
+    """
+
+    def __init__(self, ep_name: str, source_tag: str) -> None:
+        self.ep_name = ep_name
+        self.source_tag = source_tag
+        super().__init__(
+            f"No discovered EPEntry for ep={ep_name!r} with source tag {source_tag!r}. "
+            f"Run 'winml sys --list-ep' to see available sources."
+        )
+
+
+class IncompatibleListingPick(Exception):  # noqa: N818
+    """Raised when target.source matched an EPEntry that is incompatible with the host.
+
+    Args:
+        ep_name: The EP short or full name.
+        source_tag: The source tag string.
+        reason: Human-readable reason for incompatibility.
+    """
+
+    def __init__(self, ep_name: str, source_tag: str, reason: str) -> None:
+        self.ep_name = ep_name
+        self.source_tag = source_tag
+        self.reason = reason
+        super().__init__(
+            f"EP {ep_name!r} with source tag {source_tag!r} is not compatible "
+            f"with this host: {reason}"
+        )
+
+
+class AmbiguousListingPick(Exception):  # noqa: N818
+    """Raised when target.source matches multiple EPEntries (defensive bug signal).
+
+    Args:
+        ep_name: The EP short or full name.
+        source_tag: The source tag string.
+        candidate_count: How many EPEntries matched.
+    """
+
+    def __init__(self, ep_name: str, source_tag: str, candidate_count: int) -> None:
+        self.ep_name = ep_name
+        self.source_tag = source_tag
+        self.candidate_count = candidate_count
+        super().__init__(
+            f"Ambiguous source pick for ep={ep_name!r} with tag {source_tag!r}: "
+            f"{candidate_count} candidates matched (expected 1)"
+        )
+
+
 # --- EP-name short<->full helpers -----------------------------------------
 # These live above EPDeviceTarget so its __post_init__ can validate ep names
 # against the known catalog without forward references.

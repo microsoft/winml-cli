@@ -8,10 +8,13 @@ from .ep_device import (
     EP_DEVICE_SPECS,
     VALID_DEVICES,
     VALID_EPS,
+    AmbiguousListingPick,
     AmbiguousMatch,
     DeviceNotFound,
     EPDeviceSpec,
     EPDeviceTarget,
+    IncompatibleListingPick,
+    UnknownListingPick,
     WinMLEPMonitorMismatch,
     WinMLEPNotDiscovered,
     WinMLEPRegistrationFailed,
@@ -25,7 +28,7 @@ from .ep_device import (
     resolve_device,
     short_ep_name,
 )
-from .ep_registry import WinMLEPRegistry, available_eps
+from .ep_registry import WinMLEP, WinMLEPDevice, WinMLEPRegistry, available_eps
 from .monitor.ep_monitor import NullEPMonitor, WinMLEPMonitor
 from .monitor.hw_monitor import HWMonitor
 from .monitor.openvino_monitor import OpenVINOMonitor
@@ -34,24 +37,31 @@ from .monitor.vitisai_monitor import VitisAIMonitor
 from .qairt.qairt_session import WinMLQairtSession
 from .session import InferenceError, SessionState, WinMLSession
 from .stats import PerfStats
+from .winml_device import WinMLDevice, wrap_ort_device
 
 
 __all__ = [
     "EP_DEVICE_SPECS",
     "VALID_DEVICES",
     "VALID_EPS",
+    "AmbiguousListingPick",
     "AmbiguousMatch",
     "DeviceNotFound",
     "EPDeviceSpec",
     "EPDeviceTarget",
     "HWMonitor",
+    "IncompatibleListingPick",
     "InferenceError",
     "NullEPMonitor",
     "OpenVINOMonitor",
     "PerfStats",
     "QNNMonitor",
     "SessionState",
+    "UnknownListingPick",
     "VitisAIMonitor",
+    "WinMLDevice",
+    "WinMLEP",
+    "WinMLEPDevice",
     "WinMLEPMonitor",
     "WinMLEPMonitorMismatch",
     "WinMLEPNotDiscovered",
@@ -69,4 +79,5 @@ __all__ = [
     "lookup_device_spec",
     "resolve_device",
     "short_ep_name",
+    "wrap_ort_device",
 ]

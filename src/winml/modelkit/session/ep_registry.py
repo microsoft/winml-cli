@@ -13,17 +13,64 @@ from __future__ import annotations
 
 import functools
 import logging
+from dataclasses import dataclass
 
 import onnxruntime as ort
 
-from ..ep_path import EPSource, discover_eps
+from ..ep_path import EPEntry, EPSource, discover_eps
 from .ep_device import WinMLEPNotDiscovered, WinMLEPRegistrationFailed
+from .winml_device import WinMLDevice
 
 
 logger = logging.getLogger(__name__)
 
 # Singleton instance
 _winml_ep_registry: WinMLEPRegistry | None = None
+
+
+@dataclass(frozen=True)
+class WinMLEP:
+    """Per-source registration aggregate. Successful registration only.
+
+    Invariant: len(devices) >= 1. The runtime aggregate produced by
+    WinMLEPRegistry.register_ep - it pairs the source EPEntry (which
+    DLL was loaded) with the WinMLDevices that ORT exposed after the
+    register_execution_provider_library call.
+
+    See docs/design/session/3_design_classes.md section 3.5.
+    """
+
+    source: EPEntry
+    devices: tuple[WinMLDevice, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.devices) == 0:
+            raise ValueError(
+                "WinMLEP invariant violated: devices tuple must be non-empty "
+                f"(source.ep_name={self.source.ep_name!r})"
+            )
+
+    def ep_devices(self) -> tuple[WinMLEPDevice, ...]:
+        """Flatten self into one WinMLEPDevice pair per device.
+
+        Each returned WinMLEPDevice has .ep == self and .device == self.devices[i].
+        """
+        return tuple(WinMLEPDevice(ep=self, device=d) for d in self.devices)
+
+
+@dataclass(frozen=True)
+class WinMLEPDevice:
+    """Flat (source, device) pair - project mirror of ort.OrtEpDevice.
+
+    Invariant: .device is always one of .ep.devices (same object, not a copy).
+    Constructed only by WinMLEPRegistry.auto_device() (Batch C, not yet wired)
+    and by WinMLEP.ep_devices(); never by direct user code.
+
+    See docs/design/session/3_design_classes.md section 3.6.
+    """
+
+    ep: WinMLEP
+    device: WinMLDevice
 
 
 class WinMLEPRegistry:
