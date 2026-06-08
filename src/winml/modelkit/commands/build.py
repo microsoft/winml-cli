@@ -637,9 +637,7 @@ def build(
         # scratch state when the user passes the wrong file or a
         # hand-edited config (#P1 UX).
         _configs_to_validate: list[WinMLBuildConfig] = (
-            config_or_configs
-            if isinstance(config_or_configs, list)
-            else [config_or_configs]
+            config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
         )
         try:
             for _cfg in _configs_to_validate:
@@ -1014,10 +1012,26 @@ def _run_optimize_stage(
 
         # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
         # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        #
+        # ``_resolved_device`` is only used as a cosmetic key for
+        # ``has_rule_data_for_ep`` (decides whether to show a per-EP progress
+        # bar). When the build will *not* compile (``config.compile is None`` —
+        # either from ``--no-compile`` or a config that explicitly opts out)
+        # the EP doesn't need to be installed on this host: we're only
+        # exporting + optimizing + quantizing, all of which run on CPU. In
+        # that case fall back to the requested device string so cross-EP
+        # builds (e.g. emitting a QNN/VitisAI artifact on a CPU box) work.
+        # When compile *will* run, re-raise so the missing EP fails fast
+        # here instead of deep inside the compile stage.
         from ..analyze.utils.ep_utils import has_rule_data_for_ep
         from ..sysinfo import resolve_device as _resolve_device
 
-        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+        try:
+            _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+        except ValueError:
+            if config.compile is not None:
+                raise
+            _resolved_device = device or ""
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep

@@ -599,6 +599,15 @@ def _run_build(
                 "proc": build_proc,
             }
 
+        if build_only:
+            # In build-only mode the artifacts go to ``-o <build_out>`` (no
+            # cache, no compile). There is no "Final artifact:" marker to
+            # parse and no downstream consumer of the path -- exit-code 0 is
+            # the success signal. Record build_out so the per-component
+            # bookkeeping (len(onnx_paths) == len(sub_configs)) stays valid.
+            onnx_paths[label] = str(build_out)
+            continue
+
         task_hint = _extract_task_from_config(sub_cfg) or entry.task
         path = _extract_onnx_path(build_proc, entry.hf_id, task_hint)
         if path:
@@ -762,11 +771,14 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
                     for line in combined.splitlines()[-12:]:
                         safe_print(f"    {line}")
 
-            if args.clean_cache:
-                _clear_disk_caches()
-
         if interrupted:
             break
+
+        # Clean caches once per model (after all EP combos finish), not per
+        # combo: combos share the same HF download, so clearing between
+        # combos forces redundant re-downloads of the same weights.
+        if args.clean_cache:
+            _clear_disk_caches()
 
     safe_print(f"\nBuild-only complete: {succeeded}/{total_builds} builds -> {output_dir}")
 
@@ -922,9 +934,7 @@ def _build_dataset(ds_config: dict, timeout: int) -> None:
         return
 
     script_path = Path(build_script)
-    cache_dir = Path(
-        ds_config.get("dataset", EVAL_DATASETS_CACHE / script_path.stem)
-    ).expanduser()
+    cache_dir = Path(ds_config.get("dataset", EVAL_DATASETS_CACHE / script_path.stem)).expanduser()
 
     if (cache_dir / "dataset_info.json").exists():
         safe_print(f"    dataset: cached ({cache_dir})")
