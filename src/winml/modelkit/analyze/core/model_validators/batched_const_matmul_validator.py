@@ -113,13 +113,15 @@ class BatchedConstMatMulValidator(ModelValidator):
                 "gemm implementation."
             ),
         )
+        # https://github.com/openvinotoolkit/openvino/issues/36272
         explanation = (
             f"Model contains {len(offenders)} batched MatMul(s) with a constant "
             f"operand (examples: {examples}). OpenVINO GPU's oneDNN gemm cannot "
             f"select an implementation for a batched MatMul with a constant "
             f"operand, causing a '[GPU] Failed to select implementation ... gemm' "
             f"compile failure. The untie-constant-batched-matmul surgery makes "
-            f"the operand runtime-valued without changing numerics."
+            f"the operand runtime-valued without changing numerics. "
+            f"It is fixed in openvino==2026.2.0, so no need to apply the surgery if using that version or later."
         )
         return Information(
             explanation=explanation,
