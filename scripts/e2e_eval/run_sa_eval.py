@@ -9,13 +9,16 @@ Reads models from models_with_acc.json, runs winml build to produce all
 pipeline artifacts, then runs SA pre/post analysis on the build outputs.
 
 Pipeline per model:
-  Stage 1: winml config  → build_config.json
-  Stage 2: winml build   → export.onnx, optimized.onnx, quantized.onnx,
-                           compiled.onnx, winml_build_config.json
-  Stage 3: SA pre-check  → ONNXStaticAnalyzer on export.onnx → sa_pre.json
-  Stage 4: SA post-check → ONNXStaticAnalyzer on optimized.onnx → sa_post.json
-  Stage 5: EPContext diff → compare_sa_vs_epcontext on compiled.onnx
-  Perf: run winml perf on export.onnx, optimized.onnx, quantized.onnx
+  Stage 1: winml config        → build_config.json
+  Stage 2: winml build         → export.onnx, optimized.onnx, quantized.onnx,
+                                  compiled.onnx, winml_build_config.json
+  Stage 3: winml optimize      → graph_optimized.onnx  (baseline, no SA flags)
+  Stage 4: SA pre-check        → winml analyze on graph_optimized.onnx → sa_pre.json
+  Stage 5: winml compile (pre) → compiled_pre.onnx  (baseline EPContext)
+  Stage 6: EPCtx pre diff      → compare_sa_vs_epcontext(sa_pre, compiled_pre.onnx)
+  Stage 7: SA post-check       → winml analyze on optimized.onnx → sa_post.json
+  Stage 8: EPCtx post diff     → compare_sa_vs_epcontext(sa_post, compiled.onnx)
+  Perf: run winml perf on export.onnx, optimized.onnx, quantized.onnx, compiled.onnx
 
 Usage:
     uv run python scripts/e2e_eval/run_sa_eval.py
@@ -47,7 +50,6 @@ from sa_comparison import (
     get_level_patterns,
     get_sa_summary,
     parse_sa_json,
-    run_sa_with_info,
 )
 from sa_report import generate_sa_html_report
 
@@ -81,6 +83,19 @@ def is_cached(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
+def _count_onnx_nodes(path: Path) -> int | None:
+    """Return the number of graph nodes in an ONNX model, or None if unavailable."""
+    if not is_cached(path):
+        return None
+    try:
+        import onnx
+
+        model = onnx.load(str(path), load_external_data=False)
+        return len(model.graph.node)
+    except Exception:
+        return None
+
+
 def _run_cli(args: list[str]) -> tuple[int, str]:
     """Run a winml CLI command via subprocess. Returns (rc, combined_output)."""
     result = subprocess.run(  # noqa: S603
@@ -95,7 +110,7 @@ def _run_cli(args: list[str]) -> tuple[int, str]:
     return result.returncode, combined
 
 
-# Map full EP names to the short form accepted by `wmk perf --ep`
+# Map full EP names to the short form accepted by `winml perf --ep`
 _EP_TO_PERF_ARG: dict[str, str] = {
     "QNNExecutionProvider": "qnn",
     "DmlExecutionProvider": "dml",
@@ -105,6 +120,41 @@ _EP_TO_PERF_ARG: dict[str, str] = {
     "VitisAIExecutionProvider": "vitisai",
     "NvTensorRTRTXExecutionProvider": "nv_tensorrt_rtx",
 }
+
+
+def _resolve_ep_arg(ep: str) -> str:
+    """Resolve full ORT EP name to the short form accepted by winml CLI --ep."""
+    try:
+        return _EP_TO_PERF_ARG[ep]
+    except KeyError:
+        raise ValueError(f"Unknown EP {ep!r}; add it to _EP_TO_PERF_ARG.") from None
+
+
+def _parse_info_items(json_path: Path, ep: str = "QNNExecutionProvider") -> list[dict]:
+    """Parse information items from winml analyze JSON output.
+
+    Returns list of {pattern_id, explanation, has_actions} for each info item
+    in the EP result, or [] if none found.
+    """
+    if not json_path.exists():
+        return []
+    try:
+        sa_data = json.loads(json_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    for ep_result in sa_data.get("results", []):
+        if ep_result.get("ep_type") != ep:
+            continue
+        return [
+            {
+                "pattern_id": item.get("pattern_id", ""),
+                "explanation": item.get("explanation", ""),
+                "has_actions": bool(item.get("actions")),
+            }
+            for item in ep_result.get("information", [])
+        ]
+    return []
 
 
 def run_winml_perf(
@@ -117,7 +167,7 @@ def run_winml_perf(
     warmup: int,
     use_cache: bool,
 ) -> dict | None:
-    """Run wmk perf on onnx_path. Returns latency_ms dict or None on failure."""
+    """Run winml perf on onnx_path. Returns latency_ms dict or None on failure."""
     if use_cache and is_cached(output_json):
         safe_print(f"  [{label}] Perf (cached): {output_json.name}")
         try:
@@ -144,7 +194,7 @@ def run_winml_perf(
         "--output",
         str(output_json),
     ]
-    ep_arg = _EP_TO_PERF_ARG.get(ep, ep.lower() if ep else None) if ep else None
+    ep_arg = _resolve_ep_arg(ep) if ep else None
     if ep_arg:
         cmd += ["--ep", ep_arg]
 
@@ -256,7 +306,7 @@ def stage_build(
         "-o",
         str(model_dir),
         "--ep",
-        _EP_TO_PERF_ARG.get(ep or "", ep or "qnn") if ep else "qnn",
+        _resolve_ep_arg(ep) if ep else "qnn",
     ]
     if not use_cache:
         build_args += ["--rebuild"]
@@ -297,6 +347,130 @@ def read_optim_flags(model_dir: Path) -> dict:
         return {}
 
 
+def stage_graph_optimize(model_dir: Path, use_cache: bool) -> bool:
+    """Run winml optimize on export.onnx to produce baseline graph_optimized.onnx.
+
+    This applies default graph optimizations WITHOUT any SA-specific flags
+    (gelu_fusion, matmul_add_fusion, etc.), giving a pre-SA baseline that
+    can be analyzed and compiled for PRE EPCTX comparison.
+
+    Returns True on success, False on failure.
+    """
+    export_path = model_dir / "export.onnx"
+    graph_opt_path = model_dir / "graph_optimized.onnx"
+
+    if use_cache and is_cached(graph_opt_path):
+        safe_print("  [Graph Opt] Cached: graph_optimized.onnx")
+        return True
+
+    if not is_cached(export_path):
+        safe_print("  [ERROR] Graph Opt: export.onnx not found")
+        return False
+
+    safe_print("  [Graph Opt] Optimizing export.onnx (baseline, no SA flags)...")
+    rc, output = _run_cli(["optimize", "-m", str(export_path), "-o", str(graph_opt_path)])
+
+    if rc != 0 or not is_cached(graph_opt_path):
+        safe_print(f"  [ERROR] Graph Opt failed (rc={rc}): {output[-300:]}")
+        return False
+
+    safe_print(f"  [Graph Opt] Done: {graph_opt_path.name}")
+    return True
+
+
+def stage_compile_pre(
+    model_dir: Path,
+    use_cache: bool,
+    ep: str = "QNNExecutionProvider",
+    device: str = "NPU",
+) -> bool:
+    """Compile graph_optimized.onnx to EPContext for PRE EPCTX comparison.
+
+    Returns True on success (compiled_pre.onnx produced), False otherwise.
+    """
+    graph_opt_path = model_dir / "graph_optimized.onnx"
+    compiled_pre_path = model_dir / "compiled_pre.onnx"
+
+    if use_cache and is_cached(compiled_pre_path):
+        safe_print("  [Compile Pre] Cached: compiled_pre.onnx")
+        return True
+
+    if not is_cached(graph_opt_path):
+        safe_print("  [Compile Pre] No graph_optimized.onnx — skipping")
+        return False
+
+    safe_print("  [Compile Pre] Compiling graph_optimized.onnx → EPContext...")
+    ep_arg = _resolve_ep_arg(ep)
+    rc, _out = _run_cli(
+        [
+            "compile",
+            "-m",
+            str(graph_opt_path),
+            "-o",
+            str(compiled_pre_path),
+            "--ep",
+            ep_arg,
+            "--device",
+            device.lower(),
+        ]
+    )
+
+    if rc != 0 or not is_cached(compiled_pre_path):
+        safe_print(f"  [Compile Pre] Compile failed (rc={rc}) — skipping pre diff")
+        return False
+
+    safe_print(f"  [Compile Pre] Done: {compiled_pre_path.name}")
+    return True
+
+
+def stage_compile_post(
+    model_dir: Path,
+    use_cache: bool,
+    ep: str = "QNNExecutionProvider",
+    device: str = "NPU",
+) -> bool:
+    """Compile optimized.onnx to EPContext for POST EPCTX comparison.
+
+    Used when winml build does not produce compiled.onnx (e.g. non-NPU
+    devices where quantize is skipped).
+
+    Returns True on success (compiled.onnx produced), False otherwise.
+    """
+    optimized_path = model_dir / "optimized.onnx"
+    compiled_path = model_dir / "compiled.onnx"
+
+    if use_cache and is_cached(compiled_path):
+        safe_print("  [Compile Post] Cached: compiled.onnx")
+        return True
+
+    if not is_cached(optimized_path):
+        safe_print("  [Compile Post] No optimized.onnx — skipping")
+        return False
+
+    safe_print("  [Compile Post] Compiling optimized.onnx → EPContext...")
+    ep_arg = _resolve_ep_arg(ep)
+    rc, _out = _run_cli(
+        [
+            "compile",
+            "-m",
+            str(optimized_path),
+            "-o",
+            str(compiled_path),
+            "--ep",
+            ep_arg,
+            "--device",
+            device.lower(),
+        ]
+    )
+
+    if rc != 0 or not is_cached(compiled_path):
+        safe_print(f"  [Compile Post] Compile failed (rc={rc}) — skipping post diff")
+        return False
+
+    safe_print(f"  [Compile Post] Done: {compiled_path.name}")
+    return True
+
+
 def stage_sa_pre(
     model_dir: Path,
     use_cache: bool,
@@ -307,26 +481,42 @@ def stage_sa_pre(
 
     Returns (classifications, info_items) or None on failure.
     """
-    export_path = model_dir / "export.onnx"
+    graph_opt_path = model_dir / "graph_optimized.onnx"
     sa_pre_path = model_dir / "sa_pre.json"
 
     if use_cache and is_cached(sa_pre_path):
         safe_print("  [SA Pre] Cached")
         classifications = parse_sa_json(sa_pre_path, ep=ep)
-        return classifications, []
+        info_items = _parse_info_items(sa_pre_path, ep=ep)
+        return classifications, info_items
 
-    if not is_cached(export_path):
-        safe_print("  [ERROR] SA pre: export.onnx not found")
+    if not is_cached(graph_opt_path):
+        safe_print("  [ERROR] SA pre: graph_optimized.onnx not found")
         return None
 
-    safe_print("  [SA Pre] Analyzing export.onnx...")
-    try:
-        classifications, _, info_items = run_sa_with_info(
-            export_path, sa_pre_path, ep=ep, device=device
-        )
-    except Exception as e:
-        safe_print(f"  [ERROR] SA pre failed: {e}")
+    safe_print("  [SA Pre] Analyzing graph_optimized.onnx...")
+    ep_arg = _resolve_ep_arg(ep)
+    rc, output = _run_cli(
+        [
+            "analyze",
+            "-m",
+            str(graph_opt_path),
+            "--ep",
+            ep_arg,
+            "--device",
+            device.lower(),
+            "--output",
+            str(sa_pre_path),
+            "--information",
+        ]
+    )
+    # rc=0: fully supported, rc=1: partial (both OK for us), rc=2: error
+    if rc == 2 or not is_cached(sa_pre_path):
+        safe_print(f"  [ERROR] SA pre failed (rc={rc}): {output[-300:]}")
         return None
+
+    classifications = parse_sa_json(sa_pre_path, ep=ep)
+    info_items = _parse_info_items(sa_pre_path, ep=ep)
 
     if not classifications:
         safe_print(
@@ -359,20 +549,36 @@ def stage_sa_post(
     if use_cache and is_cached(sa_post_path):
         safe_print("  [SA Post] Cached")
         classifications = parse_sa_json(sa_post_path, ep=ep)
-        return classifications, []
+        info_items = _parse_info_items(sa_post_path, ep=ep)
+        return classifications, info_items
 
     if not is_cached(optimized_path):
         safe_print("  [ERROR] SA post: optimized.onnx not found")
         return None
 
     safe_print("  [SA Post] Analyzing optimized.onnx...")
-    try:
-        classifications, _, info_items = run_sa_with_info(
-            optimized_path, sa_post_path, ep=ep, device=device
-        )
-    except Exception as e:
-        safe_print(f"  [ERROR] SA post failed: {e}")
+    ep_arg = _resolve_ep_arg(ep)
+    rc, output = _run_cli(
+        [
+            "analyze",
+            "-m",
+            str(optimized_path),
+            "--ep",
+            ep_arg,
+            "--device",
+            device.lower(),
+            "--output",
+            str(sa_post_path),
+            "--information",
+        ]
+    )
+    # rc=0: fully supported, rc=1: partial (both OK for us), rc=2: error
+    if rc == 2 or not is_cached(sa_post_path):
+        safe_print(f"  [ERROR] SA post failed (rc={rc}): {output[-300:]}")
         return None
+
+    classifications = parse_sa_json(sa_post_path, ep=ep)
+    info_items = _parse_info_items(sa_post_path, ep=ep)
 
     if not classifications:
         safe_print("  [WARN] SA post: no classifications. Continuing.")
@@ -387,32 +593,37 @@ def stage_sa_post(
 
 
 def stage_epctx_diff(
-    model_dir: Path,
-    sa_post: dict[str, str],
+    sa_predictions: dict[str, str],
+    compiled_path: Path,
+    label: str = "EPCtx",
 ) -> dict | None:
-    """EPContext diff: compare SA post predictions vs compiled.onnx.
+    """EPContext diff: compare SA predictions vs a compiled EPContext ONNX.
 
-    winml build produces compiled.onnx from the quantized model. Comparing
-    SA post predictions (on optimized.onnx) against the compiled graph
-    identifies false positives and negatives in the SA classifier.
+    Used for both PRE (sa_pre vs compiled_pre.onnx) and POST (sa_post vs
+    compiled.onnx) comparisons to measure SA classifier accuracy.
 
-    Returns comparison dict or None if compiled.onnx is not available.
+    Returns comparison dict or None if the compiled file is unavailable.
     """
-    compiled_path = model_dir / "compiled.onnx"
     if not is_cached(compiled_path):
-        safe_print("  [EPCtx] No compiled.onnx — skipping diff")
+        safe_print(f"  [{label}] No {compiled_path.name} — skipping diff")
         return None
 
     try:
-        result = compare_sa_vs_epcontext(sa_post, compiled_path)
+        result = compare_sa_vs_epcontext(sa_predictions, compiled_path)
         s = result["summary"]
         safe_print(
-            f"  [EPCtx] TP={s['tp']} TN={s['tn']} FP={s['fp']} FN={s['fn']} "
+            f"  [{label}] TP={s['tp']} TN={s['tn']} FP={s['fp']} FN={s['fn']} "
             f"accuracy={s['accuracy']:.0%}"
         )
+        ufa = s.get("unsupported_false_alarms", [])
+        pfa = s.get("partial_false_alarms", [])
+        if ufa:
+            safe_print(f"  [{label}] UNSUPPORTED false alarms: {ufa}")
+        if pfa:
+            safe_print(f"  [{label}] PARTIAL false alarms: {pfa}")
         return result
     except Exception as e:
-        safe_print(f"  [EPCtx] Diff failed: {e}")
+        safe_print(f"  [{label}] Diff failed: {e}")
         return None
 
 
@@ -439,6 +650,10 @@ def evaluate_model(
     hf_id = model_entry["hf_id"]
     task = model_entry.get("task", "")
     model_type = model_entry.get("model_type", "")
+
+    # Non-NPU devices: skip quantize entirely
+    if device.upper() != "NPU":
+        run_quantize = False
 
     safe_print(f"\n{'=' * 60}")
     safe_print(f"[sa_eval] {hf_id} ({task})")
@@ -469,10 +684,13 @@ def evaluate_model(
     optimized_path = model_dir / "optimized.onnx"
     quantized_path = model_dir / "quantized.onnx"
 
+    compiled_path = model_dir / "compiled.onnx"
+
     # Perf: export and optimized
     perf_exported: dict | None = None
     perf_sa_opt: dict | None = None
     perf_quantized: dict | None = None
+    perf_compiled: dict | None = None
 
     if run_perf:
         perf_exported = run_winml_perf(
@@ -496,13 +714,25 @@ def evaluate_model(
             use_cache=use_cache,
         )
 
-    # Stage 3: SA pre-check (on export.onnx)
+    # Stage 3: Baseline graph optimization (no SA flags) → graph_optimized.onnx
+    if not stage_graph_optimize(model_dir, use_cache):
+        return _skip_result(hf_id, task, model_type, "SKIP_GRAPH_OPT", model_dir)
+
+    # Stage 4: SA pre-check (on graph_optimized.onnx — baseline, before SA optimization)
     pre_result = stage_sa_pre(model_dir, use_cache, ep=ep, device=device)
     if pre_result is None:
         return _skip_result(hf_id, task, model_type, "SKIP_SA_PRE", model_dir)
     sa_pre, pre_info_items = pre_result
 
-    # Stage 4: SA post-check (on optimized.onnx)
+    # Stage 5: Compile baseline model for PRE EPCTX diff
+    compiled_pre_path = model_dir / "compiled_pre.onnx"
+    if run_compile:
+        stage_compile_pre(model_dir, use_cache, ep=ep, device=device)
+
+    # Stage 6: EPContext diff PRE (sa_pre vs compiled_pre.onnx)
+    epctx_pre_result = stage_epctx_diff(sa_pre, compiled_pre_path, label="EPCtx Pre")
+
+    # Stage 7: SA post-check (on optimized.onnx — after SA optimization)
     post_result = stage_sa_post(model_dir, use_cache, ep=ep, device=device)
     if post_result is None:
         return _skip_result(hf_id, task, model_type, "SKIP_SA_POST", model_dir)
@@ -513,15 +743,30 @@ def evaluate_model(
     if optim_config:
         safe_print(f"  [Optim flags] {list(optim_config.keys())}")
 
-    # Stage 5: EPContext diff (on compiled.onnx from build)
-    epctx_result = stage_epctx_diff(model_dir, sa_post)
+    # Stage 8: EPContext diff POST (sa_post vs compiled.onnx)
+    # If build didn't produce compiled.onnx (e.g. non-NPU, quantize skipped),
+    # compile optimized.onnx directly for post EPCtx comparison.
+    if run_compile and not is_cached(compiled_path):
+        stage_compile_post(model_dir, use_cache, ep=ep, device=device)
+    epctx_post_result = stage_epctx_diff(sa_post, compiled_path, label="EPCtx Post")
 
-    # Perf: quantized
+    # Perf: quantized and compiled
     if run_perf and run_quantize:
         perf_quantized = run_winml_perf(
             "Perf (quantized)",
             quantized_path,
             model_dir / "quantized_perf.json",
+            device=device,
+            ep=ep,
+            iterations=perf_iterations,
+            warmup=perf_warmup,
+            use_cache=use_cache,
+        )
+    if run_perf and run_compile:
+        perf_compiled = run_winml_perf(
+            "Perf (compiled)",
+            compiled_path,
+            model_dir / "compiled_perf.json",
             device=device,
             ep=ep,
             iterations=perf_iterations,
@@ -548,8 +793,23 @@ def evaluate_model(
         safe_print(
             f"  Perf (mean): export={_fmt(perf_exported)} "
             f"→ optimized={_fmt(perf_sa_opt)} "
-            f"→ quantized={_fmt(perf_quantized)}"
+            f"→ quantized={_fmt(perf_quantized)} "
+            f"→ compiled={_fmt(perf_compiled)}"
         )
+
+    # Collect node counts for each stage
+    graph_opt_path = model_dir / "graph_optimized.onnx"
+    compiled_pre_path = model_dir / "compiled_pre.onnx"
+    node_counts: dict = {
+        "export": _count_onnx_nodes(export_path),
+        "graph_optimized": _count_onnx_nodes(graph_opt_path),
+        "optimized": _count_onnx_nodes(optimized_path),
+        "quantized": _count_onnx_nodes(quantized_path),
+        "compiled_pre": _count_onnx_nodes(compiled_pre_path),
+        "compiled": _count_onnx_nodes(compiled_path),
+    }
+    node_parts = [f"{k}={v}" for k, v in node_counts.items() if v is not None]
+    safe_print(f"  Nodes: {', '.join(node_parts)}")
 
     artifacts: dict = {
         "exported_onnx": str(export_path),
@@ -565,8 +825,9 @@ def evaluate_model(
         "status": "COMPLETE",
         "elapsed": round(elapsed, 2),
         "artifacts": artifacts,
+        "node_counts": node_counts,
         "sa_pre": {
-            "source_onnx": export_path.name,
+            "source_onnx": "graph_optimized.onnx",
             "classifications": sa_pre,
             "summary": get_sa_summary(sa_pre),
             "partial_patterns": get_level_patterns(sa_pre, "PARTIAL"),
@@ -588,21 +849,22 @@ def evaluate_model(
         },
         "delta": delta,
         # perf keys match sa_report.py expectations:
-        #   "exported"       → perf_exported_mean (Export column)
-        #   "graph_optimized"→ None (Normalize column — not a separate build stage)
-        #   "sa_optimized"   → perf of optimized.onnx (Optimized column)
-        #   "quantized"      → perf_quantized_mean (Quantize column)
+        #   "exported"    → Export (ms) column
+        #   "sa_optimized"→ Optimized (ms) column  [perf of optimized.onnx]
+        #   "quantized"   → Quantize (ms) column
+        #   "compiled"    → Compiled (ms) column   [perf of compiled.onnx / EPContext]
         "perf": {
             "exported": perf_exported,
-            "graph_optimized": None,
             "sa_optimized": perf_sa_opt,
             "quantized": perf_quantized,
+            "compiled": perf_compiled,
         },
     }
 
-    # EPContext diff stored as "post" (compiled.onnx from build is post-SA)
-    if epctx_result:
-        result["epcontext_diff_post"] = epctx_result
+    if epctx_pre_result:
+        result["epcontext_diff_pre"] = epctx_pre_result
+    if epctx_post_result:
+        result["epcontext_diff_post"] = epctx_post_result
 
     out_file = model_dir / "sa_eval_result.json"
     out_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -670,12 +932,28 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
         for pid in r["sa_pre"].get("unknown_patterns", []):
             unknown_pre_counter[pid] += 1
 
-    # EPContext accuracy — only post (compiled.onnx from build is post-SA)
+    # SA false alarms (post EPCtx: UNSUPPORTED/PARTIAL predicted but actually on NPU)
+    unsup_fa_counter: dict[str, int] = defaultdict(int)
+    partial_fa_counter: dict[str, int] = defaultdict(int)
+    for r in complete:
+        post_summary = r.get("epcontext_diff_post", {}).get("summary", {})
+        for pid in post_summary.get("unsupported_false_alarms", []):
+            unsup_fa_counter[pid] += 1
+        for pid in post_summary.get("partial_false_alarms", []):
+            partial_fa_counter[pid] += 1
+
+    # EPContext accuracy — pre (compiled_pre.onnx) and post (compiled.onnx)
+    epctx_pre = [r for r in complete if r.get("epcontext_diff_pre")]
     epctx_post = [r for r in complete if r.get("epcontext_diff_post")]
     epctx_summary: dict = {
-        "models_with_pre_gt": 0,
+        "models_with_pre_gt": len(epctx_pre),
         "models_with_post_gt": len(epctx_post),
-        "avg_accuracy_pre": None,
+        "avg_accuracy_pre": round(
+            statistics.mean(r["epcontext_diff_pre"]["summary"]["accuracy"] for r in epctx_pre),
+            4,
+        )
+        if epctx_pre
+        else None,
         "avg_accuracy_post": round(
             statistics.mean(r["epcontext_diff_post"]["summary"]["accuracy"] for r in epctx_post),
             4,
@@ -738,6 +1016,16 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
             key=lambda x: x["count"],
             reverse=True,
         )[:20],
+        "unsupported_false_alarm_patterns": sorted(
+            [{"pattern": k, "count": v} for k, v in unsup_fa_counter.items()],
+            key=lambda x: x["count"],
+            reverse=True,
+        )[:20],
+        "partial_false_alarm_patterns": sorted(
+            [{"pattern": k, "count": v} for k, v in partial_fa_counter.items()],
+            key=lambda x: x["count"],
+            reverse=True,
+        )[:20],
         "results": complete,
     }
 
@@ -755,6 +1043,13 @@ def main() -> None:
         type=Path,
         default=MODELS_FILE,
         help=f"Input model list JSON (default: {MODELS_FILE})",
+    )
+    parser.add_argument(
+        "--registry",
+        type=Path,
+        default=None,
+        help="Model registry JSON (same format as run_eval.py --registry). "
+        "Overrides --models-file when provided.",
     )
     parser.add_argument(
         "--output-dir",
@@ -849,11 +1144,30 @@ def main() -> None:
         safe_print(f"Report HTML: {report_html}")
         return
 
-    if not args.models_file.exists():
-        safe_print(f"[ERROR] Models file not found: {args.models_file}")
-        sys.exit(1)
+    # Load model list from --registry (preferred) or --models-file
+    if args.registry:
+        from utils.registry import load_registry
 
-    all_models: list[dict] = json.loads(args.models_file.read_text(encoding="utf-8"))
+        if not args.registry.exists():
+            safe_print(f"[ERROR] Registry not found: {args.registry}")
+            sys.exit(1)
+        registry_entries = load_registry(args.registry)
+        all_models = [
+            {
+                "hf_id": e.hf_id,
+                "task": e.task,
+                "model_type": e.model_type,
+                "group": e.group,
+                "priority": e.priority,
+            }
+            for e in registry_entries
+        ]
+    else:
+        models_file = args.models_file
+        if not models_file.exists():
+            safe_print(f"[ERROR] Models file not found: {models_file}")
+            sys.exit(1)
+        all_models = json.loads(models_file.read_text(encoding="utf-8"))
 
     if args.model:
         models_to_run = [m for m in all_models if m["hf_id"] == args.model]

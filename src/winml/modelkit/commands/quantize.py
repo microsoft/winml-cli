@@ -25,7 +25,6 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
 
 
@@ -99,19 +98,12 @@ console = Console()
     help="Task for calibration dataset selection (e.g., 'image-classification').",
 )
 @click.option(
-    "--model-name",
-    type=str,
-    default=None,
-    help="HuggingFace model ID for task-aware calibration tokenizer/processor.",
-)
-@click.option(
     "--verbose",
     "-v",
     is_flag=True,
     default=False,
     help="Enable verbose output",
 )
-@cli_utils.build_config_option
 @click.pass_context
 def quantize(
     ctx: click.Context,
@@ -125,9 +117,7 @@ def quantize(
     per_channel: bool,
     symmetric: bool,
     task: str | None,
-    model_name: str | None,
     verbose: bool,
-    config_file: Path | None,
 ) -> None:
     r"""Quantize ONNX model by inserting QDQ nodes.
 
@@ -157,24 +147,6 @@ def quantize(
         verbose = True
 
     configure_logging(verbose=verbose)
-
-    # Apply build config defaults (CLI explicit options take precedence)
-    if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.quant:
-            qc = build_cfg.quant
-            if not cli_utils.is_cli_provided(ctx, "samples"):
-                samples = qc.samples
-            if not cli_utils.is_cli_provided(ctx, "method"):
-                method = qc.calibration_method
-            if not cli_utils.is_cli_provided(ctx, "weight_type"):
-                weight_type = qc.weight_type
-            if not cli_utils.is_cli_provided(ctx, "activation_type"):
-                activation_type = qc.activation_type
-            if not cli_utils.is_cli_provided(ctx, "per_channel"):
-                per_channel = qc.per_channel
-            if not cli_utils.is_cli_provided(ctx, "symmetric"):
-                symmetric = qc.symmetric
 
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
@@ -207,7 +179,6 @@ def quantize(
         per_channel=per_channel,
         symmetric=symmetric,
         task=task,
-        model_name=model_name,
     )
 
     # Display dataset info from config

@@ -312,6 +312,18 @@ def compare_sa_vs_epcontext(
     total = tp + tn + fp + fn
     accuracy = (tp + tn) / total if total > 0 else 0.0
 
+    # False alarms: SA predicted non-SUPPORTED but EP actually handled the op
+    unsupported_false_alarms = sorted(
+        c["pattern_id"]
+        for c in comparison
+        if c["sa_prediction"] == "UNSUPPORTED" and c["actual_ep"] == "NPU"
+    )
+    partial_false_alarms = sorted(
+        c["pattern_id"]
+        for c in comparison
+        if c["sa_prediction"] == "PARTIAL" and c["actual_ep"] == "NPU"
+    )
+
     return {
         "compiled_onnx": compiled_onnx.name,
         "epcontext_nodes": diff["epcontext_nodes"],
@@ -324,5 +336,7 @@ def compare_sa_vs_epcontext(
             "fp": fp,
             "fn": fn,
             "accuracy": round(accuracy, 4),
+            "unsupported_false_alarms": unsupported_false_alarms,
+            "partial_false_alarms": partial_false_alarms,
         },
     }

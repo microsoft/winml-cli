@@ -100,18 +100,26 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
                     for c in r.get("epcontext_diff_post", {}).get("comparison", [])
                     if c["verdict"] == "FP"
                 ],
+                # node counts per stage
+                "nodes_export": r.get("node_counts", {}).get("export"),
+                "nodes_graph_opt": r.get("node_counts", {}).get("graph_optimized"),
+                "nodes_optimized": r.get("node_counts", {}).get("optimized"),
+                "nodes_quantized": r.get("node_counts", {}).get("quantized"),
+                "nodes_compiled_pre": r.get("node_counts", {}).get("compiled_pre"),
+                "nodes_compiled": r.get("node_counts", {}).get("compiled"),
+                # SA false alarms (post only — optimized model is what ships)
+                "unsupported_false_alarms": r.get("epcontext_diff_post", {})
+                .get("summary", {})
+                .get("unsupported_false_alarms", []),
+                "partial_false_alarms": r.get("epcontext_diff_post", {})
+                .get("summary", {})
+                .get("partial_false_alarms", []),
                 # perf (mean ms per stage)
                 "perf_exported_mean": r.get("perf", {}).get("exported", {}).get("mean")
                 if r.get("perf", {}).get("exported")
                 else None,
                 "perf_exported_p90": r.get("perf", {}).get("exported", {}).get("p90")
                 if r.get("perf", {}).get("exported")
-                else None,
-                "perf_graph_opt_mean": r.get("perf", {}).get("graph_optimized", {}).get("mean")
-                if r.get("perf", {}).get("graph_optimized")
-                else None,
-                "perf_graph_opt_p90": r.get("perf", {}).get("graph_optimized", {}).get("p90")
-                if r.get("perf", {}).get("graph_optimized")
                 else None,
                 "perf_sa_opt_mean": r.get("perf", {}).get("sa_optimized", {}).get("mean")
                 if r.get("perf", {}).get("sa_optimized")
@@ -125,6 +133,12 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
                 "perf_quantized_p90": r.get("perf", {}).get("quantized", {}).get("p90")
                 if r.get("perf", {}).get("quantized")
                 else None,
+                "perf_compiled_mean": r.get("perf", {}).get("compiled", {}).get("mean")
+                if r.get("perf", {}).get("compiled")
+                else None,
+                "perf_compiled_p90": r.get("perf", {}).get("compiled", {}).get("p90")
+                if r.get("perf", {}).get("compiled")
+                else None,
             }
         )
 
@@ -132,12 +146,16 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
     common_fused = report_data.get("common_fused_away_patterns", [])
     unresolved = report_data.get("unresolved_partial_unsupported_patterns", [])
     common_unknown = report_data.get("common_unknown_patterns", [])
+    unsup_false_alarms = report_data.get("unsupported_false_alarm_patterns", [])
+    partial_false_alarms = report_data.get("partial_false_alarm_patterns", [])
 
     data_json = json.dumps(viewer_data, ensure_ascii=False, separators=(",", ":"))
     improved_json = json.dumps(common_improved, ensure_ascii=False, separators=(",", ":"))
     fused_json = json.dumps(common_fused, ensure_ascii=False, separators=(",", ":"))
     unresolved_json = json.dumps(unresolved, ensure_ascii=False, separators=(",", ":"))
     unknown_json = json.dumps(common_unknown, ensure_ascii=False, separators=(",", ":"))
+    unsup_fa_json = json.dumps(unsup_false_alarms, ensure_ascii=False, separators=(",", ":"))
+    partial_fa_json = json.dumps(partial_false_alarms, ensure_ascii=False, separators=(",", ":"))
 
     template_dir = Path(__file__).parent.parent
     template_path = template_dir / "models_viewer.html"
@@ -158,15 +176,17 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
     delta_cls = "c-good" if avg_delta > 0 else "c-muted"
 
     # Perf gain summary stats (from viewer_data)
+    # "final" perf = compiled if available, else quantized
+    def _final_perf(d: dict) -> float | None:
+        return d.get("perf_compiled_mean") or d.get("perf_quantized_mean")
+
     n_unlocked = sum(
-        1
-        for d in viewer_data
-        if d["perf_exported_mean"] is None and d["perf_quantized_mean"] is not None
+        1 for d in viewer_data if d["perf_exported_mean"] is None and _final_perf(d) is not None
     )
     gain_vals = [
-        (d["perf_exported_mean"] - d["perf_quantized_mean"]) / d["perf_exported_mean"] * 100
+        (d["perf_exported_mean"] - _final_perf(d)) / d["perf_exported_mean"] * 100
         for d in viewer_data
-        if d["perf_exported_mean"] is not None and d["perf_quantized_mean"] is not None
+        if d["perf_exported_mean"] is not None and _final_perf(d) is not None
     ]
     avg_perf_gain = sum(gain_vals) / len(gain_vals) if gain_vals else None
     n_with_gain = sum(1 for g in gain_vals if g > 1)
@@ -355,6 +375,8 @@ const COMMON_IMPROVED = {improved_json};
 const COMMON_FUSED = {fused_json};
 const UNRESOLVED = {unresolved_json};
 const COMMON_UNKNOWN = {unknown_json};
+const UNSUP_FALSE_ALARMS = {unsup_fa_json};
+const PARTIAL_FALSE_ALARMS = {partial_fa_json};
 
 // ---- Tabs ----
 document.querySelectorAll('.tab').forEach(tab => {{
@@ -445,21 +467,48 @@ function perfGainCell(exported, quantized) {{
   return `<span class="${{cls}}" style="font-size:13px;font-weight:700">${{gain > 0 ? '+' : ''}}${{gain.toFixed(1)}}%</span>`;
 }}
 
-function singlePerfCell(mean, baseline) {{
-  if (mean == null) return '<span class="c-muted">—</span>';
-  const g = baseline != null ? gainPct(baseline, mean) : '';
-  return `<span style="font-size:12px;font-weight:600;white-space:nowrap">${{fmtMs(mean)}}ms</span>${{g ? ' ' + g : ''}}`;
+function singlePerfCell(mean, baseline, nodes) {{
+  if (mean == null && nodes == null) return '<span class="c-muted">—</span>';
+  const perfHtml = mean != null
+    ? `<span style="font-size:12px;font-weight:600;white-space:nowrap">${{fmtMs(mean)}}ms</span>${{baseline != null ? ' ' + gainPct(baseline, mean) : ''}}`
+    : '<span class="c-muted">—</span>';
+  const nodesHtml = nodes != null
+    ? `<div style="font-size:10px;color:var(--text2)">${{nodes}} nodes</div>`
+    : '';
+  return perfHtml + nodesHtml;
+}}
+
+function buildNodeCountRow(d) {{
+  const stages = [
+    {{ label: 'export', count: d.nodes_export }},
+    {{ label: 'graph_opt', count: d.nodes_graph_opt }},
+    {{ label: 'optimized', count: d.nodes_optimized }},
+    {{ label: 'quantized', count: d.nodes_quantized }},
+    {{ label: 'compiled_pre', count: d.nodes_compiled_pre }},
+    {{ label: 'compiled', count: d.nodes_compiled }},
+  ].filter(s => s.count != null);
+  if (!stages.length) return '';
+  const cells = stages.map(s => {{
+    return `<div style="text-align:center;min-width:80px">
+      <div style="font-size:20px;font-weight:700;color:var(--accent)">${{s.count}}</div>
+      <div style="font-size:10px;color:var(--text2)">${{s.label}}</div>
+    </div>`;
+  }}).join('<div style="color:var(--text2);font-size:16px;padding:0 4px">\u2192</div>');
+  return `<div style="margin:10px 0;padding:8px 12px;border:1px solid var(--border);border-radius:6px">
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text2);font-weight:600;margin-bottom:6px">Graph Nodes per Stage</div>
+    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">${{cells}}</div>
+  </div>`;
 }}
 
 function buildPerfDetail(d) {{
-  const hasPerfData = d.perf_exported_mean != null || d.perf_graph_opt_mean != null || d.perf_sa_opt_mean != null;
+  const hasPerfData = d.perf_exported_mean != null || d.perf_sa_opt_mean != null || d.perf_quantized_mean != null;
   if (!hasPerfData) return '';
 
   const rows = [
-    {{ stage: 'exported.onnx',        mean: d.perf_exported_mean,   p90: d.perf_exported_p90   }},
-    {{ stage: 'graph_optimized.onnx', mean: d.perf_graph_opt_mean,  p90: d.perf_graph_opt_p90  }},
-    {{ stage: 'sa_optimized.onnx',    mean: d.perf_sa_opt_mean,     p90: d.perf_sa_opt_p90     }},
-    {{ stage: 'quantized.onnx',       mean: d.perf_quantized_mean,  p90: d.perf_quantized_p90  }},
+    {{ stage: 'export.onnx',     mean: d.perf_exported_mean,  p90: d.perf_exported_p90  }},
+    {{ stage: 'optimized.onnx',  mean: d.perf_sa_opt_mean,    p90: d.perf_sa_opt_p90    }},
+    {{ stage: 'quantized.onnx',  mean: d.perf_quantized_mean, p90: d.perf_quantized_p90 }},
+    {{ stage: 'compiled.onnx',   mean: d.perf_compiled_mean,  p90: d.perf_compiled_p90  }},
   ].filter(r => r.mean != null);
 
   let html = `
@@ -534,8 +583,8 @@ function sortData(arr) {{
     case 'post_epctx_asc':  return s.sort((a,b) => (a.post_epctx_accuracy||0) - (b.post_epctx_accuracy||0));
     case 'perf_exported_asc':   return s.sort((a,b) => (a.perf_exported_mean??Infinity) - (b.perf_exported_mean??Infinity));
     case 'perf_exported_desc':  return s.sort((a,b) => (b.perf_exported_mean??-Infinity) - (a.perf_exported_mean??-Infinity));
-    case 'perf_graph_opt_asc':  return s.sort((a,b) => (a.perf_graph_opt_mean??Infinity) - (b.perf_graph_opt_mean??Infinity));
-    case 'perf_graph_opt_desc': return s.sort((a,b) => (b.perf_graph_opt_mean??-Infinity) - (a.perf_graph_opt_mean??-Infinity));
+    case 'perf_compiled_asc':  return s.sort((a,b) => (a.perf_compiled_mean??Infinity) - (b.perf_compiled_mean??Infinity));
+    case 'perf_compiled_desc': return s.sort((a,b) => (b.perf_compiled_mean??-Infinity) - (a.perf_compiled_mean??-Infinity));
     case 'perf_sa_opt_asc':  return s.sort((a,b) => (a.perf_sa_opt_mean??Infinity) - (b.perf_sa_opt_mean??Infinity));
     case 'perf_sa_opt_desc': return s.sort((a,b) => (b.perf_sa_opt_mean??-Infinity) - (a.perf_sa_opt_mean??-Infinity));
     case 'perf_quantized_asc':  return s.sort((a,b) => (a.perf_quantized_mean??Infinity) - (b.perf_quantized_mean??Infinity));
@@ -545,13 +594,15 @@ function sortData(arr) {{
 }}
 
 function renderModelTable() {{
-  let filtered = DATA.filter(d => d.perf_quantized_mean != null);
+  let filtered = [...DATA];
   if (searchQuery) filtered = filtered.filter(d => d.model.toLowerCase().includes(searchQuery) || (d.task||'').toLowerCase().includes(searchQuery));
-  // Precompute perf gain for sorting: (exported - quantized) / exported * 100
+  // Perf gain: export vs best available final stage (compiled → quantized → optimized).
   filtered.forEach(d => {{
-    d._perfGain = (d.perf_exported_mean != null && d.perf_quantized_mean != null)
-      ? (d.perf_exported_mean - d.perf_quantized_mean) / d.perf_exported_mean * 100
+    const final = d.perf_compiled_mean ?? d.perf_quantized_mean ?? d.perf_sa_opt_mean;
+    d._perfGain = (d.perf_exported_mean != null && final != null)
+      ? (d.perf_exported_mean - final) / d.perf_exported_mean * 100
       : null;
+    d._perfFinal = final;
   }});
   filtered = sortData(filtered);
   const arrow = col => sortKey===col+'_asc' ? ' \u2191' : sortKey===col+'_desc' ? ' \u2193' : '';
@@ -560,13 +611,13 @@ function renderModelTable() {{
     <th onclick="toggleSort('model')">Model${{arrow('model')}}</th>
     <th>Task</th>
     <th onclick="toggleSort('perf_exported')" title="Perf after export (NPU mean latency)">Export (ms)${{arrow('perf_exported')}}</th>
-    <th onclick="toggleSort('perf_graph_opt')" title="Perf after graph normalize (NPU mean latency)">Normalize (ms)${{arrow('perf_graph_opt')}}</th>
     <th onclick="toggleSort('pre_supported')">Pre SA${{arrow('pre_supported')}}</th>
     <th>Flags</th>
     <th onclick="toggleSort('perf_sa_opt')" title="Perf after SA optimize (NPU mean latency)">Optimized (ms)${{arrow('perf_sa_opt')}}</th>
     <th onclick="toggleSort('post_supported')">Post SA${{arrow('post_supported')}}</th>
     <th onclick="toggleSort('perf_quantized')" title="Perf after QDQ quantize (NPU mean latency)">Quantize (ms)${{arrow('perf_quantized')}}</th>
-    <th onclick="toggleSort('perf_gain')" title="Total perf gain: (Export - Quantize) / Export">Perf Gain${{arrow('perf_gain')}}</th>
+    <th onclick="toggleSort('perf_compiled')" title="Perf after compile/EPContext (NPU mean latency)">Compiled (ms)${{arrow('perf_compiled')}}</th>
+    <th onclick="toggleSort('perf_gain')" title="Total perf gain: Export vs final compiled artifact">Perf Gain${{arrow('perf_gain')}}</th>
     <th>Time</th>
   </tr></thead><tbody>`;
 
@@ -584,21 +635,21 @@ function renderModelTable() {{
     html += `<tr onclick="toggleDetail(${{i}})" style="cursor:pointer">
       <td><a class="hf-link" href="https://huggingface.co/${{esc(d.model)}}" target="_blank" onclick="event.stopPropagation()">${{esc(d.model)}}</a></td>
       <td><span class="badge badge-task">${{esc(d.task||'-')}}</span></td>
-      <td>${{singlePerfCell(d.perf_exported_mean, null)}}</td>
-      <td>${{singlePerfCell(d.perf_graph_opt_mean, d.perf_exported_mean)}}</td>
+      <td>${{singlePerfCell(d.perf_exported_mean, null, d.nodes_export)}}</td>
       <td>${{levelBar(d.pre_supported,d.pre_partial,d.pre_unsupported,d.pre_unknown)}}</td>
       <td>${{flagsCell}}</td>
-      <td>${{singlePerfCell(d.perf_sa_opt_mean, d.perf_graph_opt_mean)}}</td>
+      <td>${{singlePerfCell(d.perf_sa_opt_mean, d.perf_exported_mean, d.nodes_optimized)}}</td>
       <td>${{levelBar(d.post_supported,d.post_partial,d.post_unsupported,d.post_unknown)}}</td>
-      <td>${{singlePerfCell(d.perf_quantized_mean, d.perf_sa_opt_mean)}}</td>
-      <td>${{perfGainCell(d.perf_exported_mean, d.perf_quantized_mean)}}</td>
+      <td>${{singlePerfCell(d.perf_quantized_mean, d.perf_sa_opt_mean, d.nodes_quantized)}}</td>
+      <td>${{singlePerfCell(d.perf_compiled_mean, d.perf_quantized_mean, d.nodes_compiled)}}</td>
+      <td>${{perfGainCell(d.perf_exported_mean, d._perfFinal)}}</td>
       <td style="color:var(--text2);font-size:12px">${{(d.elapsed||0).toFixed(1)}}s</td>
     </tr>
     <tr id="detail-${{i}}" style="display:none"><td colspan="10">
       <div class="detail-panel">
 
         <!-- PRE SA ROW -->
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text2);font-weight:600;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)">Pre SA — graph_optimized.onnx</div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text2);font-weight:600;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)">Pre SA — export.onnx</div>
         <div class="detail-cols" style="margin-bottom:14px">
           <div class="detail-col">
             <h5>PARTIAL / UNSUPPORTED Patterns</h5>
@@ -638,6 +689,8 @@ function renderModelTable() {{
             ${{d.post_epctx_accuracy != null
               ? epctxOps(d.post_epctx_fn_ops, d.post_epctx_fp_ops)
               : '<span class="c-muted" style="font-size:12px">no compiled ONNX</span>'}}
+            ${{d.unsupported_false_alarms.length ? '<div style="margin-top:6px"><span style="font-size:11px;font-weight:600;color:#ff6b9d">UNSUPPORTED False Alarms</span><br>' + patternList(d.unsupported_false_alarms, 'badge-unsupported') + '</div>' : ''}}
+            ${{d.partial_false_alarms.length ? '<div style="margin-top:6px"><span style="font-size:11px;font-weight:600;color:#ffa726">PARTIAL False Alarms</span><br>' + patternList(d.partial_false_alarms, 'badge-partial') + '</div>' : ''}}
           </div>
           <div class="detail-col">
             <h5>Delta vs Pre</h5>
@@ -648,6 +701,9 @@ function renderModelTable() {{
           </div>
         </div>
 
+        <!-- NODE COUNTS -->
+        ${{buildNodeCountRow(d)}}
+
         <!-- PERF COMPARISON -->
         ${{buildPerfDetail(d)}}
 
@@ -655,8 +711,7 @@ function renderModelTable() {{
     </td></tr>`;
   }});
 
-  const withQuant = DATA.filter(d => d.perf_quantized_mean != null).length;
-  html += `</tbody></table></div><div style="font-size:12px;color:var(--text2);margin-top:8px">Showing ${{filtered.length}} of ${{withQuant}} quantized models (${{DATA.length}} total complete)</div>`;
+  html += `</tbody></table></div><div style="font-size:12px;color:var(--text2);margin-top:8px">Showing ${{filtered.length}} of ${{DATA.length}} models</div>`;
   document.getElementById('modelTable').innerHTML = html;
 }}
 
@@ -725,13 +780,14 @@ function renderSAComparisonTable() {{
   let html = `<div class="table-wrap"><table><thead><tr>
     <th onclick="_saToggleSort('model')">Model${{arrow('model')}}</th>
     <th>Task</th>
-    <th onclick="_saToggleSort('pre_supported')" title="SA analysis on graph_optimized.onnx">Pre SA${{arrow('pre_supported')}}</th>
+    <th onclick="_saToggleSort('pre_supported')" title="SA analysis on graph_optimized.onnx (baseline, no SA flags)">Pre SA${{arrow('pre_supported')}}</th>
     <th>SA Opt Flags</th>
-    <th onclick="_saToggleSort('post_supported')" title="SA analysis on sa_optimized.onnx">Post SA${{arrow('post_supported')}}</th>
+    <th onclick="_saToggleSort('post_supported')" title="SA analysis on optimized.onnx (after SA optimization)">Post SA${{arrow('post_supported')}}</th>
     <th onclick="_saToggleSort('delta')" title="Supported ratio: Post - Pre">SA Delta${{arrow('delta')}}</th>
-    <th onclick="_saToggleSort('pre_epctx')" title="SA prediction accuracy vs compiled graph_optimized">Pre EPCtx${{arrow('pre_epctx')}}</th>
-    <th onclick="_saToggleSort('post_epctx')" title="SA prediction accuracy vs compiled sa_optimized">Post EPCtx${{arrow('post_epctx')}}</th>
+    <th onclick="_saToggleSort('pre_epctx')" title="SA prediction accuracy vs compiled_pre.onnx (baseline compiled)">Pre EPCtx${{arrow('pre_epctx')}}</th>
+    <th onclick="_saToggleSort('post_epctx')" title="SA prediction accuracy vs compiled.onnx (SA-optimized compiled)">Post EPCtx${{arrow('post_epctx')}}</th>
     <th onclick="_saToggleSort('unknown')">Unknown${{arrow('unknown')}}</th>
+    <th title="SA false alarms: UNSUPPORTED/PARTIAL ops that are actually handled by EP">False Alarms</th>
     <th>Time</th>
   </tr></thead><tbody>`;
 
@@ -743,6 +799,12 @@ function renderSAComparisonTable() {{
     const deltaHtml = delta == null
       ? '<span class="c-muted">—</span>'
       : `<span class="${{delta > 0.005 ? 'c-good' : delta < -0.005 ? 'c-bad' : 'c-muted'}}" style="font-size:13px;font-weight:700">${{delta > 0 ? '+' : ''}}${{(delta*100).toFixed(1)}}%</span>`;
+    const ufa = d.unsupported_false_alarms || [];
+    const pfa = d.partial_false_alarms || [];
+    const faCell = (ufa.length || pfa.length)
+      ? (ufa.length ? `<div style="font-size:11px"><span class="badge badge-unsupported">${{ufa.length}} unsup</span></div>` : '')
+        + (pfa.length ? `<div style="font-size:11px"><span class="badge badge-partial">${{pfa.length}} partial</span></div>` : '')
+      : '<span class="c-muted">0</span>';
     html += `<tr>
       <td><a class="hf-link" href="https://huggingface.co/${{esc(d.model)}}" target="_blank">${{esc(d.model)}}</a></td>
       <td><span class="badge badge-task">${{esc(d.task||'-')}}</span></td>
@@ -753,6 +815,7 @@ function renderSAComparisonTable() {{
       <td>${{epctxBlock(d.pre_epctx_accuracy, d.pre_epctx_fn_ops, d.pre_epctx_fp_ops)}}</td>
       <td>${{epctxBlock(d.post_epctx_accuracy, d.post_epctx_fn_ops, d.post_epctx_fp_ops)}}</td>
       <td>${{d.pre_unknown > 0 ? `<span class="badge badge-unknown">${{d.pre_unknown}}</span>` : '<span class="c-muted">0</span>'}}</td>
+      <td>${{faCell}}</td>
       <td style="color:var(--text2);font-size:12px">${{(d.elapsed||0).toFixed(1)}}s</td>
     </tr>`;
   }});
@@ -824,6 +887,31 @@ if (COMMON_FUSED.length) {{
     document.getElementById('improvedList').appendChild(el);
   }});
 }}
+
+// SA False Alarms section
+function renderFalseAlarms(containerId, title, subtitle, items, color) {{
+  if (!items.length) return;
+  const container = document.getElementById(containerId);
+  const hdr = document.createElement('div');
+  hdr.className = 'section-title';
+  hdr.style.marginTop = '20px';
+  hdr.textContent = title;
+  container.appendChild(hdr);
+  const sub = document.createElement('div');
+  sub.style.cssText = 'font-size:12px;color:var(--text2);margin-bottom:12px';
+  sub.textContent = subtitle;
+  container.appendChild(sub);
+  items.forEach(m => {{
+    const el = document.createElement('div');
+    el.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--border)';
+    el.innerHTML = `<div style="font-size:18px;font-weight:700;color:${{color}};min-width:30px;text-align:center">${{m.count}}</div>` +
+      `<div><div style="font-weight:600">${{esc(m.pattern)}}</div>` +
+      `<div style="font-size:11px;color:var(--text2)">${{m.count}} model(s) \u2014 SA predicted non-supported but EP handled it</div></div>`;
+    container.appendChild(el);
+  }});
+}}
+renderFalseAlarms('improvedList', 'UNSUPPORTED False Alarms', 'SA predicted UNSUPPORTED but EP actually compiled the op (false negative).', UNSUP_FALSE_ALARMS, '#ff6b9d');
+renderFalseAlarms('improvedList', 'PARTIAL False Alarms', 'SA predicted PARTIAL but EP fully compiled the op \u2014 no fallback nodes (false negative).', PARTIAL_FALSE_ALARMS, '#ffa726');
 renderPatternList('unresolvedList', UNRESOLVED, '#ffd93d',
   'No unresolved patterns \u2014 all PARTIAL/UNSUPPORTED fixed!', 'Patterns still PARTIAL/UNSUPPORTED after optimization. No optimizer rewrite available or rewrite insufficient.');
 renderUnknown();
@@ -860,7 +948,6 @@ body { font-family: 'Segoe UI', -apple-system, sans-serif; background: var(--bg)
 
 if __name__ == "__main__":
     import argparse
-    import json
     import sys
 
     parser = argparse.ArgumentParser(
