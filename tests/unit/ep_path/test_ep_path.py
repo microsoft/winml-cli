@@ -23,6 +23,7 @@ import pytest
 
 from winml.modelkit.ep_path import (
     EP_CATALOG,
+    EPEntry,
     EPSource,
     FilesystemSource,
     NuGetSource,
@@ -164,10 +165,13 @@ class TestPyPISource:
         )
         results = list(source.resolve())
         assert len(results) == 1
-        ep_name, path = results[0]
-        assert ep_name == "OpenVINOExecutionProvider"
-        assert path.is_file(), f"Expected {path} to exist"
-        assert path.name == "onnxruntime_providers_openvino_plugin.dll"
+        entry = results[0]
+        assert isinstance(entry, EPEntry)
+        assert entry.ep_name == "OpenVINOExecutionProvider"
+        assert entry.dll_path.is_file(), f"Expected {entry.dll_path} to exist"
+        assert entry.dll_path.name == "onnxruntime_providers_openvino_plugin.dll"
+        # PyPISource plumbs the distribution version into EPEntry.
+        assert entry.version is not None
 
     def test_yields_nothing_for_missing_distribution(self) -> None:
         source = PyPISource(
@@ -193,8 +197,8 @@ class TestPyPISource:
         # (the arch's libs subdir was missing). What we DO require:
         # if a path is yielded, it must NOT contain the unsubstituted
         # token.
-        for _ep, path in results:
-            assert "{arch}" not in str(path)
+        for entry in results:
+            assert "{arch}" not in str(entry.dll_path)
 
     def test_yields_nothing_when_dll_missing_from_distribution(
         self, monkeypatch: pytest.MonkeyPatch
@@ -229,9 +233,12 @@ class TestFilesystemSource:
         )
         results = list(source.resolve())
         assert len(results) == 1
-        ep_name, path = results[0]
-        assert ep_name == "VitisAIExecutionProvider"
-        assert path == dll.resolve()
+        entry = results[0]
+        assert isinstance(entry, EPEntry)
+        assert entry.ep_name == "VitisAIExecutionProvider"
+        assert entry.dll_path == dll.resolve()
+        # FilesystemSource has no version concept.
+        assert entry.version is None
 
     def test_yields_nothing_when_root_missing(self, tmp_path: Path) -> None:
         source = FilesystemSource(
@@ -268,7 +275,9 @@ class TestFilesystemSource:
             required_marker=marker.name,
         )
         results = list(source.resolve())
-        assert results == [("VitisAIExecutionProvider", dll.resolve())]
+        assert len(results) == 1
+        assert results[0].ep_name == "VitisAIExecutionProvider"
+        assert results[0].dll_path == dll.resolve()
 
     def test_required_marker_missing_skips(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -295,7 +304,7 @@ class TestFilesystemSource:
                 "QNNExecutionProvider": dll_b.name,
             },
         )
-        results = dict(source.resolve())
+        results = {entry.ep_name: entry.dll_path for entry in source.resolve()}
         assert results == {
             "OpenVINOExecutionProvider": dll_a.resolve(),
             "QNNExecutionProvider": dll_b.resolve(),
@@ -308,7 +317,9 @@ class TestFilesystemSource:
             dll_patterns={"QNNExecutionProvider": "*/onnxruntime_providers_qnn.dll"},
         )
         results = list(source.resolve())
-        assert results == [("QNNExecutionProvider", dll.resolve())]
+        assert len(results) == 1
+        assert results[0].ep_name == "QNNExecutionProvider"
+        assert results[0].dll_path == dll.resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -570,8 +581,9 @@ class TestNuGetSource:
         results = list(src.resolve())
 
         assert len(results) == 1
-        ep_name, path = results[0]
-        assert ep_name == "FooExecutionProvider"
+        entry = results[0]
+        assert entry.ep_name == "FooExecutionProvider"
+        path = entry.dll_path
         assert "1.0.0" in str(path)
         path_str = str(path)
         assert "1.0.0-rc" not in path_str and "1.0.0-" not in path_str
@@ -606,7 +618,7 @@ class TestNuGetSource:
         results = list(src.resolve())
 
         assert len(results) == 1
-        _, path = results[0]
+        path = results[0].dll_path
         # The version picked should be rc.10 (semantically newer).
         path_str = str(path)
         assert "1.0.0-rc.10" in path_str

@@ -134,10 +134,13 @@ class TestMSIXPackageSourceResolve:
         )
         results = list(src.resolve())
         assert len(results) == 1
-        ep_name, dll_path = results[0]
-        assert ep_name == "QNNExecutionProvider"
-        assert dll_path.name == "onnxruntime_providers_qnn.dll"
-        assert dll_path.is_file()
+        entry = results[0]
+        assert entry.ep_name == "QNNExecutionProvider"
+        assert entry.dll_path.name == "onnxruntime_providers_qnn.dll"
+        assert entry.dll_path.is_file()
+        # MSIXPackageSource plumbs the matched package's Package.Id.Version
+        # into EPEntry as "M.m.b.r".
+        assert entry.version == "1.8.30.0"
 
     def test_multiple_versions_picks_highest(
         self,
@@ -159,7 +162,7 @@ class TestMSIXPackageSourceResolve:
         )
         results = list(src.resolve())
         assert len(results) == 1
-        _, dll_path = results[0]
+        dll_path = results[0].dll_path
         assert "v2.2420.44.0" in str(dll_path)
 
     def test_version_pin_selects_exact(
@@ -182,7 +185,7 @@ class TestMSIXPackageSourceResolve:
         )
         results = list(src.resolve())
         assert len(results) == 1
-        _, dll_path = results[0]
+        dll_path = results[0].dll_path
         assert "v1.8.30.0" in str(dll_path)
 
     def test_version_pin_no_match_yields_nothing(
@@ -338,9 +341,9 @@ class TestListMsixEps:
         listed = results[0]
         resolved = list(listed.resolve())
         assert len(resolved) == 1
-        ep_name, dll_path = resolved[0]
-        assert ep_name == "QNNExecutionProvider"
-        assert dll_path.is_file()
+        entry = resolved[0]
+        assert entry.ep_name == "QNNExecutionProvider"
+        assert entry.dll_path.is_file()
 
     def test_auto_detects_ep_name_from_dll_filename(
         self,

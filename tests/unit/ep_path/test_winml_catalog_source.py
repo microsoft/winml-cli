@@ -364,7 +364,12 @@ class TestWithFakeCatalog:
             catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
         )
         results = list(source.resolve())
-        assert results == [("VitisAIExecutionProvider", Path(str(dll)))]
+        assert len(results) == 1
+        entry = results[0]
+        assert entry.ep_name == "VitisAIExecutionProvider"
+        assert entry.dll_path == Path(str(dll))
+        # OQ-2 deferral: WinMLCatalogSource currently yields version=None.
+        assert entry.version is None
 
     def test_provider_name_mismatch_skipped(
         self,
@@ -500,7 +505,9 @@ class TestWithFakeCatalog:
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             results = list(source.resolve())
         # The good provider should still yield.
-        assert results == [("OpenVINOExecutionProvider", Path(str(good_dll)))]
+        assert len(results) == 1
+        assert results[0].ep_name == "OpenVINOExecutionProvider"
+        assert results[0].dll_path == Path(str(good_dll))
 
     def test_find_all_providers_raises_yields_nothing(
         self,

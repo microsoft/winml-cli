@@ -6,7 +6,7 @@
 
 The default ``discover_eps()`` shape (one (path, source) per EP) is
 also covered by ``test_ep_path.py``. This file focuses on
-``discover_all_eps()`` and the ``ResolvedEp`` ordering rules.
+``discover_all_eps()`` and the :class:`EPEntry` ordering rules.
 """
 
 from __future__ import annotations
@@ -21,12 +21,20 @@ if TYPE_CHECKING:
 
 from winml.modelkit import ep_path as _ep
 from winml.modelkit.ep_path import (
+    EPEntry,
     EPSource,
     FilesystemSource,
-    ResolvedEp,
     discover_all_eps,
     discover_eps,
 )
+
+
+def _group_by_ep(entries: list[EPEntry]) -> dict[str, list[EPEntry]]:
+    """Group a flat ``list[EPEntry]`` by ``ep_name`` preserving order."""
+    out: dict[str, list[EPEntry]] = {}
+    for entry in entries:
+        out.setdefault(entry.ep_name, []).append(entry)
+    return out
 
 
 @pytest.fixture(autouse=True)
@@ -54,18 +62,19 @@ def _filesystem_source_for(root: Path, ep: str, dll_name: str) -> FilesystemSour
 
 
 class TestDiscoverAllEpsFormerReturnShadowed:
-    """``discover_all_eps()`` returns dict[str, list[ResolvedEp]]."""
+    """``discover_all_eps()`` returns a flat ``list[EPEntry]``."""
 
     def test_single_source_per_ep_one_primary(self, tmp_path: Path) -> None:
         dll = _touch(tmp_path / "qnn.dll")
         src = _filesystem_source_for(tmp_path, "QNNExecutionProvider", dll.name)
         result = discover_all_eps(extra_sources=[src])
 
-        assert isinstance(result, dict)
-        assert "QNNExecutionProvider" in result
-        entries = result["QNNExecutionProvider"]
+        assert isinstance(result, list)
+        grouped = _group_by_ep(result)
+        assert "QNNExecutionProvider" in grouped
+        entries = grouped["QNNExecutionProvider"]
         assert len(entries) == 1
-        assert isinstance(entries[0], ResolvedEp)
+        assert isinstance(entries[0], EPEntry)
         assert entries[0].status == "primary"
 
     def test_two_sources_one_ep_yields_primary_plus_shadowed(
@@ -78,7 +87,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
         src_b = _filesystem_source_for(tmp_path / "b", "QNNExecutionProvider", "qnn.dll")
 
         result = discover_all_eps(extra_sources=[src_a, src_b])
-        entries = result["QNNExecutionProvider"]
+        entries = _group_by_ep(result)["QNNExecutionProvider"]
         assert len(entries) == 2
         assert entries[0].status == "primary"
         assert entries[0].dll_path == dll_a.resolve()
@@ -93,7 +102,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
             for sub in ("a", "b", "c")
         ]
         result = discover_all_eps(extra_sources=srcs)
-        entries = result["QNNExecutionProvider"]
+        entries = _group_by_ep(result)["QNNExecutionProvider"]
         assert len(entries) == 3
         assert [e.status for e in entries] == ["primary", "shadowed", "shadowed"]
 
@@ -105,14 +114,15 @@ class TestDiscoverAllEpsFormerReturnShadowed:
             _filesystem_source_for(tmp_path, "OpenVINOExecutionProvider", "ov.dll"),
         ]
         result = discover_all_eps(extra_sources=srcs)
-        assert set(result.keys()) == {"QNNExecutionProvider", "OpenVINOExecutionProvider"}
-        for entries in result.values():
+        grouped = _group_by_ep(result)
+        assert set(grouped.keys()) == {"QNNExecutionProvider", "OpenVINOExecutionProvider"}
+        for entries in grouped.values():
             assert len(entries) == 1
             assert entries[0].status == "primary"
 
-    def test_empty_inputs_yield_empty_dict(self) -> None:
+    def test_empty_inputs_yield_empty_list(self) -> None:
         result = discover_all_eps()
-        assert result == {}
+        assert result == []
 
     def test_extra_sources_takes_precedence_over_ep_path(
         self,
@@ -130,7 +140,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
         monkeypatch.setattr(_ep, "_default_ep_sources", lambda: [default])
 
         result = discover_all_eps(extra_sources=[extra])
-        entries = result["QNNExecutionProvider"]
+        entries = _group_by_ep(result)["QNNExecutionProvider"]
         assert len(entries) == 2
         assert "extra" in str(entries[0].dll_path)  # primary
         assert "default" in str(entries[1].dll_path)  # shadowed
@@ -158,7 +168,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
         monkeypatch.setattr(_ep, "_default_ep_sources", lambda: [default])
 
         result = discover_all_eps(extra_sources_after=[after])
-        entries = result["QNNExecutionProvider"]
+        entries = _group_by_ep(result)["QNNExecutionProvider"]
         assert len(entries) == 2
         # Default source list wins primary; extra_sources_after lands shadowed.
         assert "default" in str(entries[0].dll_path)
@@ -192,7 +202,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
             extra_sources=[before],
             extra_sources_after=[after],
         )
-        entries = result["QNNExecutionProvider"]
+        entries = _group_by_ep(result)["QNNExecutionProvider"]
         assert len(entries) == 3
         statuses = [e.status for e in entries]
         assert statuses == ["primary", "shadowed", "shadowed"]
@@ -210,7 +220,7 @@ class TestDiscoverAllEpsFormerReturnShadowed:
         _touch(tmp_path / "qnn.dll")
         only = _filesystem_source_for(tmp_path, "QNNExecutionProvider", "qnn.dll")
         result = discover_all_eps(extra_sources_after=[only])
-        entries = result["QNNExecutionProvider"]
+        entries = _group_by_ep(result)["QNNExecutionProvider"]
         assert len(entries) == 1
         assert entries[0].status == "primary"
 
@@ -260,10 +270,10 @@ class TestDefaultShape:
 
 
 class TestDiscoverAllEps:
-    """``discover_all_eps()`` returns dict[str, list[ResolvedEp]] with primary + shadowed."""
+    """``discover_all_eps()`` returns a flat ``list[EPEntry]`` with primary + shadowed."""
 
     def test_discover_all_eps_returns_full_shape(self, tmp_path: Path) -> None:
-        """discover_all_eps() returns dict[str, list[ResolvedEp]]."""
+        """discover_all_eps() returns a flat list of EPEntry."""
         dll_a = _touch(tmp_path / "a" / "qnn.dll")
         dll_b = _touch(tmp_path / "b" / "qnn.dll")
         src_a = _filesystem_source_for(tmp_path / "a", "QNNExecutionProvider", "qnn.dll")
@@ -271,26 +281,26 @@ class TestDiscoverAllEps:
 
         result = discover_all_eps(extra_sources=[src_a, src_b])
 
-        assert isinstance(result, dict)
-        assert "QNNExecutionProvider" in result
-        entries = result["QNNExecutionProvider"]
-        assert isinstance(entries, list)
-        assert all(isinstance(r, ResolvedEp) for r in entries)
+        assert isinstance(result, list)
+        assert all(isinstance(r, EPEntry) for r in result)
+        grouped = _group_by_ep(result)
+        assert "QNNExecutionProvider" in grouped
+        entries = grouped["QNNExecutionProvider"]
         assert len(entries) == 2
         assert entries[0].status == "primary"
         assert entries[0].dll_path == dll_a.resolve()
         assert entries[1].status == "shadowed"
         assert entries[1].dll_path == dll_b.resolve()
 
-    def test_discover_all_eps_empty_yields_empty_dict(self) -> None:
+    def test_discover_all_eps_empty_yields_empty_list(self) -> None:
         result = discover_all_eps()
-        assert result == {}
+        assert result == []
 
     def test_discover_all_eps_single_source_per_ep(self, tmp_path: Path) -> None:
         dll = _touch(tmp_path / "qnn.dll")
         src = _filesystem_source_for(tmp_path, "QNNExecutionProvider", dll.name)
         result = discover_all_eps(extra_sources=[src])
-        entries = result["QNNExecutionProvider"]
+        entries = _group_by_ep(result)["QNNExecutionProvider"]
         assert len(entries) == 1
         assert entries[0].status == "primary"
 
@@ -304,7 +314,7 @@ class TestDiscoverAllEps:
         monkeypatch.setattr(_ep, "_default_ep_sources", lambda: [default])
 
         result = discover_all_eps(extra_sources_after=[after])
-        entries = result["QNNExecutionProvider"]
+        entries = _group_by_ep(result)["QNNExecutionProvider"]
         assert len(entries) == 2
         assert entries[0].status == "primary"
         assert "default" in str(entries[0].dll_path)

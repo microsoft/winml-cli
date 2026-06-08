@@ -90,10 +90,12 @@ class TestNuGetSource:
         )
         results = list(src.resolve())
         assert len(results) == 1
-        ep_name, dll_path = results[0]
-        assert ep_name == "OpenVINOExecutionProvider"
-        assert dll_path == dll.resolve()
-        assert dll_path.is_file()
+        entry = results[0]
+        assert entry.ep_name == "OpenVINOExecutionProvider"
+        assert entry.dll_path == dll.resolve()
+        assert entry.dll_path.is_file()
+        # NuGetSource plumbs the cache-subdir version into EPEntry.
+        assert entry.version == "1.4.0"
 
     def test_multiple_versions_picks_highest(
         self,
@@ -117,7 +119,7 @@ class TestNuGetSource:
         )
         results = list(src.resolve())
         assert len(results) == 1
-        _, dll_path = results[0]
+        dll_path = results[0].dll_path
         # Path components include the version-string subdir; assert on it.
         assert "1.4.0" in dll_path.parts
 
@@ -143,7 +145,7 @@ class TestNuGetSource:
         )
         results = list(src.resolve())
         assert len(results) == 1
-        _, dll_path = results[0]
+        dll_path = results[0].dll_path
         assert "1.4.0" in dll_path.parts
         assert "1.5.0-beta" not in dll_path.parts
 
@@ -168,7 +170,7 @@ class TestNuGetSource:
         )
         results = list(src.resolve())
         assert len(results) == 1
-        _, dll_path = results[0]
+        dll_path = results[0].dll_path
         assert "1.5.0-beta" in dll_path.parts
 
     def test_package_absent_yields_nothing(
@@ -235,10 +237,10 @@ class TestNuGetSource:
         )
         results = list(src.resolve())
         assert len(results) == 1
-        ep_name, dll_path = results[0]
-        assert ep_name == "QNNExecutionProvider"
-        assert dll_path.name == "onnxruntime_providers_qnn.dll"
-        assert "win-arm64" in dll_path.parts
+        entry = results[0]
+        assert entry.ep_name == "QNNExecutionProvider"
+        assert entry.dll_path.name == "onnxruntime_providers_qnn.dll"
+        assert "win-arm64" in entry.dll_path.parts
 
     def test_iter_eps_returns_declared_eps(
         self,

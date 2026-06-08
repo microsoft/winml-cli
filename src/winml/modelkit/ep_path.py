@@ -8,7 +8,8 @@ This module replaces the legacy ``EP_PLUGIN_REGISTRY`` dict (which only
 modeled PyPI-installed plugin EPs) with an ordered list of typed
 ``EPSource`` entries, analogous to the OS ``PATH`` environment variable.
 Each entry knows how to resolve itself for the current machine and yields
-``(ep_name, absolute_dll_path)`` pairs.
+:class:`EPEntry` records (``ep_name``, ``dll_path``, ``source``,
+``status``, ``version``).
 
 See ``docs/ep-path-design.md`` for the full design rationale, including
 the per-origin x per-EP map and the migration plan.
@@ -33,15 +34,15 @@ Public API:
 * :func:`discover_eps`: walk the default EP source list (plus any extras)
   and return ``{ep_name: (dll_path, source)}`` with first-hit-wins
   semantics. One precedence winner per EP.
-* :func:`discover_all_eps`: same precedence rules, but return all
-  matches per EP as ``{ep_name: [ResolvedEp, ...]}`` with the primary
-  first and any shadowed entries after. Used by the inventory CLI
-  (``winml sys --list-ep``).
+* :func:`discover_all_eps`: same precedence rules, but return a flat
+  ``list[EPEntry]`` containing the primary winner per EP followed by any
+  shadowed entries. Used by the inventory CLI (``winml sys --list-ep``).
 """
 
 from __future__ import annotations
 
 import atexit
+import dataclasses
 import functools
 import logging
 import os
@@ -277,12 +278,41 @@ def _nuget_packages_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# EPEntry: the canonical (ep_name, dll_path, source, status, version) record.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EPEntry:
+    """One ``(ep_name, dll_path, source, status, version)`` hit.
+
+    Yielded by every :meth:`EPSource.resolve` and returned (flattened)
+    by :func:`discover_all_eps`. The ``status`` field distinguishes the
+    precedence-winner ("primary") from later sources for the same EP
+    that were skipped under first-hit-wins ("shadowed"). Sources always
+    yield ``status="primary"``; :func:`discover_all_eps` overrides to
+    ``"shadowed"`` for non-precedence-winners via ``dataclasses.replace``.
+
+    The optional ``version`` field carries per-subclass version metadata
+    (PyPI distribution version, NuGet package version, MSIX
+    ``Package.Id.Version``). ``None`` for sources with no version concept
+    (FilesystemSource, WinMLCatalogSource).
+    """
+
+    ep_name: str
+    dll_path: Path
+    source: EPSource
+    status: str = "primary"  # "primary" | "shadowed"
+    version: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # EPSource ABC + concrete dataclass implementations.
 # ---------------------------------------------------------------------------
 
 
 class EPSource(ABC):
-    """Abstract base for any source that can yield ``(ep_name, dll_path)``.
+    """Abstract base for any source that can yield :class:`EPEntry` records.
 
     Five concrete subclasses cover the origins documented in
     ``docs/ep-path-design.md``: :class:`PyPISource`, :class:`NuGetSource`,
@@ -293,8 +323,12 @@ class EPSource(ABC):
     """
 
     @abstractmethod
-    def resolve(self) -> Iterator[tuple[str, Path]]:
-        """Yield ``(canonical_ep_name, absolute_dll_path)`` zero or more times.
+    def resolve(self) -> Iterator[EPEntry]:
+        """Yield :class:`EPEntry` records zero or more times.
+
+        Each yielded entry should have ``status="primary"`` (the default);
+        :func:`discover_all_eps` overrides to ``"shadowed"`` for entries
+        that lose precedence against an earlier source.
 
         Errors during resolution should be logged and swallowed (yield
         nothing) — :func:`discover_eps` tolerates source-level failures
@@ -339,13 +373,16 @@ class PyPISource(EPSource):
     eps: tuple[str, ...]
     arch_resolver: Callable[[str], str] | None = None
 
-    def resolve(self) -> Iterator[tuple[str, Path]]:
-        """Yield ``(ep_name, abs_path)`` for each EP this source provides.
+    def resolve(self) -> Iterator[EPEntry]:
+        """Yield one :class:`EPEntry` per EP this source provides.
 
         Yields nothing (silently) when the distribution is not installed —
         that is the common case for optional EPs and is not an error.
         Logs a warning if the distribution is installed but the file is
-        missing.
+        missing. The yielded entries carry ``version`` populated from
+        ``importlib.metadata.version(self.distribution)``; if metadata
+        lookup raises (rare), ``version=None`` and the failure is logged
+        at DEBUG.
         """
         try:
             dist = metadata.distribution(self.distribution)
@@ -368,8 +405,23 @@ class PyPISource(EPSource):
             )
             return
 
+        try:
+            version: str | None = metadata.version(self.distribution)
+        except Exception as e:
+            logger.debug(
+                "PyPISource: metadata.version(%r) failed: %s",
+                self.distribution,
+                e,
+            )
+            version = None
+
         for ep_name in self.eps:
-            yield ep_name, path
+            yield EPEntry(
+                ep_name=ep_name,
+                dll_path=path,
+                source=self,
+                version=version,
+            )
 
     def iter_eps(self) -> Iterable[str]:
         """Return the canonical EP names this source provides."""
@@ -423,8 +475,13 @@ class NuGetSource(EPSource):
     eps: tuple[str, ...]
     arch_resolver: Callable[[str], str] | None = None
 
-    def resolve(self) -> Iterator[tuple[str, Path]]:
-        """Yield ``(ep_name, abs_path)`` for each EP this source provides."""
+    def resolve(self) -> Iterator[EPEntry]:
+        """Yield one :class:`EPEntry` per EP this source provides.
+
+        The yielded entries carry ``version`` derived from the NuGet cache
+        subdir name (the version folder selected as the highest stable —
+        or highest prerelease if no stable is installed).
+        """
         if "\\" in self.relative_dll:
             raise ValueError(
                 f"NuGetSource.relative_dll must be POSIX-style "
@@ -486,8 +543,18 @@ class NuGetSource(EPSource):
             dll_path = version_dir / rel
             if dll_path.is_file():
                 resolved = dll_path.resolve()
+                # The version directory name is the canonical NuGet
+                # version string (round-trips for both stable and
+                # prerelease — packaging.Version normalizes on parse, but
+                # the on-disk folder name is the source of truth).
+                version = version_dir.name
                 for ep_name in self.eps:
-                    yield ep_name, resolved
+                    yield EPEntry(
+                        ep_name=ep_name,
+                        dll_path=resolved,
+                        source=self,
+                        version=version,
+                    )
                 return
 
         logger.debug(
@@ -529,8 +596,12 @@ class FilesystemSource(EPSource):
     env_var: str | None = None
     required_marker: str | None = None
 
-    def resolve(self) -> Iterator[tuple[str, Path]]:
-        """Yield ``(ep_name, abs_path)`` for each pattern that matches."""
+    def resolve(self) -> Iterator[EPEntry]:
+        """Yield one :class:`EPEntry` per matching pattern.
+
+        FilesystemSource has no version concept, so every yielded entry
+        carries ``version=None``.
+        """
         # Resolve env-var gate first: missing env var is a normal "not
         # installed" outcome, not a warning.
         base: Path
@@ -575,7 +646,11 @@ class FilesystemSource(EPSource):
                 continue
             # First glob hit wins; multiple matches for one pattern is
             # unusual but tolerated (deterministic by glob order).
-            yield ep_name, matches[0].resolve()
+            yield EPEntry(
+                ep_name=ep_name,
+                dll_path=matches[0].resolve(),
+                source=self,
+            )
 
     def iter_eps(self) -> Iterable[str]:
         """Return the canonical EP names this source provides (the dll_patterns keys)."""
@@ -716,8 +791,8 @@ class WinMLCatalogSource(EPSource):
     eps: tuple[str, ...]
     auto_download: bool = False
 
-    def resolve(self) -> Iterator[tuple[str, Path]]:
-        """Yield ``(ep_name, abs_path)`` for each EP this source provides.
+    def resolve(self) -> Iterator[EPEntry]:
+        """Yield one :class:`EPEntry` per ready provider.
 
         Yields nothing (silently) when the WinAppSDK binding is not
         installed. Logs a WARN (once per provider per process) when an
@@ -727,6 +802,10 @@ class WinMLCatalogSource(EPSource):
         this source does NOT call ``provider.TryRegister()`` or any of
         the WinAppSDK ``EnsureAndRegisterCertifiedAsync`` /
         ``RegisterCertifiedAsync`` methods.
+
+        Yielded entries carry ``version=None``; probing
+        ``provider.version`` is a follow-up (the OQ-2 deferral was
+        accepted at the time of Batch A).
         """
         catalog = _get_catalog()
         if catalog is None:
@@ -755,8 +834,8 @@ class WinMLCatalogSource(EPSource):
                     e,
                 )
 
-    def _resolve_provider(self, provider: Any) -> Iterator[tuple[str, Path]]:
-        """Yield ``(ep_name, path)`` for a single catalog provider."""
+    def _resolve_provider(self, provider: Any) -> Iterator[EPEntry]:
+        """Yield one :class:`EPEntry` per matching, ready catalog provider."""
         # Filter by name first; one catalog returns providers for every
         # vendor and most rows will not match self.catalog_name.
         if getattr(provider, "name", None) != self.catalog_name:
@@ -816,7 +895,11 @@ class WinMLCatalogSource(EPSource):
 
         path = Path(library_path)
         for ep_name in self.eps:
-            yield ep_name, path
+            yield EPEntry(
+                ep_name=ep_name,
+                dll_path=path,
+                source=self,
+            )
 
     @staticmethod
     def _is_not_present(ready_state: Any) -> bool:
@@ -925,8 +1008,8 @@ class MSIXPackageSource(EPSource):
     eps: tuple[str, ...]
     version: str | None = None
 
-    def resolve(self) -> Iterator[tuple[str, Path]]:
-        """Yield ``(ep_name, abs_path)`` for the matched MSIX package.
+    def resolve(self) -> Iterator[EPEntry]:
+        """Yield one :class:`EPEntry` per EP this source provides.
 
         Selection rules (in order):
 
@@ -936,7 +1019,9 @@ class MSIXPackageSource(EPSource):
         3. If multiple packages remain, pick the one with the highest
            ``Package.Id.Version``.
         4. Verify the DLL exists at ``installed_path / relative_dll``.
-        5. Yield ``(ep_name, abs_path)`` for each ``ep`` in :attr:`eps`.
+        5. Yield :class:`EPEntry` for each ``ep`` in :attr:`eps`, with
+           ``version`` set to the matched package's ``Package.Id.Version``
+           (rendered as ``"M.m.b.r"``).
 
         Yields nothing (silently) when no matching package is installed,
         when the WinRT binding is unavailable, or when the DLL is missing
@@ -993,8 +1078,14 @@ class MSIXPackageSource(EPSource):
             )
             return
 
+        selected_version = _pkg_version_str(selected.id.version)
         for ep_name in self.eps:
-            yield ep_name, dll_path
+            yield EPEntry(
+                ep_name=ep_name,
+                dll_path=dll_path,
+                source=self,
+                version=selected_version,
+            )
 
     def iter_eps(self) -> Iterable[str]:
         """Return the canonical EP names this source provides."""
@@ -1278,30 +1369,28 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class ResolvedEp:
-    """One (ep_name, dll_path, source) hit with resolution status.
+def discover_all_eps(
+    extra_sources: list[EPSource] | None = None,
+    *,
+    extra_sources_after: list[EPSource] | None = None,
+) -> list[EPEntry]:
+    """Walk the default EP source list and return a flat ``list[EPEntry]``.
 
-    Returned by :func:`discover_all_eps`. The ``status`` field distinguishes
-    the precedence-winner ("primary") from later sources for the same EP
-    that were skipped under first-hit-wins ("shadowed").
-    """
+    Companion to :func:`discover_eps`. Used by ``winml sys --list-ep`` to
+    enumerate every source contributing each EP, so users can see when a
+    later source is being shadowed by a higher-precedence one.
 
-    ep_name: str
-    dll_path: Path
-    source: EPSource
-    status: str  # "primary" | "shadowed"
+    The returned list preserves source-walk order. The first entry per
+    ``ep_name`` carries ``status="primary"``; subsequent entries for the
+    same ``ep_name`` carry ``status="shadowed"`` (precedence determined
+    by EPSource ordering — see below).
 
+    Precedence (highest first):
 
-def _walk_sources(
-    extra_sources: list[EPSource] | None,
-    extra_sources_after: list[EPSource] | None,
-) -> dict[str, list[ResolvedEp]]:
-    """Walk the assembled source list and collect all matches per EP.
-
-    Internal helper shared by :func:`discover_eps` (returns the primary
-    winner per EP) and :func:`discover_all_eps` (returns primary + every
-    shadowed match).
+    1. ``extra_sources`` (programmatic override; useful for tests)
+    2. ``WINMLCLI_EP_PATH`` env-var entries (parsed into FilesystemSources)
+    3. The default EP source list (``_default_ep_sources()``)
+    4. ``extra_sources_after`` (lowest precedence; used by inventory CLI)
     """
     sources: list[EPSource] = []
     if extra_sources:
@@ -1311,7 +1400,8 @@ def _walk_sources(
     if extra_sources_after:
         sources.extend(extra_sources_after)
 
-    full: dict[str, list[ResolvedEp]] = {}
+    result: list[EPEntry] = []
+    seen: set[str] = set()
     for source in sources:
         try:
             it = source.resolve()
@@ -1323,29 +1413,39 @@ def _walk_sources(
             continue
 
         try:
-            for ep_name, dll_path in it:
-                if not dll_path.is_file():
+            for entry in it:
+                if not entry.dll_path.is_file():
                     logger.warning(
                         "EP %s: source %r produced %s which is not a file",
-                        ep_name,
+                        entry.ep_name,
                         source,
-                        dll_path,
+                        entry.dll_path,
                     )
                     continue
-                bucket = full.setdefault(ep_name, [])
-                if any(e.dll_path == dll_path and e.source is source for e in bucket):
+                # Dedup: same (ep, dll_path, source) is silently dropped.
+                if any(
+                    existing.ep_name == entry.ep_name
+                    and existing.dll_path == entry.dll_path
+                    and existing.source is entry.source
+                    for existing in result
+                ):
                     continue
-                status = "primary" if not bucket else "shadowed"
-                bucket.append(
-                    ResolvedEp(
-                        ep_name=ep_name,
-                        dll_path=dll_path,
-                        source=source,
-                        status=status,
+                if entry.ep_name in seen:
+                    # Source ordering decides precedence; later sources
+                    # land as shadowed.
+                    final = dataclasses.replace(entry, status="shadowed")
+                else:
+                    seen.add(entry.ep_name)
+                    final = entry if entry.status == "primary" else dataclasses.replace(
+                        entry, status="primary"
                     )
-                )
+                result.append(final)
                 logger.debug(
-                    "EP %s [%s] -> %s from %r", ep_name, status, dll_path, source
+                    "EP %s [%s] -> %s from %r",
+                    final.ep_name,
+                    final.status,
+                    final.dll_path,
+                    final.source,
                 )
         except NotImplementedError as e:
             logger.debug("Skipping not-yet-implemented source %r: %s", source, e)
@@ -1354,7 +1454,7 @@ def _walk_sources(
             logger.error("Source %r failed mid-iteration: %s", source, e)
             continue
 
-    return full
+    return result
 
 
 def discover_eps(
@@ -1364,8 +1464,9 @@ def discover_eps(
 ) -> dict[str, tuple[Path, EPSource]]:
     """Walk the default EP source list and return one ``(dll_path, source)`` per EP.
 
-    Returns the precedence winner per EP. Use :func:`discover_all_eps`
-    when you need primary + shadowed matches (e.g. for the inventory CLI).
+    Returns the precedence winner per EP. Thin wrapper over
+    :func:`discover_all_eps` — keeps the legacy dict-of-tuples shape for
+    callers that only need the primary winner.
 
     Precedence (highest first):
 
@@ -1376,35 +1477,26 @@ def discover_eps(
 
     Within that combined list, first-hit-wins per canonical EP name.
     """
-    full = _walk_sources(extra_sources, extra_sources_after)
-    return {ep: (entries[0].dll_path, entries[0].source) for ep, entries in full.items()}
-
-
-def discover_all_eps(
-    extra_sources: list[EPSource] | None = None,
-    *,
-    extra_sources_after: list[EPSource] | None = None,
-) -> dict[str, list[ResolvedEp]]:
-    """Walk the default EP source list and return all matches per EP — primary first then shadowed.
-
-    Companion to :func:`discover_eps`. Used by ``winml sys --list-ep`` to
-    enumerate every source contributing each EP, so users can see when a
-    later source is being shadowed by a higher-precedence one.
-
-    Precedence rules are identical to :func:`discover_eps`.
-    """
-    return _walk_sources(extra_sources, extra_sources_after)
+    all_entries = discover_all_eps(
+        extra_sources=extra_sources,
+        extra_sources_after=extra_sources_after,
+    )
+    result: dict[str, tuple[Path, EPSource]] = {}
+    for entry in all_entries:
+        if entry.status == "primary":
+            result[entry.ep_name] = (entry.dll_path, entry.source)
+    return result
 
 
 __all__ = [
     "EP_CATALOG",
     "EPCatalog",
+    "EPEntry",
     "EPSource",
     "FilesystemSource",
     "MSIXPackageSource",
     "NuGetSource",
     "PyPISource",
-    "ResolvedEp",
     "WinMLCatalogSource",
     "discover_all_eps",
     "discover_eps",
