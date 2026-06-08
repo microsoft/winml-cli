@@ -184,11 +184,12 @@ class TestExtractImageEmbedding:
 
 class TestImageFeatureExtractionEvaluatorRegistry:
     def test_registered_in_evaluator_registry(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY, get_evaluator_class
 
         assert "image-feature-extraction" in _EVALUATOR_REGISTRY
         assert (
-            get_evaluator_class("image-feature-extraction")
+            get_evaluator_class(WinMLEvaluationConfig(task="image-feature-extraction"))
             is WinMLImageFeatureExtractionEvaluator
         )
 

@@ -184,7 +184,7 @@ class CompileStage(BaseStage):
 
     def _generate_dummy_inputs(self, session: ort.InferenceSession) -> dict[str, np.ndarray]:
         """Generate dummy inputs for validation using all-ones data."""
-        inputs = {}
+        inputs: dict[str, np.ndarray] = {}
 
         for input_meta in session.get_inputs():
             name = input_meta.name

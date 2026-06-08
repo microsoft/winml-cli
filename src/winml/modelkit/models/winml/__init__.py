@@ -40,6 +40,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "image-segmentation": "WinMLModelForImageSegmentation",
     "semantic-segmentation": "WinMLModelForSemanticSegmentation",
     "object-detection": "WinMLModelForObjectDetection",
+    "depth-estimation": "WinMLModelForDepthEstimation",
     # Not yet implemented — falls back to WinMLModelForGenericTask at runtime
     "token-classification": "WinMLModelForTokenClassification",
     "question-answering": "WinMLModelForQuestionAnswering",
@@ -74,6 +75,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         ImportError: If class is not implemented yet
     """
     from .base import WinMLModelForGenericTask
+    from .depth_estimation import WinMLModelForDepthEstimation
     from .feature_extraction import WinMLModelForFeatureExtraction
     from .image_classification import WinMLModelForImageClassification
     from .image_segmentation import (
@@ -86,6 +88,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
 
     # Map class names to modules
     class_map: dict[str, type] = {
+        "WinMLModelForDepthEstimation": WinMLModelForDepthEstimation,
         "WinMLModelForFeatureExtraction": WinMLModelForFeatureExtraction,
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
@@ -182,6 +185,7 @@ from .composite_model import (
     register_composite_model,
 )
 from .decoder_only import WinMLDecoderOnlyModel
+from .depth_estimation import WinMLModelForDepthEstimation
 from .encoder_decoder import WinMLEncoderDecoderModel
 from .feature_extraction import WinMLModelForFeatureExtraction
 from .image_classification import WinMLModelForImageClassification
@@ -209,6 +213,7 @@ __all__ = [
     "WinMLCompositeModel",
     "WinMLDecoderOnlyModel",
     "WinMLEncoderDecoderModel",
+    "WinMLModelForDepthEstimation",
     "WinMLModelForFeatureExtraction",
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",

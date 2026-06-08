@@ -15,9 +15,6 @@ from typing import TYPE_CHECKING, NamedTuple
 from ..loader.task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
-    WRAPPED_LIBRARY_MODEL_TYPES,
-    _detect_task_and_class_from_config,
-    _detect_task_from_config,
     _get_custom_model_class,
     resolve_optimum_library,
 )
@@ -48,11 +45,6 @@ if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
 
 logger = logging.getLogger(__name__)
-
-# Task-detection provenance label returned by detect_task() for wrapped-library
-# model types (e.g. timm via "timm_wrapper"). Surfaced in `inspect` output as
-# "Task <task> (via <source>)" and in the JSON `task_source` field.
-WRAPPED_LIBRARY_SOURCE = "wrapped-library"
 
 # Mapping from pipeline stage verbs to the filenames build_hf_model() produces.
 # "export" is omitted because its stage name equals its filename — the
@@ -110,48 +102,6 @@ def validate_task(task: str) -> None:
     if task not in known:
         sorted_tasks = sorted(known)
         raise ValueError(f"Unknown task '{task}'. Known tasks: {', '.join(sorted_tasks)}")
-
-
-def detect_task(config: PretrainedConfig) -> tuple[str, str]:
-    """Detect task from HF config.
-
-    Args:
-        config: HuggingFace PretrainedConfig
-
-    Returns:
-        Tuple of (task_name, detection_source)
-    """
-    model_type = getattr(config, "model_type", "unknown")
-    model_type_normalized = model_type.lower().replace("_", "-")
-
-    # Check if we have explicit mapping for this model_type
-    for mt, task in HF_MODEL_CLASS_MAPPING:
-        if mt == model_type_normalized:
-            return task, "HF_MODEL_CLASS_MAPPING"
-
-    # Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
-    # `architectures`; reuse the loader's resolution to derive the real task
-    # instead of falling through to the HF_TASK_DEFAULTS mislabel below.
-    if model_type in WRAPPED_LIBRARY_MODEL_TYPES and not getattr(config, "architectures", None):
-        try:
-            task, _ = _detect_task_and_class_from_config(config)
-            return task, WRAPPED_LIBRARY_SOURCE
-        except Exception:
-            logger.debug("wrapped-library task detection failed for %s", model_type, exc_info=True)
-
-    # Use TasksManager detection
-    try:
-        task = _detect_task_from_config(config)
-        return task, "TasksManager"
-    except ValueError:
-        pass
-
-    # Fallback to task defaults
-    if HF_TASK_DEFAULTS:
-        first_task = next(iter(HF_TASK_DEFAULTS.keys()))
-        return first_task, "HF_TASK_DEFAULTS"
-
-    return "unknown", "none"
 
 
 def resolve_loader(model_type: str, task: str) -> LoaderInfo:
@@ -355,15 +305,15 @@ def resolve_exporter(
         import optimum.exporters.onnx.model_configs  # noqa: F401
         from optimum.exporters.tasks import TasksManager
 
-        # TasksManager expects normalized task names
-        from ..export.io import map_task_synonym
+        # TasksManager expects Optimum-canonical task names
+        from ..loader import to_optimum_task
 
         # TasksManager uses underscores (sam2_video), not hyphens (sam2-video)
         # Use original model_type for TasksManager lookup
         onnx_config_cls = TasksManager.get_exporter_config_constructor(
             exporter="onnx",
             model_type=model_type,
-            task=map_task_synonym(task),
+            task=to_optimum_task(task),
             library_name=resolve_optimum_library(model_type),
         )
         if onnx_config_cls:
@@ -812,14 +762,16 @@ def resolve_io_config(
         if val is not None:
             extra[attr] = val
 
-    # Step 5: Fallback — read image_size from preprocessor_config.json
-    # for models like ResNet where HF config lacks image_size
+    # Step 5: Fallback — read image_size from a preprocessor-style dict
+    # (preprocessor_config.json on the hub, or synthesized from a nested
+    # dict on hf_config such as TimmWrapperConfig.pretrained_cfg) when the
+    # top-level HF config lacks image_size.
     if image_size is None and model_id is not None:
         try:
             from ..export.io import _populate_image_size_from_preprocessor
 
             shape_kwargs: dict = {}
-            _populate_image_size_from_preprocessor(model_id, shape_kwargs)
+            _populate_image_size_from_preprocessor(model_id, shape_kwargs, config)
             if "height" in shape_kwargs:
                 h, w = shape_kwargs["height"], shape_kwargs["width"]
                 image_size = h if h == w else (h, w)

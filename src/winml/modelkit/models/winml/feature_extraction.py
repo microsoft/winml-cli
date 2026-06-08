@@ -12,9 +12,10 @@ Pipeline execution (export/optimize/compile) is done by WinMLAutoModel factory.
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from typing import Any
 
-from transformers.modeling_outputs import BaseModelOutput
+from transformers.utils import ModelOutput
 
 from .base import WinMLPreTrainedModel
 
@@ -22,36 +23,40 @@ from .base import WinMLPreTrainedModel
 logger = logging.getLogger(__name__)
 
 
+class FeatureExtractionModelOutput(ModelOutput):
+    """ModelOutput backed directly by the ONNX session output dict.
+
+    Preserves output names and order so HF pipelines (`output[0]`) and
+    TensorSimilarityEvaluator (`output["name"]`) both work without a
+    per-schema dataclass.
+    """
+
+    def __init__(self, data: dict[str, Any]):
+        OrderedDict.__init__(self, data)
+
+    def __post_init__(self) -> None:
+        # Bypass ModelOutput's dataclass-driven population; OrderedDict
+        # is already populated via __init__.
+        pass
+
+
 class WinMLModelForFeatureExtraction(WinMLPreTrainedModel):
     """WinML model for feature extraction.
 
-    Supports:
-    - feature-extraction (text, e.g. sentence-transformers)
+    Supports text and image feature-extraction plus sentence-similarity.
 
-    Returns BaseModelOutput with last_hidden_state so the HF
-    feature-extraction pipeline can consume it via output[0].
-
-    ONNX output handling (shape-based, architecture-agnostic):
-    - 3-D [B, seq_len, hidden_dim]: used directly as last_hidden_state.
-    - 2-D [B, hidden_dim]: unsqueezed to [B, 1, hidden_dim] so downstream
-      mean-pooling is a no-op.
+    Returns a ModelOutput whose entries mirror the ONNX exporter's declared
+    output names and order. HF pipelines consume output[0] positionally;
+    TensorSimilarityEvaluator consumes by name. Both work without renaming
+    or reshaping ONNX outputs.
     """
 
-    def forward(self, **kwargs: Any) -> BaseModelOutput:
+    def forward(self, **kwargs: Any) -> ModelOutput:
         """Run feature extraction inference.
 
-        Accepts all tokenizer/processor outputs via **kwargs and passes them
-        directly to the ONNX session, keeping the implementation architecture-agnostic.
-
-        Returns:
-            BaseModelOutput with last_hidden_state tensor
+        Returns a ModelOutput with one entry per ONNX output in declared
+        order. Tensors keep their native rank (no unsqueeze); downstream
+        pooling handles 1-D and 2-D after raw[0].
         """
-        formatted = self._format_inputs(**kwargs)
-        outputs = self._run_inference(formatted)
-
-        last_hidden_state = next(iter(outputs.values()))
-        if last_hidden_state.dim() == 2:
-            # Already pooled [B, hidden_dim] -> wrap as [B, 1, hidden_dim]
-            last_hidden_state = last_hidden_state.unsqueeze(1)
-
-        return BaseModelOutput(last_hidden_state=last_hidden_state)
+        outputs = self._run_inference(self._format_inputs(**kwargs))
+        return FeatureExtractionModelOutput(outputs)

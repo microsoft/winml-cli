@@ -19,7 +19,6 @@ from unittest.mock import patch
 import pytest
 import torch
 from transformers import (
-    AutoConfig,
     CLIPTextConfig,
     CLIPTextModelWithProjection,
     CLIPVisionConfig,
@@ -676,6 +675,122 @@ class TestPopulateImageSize:
         assert "height" not in shape_kwargs
         assert "width" not in shape_kwargs
 
+    def test_partial_preprocessor_without_size_falls_back_to_synthesis(self) -> None:
+        """A partial preprocessor_config.json (no ``size``) synthesizes from hf_config.
+
+        Without the fall-through, a hub dict carrying only mean/std would leave
+        ``size`` unresolved and Optimum would default to 64x64.
+        """
+        mock_config = {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]}  # no "size"
+        hf_config = SimpleNamespace(pretrained_cfg={"input_size": [3, 224, 224]})
+        shape_kwargs: dict = {}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            return_value=(mock_config, {}),
+        ):
+            _populate_image_size_from_preprocessor(
+                "timm/some-model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs["height"] == 224
+        assert shape_kwargs["width"] == 224
+
+    def test_nested_dict_input_size_chw(self) -> None:
+        """``pretrained_cfg.input_size = [C, H, W]`` (timm) synthesizes a size dict."""
+        hf_config = SimpleNamespace(
+            pretrained_cfg={"input_size": [3, 224, 224], "mean": [0.485, 0.456, 0.406]},
+        )
+        shape_kwargs: dict = {}
+
+        # No preprocessor_config.json on the hub -> synthesize from hf_config.
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            side_effect=OSError("404"),
+        ):
+            _populate_image_size_from_preprocessor(
+                "timm/some-model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs["height"] == 224
+        assert shape_kwargs["width"] == 224
+
+    def test_preprocessor_takes_precedence_over_nested_dict(self) -> None:
+        """When preprocessor_config.json resolves, nested dict is not consulted."""
+        hf_config = SimpleNamespace(pretrained_cfg={"input_size": [3, 320, 320]})
+        shape_kwargs: dict = {}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            return_value=({"size": 384}, {}),
+        ):
+            _populate_image_size_from_preprocessor(
+                "some-model/id",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs["height"] == 384
+        assert shape_kwargs["width"] == 384
+
+    def test_nested_dict_input_size_scalar(self) -> None:
+        """``pretrained_cfg.input_size = [side]`` (length-1) maps to a square size."""
+        hf_config = SimpleNamespace(pretrained_cfg={"input_size": [320]})
+        shape_kwargs: dict = {}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            side_effect=OSError("404"),
+        ):
+            _populate_image_size_from_preprocessor(
+                "some/model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs["height"] == 320
+        assert shape_kwargs["width"] == 320
+
+    def test_pretrained_cfg_without_input_size_ignored(self) -> None:
+        """``pretrained_cfg`` without ``input_size`` (e.g. only mean/std) is skipped."""
+        hf_config = SimpleNamespace(
+            pretrained_cfg={"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]},
+        )
+        shape_kwargs: dict = {}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            side_effect=OSError("404"),
+        ):
+            _populate_image_size_from_preprocessor(
+                "some/model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs == {}
+
+    def test_existing_height_blocks_nested_dict_too(self) -> None:
+        """If height/width already set, nested-dict path must also be skipped."""
+        hf_config = SimpleNamespace(pretrained_cfg={"input_size": [3, 224, 224]})
+        shape_kwargs = {"height": 128}
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            side_effect=OSError("404"),
+        ):
+            _populate_image_size_from_preprocessor(
+                "some/model",
+                shape_kwargs,
+                hf_config,
+            )
+
+        assert shape_kwargs == {"height": 128}
+
 
 # =============================================================================
 # PastKeyValueInputGenerator — shared KV cache dummy input generation
@@ -699,18 +814,42 @@ def _make_normalized_config(
 
 @pytest.fixture(scope="module")
 def t5_config():
-    """T5-small config with n_positions overridden to 32 for fast tests."""
-    cfg = AutoConfig.from_pretrained("google-t5/t5-small")
-    cfg.n_positions = 32
-    return cfg
+    """Synthetic T5Config — small dims, no network.
+
+    ``n_positions`` maps to ``max_cache_len`` (decoder static buffer size) via
+    the T5 NormalizedConfig, so it fixes the KV cache length at 32.
+    """
+    from transformers import T5Config
+
+    return T5Config(
+        d_model=32,
+        num_layers=2,
+        num_heads=2,
+        d_kv=16,
+        vocab_size=100,
+        n_positions=32,
+    )
 
 
 @pytest.fixture(scope="module")
 def qwen_config():
-    """Qwen3-0.6B config with max_position_embeddings overridden to 256."""
-    cfg = AutoConfig.from_pretrained("Qwen/Qwen3-0.6B")
-    cfg.max_position_embeddings = 256
-    return cfg
+    """Synthetic Qwen3Config — small dims, no network.
+
+    ``max_position_embeddings`` maps to ``max_cache_len`` via the Qwen
+    NormalizedConfig, so it fixes the KV cache length at 256.
+    """
+    from transformers import Qwen3Config
+
+    return Qwen3Config(
+        hidden_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=8,
+        vocab_size=100,
+        intermediate_size=64,
+        max_position_embeddings=256,
+    )
 
 
 class TestPastKeyValueInputGenerator:
@@ -776,7 +915,7 @@ class TestT5DecoderKVInputs:
 
     def test_kv_input_names(self, t5_config) -> None:
         inputs = generate_dummy_inputs("t5", "text2text-generation", t5_config)
-        num_layers = t5_config.num_layers  # 6
+        num_layers = t5_config.num_layers  # 2 (synthetic)
         for i in range(num_layers):
             assert f"past_{i}_key" in inputs
             assert f"past_{i}_value" in inputs
@@ -784,7 +923,7 @@ class TestT5DecoderKVInputs:
     def test_kv_shape(self, t5_config) -> None:
         inputs = generate_dummy_inputs("t5", "text2text-generation", t5_config)
         kv = inputs["past_0_key"]
-        # [batch=1, heads=8, max_cache_len=32, d_kv=64]
+        # [batch=1, heads=num_heads, max_cache_len=32 (n_positions), d_kv]
         assert kv.shape == (1, t5_config.num_heads, 32, t5_config.d_kv)
 
     def test_decoder_attention_mask_matches_cache_len(self, t5_config) -> None:
@@ -802,7 +941,7 @@ class TestQwenPrefillKVInputs:
 
     def test_kv_input_names(self, qwen_config) -> None:
         inputs = generate_dummy_inputs("qwen3", "feature-extraction", qwen_config)
-        num_layers = qwen_config.num_hidden_layers  # 28
+        num_layers = qwen_config.num_hidden_layers  # 2 (synthetic)
         for i in range(num_layers):
             assert f"past_{i}_key" in inputs
             assert f"past_{i}_value" in inputs
@@ -810,7 +949,7 @@ class TestQwenPrefillKVInputs:
     def test_kv_shape(self, qwen_config) -> None:
         inputs = generate_dummy_inputs("qwen3", "feature-extraction", qwen_config)
         kv = inputs["past_0_key"]
-        # [batch=1, kv_heads=8, max_cache_len=256, head_dim=128]
+        # [batch=1, kv_heads, max_cache_len=256 (max_position_embeddings), head_dim]
         assert kv.shape == (1, qwen_config.num_key_value_heads, 256, qwen_config.head_dim)
 
     def test_attention_mask_matches_cache_len(self, qwen_config) -> None:

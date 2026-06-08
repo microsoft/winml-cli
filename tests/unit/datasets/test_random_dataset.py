@@ -154,18 +154,11 @@ class TestTaskDatasetMapping:
     """Verify all supported tasks map to correct dataset classes."""
 
     def test_all_tasks_have_mappings(self) -> None:
-        """Every task maps to either a dataset class or an input-name dispatch dict."""
+        """Every task maps directly to a dataset class."""
         from winml.modelkit.datasets import TASK_DATASET_MAPPING
 
         for task, entry in TASK_DATASET_MAPPING.items():
-            if isinstance(entry, dict):
-                assert entry, f"Task {task!r} maps to empty dict"
-                for input_name, cls in entry.items():
-                    assert callable(cls), (
-                        f"Task {task!r}[{input_name!r}] maps to non-callable {cls}"
-                    )
-            else:
-                assert callable(entry), f"Task {task!r} maps to non-callable {entry}"
+            assert callable(entry), f"Task {task!r} maps to non-callable {entry}"
 
     @pytest.mark.parametrize(
         ("task", "module_path", "class_name"),
@@ -174,6 +167,7 @@ class TestTaskDatasetMapping:
             ("image-feature-extraction", "winml.modelkit.datasets.image", "ImageDataset"),
             ("text-classification", "winml.modelkit.datasets.text", "TextDataset"),
             ("text-feature-extraction", "winml.modelkit.datasets.text", "TextDataset"),
+            ("feature-extraction", "winml.modelkit.datasets.text", "TextDataset"),
             ("next-sentence-prediction", "winml.modelkit.datasets.text", "TextDataset"),
             ("fill-mask", "winml.modelkit.datasets.text", "TextDataset"),
             (

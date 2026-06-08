@@ -766,6 +766,77 @@ class TestEvalAdditionalOptions:
         assert result.exit_code != 0
         assert "trust-remote-code" in result.output.lower(), result.output
 
+    def test_compare_mode_image_classification(
+        self, runner: CliRunner, tmp_path: Path,
+    ) -> None:
+        # --mode compare runs the ONNX candidate and the HF PyTorch reference
+        # on the same random inputs and reports per-output tensor-parity
+        # metrics in display-ready flat shape:
+        #   {f"{metric}_{stat}": {output_name: float}}
+        # over 5 metrics (sqnr_db, psnr_db, cosine_similarity, mse,
+        # max_abs_diff) x 4 stats (mean, std, min, max) = 20 top-level keys.
+        out = tmp_path / "result.json"
+        _invoke(runner, [
+            "--mode", "compare",
+            "-m", "microsoft/resnet-50",
+            "--task", "image-classification",
+            "--precision", "fp16",
+            "--samples", SAMPLES,
+            "-o", str(out),
+        ])
+        assert out.exists(), f"output file not created: {out}"
+        data = json.loads(out.read_text())
+        metrics = data.get("metrics", {})
+        assert metrics, f"missing or empty 'metrics': {data}"
+
+        expected_metrics = ("sqnr_db", "psnr_db", "cosine_similarity", "mse", "max_abs_diff")
+        expected_stats = ("mean", "std", "min", "max")
+        expected_keys = {f"{m}_{s}" for m in expected_metrics for s in expected_stats}
+        assert expected_keys.issubset(metrics), (
+            f"missing flat metric keys: {sorted(expected_keys - set(metrics))}"
+        )
+
+        # Each top-level value is {output_name: float}. ResNet-50 image-
+        # classification exposes a single `logits` output, but we don't
+        # hardcode the name — just assert non-empty and floats.
+        per_output_names: set[str] | None = None
+        for key in expected_keys:
+            row = metrics[key]
+            assert isinstance(row, dict) and row, (
+                f"metrics[{key!r}] not a non-empty dict: {row!r}"
+            )
+            assert all(isinstance(v, (int, float)) for v in row.values()), (
+                f"non-numeric value in metrics[{key!r}]: {row!r}"
+            )
+            names = set(row)
+            if per_output_names is None:
+                per_output_names = names
+            else:
+                assert names == per_output_names, (
+                    f"output-name set drift between {key!r} ({names}) and "
+                    f"siblings ({per_output_names})"
+                )
+
+        # Cosine bounds: min <= max in [-1, 1] per output.
+        cos_min = metrics["cosine_similarity_min"]
+        cos_max = metrics["cosine_similarity_max"]
+        for output_name in per_output_names or ():
+            lo, hi = cos_min[output_name], cos_max[output_name]
+            assert -1.0 <= lo <= hi <= 1.0, (
+                f"cosine outside [-1, 1] for {output_name}: min={lo}, max={hi}"
+            )
+
+        # fp16 parity: QNN should be near-perfect (>= 0.95); CPU/VitisAI
+        # paths can degrade more, but a 0.5 sanity floor still catches
+        # total-breakage regressions on non-QNN runners.
+        cos_mean = metrics["cosine_similarity_mean"]
+        threshold = 0.95 if is_host("qnn") else 0.5
+        for output_name, value in cos_mean.items():
+            assert value >= threshold, (
+                f"cosine_similarity_mean[{output_name}]={value} "
+                f"below {threshold} sanity floor"
+            )
+
 
 # ===========================================================================
 # G. CLI-validation error paths (fast — no model load)
