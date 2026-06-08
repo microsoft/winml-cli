@@ -572,27 +572,28 @@ class TestPerTaskDatasets:
         )
 
     @pytest.mark.network
-    def test_feature_extraction_with_pixel_values_uses_image_dataset(
+    def test_image_feature_extraction_uses_image_dataset(
         self, runner: CliRunner, onnx_dinov2: Path, tmp_path: Path
     ):
-        # For a vision model the bimodal task 'feature-extraction' must
-        # dispatch via the model's ONNX inputs (pixel_values) to
-        # ImageDataset for calibration. The task label in the log stays
-        # 'feature-extraction' (the resolver only swaps the dataset class).
+        # A vision embedding model's canonical task is image-feature-extraction
+        # (what `winml inspect` and auto-detection report); it maps directly to
+        # ImageDataset for calibration. Under the modality-aware task vocabulary
+        # 'feature-extraction' is text-only, so it is intentionally not a valid
+        # task for a vision model (its calibration dataset would be TextDataset).
         out = tmp_path / "d7.onnx"
 
         r = _invoke(
             runner,
             [
                 "-m", str(onnx_dinov2), "-o", str(out),
-                "--task", "feature-extraction",
+                "--task", "image-feature-extraction",
                 "--model-name", "facebook/dinov2-small",
                 "--samples", "4", "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_dinov2, output_onnx=out, stdout=r.output)
         assert (
-            "Creating feature-extraction dataset with ImageDataset" in r.output
+            "Creating image-feature-extraction dataset with ImageDataset" in r.output
         ), r.output
 
 

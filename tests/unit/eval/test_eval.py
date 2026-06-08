@@ -1341,6 +1341,7 @@ class TestLoadModel:
             device="cpu",
             precision="auto",
             ep=None,
+            allow_unsupported_nodes=False,
         )
         assert result is mock_model
 

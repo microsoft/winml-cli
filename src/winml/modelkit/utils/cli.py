@@ -193,7 +193,7 @@ def device_option(
     )
 
 
-def verbosity_options():
+def verbosity_options() -> Callable[[F], F]:
     """Add verbose and quiet logging options to a Click command.
 
     Adds --verbose/-v (stackable: -v, -vv, -vvv) and --quiet/-q flags.
@@ -206,7 +206,7 @@ def verbosity_options():
         Decorator function adding verbose and quiet options.
     """
 
-    def decorator(f):
+    def decorator(f: F) -> F:
         f = click.option(
             "--quiet",
             "-q",
@@ -334,6 +334,34 @@ def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F
         default=False,
         help=help_text,
         callback=_warn_callback,
+    )
+
+
+def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add shared --allow-unsupported-nodes option to a Click command.
+
+    When set, the build's optimize/analyze loop logs a warning instead of
+    raising when unsupported nodes persist after analysis, so the build
+    proceeds (the EP may fall back to another device for those nodes).
+
+    Args:
+        optional_message: Extra command-specific guidance appended to help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = (
+        "Continue the build instead of failing when the analyzer reports "
+        "unsupported nodes (the EP may fall back to another device for them)."
+    )
+    if optional_message:
+        help_text = f"{help_text} {optional_message}"
+
+    return click.option(
+        "--allow-unsupported-nodes",
+        is_flag=True,
+        default=False,
+        help=help_text,
     )
 
 
