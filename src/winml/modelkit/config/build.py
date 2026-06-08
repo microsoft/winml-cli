@@ -217,9 +217,9 @@ class WinMLBuildConfig:
             errors.append("loader.task is required for full model builds")
         # export=None is valid for ONNX builds
 
-        # 2. optim config always required
+        # 2. optim config always required (runtime callers may pass None despite the type)
         if self.optim is None:
-            errors.append("optim config is required")
+            errors.append("optim config is required")  # type: ignore[unreachable]
 
         # 3. quant validation (when present)
         # Exceptions: ONNX builds (export=None) don't need quant.task/model_name
@@ -347,9 +347,9 @@ def resolve_quant_compile_config(
     if policy.device == "auto":
         return None, None
 
-    # Quant config
+    # Quant config (weight_type and activation_type are always both-None or both-set)
     quant_config: WinMLQuantizationConfig | None = None
-    if policy.weight_type is not None:
+    if policy.weight_type is not None and policy.activation_type is not None:
         quant_config = WinMLQuantizationConfig()
         quant_config.weight_type = policy.weight_type
         quant_config.activation_type = policy.activation_type
@@ -566,6 +566,9 @@ def generate_hf_build_config(
         trust_remote_code=_trust_remote_code,
         library_name=library_name,
     )
+    # resolve_loader_config guarantees both fields are populated (it raises otherwise).
+    assert loader_config.model_type is not None
+    assert loader_config.task is not None
 
     # =========================================================================
     # STEP 2: Lookup registered config FIRST (may short-circuit Optimum)
@@ -648,7 +651,7 @@ def generate_hf_build_config(
     # Apply policy: resolve_device() always returns a concrete device so
     # policy.device is never "auto" here.
     # Quant config (weight_type and activation_type are always both-None or both-set)
-    if policy.weight_type is not None:
+    if policy.weight_type is not None and policy.activation_type is not None:
         if parent_config.quant is None:
             parent_config.quant = WinMLQuantizationConfig()
         parent_config.quant.weight_type = policy.weight_type
@@ -679,11 +682,12 @@ def generate_hf_build_config(
             model = resolved_class(hf_config)
         except OSError as e:
             logger.debug("Direct construction failed (%s), using from_config()", e)
-            model = resolved_class.from_config(hf_config)
+            # HF Auto* classes expose from_config(); base `type` annotation can't see it.
+            model = resolved_class.from_config(hf_config)  # type: ignore[attr-defined]
 
         # Extract input shapes and dtypes from export_config -- NO HARDCODED VALUES
         input_tensors = [t for t in (export_config.input_tensors or []) if t.shape is not None]
-        input_shapes = [t.shape for t in input_tensors]
+        input_shapes = [t.shape for t in input_tensors if t.shape is not None]
         input_dtypes = [t.dtype for t in input_tensors]
         if not input_shapes:
             raise ValueError(
@@ -800,20 +804,24 @@ def generate_build_config(
             ep=ep,
             override=override,
         )
-    return generate_hf_build_config(
-        model_id,
-        task=task,
-        model_class=model_class,
-        model_type=model_type,
-        module=module,
-        override=override,
-        shape_config=shape_config,
-        library_name=library_name,
-        device=device,
-        precision=precision,
-        trust_remote_code=trust_remote_code,
-        ep=ep,
-    )
+    # Split branches so mypy can pick the matching overload of generate_hf_build_config.
+    # Typed as dict[str, Any] so per-kwarg type checks happen at the callee, not on the
+    # widened Union mypy would otherwise infer from this heterogeneous literal.
+    common_kwargs: dict[str, Any] = {
+        "task": task,
+        "model_class": model_class,
+        "model_type": model_type,
+        "override": override,
+        "shape_config": shape_config,
+        "library_name": library_name,
+        "device": device,
+        "precision": precision,
+        "trust_remote_code": trust_remote_code,
+        "ep": ep,
+    }
+    if module is None:
+        return generate_hf_build_config(model_id, module=None, **common_kwargs)
+    return generate_hf_build_config(model_id, module=module, **common_kwargs)
 
 
 # =============================================================================

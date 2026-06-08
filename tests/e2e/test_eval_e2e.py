@@ -179,6 +179,8 @@ class TestEvalPerTask:
     def test_text_classification(self, runner: CliRunner, tmp_path: Path) -> None:
         # Model aligned with CLI default dataset (nyu-mll/glue/mrpc).
         # HF evaluate.evaluator("text-classification") returns `accuracy`.
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -292,25 +294,20 @@ class TestEvalPerTask:
         if is_host("qnn"):
             _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
-    @pytest.mark.parametrize(
-        "task",
-        ["image-feature-extraction", "feature-extraction"],
-    )
     def test_image_feature_extraction(
-        self, runner: CliRunner, tmp_path: Path, task: str,
+        self, runner: CliRunner, tmp_path: Path,
     ) -> None:
         # kNN accuracies reported as percentages 0..100.
         # --streaming avoids caching mini-imagenet.
-        # Parameterized over both task names accepted on the CLI:
-        #   - "image-feature-extraction" is the HF pipeline task name
-        #     and dispatches to the image evaluator directly.
-        #   - "feature-extraction" is bimodal; for a vision model it is
-        #     mapped internally to the HF pipeline name so the image
-        #     dataset and evaluator are selected.
+        # A vision embedding model's canonical task is image-feature-extraction
+        # (what `winml inspect` and auto-detection report); it dispatches to the
+        # image evaluator directly. 'feature-extraction' is text-only under the
+        # modality-aware task vocabulary, so it is not a valid task for a vision
+        # model (it would resolve to the text evaluator/dataset and fail).
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "facebook/dinov2-small",
-            "--task", task,
+            "--task", "image-feature-extraction",
             "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),
@@ -318,11 +315,14 @@ class TestEvalPerTask:
         data = _assert_metrics_present(
             out, ["knn_top1_accuracy", "knn_top5_accuracy"],
         )
-        # DINOv2 features cluster strongly on mini-imagenet.
-        _assert_in_range(data["metrics"], "knn_top1_accuracy", 30.0, 100.0)
-        _assert_in_range(data["metrics"], "knn_top5_accuracy", 60.0, 100.0)
+        # Smoke-only: at --samples 10 over mini-imagenet's 100 classes,
+        # leave-one-out kNN is statistical noise (even unquantized fp32
+        # scores 0/0). Accuracy-regression for this task lives in
+        # scripts/e2e_eval/run_eval.py. Assert finite + monotonic only.
         top1 = data["metrics"]["knn_top1_accuracy"]
         top5 = data["metrics"]["knn_top5_accuracy"]
+        assert math.isfinite(top1), f"knn_top1_accuracy not finite: {top1}"
+        assert math.isfinite(top5), f"knn_top5_accuracy not finite: {top5}"
         assert top1 <= top5, f"top1 ({top1}) must be <= top5 ({top5})"
 
     def test_image_to_text_fp16(self, runner: CliRunner, tmp_path: Path) -> None:
@@ -496,6 +496,8 @@ class TestEvalOutput:
     def test_creates_nested_output_dir(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         out = tmp_path / "nested" / "subdir" / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -590,6 +592,8 @@ class TestEvalAdditionalOptions:
     def test_dataset_name_explicit(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -634,6 +638,8 @@ class TestEvalAdditionalOptions:
     def test_config_file_basic(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         # `eval` section provides task + samples.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({
@@ -657,6 +663,8 @@ class TestEvalAdditionalOptions:
     def test_config_file_cli_override(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         # CLI wins over config file.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({
@@ -681,6 +689,8 @@ class TestEvalAdditionalOptions:
     def test_auto_task_detection(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         # No --task flag; CLI infers from HF model.
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -734,6 +744,8 @@ class TestEvalAdditionalOptions:
     def test_dataset_script_with_column_remap(
         self, runner: CliRunner, tmp_path: Path, tiny_textcls_script: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         # --dataset-script + --column + --trust-remote-code (happy path).
         ds_path = tmp_path / "tiny_textcls"
         out = tmp_path / "result.json"
@@ -765,6 +777,77 @@ class TestEvalAdditionalOptions:
         ], expect_success=False)
         assert result.exit_code != 0
         assert "trust-remote-code" in result.output.lower(), result.output
+
+    def test_compare_mode_image_classification(
+        self, runner: CliRunner, tmp_path: Path,
+    ) -> None:
+        # --mode compare runs the ONNX candidate and the HF PyTorch reference
+        # on the same random inputs and reports per-output tensor-parity
+        # metrics in display-ready flat shape:
+        #   {f"{metric}_{stat}": {output_name: float}}
+        # over 5 metrics (sqnr_db, psnr_db, cosine_similarity, mse,
+        # max_abs_diff) x 4 stats (mean, std, min, max) = 20 top-level keys.
+        out = tmp_path / "result.json"
+        _invoke(runner, [
+            "--mode", "compare",
+            "-m", "microsoft/resnet-50",
+            "--task", "image-classification",
+            "--precision", "fp16",
+            "--samples", SAMPLES,
+            "-o", str(out),
+        ])
+        assert out.exists(), f"output file not created: {out}"
+        data = json.loads(out.read_text())
+        metrics = data.get("metrics", {})
+        assert metrics, f"missing or empty 'metrics': {data}"
+
+        expected_metrics = ("sqnr_db", "psnr_db", "cosine_similarity", "mse", "max_abs_diff")
+        expected_stats = ("mean", "std", "min", "max")
+        expected_keys = {f"{m}_{s}" for m in expected_metrics for s in expected_stats}
+        assert expected_keys.issubset(metrics), (
+            f"missing flat metric keys: {sorted(expected_keys - set(metrics))}"
+        )
+
+        # Each top-level value is {output_name: float}. ResNet-50 image-
+        # classification exposes a single `logits` output, but we don't
+        # hardcode the name — just assert non-empty and floats.
+        per_output_names: set[str] | None = None
+        for key in expected_keys:
+            row = metrics[key]
+            assert isinstance(row, dict) and row, (
+                f"metrics[{key!r}] not a non-empty dict: {row!r}"
+            )
+            assert all(isinstance(v, (int, float)) for v in row.values()), (
+                f"non-numeric value in metrics[{key!r}]: {row!r}"
+            )
+            names = set(row)
+            if per_output_names is None:
+                per_output_names = names
+            else:
+                assert names == per_output_names, (
+                    f"output-name set drift between {key!r} ({names}) and "
+                    f"siblings ({per_output_names})"
+                )
+
+        # Cosine bounds: min <= max in [-1, 1] per output.
+        cos_min = metrics["cosine_similarity_min"]
+        cos_max = metrics["cosine_similarity_max"]
+        for output_name in per_output_names or ():
+            lo, hi = cos_min[output_name], cos_max[output_name]
+            assert -1.0 <= lo <= hi <= 1.0, (
+                f"cosine outside [-1, 1] for {output_name}: min={lo}, max={hi}"
+            )
+
+        # fp16 parity: QNN should be near-perfect (>= 0.95); CPU/VitisAI
+        # paths can degrade more, but a 0.5 sanity floor still catches
+        # total-breakage regressions on non-QNN runners.
+        cos_mean = metrics["cosine_similarity_mean"]
+        threshold = 0.95 if is_host("qnn") else 0.5
+        for output_name, value in cos_mean.items():
+            assert value >= threshold, (
+                f"cosine_similarity_mean[{output_name}]={value} "
+                f"below {threshold} sanity floor"
+            )
 
 
 # ===========================================================================
