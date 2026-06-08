@@ -9,10 +9,6 @@ docs_dir: docs
 
 exclude_docs: |
   /design/
-  /superpowers/
-  /naming-convention.md
-  /pytest-best-practices.md
-  /README.md
 
 extra:
   version:
@@ -134,3 +130,4 @@ nav:
       - Supported Models: reference/supported-models.md
   - Troubleshooting: troubleshooting.md
   - Contributing: contributing.md
+  - Privacy: Privacy.md
