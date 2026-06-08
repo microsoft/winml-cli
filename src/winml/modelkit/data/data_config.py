@@ -4,16 +4,18 @@
 # --------------------------------------------------------------------------
 """Configuration class for dataset loading and preprocessing."""
 
+from typing import Any
+
 
 class DataConfig:
     """Simple configuration container for dataset loading and preprocessing."""
 
     def __init__(
         self,
-        load_dataset_config=None,
-        pre_process_data_config=None,
-        model_input=None,
-    ):
+        load_dataset_config: dict[str, Any] | None = None,
+        pre_process_data_config: dict[str, Any] | None = None,
+        model_input: str | None = None,
+    ) -> None:
         """Initialize DataConfig.
 
         Args:

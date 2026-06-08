@@ -64,9 +64,9 @@ def find_immediate_children(parent_path: str, hierarchy: dict[str, Any]) -> list
             immediate.append(path)
 
     # Custom sort that handles numeric parts properly
-    def sort_key(path: str) -> tuple[str, ...]:
+    def sort_key(path: str) -> list[tuple[int, int | str]]:
         parts = path.split(".")
-        result = []
+        result: list[tuple[int, int | str]] = []
         for part in parts:
             if part.isdigit():
                 result.append((0, int(part)))  # Numbers sort first, numerically
@@ -107,7 +107,11 @@ def build_ascii_tree(
     # Handle both dict and ModuleInfo objects
     if hasattr(root_info, "class_name"):
         root_name = root_info.class_name if root_info else "Model"
-        root_tag = root_info.traced_tag if hasattr(root_info, "traced_tag") else "/Model"
+        root_tag = (
+            root_info.traced_tag
+            if root_info is not None and hasattr(root_info, "traced_tag")
+            else "/Model"
+        )
     else:
         root_name = root_info.get("class_name", "Model") if root_info else "Model"
         root_tag = root_info.get("traced_tag", "/Model") if root_info else "/Model"
@@ -242,7 +246,7 @@ def count_nodes_per_tag(tagged_nodes: dict[str, str]) -> dict[str, int]:
     """
     from collections import defaultdict
 
-    node_counts = defaultdict(int)
+    node_counts: defaultdict[str, int] = defaultdict(int)
     for tag in tagged_nodes.values():
         # Count nodes for each level of the hierarchy
         parts = tag.split("/")
@@ -266,8 +270,8 @@ def count_direct_and_total_nodes(
     """
     from collections import defaultdict
 
-    direct_counts = defaultdict(int)
-    total_counts = defaultdict(int)
+    direct_counts: defaultdict[str, int] = defaultdict(int)
+    total_counts: defaultdict[str, int] = defaultdict(int)
 
     # First pass: count direct nodes
     for tag in tagged_nodes.values():
@@ -312,7 +316,11 @@ def build_rich_tree(
     # Handle both dict and ModuleInfo objects
     if hasattr(root_info, "class_name"):
         root_name = root_info.class_name if root_info else "Model"
-        root_tag = root_info.traced_tag if hasattr(root_info, "traced_tag") else "/Model"
+        root_tag = (
+            root_info.traced_tag
+            if root_info is not None and hasattr(root_info, "traced_tag")
+            else "/Model"
+        )
     else:
         root_name = root_info.get("class_name", "Model") if root_info else "Model"
         root_tag = root_info.get("traced_tag", "/Model") if root_info else "/Model"

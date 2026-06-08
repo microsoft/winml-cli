@@ -139,7 +139,7 @@ class ONNXUtils:
             Model structure analysis
         """
         # Count node types
-        node_types = {}
+        node_types: dict[str, int] = {}
         total_nodes = len(onnx_model.graph.node)
 
         for node in onnx_model.graph.node:
@@ -388,8 +388,8 @@ def get_io_config(model_proto: onnx.ModelProto) -> dict:
     except ImportError:
         from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE
 
-        def tensor_dtype_to_np_dtype(tensor_type: int) -> np.dtype:
-            return TENSOR_TYPE_TO_NP_TYPE[tensor_type]
+        def tensor_dtype_to_np_dtype(tensor_dtype: int) -> np.dtype:
+            return np.dtype(TENSOR_TYPE_TO_NP_TYPE[tensor_dtype])  # type: ignore[no-any-return]
 
     io_config: dict[str, list] = {
         "input_names": [],
@@ -416,10 +416,10 @@ def get_io_config(model_proto: onnx.ModelProto) -> dict:
             try:
                 dtype = tensor_dtype_to_np_dtype(tensor_type.elem_type)
             except (KeyError, AttributeError):
-                dtype = np.float32  # Default fallback
+                dtype = np.dtype(np.float32)  # Default fallback
 
             # Extract shape (None for dynamic dims)
-            shape = []
+            shape: list[int | None] = []
             if tensor_type.HasField("shape"):
                 for dim in tensor_type.shape.dim:
                     if dim.HasField("dim_value"):

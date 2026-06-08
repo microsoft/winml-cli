@@ -6,11 +6,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
 import onnx
 
 from ..onnx import load_onnx
 from .registry import DataRegistry
+
+
+if TYPE_CHECKING:
+    from .data_config import DataConfig
 
 
 @DataRegistry.register_dataset()
@@ -22,7 +28,7 @@ class RandomDataset:
     aren't available or specified.
     """
 
-    def __init__(self, config):
+    def __init__(self, config: DataConfig) -> None:
         """Initialize random dataset.
 
         Args:
@@ -40,17 +46,17 @@ class RandomDataset:
             raise ValueError("model_input must be specified in DataConfig")
 
         self.model_path = model_path
-        self.samples = []
+        self.samples: list[dict[str, np.ndarray]] = []
         self._load_model_and_generate()
 
-    def _load_model_and_generate(self):
+    def _load_model_and_generate(self) -> None:
         """Load ONNX model and generate random data based on input specifications."""
         try:
             model = load_onnx(self.model_path, load_weights=False, validate=False)
             inputs = model.graph.input
 
             for _ in range(self.size):
-                sample = {}
+                sample: dict[str, np.ndarray] = {}
                 for input_info in inputs:
                     name = input_info.name
                     shape = [dim.dim_value for dim in input_info.type.tensor_type.shape.dim]
@@ -68,7 +74,7 @@ class RandomDataset:
         except Exception as e:
             raise RuntimeError(f"Failed to load model or generate random data: {e}") from e
 
-    def _generate_data(self, shape, dtype):
+    def _generate_data(self, shape: list[int], dtype: np.dtype) -> np.ndarray:
         """Generate data for a given shape and dtype.
 
         Args:
@@ -86,11 +92,11 @@ class RandomDataset:
             return np.random.choice([False, True], size=shape)
         return np.random.rand(*shape).astype(np.float32)
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return dataset length."""
         return len(self.samples)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         """Get item by index.
 
         Args:
