@@ -266,6 +266,48 @@ def get_onnx_total_size(onnx_path: Path) -> int:
 # ══════════════════════════════════════════════════════════════════════════
 
 
+class _SafeLive(Live):
+    """A :class:`rich.live.Live` that survives Windows console hiccups.
+
+    Some native dependencies (e.g. OpenVINO / ONNX Runtime EPs) can put
+    the Windows console handle into a state where ANSI/control writes
+    fail with ``OSError: [WinError 1]`` ("Incorrect function").  That
+    error is raised from Rich's daemon refresh thread, which then dies
+    and dumps an ugly traceback into the middle of build output even
+    though the build itself succeeds.
+
+    This subclass catches :class:`OSError` in :meth:`refresh` and, after
+    the first failure, disables further refreshes for the lifetime of
+    this Live instance.  The visible effect is that the final frame may
+    not animate further, but no traceback escapes and the surrounding
+    pipeline continues normally.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._refresh_disabled: bool = False
+
+    def refresh(self) -> None:  # type: ignore[override]
+        if self._refresh_disabled:
+            return
+        try:
+            super().refresh()
+        except OSError:
+            # Console handle is unusable (typically VT/handle state damaged
+            # by a native library).  Disable further refreshes so the
+            # daemon thread does not spam tracebacks.
+            self._refresh_disabled = True
+            logger.debug("Disabling Live refresh after OSError", exc_info=True)
+
+
+def _safe_call(func: Any, *args: Any, **kwargs: Any) -> None:
+    """Invoke a Rich Live operation, swallowing console OSErrors."""
+    try:
+        func(*args, **kwargs)
+    except OSError:
+        logger.debug("Ignoring OSError from Live operation", exc_info=True)
+
+
 class StageLive:
     """Live region for a single build stage.
 
@@ -287,25 +329,25 @@ class StageLive:
         self._name = name
         self._console = console
         self._lines: list[RenderableType] = []
-        self._live: Live | None = None
+        self._live: _SafeLive | None = None
         self._status_idx: int = 0
 
     def __enter__(self) -> StageLive:
         self._lines = [self._make_running_line()]
         self._status_idx = 0
-        self._live = Live(
+        self._live = _SafeLive(
             self._render(),
             console=self._console,
             refresh_per_second=15,
             transient=False,
         )
-        self._live.start()
+        _safe_call(self._live.start)
         return self
 
     def __exit__(self, *_: object) -> None:
         if self._live:
-            self._live.update(self._render())
-            self._live.stop()
+            _safe_call(self._live.update, self._render())
+            _safe_call(self._live.stop)
             self._live = None
 
     def _render(self) -> Group:
@@ -313,7 +355,7 @@ class StageLive:
 
     def _update(self) -> None:
         if self._live:
-            self._live.update(self._render())
+            _safe_call(self._live.update, self._render())
 
     # ── Status line management ────────────────────────────────────
 
