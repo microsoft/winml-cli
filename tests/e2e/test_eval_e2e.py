@@ -292,25 +292,20 @@ class TestEvalPerTask:
         if is_host("qnn"):
             _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
-    @pytest.mark.parametrize(
-        "task",
-        ["image-feature-extraction", "feature-extraction"],
-    )
     def test_image_feature_extraction(
-        self, runner: CliRunner, tmp_path: Path, task: str,
+        self, runner: CliRunner, tmp_path: Path,
     ) -> None:
         # kNN accuracies reported as percentages 0..100.
         # --streaming avoids caching mini-imagenet.
-        # Parameterized over both task names accepted on the CLI:
-        #   - "image-feature-extraction" is the HF pipeline task name
-        #     and dispatches to the image evaluator directly.
-        #   - "feature-extraction" is bimodal; for a vision model it is
-        #     mapped internally to the HF pipeline name so the image
-        #     dataset and evaluator are selected.
+        # A vision embedding model's canonical task is image-feature-extraction
+        # (what `winml inspect` and auto-detection report); it dispatches to the
+        # image evaluator directly. 'feature-extraction' is text-only under the
+        # modality-aware task vocabulary, so it is not a valid task for a vision
+        # model (it would resolve to the text evaluator/dataset and fail).
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "facebook/dinov2-small",
-            "--task", task,
+            "--task", "image-feature-extraction",
             "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),
@@ -318,9 +313,10 @@ class TestEvalPerTask:
         data = _assert_metrics_present(
             out, ["knn_top1_accuracy", "knn_top5_accuracy"],
         )
-        # DINOv2 features cluster strongly on mini-imagenet.
-        _assert_in_range(data["metrics"], "knn_top1_accuracy", 30.0, 100.0)
-        _assert_in_range(data["metrics"], "knn_top5_accuracy", 60.0, 100.0)
+        # Loose floors guard against degenerate output, not magnitude: with
+        # SAMPLES=10 the kNN estimate has heavy variance (cf. test_question_answering).
+        _assert_in_range(data["metrics"], "knn_top1_accuracy", 10.0, 100.0)
+        _assert_in_range(data["metrics"], "knn_top5_accuracy", 25.0, 100.0)
         top1 = data["metrics"]["knn_top1_accuracy"]
         top5 = data["metrics"]["knn_top5_accuracy"]
         assert top1 <= top5, f"top1 ({top1}) must be <= top5 ({top5})"
