@@ -20,11 +20,11 @@ reading from that device.
 - winml-cli installed (see [Installation](installation.md))
 
 !!! note "NPU users only"
-    To target the Qualcomm NPU you also need:
+    To target an NPU you also need:
 
-    - A Qualcomm Snapdragon X device
-    - QAIRT SDK installed; `QNN_SDK_ROOT` env var pointing at it
-    - `--extra qnn` installed (Python 3.11+)
+    - A device with an NPU (e.g., Qualcomm Snapdragon X, Intel Core Ultra)
+    - `--extra qnn` installed (for Qualcomm NPU, Python 3.11+)
+    - Only if using `--compiler qairt`: QAIRT SDK installed with `QNN_SDK_ROOT` env var set. The default `--compiler ort` does not require any external SDK.
 
     Everything else on this page works without these.
 
