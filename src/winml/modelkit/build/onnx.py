@@ -61,6 +61,8 @@ def build_onnx_model(
         **kwargs: Additional options:
             - ``hack_max_optim_iterations`` (int, default 3): Max analyzer
               iterations. 0 disables analyzer.
+            - ``allow_unsupported_nodes`` (bool, default False): If True, warn
+              instead of raising when unsupported nodes persist after analysis.
             - ``use_external_data`` (bool, default True): Whether to use ONNX
               external data format.
 
@@ -73,6 +75,7 @@ def build_onnx_model(
         RuntimeError: If a pipeline stage fails.
     """
     hack_max_optim_iterations: int = kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = kwargs.pop("allow_unsupported_nodes", False)
     onnx_kwargs = {
         "use_external_data": kwargs.get("use_external_data", True),
     }
@@ -178,6 +181,7 @@ def build_onnx_model(
                 ep=ep,
                 device=device,
                 max_optim_iterations=hack_max_optim_iterations,
+                allow_unsupported_nodes=allow_unsupported_nodes,
                 analyze_output_path=analyze_result_path,
                 **onnx_kwargs,
             )
