@@ -118,3 +118,54 @@ def test_both_absent_yields_none(monkeypatch: pytest.MonkeyPatch) -> None:
         WinMLAutoModel.from_pretrained("microsoft/resnet-50", device="cpu")
 
     assert received.get("ep") is None
+
+
+@pytest.mark.parametrize("flag", [True, False])
+def test_allow_unsupported_nodes_reaches_build(
+    monkeypatch: pytest.MonkeyPatch, flag: bool
+) -> None:
+    """``allow_unsupported_nodes`` propagates to build_hf_model (HF path)."""
+    from winml.modelkit.models import WinMLAutoModel
+
+    received = _install_stubs(monkeypatch, compile_provider=None)
+
+    with pytest.raises(_StopAfterEpCheckError):
+        WinMLAutoModel.from_pretrained(
+            "microsoft/resnet-50", device="cpu", allow_unsupported_nodes=flag
+        )
+
+    assert received.get("allow_unsupported_nodes") is flag
+
+
+def test_allow_unsupported_nodes_reaches_composite(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``allow_unsupported_nodes`` reaches the composite-model dispatch path."""
+    import transformers
+
+    from winml.modelkit.models import WinMLAutoModel
+    from winml.modelkit.models.winml import composite_model as cm_mod
+
+    # One fake composite registered for (model_type, task).
+    monkeypatch.setattr(cm_mod, "COMPOSITE_MODEL_REGISTRY", {("faketype", "faketask"): object})
+
+    fake_cfg = MagicMock()
+    fake_cfg.model_type = "faketype"
+    monkeypatch.setattr(
+        transformers, "AutoConfig", MagicMock(from_pretrained=lambda *a, **k: fake_cfg)
+    )
+
+    received: dict[str, Any] = {}
+
+    def _stub_composite(*_args: Any, **kwargs: Any) -> str:
+        received.update(kwargs)
+        return "COMPOSITE_SENTINEL"
+
+    monkeypatch.setattr(
+        cm_mod.WinMLCompositeModel, "from_pretrained", staticmethod(_stub_composite)
+    )
+
+    result = WinMLAutoModel.from_pretrained(
+        "some/composite", task="faketask", allow_unsupported_nodes=True
+    )
+
+    assert result == "COMPOSITE_SENTINEL"
+    assert received.get("allow_unsupported_nodes") is True
