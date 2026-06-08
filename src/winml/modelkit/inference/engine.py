@@ -298,6 +298,7 @@ class InferenceEngine:
         task: str | None = None,
         device: str = "auto",
         ep: EPNameOrAlias | None = None,
+        skip_build: bool = True,
     ) -> None:
         """Load model from model_path.
 
@@ -306,6 +307,10 @@ class InferenceEngine:
             task: Required when model_path is a raw .onnx file.
             device: "auto" | "cpu" | "gpu" | "npu".
             ep: Explicit EP short name (e.g. "dml", "qnn").  Overrides device.
+            skip_build: When True (default), use a raw .onnx file as-is. When
+                False, run the build pipeline (optimize/quantize/compile)
+                before inference. ONNX-only; ignored for HF model IDs and
+                build output directories.
         """
         self._model_path = str(model_path)
         self._device = device
@@ -334,7 +339,7 @@ class InferenceEngine:
                 else:
                     raise
         elif path.suffix == ".onnx" and path.exists():
-            self._load_from_onnx(path, task=task, device=device, ep=ep)
+            self._load_from_onnx(path, task=task, device=device, ep=ep, skip_build=skip_build)
         else:
             self._load_from_hf(str(model_path), task=task, device=device, ep=ep)
 
@@ -948,15 +953,16 @@ class InferenceEngine:
         task: str | None,
         device: str,
         ep: EPNameOrAlias | None,
+        skip_build: bool = True,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 
         self._task = task
         self._model_id = None
         self._model = WinMLAutoModel.from_onnx(
-            onnx_path, task=task, device=device, ep=ep, skip_build=True
+            onnx_path, task=task, device=device, ep=ep, skip_build=skip_build
         )
-        logger.info("Loaded from ONNX: %s task=%s", onnx_path, task)
+        logger.info("Loaded from ONNX: %s task=%s skip_build=%s", onnx_path, task, skip_build)
 
     def _load_from_hf(
         self,

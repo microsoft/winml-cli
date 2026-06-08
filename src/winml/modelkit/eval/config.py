@@ -118,6 +118,7 @@ class WinMLEvaluationConfig:
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
     mode: EvalMode = "onnx"
+    skip_build: bool = True
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -138,6 +139,8 @@ class WinMLEvaluationConfig:
             result["output_path"] = str(self.output_path)
         if self.mode != "onnx":
             result["mode"] = self.mode
+        if not self.skip_build:
+            result["skip_build"] = self.skip_build
         return result
 
     @classmethod
@@ -167,4 +170,5 @@ class WinMLEvaluationConfig:
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
             mode=data.get("mode", "onnx"),
+            skip_build=data.get("skip_build", True),
         )

@@ -79,6 +79,7 @@ class BenchmarkConfig:
     no_quantize: bool = False
     rebuild: bool = False
     ignore_cache: bool = False
+    skip_build: bool = True
     monitor: bool = False
     ep: EPNameOrAlias | None = None
     shape_config: dict | None = None
@@ -363,6 +364,7 @@ class PerfBenchmark:
         if is_onnx:
             self._model = WinMLAutoModel.from_onnx(
                 onnx_path=model_path,
+                skip_build=self.config.skip_build,
                 **common_kwargs,
             )
         else:
@@ -1076,6 +1078,7 @@ def _run_simple_loop(
     default=False,
     help="Build from scratch in a temp folder (discard after benchmarking)",
 )
+@cli_utils.skip_build_option()
 @click.option(
     "--module",
     "module_class",
@@ -1118,6 +1121,7 @@ def perf(
     no_quantize: bool,
     rebuild: bool,
     ignore_cache: bool,
+    skip_build: bool,
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
@@ -1252,6 +1256,7 @@ def perf(
         no_quantize=no_quantize,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
+        skip_build=skip_build,
         monitor=monitor,
         ep=ep,
         shape_config=shape_config,
