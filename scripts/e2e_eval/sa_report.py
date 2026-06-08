@@ -107,7 +107,25 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
                 "nodes_quantized": r.get("node_counts", {}).get("quantized"),
                 "nodes_compiled_pre": r.get("node_counts", {}).get("compiled_pre"),
                 "nodes_compiled": r.get("node_counts", {}).get("compiled"),
-                # SA false alarms (post only — optimized model is what ships)
+                # Correct detections (TN: SA=PARTIAL/UNSUPPORTED, actual=CPU fallback)
+                "pre_epctx_tn_ops": [
+                    c["pattern_id"]
+                    for c in r.get("epcontext_diff_pre", {}).get("comparison", [])
+                    if c["verdict"] == "TN"
+                ],
+                "post_epctx_tn_ops": [
+                    c["pattern_id"]
+                    for c in r.get("epcontext_diff_post", {}).get("comparison", [])
+                    if c["verdict"] == "TN"
+                ],
+                # SA false alarms — pre
+                "pre_unsupported_false_alarms": r.get("epcontext_diff_pre", {})
+                .get("summary", {})
+                .get("unsupported_false_alarms", []),
+                "pre_partial_false_alarms": r.get("epcontext_diff_pre", {})
+                .get("summary", {})
+                .get("partial_false_alarms", []),
+                # SA false alarms — post (optimized model is what ships)
                 "unsupported_false_alarms": r.get("epcontext_diff_post", {})
                 .get("summary", {})
                 .get("unsupported_false_alarms", []),
@@ -787,7 +805,9 @@ function renderSAComparisonTable() {{
     <th onclick="_saToggleSort('pre_epctx')" title="SA prediction accuracy vs compiled_pre.onnx (baseline compiled)">Pre EPCtx${{arrow('pre_epctx')}}</th>
     <th onclick="_saToggleSort('post_epctx')" title="SA prediction accuracy vs compiled.onnx (SA-optimized compiled)">Post EPCtx${{arrow('post_epctx')}}</th>
     <th onclick="_saToggleSort('unknown')">Unknown${{arrow('unknown')}}</th>
-    <th title="SA false alarms: UNSUPPORTED/PARTIAL ops that are actually handled by EP">False Alarms</th>
+    <th title="Correct detections: SA predicted PARTIAL/UNSUPPORTED and EP confirmed fallback (TN)">Correct</th>
+    <th title="PARTIAL false alarms: SA predicted PARTIAL but EP fully handled the op">Partial FA</th>
+    <th title="UNSUPPORTED false alarms: SA predicted UNSUPPORTED but EP actually handled the op (more severe)">Unsup FA</th>
     <th>Time</th>
   </tr></thead><tbody>`;
 
@@ -799,11 +819,24 @@ function renderSAComparisonTable() {{
     const deltaHtml = delta == null
       ? '<span class="c-muted">—</span>'
       : `<span class="${{delta > 0.005 ? 'c-good' : delta < -0.005 ? 'c-bad' : 'c-muted'}}" style="font-size:13px;font-weight:700">${{delta > 0 ? '+' : ''}}${{(delta*100).toFixed(1)}}%</span>`;
-    const ufa = d.unsupported_false_alarms || [];
-    const pfa = d.partial_false_alarms || [];
-    const faCell = (ufa.length || pfa.length)
-      ? (ufa.length ? `<div style="font-size:11px"><span class="badge badge-unsupported">${{ufa.length}} unsup</span></div>` : '')
-        + (pfa.length ? `<div style="font-size:11px"><span class="badge badge-partial">${{pfa.length}} partial</span></div>` : '')
+    // Correct detections (TN: SA=PARTIAL/UNSUPPORTED, confirmed fallback)
+    const tnOps = d.pre_epctx_tn_ops || [];
+    const correctCell = tnOps.length
+      ? `<div><span class="c-good" style="font-size:13px;font-weight:700">${{tnOps.length}}</span>`
+        + `<div style="font-size:10px;color:var(--text2)">${{tnOps.slice(0,3).map(p => '<div style="font-family:monospace">' + esc(p) + '</div>').join('')}}`
+        + (tnOps.length > 3 ? `<div>+${{tnOps.length-3}} more</div>` : '') + '</div></div>'
+      : '<span class="c-muted">0</span>';
+    // Partial false alarms (less severe)
+    const pfa = d.pre_partial_false_alarms || [];
+    const pfaCell = pfa.length
+      ? `<div><span style="font-size:13px;font-weight:700;color:#ffa726">${{pfa.length}}</span>`
+        + `<div style="font-size:10px;color:var(--text2)">${{pfa.map(p => '<div style="font-family:monospace">' + esc(p) + '</div>').join('')}}</div></div>`
+      : '<span class="c-muted">0</span>';
+    // Unsupported false alarms (more severe)
+    const ufa = d.pre_unsupported_false_alarms || [];
+    const ufaCell = ufa.length
+      ? `<div><span style="font-size:13px;font-weight:700;color:#ff6b9d">${{ufa.length}}</span>`
+        + `<div style="font-size:10px;color:var(--text2)">${{ufa.map(p => '<div style="font-family:monospace">' + esc(p) + '</div>').join('')}}</div></div>`
       : '<span class="c-muted">0</span>';
     html += `<tr>
       <td><a class="hf-link" href="https://huggingface.co/${{esc(d.model)}}" target="_blank">${{esc(d.model)}}</a></td>
@@ -815,7 +848,9 @@ function renderSAComparisonTable() {{
       <td>${{epctxBlock(d.pre_epctx_accuracy, d.pre_epctx_fn_ops, d.pre_epctx_fp_ops)}}</td>
       <td>${{epctxBlock(d.post_epctx_accuracy, d.post_epctx_fn_ops, d.post_epctx_fp_ops)}}</td>
       <td>${{d.pre_unknown > 0 ? `<span class="badge badge-unknown">${{d.pre_unknown}}</span>` : '<span class="c-muted">0</span>'}}</td>
-      <td>${{faCell}}</td>
+      <td>${{correctCell}}</td>
+      <td>${{pfaCell}}</td>
+      <td>${{ufaCell}}</td>
       <td style="color:var(--text2);font-size:12px">${{(d.elapsed||0).toFixed(1)}}s</td>
     </tr>`;
   }});
