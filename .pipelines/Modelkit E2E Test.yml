@@ -24,7 +24,11 @@
 #     that creates a new release branch so each new release branch gets
 #     an automatic E2E run. (Subsequent pushes to a release branch will
 #     also trigger a run, which is acceptable since release branches
-#     typically see few commits.)
+#     typically see few commits.) When triggered from a release branch,
+#     the ModelKitArtifacts repo is also checked out from the same-named
+#     release branch (see `resources.repositories.ModelKitArtifacts.ref`
+#     below); main is used for all other triggers (scheduled, manual on
+#     main, etc.).
 #   * No PR trigger. Failures do not block PR merges.
 
 trigger:
@@ -41,13 +45,23 @@ schedules:
         - main
     always: true
 
+# When this pipeline runs on a release/* branch (CI trigger or manual queue),
+# check out the same-named release branch from ModelKitArtifacts so the
+# artifact content matches the modelkit release. For all other branches
+# (e.g. main scheduled runs, manual queue from main), fall back to main.
+# Build.SourceBranch is in the form 'refs/heads/release/<name>' which is a
+# valid ref value here.
+# See: https://learn.microsoft.com/azure/devops/release-notes/2022/sprint-212-update#template-expressions-in-repository-resource-definition
 resources:
   repositories:
     - repository: ModelKitArtifacts
       type: github
       endpoint: github.com_yuesu_microsoft
       name: gim-home/ModelKitArtifacts
-      ref: main
+      ${{ if startsWith(variables['Build.SourceBranch'], 'refs/heads/release/') }}:
+        ref: ${{ variables['Build.SourceBranch'] }}
+      ${{ else }}:
+        ref: main
 
 parameters:
   # --------------------------------------------------------------------
