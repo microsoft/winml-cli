@@ -490,13 +490,7 @@ def _validate_loader_tasks_for_model(
     default=None,
     help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
 )
-@click.option(
-    "--allow-unsupported-nodes",
-    is_flag=True,
-    default=False,
-    help="Continue the build instead of failing when the analyzer reports "
-    "unsupported nodes (the EP may fall back to another device for them).",
-)
+@cli_utils.allow_unsupported_nodes_option()
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )

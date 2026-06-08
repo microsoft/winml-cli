@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import inspect
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from winml.modelkit.inference import (
     TASK_REGISTRY,
@@ -301,6 +301,34 @@ class TestPredictTaskOverride:
 # ---------------------------------------------------------------------------
 # load_schema_only
 # ---------------------------------------------------------------------------
+
+
+class TestLoadForwardsAllowUnsupportedNodes:
+    def test_load_from_hf_forwards_flag(self) -> None:
+        """``allow_unsupported_nodes`` reaches WinMLAutoModel.from_pretrained."""
+        engine = InferenceEngine()
+        captured: dict[str, Any] = {}
+
+        fake_model = MagicMock()
+        fake_model.task = "text-classification"
+
+        def _fake_from_pretrained(model_id: str, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            return fake_model
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            side_effect=_fake_from_pretrained,
+        ):
+            engine._load_from_hf(
+                "some/model",
+                task="text-classification",
+                device="cpu",
+                ep=None,
+                allow_unsupported_nodes=True,
+            )
+
+        assert captured.get("allow_unsupported_nodes") is True
 
 
 class TestLoadSchemaOnly:

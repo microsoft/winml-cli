@@ -1179,13 +1179,7 @@ def _run_onnx_benchmark(
     default=False,
     help="Build from scratch in a temp folder (discard after benchmarking)",
 )
-@click.option(
-    "--allow-unsupported-nodes",
-    is_flag=True,
-    default=False,
-    help="Continue the build instead of failing when the analyzer reports "
-    "unsupported nodes (the EP may fall back to another device for them).",
-)
+@cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--module",
     "module_class",
