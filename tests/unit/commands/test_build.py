@@ -525,6 +525,26 @@ class TestBuildFlagPassthrough:
             == 5
         )
 
+    def test_allow_unsupported_nodes_sets_extra_kwarg(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """``--allow-unsupported-nodes`` sets ``extra_kwargs['allow_unsupported_nodes']``."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke([*self._base_args(cfg, tmp_path), "--allow-unsupported-nodes"])
+        assert result.exit_code == 0, result.output
+        extras = mock_run_single_build.call_args.kwargs["extra_kwargs"]
+        assert extras.get("allow_unsupported_nodes") is True
+
+    def test_allow_unsupported_nodes_absent_by_default(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """Without the flag, ``allow_unsupported_nodes`` is not forwarded."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke(self._base_args(cfg, tmp_path))
+        assert result.exit_code == 0, result.output
+        extras = mock_run_single_build.call_args.kwargs["extra_kwargs"]
+        assert "allow_unsupported_nodes" not in extras
+
     def test_no_analyze_wins_over_max_iterations(
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):
