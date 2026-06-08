@@ -279,7 +279,12 @@ def _run_perf(
     json_dict: dict | None,
     tmp_path: Path,
 ) -> dict[str, Any]:
-    """Drive ``winml perf`` (ONNX-file branch) and capture ``BenchmarkConfig``."""
+    """Drive ``winml perf`` and capture ``BenchmarkConfig``.
+
+    Both HF and ONNX inputs now flow through ``PerfBenchmark`` (see PR #596
+    ``fix(perf): unify HF and ONNX paths``), so this adapter patches the
+    class itself and captures the ``BenchmarkConfig`` from its constructor.
+    """
     from winml.modelkit.commands.perf import perf as perf_cmd
 
     model = _make_fake_onnx(tmp_path)
@@ -287,9 +292,11 @@ def _run_perf(
 
     captured: dict[str, Any] = {}
 
-    def fake_run(model_path, *, config=None, **_kw):
+    def fake_benchmark(config):
         captured["config"] = config
-        return MagicMock()
+        instance = MagicMock()
+        instance.run.return_value = MagicMock()
+        return instance
 
     args = ["-m", str(model), *cli_args]
     if config_path is not None:
@@ -297,8 +304,8 @@ def _run_perf(
 
     with (
         patch(
-            "winml.modelkit.commands.perf._run_onnx_benchmark",
-            side_effect=fake_run,
+            "winml.modelkit.commands.perf.PerfBenchmark",
+            side_effect=fake_benchmark,
         ),
         patch("winml.modelkit.commands.perf.display_console_report"),
         patch("winml.modelkit.commands.perf.write_json_report"),
@@ -704,15 +711,11 @@ class TestCompilePriority:
         _check_t2_beats_t3(_run_compile, case, tmp_path)
 
     @pytest.mark.parametrize("case", COMPILE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_compile, case, tmp_path)
 
     @pytest.mark.parametrize("case", COMPILE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_compile, case, tmp_path)
 
 
@@ -728,15 +731,11 @@ class TestPerfPriority:
         _check_t2_beats_t3(_run_perf, case, tmp_path)
 
     @pytest.mark.parametrize("case", PERF_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_perf, case, tmp_path)
 
     @pytest.mark.parametrize("case", PERF_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_perf, case, tmp_path)
 
 
@@ -752,15 +751,11 @@ class TestAnalyzePriority:
         _check_t2_beats_t3(_run_analyze, case, tmp_path)
 
     @pytest.mark.parametrize("case", ANALYZE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_analyze, case, tmp_path)
 
     @pytest.mark.parametrize("case", ANALYZE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_analyze, case, tmp_path)
 
 
@@ -776,15 +771,11 @@ class TestExportPriority:
         _check_t2_beats_t3(_run_export, case, tmp_path)
 
     @pytest.mark.parametrize("case", EXPORT_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_export, case, tmp_path)
 
     @pytest.mark.parametrize("case", EXPORT_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_export, case, tmp_path)
 
     # ------------------------------------------------------------------
@@ -797,13 +788,9 @@ class TestExportPriority:
     # explicitly here.
     # ------------------------------------------------------------------
 
-    def test_json_export_enable_hierarchy_tags_false_applies(
-        self, tmp_path: Path
-    ) -> None:
+    def test_json_export_enable_hierarchy_tags_false_applies(self, tmp_path: Path) -> None:
         """JSON ``{"export": {"enable_hierarchy_tags": false}}`` reaches cfg."""
-        eff = _run_export(
-            [], {"export": {"enable_hierarchy_tags": False}}, tmp_path
-        )
+        eff = _run_export([], {"export": {"enable_hierarchy_tags": False}}, tmp_path)
         assert eff["enable_hierarchy_tags"] is False
 
     def test_empty_export_section_keeps_enable_hierarchy_tags_cli_default(
@@ -823,9 +810,7 @@ class TestExportPriority:
         eff = _run_export([], {"export": {"dynamo": True}}, tmp_path)
         assert eff["dynamo"] is True
 
-    def test_empty_export_section_keeps_dynamo_cli_default(
-        self, tmp_path: Path
-    ) -> None:
+    def test_empty_export_section_keeps_dynamo_cli_default(self, tmp_path: Path) -> None:
         """JSON ``{"export": {}}`` must NOT change ``dynamo``.
 
         Guards the same fix as ``enable_hierarchy_tags`` above.
@@ -846,15 +831,11 @@ class TestQuantizePriority:
         _check_t2_beats_t3(_run_quantize, case, tmp_path)
 
     @pytest.mark.parametrize("case", QUANTIZE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_quantize, case, tmp_path)
 
     @pytest.mark.parametrize("case", QUANTIZE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_quantize, case, tmp_path)
 
 
@@ -877,20 +858,14 @@ class TestEvalPriority:
         _check_t2_beats_t3(_run_eval, case, tmp_path)
 
     @pytest.mark.parametrize("case", EVAL_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_eval, case, tmp_path)
 
     @pytest.mark.parametrize("case", EVAL_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_eval, case, tmp_path)
 
-    def test_empty_quant_section_does_not_leak_to_dataset_samples(
-        self, tmp_path: Path
-    ) -> None:
+    def test_empty_quant_section_does_not_leak_to_dataset_samples(self, tmp_path: Path) -> None:
         """JSON ``{"quant": {}}`` must NOT change ``cfg.dataset.samples``.
 
         Pins Bug 2a: today ``WinMLQuantizationConfig.samples`` default ``10``
@@ -903,9 +878,7 @@ class TestEvalPriority:
             f"expected CLI default 100, got {eff['dataset_samples']!r}"
         )
 
-    def test_explicit_quant_samples_does_not_leak_to_dataset_samples(
-        self, tmp_path: Path
-    ) -> None:
+    def test_explicit_quant_samples_does_not_leak_to_dataset_samples(self, tmp_path: Path) -> None:
         """JSON ``{"quant": {"samples": 50}}`` must NOT change
         ``cfg.dataset.samples``.
 
