@@ -179,6 +179,8 @@ class TestEvalPerTask:
     def test_text_classification(self, runner: CliRunner, tmp_path: Path) -> None:
         # Model aligned with CLI default dataset (nyu-mll/glue/mrpc).
         # HF evaluate.evaluator("text-classification") returns `accuracy`.
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -313,12 +315,14 @@ class TestEvalPerTask:
         data = _assert_metrics_present(
             out, ["knn_top1_accuracy", "knn_top5_accuracy"],
         )
-        # Loose floors guard against degenerate output, not magnitude: with
-        # SAMPLES=10 the kNN estimate has heavy variance (cf. test_question_answering).
-        _assert_in_range(data["metrics"], "knn_top1_accuracy", 10.0, 100.0)
-        _assert_in_range(data["metrics"], "knn_top5_accuracy", 25.0, 100.0)
+        # Smoke-only: at --samples 10 over mini-imagenet's 100 classes,
+        # leave-one-out kNN is statistical noise (even unquantized fp32
+        # scores 0/0). Accuracy-regression for this task lives in
+        # scripts/e2e_eval/run_eval.py. Assert finite + monotonic only.
         top1 = data["metrics"]["knn_top1_accuracy"]
         top5 = data["metrics"]["knn_top5_accuracy"]
+        assert math.isfinite(top1), f"knn_top1_accuracy not finite: {top1}"
+        assert math.isfinite(top5), f"knn_top5_accuracy not finite: {top5}"
         assert top1 <= top5, f"top1 ({top1}) must be <= top5 ({top5})"
 
     def test_image_to_text_fp16(self, runner: CliRunner, tmp_path: Path) -> None:
@@ -492,6 +496,8 @@ class TestEvalOutput:
     def test_creates_nested_output_dir(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         out = tmp_path / "nested" / "subdir" / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -586,6 +592,8 @@ class TestEvalAdditionalOptions:
     def test_dataset_name_explicit(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -630,6 +638,8 @@ class TestEvalAdditionalOptions:
     def test_config_file_basic(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         # `eval` section provides task + samples.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({
@@ -653,6 +663,8 @@ class TestEvalAdditionalOptions:
     def test_config_file_cli_override(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         # CLI wins over config file.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({
@@ -677,6 +689,8 @@ class TestEvalAdditionalOptions:
     def test_auto_task_detection(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         # No --task flag; CLI infers from HF model.
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -730,6 +744,8 @@ class TestEvalAdditionalOptions:
     def test_dataset_script_with_column_remap(
         self, runner: CliRunner, tmp_path: Path, tiny_textcls_script: Path,
     ) -> None:
+        # Skip e2e for VitisAI due to Windows Access violation in model compilation for some models
+        require_not_ep("vitisai")
         # --dataset-script + --column + --trust-remote-code (happy path).
         ds_path = tmp_path / "tiny_textcls"
         out = tmp_path / "result.json"
