@@ -384,6 +384,47 @@ class TestEvalConfigPrecedence:
         # And config-file dataset.samples (33) wins over CLI default
         assert cfg.dataset.samples == 33
 
+    @pytest.mark.parametrize(
+        ("extra_args", "expected"),
+        [(["--allow-unsupported-nodes"], True), ([], False)],
+    )
+    def test_allow_unsupported_nodes_flag_propagates(
+        self,
+        runner: CliRunner,
+        extra_args,
+        expected,
+    ):
+        """``--allow-unsupported-nodes`` maps to the eval config field."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+
+            class _R:
+                config = cfg
+                metrics = {"accuracy": 1.0}  # noqa: RUF012
+
+                def to_dict(self):
+                    return {"metrics": self.metrics, "config": cfg.to_dict()}
+
+            return _R()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                ["-m", "microsoft/resnet-50", "--task", "image-classification", *extra_args],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured_cfg["cfg"].allow_unsupported_nodes is expected
+
 
 # ---------------------------------------------------------------------------
 # --label-mapping wiring (Click Path → label_mapping_file str)
