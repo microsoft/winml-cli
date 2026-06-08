@@ -6,10 +6,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from datasets import load_dataset
-from torchvision import transforms
+from typing import TYPE_CHECKING, Any
 
 from .registry import DataRegistry
 
@@ -39,6 +36,9 @@ class ImageClassificationDataset:
         stream = load_dataset_config.get("stream", True)
         size = load_dataset_config.get("size", 256)
 
+        from datasets import load_dataset
+        from torchvision import transforms
+
         self.dataset = load_dataset(dataset_name, split=split, streaming=stream)
 
         # TODO: Image preprocessing is temporarily hardcoded;
@@ -66,11 +66,11 @@ class ImageClassificationDataset:
             self.images.append(tensor.numpy())
             self.labels.append(0)  # Placeholder label
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return dataset length."""
         return min(len(self.images), len(self.labels))
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         """Get item by index.
 
         Args:

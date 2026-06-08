@@ -28,6 +28,7 @@ from ..utils.model_utils import (
     node_to_pattern_match,
     shape_and_dtype_from_valueinfo,
 )
+from ..utils.node_key_utils import build_node_key_by_node_id, resolve_stable_node_key
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     import onnx
+
+    from ...utils.constants import EPName
 
 
 class DocConstraintChecker:
@@ -70,9 +73,10 @@ class DocConstraintChecker:
     def __init__(
         self,
         model_proto: onnx.ModelProto,
-        ep_name: str,
+        ep_name: EPName,
         device_type: str,
         skip_shape_inference: bool = False,
+        node_key_by_node_id: dict[int, str] | None = None,
     ) -> None:
         """Initialize doc constraint checker.
 
@@ -82,14 +86,22 @@ class DocConstraintChecker:
             device_type: Device type (e.g., "NPU")
             skip_shape_inference: If True, assume model_proto already has shape
                 inference applied (avoids expensive redundant inference).
+            node_key_by_node_id: Optional sidecar map from id(node) to stable node key.
         """
         if skip_shape_inference:
             self.model_proto = model_proto
         else:
             self.model_proto = infer_onnx_shapes(model_proto)
+        # Keep stable Python wrapper references for graph nodes so id(node)
+        # mappings do not accidentally collide with new transient wrappers.
+        self._graph_nodes: list[onnx.NodeProto] = list(self.model_proto.graph.node)
         self.ep_name = ep_name
         self.device_type = device_type
         self.valueinfo = collect_valueinfo_dict(self.model_proto)
+        if node_key_by_node_id is not None:
+            self._node_key_by_node_id = dict(node_key_by_node_id)
+        else:
+            self._node_key_by_node_id = build_node_key_by_node_id(self._graph_nodes)
 
         # Load ONNX to target EP operator mapping
         self.mapping_config = self._load_mapping_config()
@@ -129,7 +141,7 @@ class DocConstraintChecker:
 
         return op_dfs
 
-    def _load_mapping_config(self) -> dict:
+    def _load_mapping_config(self) -> dict[Any, Any]:
         """Load ONNX to target EP operator mapping configuration.
 
         Returns:
@@ -150,7 +162,7 @@ class DocConstraintChecker:
             return {}
 
         with mapping_path.open(encoding="utf-8") as f:
-            mapping_config = json.load(f)
+            mapping_config: dict[Any, Any] = json.load(f)
 
         logger.debug(f"Loaded operator mapping config for {self.ep_name}")
         return mapping_config
@@ -289,7 +301,9 @@ class DocConstraintChecker:
         index = checker_info.get("index", 0)
 
         # Get the checker function
-        checker_func = self.CHECKER_FUNCTIONS.get(checker_name)
+        checker_func = (
+            self.CHECKER_FUNCTIONS.get(checker_name) if checker_name is not None else None
+        )
         if checker_func is None:
             logger.debug(f"Unknown checker function: {checker_name}")
             return False, f"Unknown checker function: {checker_name}"
@@ -332,7 +346,16 @@ class DocConstraintChecker:
         Returns:
             PatternRuntime with check results
         """
-        pattern_match = node_to_pattern_match(node)
+        node_key = resolve_stable_node_key(
+            node,
+            node_key_by_node_id=self._node_key_by_node_id,
+            graph_nodes=self._graph_nodes,
+            unknown_unnamed_error=(
+                "Cannot resolve stable key for unnamed node outside "
+                "DocConstraintChecker model graph."
+            ),
+        )
+        pattern_match = node_to_pattern_match(node, node_key)
         op_type = node.op_type
 
         # Skip certain operators

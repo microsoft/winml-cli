@@ -19,8 +19,9 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from winml.modelkit.pattern.base import Pattern
-    from winml.modelkit.pattern.models import SubgraphPattern
+    from .base import Pattern
+    from .models import Pattern as PatternModel
+    from .models import SubgraphPattern
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ class UnifiedPatternConfig:
             self._load_config()
         return self._htp_patterns.copy()
 
-    def get_alternatives(self, pattern: Pattern) -> list[PatternAlternative]:
+    def get_alternatives(self, pattern: Pattern | PatternModel) -> list[PatternAlternative]:
         """Get alternative pattern metadata for the given pattern.
 
         Alternatives are used by runtime_checker to generate PatternTestResult,

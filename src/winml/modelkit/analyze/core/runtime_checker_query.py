@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import onnx
-import onnxruntime as ort
 import pandas as pd
 from onnx import numpy_helper
 
@@ -56,6 +55,7 @@ from ..utils.model_utils import (
     node_to_pattern_match,
     shape_and_dtype_from_valueinfo,
 )
+from ..utils.node_key_utils import build_node_key_by_node_id, resolve_stable_node_key
 from ..utils.rule_loader import resolve_rule_parquet_path
 from ..utils.timing_utils import make_timing_logger
 from .node_checkers.base import NodeChecker
@@ -73,6 +73,7 @@ _LOG_COLOR_RESET = "\033[0m"
 if TYPE_CHECKING:
     from winml.modelkit.pattern.match import PatternMatchResult
 
+    from ...utils.constants import EPName
     from .node_checkers.base import NodeChecker
 
 
@@ -288,9 +289,6 @@ def _read_and_sanitize_parquet_table(parquet_path: Path) -> pd.DataFrame | None:
 
     try:
         table_df = pd.read_parquet(parquet_path)
-        if not isinstance(table_df, pd.DataFrame):
-            return None
-
         table_df = table_df.replace({np.nan: None})
         return _sanitize_df(table_df)
     except Exception as e:
@@ -624,7 +622,7 @@ def get_query_conditions_for_node(
         runtime_checker_op = get_runtime_checker_op(node.op_type, domain=domain.value)(schema)
     except KeyError:
         raise OpUnsupportedError(f"Node {node.op_type} is not supported") from None
-    type_vars = {}
+    type_vars: dict[str, Any] = {}
 
     # fill missing attrs with default values; set None for optional attrs without defaults
     for k, v in schema.attributes.items():
@@ -679,7 +677,7 @@ def get_query_conditions_for_node(
         is_constant: bool,
         shape: tuple[Any, ...] | list[Any] | None = None,
         value: Any | None = None,
-    ):
+    ) -> None:
         dyn_axes = _compute_dynamic_axes(shape, is_constant)
         if is_variadic:
             cond[f"{input_name}_is_constant"] = (
@@ -720,7 +718,7 @@ def get_query_conditions_for_node(
             try:
                 np_dtype = onnx.helper.tensor_dtype_to_np_dtype(tensor.data_type)
             except Exception:
-                np_dtype = np.float32
+                np_dtype = np.dtype(np.float32)
 
             shape = tuple(int(d) for d in tensor.dims)
             logger.warning(
@@ -828,9 +826,10 @@ def get_query_conditions_for_node(
                 type_vars[type_annotation] = dtype
         else:
             vi = valueinfo.get(inp_name)
-            shape, dtype = (None, None)
+            shape_seq: list | tuple[int, ...] | None = None
+            dtype = None
             if vi is not None:
-                shape, dtype = shape_and_dtype_from_valueinfo(vi)
+                shape_seq, dtype = shape_and_dtype_from_valueinfo(vi)
             else:
                 # Input is provided but valueinfo not found
                 # This commonly happens in quantized models where DequantizeLinear outputs
@@ -853,7 +852,7 @@ def get_query_conditions_for_node(
                 type_vars[type_annotation] = dtype
 
             is_constant = False  # QDQ doesn't care about constant status
-            update_conditions_(conditions, input_name, is_variadic, is_constant, shape, None)
+            update_conditions_(conditions, input_name, is_variadic, is_constant, shape_seq, None)
             conditions[f"{input_name}_is_none"] = False
 
     conditions["n_outputs"] = len(node.output)
@@ -872,9 +871,9 @@ def get_query_conditions_for_node(
             f"derive_properties: {e}"
         ) from e
 
-    for k, v in runtime_checker_op.type_var_dtypes_to_test.items():
-        if k not in type_vars:
-            type_vars[k] = v[0].annotation  # use first dtype as default
+    for tvar_name, dtypes in runtime_checker_op.type_var_dtypes_to_test.items():
+        if tvar_name not in type_vars:
+            type_vars[tvar_name] = dtypes[0].annotation  # use first dtype as default
     conditions.update(type_vars)
 
     qdq_conditions = _get_qdq_query_conditions_for_node(node, schema, input_to_dq, output_to_q)
@@ -949,7 +948,11 @@ def get_query_conditions_for_pattern(
         conditions[f"attr_{attr_name}"] = attr_value
         conditions[f"attr_{attr_name}_is_none"] = attr_value is None
 
-    conditions["n_outputs"] = len(pattern_match.skeleton_match_result.pattern.get_schema().outputs)
+    pattern_obj = pattern_match.skeleton_match_result.pattern
+    assert hasattr(pattern_obj, "get_schema"), (
+        f"Pattern {type(pattern_obj).__name__} does not provide get_schema()"
+    )
+    conditions["n_outputs"] = len(pattern_obj.get_schema().outputs)
 
     # Derive additional properties via pattern input generator
     if gen is not None:
@@ -970,10 +973,11 @@ class RuntimeCheckerQuery:
     def __init__(
         self,
         model_proto: onnx.ModelProto,
-        ep_name: str,
+        ep_name: EPName,
         device_type: str,
         model_path: str | Path | None = None,
         dynamic_axis_strict_mode: bool = False,
+        node_key_by_node_id: dict[int, str] | None = None,
     ) -> None:
         """Initialize runtime checker query.
 
@@ -986,6 +990,7 @@ class RuntimeCheckerQuery:
             dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
                 for matching against first_axis test data. If True, preserves exact
                 dynamic axis indices.
+            node_key_by_node_id: Optional sidecar map from id(node) to stable node key.
         """
         self.model_path = str(Path(model_path).resolve(strict=False)) if model_path else None
         self.model_base_dir = str(Path(self.model_path).parent) if self.model_path else None
@@ -1020,6 +1025,13 @@ class RuntimeCheckerQuery:
             logger.debug(f"Shape inference failed: {e}. Using original model.")
 
         self.model_proto: onnx.ModelProto = inferred_model
+        # Keep stable Python wrapper references for graph nodes so id(node)
+        # mappings do not accidentally collide with new transient wrappers.
+        self._graph_nodes: list[onnx.NodeProto] = list(self.model_proto.graph.node)
+        if node_key_by_node_id is not None:
+            self._node_key_by_node_id = dict(node_key_by_node_id)
+        else:
+            self._node_key_by_node_id = build_node_key_by_node_id(self._graph_nodes)
 
         self.ep_name = ep_name
         self.device_type = device_type
@@ -1128,9 +1140,6 @@ class RuntimeCheckerQuery:
             return self._ep_available_locally
 
         from ... import winml
-
-        winml.register_execution_providers(ort=True)
-
         from ...utils.constants import DEVICE_TO_DEVICE_TYPE
 
         device_type_enum = DEVICE_TO_DEVICE_TYPE.get(self.device_type)
@@ -1139,7 +1148,7 @@ class RuntimeCheckerQuery:
             return False
 
         try:
-            ep_devices = ort.get_ep_devices()
+            ep_devices = winml.get_registered_ep_devices()
             self._ep_available_locally = any(
                 ep_dev.ep_name == self.ep_name and ep_dev.device.type == device_type_enum
                 for ep_dev in ep_devices
@@ -1486,6 +1495,7 @@ class RuntimeCheckerQuery:
 
             np_dtype = SupportedONNXType.from_annotation(dtype_str).np_type
 
+            concrete_shape: tuple[int, ...]
             if shape is None:
                 concrete_shape = (default_dim_size,)
             else:
@@ -1529,7 +1539,7 @@ class RuntimeCheckerQuery:
                 try:
                     np_dtype = onnx.helper.tensor_dtype_to_np_dtype(init.data_type)
                 except Exception:
-                    np_dtype = np.float32
+                    np_dtype = np.dtype(np.float32)
 
                 shape = tuple(int(d) for d in init.dims)
                 input_feed[inp_name] = np.zeros(shape, dtype=np_dtype)
@@ -1545,7 +1555,7 @@ class RuntimeCheckerQuery:
                     f"not found in valueinfo"
                 )
 
-            shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
+            vi_shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
             if dtype_str is None:
                 raise ValueError(
                     f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
@@ -1555,13 +1565,14 @@ class RuntimeCheckerQuery:
             # Convert dtype string to numpy dtype
             np_dtype = SupportedONNXType.from_annotation(dtype_str).np_type
 
-            if shape is None:
+            concrete_shape: tuple[int, ...]
+            if vi_shape is None:
                 # No shape info at all - use a simple 1D array
                 concrete_shape = (default_dim_size,)
             else:
                 # Replace dynamic dimensions (strings or None) with default size
                 concrete_shape = tuple(
-                    d if isinstance(d, int) and d > 0 else default_dim_size for d in shape
+                    d if isinstance(d, int) and d > 0 else default_dim_size for d in vi_shape
                 )
 
             input_feed[inp_name] = np.zeros(concrete_shape, dtype=np_dtype)
@@ -2244,7 +2255,7 @@ class RuntimeCheckerQuery:
         self,
         node: onnx.NodeProto,
         for_debug: bool = False,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
     ) -> PatternRuntime:
         """Run runtime check for a single node.
@@ -2266,16 +2277,25 @@ class RuntimeCheckerQuery:
         custom_checker_name: str | None = None
         conditions_ms: int | None = None
         parquet_rules_ms: int | None = None
+        node_key = resolve_stable_node_key(
+            node,
+            node_key_by_node_id=self._node_key_by_node_id,
+            graph_nodes=self._graph_nodes,
+            unknown_unnamed_error=(
+                "Cannot resolve stable key for unnamed node outside "
+                "RuntimeCheckerQuery model graph."
+            ),
+        )
 
         pattern_match_start = time.perf_counter()
-        pattern_match = node_to_pattern_match(node)
+        pattern_match = node_to_pattern_match(node, node_key)
         pattern_match_ms = _elapsed_ms(pattern_match_start)
 
         def _finish(result: PatternRuntime, outcome: str) -> PatternRuntime:
             _log_timing(
                 "run_for_node",
                 op=node.op_type,
-                node=node.name or "<unnamed>",
+                node=node_key,
                 ep=self.ep_name,
                 device=self.device_type,
                 pattern_id=result.pattern_id,
@@ -2393,7 +2413,7 @@ class RuntimeCheckerQuery:
         # Phase 1: Extract conditions to determine if node is QDQ
         is_qdq = False
 
-        def get_pattern_id(is_qdq):
+        def get_pattern_id(is_qdq: bool) -> str:
             return (
                 pattern_match.pattern.pattern_id + QDQ_SUFFIX
                 if is_qdq
@@ -2474,7 +2494,7 @@ class RuntimeCheckerQuery:
     def run_for_subgraph(
         self,
         pattern_match: PatternMatchResult,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
     ) -> PatternRuntime:
         """Run runtime check for subgraph pattern via per-node checks."""
         pattern_name = pattern_match.pattern.__class__.__name__

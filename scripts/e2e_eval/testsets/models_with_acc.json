@@ -1638,5 +1638,196 @@
         "label_column": "text"
       }
     }
+  },
+  {
+    "hf_id": "Intel/dpt-hybrid-midas",
+    "task": "depth-estimation",
+    "model_type": "dpt",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map",
+        "depth_kind": "disparity"
+      }
+    }
+  },
+  {
+    "hf_id": "Intel/dpt-large",
+    "task": "depth-estimation",
+    "model_type": "dpt",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map",
+        "depth_kind": "disparity"
+      }
+    }
+  },
+  {
+    "hf_id": "Intel/zoedepth-nyu-kitti",
+    "task": "depth-estimation",
+    "model_type": "zoedepth",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map",
+        "align": "none"
+      }
+    }
+  },
+  {
+    "hf_id": "LiheYoung/depth-anything-base-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_anything",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map"
+      }
+    }
+  },
+  {
+    "hf_id": "LiheYoung/depth-anything-large-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_anything",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map"
+      }
+    }
+  },
+  {
+    "hf_id": "LiheYoung/depth-anything-small-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_anything",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map"
+      }
+    }
+  },
+  {
+    "hf_id": "apple/DepthPro-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_pro",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map",
+        "align": "none"
+      }
+    }
+  },
+  {
+    "hf_id": "depth-anything/Depth-Anything-V2-Base-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_anything",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map"
+      }
+    }
+  },
+  {
+    "hf_id": "depth-anything/Depth-Anything-V2-Large-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_anything",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map"
+      }
+    }
+  },
+  {
+    "hf_id": "depth-anything/Depth-Anything-V2-Small-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_anything",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map"
+      }
+    }
+  },
+  {
+    "hf_id": "xingyang1/Distill-Any-Depth-Large-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_anything",
+    "group": "Top200",
+    "priority": "P3",
+    "dataset_config": {
+      "path": "sayakpaul/nyu_depth_v2",
+      "revision": "refs/convert/parquet",
+      "split": "validation",
+      "metric": "abs_rel",
+      "columns_mapping": {
+        "input_column": "image",
+        "depth_column": "depth_map"
+      }
+    }
   }
 ]

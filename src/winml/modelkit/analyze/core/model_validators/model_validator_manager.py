@@ -92,7 +92,6 @@ class ModelValidatorManager:
         self.model_proto = model.get_model()
         self.op_runtime_results = op_runtime_results or []
         self.device = device or "NPU"
-        self.device = device
         self.enabled_validators = enabled_validators or list(self.VALIDATORS.keys())
 
         # Instantiate enabled validators

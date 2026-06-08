@@ -16,6 +16,7 @@ from winml.modelkit.eval import (
     WinMLEvaluationConfig,
     WinMLZeroShotClassificationEvaluator,
 )
+from winml.modelkit.utils.eval_utils import DatasetValidationError
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ def make_evaluator(
     pipe: MagicMock | None = None,
 ) -> WinMLZeroShotClassificationEvaluator:
     """Construct an evaluator without going through HF loading."""
-    from winml.modelkit.datasets import DatasetConfig
+    from winml.modelkit.eval import DatasetConfig
 
     mapping = columns_mapping or {"input_column": "text", "label_column": "label"}
 
@@ -108,20 +109,22 @@ def make_evaluator(
 
 class TestRegistry:
     def test_evaluator_registered(self) -> None:
-        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY, get_evaluator_class
 
         assert "zero-shot-classification" in _EVALUATOR_REGISTRY
         assert (
-            _EVALUATOR_REGISTRY["zero-shot-classification"] is WinMLZeroShotClassificationEvaluator
+            get_evaluator_class(WinMLEvaluationConfig(task="zero-shot-classification"))
+            is WinMLZeroShotClassificationEvaluator
         )
 
     def test_default_dataset_registered(self) -> None:
         from winml.modelkit.eval.evaluate import _DEFAULT_DATASETS
 
         cfg = _DEFAULT_DATASETS["zero-shot-classification"]
-        assert cfg.path is not None
-        assert cfg.columns_mapping.get("input_column") is not None
-        assert cfg.columns_mapping.get("label_column") is not None
+        assert cfg["path"] is not None
+        assert cfg["columns_mapping"].get("input_column") is not None
+        assert cfg["columns_mapping"].get("label_column") is not None
 
     def test_exported_from_package(self) -> None:
         from winml.modelkit import eval as eval_pkg
@@ -212,7 +215,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_sets_model_max_length_from_io_config(self, mock_load_ds, mock_pipeline) -> None:
-        from winml.modelkit.datasets import DatasetConfig
+        from winml.modelkit.eval import DatasetConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 2
@@ -246,7 +249,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_filters_tokenizer_input_names(self, mock_load_ds, mock_pipeline) -> None:
-        from winml.modelkit.datasets import DatasetConfig
+        from winml.modelkit.eval import DatasetConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 2
@@ -285,7 +288,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_no_tokenizer_change_without_io_config(self, mock_load_ds, mock_pipeline) -> None:
-        from winml.modelkit.datasets import DatasetConfig
+        from winml.modelkit.eval import DatasetConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 2
@@ -321,25 +324,6 @@ class TestPreparePipeline:
 
 
 # ---------------------------------------------------------------------------
-# schema_info
-# ---------------------------------------------------------------------------
-
-
-class TestSchemaInfo:
-    def test_schema_has_input_and_label(self) -> None:
-        cols = WinMLZeroShotClassificationEvaluator.schema_info()
-        overrides = {c.override for c in cols if c.override}
-        assert "input_column" in overrides
-        assert "label_column" in overrides
-
-    def test_schema_has_optional_overrides(self) -> None:
-        cols = WinMLZeroShotClassificationEvaluator.schema_info()
-        override_to_required = {c.override: c.required for c in cols if c.override}
-        assert override_to_required.get("candidate_labels") is False
-        assert override_to_required.get("hypothesis_template") is False
-
-
-# ---------------------------------------------------------------------------
 # align_labels / schema validation
 # ---------------------------------------------------------------------------
 
@@ -357,7 +341,7 @@ class TestAlignLabels:
             ds,
             columns_mapping={"input_column": "nope", "label_column": "label"},
         )
-        with pytest.raises(ValueError, match="Column 'nope'"):
+        with pytest.raises(DatasetValidationError, match="Column 'nope'"):
             ev.align_labels(ds, ev.config.dataset)
 
     def test_missing_label_column_raises(self) -> None:
@@ -366,7 +350,7 @@ class TestAlignLabels:
             ds,
             columns_mapping={"input_column": "text", "label_column": "missing"},
         )
-        with pytest.raises(ValueError, match="Column 'missing'"):
+        with pytest.raises(DatasetValidationError, match="Column 'missing'"):
             ev.align_labels(ds, ev.config.dataset)
 
     def test_no_alignment_against_nli_label2id(self) -> None:
@@ -407,7 +391,7 @@ class TestResolveCandidateLabels:
     def test_string_label_without_override_raises(self) -> None:
         ds = _make_string_dataset(["a"], ["World"])
         ev = make_evaluator(ds)
-        with pytest.raises(ValueError, match="not a ClassLabel"):
+        with pytest.raises(DatasetValidationError, match="not a ClassLabel"):
             ev._resolve_candidate_labels(ds)
 
     def test_empty_override_raises(self) -> None:

@@ -2,14 +2,16 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for config CLI command -- mock-based, no network, no actual config generation.
+"""Tests for config CLI command without any network dependency.
 
-Tests the CLI wrapper around generate_hf_build_config() / generate_onnx_build_config() APIs.
-NO actual model loading or network calls.
+Most coverage stays mock-based around the CLI wrapper, while local-only
+validation and ONNX-path tests exercise real parsing without contacting
+external services.
 """
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -18,19 +20,20 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device to avoid hardware detection in all config CLI tests.
+    """Mock resolve_check_device_ep to avoid hardware detection in CLI tests.
 
-    The config command may call resolve_device() for device/precision resolution.
-    We mock it at the source module since it's a lazy import.
+    The config command calls resolve_check_device_ep() (lazy import) for
+    device/EP resolution and display. We mock at the source module since the
+    import happens at call time.
     """
     with patch(
-        "winml.modelkit.sysinfo.resolve_device",
-        return_value=("npu", ["npu", "gpu", "cpu"]),
+        "winml.modelkit.sysinfo.resolve_check_device_ep",
+        return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
     ):
         yield
 
@@ -39,6 +42,24 @@ def mock_resolve_device():
 def runner() -> CliRunner:
     """Create a CLI test runner."""
     return CliRunner()
+
+
+@pytest.fixture
+def onnx_model_path(tmp_path: Path) -> Path:
+    """Create a valid minimal ONNX model for local-only CLI tests."""
+    from onnx import TensorProto, helper, save
+
+    x_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 10])
+    y_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 5])
+    w_init = helper.make_tensor("weight", TensorProto.FLOAT, [10, 5], [0.1] * 50)
+    node = helper.make_node("MatMul", ["input", "weight"], ["output"])
+    graph = helper.make_graph([node], "test_graph", [x_info], [y_info], [w_init])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model.ir_version = 8
+
+    onnx_path = tmp_path / "test_model.onnx"
+    save(model, str(onnx_path))
+    return onnx_path
 
 
 @pytest.fixture
@@ -273,6 +294,20 @@ def _extract_json(output: str) -> dict:
     return json.loads(output[start:end])
 
 
+def _assert_onnx_config_structure(data: dict) -> None:
+    """Assert the structure for ONNX input config output."""
+    assert data.get("export") is None
+    assert "optim" in data
+
+
+def _invoke_config(*args: str) -> Result:
+    """Invoke the config command; do NOT raise on non-zero exit."""
+    from winml.modelkit.commands.config import config
+
+    runner = CliRunner()
+    return runner.invoke(config, list(args))
+
+
 class TestConfigOnnxOverrides:
     """Test --no-quant and --no-compile work on the ONNX path."""
 
@@ -280,7 +315,7 @@ class TestConfigOnnxOverrides:
         """--no-quant should set quant=None even for ONNX configs."""
         from winml.modelkit.commands.config import config
 
-        # Create a fake .onnx file so _is_onnx_file returns True
+        # Create a fake .onnx file so is_onnx_file_path returns True
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -310,6 +345,256 @@ class TestConfigOnnxOverrides:
 
         data = _extract_json(result.output)
         assert data.get("compile") is None
+
+
+# =============================================================================
+# LOCAL ONNX PATH TESTS
+# =============================================================================
+
+
+class TestConfigOnnxLocalPath:
+    """Test local ONNX-path handling that should run in default CI."""
+
+    def test_onnx_model_path(self, runner: CliRunner, onnx_model_path: Path) -> None:
+        """Passing a .onnx file should produce export=None config."""
+        from winml.modelkit.commands.config import config
+
+        result = runner.invoke(config, ["-m", str(onnx_model_path)], catch_exceptions=False)
+        assert result.exit_code == 0, f"Failed: {result.output}"
+
+        data = _extract_json(result.output)
+        _assert_onnx_config_structure(data)
+
+    def test_onnx_with_no_compile(self, runner: CliRunner, onnx_model_path: Path) -> None:
+        """--no-compile on the ONNX path should yield compile=None."""
+        from winml.modelkit.commands.config import config
+
+        result = runner.invoke(
+            config,
+            ["-m", str(onnx_model_path), "--no-compile"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"Failed: {result.output}"
+
+        data = _extract_json(result.output)
+        _assert_onnx_config_structure(data)
+        assert data.get("compile") is None
+
+    def test_onnx_with_no_quant(self, runner: CliRunner, onnx_model_path: Path) -> None:
+        """--no-quant on the ONNX path should yield quant=None."""
+        from winml.modelkit.commands.config import config
+
+        result = runner.invoke(
+            config,
+            ["-m", str(onnx_model_path), "--no-quant"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"Failed: {result.output}"
+
+        data = _extract_json(result.output)
+        _assert_onnx_config_structure(data)
+        assert data.get("quant") is None
+
+    def test_onnx_output_to_file(
+        self,
+        runner: CliRunner,
+        onnx_model_path: Path,
+        tmp_path: Path,
+    ) -> None:
+        """ONNX-path config should serialize to disk via -o."""
+        from winml.modelkit.commands.config import config
+
+        outfile = tmp_path / "onnx_config.json"
+        result = runner.invoke(
+            config,
+            ["-m", str(onnx_model_path), "-o", str(outfile)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        assert outfile.exists()
+
+        _assert_onnx_config_structure(json.loads(outfile.read_text()))
+
+
+# =============================================================================
+# BAD PATH TESTS
+# =============================================================================
+
+
+class TestConfigBadPath:
+    """Bad-path coverage: invalid args, invalid JSON, and local-only errors."""
+
+    def test_no_args_is_error(self) -> None:
+        """Invoking with no args must fail with a usage error, not a traceback."""
+        result = _invoke_config()
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    def test_missing_entry_point_message(self) -> None:
+        """The error message should point the user at the required flags."""
+        result = _invoke_config()
+        assert result.exit_code != 0
+        combined = (result.output or "") + (str(result.exception) if result.exception else "")
+        assert "--model" in combined or "--model-type" in combined or "--model-class" in combined
+
+    @pytest.mark.parametrize("bad_device", ["tpu", "fpga", "xpu", "DSP"])
+    def test_invalid_device_rejected(self, bad_device: str) -> None:
+        """Click's Choice validation must reject unknown --device values."""
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "--device",
+            bad_device,
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    @pytest.mark.parametrize("bad_precision", ["bf16", "fp64", "int4", "w3a5"])
+    def test_invalid_precision_rejected(self, bad_precision: str) -> None:
+        """Unknown precision strings must produce a UsageError, not a traceback."""
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "--precision",
+            bad_precision,
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    @pytest.mark.parametrize("bad_ep", ["tflite", "coreml", "not-a-real-ep"])
+    def test_invalid_ep_rejected(self, bad_ep: str) -> None:
+        """Unknown --ep values must produce a UsageError, not a traceback."""
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "--ep",
+            bad_ep,
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    def test_nonexistent_config_file_rejected(self, tmp_path: Path) -> None:
+        """-c pointing at a missing file must be rejected by Click."""
+        missing = tmp_path / "does_not_exist.json"
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "-c",
+            str(missing),
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    def test_empty_config_file_rejected(self, tmp_path: Path) -> None:
+        """An empty -c file must produce a UsageError."""
+        empty = tmp_path / "empty.json"
+        empty.write_text("")
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "-c",
+            str(empty),
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    def test_invalid_json_config_file_rejected(self, tmp_path: Path) -> None:
+        """Malformed JSON in -c must produce a UsageError."""
+        bad = tmp_path / "bad.json"
+        bad.write_text("{not valid json")
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "-c",
+            str(bad),
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    def test_non_object_json_config_file_rejected(self, tmp_path: Path) -> None:
+        """A JSON array in -c must be rejected (must be an object)."""
+        arr = tmp_path / "array.json"
+        arr.write_text("[1, 2, 3]")
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "-c",
+            str(arr),
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    def test_empty_shape_config_rejected(self, tmp_path: Path) -> None:
+        """An empty --shape-config file must produce a UsageError."""
+        empty = tmp_path / "shapes.json"
+        empty.write_text("")
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "--shape-config",
+            str(empty),
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    def test_invalid_json_shape_config_rejected(self, tmp_path: Path) -> None:
+        """Malformed --shape-config JSON must produce a UsageError."""
+        bad = tmp_path / "shapes.json"
+        bad.write_text("{height: 224")
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "--shape-config",
+            str(bad),
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    def test_non_object_shape_config_rejected(self, tmp_path: Path) -> None:
+        """A JSON list in --shape-config must be rejected (must be an object)."""
+        bad = tmp_path / "shapes.json"
+        bad.write_text("[224, 224]")
+        result = _invoke_config(
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "--shape-config",
+            str(bad),
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+
+    def test_module_with_onnx_file_rejected(self, onnx_model_path: Path) -> None:
+        """--module is mutually exclusive with .onnx input."""
+        result = _invoke_config(
+            "-m",
+            str(onnx_model_path),
+            "--module",
+            "ResNetConvLayer",
+        )
+        assert result.exit_code != 0
+        assert "Traceback (most recent call last)" not in result.output
+        combined = (result.output or "") + (str(result.exception) if result.exception else "")
+        assert "module" in combined.lower()
 
 
 # =============================================================================

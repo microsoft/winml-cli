@@ -29,7 +29,11 @@ import ctypes.wintypes as wintypes
 import logging
 import sys
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPName
 
 logger = logging.getLogger(__name__)
 
@@ -84,17 +88,10 @@ class AdapterInfo:
 
     @property
     def is_npu(self) -> bool:
-        """NPU heuristic: only Compute engine types, no 3D/Video/Copy/etc."""
-        non_compute = {e for e in self.engine_types if not e.startswith("Compute")}
-        return len(non_compute) == 0 and len(self.engine_types) > 0
-
-    @property
-    def compute_engine_type(self) -> str | None:
-        """Return the first Compute engine type name."""
-        for et in sorted(self.engine_types):
-            if et.startswith("Compute"):
-                return et
-        return None
+        """NPU heuristic: only Compute/Neural engine types, no 3D/Video/Copy/etc."""
+        return len(self.engine_types) > 0 and all(
+            e.startswith(("Compute", "Neural")) for e in self.engine_types
+        )
 
 
 def enumerate_adapters() -> dict[str, AdapterInfo]:
@@ -237,7 +234,7 @@ def _format_pdh_luid(decimal_luid: str) -> str:
 
 def resolve_adapter_luid(
     device_kind: str,
-    ep_name: str | None = None,
+    ep_name: EPName | None = None,
 ) -> str | None:
     """Resolve the adapter LUID that ORT will bind an EP to.
 
@@ -272,7 +269,7 @@ def resolve_adapter_luid(
     return discover_gpu_luid()
 
 
-def _resolve_via_ort(kind: str, ep_name: str | None) -> str | None:
+def _resolve_via_ort(kind: str, ep_name: EPName | None) -> str | None:
     r"""Look up the adapter LUID through ORT's autoEP registry.
 
     Returns None silently on any failure so callers can fall back. ORT-resolved
@@ -332,9 +329,10 @@ def _resolve_via_ort(kind: str, ep_name: str | None) -> str | None:
             )
             continue
         logger.debug(
-            "Resolved %s LUID via ORT (ep=%s): %s",
+            "Resolved %s LUID via ORT (ep=%s, ep_name=%s): %s",
             kind.upper(),
             ep_dev.ep_name,
+            ep_name,
             formatted,
         )
         return formatted

@@ -35,41 +35,6 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-class TestBanner:
-    """Test that the ASCII art banner appears on stderr for no-args and --help."""
-
-    @pytest.fixture
-    def split_runner(self) -> CliRunner:
-        """Runner with separate stderr capture."""
-        return CliRunner()
-
-    def test_no_args_exits_zero(self, split_runner: CliRunner) -> None:
-        """winml with no arguments must exit 0."""
-        result = split_runner.invoke(main, [])
-        assert result.exit_code == 0
-
-    def test_no_args_prints_banner_to_stderr(self, split_runner: CliRunner) -> None:
-        """winml with no arguments must print the banner to stderr."""
-        result = split_runner.invoke(main, [])
-        assert "Windows ML" in result.stderr
-
-    def test_help_exits_zero(self, split_runner: CliRunner) -> None:
-        """winml --help must exit 0."""
-        result = split_runner.invoke(main, ["--help"])
-        assert result.exit_code == 0
-
-    def test_help_prints_banner_to_stderr(self, split_runner: CliRunner) -> None:
-        """winml --help must print the banner to stderr."""
-        result = split_runner.invoke(main, ["--help"])
-        assert "Windows ML" in result.stderr
-
-    def test_subcommand_help_has_no_banner(self, split_runner: CliRunner) -> None:
-        """Subcommand --help must NOT print the banner."""
-        result = split_runner.invoke(main, ["sys", "--help"])
-        assert result.exit_code == 0
-        assert "Windows ML" not in result.stderr
-
-
 class TestCLIBasics:
     """Test basic CLI functionality."""
 
@@ -83,7 +48,7 @@ class TestCLIBasics:
         """Test --help shows usage information."""
         result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0
-        assert "WML ModelKit" in result.output
+        assert "WinML CLI" in result.output
         assert "export" in result.output.lower()
 
     def test_debug_flag(self, runner: CliRunner) -> None:
@@ -107,6 +72,38 @@ class TestCommandDiscovery:
         result = runner.invoke(main, ["sys", "--help"])
         assert result.exit_code == 0
         assert "format" in result.output.lower()
+
+
+class TestCommandTypoSuggestion:
+    """Test did-you-mean hints for mistyped subcommand names (issue #508).
+
+    ``LazyGroup.resolve_command`` seeds ``self.commands`` from the
+    filesystem-discovered names so Click 8.4+'s built-in
+    :class:`click.exceptions.NoSuchCommand` suggester can find candidates.
+    The output matches the UX of ``git`` / ``gh`` / ``cargo`` / ``kubectl``.
+    """
+
+    def test_typo_suggests_closest_command(self, runner: CliRunner) -> None:
+        """`winml exprt` -> suggest 'export'."""
+        result = runner.invoke(main, ["exprt"])
+        assert result.exit_code != 0
+        assert "No such command 'exprt'." in result.output
+        assert "Did you mean 'export'?" in result.output
+
+    def test_typo_suggests_for_transposition(self, runner: CliRunner) -> None:
+        """`winml exoprt` (transposition) -> suggest 'export'."""
+        result = runner.invoke(main, ["exoprt"])
+        assert result.exit_code != 0
+        assert "Did you mean 'export'?" in result.output
+
+    def test_unknown_command_with_no_close_match_is_unchanged(
+        self, runner: CliRunner
+    ) -> None:
+        """Garbage input -> original error, no spurious suggestion."""
+        result = runner.invoke(main, ["xyzzy"])
+        assert result.exit_code != 0
+        assert "No such command 'xyzzy'." in result.output
+        assert "Did you mean" not in result.output
 
 
 class TestExportCommand:
@@ -257,37 +254,6 @@ class TestSysCommand:
         assert "CPUExecutionProvider" in result.output
         # Compact output is a single line; no Rich panel headers
         assert "Available Execution Providers" not in result.output
-
-
-class TestDisabledCommands:
-    """Test that disabled commands (run, serve) are hidden and reject invocations."""
-
-    def test_run_not_in_help(self, runner: CliRunner) -> None:
-        """Disabled 'run' command must not appear in --help output."""
-        result = runner.invoke(main, ["--help"])
-        assert result.exit_code == 0
-        # 'run' should not be listed as a command
-        command_lines = result.output.split("Commands:")[1] if "Commands:" in result.output else ""
-        assert "run" not in command_lines.split()
-
-    def test_serve_not_in_help(self, runner: CliRunner) -> None:
-        """Disabled 'serve' command must not appear in --help output."""
-        result = runner.invoke(main, ["--help"])
-        assert result.exit_code == 0
-        command_lines = result.output.split("Commands:")[1] if "Commands:" in result.output else ""
-        assert "serve" not in command_lines.split()
-
-    def test_run_invocation_rejected(self, runner: CliRunner) -> None:
-        """Invoking 'winml run' must fail with a clear disabled message."""
-        result = runner.invoke(main, ["run", "--help"])
-        assert result.exit_code != 0
-        assert "disabled" in result.output.lower()
-
-    def test_serve_invocation_rejected(self, runner: CliRunner) -> None:
-        """Invoking 'winml serve' must fail with a clear disabled message."""
-        result = runner.invoke(main, ["serve", "--help"])
-        assert result.exit_code != 0
-        assert "disabled" in result.output.lower()
 
 
 class TestModuleExecution:

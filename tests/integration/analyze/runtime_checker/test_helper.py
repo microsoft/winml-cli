@@ -60,6 +60,7 @@ def reshape_quick_helper(
         ep_checker,
         capture_output=True,
     )
+    # check_on_ep returns a lazy iterator; materialize it now so results are captured once.
     result = {"check_results": list(test_results_iter), "sys_info": sys_info}
     with truth_file.open() as f:
         truth_object = json.load(f)
@@ -99,11 +100,11 @@ def op_quick_helper(
     schema = ONNXDomain.AI_ONNX.get_op_schema(op_name, opset)
     gen = generator_class(schema)
 
-    test_results = gen.check_on_ep(
+    test_results_iter = gen.check_on_ep(
         ep_checker,
         capture_output=True,
     )
-    result = {"check_results": test_results, "sys_info": sys_info}
+    result = {"check_results": list(test_results_iter), "sys_info": sys_info}
 
     with truth_file.open() as f:
         truth_object = json.load(f)
@@ -119,6 +120,9 @@ def should_run_ep_test(ep_name: str, device_type, skip_message: str | None = Non
     """Determine if EP test should run."""
     # Run if hardware is available
     try:
+        from winml.modelkit import winml
+
+        winml.register_execution_providers(ort=True)
         import onnxruntime as ort
 
         ep_devices = ort.get_ep_devices()

@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Inspect input model's ModelKit configuration.
+"""Inspect input model's WinML CLI configuration.
 
 Resolves loader, exporter, and WinML inference class for a given model,
 showing what the build pipeline will use.
@@ -26,9 +26,58 @@ if TYPE_CHECKING:
 import click
 from rich.console import Console
 
+from ..utils import cli as cli_utils
+from ..utils.logging import configure_logging
+
 
 logger = logging.getLogger(__name__)
+# `console` is stdout-bound — table/JSON output goes here.
+# `_stderr_console` is for banners and spinners so they never contaminate
+# stdout (important for `--format json` consumers parsing the output).
 console = Console()
+_stderr_console = Console(stderr=True, highlight=False)
+
+# File extensions that unambiguously indicate a local file path.
+# HF model IDs routinely contain dots in version numbers (Phi-3.5, Qwen2.5, …)
+# so matching on any suffix would cause false-positives; restrict to known extensions.
+_LOCAL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin"})
+
+
+def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
+    """Click-time validation for --task against the hand-coded KNOWN_TASKS set.
+
+    Imports only ..loader.task to keep validation cheap — going through optimum
+    would cost ~10s on a warm cache and defeats fail-fast on bad input.
+    """
+    if value is None:
+        return None
+    from ..loader.task import KNOWN_TASKS
+
+    if value in KNOWN_TASKS:
+        return value
+    examples = ", ".join(sorted(KNOWN_TASKS)[:5])
+    raise click.UsageError(
+        f"Invalid task '{value}'. Valid: {examples}, ... ({len(KNOWN_TASKS)} total). "
+        f"See 'winml inspect --list-tasks' for the full list."
+    )
+
+
+def _looks_like_local_path(model_id: str) -> bool:
+    """Return True when model_id is explicitly a local path.
+
+    Conservative heuristic — only returns True for unambiguous local indicators:
+    path separators, absolute paths, dot/tilde prefixes, or known model file extensions.
+    """
+    from pathlib import Path
+
+    _p = Path(model_id).expanduser()
+    return (
+        _p.exists()
+        or _p.is_absolute()
+        or "\\" in model_id
+        or model_id.startswith(("./", "../", "~/"))
+        or _p.suffix.lower() in _LOCAL_FILE_EXTS
+    )
 
 
 @click.command("inspect")
@@ -49,16 +98,10 @@ console = Console()
     help="Output format (default: table)",
 )
 @click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Show full configuration details",
-)
-@click.option(
     "-t",
     "--task",
     default=None,
+    callback=_validate_task,
     help="Override auto-detected task (e.g., image-classification, feature-extraction)",
 )
 @click.option(
@@ -87,19 +130,21 @@ console = Console()
     default=None,
     help="Override model class (e.g., BertForMaskedLM) — can be used without --model",
 )
+@cli_utils.verbosity_options()
 @click.pass_context
 def inspect(
     ctx: click.Context,
     model_id: str | None,
     output_format: str,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     task: str | None,
     hierarchy: bool,
     list_tasks: bool,
     model_type: str | None,
     model_class: str | None,
 ) -> None:
-    r"""Inspect input model's ModelKit configuration.
+    r"""Inspect input model's WinML CLI configuration.
 
     Shows the loader, exporter, WinML inference class, I/O specs,
     and build resolution that the pipeline will use for the given model.
@@ -123,11 +168,14 @@ def inspect(
         # List all known tasks
         winml inspect --list-tasks
     """
-    # Handle --list-tasks (no model required)
+    # Handle --list-tasks (no model required).
+    # Import the hand-coded KNOWN_TASKS directly from loader.task to keep this
+    # branch fast — going through inspect.resolver pulls in ..models which
+    # transitively imports transformers and costs ~10s on a warm cache.
     if list_tasks:
-        from ..inspect.resolver import get_known_tasks
+        from ..loader.task import KNOWN_TASKS
 
-        for t in sorted(get_known_tasks()):
+        for t in sorted(KNOWN_TASKS):
             click.echo(t)
         return
 
@@ -138,39 +186,69 @@ def inspect(
             "Use --list-tasks to see available tasks."
         )
 
-    # Handle ONNX file input
-    from pathlib import Path
+    # Classify the input before hitting HF Hub: local paths must exist.
+    # _looks_like_local_path uses a conservative allowlist to avoid misclassifying
+    # HF IDs with version dots (Phi-3.5, Qwen2.5, …) as local paths.
+    if model_id and _looks_like_local_path(model_id):
+        from pathlib import Path
 
-    if model_id and model_id.endswith(".onnx") and Path(model_id).is_file():
-        raise click.ClickException(
-            "ONNX file inspection is not yet supported. "
-            "Use 'winml config -m model.onnx' for ONNX build config."
-        )
+        _p = Path(model_id).expanduser()
+        if _p.suffix == ".onnx" and _p.is_file():
+            raise click.ClickException(
+                "ONNX file inspection is not yet supported. "
+                "Use 'winml config -m model.onnx' for ONNX build config."
+            )
+        if not _p.exists():
+            raise click.ClickException(f"Local path '{model_id}' does not exist.")
+
+    # Merge top-level -v/-q with subcommand-level flags so either position
+    # works, once and up front. The banner decision below needs the merged
+    # --quiet (so both `winml --quiet inspect …` and `winml inspect -q`
+    # suppress it); configure_logging needs both. Single source of truth.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+
+    # Print a banner BEFORE the heavy import chain / network calls so users
+    # see immediate feedback instead of ~14 s of silence and assume the
+    # command hung (see #543). Banner + spinner go to stderr so `--format
+    # json` consumers still get clean stdout. Suppressed in --quiet mode
+    # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
+    # and JSON consumers expect clean stdout regardless).
+    json_mode = output_format.lower() == "json"
+    target = model_id or model_type or model_class
+    if not quiet and not json_mode:
+        _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
 
     from ..inspect import InspectError, ModelNotFoundError, NetworkError
     from ..inspect.formatter import output_json, output_table
 
-    # Inherit debug mode from parent context
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
-
-    # Configure logging based on verbosity
-    if verbose:
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     try:
-        result = _inspect_model_v2(
-            model_id=model_id,
-            task_override=task,
-            model_type_override=model_type,
-            model_class_override=model_class,
-            include_hierarchy=hierarchy,
-        )
+        if quiet or json_mode:
+            result = _inspect_model_v2(
+                model_id=model_id,
+                task_override=task,
+                model_type_override=model_type,
+                model_class_override=model_class,
+                include_hierarchy=hierarchy,
+            )
+        else:
+            with _stderr_console.status(
+                f"[bold cyan]Resolving {target}…[/bold cyan]",
+                spinner="dots",
+            ):
+                result = _inspect_model_v2(
+                    model_id=model_id,
+                    task_override=task,
+                    model_type_override=model_type,
+                    model_class_override=model_class,
+                    include_hierarchy=hierarchy,
+                )
 
         if output_format.lower() == "json":
-            click.echo(output_json(result, verbose=verbose))
+            click.echo(output_json(result, verbose=bool(verbose)))
         else:
-            output_table(console, result, verbose=verbose)
+            output_table(console, result, verbose=bool(verbose))
 
     except ModelNotFoundError as e:
         raise click.ClickException(f"Model not found: {e}") from e
@@ -233,8 +311,11 @@ def _inspect_model_v2(
     )
 
     # =========================================================================
-    # STEP 1: Preserve parent hf_config before resolve_loader_config narrows it
-    #         for multimodal models (e.g., CLIPConfig → CLIPTextConfig)
+    # STEP 1: Load parent hf_config once and feed it into resolve_loader_config
+    #         to avoid a duplicate AutoConfig.from_pretrained round-trip.
+    #         The parent (e.g., CLIPConfig) is preserved here because step 4
+    #         inside resolve_loader_config may narrow it to a sub-config
+    #         (e.g., CLIPTextConfig) for multimodal models.
     # =========================================================================
     parent_hf_config = None
     if model_id and not model_type_override:
@@ -246,26 +327,42 @@ def _inspect_model_v2(
     # =========================================================================
     # STEP 2: Shared loader resolution (same call as config command)
     # =========================================================================
+    from huggingface_hub.errors import RepositoryNotFoundError
+
     try:
         loader_config, hf_config, _resolved_class = resolve_loader_config(
             model_id,
             task=task_override,
             model_type=model_type_override,
             model_class=model_class_override,
+            hf_config=parent_hf_config,
         )
+    except RepositoryNotFoundError as e:
+        # Direct HF Hub 404 — keep full message (includes private-repo hint).
+        raise ModelNotFoundError(str(e)) from e
     except ValueError as e:
         err_str = str(e).lower()
         if "not found" in err_str or "404" in err_str:
             raise ModelNotFoundError(str(e)) from e
         raise InspectError(str(e)) from e
     except OSError as e:
-        raise NetworkError(str(e)) from e
+        # transformers wraps RepositoryNotFoundError as a plain OSError with a
+        # recognizable message.  Detect that pattern so users see "Model not found"
+        # (with the original hint text) rather than the misleading "Network error".
+        err_msg = str(e)
+        if "is not a valid model identifier" in err_msg or "is not a local folder" in err_msg:
+            raise ModelNotFoundError(err_msg) from e
+        raise NetworkError(err_msg) from e
 
     if parent_hf_config is None:
         parent_hf_config = hf_config
 
     model_type = loader_config.model_type
     task = loader_config.task
+    if model_type is None:
+        raise InspectError("Could not resolve model_type from loader config")
+    if task is None:
+        raise InspectError("Could not resolve task from loader config")
     architectures = getattr(parent_hf_config, "architectures", []) or []
 
     # =========================================================================
@@ -313,7 +410,7 @@ def _inspect_model_v2(
         export_cfg = registered.export
         input_tensors = [
             TensorInfo(name=s.name or "unknown", dtype=s.dtype, shape=s.shape)
-            for s in export_cfg.input_tensors
+            for s in (export_cfg.input_tensors or [])
         ]
         output_tensors = [
             TensorInfo(name=s.name or "unknown") for s in (export_cfg.output_tensors or [])
@@ -328,11 +425,14 @@ def _inspect_model_v2(
             import optimum.exporters.onnx.model_configs  # noqa: F401
             from optimum.exporters.tasks import TasksManager
 
+            # TasksManager expects Optimum-canonical task names
+            from ..loader import resolve_optimum_library, to_optimum_task
+
             onnx_config_cls = TasksManager.get_exporter_config_constructor(
                 exporter="onnx",
                 model_type=model_type,
-                task=task,
-                library_name="transformers",
+                task=to_optimum_task(task),
+                library_name=resolve_optimum_library(model_type),
             )
             if onnx_config_cls:
                 config_name = (
@@ -406,9 +506,22 @@ def _inspect_model_v2(
         task=task,
     )
 
+    # Use the top-level model_type for the user-facing result.  For multimodal
+    # models (CLIP, etc.) `loader_config.model_type` is the narrowed sub-config
+    # type (e.g. "clip_text_model"), but users expect the top-level type ("clip").
+    #
+    # Precedence:
+    #   1. model_type_override  — user explicitly passed --model-type
+    #   2. parent_hf_config     — pre-narrowing config (only when model_id was
+    #                             provided and AutoConfig succeeded in step 1)
+    #   3. model_type           — narrowed loader_config.model_type (fallback)
+    display_model_type: str = (
+        model_type_override or getattr(parent_hf_config, "model_type", None) or model_type
+    )
+
     return InspectResult(
-        model_id=model_id or model_type or model_class_override or "unknown",
-        model_type=model_type,
+        model_id=model_id or display_model_type or model_class_override or "unknown",
+        model_type=display_model_type,
         architectures=architectures,
         task=task,
         task_source=task_source,

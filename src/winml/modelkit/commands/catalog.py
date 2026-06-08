@@ -2,9 +2,9 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-r"""Catalog command for ModelKit CLI.
+r"""Catalog command for WinML CLI.
 
-Lets users discover ModelKit's curated built-in model catalog.  The catalog
+Lets users discover WinML CLI's curated built-in model catalog.  The catalog
 is stored in ``modelkit/data/hub_models.json`` and lists specific, validated
 HuggingFace model IDs with their task, architecture, and supported EPs.
 
@@ -19,7 +19,6 @@ Usage:
 
 from __future__ import annotations
 
-import importlib.resources
 import json
 import logging
 from pathlib import Path
@@ -37,7 +36,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..utils import cli as cli_utils
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EPNameOrAlias, normalize_ep_name
 
 
 logger = logging.getLogger(__name__)
@@ -54,12 +53,16 @@ _TYPE_PALETTE = ["cyan", "green", "yellow", "magenta", "blue", "red"]
 def _load_catalog() -> dict[str, Any]:
     """Load hub_models.json from package data.
 
+    Resolves the path via ``__file__`` rather than ``importlib.resources.files``
+    so that reading the catalog does not execute ``winml.modelkit.data``'s
+    package init — that init pulls in heavy optional dependencies (onnx, numpy,
+    torchvision via the dataset modules) that the catalog command never needs.
+
     Returns:
         Parsed catalog dict with ``version`` and ``models`` keys.
     """
-    pkg = importlib.resources.files("winml.modelkit.data")
-    data = (pkg / "hub_models.json").read_text(encoding="utf-8")
-    return json.loads(data)  # type: ignore[no-any-return]
+    data_path = Path(__file__).resolve().parent.parent / "data" / "hub_models.json"
+    return json.loads(data_path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
 
 
 def _filter_models(
@@ -87,7 +90,7 @@ def _filter_models(
 
 def _filter_by_ep(
     models: list[dict[str, Any]],
-    ep: str | None,
+    ep: EPNameOrAlias | None,
 ) -> list[dict[str, Any]]:
     """Filter models by --ep (execution provider).
 
@@ -143,15 +146,15 @@ def _filter_by_device(
 
 
 def _fmt_model_id(model_id: str) -> Text:
-    """Render model ID with org prefix and model name in uniform cyan bold.
+    """Render model ID in bold cyan.
 
     Args:
         model_id: HuggingFace model ID, e.g. ``openai/clip-vit-base-patch32``.
 
     Returns:
-        Rich Text with the full model ID in cyan bold.
+        Rich Text with bold cyan model name.
     """
-    t = Text(overflow="crop", no_wrap=True)
+    t = Text(overflow="fold")
     t.append(model_id, style="cyan bold")
     return t
 
@@ -272,14 +275,14 @@ def _build_list_renderable(
         header_style="bold",
         padding=(0, 2),
         show_edge=False,
-        expand=True,
+        expand=False,
     )
-    table.add_column("Model", no_wrap=True, ratio=3, overflow="crop")
-    table.add_column("Task", no_wrap=True, ratio=2, overflow="crop")
+    table.add_column("Model", overflow="fold")
+    table.add_column("Task", overflow="fold")
     table.add_column("Size", no_wrap=True, justify="right", width=5)
-    table.add_column("Model Type", no_wrap=True, ratio=2, overflow="crop")
+    table.add_column("Model Type", overflow="fold")
     if ep_col_header is not None:
-        table.add_column(ep_col_header, no_wrap=True, ratio=2, overflow="crop")
+        table.add_column(ep_col_header, overflow="fold")
 
     for m in models:
         color = _type_color(m["model_type"])
@@ -295,10 +298,11 @@ def _build_list_renderable(
 
     panel = Panel(
         table,
-        title=f"[bold]ModelKit Catalog[/bold]  [dim]|[/dim]  "
+        title=f"[bold]WinML CLI Catalog[/bold]  [dim]|[/dim]  "
         f"[bold cyan]{len(models)}[/bold cyan] validated model(s)",
         border_style="blue",
         padding=(0, 1),
+        expand=False,
     )
     return Group(panel)
 
@@ -359,14 +363,13 @@ def _save_json(data: Any, path: Path) -> None:
 @click.command()
 @click.option(
     "--model-type",
-    "-t",
     default=None,
     metavar="TYPE",
     help="Filter by model architecture (e.g. bert, roberta, vit).",
 )
 @click.option(
     "--task",
-    "-k",
+    "-t",
     default=None,
     metavar="TASK",
     help="Filter by HuggingFace task (e.g. text-classification, image-segmentation).",
@@ -380,21 +383,15 @@ def _save_json(data: Any, path: Path) -> None:
     default=None,
     optional_message="If not specified, shows all devices",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Save results to a JSON file.",
-)
+@cli_utils.output_option("Save results to a JSON file.")
 def catalog(
     model_type: str | None,
     task: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     output: Path | None,
 ) -> None:
-    r"""Browse ModelKit's curated built-in model catalog.
+    r"""Browse WinML CLI's curated built-in model catalog.
 
     Lists HuggingFace models that have been validated end-to-end
     (export -> quantise -> run on device) with confirmed accuracy results.

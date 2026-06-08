@@ -13,13 +13,14 @@ This module provides functions to:
 
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import onnx
 
 from ..onnx import load_onnx
 
 
-def load_tags_from_onnx(onnx_path: str) -> dict[str, dict[str, any]]:
+def load_tags_from_onnx(onnx_path: str) -> dict[str, dict[str, Any]]:
     """Load hierarchy tags from ONNX node attributes and doc_string fields.
 
     Args:
@@ -29,11 +30,11 @@ def load_tags_from_onnx(onnx_path: str) -> dict[str, dict[str, any]]:
         Dictionary mapping node names to their tag information
     """
     model = load_onnx(onnx_path, validate=False)
-    node_tags = {}
+    node_tags: dict[str, dict[str, Any]] = {}
 
     for node in model.graph.node:
         node_name = node.name or f"{node.op_type}_{hash(str(node))}"
-        node_info = {"op_type": node.op_type}
+        node_info: dict[str, Any] = {"op_type": node.op_type}
 
         # First, check for hierarchy_tag attribute (HTP format)
         hierarchy_tag = None
@@ -68,7 +69,7 @@ def load_tags_from_onnx(onnx_path: str) -> dict[str, dict[str, any]]:
     return node_tags
 
 
-def load_tags_from_sidecar(onnx_path: str) -> dict[str, any]:
+def load_tags_from_sidecar(onnx_path: str) -> dict[str, Any]:
     """Load hierarchy tags from sidecar JSON file.
 
     Args:
@@ -82,19 +83,19 @@ def load_tags_from_sidecar(onnx_path: str) -> dict[str, any]:
     htp_sidecar_path = Path(onnx_path.replace('.onnx', '_htp_metadata.json'))
     if htp_sidecar_path.exists():
         with htp_sidecar_path.open() as f:
-            return json.load(f)
+            return cast("dict[str, Any]", json.load(f))
 
     # Try legacy integrated format
     htp_integrated_path = Path(onnx_path.replace('.onnx', '_htp_integrated_metadata.json'))
     if htp_integrated_path.exists():
         with htp_integrated_path.open() as f:
-            return json.load(f)
+            return cast("dict[str, Any]", json.load(f))
 
     # Try legacy hierarchy format
     legacy_sidecar_path = Path(onnx_path.replace('.onnx', '_hierarchy.json'))
     if legacy_sidecar_path.exists():
         with legacy_sidecar_path.open() as f:
-            return json.load(f)
+            return cast("dict[str, Any]", json.load(f))
 
     msg = (
         f"Sidecar file not found. Tried: {htp_sidecar_path}, "
@@ -103,7 +104,7 @@ def load_tags_from_sidecar(onnx_path: str) -> dict[str, any]:
     raise FileNotFoundError(msg)
 
 
-def validate_tag_consistency(onnx_path: str) -> dict[str, any]:
+def validate_tag_consistency(onnx_path: str) -> dict[str, Any]:
     """Validate that tags in ONNX attributes match those in sidecar file.
 
     Args:
@@ -133,8 +134,8 @@ def validate_tag_consistency(onnx_path: str) -> dict[str, any]:
         sidecar_only = set(sidecar_tags.keys()) - set(onnx_tags.keys())
 
         for node_name in set(onnx_tags.keys()) & set(sidecar_tags.keys()):
-            onnx_node_tags = set(onnx_tags[node_name].get("tags", []))
-            sidecar_node_tags = set(sidecar_tags[node_name].get("tags", []))
+            onnx_node_tags: set[str] = set(onnx_tags[node_name].get("tags", []))
+            sidecar_node_tags: set[str] = set(sidecar_tags[node_name].get("tags", []))
 
             if onnx_node_tags != sidecar_node_tags:
                 mismatches.append({
@@ -161,7 +162,7 @@ def validate_tag_consistency(onnx_path: str) -> dict[str, any]:
 
 def query_operations_by_tag(
     onnx_path: str, tag_pattern: str, use_sidecar: bool = True
-) -> list[dict[str, any]]:
+) -> list[dict[str, Any]]:
     """Query operations that match a specific tag pattern.
 
     Args:
@@ -207,7 +208,7 @@ def query_operations_by_tag(
     return matching_operations
 
 
-def get_tag_statistics(onnx_path: str, use_sidecar: bool = True) -> dict[str, any]:
+def get_tag_statistics(onnx_path: str, use_sidecar: bool = True) -> dict[str, Any]:
     """Get statistics about tag distribution in the model.
 
     Args:
@@ -223,12 +224,12 @@ def get_tag_statistics(onnx_path: str, use_sidecar: bool = True) -> dict[str, an
 
             # Check if it has pre-computed tag_statistics (legacy format)
             if "tag_statistics" in sidecar_data:
-                return sidecar_data["tag_statistics"]
+                return cast("dict[str, Any]", sidecar_data["tag_statistics"])
 
             # If it's HTP format, compute statistics from tagged_nodes
             if "tagged_nodes" in sidecar_data:
                 tagged_nodes = sidecar_data["tagged_nodes"]
-                tag_counts = {}
+                tag_counts: dict[str, int] = {}
                 for tag in tagged_nodes.values():
                     if tag:  # Skip empty tags
                         tag_counts[tag] = tag_counts.get(tag, 0) + 1
@@ -297,7 +298,7 @@ def export_tags_to_csv(onnx_path: str, output_csv: str, use_sidecar: bool = True
             writer.writerow([node_name, op_type, len(tags), primary_tag, all_tags])
 
 
-def compare_tag_distributions(onnx_path1: str, onnx_path2: str) -> dict[str, any]:
+def compare_tag_distributions(onnx_path1: str, onnx_path2: str) -> dict[str, Any]:
     """Compare tag distributions between two ONNX models.
 
     Args:
@@ -312,7 +313,7 @@ def compare_tag_distributions(onnx_path1: str, onnx_path2: str) -> dict[str, any
 
     all_tags = set(stats1.keys()) | set(stats2.keys())
 
-    comparison = {
+    comparison: dict[str, Any] = {
         "model1_path": onnx_path1,
         "model2_path": onnx_path2,
         "tag_differences": [],

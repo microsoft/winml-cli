@@ -33,8 +33,7 @@ def _make_tokenizer(vocab_size=50, pad_token_id=0, mask_token_id=103):
 
 
 def _make_evaluator(model=None, max_length=None):
-    from winml.modelkit.datasets import DatasetConfig
-    from winml.modelkit.eval import WinMLEvaluationConfig
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mock_ds = MagicMock()
     mock_ds.__len__ = lambda self: 5
@@ -62,12 +61,6 @@ def _make_evaluator(model=None, max_length=None):
 
 
 class TestLifecycle:
-    def test_schema(self) -> None:
-        schema = WinMLFillMaskEvaluator.schema_info()
-        assert len(schema) == 1
-        assert schema[0].name == "text"
-        assert schema[0].type == "Value(string)"
-
     def test_prepare_pipeline_returns_none(self) -> None:
         assert _make_evaluator().pipe is None
 

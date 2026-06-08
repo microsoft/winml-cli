@@ -103,28 +103,24 @@ class AnalysisOutput(BaseModel):
     """Aggregated analysis results for JSON serialization.
 
     Attributes:
-        analyzer_version: Analyzer version
         analysis_timestamp: When analysis ran
         metadata: Model metadata and statistics
         results: Analysis results
     """
 
-    analyzer_version: str = Field(..., description="Analyzer version")
     analysis_timestamp: datetime = Field(
         default_factory=datetime.now, description="Analysis timestamp"
     )
     metadata: ModelStats = Field(..., description="Model metadata and statistics")
-    results: list[EPSupport] = Field(
-        ..., max_length=4, description="Execution Provider support results (max 4)"
-    )
+    results: list[EPSupport] = Field(..., description="Execution Provider support results")
 
     @field_validator("results")
     @classmethod
-    def validate_ihv_types_unique(cls, v: list[EPSupport]) -> list[EPSupport]:
-        """Validate that IHV types are unique in the list."""
-        ihv_types = [item.ihv_type for item in v]
-        if len(ihv_types) != len(set(ihv_types)):
-            raise ValueError(f"Duplicate IHV types found: {ihv_types}")
+    def validate_ep_types_unique(cls, v: list[EPSupport]) -> list[EPSupport]:
+        """Validate that EP types are unique in the list."""
+        ep_types = [item.ep_type for item in v]
+        if len(ep_types) != len(set(ep_types)):
+            raise ValueError(f"Duplicate EP types found: {ep_types}")
         return v
 
     def model_dump_json(self, **kwargs: object) -> str:

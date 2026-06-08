@@ -16,11 +16,15 @@ from winml.modelkit import winml
 from winml.modelkit.analyze.runtime_checker import EPChecker
 
 
-winml.register_execution_providers(ort=True)
-
+_SHOULD_RUN_QNN_TESTS = should_run_ep_test(
+    "QNNExecutionProvider",
+    ort.OrtHardwareDeviceType.NPU,
+)
+if _SHOULD_RUN_QNN_TESTS:
+    winml.register_execution_providers(ort=True)
 
 pytestmark = pytest.mark.skipif(
-    not should_run_ep_test("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU),
+    not _SHOULD_RUN_QNN_TESTS,
     reason="QNN tests require QNN hardware",
 )
 

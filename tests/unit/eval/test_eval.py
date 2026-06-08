@@ -12,8 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.datasets import DatasetConfig
-from winml.modelkit.eval import EvalResult, WinMLEvaluationConfig
+from winml.modelkit.eval import DatasetConfig, EvalResult, WinMLEvaluationConfig
 
 
 class TestEvaluationConfig:
@@ -36,6 +35,25 @@ class TestEvaluationConfig:
         assert restored.model_id == config.model_id
         assert restored.dataset.path == config.dataset.path
         assert restored.dataset.columns_mapping == config.dataset.columns_mapping
+
+    def test_config_roundtrip_preserves_revision(self):
+        """DatasetConfig.revision survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="depth-estimation",
+            dataset=DatasetConfig(
+                path="sayakpaul/nyu_depth_v2",
+                revision="refs/convert/parquet",
+            ),
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.dataset.revision == "refs/convert/parquet"
+
+    def test_dataset_config_revision_default_is_none(self):
+        """Revision defaults to None when not specified."""
+        ds = DatasetConfig(path="some-dataset")
+        assert ds.revision is None
+        assert "revision" not in ds.to_dict()
 
     def test_eval_result_to_dict(self):
         config = WinMLEvaluationConfig(
@@ -81,9 +99,123 @@ class TestResolveTask:
         ):
             assert _resolve_task(config) == "image-classification"
 
+    def test_explicit_feature_extraction_preserved_verbatim(self):
+        """Explicit --task is surfaced verbatim (explicit means explicit).
+
+        The old reverse io_config upgrade (feature-extraction -> image-feature-extraction
+        for vision models) is intentionally gone: per the canonical rule, a vision
+        model's task is image-feature-extraction, so an explicit feature-extraction is
+        out-of-domain and is not silently rewritten.
+        """
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        config = WinMLEvaluationConfig(model_id="facebook/dinov2-base", task="feature-extraction")
+        # feature-extraction is itself a registered (text) evaluator key, so resolution
+        # returns it as-is; a vision model would then fail downstream at eval-run.
+        assert _resolve_task(config) == "feature-extraction"
+
+    def test_auto_detect_vision_feature_model_resolves_image_feature_extraction(self):
+        """Auto-detect (no --task) for a vision embedding model resolves the
+        modality-aware image-feature-extraction via detect_task — the source-level
+        fix for #778 that replaces the reverse io_config reconstruction."""
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        config = WinMLEvaluationConfig(model_id="facebook/dinov2-base")  # no explicit task
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=MagicMock()),
+            patch(
+                "winml.modelkit.loader.detect_task",
+                return_value=("image-feature-extraction", "TasksManager"),
+            ),
+        ):
+            assert _resolve_task(config) == "image-feature-extraction"
+
+
+class TestGetEvaluatorClass:
+    """Tests for get_evaluator_class registry lookup."""
+
+    def test_registered_task_returns_class(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig, WinMLEvaluator, get_evaluator_class
+        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+
+        # _EVALUATOR_REGISTRY stores "module_path:ClassName" strings so that
+        # selecting one task does not eagerly import unrelated heavy
+        # evaluators (e.g. fill-mask, zero-shot-classification, which pull
+        # torch + transformers). Verify each entry resolves to a real
+        # WinMLEvaluator subclass.
+        for task, spec in _EVALUATOR_REGISTRY.items():
+            assert isinstance(spec, str) and ":" in spec, (
+                f"Registry value for {task!r} must be a 'module:Class' string."
+            )
+            cls = get_evaluator_class(WinMLEvaluationConfig(task=task))
+            assert isinstance(cls, type)
+            # Task evaluators inherit from WinMLEvaluator; "compare-tensor"
+            # is a non-task entry (TensorSimilarityEvaluator) with its own
+            # shape and is exempt from the base-class check.
+            if task != "compare-tensor":
+                assert issubclass(cls, WinMLEvaluator)
+            # The resolved class must match the qualified name in the spec.
+            module_path, class_name = spec.rsplit(":", 1)
+            assert cls.__module__ == module_path
+            assert cls.__name__ == class_name
+
+    def test_unsupported_task_raises_value_error(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
+
+        with pytest.raises(ValueError, match="not supported by `winml eval`"):
+            get_evaluator_class(WinMLEvaluationConfig(task="made-up-task"))
+
+    def test_evaluator_registry_matches_schema_tasks(self):
+        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+        from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
+
+        # "compare-tensor" is a non-task evaluator entry (no labeled-dataset
+        # schema); exclude it from the task<->schema equivalence check.
+        assert set(_EVALUATOR_REGISTRY) - {"compare-tensor"} == set(TASK_SCHEMAS)
+
 
 class TestEvaluate:
     """Tests for evaluate() entry point."""
+
+    def test_invalid_mode_raises(self):
+        """evaluate() rejects unknown mode values with a clear error."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(model_id="test/model", task="feature-extraction")
+        config.mode = "hf"  # bypass dataclass type hint
+
+        with pytest.raises(ValueError, match="Invalid mode"):
+            eval_mod.evaluate(config)
+
+    def test_none_mode_normalizes_to_onnx(self):
+        """evaluate() treats mode=None as the default onnx mode."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="imagenet-1k"),
+        )
+        config.mode = None  # bypass dataclass type hint
+
+        evaluator = MagicMock()
+        evaluator.compute.return_value = {"accuracy": 1.0}
+        with (
+            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
+        ):
+            result = eval_mod.evaluate(config)
+        assert result.config.mode == "onnx"
 
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""
@@ -96,8 +228,8 @@ class TestEvaluate:
 
         task_without_default = next(
             t
-            for t in ["fill-mask", "summarization", "translation"]
-            if t not in eval_mod._DEFAULT_DATASETS
+            for t in ["image-segmentation", "next-sentence-prediction", "image-to-text"]
+            if t in eval_mod._EVALUATOR_REGISTRY and t not in eval_mod._DEFAULT_DATASETS
         )
 
         config = WinMLEvaluationConfig(
@@ -124,7 +256,7 @@ class TestEvaluate:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task=None,
-            dataset=DatasetConfig(path=None),
+            dataset=DatasetConfig(path="some/dataset"),
         )
         original = asdict(config)
 
@@ -134,19 +266,143 @@ class TestEvaluate:
         with (
             patch.object(eval_mod, "_resolve_task", return_value="text-classification"),
             patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            # _EVALUATOR_REGISTRY now stores "module:Class" strings; patch the
+            # public resolver instead of injecting a callable into the dict.
             patch.object(
                 eval_mod,
-                "_EVALUATOR_REGISTRY",
-                {"text-classification": lambda *a: mock_evaluator},
+                "get_evaluator_class",
+                return_value=lambda *a: mock_evaluator,
             ),
         ):
             eval_mod.evaluate(config)
 
         assert asdict(config) == original, "evaluate() mutated the caller's config"
 
+    def test_prints_config_before_model_load_failure(self):
+        """Users should see the effective config even when model loading fails."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        calls = []
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="test-dataset"),
+        )
+
+        def fake_print_config(_config):
+            calls.append("print")
+
+        def fake_load_model(_config):
+            calls.append("load")
+            raise RuntimeError("loader failed")
+
+        with (
+            patch.object(eval_mod, "print_config", side_effect=fake_print_config),
+            patch.object(eval_mod, "_load_model", side_effect=fake_load_model),
+            pytest.raises(ValueError) as exc_info,
+        ):
+            eval_mod.evaluate(config)
+
+        assert calls == ["print", "load"]
+        assert "Failed to load model 'test/model'" in str(exc_info.value)
+        assert "expected model inputs" not in str(exc_info.value)
+
+    def test_metric_runtime_error_propagates_without_schema_hint(self):
+        """Internal evaluator failures should not be relabeled as schema issues."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        class FailingEvaluator:
+            def __init__(self, _config, _model):
+                pass
+
+            def compute(self):
+                raise RuntimeError("internal evaluator failure")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="test-dataset"),
+        )
+
+        with (
+            patch.object(eval_mod, "print_config", return_value=None),
+            patch.object(eval_mod, "_load_model", return_value=object()),
+            patch.object(eval_mod, "get_evaluator_class", return_value=FailingEvaluator),
+            pytest.raises(RuntimeError, match="internal evaluator failure"),
+        ):
+            eval_mod.evaluate(config)
+
+    def test_metric_data_shape_errors_keep_schema_hint(self):
+        """Known data-shape exceptions still get a concise schema hint."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        class FailingEvaluator:
+            def __init__(self, _config, _model):
+                pass
+
+            def compute(self):
+                raise KeyError("label")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="test-dataset"),
+        )
+
+        with (
+            patch.object(eval_mod, "print_config", return_value=None),
+            patch.object(eval_mod, "_load_model", return_value=object()),
+            patch.object(eval_mod, "get_evaluator_class", return_value=FailingEvaluator),
+            pytest.raises(ValueError, match="expected schema") as exc_info,
+        ):
+            eval_mod.evaluate(config)
+
+        assert isinstance(exc_info.value.__cause__, KeyError)
+
 
 class TestWinMLEvaluator:
     """Tests for WinMLEvaluator base class."""
+
+    @patch("datasets.load_dataset")
+    def test_load_dataset_failure_wrapped_as_validation_error(self, mock_load_ds):
+        """load_dataset failures surface as DatasetValidationError with dataset context."""
+        from winml.modelkit.eval import WinMLEvaluator
+        from winml.modelkit.utils.eval_utils import DatasetValidationError
+
+        mock_load_ds.side_effect = ValueError(
+            "Unknown split \"validation\". Should be one of ['train', 'val'].",
+        )
+
+        model = MagicMock()
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="detection-datasets/fashionpedia", split="validation"),
+        )
+
+        with pytest.raises(DatasetValidationError) as exc_info:
+            WinMLEvaluator(config, model)
+
+        msg = str(exc_info.value)
+        assert "Failed to load dataset 'detection-datasets/fashionpedia'" in msg
+        assert "split='validation'" in msg
+        assert "Unknown split" in msg
+        assert isinstance(exc_info.value.__cause__, ValueError)
 
     @patch("evaluate.evaluator")
     @patch("transformers.pipeline")
@@ -184,6 +440,78 @@ class TestWinMLEvaluator:
         mock_ds.select.assert_called_once_with(range(50))
         # config.dataset.samples should NOT be mutated
         assert ev.config.dataset.samples == 100
+
+    @patch("evaluate.evaluator")
+    @patch("transformers.pipeline")
+    @patch("datasets.load_dataset")
+    def test_revision_passed_to_load_dataset(
+        self,
+        mock_load_ds,
+        mock_pipeline,
+        mock_hf_eval,
+    ):
+        """DatasetConfig.revision is forwarded to load_dataset()."""
+        from winml.modelkit.eval import WinMLEvaluator
+
+        mock_ds = MagicMock()
+        mock_ds.__len__ = lambda self: 10
+        mock_ds.shuffle.return_value = mock_ds
+        mock_ds.select.return_value = mock_ds
+        mock_load_ds.return_value = mock_ds
+        mock_pipeline.return_value = MagicMock()
+        mock_hf_eval.return_value = MagicMock(compute=MagicMock(return_value={}))
+
+        model = MagicMock()
+        model.config.label2id = None
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(
+                path="some/dataset",
+                samples=5,
+                revision="refs/convert/parquet",
+            ),
+        )
+
+        WinMLEvaluator(config, model)
+
+        mock_load_ds.assert_called_once()
+        assert mock_load_ds.call_args.kwargs["revision"] == "refs/convert/parquet"
+
+    @patch("evaluate.evaluator")
+    @patch("transformers.pipeline")
+    @patch("datasets.load_dataset")
+    def test_revision_defaults_to_none(
+        self,
+        mock_load_ds,
+        mock_pipeline,
+        mock_hf_eval,
+    ):
+        """When revision is unset, load_dataset receives revision=None."""
+        from winml.modelkit.eval import WinMLEvaluator
+
+        mock_ds = MagicMock()
+        mock_ds.__len__ = lambda self: 10
+        mock_ds.shuffle.return_value = mock_ds
+        mock_ds.select.return_value = mock_ds
+        mock_load_ds.return_value = mock_ds
+        mock_pipeline.return_value = MagicMock()
+        mock_hf_eval.return_value = MagicMock(compute=MagicMock(return_value={}))
+
+        model = MagicMock()
+        model.config.label2id = None
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="some/dataset", samples=5),
+        )
+
+        WinMLEvaluator(config, model)
+
+        mock_load_ds.assert_called_once()
+        assert mock_load_ds.call_args.kwargs["revision"] is None
 
     @patch("evaluate.evaluator")
     @patch("transformers.pipeline")
@@ -729,23 +1057,20 @@ class TestEvalCli:
         assert "bogus_ep" in result.output.lower() or "invalid" in result.output.lower()
 
     def test_cli_ep_from_build_config(self, tmp_path):
-        """When --ep is omitted, ep is read from build_cfg.compile.ep_config.provider."""
+        """When --ep is omitted, ep is read from raw build-config JSON."""
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         config_file = tmp_path / "build.yaml"
         config_file.touch()
 
-        fake_build_cfg = MagicMock()
-        fake_build_cfg.loader = None
-        fake_build_cfg.compile.ep_config.provider = "dml"
-        fake_build_cfg.quant = None
+        raw_cfg = {"compile": {"execution_provider": "dml"}}
 
         runner = CliRunner()
         with (
             patch("winml.modelkit.sysinfo.resolve_device", return_value=("gpu", ["gpu", "cpu"])),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
-                return_value=fake_build_cfg,
+                return_value=(MagicMock(), raw_cfg),
             ),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
         ):
@@ -777,17 +1102,14 @@ class TestEvalCli:
         config_file = tmp_path / "build.yaml"
         config_file.touch()
 
-        fake_build_cfg = MagicMock()
-        fake_build_cfg.loader = None
-        fake_build_cfg.compile.ep_config.provider = "dml"
-        fake_build_cfg.quant = None
+        raw_cfg = {"compile": {"execution_provider": "dml"}}
 
         runner = CliRunner()
         with (
             patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
-                return_value=fake_build_cfg,
+                return_value=(MagicMock(), raw_cfg),
             ),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
         ):
@@ -887,61 +1209,48 @@ class TestBuildEvalResultEpField:
         )
         assert result["ep"] == "qnn"
 
+    def test_sanitize_fn_preserves_raw_perf_output(self):
+        reporter = self._load_reporter()
+
+        perf_proc = {
+            "exit_code": 0,
+            "stdout": "Latency (ms): 12.5\nThroughput: 80 samples/sec\nsome error line",
+            "stderr": "warning: device busy",
+            "elapsed": 5.0,
+            "timeout": False,
+            "command": "winml perf",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+
+        def strip_perf(text: str) -> str:
+            return "\n".join(
+                line
+                for line in text.splitlines()
+                if "latency" not in line.lower() and "throughput" not in line.lower()
+            )
+
+        result = reporter.build_eval_result(
+            entry=self._make_entry(),
+            perf_proc=perf_proc,
+            device="cpu",
+            eval_types_run=["perf"],
+            accuracy_result=None,
+            ep=None,
+            sanitize_fn=strip_perf,
+        )
+
+        perf = result["perf"]
+        # sanitized output should not contain latency/throughput lines
+        assert "Latency" not in perf["stdout_output"]
+        assert "Throughput" not in perf["stdout_output"]
+        # raw output preserves the original perf data
+        assert "Latency (ms): 12.5" in perf["raw_stdout"]
+        assert "Throughput: 80 samples/sec" in perf["raw_stdout"]
+        assert perf["raw_stderr"] == "warning: device busy"
+
 
 class TestDefaultDatasetImmutability:
     """Tests that module-level _DEFAULT_DATASETS are not corrupted."""
-
-    @patch("evaluate.evaluator")
-    @patch("transformers.pipeline")
-    @patch("datasets.load_dataset")
-    def test_default_dataset_not_mutated_after_evaluate(
-        self,
-        mock_load_ds,
-        mock_pipeline,
-        mock_hf_eval,
-    ):
-        """evaluate() must not corrupt _DEFAULT_DATASETS entries."""
-        import importlib
-        import sys
-        from copy import deepcopy
-
-        eval_mod = sys.modules.get(
-            "winml.modelkit.eval.evaluate",
-        ) or importlib.import_module("winml.modelkit.eval.evaluate")
-
-        # Snapshot the default datasets before evaluation
-        defaults_before = deepcopy(eval_mod._DEFAULT_DATASETS)
-
-        # Set up mocks: dataset with fewer samples than the default (100)
-        mock_ds = MagicMock()
-        mock_ds.__len__ = lambda self: 30
-        mock_ds.shuffle.return_value = mock_ds
-        mock_ds.select.return_value = mock_ds
-        mock_load_ds.return_value = mock_ds
-        mock_pipeline.return_value = MagicMock()
-
-        mock_eval_inst = MagicMock()
-        mock_eval_inst.compute.return_value = {"accuracy": 0.7}
-        mock_hf_eval.return_value = mock_eval_inst
-
-        config = WinMLEvaluationConfig(
-            model_id="test/model",
-            dataset=DatasetConfig(path=None),
-        )
-
-        with (
-            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
-            patch.object(eval_mod, "_resolve_task", return_value="image-classification"),
-        ):
-            eval_mod.evaluate(config)
-
-        # Verify module-level defaults are unchanged (full dataclass state)
-        from dataclasses import asdict
-
-        for task, ds_cfg in eval_mod._DEFAULT_DATASETS.items():
-            assert asdict(ds_cfg) == asdict(defaults_before[task]), (
-                f"_DEFAULT_DATASETS['{task}'] was mutated"
-            )
 
     @patch("evaluate.evaluator")
     @patch("transformers.pipeline")
@@ -1032,6 +1341,7 @@ class TestLoadModel:
             device="cpu",
             precision="auto",
             ep=None,
+            allow_unsupported_nodes=False,
         )
         assert result is mock_model
 

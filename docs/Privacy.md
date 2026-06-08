@@ -1,12 +1,12 @@
-# ModelKit Privacy Statement
+# WinML CLI Privacy Statement
 
-ModelKit collects limited, anonymous telemetry to help improve the
-product. This page describes exactly what is collected, what is not,
+WinML CLI collects limited, unlinked pseudonymized telemetry to help
+improve the product. This page describes exactly what is collected, what is not,
 and how to control it.
 
 ## Data category
 
-All ModelKit telemetry is classified as **Optional** under Microsoft's
+All WinML CLI telemetry is classified as **Optional** under Microsoft's
 data categorization model. None of it is required to run any feature;
 it exists solely to support product improvement.
 
@@ -20,15 +20,15 @@ see the prompt and default to off.
 
 ## Events collected
 
-When telemetry is enabled, ModelKit emits three event types:
+When telemetry is enabled, WinML CLI emits three event types:
 
-### ModelKitHeartbeat
+### WinMLCLIHeartbeat
 
 Sent once per CLI invocation, just before the requested command runs.
 Carries only context attributes (OS, architecture, app version, device
 ID) — no per-event payload.
 
-### ModelKitAction
+### WinMLCLIAction
 
 Sent once per command completion.
 
@@ -41,7 +41,7 @@ Sent once per command completion.
 | `duration_ms` | Wall-clock execution time in milliseconds. |
 | `success` | Whether the command completed without raising. |
 
-### ModelKitError
+### WinMLCLIError
 
 Sent only when a command raises an unhandled exception.
 
@@ -61,7 +61,7 @@ not by the command code):
 | `device_id` | SHA256 hash of a randomly generated UUID, persisted per machine. Enables counting distinct users without identifying them. |
 | `id_status` | `EXISTING`, `NEW`, or `FAILED` — how the device ID was obtained on this run. |
 | `os.name`, `os.version`, `os.release`, `os.arch` | Operating system and architecture (e.g., `Windows`, `10.0.26200`, `11`, `AMD64`). |
-| `app_version` | ModelKit package version. |
+| `app_version` | WinML CLI package version. |
 | `app_instance_id` | A random UUID generated for this process only; not persisted. |
 | `initTs` | Epoch timestamp when telemetry was initialized. |
 
@@ -80,7 +80,7 @@ not by the command code):
 
 ### Consent
 
-On the first run of any command, ModelKit prompts:
+On the first run of any command, WinML CLI prompts:
 
 ```
 Enable telemetry? [Y/n]
@@ -125,7 +125,7 @@ variables are set, and no prompt is shown:
 Events that fail to send (e.g., transient network errors) are cached
 locally and retried on the next run. The cache file lives at:
 
-`%USERPROFILE%\.winml\telemetry\modelkit.cache`
+`%USERPROFILE%\.winml\telemetry\winmlcli.cache`
 
 The cache is append-only on failure and drain-then-resend on recovery.
 When telemetry is disabled, the cache is cleared so a disabled session
@@ -133,7 +133,7 @@ never resends events the user has since opted out of.
 
 ## Dev installs
 
-ModelKit installed from source (`pip install -e .`) or run directly
+WinML CLI installed from source (`pip install -e .`) or run directly
 from a checkout never sends telemetry. The InstrumentationKey is blank
 in source and is only populated by the official build pipeline. Only
 official binary releases are capable of sending telemetry, and only

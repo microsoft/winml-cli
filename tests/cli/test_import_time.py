@@ -5,7 +5,7 @@
 
 """Regression tests for lazy loading and import-time tracking.
 
-These tests ensure that importing ModelKit modules and running CLI commands
+These tests ensure that importing WinML CLI modules and running CLI commands
 do not pull in heavy ML dependencies (torch, transformers, optimum, etc.)
 unless the functionality actually requires them.
 
@@ -398,6 +398,15 @@ class TestCommandHelp:
     def test_command_help_no_heavy_deps(self, cmd: str) -> None:
         """``winml <cmd> --help`` must not load heavy deps."""
         assert_cli_no_heavy_imports([cmd, "--help"])
+
+    def test_inspect_list_tasks_no_heavy_deps(self) -> None:
+        """``winml inspect --list-tasks`` must not load transformers/optimum.
+
+        Regression guard for the latency fix where ``--list-tasks`` used to
+        import ``optimum.exporters.tasks.TasksManager`` (and transitively
+        ``transformers``), turning a static dict lookup into a ~12 s wait.
+        """
+        assert_cli_no_heavy_imports(["inspect", "--list-tasks"])
 
 
 # Note: this file deliberately does NOT cover per-command runtime import

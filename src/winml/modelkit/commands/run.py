@@ -30,11 +30,15 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 
 from ..utils import cli as cli_utils
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
@@ -229,7 +233,7 @@ def _print_schema(
     engine: Any,
     *,
     output_format: str = "text",
-    output_path: str | None = None,
+    output_path: Path | None = None,
 ) -> None:
     """Print model schema (inputs + parameters) and exit.
 
@@ -241,7 +245,7 @@ def _print_schema(
         text = _schema_to_text(engine)
 
     if output_path:
-        Path(output_path).write_text(text, encoding="utf-8")
+        output_path.write_text(text, encoding="utf-8")
     else:
         try:
             click.echo(text)
@@ -379,9 +383,9 @@ def _build_example_command(
     # Add a representative -P param with a sample value
     if params:
         for p in params:
-            val = p.get("sample_value")
-            if val is not None:
-                parts.append(f"-P {p['name']}={val}")
+            sample = p.get("sample_value")
+            if sample is not None:
+                parts.append(f"-P {p['name']}={sample}")
                 break
 
     return " ".join(parts)
@@ -472,12 +476,7 @@ def _print_input_hint(engine: Any) -> None:
     show_default=True,
     help="Output format",
 )
-@click.option(
-    "--output",
-    "-o",
-    default=None,
-    help="Write output to file instead of stdout",
-)
+@cli_utils.output_option("Write output to file instead of stdout")
 @click.option(
     "--port",
     default=_DEFAULT_PORT,
@@ -498,6 +497,7 @@ def _print_input_hint(engine: Any) -> None:
     default=False,
     help="Auto-connect to a running winml serve instance instead of embedded inference",
 )
+@cli_utils.allow_unsupported_nodes_option()
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -507,14 +507,15 @@ def run(
     input_args: tuple[str, ...],
     task: str | None,
     device: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     params: tuple[str, ...],
     show_schema: bool,
     output_format: str,
-    output: str | None,
+    output: Path | None,
     port: int,
     connect_host: str,
     connect: bool,
+    allow_unsupported_nodes: bool,
 ) -> None:
     r"""Run one-shot inference on a model.
 
@@ -562,11 +563,11 @@ def run(
     # Read file bytes (for --file shortcut)
     file_bytes_list: list[bytes] = []
     for fp in files:
-        p = Path(fp)
-        if not p.exists() or not p.is_file():
+        file_path = Path(fp)
+        if not file_path.exists() or not file_path.is_file():
             click.echo(f"Error: file not found: {fp}", err=True)
             ctx.exit(2)
-        file_bytes_list.append(p.read_bytes())
+        file_bytes_list.append(file_path.read_bytes())
 
     if len(file_bytes_list) > 1:
         click.echo(
@@ -627,7 +628,13 @@ def run(
         # prints (from optimum, onnxruntime, etc.) don't contaminate
         # structured output (--format json) or text output parsing.
         with contextlib.redirect_stdout(sys.stderr):
-            engine.load(model, task=task, device=device, ep=ep)
+            engine.load(
+                model,
+                task=task,
+                device=device,
+                ep=ep,
+                allow_unsupported_nodes=allow_unsupported_nodes,
+            )
     except (OSError, ValueError, RuntimeError) as exc:
         click.echo(f"Error loading model: {exc}", err=True)
         ctx.exit(3)
@@ -644,7 +651,6 @@ def run(
     except click.ClickException as exc:
         click.echo(f"Error: {exc.format_message()}", err=True)
         ctx.exit(2)
-        return
 
     # Merge --file/--text shortcuts with --input
     try:
@@ -652,7 +658,6 @@ def run(
     except click.ClickException as exc:
         click.echo(f"Error: {exc.format_message()}", err=True)
         ctx.exit(2)
-        return
 
     # Check input / -P collision (after shortcuts are resolved so that
     # --file and --text shortcut keys are included in the check)
@@ -667,12 +672,12 @@ def run(
         ctx.exit(2)
 
     try:
-        result = engine.predict(inputs=inputs, **pipeline_kwargs)
+        prediction = engine.predict(inputs=inputs, **pipeline_kwargs)
     except (ValueError, TypeError, RuntimeError, OSError) as exc:
         click.echo(f"Error during inference: {exc}", err=True)
         ctx.exit(4)
 
-    _print_result(result.model_dump(), output_format=output_format, output_path=output)
+    _print_result(prediction.model_dump(), output_format=output_format, output_path=output)
 
 
 # ---------------------------------------------------------------------------
@@ -696,7 +701,7 @@ def _resolve_text_field_via_schema(client: Any, base_url: str) -> str:
             user_inputs = schema.get("user_inputs", [])
             text_fields = [f for f in user_inputs if f.get("type") == "text"]
             if len(text_fields) == 1:
-                return text_fields[0]["name"]
+                return str(text_fields[0]["name"])
     except Exception:
         logger.debug("Schema probe failed; falling back to field name 'text'", exc_info=True)
     return "text"
@@ -761,7 +766,7 @@ def _try_server_predict(
                     )
                 resp.raise_for_status()
                 logger.debug("Auto-connected to winml serve at %s", base_url)
-                return resp.json()
+                return cast("dict[Any, Any]", resp.json())
 
             # Route 2: no file → JSON /v1/predict with named inputs
             #   Coerce raw CLI strings (JSON arrays, numbers, booleans)
@@ -783,7 +788,7 @@ def _try_server_predict(
             )
             resp.raise_for_status()
             logger.debug("Auto-connected to winml serve at %s", base_url)
-            return resp.json()
+            return cast("dict[Any, Any]", resp.json())
     except (httpx.HTTPError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         logger.debug("Auto-connect failed (%s) — using embedded inference", exc)
         return None
@@ -814,7 +819,7 @@ def _print_result(
     result: dict,
     *,
     output_format: str,
-    output_path: str | None,
+    output_path: Path | None,
 ) -> None:
     if output_format == "json":
         text = json.dumps(result, indent=2)
@@ -833,7 +838,7 @@ def _print_result(
         text = _format_text(display_result)
 
     if output_path:
-        Path(output_path).write_text(text, encoding="utf-8")
+        output_path.write_text(text, encoding="utf-8")
     else:
         try:
             click.echo(text)

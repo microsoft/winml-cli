@@ -547,3 +547,91 @@ class TestAttentionPatternRewriting:
         # Verify original model is unchanged
         assert len(bert_tiny_model.graph.node) == original_node_count
         assert [node.name for node in bert_tiny_model.graph.node] == original_node_names
+
+
+class TestPatternRewriterUnnamedNodeStability:
+    """Regression tests for rewriting models with unnamed nodes."""
+
+    def test_rewrite_multiple_unnamed_matches_no_key_drift(self):
+        """Rewriting multiple unnamed-node matches should not fail with key drift."""
+        from onnx.defs import get_schema
+
+        from winml.modelkit.pattern.base import make_single_op_pattern
+        from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
+
+        # Build a simple chain of unnamed nodes.
+        x = onnx.helper.make_tensor_value_info("X", onnx.TensorProto.FLOAT, [1])
+        y = onnx.helper.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [1])
+        n0 = onnx.helper.make_node("Relu", ["X"], ["a"])
+        n1 = onnx.helper.make_node("Relu", ["a"], ["b"])
+        n2 = onnx.helper.make_node("Relu", ["b"], ["c"])
+        n3 = onnx.helper.make_node("Relu", ["c"], ["Y"])
+        graph = onnx.helper.make_graph([n0, n1, n2, n3], "unnamed_chain", [x], [y])
+        model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+
+        pattern_schema, _ = make_single_op_pattern(get_schema("Relu", 17))
+
+        class _MatchedPattern:
+            def get_schema(self):
+                return pattern_schema
+
+        class _ReplacementPattern:
+            def get_schema(self):
+                return pattern_schema
+
+            def get_onnx_model(self, **kwargs):
+                prefix = kwargs.get("prefix", "Rewrite_")
+                input_names = kwargs["input_names"]
+                output_names = kwargs["output_names"]
+                identity = onnx.helper.make_node(
+                    "Identity",
+                    [input_names[0]],
+                    [output_names[0]],
+                    name=f"{prefix}Identity",
+                )
+                subgraph = onnx.helper.make_graph([identity], "replacement", [], [])
+                return onnx.helper.make_model(
+                    subgraph,
+                    opset_imports=[onnx.helper.make_opsetid("", 17)],
+                )
+
+        matched_pattern = _MatchedPattern()
+        match_1 = PatternMatchResult(
+            skeleton_match_result=SkeletonMatchResult(
+                pattern=matched_pattern,
+                matched_nodes=[n0, n1],
+                matched_node_keys=["node_0", "node_1"],
+                matcher=None,
+                inputs=["X"],
+                output="b",
+                removable=True,
+            ),
+            schema_input_to_value={},
+            schema_output_to_value={},
+            type_param_to_type={"T": "float"},
+            attributes={},
+            input_infos={},
+        )
+        match_2 = PatternMatchResult(
+            skeleton_match_result=SkeletonMatchResult(
+                pattern=matched_pattern,
+                matched_nodes=[n2, n3],
+                matched_node_keys=["node_2", "node_3"],
+                matcher=None,
+                inputs=["b"],
+                output="Y",
+                removable=True,
+            ),
+            schema_input_to_value={},
+            schema_output_to_value={},
+            type_param_to_type={"T": "float"},
+            attributes={},
+            input_infos={},
+        )
+
+        rewriter = PatternRewriter(model)
+        rewritten_model = rewriter.rewrite([([match_1, match_2], _ReplacementPattern)])
+
+        identity_nodes = [node for node in rewritten_model.graph.node if node.op_type == "Identity"]
+        assert len(identity_nodes) == 2
+        onnx.checker.check_model(rewritten_model)

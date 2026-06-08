@@ -20,6 +20,8 @@ from ._pdh import PdhPoller
 if TYPE_CHECKING:
     from typing_extensions import Self
 
+    from ...utils.constants import EPName
+
 
 def adapter_label(device_kind: str | None) -> str:
     """Return the user-facing label for an adapter ``device_kind``.
@@ -62,7 +64,7 @@ class HWMonitor:
         self,
         poll_interval_ms: int = 200,
         device: str = "auto",
-        ep_name: str | None = None,
+        ep_name: EPName | None = None,
     ) -> None:
         """Initialize the monitor.
 

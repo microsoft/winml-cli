@@ -25,7 +25,7 @@ import winml.modelkit.models  # noqa: F401
 from winml.modelkit.export import resolve_io_specs
 from winml.modelkit.export.io import (  # Testing internal implementation
     _get_onnx_config,
-    _map_task_synonym,
+    map_task_synonym,
 )
 
 
@@ -299,7 +299,7 @@ class TestMapTaskSynonymExport:
     )
     def test_map_task_synonym(self, task: str, expected: str) -> None:
         """map_task_synonym returns the expected canonical task name."""
-        assert _map_task_synonym(task) == expected
+        assert map_task_synonym(task) == expected
 
 
 # =============================================================================

@@ -50,8 +50,12 @@ class TestFromOnnx:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
             patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("npu", ["npu", "cpu"]),
+                "winml.modelkit.sysinfo.resolve_check_device_ep",
+                return_value=("npu", ["npu", "cpu"], ["QNNExecutionProvider"]),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_eps",
+                return_value=["QNNExecutionProvider"],
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -90,6 +94,10 @@ class TestFromOnnx:
             patch(
                 "winml.modelkit.sysinfo.resolve_device",
                 return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_eps",
+                return_value=["CPUExecutionProvider"],
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
@@ -137,6 +145,31 @@ class TestFromOnnx:
         assert call_kwargs["ep"] == "qnn"
         assert call_kwargs["device"] == "npu"
 
+    def test_passes_allow_unsupported_nodes_to_build(self, fake_onnx: Path, tmp_path: Path):
+        """from_onnx() forwards allow_unsupported_nodes through to build_onnx_model."""
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_instance = MagicMock()
+            mock_get_class.return_value = lambda **kw: mock_instance
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+                allow_unsupported_nodes=True,
+            )
+
+        assert mock_build.call_args.kwargs["allow_unsupported_nodes"] is True
+
     def test_returns_winml_pretrained_model(self, fake_onnx: Path, tmp_path: Path):
         """from_onnx() returns the inference wrapper from get_winml_class."""
         with (
@@ -145,6 +178,10 @@ class TestFromOnnx:
             patch(
                 "winml.modelkit.sysinfo.resolve_device",
                 return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_eps",
+                return_value=["CPUExecutionProvider"],
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
             patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,

@@ -5,7 +5,7 @@
 """Inspect module for analyzing HuggingFace models.
 
 Provides the inspect_model() function to analyze model compatibility
-with ModelKit and display loader/exporter/WinML configurations.
+with WinML CLI and display loader/exporter/WinML configurations.
 
 Usage:
     from winml.modelkit.inspect import inspect_model
@@ -22,10 +22,10 @@ import logging
 
 from transformers import AutoConfig
 
+from ..loader import detect_task
 from .resolver import (
     build_tensor_infos_from_io_specs,
     compile_support_status,
-    detect_task,
     get_build_config,
     get_known_tasks,
     resolve_cache,

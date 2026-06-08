@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""System information command for ModelKit CLI.
+"""System information command for WinML CLI.
 
 Displays detailed information about the system environment, including:
 - Python and OS information
@@ -23,23 +23,48 @@ Usage:
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
 import json
 import logging
 import platform
 import sys
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+from importlib.metadata import PackageNotFoundError, version
+from typing import TYPE_CHECKING, Any, cast
 
 import click
-from rich.console import Console
-from rich.logging import RichHandler
-from rich.panel import Panel
-from rich.table import Table
 
 from ..sysinfo import OS, get_ep_device_map
+from ..utils import cli as cli_utils
+from ..utils.logging import configure_logging
+
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from rich.console import Console
+
+    from ..utils.constants import EPName
 
 
 logger = logging.getLogger(__name__)
-console = Console()
+
+# Rich is imported lazily — Console/Table/Panel only matter at render time,
+# and pulling them at module scope adds ~50 ms to every `winml sys`
+# invocation (including --format json/compact, which never render anything
+# Rich-styled).
+_console: Console | None = None
+
+
+def _get_console() -> Console:
+    """Return a process-level Console, importing rich on first use."""
+    global _console
+    if _console is None:
+        from rich.console import Console as _RichConsole
+
+        _console = _RichConsole()
+    return _console
 
 
 def _get_python_info() -> dict[str, Any]:
@@ -51,10 +76,80 @@ def _get_python_info() -> dict[str, Any]:
     }
 
 
+# Intentionally limited to the host architectures Windows 11 ships on.
+# 32-bit ARM (ARMNT 0xC4, ARM 0x1C4) and IA64 are not Windows 11 host
+# targets, so IsWow64Process2 will not report them in practice; an
+# unmapped value falls through to None and logs at debug level.
+_IMAGE_FILE_MACHINE_TO_NAME = {
+    0x8664: "AMD64",
+    0xAA64: "ARM64",
+    0x14C: "x86",
+}
+
+
+if sys.platform == "win32":
+    try:
+        _KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        _IS_WOW64_PROCESS_2 = _KERNEL32.IsWow64Process2
+        _IS_WOW64_PROCESS_2.argtypes = [
+            ctypes.wintypes.HANDLE,
+            ctypes.POINTER(ctypes.c_ushort),
+            ctypes.POINTER(ctypes.c_ushort),
+        ]
+        _IS_WOW64_PROCESS_2.restype = ctypes.wintypes.BOOL
+    except (OSError, AttributeError):
+        _KERNEL32 = None  # type: ignore[assignment]
+        _IS_WOW64_PROCESS_2 = None  # type: ignore[assignment]
+else:
+    _KERNEL32 = None  # type: ignore[assignment]
+    _IS_WOW64_PROCESS_2 = None  # type: ignore[assignment]
+
+
+def _query_native_machine_via_win32() -> int | None:
+    """Call IsWow64Process2 and return the native IMAGE_FILE_MACHINE_* code.
+
+    Returns None on non-Windows or when the API call fails. Logs the
+    GetLastError code at debug level on failure so a regression in
+    IsWow64Process2 wiring is not silently swallowed.
+    """
+    if sys.platform != "win32" or _IS_WOW64_PROCESS_2 is None or _KERNEL32 is None:
+        return None
+
+    proc = ctypes.c_ushort(0)
+    native = ctypes.c_ushort(0)
+    if not _IS_WOW64_PROCESS_2(
+        _KERNEL32.GetCurrentProcess(), ctypes.byref(proc), ctypes.byref(native)
+    ):
+        logger.debug("IsWow64Process2 failed: GetLastError=%d", ctypes.get_last_error())
+        return None
+    return native.value
+
+
+def _get_windows_native_machine() -> str | None:
+    """Return the host architecture name, or None when unavailable.
+
+    platform.machine() returns the *process* arch (PROCESSOR_ARCHITECTURE),
+    so an x64 Python running under ARM64 emulation reports "AMD64". This
+    consults IsWow64Process2 for the real host machine type, which is what
+    the user expects to see in `winml sys`. PROCESSOR_ARCHITEW6432 is
+    unreliable on ARM64 (Prism emulation does not set it on Snapdragon X).
+    """
+    if sys.platform != "win32":
+        return None
+    raw = _query_native_machine_via_win32()
+    if raw is None:
+        return None
+    name = _IMAGE_FILE_MACHINE_TO_NAME.get(raw)
+    if name is None:
+        logger.debug("IsWow64Process2 returned unmapped native machine: 0x%x", raw)
+    return name
+
+
 def _get_platform_info() -> dict[str, Any]:
     """Gather OS and platform information."""
     system = platform.system()
     release = platform.release()
+    machine = platform.machine()
 
     # For Windows, use OS class for accurate Windows 11 detection
     # platform.release() may incorrectly report '10' on some Python versions
@@ -69,18 +164,20 @@ def _get_platform_info() -> dict[str, Any]:
             # Fallback to platform.release() if OS detection fails
             pass
 
+        native_machine = _get_windows_native_machine()
+        if native_machine:
+            machine = native_machine
+
     return {
         "system": system,
         "release": release,
-        "machine": platform.machine(),
+        "machine": machine,
         "processor": platform.processor() or "Unknown",
     }
 
 
 def _get_library_versions() -> dict[str, str | None]:
     """Gather versions of key ML libraries."""
-    from importlib.metadata import PackageNotFoundError, version
-
     libraries: dict[str, str | None] = {}
 
     # Core libraries
@@ -124,27 +221,39 @@ def _get_library_versions() -> dict[str, str | None]:
     return libraries
 
 
-def _get_torch_info() -> dict[str, Any]:
-    """Gather PyTorch-specific information including CUDA."""
+def _get_torch_info(verbose: bool = False) -> dict[str, Any]:
+    """Gather PyTorch-specific information.
+
+    Reads the installed version via ``importlib.metadata`` so the default
+    path does not ``import torch`` — importing torch costs ~1.5 s warm and
+    used to dominate ``winml sys`` latency (issue #558). CUDA details
+    require the torch module and are only gathered when ``verbose`` is set.
+    """
     info: dict[str, Any] = {"available": False}
 
     try:
-        import torch
-
+        info["version"] = version("torch")
         info["available"] = True
-        info["version"] = torch.__version__
-        info["cuda_available"] = torch.cuda.is_available()
-
-        if torch.cuda.is_available():
-            info["cuda_version"] = torch.version.cuda
-            info["cudnn_version"] = str(torch.backends.cudnn.version())
-            info["gpu_count"] = torch.cuda.device_count()
-            info["gpu_devices"] = [
-                torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
-            ]
-    except ImportError:
+    except PackageNotFoundError:
         logger.debug("PyTorch not available")
+        return info
 
+    if not verbose:
+        return info
+
+    try:
+        import torch
+    except ImportError:
+        return info
+
+    info["cuda_available"] = torch.cuda.is_available()
+    if torch.cuda.is_available():
+        info["cuda_version"] = torch.version.cuda
+        info["cudnn_version"] = str(torch.backends.cudnn.version())
+        info["gpu_count"] = torch.cuda.device_count()
+        info["gpu_devices"] = [
+            torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+        ]
     return info
 
 
@@ -178,7 +287,7 @@ def _check_openvino() -> dict[str, Any]:
     info: dict[str, Any] = {"installed": False}
 
     try:
-        import openvino  # type: ignore[import-not-found]
+        import openvino
 
         info["installed"] = True
         info["version"] = openvino.__version__
@@ -201,7 +310,7 @@ def _gather_system_info(verbose: bool = False) -> dict[str, Any]:
         "python": _get_python_info(),
         "platform": _get_platform_info(),
         "libraries": _get_library_versions(),
-        "torch": _get_torch_info(),
+        "torch": _get_torch_info(verbose=verbose),
         "backends": {
             "qnn": _check_qnn_sdk(),
             "openvino": _check_openvino(),
@@ -227,10 +336,15 @@ def _gather_system_info(verbose: bool = False) -> dict[str, Any]:
 
 def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
     """Output system info in human-readable text format."""
+    from rich.panel import Panel
+    from rich.table import Table
+
+    console = _get_console()
+
     # Title
     console.print(
         Panel.fit(
-            "[bold]ModelKit System Information[/bold]",
+            "[bold]WinML CLI System Information[/bold]",
             border_style="blue",
         )
     )
@@ -254,16 +368,16 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
     lib_table.add_column("Version")
     lib_table.add_column("Status")
 
-    for lib, version in info["libraries"].items():
-        status = "[green]OK[/green]" if version else "[red]Not installed[/red]"
-        lib_table.add_row(lib, version or "-", status)
+    for lib, lib_version in info["libraries"].items():
+        status = "[green]OK[/green]" if lib_version else "[red]Not installed[/red]"
+        lib_table.add_row(lib, lib_version or "-", status)
 
     console.print("\n[bold blue]ML Libraries[/bold blue]")
     console.print(lib_table)
 
-    # PyTorch details
+    # PyTorch details (CUDA fields only populated with --verbose)
     torch_info = info["torch"]
-    if torch_info["available"]:
+    if torch_info["available"] and "cuda_available" in torch_info:
         console.print("\n[bold blue]PyTorch Details[/bold blue]")
         torch_table = Table(show_header=False, box=None, padding=(0, 2))
         torch_table.add_column("Key", style="bold")
@@ -278,45 +392,51 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
 
         console.print(torch_table)
 
-    # Backend SDKs
-    console.print("\n[bold blue]Backend SDKs[/bold blue]")
-    backend_table = Table(show_header=False, box=None, padding=(0, 2))
-    backend_table.add_column("Backend", style="bold")
-    backend_table.add_column("Status")
-    backend_table.add_column("Details")
+    # Backend SDKs and Export Readiness are diagnostic info — only render
+    # under --verbose so the default `winml sys` stays focused on Python,
+    # libraries, devices, and EPs.
+    if verbose:
+        backends = info["backends"]
+        qnn = backends["qnn"]
+        ov = backends["openvino"]
 
-    qnn = info["backends"]["qnn"]
-    qnn_status = "[green]Installed[/green]" if qnn["installed"] else "[yellow]Not found[/yellow]"
-    qnn_details = qnn.get("path", "-")[:50] if qnn["installed"] else "-"
-    backend_table.add_row("QNN SDK", qnn_status, qnn_details)
+        console.print("\n[bold blue]Backend SDKs[/bold blue]")
+        backend_table = Table(show_header=False, box=None, padding=(0, 2))
+        backend_table.add_column("Backend", style="bold")
+        backend_table.add_column("Status")
+        backend_table.add_column("Details")
 
-    ov = info["backends"]["openvino"]
-    ov_status = "[green]Installed[/green]" if ov["installed"] else "[yellow]Not found[/yellow]"
-    ov_details = ov.get("version", "-") if ov["installed"] else "-"
-    backend_table.add_row("OpenVINO", ov_status, ov_details)
+        if qnn["installed"]:
+            backend_table.add_row("QNN SDK", "[green]Installed[/green]", qnn.get("path", "-")[:50])
+        else:
+            backend_table.add_row("QNN SDK", "[yellow]Not found[/yellow]", "-")
+        if ov["installed"]:
+            backend_table.add_row("OpenVINO", "[green]Installed[/green]", ov.get("version", "-"))
+        else:
+            backend_table.add_row("OpenVINO", "[yellow]Not found[/yellow]", "-")
 
-    console.print(backend_table)
+        console.print(backend_table)
 
-    # Export Readiness
-    console.print("\n[bold blue]Export Readiness[/bold blue]")
-    readiness = info["export_readiness"]
-    ready_table = Table(show_header=False, box=None, padding=(0, 2))
-    ready_table.add_column("Capability", style="bold")
-    ready_table.add_column("Status")
+        readiness = info["export_readiness"]
+        console.print("\n[bold blue]Export Readiness[/bold blue]")
+        ready_table = Table(show_header=False, box=None, padding=(0, 2))
+        ready_table.add_column("Capability", style="bold")
+        ready_table.add_column("Status")
 
-    onnx_ready = "[green]Ready[/green]" if readiness["onnx_export"] else "[red]Not ready[/red]"
-    qnn_ready = (
-        "[green]Ready[/green]" if readiness["qnn_ready"] else "[yellow]SDK required[/yellow]"
-    )
-    ov_ready = (
-        "[green]Ready[/green]" if readiness["openvino_ready"] else "[yellow]Not installed[/yellow]"
-    )
+        onnx_ready = "[green]Ready[/green]" if readiness["onnx_export"] else "[red]Not ready[/red]"
+        ready_table.add_row("ONNX Export", onnx_ready)
+        qnn_status = (
+            "[green]Ready[/green]" if readiness["qnn_ready"] else "[yellow]SDK required[/yellow]"
+        )
+        ready_table.add_row("QNN Compilation", qnn_status)
+        ov_status = (
+            "[green]Ready[/green]"
+            if readiness["openvino_ready"]
+            else "[yellow]Not installed[/yellow]"
+        )
+        ready_table.add_row("OpenVINO Conversion", ov_status)
 
-    ready_table.add_row("ONNX Export", onnx_ready)
-    ready_table.add_row("QNN Compilation", qnn_ready)
-    ready_table.add_row("OpenVINO Conversion", ov_ready)
-
-    console.print(ready_table)
+        console.print(ready_table)
 
 
 def _output_json(info: dict[str, Any]) -> None:
@@ -339,7 +459,7 @@ def _output_compact(info: dict[str, Any]) -> None:
         f"onnx: {libs.get('onnx', 'N/A')}",
     ]
 
-    if torch_info["available"] and torch_info["cuda_available"]:
+    if torch_info["available"] and torch_info.get("cuda_available"):
         lines.append(
             f"CUDA: {torch_info.get('cuda_version', 'N/A')} | "
             f"GPU: {torch_info.get('gpu_count', 0)} device(s)"
@@ -347,10 +467,13 @@ def _output_compact(info: dict[str, Any]) -> None:
 
     qnn = info["backends"]["qnn"]
     ov = info["backends"]["openvino"]
-    lines.append(
-        f"QNN: {'OK' if qnn['installed'] else 'N/A'} | "
-        f"OpenVINO: {ov.get('version', 'N/A') if ov['installed'] else 'N/A'}"
-    )
+    sdk_parts = []
+    if qnn["installed"]:
+        sdk_parts.append("QNN: OK")
+    if ov["installed"]:
+        sdk_parts.append(f"OpenVINO: {ov.get('version', 'OK')}")
+    if sdk_parts:
+        lines.append(" | ".join(sdk_parts))
 
     onnx_status = "OK" if readiness["onnx_export"] else "FAIL"
     lines.append(f"Export Ready: ONNX {onnx_status}")
@@ -365,37 +488,50 @@ def _output_compact(info: dict[str, Any]) -> None:
 def _gather_device_info() -> list[dict[str, Any]]:
     """Gather available device information in priority order.
 
+    Each ``XPU.get_all()`` call spawns a PowerShell subprocess; the slowest
+    of the three (Win32_Processor WMI query, ~1.3 s warm) sets the floor.
+    We run them in parallel so the wall time is max() instead of sum()
+    (issue #558).
+
     Returns:
         List of device dicts with type, priority, and details.
     """
     from ..sysinfo import CPU, GPU, NPU
 
-    result: list[dict[str, Any]] = []
-    priority = 1
-
-    # Query hardware directly in NPU > GPU > CPU priority order.
-    # This avoids depending on _get_available_devices() and eliminates
-    # redundant PowerShell queries (we need the details anyway).
-    hw_queries: list[tuple[str, type]] = [
+    # NPU > GPU > CPU priority order.
+    hw_queries: list[tuple[str, type[NPU] | type[GPU] | type[CPU]]] = [
         ("NPU", NPU),
         ("GPU", GPU),
         ("CPU", CPU),
     ]
 
-    for device_label, hw_class in hw_queries:
-        try:
-            items = hw_class.get_all()
-        except Exception as e:
-            logger.warning("Failed to get %s details: %s", device_label, e)
-            # Only append an error entry if this was expected to have results
-            # CPU always exists, NPU/GPU may not
+    with ThreadPoolExecutor(max_workers=len(hw_queries)) as pool:
+        futures = [(label, pool.submit(cls.get_all)) for label, cls in hw_queries]
+        # Sequence (not list) because list is invariant in its element type:
+        # fut.result() at runtime is list[CPU] | list[GPU] | list[NPU], none
+        # of which are list[Any]. Sequence is covariant, so this accepts
+        # all three. The cast at .result() is needed because pool.submit
+        # collapses the union-typed `cls.get_all` callable to Future[object].
+        ordered_results: list[tuple[str, Sequence[Any] | Exception]] = []
+        for label, fut in futures:
+            try:
+                ordered_results.append((label, cast("Sequence[Any]", fut.result())))
+            except Exception as e:  # noqa: PERF203 - per-future error capture
+                ordered_results.append((label, e))
+
+    result: list[dict[str, Any]] = []
+    priority = 1
+    for device_label, items in ordered_results:
+        if isinstance(items, Exception):
+            logger.warning("Failed to get %s details: %s", device_label, items)
+            # CPU always exists, NPU/GPU may not — only surface CPU errors.
             if device_label == "CPU":
                 result.append(
                     {
                         "priority": priority,
                         "type": device_label,
                         "name": "(detection error)",
-                        "details": {"error": str(e)},
+                        "details": {"error": str(items)},
                     }
                 )
                 priority += 1
@@ -427,18 +563,27 @@ def _gather_device_info() -> list[dict[str, Any]]:
 
 def _output_device_text(devices: list[dict[str, Any]]) -> None:
     """Display device list in rich text format."""
+    console = _get_console()
     console.print("\n[bold blue]Available Devices (priority order)[/bold blue]")
     for dev in devices:
+        # highlight=False keeps Rich's auto-highlighter (which would otherwise
+        # colorize numbers, IDs, paths, etc.) off the device name. Markup styles
+        # ([bold], [cyan]) on the prefix still apply.
         console.print(
-            f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {dev['name']}"
+            f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {dev['name']}",
+            highlight=False,
         )
         details = dev.get("details", {})
         if "error" in details:
             console.print(f"             [red]Error: {details['error']}[/red]")
         elif dev["type"] in ("NPU", "GPU"):
+            # Explicit [green] markup with highlight=False — Rich's auto-highlighter
+            # mis-styles driver version strings, so opt out of it here and apply
+            # the green via markup we control.
             console.print(
-                f"             Driver: {details.get('driver', 'N/A')} | "
-                f"Manufacturer: {details.get('manufacturer', 'N/A')}"
+                f"             Driver: [bold bright_green]{details.get('driver', 'N/A')}[/] | "
+                f"Manufacturer: {details.get('manufacturer', 'N/A')}",
+                highlight=False,
             )
         elif dev["type"] == "CPU":
             console.print(
@@ -460,7 +605,7 @@ def _gather_ep_info() -> list[dict[str, Any]]:
         List of EP dicts with name, device, and optional path.
     """
     eps: list[dict[str, Any]] = []
-    winml_eps: dict[str, str] = {}
+    winml_eps: dict[EPName, str] = {}
 
     # Try WinML EP Registry first
     try:
@@ -482,24 +627,30 @@ def _gather_ep_info() -> list[dict[str, Any]]:
 
     # Merge: WinML EPs first (they have paths), then ORT-only EPs
     ep_device_map = get_ep_device_map()
-    seen: set[str] = set()
+    seen: set[EPName] = set()
 
     for ep_name, ep_path in winml_eps.items():
         device = ep_device_map.get(ep_name, "unknown").upper()
         eps.append({"name": ep_name, "device": device, "path": ep_path})
         seen.add(ep_name)
 
-    for ep_name in ort_providers:
-        if ep_name not in seen:
-            device = ep_device_map.get(ep_name, "unknown").upper()
-            eps.append({"name": ep_name, "device": device, "path": None})
-            seen.add(ep_name)
+    for raw_name in ort_providers:
+        # ORT returns arbitrary strings; cast acknowledges that downstream
+        # storage and lookup treat them as EPName. Unknown names fall through
+        # to the "unknown" device default.
+        ep_name = cast("EPName", raw_name)
+        if ep_name in seen:
+            continue
+        device = ep_device_map.get(ep_name, "unknown").upper()
+        eps.append({"name": ep_name, "device": device, "path": None})
+        seen.add(ep_name)
 
     return eps
 
 
 def _output_ep_text(eps: list[dict[str, Any]]) -> None:
     """Display EP list in rich text format."""
+    console = _get_console()
     console.print("\n[bold blue]Available Execution Providers[/bold blue]")
     if not eps:
         console.print("  [yellow]No execution providers found.[/yellow]")
@@ -514,8 +665,8 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
             console.print("    [dim](built-in)[/dim]")
 
 
-@click.command()  # type: ignore[misc]
-@click.option(  # type: ignore[misc]
+@click.command()
+@click.option(
     "--format",
     "-f",
     "output_format",
@@ -523,34 +674,29 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
     default="text",
     help="Output format: text (human-readable), json, or compact",
 )
-@click.option(  # type: ignore[misc]
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Include additional diagnostic information",
-)
-@click.option(  # type: ignore[misc]
+@click.option(
     "--list-device",
     is_flag=True,
     default=False,
     help="List available devices in priority order",
 )
-@click.option(  # type: ignore[misc]
+@click.option(
     "--list-ep",
     is_flag=True,
     default=False,
     help="List available execution providers",
 )
-@click.pass_context  # type: ignore[misc]
+@cli_utils.verbosity_options()
+@click.pass_context
 def sysinfo(
     ctx: click.Context,
     output_format: str,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     list_device: bool,
     list_ep: bool,
 ) -> None:
-    r"""Display system information for ModelKit export.
+    r"""Display system information for WinML CLI export.
 
     This command gathers and displays information relevant to ONNX model
     export, including Python version, library versions, hardware
@@ -579,125 +725,114 @@ def sysinfo(
         # List execution providers as JSON
         winml sys --list-ep --format json
     """
-    # Inherit debug mode from parent
-    if ctx.obj.get("debug"):
-        verbose = True
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
 
-    # Route winml.modelkit logs through Rich so they never interleave with CLI output.
-    # In normal mode suppress everything below WARNING; in debug mode show all levels.
-    # Restore logger state on exit so tests using caplog are not affected.
-    log_level = logging.DEBUG if verbose else logging.WARNING
-    pkg_logger = logging.getLogger("winml.modelkit")
-    _saved_handlers = pkg_logger.handlers[:]
-    _saved_level = pkg_logger.level
-    _saved_propagate = pkg_logger.propagate
-    pkg_logger.handlers = [h for h in pkg_logger.handlers if not isinstance(h, RichHandler)]
-    rich_handler = RichHandler(console=console, show_path=False)
-    rich_handler.setLevel(log_level)
-    pkg_logger.setLevel(log_level)
-    pkg_logger.addHandler(rich_handler)
-    pkg_logger.propagate = False
+    # Standard verbosity contract: stderr-only logs in the shared format.
+    # `-v` here keeps its `sys`-specific second job of expanding the displayed
+    # diagnostics; see the table-DEBUG audit follow-up for fully decoupling
+    # them.
+    configure_logging(verbosity=verbose, quiet=quiet)
 
-    try:
-        use_json = output_format.lower() == "json"
+    use_json = output_format.lower() == "json"
 
-        # Handle --list-device and/or --list-ep (combinable)
-        if list_device or list_ep:
-            if use_json:
-                # Combine both into a single JSON object so output is always valid JSON
-                result: dict[str, Any] = {}
-                if list_device:
-                    try:
-                        result["devices"] = _gather_device_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        result["executionProviders"] = _gather_ep_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-                click.echo(json.dumps(result, indent=2))
-            elif output_format.lower() == "compact":
-                if list_device:
-                    try:
-                        devices = _gather_device_info()
-                        parts = [f"{d['type']}: {d['name'].strip()}" for d in devices]
-                        click.echo(" | ".join(parts) if parts else "No devices found")
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        eps = _gather_ep_info()
-                        parts = [f"{ep['name']}({ep['device']})" for ep in eps]
-                        click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-            else:
-                if list_device:
-                    try:
-                        devices = _gather_device_info()
-                        _output_device_text(devices)
-                    except Exception as e:
-                        console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        eps = _gather_ep_info()
-                        _output_ep_text(eps)
-                    except Exception as e:
-                        err_msg = f"[bold red]Error detecting execution providers:[/bold red] {e}"
-                        console.print(err_msg)
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-            return
+    # Logging is configured via the shared, idempotent configure_logging above;
+    # no per-command logger snapshot/restore is needed (every other command
+    # relies on the same contract for test isolation).
 
-        # Default: full sysinfo including devices and EPs
-        try:
-            info = _gather_system_info(verbose=verbose)
-
-            if use_json:
-                # Add devices and EPs to JSON output
+    # Handle --list-device and/or --list-ep (combinable)
+    if list_device or list_ep:
+        if use_json:
+            # Combine both into a single JSON object so output is always valid JSON
+            result: dict[str, Any] = {}
+            if list_device:
                 try:
-                    info["devices"] = _gather_device_info()
-                except Exception:
-                    info["devices"] = []
+                    result["devices"] = _gather_device_info()
+                except Exception as e:
+                    logger.exception("Failed to detect devices")
+                    raise click.ClickException(f"Error detecting devices: {e}") from e
+            if list_ep:
                 try:
-                    info["executionProviders"] = _gather_ep_info()
-                except Exception:
-                    info["executionProviders"] = []
-                _output_json(info)
-            elif output_format.lower() == "compact":
-                _output_compact(info)
-            else:
-                _output_text(info, verbose=verbose)
-                # Append devices and EPs to text output
-                console.print()
+                    result["executionProviders"] = _gather_ep_info()
+                except Exception as e:
+                    logger.exception("Failed to detect execution providers")
+                    msg = f"Error detecting execution providers: {e}"
+                    raise click.ClickException(msg) from e
+            click.echo(json.dumps(result, indent=2))
+        elif output_format.lower() == "compact":
+            if list_device:
+                try:
+                    devices = _gather_device_info()
+                    parts = [f"{d['type']}: {d['name'].strip()}" for d in devices]
+                    click.echo(" | ".join(parts) if parts else "No devices found")
+                except Exception as e:
+                    logger.exception("Failed to detect devices")
+                    raise click.ClickException(f"Error detecting devices: {e}") from e
+            if list_ep:
+                try:
+                    eps = _gather_ep_info()
+                    parts = [f"{ep['name']}({ep['device']})" for ep in eps]
+                    click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
+                except Exception as e:
+                    logger.exception("Failed to detect execution providers")
+                    msg = f"Error detecting execution providers: {e}"
+                    raise click.ClickException(msg) from e
+        else:
+            if list_device:
                 try:
                     devices = _gather_device_info()
                     _output_device_text(devices)
-                except Exception:
-                    logger.debug("Device detection failed in default output")
-                console.print()
+                except Exception as e:
+                    _get_console().print(f"[bold red]Error detecting devices:[/bold red] {e}")
+                    logger.exception("Failed to detect devices")
+                    raise click.ClickException(f"Error detecting devices: {e}") from e
+            if list_ep:
                 try:
                     eps = _gather_ep_info()
                     _output_ep_text(eps)
-                except Exception:
-                    logger.debug("EP detection failed in default output")
+                except Exception as e:
+                    _get_console().print(
+                        f"[bold red]Error detecting execution providers:[/bold red] {e}"
+                    )
+                    logger.exception("Failed to detect execution providers")
+                    msg = f"Error detecting execution providers: {e}"
+                    raise click.ClickException(msg) from e
+        return
 
-        except Exception as e:
-            console.print(f"[bold red]Error gathering system information:[/bold red] {e}")
-            logger.exception("Failed to gather system information")
-            raise click.ClickException(f"Error gathering system information: {e}") from e
+    # Default: full sysinfo including devices and EPs
+    try:
+        info = _gather_system_info(verbose=bool(verbose))
 
-    finally:
-        pkg_logger.handlers = _saved_handlers
-        pkg_logger.setLevel(_saved_level)
-        pkg_logger.propagate = _saved_propagate
+        if use_json:
+            # Add devices and EPs to JSON output
+            try:
+                info["devices"] = _gather_device_info()
+            except Exception:
+                info["devices"] = []
+            try:
+                info["executionProviders"] = _gather_ep_info()
+            except Exception:
+                info["executionProviders"] = []
+            _output_json(info)
+        elif output_format.lower() == "compact":
+            _output_compact(info)
+        else:
+            _output_text(info, verbose=bool(verbose))
+            # Append devices and EPs to text output
+            _get_console().print()
+            try:
+                devices = _gather_device_info()
+                _output_device_text(devices)
+            except Exception:
+                logger.debug("Device detection failed in default output")
+            _get_console().print()
+            try:
+                eps = _gather_ep_info()
+                _output_ep_text(eps)
+            except Exception:
+                logger.debug("EP detection failed in default output")
+
+    except Exception as e:
+        _get_console().print(f"[bold red]Error gathering system information:[/bold red] {e}")
+        logger.exception("Failed to gather system information")
+        raise click.ClickException(f"Error gathering system information: {e}") from e

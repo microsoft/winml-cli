@@ -27,7 +27,9 @@ from onnx import TensorProto
 # winml.modelkit.models.winml.base imports WinMLSession at module level,
 # which triggers WinMLEPRegistry._discover_eps() → WinML SDK runtime init.
 # This can hang on CI environments without the SDK installed.
-# Mock it globally for non-e2e tests; e2e tests use real initialization.
+# Apply this guard to CI-covered fast suites (unit/regression/cli) so
+# WinML SDK runtime initialization does not add environment-dependent
+# hangs/flakiness. Integration and e2e tests use real initialization.
 
 
 @pytest.fixture(autouse=True)
@@ -67,9 +69,31 @@ def _reset_telemetry_singleton():
 
 @pytest.fixture(autouse=True)
 def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mock WinML EP initialization for non-e2e tests."""
-    if "e2e" in {m.name for m in request.node.iter_markers()}:
+    """Mock WinML EP initialization for unit/regression/cli tests."""
+    nodeid = request.node.nodeid.replace("\\", "/")
+    # Keep CI fast/stable for the matrix groups that run by default.
+    if not nodeid.startswith(("tests/unit/", "tests/regression/", "tests/cli/")):
         return
+    try:
+        from winml.modelkit.session import ep_registry as ep_registry_mod
+
+        def _mock_discover_eps(registry) -> None:
+            registry._ep_paths = {}
+            registry._registered_eps = []
+            registry._winml_available = False
+            registry._catalog = None
+
+        monkeypatch.setattr(ep_registry_mod, "_winml_ep_registry", None)
+        monkeypatch.setattr(
+            ep_registry_mod.WinMLEPRegistry,
+            "_discover_eps",
+            _mock_discover_eps,
+        )
+    except ImportError as e:
+        import warnings
+
+        warnings.warn(f"Could not mock WinMLEPRegistry discovery: {e}", stacklevel=2)
+
     try:
         monkeypatch.setattr(
             "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +27,8 @@ from rich.console import Console
 from rich.table import Table
 
 from ..utils import cli as cli_utils
+from ..utils.constants import EPName, EPNameOrAlias
+from ..utils.logging import configure_logging
 from ._live_chart import LiveMonitorDisplay
 
 
@@ -78,8 +79,9 @@ class BenchmarkConfig:
     no_quantize: bool = False
     rebuild: bool = False
     ignore_cache: bool = False
+    allow_unsupported_nodes: bool = False
     monitor: bool = False
-    ep: str | None = None
+    ep: EPNameOrAlias | None = None
     shape_config: dict | None = None
 
 
@@ -121,6 +123,7 @@ class BenchmarkResult:
     # Actual values used (after auto-detection)
     actual_device: str = ""
     actual_task: str = ""
+    actual_ep: EPName | None = None
 
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
@@ -132,6 +135,7 @@ class BenchmarkResult:
                 "model_id": self.config.model_id,
                 "task": self.actual_task,
                 "device": self.actual_device,
+                "ep": self.actual_ep,
                 "precision": self.config.precision,
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
@@ -286,6 +290,7 @@ class PerfBenchmark:
         # [1] Load model
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
+        assert self._model is not None
 
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
@@ -298,7 +303,9 @@ class PerfBenchmark:
         _print_model_info(
             self._model.io_config,
             task=self._model.task or self.config.task,
-            device=self._model.device,
+            req_device=self.config.device,
+            act_device=self._model.device,
+            ep_name=self._model.ep_name,
         )
 
         # [3] Run benchmark
@@ -317,14 +324,10 @@ class PerfBenchmark:
         """Load model via WinMLAutoModel (handles both HF and ONNX)."""
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
-        from ..sysinfo import resolve_device
 
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
-
-        # Resolve device once -- "auto" becomes concrete (e.g., "npu")
-        resolved_device, _ = resolve_device(device=self.config.device)
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -335,15 +338,16 @@ class PerfBenchmark:
         use_cache = not self.config.ignore_cache
         force_rebuild = self.config.rebuild or self.config.ignore_cache
 
-        common_kwargs = {
+        common_kwargs: dict[str, Any] = {
             "task": self.config.task,
             "config": override,
-            "device": resolved_device,
+            "device": self.config.device,
             "precision": self.config.precision,
             "ep": self.config.ep,
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
             "shape_config": self.config.shape_config,
+            "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
         }
 
         if is_onnx:
@@ -359,6 +363,7 @@ class PerfBenchmark:
 
     def _generate_inputs(self) -> None:
         """Generate random inputs based on model io_config."""
+        assert self._model is not None
         io_config = self._model.io_config
         self._inputs = generate_random_inputs(
             io_config=io_config,
@@ -373,6 +378,8 @@ class PerfBenchmark:
 
     def _run_benchmark_simple(self) -> PerfStats:
         """Execute benchmark without live monitoring."""
+        assert self._model is not None
+        assert self._inputs is not None
         session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
@@ -393,6 +400,8 @@ class PerfBenchmark:
         from ..session.monitor.hw_monitor import HWMonitor
         from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
+        assert self._model is not None
+        assert self._inputs is not None
         session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
@@ -407,21 +416,18 @@ class PerfBenchmark:
         # GPU when --device gpu is specified, NPU when --device npu, etc.
         # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
         # metadata so we follow the adapter the session actually binds to.
-        from ..utils.constants import normalize_ep_name
-
         monitor_device = self._model.device or self.config.device or "auto"
-        ep_name = normalize_ep_name(self.config.ep) if self.config.ep else None
         hw_monitor = HWMonitor(
             poll_interval_ms=_HW_POLL_INTERVAL_MS,
             device=monitor_device,
-            ep_name=ep_name,
+            ep_name=session.ep_name,
         )
 
         # EP-specific proof-of-execution monitor.
         # When QNN/OpenVINO monitors become real, add entries here.
-        _ep_monitors = {"vitisai": VitisAIMonitor}
-        ep = self.config.ep
-        monitor_cls = _ep_monitors.get(ep)
+        _ep_monitors: dict[EPName, Any] = {"VitisAIExecutionProvider": VitisAIMonitor}
+        monitor_cls = _ep_monitors.get(session.ep_name) if session.ep_name else None
+        ep_monitor: Any
         if monitor_cls and monitor_cls.is_available():
             ep_monitor = monitor_cls()
         else:
@@ -453,6 +459,7 @@ class PerfBenchmark:
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
+        assert self._model is not None
         io_config = self._model.io_config
 
         # Calculate throughput
@@ -493,6 +500,7 @@ class PerfBenchmark:
             # Actual values (resolved after build + compile)
             actual_device=self._model.device,
             actual_task=self._model.task or self.config.task or "auto-detected",
+            actual_ep=self._model.ep_name,
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
         )
@@ -517,8 +525,9 @@ def _perf_modules(
     console: Console,
     monitor: bool = False,
     device: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     precision: str = "auto",
+    allow_unsupported_nodes: bool = False,
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
 
@@ -542,16 +551,19 @@ def _perf_modules(
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
             device-to-provider mapping when set.
         precision: Precision mode passed through to the build stage.
+        allow_unsupported_nodes: If True, warn instead of failing the build when
+            the analyzer reports unsupported nodes that persist.
     """
+    import difflib
     import json as json_mod
     import tempfile
 
     from ..build import build_hf_model
-    from ..config import generate_hf_build_config
+    from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
     from ..sysinfo import resolve_device
     from .build import _instantiate_parent_model
 
-    resolved_device, _ = resolve_device(device=device)
+    resolved_device, _ = resolve_device(device=device, ep=ep)
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -564,24 +576,44 @@ def _perf_modules(
             precision=precision,
             ep=ep,
         )
+    except SubmoduleClassNotFoundError as e:
+        # User-error: --module pattern didn't match. List what's available so
+        # the user can correct the typo without re-discovering classes manually.
+        msg = [f"No modules matching '{e.class_name}' found."]
+        suggestions = difflib.get_close_matches(e.class_name, e.available_classes, n=5)
+        if suggestions:
+            msg.append(f"Did you mean: {', '.join(suggestions)}?")
+        if e.available_classes:
+            msg.append("Available module class names in this model:")
+            msg.append("  " + "\n  ".join(e.available_classes))
+        raise click.UsageError("\n".join(msg)) from e
     except Exception as e:
-        console.print(f"[red]Error generating module configs: {e}[/red]")
         if verbose:
             logger.exception("Module config generation failed")
-        sys.exit(3)
+        raise click.ClickException(f"Error generating module configs: {e}") from e
 
     if not module_configs:
-        console.print(f"[yellow]No modules matching '{module_class}' found[/yellow]")
-        sys.exit(0)
+        # Defense-in-depth: _find_submodules_by_class now raises on no match,
+        # but keep this branch for builders that might bypass it.
+        raise click.UsageError(f"No modules matching '{module_class}' found")
 
     console.print(f"[dim]Found {len(module_configs)} {module_class} instances[/dim]")
 
-    # Instantiate parent with init weights (no pretrained download)
+    # Instantiate parent with init weights (no pretrained download).
+    # Submodule configs intentionally drop `loader.task`, so re-resolve the
+    # parent task from the model_id — the same path `generate_hf_build_config`
+    # used to compute module_path. Without this, models whose `architectures`
+    # field maps to a different task than `get_supported_tasks(model_type)[0]`
+    # instantiate the wrong parent class and `get_submodule()` raises
+    # AttributeError.
     model_type = module_configs[0].loader.model_type
     if not model_type:
-        console.print("[red]Error: module configs missing model_type[/red]")
-        sys.exit(3)
-    parent_model = _instantiate_parent_model(model_type, task=task)
+        raise click.ClickException("module configs missing model_type")
+
+    from ..loader import resolve_loader_config
+
+    parent_loader_cfg, _, _ = resolve_loader_config(model_id=hf_model, task=task)
+    parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
     all_results: list[dict[str, Any]] = []
     for i, cfg in enumerate(module_configs):
@@ -609,7 +641,7 @@ def _perf_modules(
             cfg.quant = None
             cfg.compile = None
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             try:
                 build_result = build_hf_model(
                     config=cfg,
@@ -617,6 +649,7 @@ def _perf_modules(
                     pytorch_model=submodule,
                     ep=ep,
                     device=resolved_device,
+                    allow_unsupported_nodes=allow_unsupported_nodes,
                 )
 
                 # Benchmark using WinMLSession
@@ -630,19 +663,21 @@ def _perf_modules(
                 io_cfg = session.io_config
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
 
+                # Compile session early so session.device is resolved for display
+                session.compile()
+
                 total_iters = warmup + iterations
                 hw_ctx = None
                 hw_metrics = None
 
                 if monitor:
                     from ..session.monitor.hw_monitor import HWMonitor
-                    from ..utils.constants import normalize_ep_name
 
                     if HWMonitor.is_available():
                         hw_ctx = HWMonitor(
                             poll_interval_ms=_HW_POLL_INTERVAL_MS,
                             device=resolved_device,
-                            ep_name=normalize_ep_name(ep) if ep else None,
+                            ep_name=session.ep_name,
                         )
 
                 if hw_ctx:
@@ -715,8 +750,7 @@ def _perf_modules(
 
     # Write JSON report
     if output is None:
-        slug = hf_model.replace("/", "_").replace("\\", "_")
-        output = Path(f"{slug}_{module_class}_perf.json")
+        output = generate_output_path(hf_model, module_class=module_class)
 
     module_report = {
         "model_id": hf_model,
@@ -737,6 +771,13 @@ def _perf_modules(
 # =============================================================================
 
 
+def _device_string(req_device: str, act_device: str, ep_name: EPName | None) -> str:
+    device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
+    if ep_name:
+        device_str = f"{device_str} / {ep_name}"
+    return device_str
+
+
 def display_console_report(result: BenchmarkResult, console: Console) -> None:
     """Display benchmark results in formatted console output."""
     # Info section — show "requested (resolved)" when they differ
@@ -744,7 +785,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
     req_device = result.config.device
     act_device = result.actual_device
-    device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
+    device_str = _device_string(req_device, act_device, result.actual_ep)
     console.print(f"[dim]Device:[/dim]      {device_str}")
 
     # TODO: show resolved precision once WinMLPreTrainedModel.precision
@@ -807,16 +848,17 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             console.print(
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
-                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg"
+                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
+                f"Mem: {ram.get('used_mb', 0):.0f} MB"
             )
             console.print(
-                f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB  |  "
-                f"Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
+                f"  Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
                 f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
             )
         else:
-            console.print(f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg")
-            console.print(f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB")
+            console.print(
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  Mem: {ram.get('used_mb', 0):.0f} MB"
+            )
 
     console.print()
 
@@ -830,18 +872,28 @@ def write_json_report(result: BenchmarkResult, output_path: Path) -> None:
         json.dump(result.to_dict(), f, indent=2)
 
 
-def generate_output_path(model_id: str) -> Path:
-    """Generate default output path from model ID.
+def generate_output_path(model_id: str, *, module_class: str | None = None) -> Path:
+    r"""Generate default output path under the user's cache directory.
 
-    For ONNX files: uses the file stem (e.g., "model.onnx" -> "model_perf.json").
-    For HF model IDs: slugifies org/name
-    (e.g., "microsoft/resnet-50" -> "microsoft_resnet-50_perf.json").
+    Returns ``~/.cache/winml/perf/<slug>[/<module_class>]/<timestamp>.json``
+    so repeated runs accumulate under a stable per-model directory without
+    polluting CWD (see #551). The timestamp is generated at call time using
+    local time, format ``YYYYMMDD-HHMMSS``.
+
+    For ONNX inputs, the file stem is used as the slug
+    (e.g., ``model.onnx`` -> ``model``). For HF model IDs, ``/`` and ``\``
+    are replaced with ``_`` (e.g., ``microsoft/resnet-50`` ->
+    ``microsoft_resnet-50``).
     """
     p = Path(model_id)
-    if p.suffix.lower() == ".onnx":
-        return Path(f"{p.stem}_perf.json")
-    slug = model_id.replace("/", "_").replace("\\", "_")
-    return Path(f"{slug}_perf.json")
+    slug = p.stem if p.suffix.lower() == ".onnx" else model_id.replace("/", "_").replace("\\", "_")
+
+    out_dir = Path.home() / ".cache" / "winml" / "perf" / slug
+    if module_class:
+        out_dir = out_dir / module_class
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return out_dir / f"{timestamp}.json"
 
 
 # =============================================================================
@@ -853,16 +905,21 @@ def _print_model_info(
     io_config: dict,
     *,
     task: str | None = None,
-    device: str = "auto",
+    req_device: str = "auto",
+    act_device: str = "auto",
+    ep_name: EPName | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
     console = Console(stderr=True)
     console.print()
-    console.print(f"[dim]Device:[/dim]      {device}")
-    # TODO: show resolved precision once WinMLPreTrainedModel.precision
-    # is implemented (derive from _build_config.quant.weight_type)
+    device_line = _device_string(req_device, act_device, ep_name)
+    console.print(f"[dim]Device:[/dim]      {device_line}")
     if task:
         console.print(f"[dim]Task:[/dim]        {task}")
+
+    precision = io_config.get("precision")
+    if precision:
+        console.print(f"[dim]Model Precision:[/dim]   {precision}")
 
     names = io_config.get("input_names", [])
     shapes = io_config.get("input_shapes", [])
@@ -975,7 +1032,7 @@ def _run_onnx_benchmark(
     session.compile()
 
     # Print model info before benchmark starts
-    _print_model_info(io_cfg, device=session.device)
+    _print_model_info(io_cfg, req_device=device, act_device=session.device, ep_name=session.ep_name)
 
     # Run benchmark
     total_iterations = warmup + iterations
@@ -985,13 +1042,12 @@ def _run_onnx_benchmark(
     # Determine if hardware monitoring is available
     if config.monitor:
         from ..session.monitor.hw_monitor import HWMonitor
-        from ..utils.constants import normalize_ep_name
 
         if HWMonitor.is_available():
             hw_ctx = HWMonitor(
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
                 device=session.device or device,
-                ep_name=normalize_ep_name(config.ep) if config.ep else None,
+                ep_name=session.ep_name,
             )
         else:
             Console(stderr=True).print(
@@ -1009,7 +1065,7 @@ def _run_onnx_benchmark(
                 total_iterations=total_iterations,
                 warmup=warmup,
                 model_id=str(onnx_path.name),
-                device=device,
+                device=session.device or device,
             )
             hw_metrics = hw.to_dict()
     else:
@@ -1043,6 +1099,7 @@ def _run_onnx_benchmark(
         batches_per_sec=batches_per_sec,
         actual_device=session.device,
         actual_task="n/a (direct ONNX)",
+        actual_ep=session.ep_name,
         hw_monitor=hw_metrics,
     )
 
@@ -1053,14 +1110,7 @@ def _run_onnx_benchmark(
 
 
 @click.command("perf")
-@click.option(
-    "-m",
-    "--model",
-    "model_id",
-    type=str,
-    default=None,
-    help="Model identifier: HuggingFace model ID or local .onnx file.",
-)
+@cli_utils.model_option(required=False)
 @click.option(
     "--task",
     type=str,
@@ -1069,25 +1119,19 @@ def _run_onnx_benchmark(
 )
 @click.option(
     "--iterations",
-    type=int,
+    type=click.IntRange(min=1),
     default=100,
     show_default=True,
-    help="Number of benchmark iterations",
+    help="Number of benchmark iterations (must be > 0)",
 )
 @click.option(
     "--warmup",
-    type=int,
+    type=click.IntRange(min=0),
     default=10,
     show_default=True,
-    help="Number of warmup iterations (excluded from statistics)",
+    help="Number of warmup iterations (excluded from statistics; must be >= 0)",
 )
-@click.option(
-    "--device",
-    type=click.Choice(["auto", "cpu", "gpu", "npu"], case_sensitive=False),
-    default="auto",
-    show_default=True,
-    help="Device to run benchmark on",
-)
+@cli_utils.device_option(required=False, default="auto", include_auto=True)
 @click.option(
     "--precision",
     type=str,
@@ -1095,21 +1139,13 @@ def _run_onnx_benchmark(
     show_default=True,
     help="Precision mode: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16).",
 )
-@click.option(
-    "--ep",
-    "ep",
-    type=str,
-    default=None,
-    help="Force specific execution provider "
-    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
-    "Overrides device-to-provider mapping.",
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Overrides device-to-provider mapping.",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output JSON file path. Defaults to '{model_slug}_perf.json'",
+@cli_utils.output_option(
+    "Output JSON file path. Defaults to "
+    "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
 )
 @click.option(
     "--batch-size",
@@ -1143,13 +1179,16 @@ def _run_onnx_benchmark(
     default=False,
     help="Build from scratch in a temp folder (discard after benchmarking)",
 )
+@cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--module",
     "module_class",
     default=None,
     type=str,
-    help="HF module class name for per-module benchmarking (e.g., 'BertAttention'). "
-    "Builds and benchmarks each instance separately.",
+    help="PyTorch module class name (NOT a dotted module path) for per-module "
+    "benchmarking. Every instance of the class in the model is built and "
+    "benchmarked separately. Example: '--module BertAttention' (correct), "
+    "not '--module encoder.layer.0.attention' (a path, will not match).",
 )
 @click.option(
     "--monitor",
@@ -1163,35 +1202,32 @@ def _run_onnx_benchmark(
     type=click.Choice(["basic", "detail"], case_sensitive=False),
     default=None,
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
+    hidden=True,  # Not ready, so hide from --help for now
 )
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output",
-)
-@cli_utils.build_config_option
+@cli_utils.build_config_option()
+@cli_utils.verbosity_options()
 @click.pass_context
 def perf(
     ctx: click.Context,
-    model_id: str | None,
+    model: str | None,
     task: str | None,
     iterations: int,
     warmup: int,
     device: str,
     precision: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     output: Path | None,
     batch_size: int,
     shape_config_path: Path | None,
     no_quantize: bool,
     rebuild: bool,
     ignore_cache: bool,
+    allow_unsupported_nodes: bool,
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     config_file: Path | None,
 ) -> None:
     r"""Benchmark model inference performance.
@@ -1222,22 +1258,25 @@ def perf(
         # Operator-level profiling (QNN NPU)
         winml perf -m model.onnx --op-tracing basic
     """
-    if not model_id:
+    if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
-    hf_model = model_id
+    hf_model = model
 
-    # Apply build config defaults (CLI explicit options take precedence)
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
-            task = build_cfg.loader.task
-        if build_cfg.compile and not cli_utils.is_cli_provided(ctx, "ep"):
-            ep = build_cfg.compile.ep_config.provider
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        lc = raw_cfg.get("loader") or {}
+        cc = raw_cfg.get("compile") or {}
+        if not cli_utils.is_cli_provided(ctx, "task") and "task" in lc:
+            task = lc["task"]
+        if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
+            ep = cc["execution_provider"]
 
-    # Setup logging
-    if verbose or (ctx.obj and ctx.obj.get("debug")):
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     console = Console()
 
@@ -1245,6 +1284,17 @@ def perf(
     # MODULE MODE: per-module build + benchmark
     # =========================================================================
     if module_class:
+        # Reject --module on a pre-exported ONNX path. Submodule discovery
+        # walks a live nn.Module graph (torchinfo), which an ONNX file does
+        # not carry. Without this guard, the user sees a misleading
+        # "not a valid JSON file" error from AutoConfig.from_pretrained
+        # trying to load the .onnx as an HF config dir (issue #553).
+        if Path(hf_model).suffix.lower() == ".onnx":
+            raise click.UsageError(
+                f"--module is not supported for ONNX files. "
+                f"Submodule benchmarking requires a HuggingFace model ID "
+                f"(e.g., 'microsoft/resnet-50'), not '{hf_model}'."
+            )
         if shape_config_path:
             console.print(
                 "[yellow]Warning:[/yellow] --shape-config is not supported "
@@ -1259,12 +1309,13 @@ def perf(
             batch_size=batch_size,
             no_quantize=no_quantize,
             output=output,
-            verbose=verbose,
+            verbose=bool(verbose),
             console=console,
             monitor=monitor,
             device=device.lower(),
-            ep=ep.lower() if ep else None,
+            ep=ep,
             precision=precision.lower(),
+            allow_unsupported_nodes=allow_unsupported_nodes,
         )
         return
 
@@ -1305,8 +1356,9 @@ def perf(
         no_quantize=no_quantize,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
+        allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
-        ep=ep.lower() if ep else None,
+        ep=ep,
         shape_config=shape_config,
     )
 
@@ -1326,13 +1378,9 @@ def perf(
                 raise FileNotFoundError(f"ONNX file not found: {model_path}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
 
-            from ..sysinfo import resolve_device
-
-            resolved_device, _ = resolve_device(device=config.device)
-
             result = _run_onnx_benchmark(
                 model_path,
-                device=resolved_device,
+                device=config.device,
                 iterations=iterations,
                 warmup=warmup,
                 batch_size=batch_size,
@@ -1374,7 +1422,13 @@ def perf(
             # Determine the ONNX model path from the benchmark flow.
             # For HF models the ONNX is built internally by PerfBenchmark.
             try:
-                onnx_for_trace = model_path if is_onnx else benchmark._model._onnx_path
+                onnx_for_trace = (
+                    model_path
+                    if is_onnx
+                    else (benchmark._model._onnx_path if benchmark._model else None)
+                )
+                if onnx_for_trace is None:
+                    raise AttributeError("benchmark._model not initialized")
             except AttributeError:
                 console.print(
                     "[red]Error:[/red] Could not determine ONNX model path for op-tracing"
@@ -1412,11 +1466,11 @@ def perf(
             console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] Model not found: {e}")
-        sys.exit(3)
+        # User-error: bad model path. UsageError so the exit code (2) matches
+        # the convention used by Click for argument problems.
+        raise click.UsageError(f"Model not found: {e}") from e
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] Benchmark failed: {e}")
         if verbose:
             logger.exception("Benchmark failed")
-        sys.exit(4)
+        raise click.ClickException(f"Benchmark failed: {e}") from e

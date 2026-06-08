@@ -1,6 +1,6 @@
 # E2E Evaluation Scripts
 
-Batch-evaluate ModelKit's `winml perf` pipeline against a curated set of HuggingFace models.
+Batch-evaluate WinML CLI's `winml perf` pipeline against a curated set of HuggingFace models.
 Captures pass/fail, failure classification, and generates interactive reports.
 
 ## Quick Start

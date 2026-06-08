@@ -10,8 +10,8 @@ from unittest.mock import patch
 import pytest
 from datasets import ClassLabel, Dataset, Features, Sequence, Value
 
-from winml.modelkit.datasets import DatasetConfig
-from winml.modelkit.eval import WinMLEvaluator
+from winml.modelkit.eval import DatasetConfig, WinMLEvaluator
+from winml.modelkit.utils.eval_utils import DatasetValidationError
 
 
 # ---------------------------------------------------------------------------
@@ -34,9 +34,10 @@ class MockModel:
         self.config = MockConfig(label2id, id2label)
 
 
-def make_evaluator(label2id=None, id2label=None):
+def make_evaluator(label2id=None, id2label=None, task="image-classification"):
     ev = object.__new__(WinMLEvaluator)
     ev.model = MockModel(label2id, id2label)
+    ev.config = type("Cfg", (), {"task": task})()
     return ev
 
 
@@ -155,14 +156,14 @@ class TestAlignLabelsEndToEnd:
         ev = make_evaluator(label2id={"cat": 0, "dog": 1})
         ds = make_dataset([0, 1, 2, 0, 2], names=["cat", "dog", "bird"])
         ds_config = DatasetConfig(path="test")
-        with pytest.raises(RuntimeError):
+        with pytest.raises(DatasetValidationError):
             ev.align_labels(ds, ds_config)
 
     def test_zero_overlap_raises(self):
         ev = make_evaluator(label2id={"fish": 0, "shark": 1})
         ds = make_dataset([0, 1], names=["cat", "dog"])
         ds_config = DatasetConfig(path="test")
-        with pytest.raises(RuntimeError):
+        with pytest.raises(DatasetValidationError):
             ev.align_labels(ds, ds_config)
 
     def test_different_ordering_reordered(self):
@@ -217,7 +218,7 @@ class TestFilterUnsupportedLabels:
     def test_zero_remaining_raises(self):
         ev = make_evaluator(id2label={99: "x"})
         ds = make_dataset([0, 1], names=["cat", "dog"])
-        with pytest.raises(ValueError, match="No samples remain"):
+        with pytest.raises(DatasetValidationError, match="No samples remain"):
             ev._filter_unsupported_labels(ds, "label")
 
     def test_custom_label_column(self):

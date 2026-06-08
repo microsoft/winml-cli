@@ -30,7 +30,7 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,6 +55,9 @@ from .schema import (
 )
 from .schema_generator import APISchemaGenerator
 
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -89,14 +92,51 @@ class _RingHandler(logging.Handler):
 
 _log_handler = _RingHandler()
 _log_handler.setFormatter(logging.Formatter("%(message)s"))
-# Attach to modelkit root logger so all sub-loggers feed into the ring
-logging.getLogger("winml.modelkit").addHandler(_log_handler)
-logging.getLogger("winml.modelkit").setLevel(logging.INFO)
+# Bound the records the ring receives independently of the package logger's
+# level. This lets us attach the handler without raising the package logger
+# level at import time — which would otherwise mute DEBUG capture in unrelated
+# tests that get collected alongside the serve test module.
+_log_handler.setLevel(logging.INFO)
 
-# ---------------------------------------------------------------------------
-# Valid EP shorthands accepted by POST /v1/ep
-# ---------------------------------------------------------------------------
-_VALID_EPS = {"cpu", "dml", "qnn", "openvino", "auto"}
+
+def _attach_log_handler() -> None:
+    """Idempotently attach the ring handler to the modelkit logger tree.
+
+    Does NOT touch the package logger's level — that is a per-process side
+    effect we only want during an actual ``winml serve`` run (handled by the
+    lifespan startup hook), not at module-import time and not for tests that
+    only need ``_register_routes`` wired up.
+    """
+    pkg_logger = logging.getLogger("winml.modelkit")
+    if _log_handler not in pkg_logger.handlers:
+        pkg_logger.addHandler(_log_handler)
+
+
+def _ensure_log_capture_level() -> int | None:
+    """Raise the package logger level to INFO if needed; return prior level.
+
+    Returns ``None`` when no change was made (so the caller knows there is
+    nothing to restore). Pair with :func:`_restore_log_capture_level`.
+    """
+    pkg_logger = logging.getLogger("winml.modelkit")
+    if pkg_logger.level == logging.NOTSET or pkg_logger.level > logging.INFO:
+        prior = pkg_logger.level
+        pkg_logger.setLevel(logging.INFO)
+        return prior
+    return None
+
+
+def _restore_log_capture_level(prior: int | None) -> None:
+    if prior is None:
+        return
+    pkg_logger = logging.getLogger("winml.modelkit")
+    # Only restore if the value still matches what we set. If anyone else
+    # (middleware, debug hook, a nested ``configure_logging`` from a CLI
+    # invocation routed through /v1/cli) has since changed it, defer to them
+    # rather than silently rolling their change back.
+    if pkg_logger.level == logging.INFO:
+        pkg_logger.setLevel(prior)
+
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -108,7 +148,7 @@ def create_app(
     model_path: str | None,
     task: str | None = None,
     device: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     idle_timeout_sec: float = 0.0,
     mode: str = "single",
     memory_budget_mb: float = 4096.0,
@@ -128,6 +168,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.start_time = time.time()
+        # Raise the modelkit logger to INFO so the ring handler receives
+        # operational records during `winml serve`. Tests that build the app
+        # via ``_register_routes`` + their own mock lifespan never reach this
+        # branch, so the global level stays unchanged for them.
+        app.state._log_capture_prior = _ensure_log_capture_level()
         if mode == "multi":
             mgr = ModelSlotManager(
                 memory_budget_mb=memory_budget_mb,
@@ -149,9 +194,10 @@ def create_app(
         logger.info("Model ready")
         yield
         app.state.manager.shutdown()
+        _restore_log_capture_level(getattr(app.state, "_log_capture_prior", None))
 
     app = FastAPI(
-        title="ModelKit Inference Server",
+        title="WinML CLI Inference Server",
         version=__version__,
         description=(
             "Local REST API for WinML model inference.\n\n"
@@ -185,6 +231,8 @@ def create_app(
 
 
 def _register_routes(app: FastAPI, *, mode: str) -> None:
+    _attach_log_handler()
+
     # ------------------------------------------------------------------
     # Local helpers (closure over app)
     # ------------------------------------------------------------------
@@ -417,7 +465,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
             return {
                 "tools": mcp_tools,
                 "server_info": {
-                    "name": "ModelKit Inference",
+                    "name": "WinML CLI Inference",
                     "version": __version__,
                     "models": [
                         {"model_id": mid, "task": t}
@@ -437,12 +485,9 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
     # ------------------------------------------------------------------
     @app.post("/v1/ep", tags=["management"], summary="Switch execution provider")
     async def switch_ep(request: EpSwitchRequest) -> dict[str, Any]:
-        ep = request.ep.lower()
-        if ep not in _VALID_EPS:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Unknown EP '{ep}'. Valid: {sorted(_VALID_EPS)}",
-            )
+        # Pydantic already validates ep against the EPAlias Literal (rejects
+        # unknown values with a 422 at parse time), so no extra check needed.
+        ep = request.ep
         mgr = _get_mgr()
         if not isinstance(mgr, SingleModelManager):
             raise HTTPException(
@@ -830,17 +875,17 @@ def print_startup_banner(
     *,
     host: str,
     port: int,
-    model_path: str,
+    model_path: str | None,
     task: str | None,
     device: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
 ) -> None:
     """Print Phase 1+ startup banner to stdout."""
     from rich.console import Console
 
     console = Console()
     console.print()
-    console.print("[bold]ModelKit Inference Server[/bold]")
+    console.print("[bold]WinML CLI Inference Server[/bold]")
     console.print(f"Model:   {model_path or '(none — load via POST /v1/models)'}")
     if task:
         console.print(f"Task:    {task}")

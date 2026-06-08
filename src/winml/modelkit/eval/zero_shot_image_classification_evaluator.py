@@ -19,39 +19,30 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ..utils.eval_utils import DatasetValidationError
 from .base_evaluator import WinMLEvaluator
 
 
 if TYPE_CHECKING:
     from datasets import Dataset
 
-    from ..datasets.config import DatasetConfig
     from ..models.winml.base import WinMLPreTrainedModel
-    from .config import WinMLEvaluationConfig
+    from .config import DatasetConfig, WinMLEvaluationConfig
 
 class WinMLZeroShotImageClassificationEvaluator(WinMLEvaluator):
     """Evaluator for zero-shot image classification using top-k accuracy."""
-
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for zero-shot image classification."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("image", "Image", "input_column", description="PIL Image"),
-            SchemaColumn(
-                "label", "ClassLabel", "label_column", description="integer class label"
-            ),
-        ]
 
     def __init__(
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
-        ds = config.dataset
-        self._image_col = ds.columns_mapping.get("input_column", "image")
-        self._label_col = ds.columns_mapping.get("label_column", "label")
+        from ..utils.eval_utils import get_default
+
+        mapping = config.dataset.columns_mapping
+        task = "zero-shot-image-classification"
+        self._image_col = mapping.get("input_column", get_default(task, "input_column"))
+        self._label_col = mapping.get("label_column", get_default(task, "label_column"))
         super().__init__(config, model)
         self._candidate_labels = self._resolve_class_names()
 
@@ -69,10 +60,10 @@ class WinMLZeroShotImageClassificationEvaluator(WinMLEvaluator):
         if isinstance(label_feature, ClassLabel):
             return [name.replace("_", " ") for name in label_feature.names]
 
-        raise ValueError(
+        raise DatasetValidationError(
             f"Dataset column '{self._label_col}' is not a ClassLabel feature. "
             f"Cannot resolve class names for zero-shot classification. "
-            f"Feature type: {type(label_feature)}"
+            f"Feature type: {type(label_feature)}",
         )
 
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 #: Environment variable for additional runtime check rules directories.
 #: Use ``os.pathsep`` (`;` on Windows, `:` on Unix) to separate multiple paths.
-MODELKIT_RULES_DIR_ENV = "MODELKIT_RULES_DIR"
+WINMLCLI_RULES_DIR_ENV = "WINMLCLI_RULES_DIR"
 
 # Directory containing this module file. Relative env-var entries are resolved from here.
 _RULE_LOADER_DIR: Path = Path(__file__).resolve().parent
@@ -29,8 +29,9 @@ _DEFAULT_RUNTIME_RULES_DIR: Path = (
     Path(__file__).resolve().parent.parent / "rules" / "runtime_check_rules"
 )
 
+
 def _resolve_env_rules_dir_entry(entry: str) -> Path:
-    """Resolve a MODELKIT_RULES_DIR entry into an absolute directory path.
+    """Resolve a WINMLCLI_RULES_DIR entry into an absolute directory path.
 
     Absolute paths are used directly. Relative paths are interpreted relative
     to this module file's directory.
@@ -45,7 +46,7 @@ def get_runtime_rules_search_dirs() -> list[Path]:
     """Return ordered list of directories to search for runtime rule artifacts.
 
     The search order is:
-        1. Any extra directories listed in the :data:`MODELKIT_RULES_DIR` env var
+        1. Any extra directories listed in the :data:`WINMLCLI_RULES_DIR` env var
             (separated by ``os.pathsep``). Absolute paths are used directly;
             relative paths are resolved relative to this module file directory.
       2. Default embedded directory (``src/winml/modelkit/analyze/rules/runtime_check_rules/``)
@@ -54,7 +55,7 @@ def get_runtime_rules_search_dirs() -> list[Path]:
         List of directory Paths (may include non-existent ones; callers filter).
     """
     dirs: list[Path] = []
-    env_val = os.environ.get(MODELKIT_RULES_DIR_ENV, "").strip()
+    env_val = os.environ.get(WINMLCLI_RULES_DIR_ENV, "").strip()
     if env_val:
         for entry in env_val.split(os.pathsep):
             entry = entry.strip()
@@ -172,7 +173,7 @@ class RuleLoader:
             }
 
             # Find files matching the prefix pattern (e.g., qc_*.json)
-            prefix = prefix_map[ihv]
+            prefix = prefix_map.get(ihv, ihv.lower())
             matching_files = list(runtime_rules_dir.glob(f"{prefix}_*.json"))
 
             if not matching_files:

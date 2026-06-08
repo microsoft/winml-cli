@@ -32,6 +32,7 @@ import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
+from ..utils.logging import configure_logging
 
 
 logger = logging.getLogger(__name__)
@@ -68,20 +69,7 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     type=str,
     help="HuggingFace model name or local path (e.g., prajjwal1/bert-tiny)",
 )
-@click.option(
-    "--output",
-    "-o",
-    required=True,
-    type=click.Path(path_type=Path),
-    help="Output ONNX file path (e.g., model.onnx)",
-)
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose console output (8-step format)",
-)
+@cli_utils.output_option("Output ONNX file path (e.g., model.onnx)", required=True)
 @click.option(
     "--with-report",
     is_flag=True,
@@ -134,13 +122,15 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     default=None,
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
-@cli_utils.build_config_option
+@cli_utils.build_config_option()
+@cli_utils.verbosity_options()
 @click.pass_context
 def export(
     ctx: click.Context,
     model: str,
     output: Path,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
     with_report: bool,
     no_hierarchy: bool,
     dynamo: bool,
@@ -192,30 +182,30 @@ def export(
         # Custom ONNX export configuration
         winml export -m bert-base-uncased -o bert.onnx --export-config config.json
     """
-    # Inherit debug mode from parent
-    if ctx.obj.get("debug"):
-        verbose = True
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
 
-    # Apply build config defaults (CLI explicit options take precedence)
-    _build_export_cfg = None
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Read raw JSON so missing keys are distinguishable from dataclass defaults.
+    _build_export_dict: dict = {}
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.export:
-            _build_export_cfg = build_cfg.export
-        if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
-            task = build_cfg.loader.task
-        if _build_export_cfg and not cli_utils.is_cli_provided(ctx, "no_hierarchy"):
-            no_hierarchy = not _build_export_cfg.enable_hierarchy_tags
-        if _build_export_cfg and not cli_utils.is_cli_provided(ctx, "dynamo"):
-            dynamo = _build_export_cfg.dynamo
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        lc = raw_cfg.get("loader") or {}
+        ec = raw_cfg.get("export") or {}
+        _build_export_dict = ec
+        if not cli_utils.is_cli_provided(ctx, "task") and "task" in lc:
+            task = lc["task"]
+        if not cli_utils.is_cli_provided(ctx, "no_hierarchy") and "enable_hierarchy_tags" in ec:
+            no_hierarchy = not ec["enable_hierarchy_tags"]
+        if not cli_utils.is_cli_provided(ctx, "dynamo") and "dynamo" in ec:
+            dynamo = ec["dynamo"]
 
     from ..export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
     from ..export import export_pytorch as export_onnx
     from ..loader import load_hf_model
 
-    # Configure logging based on verbose flag
-    if verbose:
-        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+    # Configure logging — stderr only, shared format with the rest of the CLI.
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     # Show export info
     console.print(f"[bold blue]Model:[/bold blue] {model}")
@@ -242,79 +232,110 @@ def export(
             console.print(f"[bold red]Failed to load export config:[/bold red] {e}")
             raise click.ClickException(f"Failed to load export config: {e}") from e
 
-    # Load input/output specifications
+    # Load input/output specifications.
+    #
+    # We ALWAYS run Optimum auto-resolution because it provides authoritative
+    # output_tensors (names that match the actual ONNX graph). --input-specs
+    # then overrides input_tensors only; output_tensors stays from Optimum so
+    # tasks like feature-extraction don't trip torch.onnx.export with extra
+    # dataclass field names that aren't in the traced graph.
     input_tensors: list[InputTensorSpec] | None = None
     output_tensors: list[OutputTensorSpec] | None = None
+
+    # Load shape overrides from JSON
+    shape_overrides = None
+    if shape_config:
+        try:
+            with shape_config.open() as f:
+                shape_overrides = json.load(f)
+            if not isinstance(shape_overrides, dict):
+                raise click.ClickException(
+                    f"--shape-config must contain a JSON object, "
+                    f"got {type(shape_overrides).__name__}"
+                )
+        except json.JSONDecodeError as e:
+            raise click.ClickException(
+                f"Invalid JSON in --shape-config: {shape_config}: {e}"
+            ) from e
+        console.print(f"[dim]Shape overrides: {shape_overrides}[/dim]")
+
+    # Always auto-resolve input/output tensors via loader + Optimum
+    from ..export import ONNXConfigNotFoundError
+
+    try:
+        from ..export import resolve_export_config as resolve_cfg
+
+        auto_export_cfg, _ = resolve_cfg(
+            model_id=model,
+            task=task,
+            shape_config=shape_overrides,
+        )
+        if auto_export_cfg.input_tensors:
+            input_tensors = auto_export_cfg.input_tensors
+            console.print(
+                f"[dim]Auto-resolved input specs: {[t.name for t in input_tensors]}[/dim]"
+            )
+        if auto_export_cfg.output_tensors:
+            output_tensors = auto_export_cfg.output_tensors
+            console.print(
+                f"[dim]Auto-resolved output specs: {[t.name for t in output_tensors]}[/dim]"
+            )
+    except ONNXConfigNotFoundError as e:
+        # model_type is not registered in Optimum's TasksManager (e.g. CLIP/SigLIP
+        # sub-encoder variants like clip-text-model / clip-vision-model that only
+        # live in MODEL_BUILD_CONFIGS, or a model_type from a newer transformers
+        # release we don't know yet). Fall through: downstream MODEL_BUILD_CONFIGS
+        # lookup or user-supplied --input-specs takes over.
+        logger.debug("I/O tensor auto-resolution unavailable: %s", e)
+    except ValueError as e:
+        # Mirrors `winml config`: surface (model, task) incompatibility raised by
+        # Optimum's TasksManager as a clean usage error instead of letting it fall
+        # through to a misleading "Unrecognized configuration class" traceback
+        # later in load_hf_model.
+        raise click.UsageError(str(e)) from e
+    except Exception as e:
+        logger.debug("I/O tensor auto-resolution failed: %s", e)
+
+    # --input-specs overrides individual fields on the auto-resolved input_tensors.
+    # Names matched against auto-resolve get their dtype/shape patched; unknown
+    # names are appended. output_tensors are left untouched.
     if input_specs:
         try:
             with input_specs.open() as f:
                 input_specs_dict = json.load(f)
-            # Convert dict format to InputTensorSpec list
-            input_tensors = []
-            for name, spec in input_specs_dict.items():
-                input_tensors.append(
-                    InputTensorSpec(
-                        name=name,
-                        dtype=spec.get("dtype", "float32"),
-                        shape=tuple(spec.get("shape", [])) if spec.get("shape") else None,
-                    )
-                )
-            console.print(f"[dim]Loaded {len(input_tensors)} input specifications[/dim]")
         except Exception as e:
             console.print(f"[bold red]Failed to load input specs:[/bold red] {e}")
             raise click.ClickException(f"Failed to load input specs: {e}") from e
-    else:
-        # Load shape overrides from JSON (outside catch-all so errors propagate)
-        shape_overrides = None
-        if shape_config:
-            try:
-                with shape_config.open() as f:
-                    shape_overrides = json.load(f)
-                if not isinstance(shape_overrides, dict):
-                    raise click.ClickException(
-                        f"--shape-config must contain a JSON object, "
-                        f"got {type(shape_overrides).__name__}"
-                    )
-            except json.JSONDecodeError as e:
-                raise click.ClickException(
-                    f"Invalid JSON in --shape-config: {shape_config}: {e}"
-                ) from e
-            console.print(f"[dim]Shape overrides: {shape_overrides}[/dim]")
 
-        # Auto-resolve input/output tensors via loader + Optimum
-        try:
-            from ..export import resolve_export_config as resolve_cfg
-
-            auto_export_cfg, _ = resolve_cfg(
-                model_id=model,
-                task=task,
-                shape_config=shape_overrides,
-            )
-            if auto_export_cfg.input_tensors:
-                input_tensors = auto_export_cfg.input_tensors
-                console.print(
-                    f"[dim]Auto-resolved input specs: {[t.name for t in input_tensors]}[/dim]"
+        if input_tensors is None:
+            input_tensors = []
+        by_name = {t.name: t for t in input_tensors}
+        for name, spec in input_specs_dict.items():
+            shape = tuple(spec["shape"]) if spec.get("shape") else None
+            dtype = spec.get("dtype")
+            if name in by_name:
+                existing = by_name[name]
+                if dtype is not None:
+                    existing.dtype = dtype
+                if shape is not None:
+                    existing.shape = shape
+            else:
+                input_tensors.append(
+                    InputTensorSpec(name=name, dtype=dtype or "float32", shape=shape)
                 )
-            if auto_export_cfg.output_tensors:
-                output_tensors = auto_export_cfg.output_tensors
-                console.print(
-                    f"[dim]Auto-resolved output specs: {[t.name for t in output_tensors]}[/dim]"
-                )
-        except Exception as e:
-            logger.debug("I/O tensor auto-resolution failed: %s", e)
+        console.print(f"[dim]Applied input-spec overrides: {list(input_specs_dict.keys())}[/dim]")
 
     # Build WinMLExportConfig from loaded settings
     config_kwargs = {}
     # Layer 1: build config defaults (lowest precedence)
-    if _build_export_cfg is not None:
-        config_kwargs.update(_build_export_cfg.to_dict())
+    config_kwargs.update(_build_export_dict)
     # Layer 2: --export-config file overrides
     config_kwargs.update(export_config_dict)
     # Layer 3: explicit CLI options (highest precedence)
     if cli_utils.is_cli_provided(ctx, "no_hierarchy"):
         config_kwargs["enable_hierarchy_tags"] = not no_hierarchy
     if cli_utils.is_cli_provided(ctx, "verbose"):
-        config_kwargs["verbose"] = verbose
+        config_kwargs["verbose"] = bool(verbose)
     if cli_utils.is_cli_provided(ctx, "dynamo"):
         config_kwargs["dynamo"] = dynamo
 
@@ -374,7 +395,7 @@ def export(
             export_config=cfg,
             model_id=model,
             task=detected_task,
-            verbose=verbose,
+            verbose=bool(verbose),
             enable_reporting=with_report,
         )
         logger.debug("Export stats: %s", export_stats)
@@ -404,5 +425,9 @@ def export(
 
     except Exception as e:
         console.print(f"\n[bold red]Export failed:[/bold red] {e}")
-        logger.exception("Export failed")
+        debug_mode = bool((ctx.obj or {}).get("debug"))
+        if debug_mode:
+            logger.exception("Export failed")
+        else:
+            logger.error("Export failed: %s", e)
         raise click.ClickException(f"Export failed: {e}") from e

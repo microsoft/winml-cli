@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Build command for ModelKit CLI.
+"""Build command for WinML CLI.
 
 Thin CLI wrapper around build_hf_model() and build_onnx_model() APIs.
 The build module owns the pipeline. This command parses flags, loads config,
@@ -22,7 +22,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 from rich.logging import RichHandler
@@ -37,6 +37,7 @@ from ..utils.console import (
     print_stage_skip,
     print_stages_header,
 )
+from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
 
     from ..build import BuildResult
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPName, EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -139,10 +141,13 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
     """
     from ..loader import resolve_loader_config
 
-    _, hf_config, resolved_class = resolve_loader_config(
+    _, hf_config, resolved_class_typed = resolve_loader_config(
         model_type=model_type,
         task=task,
     )
+    # Annotated Any: resolver returns bare `type` but the class is a HF model
+    # with extra methods (from_config) that bare `type` doesn't expose.
+    resolved_class: Any = resolved_class_typed
 
     try:
         model = resolved_class(hf_config)
@@ -151,7 +156,7 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
         model = resolved_class.from_config(hf_config)
 
     model.eval()
-    return model
+    return cast("nn.Module", model)
 
 
 def _build_modules(
@@ -159,8 +164,9 @@ def _build_modules(
     output_dir: Path,
     *,
     rebuild: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
+    allow_unsupported_nodes: bool = False,
 ) -> list[BuildResult]:
     """Build each module config using init-weight parent for submodule extraction.
 
@@ -177,6 +183,8 @@ def _build_modules(
         rebuild: If True, overwrite existing artifacts.
         ep: Target execution provider for analyzer.
         device: Target device for analyzer.
+        allow_unsupported_nodes: If True, warn instead of failing the build when
+            the analyzer reports unsupported nodes that persist.
 
     Returns:
         List of BuildResult in the same order as *configs*.
@@ -217,10 +225,184 @@ def _build_modules(
             rebuild=rebuild,
             ep=ep,
             device=device,
+            allow_unsupported_nodes=allow_unsupported_nodes,
         )
         results.append(result)
 
     return results
+
+
+def _validate_task_supported_for_model(
+    model_id: str,
+    task: str,
+    *,
+    task_field_name: str = "task",
+    trust_remote_code: bool = False,
+    library_name: str = "transformers",
+    hf_config: Any | None = None,
+) -> Any:
+    """Validate that a task is supported for a model's architecture.
+
+    Private helper for ``winml build`` only. Loads HuggingFace config metadata
+    and validates against ``TasksManager`` supported-task mapping.
+
+    Why this lives here and not in ``loader/`` as public API:
+        Only ``winml build`` accepts task and model from independent sources
+        (config JSON's ``loader.task`` + ``--model``) and runs the full
+        export+optimize+quantize+compile pipeline that benefits from a fast
+        upfront fail. Other CLI entrypoints get equivalent coverage through
+        their existing resolution paths:
+
+        - ``winml config`` derives task from the model when both are present,
+          so the mismatch can't be silently constructed.
+        - ``winml export`` / ``winml perf`` surface incompatibilities through
+          ``resolve_cfg`` -> ``ONNXConfigNotFoundError`` later in the call.
+
+        Promoting this to public API would signal that any command should
+        wire it in, which is not the current design. If a second caller
+        appears, move this back to ``loader/`` and re-export it.
+
+    Args:
+        model_id: HuggingFace model ID or local path.
+        task: Requested task name.
+        task_field_name: Field label used in user-facing error messages.
+        trust_remote_code: Whether to trust remote/custom code while loading config.
+        library_name: Source library for TasksManager lookup.
+        hf_config: Optional pre-loaded HF config. When supplied, the
+            ``AutoConfig.from_pretrained`` round-trip is skipped. Used by
+            ``_validate_loader_tasks_for_model`` to preflight multiple tasks
+            against the same model without re-fetching.
+
+    Returns:
+        The loaded (or passed-through) HuggingFace config. Callers can reuse
+        this to avoid a duplicate ``AutoConfig.from_pretrained`` later
+        (see PR #719 -- same deduping pattern as ``resolve_loader_config``).
+
+    Raises:
+        ValueError: If the task is not supported for the model architecture.
+    """
+    from ..export.io import ensure_hf_models_registered
+    from ..loader.task import TASK_SYNONYM_EXTENSIONS, get_supported_tasks, normalize_task
+
+    if hf_config is None:
+        from transformers import AutoConfig
+
+        hf_config = AutoConfig.from_pretrained(
+            model_id,
+            trust_remote_code=trust_remote_code,
+        )
+    model_type = getattr(hf_config, "model_type", None)
+    if not model_type:
+        return hf_config
+
+    # Ensure optimum.exporters.onnx.model_configs is imported before querying
+    # the registry. TasksManager._SUPPORTED_MODEL_TYPE is populated lazily
+    # when optimum's ONNX model_configs module is first imported (triggered by
+    # any import of optimum.exporters.onnx). Without this, get_supported_tasks
+    # returns [] for models like resnet that are registered there, not in the
+    # winml custom registry.
+    ensure_hf_models_registered()
+
+    supported_tasks = get_supported_tasks(model_type, library_name=library_name)
+    # If the upstream registry has no task list for this architecture,
+    # defer to downstream loader resolution instead of hard-failing here.
+    if not supported_tasks:
+        return hf_config
+
+    # [1] Verbatim canonical match — definitive accept. Comparing without
+    #     normalization first means an arch that lists `image-feature-extraction`
+    #     in its supported set accepts that name as-is, while a text-only arch
+    #     that lists only `feature-extraction` does not silently accept it via
+    #     Optimum's synonym collapse on this branch.
+    if task in supported_tasks:
+        return hf_config
+
+    # [2] HF-pipeline-only task names that Optimum's TasksManager does not
+    #     know but the rest of the CLI accepts (e.g. ``next-sentence-prediction``
+    #     handled via HF_TASK_DEFAULTS, ``mask-generation`` preserved for SAM2).
+    #     These are routed downstream by export/io.py::map_task_synonym, so
+    #     rejecting here would break invocations that ``winml config`` and
+    #     ``winml export`` accept.
+    if task in TASK_SYNONYM_EXTENSIONS:
+        return hf_config
+
+    # [3] Optimum synonym fallback — e.g. ``masked-lm`` -> ``fill-mask``.
+    #     Accept, but warn so users converge on the canonical spelling.
+    #
+    #     Known limitation: Optimum collapses text/image variants of
+    #     feature-extraction (``image-feature-extraction`` -> ``feature-extraction``)
+    #     and routes ``sentence-similarity`` -> ``feature-extraction``. This
+    #     branch therefore silently accepts cross-modality combinations such as
+    #     ``--task image-feature-extraction`` against a text-only arch. Such
+    #     mismatches must be caught downstream where the HF-pipeline-keyed
+    #     registries see the un-collapsed ``loader.task`` value.
+    normalized = normalize_task(task)
+    normalized_supported = {normalize_task(t) for t in supported_tasks}
+    if normalized in normalized_supported:
+        if normalized != task:
+            logger.warning(
+                "%s=%r matches via Optimum synonym mapping; consider using the canonical name %r.",
+                task_field_name,
+                task,
+                normalized,
+            )
+        return hf_config
+
+    supported_list = ", ".join(supported_tasks)
+    raise ValueError(
+        f"{task_field_name}='{task}' is not supported for --model {model_id} "
+        f"(architecture: {model_type}).\n"
+        f"Supported tasks: {supported_list}."
+    )
+
+
+def _validate_loader_tasks_for_model(
+    *,
+    model_id: str | None,
+    configs: list[WinMLBuildConfig],
+    trust_remote_code: bool,
+) -> Any | None:
+    """Validate config loader task(s) against --model architecture.
+
+    This runs at command entry before setup/stage output so incompatible
+    config/model combinations fail with an actionable one-line error.
+
+    Loads ``AutoConfig`` at most once and reuses it across every per-task
+    check, then returns it so the build pipeline can plumb it down to
+    ``load_hf_model`` and avoid the second/third round-trip that PR #719
+    deduped on the inspect path.
+
+    See ``_validate_task_supported_for_model`` for the rationale on why this
+    preflight is wired into ``winml build`` only.
+
+    Returns:
+        Pre-loaded ``PretrainedConfig`` (caller should pass this into
+        ``_run_single_build`` so ``load_hf_model`` skips its own
+        ``AutoConfig.from_pretrained`` call), or ``None`` when no model_id
+        was provided / model_id is an ONNX file / no task to validate.
+    """
+    if model_id is None:
+        return None
+
+    if cli_utils.is_onnx_file_path(model_id):
+        return None
+
+    tasks = {
+        cfg.loader.task for cfg in configs if cfg.loader is not None and cfg.loader.task is not None
+    }
+    if not tasks:
+        return None
+
+    hf_config: Any | None = None
+    for task in sorted(tasks):
+        hf_config = _validate_task_supported_for_model(
+            model_id=model_id,
+            task=task,
+            task_field_name="config.loader.task",
+            trust_remote_code=trust_remote_code,
+            hf_config=hf_config,
+        )
+    return hf_config
 
 
 # =============================================================================
@@ -234,8 +416,9 @@ def _build_modules(
     "--config",
     "config_file",
     type=click.Path(exists=True),
-    required=True,
-    help="WinMLBuildConfig JSON file (from winml config)",
+    required=False,
+    default=None,
+    help="WinMLBuildConfig JSON file. If omitted, config is auto-generated from -m.",
 )
 @click.option(
     "-m",
@@ -256,7 +439,7 @@ def _build_modules(
     "--use-cache",
     is_flag=True,
     default=False,
-    help="Use ModelKit global cache (~/.cache/winml/). Mutually exclusive with -o.",
+    help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
 )
 @click.option(
     "--rebuild",
@@ -274,20 +457,19 @@ def _build_modules(
     "--no-compile/--compile",
     "no_compile",
     default=None,
-    help="Override compilation from config. --no-compile forces skip; "
-    "--compile forces enable (config must have a compile section). "
-    "Default: inherit from config file.",
+    help="Override compilation. --compile forces enable (config must have a compile section). "
+    "--no-compile forces skip. Default: inherit from config; when auto-generating "
+    "config (no -c), compilation is off unless --compile is passed.",
 )
-@click.option(
-    "--ep",
-    default=None,
-    help="Target execution provider for analyzer (e.g., 'qnn'). "
-    "Falls back to compile config EP if not set.",
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Falls back to compile config EP if not set.",
 )
-@click.option(
-    "--device",
-    default=None,
-    help="Target device for analyzer (e.g., 'NPU', 'GPU'). Default: NPU.",
+@cli_utils.device_option(
+    required=False,
+    default="auto",
+    include_auto=True,
+    optional_message="Default: auto-detect.",
 )
 @click.option(
     "--no-analyze",
@@ -308,20 +490,15 @@ def _build_modules(
     default=None,
     help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
 )
+@cli_utils.allow_unsupported_nodes_option()
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Enable verbose logging",
-)
+@cli_utils.verbosity_options()
 @click.pass_context
 def build(
     ctx: click.Context,
-    config_file: str,
+    config_file: str | None,
     model_id: str | None,
     output_dir: str | None,
     use_cache: bool,
@@ -329,17 +506,18 @@ def build(
     no_quant: bool,
     no_compile: bool | None,
     no_optimize: bool,
-    ep: str | None,
-    device: str | None,
+    ep: EPNameOrAlias | None,
+    device: str,
     no_analyze: bool,
     max_optim_iterations: int | None,
+    allow_unsupported_nodes: bool,
     trust_remote_code: bool,
-    verbose: bool,
+    verbose: int,
+    quiet: bool,
 ) -> None:
     r"""Build a WinML-optimized ONNX model from a HuggingFace model or .onnx file.
 
-    Requires a config file generated by 'winml config'. The config file already
-    contains device/precision settings (applied during 'winml config' generation).
+    If -c is omitted, config is auto-generated from the model ID (-m required).
     Specify either --output-dir or --use-cache for artifact destination.
 
     If -m points to an existing .onnx file, the build skips export and runs
@@ -347,7 +525,10 @@ def build(
 
     \b
     Examples:
-        # Full pipeline with pretrained weights
+        # Auto-generate config (no -c needed)
+        winml build -m microsoft/resnet-50 -o output/
+
+        # Full pipeline with explicit config
         winml build -c config.json -m microsoft/resnet-50 -o output/
 
         # Build from pre-exported ONNX file
@@ -356,21 +537,15 @@ def build(
         # Export + optimize only (config must have compile=null, or pass --no-compile to force skip)
         winml build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
 
-        # Random-weight build (no download)
-        winml build -c config.json -o output/
-
         # Use global cache
-        winml build -c config.json -m microsoft/resnet-50 --use-cache
+        winml build -m microsoft/resnet-50 --use-cache
 
         # Force rebuild
         winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild
     """
-    # Inherit debug flag from parent context
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
-
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
     # Validate mutual exclusion
     if output_dir and use_cache:
@@ -378,34 +553,111 @@ def build(
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
 
-    # If ep unspecified, attempt to auto-select a suitable EP from the registry
+    # If ep unspecified, resolve the target device and pick the highest-priority
+    # EP compatible with it. Avoids selecting an EP that does not match the host
+    # hardware -- analyzing for the wrong EP leaves black nodes that block a
+    # later build targeting the actual device (#663).
+    #
+    # resolve_device() either returns a device with >=1 available EP (auto-mode
+    # walks the priority list, falls back to cpu which is always valid), or
+    # raises ValueError for an explicit device with no compatible EP. So the
+    # following resolve_eps()[0] is safe whenever resolve_device returns.
     if ep is None:
-        from ..session import WinMLEPRegistry
+        from ..sysinfo import resolve_device as _resolve_device
+        from ..sysinfo import resolve_eps as _resolve_eps
 
-        registry = WinMLEPRegistry.get_instance()
-        candidate_eps = [
-            "QNNExecutionProvider",
-            "OpenVINOExecutionProvider",
-            "VitisAIExecutionProvider",
-        ]
-        for candidate_ep in candidate_eps:
-            if registry.is_ep_available(candidate_ep):
-                ep = candidate_ep
-                logger.info("EP unspecified for build, auto-selecting: %s", ep)
-                break
-    if ep is None:
-        logger.warning(
-            "EP unspecified for build, and auto-selection failed. Proceeding without EP hints."
-        )
+        try:
+            resolved_device, _ = _resolve_device(device=device)
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
+        device = resolved_device
+        ep = _resolve_eps(resolved_device)[0]
+        logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
-        # Load config first (needed for both output modes)
-        config_or_configs = _load_config(
-            config_file,
-            no_quant=no_quant,
-            no_compile=no_compile,
+        # Load or auto-generate config
+        if config_file is not None:
+            config_or_configs = _load_config(
+                config_file,
+                no_quant=no_quant,
+                no_compile=no_compile,
+            )
+        else:
+            if not model_id:
+                raise click.UsageError("-m/--model is required when -c is not provided.")
+            from ..config import generate_build_config
+
+            config_or_configs = generate_build_config(
+                model_id,
+                trust_remote_code=trust_remote_code,
+                device=device,
+            )
+            if no_quant:
+                config_or_configs.quant = None
+            # Auto-generated configs: compile disabled by default unless
+            # --compile was explicitly passed (no_compile=False).
+            if no_compile is None:
+                no_compile = True
+            if no_compile:
+                config_or_configs.compile = None
+
+        # If --device was explicitly provided, patch compile config and clear
+        # quant for CPU/GPU (neither device uses quantization by default).
+        if cli_utils.is_cli_provided(ctx, "device") and device:
+            from ..compiler.configs import WinMLCompileConfig
+
+            def _patch_device(cfg: WinMLBuildConfig) -> None:
+                from ..config import resolve_quant_compile_config
+
+                resolved_quant, _ = resolve_quant_compile_config(device=device, ep=ep)
+                if no_quant or resolved_quant is None:
+                    cfg.quant = None
+                elif cfg.quant is None:
+                    # Populate calibration identifiers from the loader/model
+                    # so the resulting config passes HF-build validation.
+                    if cfg.loader is not None and cfg.loader.task:
+                        resolved_quant.task = cfg.loader.task
+                    if model_id:
+                        resolved_quant.model_name = model_id
+                    cfg.quant = resolved_quant
+                else:
+                    # Only update precision fields; preserve task/model_name
+                    # and other calibration settings from the existing config.
+                    cfg.quant.weight_type = resolved_quant.weight_type
+                    cfg.quant.activation_type = resolved_quant.activation_type
+                if cfg.compile is not None and cfg.compile.ep_config is not None:
+                    provider = cfg.compile.ep_config.provider
+                    patched = WinMLCompileConfig.for_provider(provider, device=device)
+                    if patched is not None:
+                        cfg.compile = patched
+
+            if isinstance(config_or_configs, list):
+                for _cfg in config_or_configs:
+                    _patch_device(_cfg)
+            else:
+                _patch_device(config_or_configs)
+
+        # Fail-fast schema validation: ensure the config is valid before
+        # printing any banner or creating any output directories. This
+        # surfaces malformed configs immediately and prevents partial
+        # scratch state when the user passes the wrong file or a
+        # hand-edited config (#P1 UX).
+        _configs_to_validate: list[WinMLBuildConfig] = (
+            config_or_configs
+            if isinstance(config_or_configs, list)
+            else [config_or_configs]
         )
-        is_module_mode = isinstance(config_or_configs, list)
+        try:
+            for _cfg in _configs_to_validate:
+                _cfg.validate()
+        except ValueError as e:
+            raise click.UsageError(f"Config validation failed: {e}") from e
+
+        preloaded_hf_config = _validate_loader_tasks_for_model(
+            model_id=model_id,
+            configs=_configs_to_validate,
+            trust_remote_code=trust_remote_code,
+        )
 
         # Build extra kwargs for pipeline control
         extra_kwargs: dict[str, Any] = {}
@@ -417,8 +669,12 @@ def build(
             extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
+        # Always set (even when False) so downstream pipeline functions can rely
+        # on the key being present, matching the module-mode path which passes
+        # allow_unsupported_nodes explicitly regardless of its value.
+        extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
 
-        if is_module_mode:
+        if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
             if use_cache:
                 raise click.UsageError(
@@ -437,7 +693,7 @@ def build(
             print_setup(
                 console,
                 model=model_id or "random-init",
-                config=Path(config_file).name,
+                config=Path(config_file).name if config_file else "(auto)",
                 output=str(resolved_dir),
                 source="HuggingFace",
             )
@@ -451,6 +707,7 @@ def build(
                 rebuild=rebuild,
                 ep=ep,
                 device=device,
+                allow_unsupported_nodes=allow_unsupported_nodes,
             )
 
             # Report per-module results
@@ -512,6 +769,9 @@ def build(
                     config.generate_cache_key(),
                 )
             else:
+                # Guarded earlier (line ~381: `if not output_dir and not use_cache`).
+                if output_dir is None:
+                    raise click.UsageError("--output-dir is required when --use-cache is not set.")
                 resolved_dir = Path(output_dir)
 
             _run_single_build(
@@ -524,6 +784,7 @@ def build(
                 ep=ep,
                 device=device,
                 extra_kwargs=extra_kwargs,
+                preloaded_hf_config=preloaded_hf_config,
             )
 
     except click.UsageError:
@@ -562,19 +823,18 @@ def build(
 def _run_single_build(
     *,
     config: WinMLBuildConfig,
-    config_file: str,
+    config_file: str | None,
     model_id: str | None,
     resolved_dir: Path,
     rebuild: bool,
     cache_key: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
+    preloaded_hf_config: Any | None = None,
 ) -> None:
     """Run single-model build with Rich Live progress per stage."""
-    from .config import _is_onnx_file
-
-    _is_onnx = model_id is not None and _is_onnx_file(model_id)
+    _is_onnx = model_id is not None and cli_utils.is_onnx_file_path(model_id)
     # Derive source from _is_onnx to guarantee header label matches pipeline
     source = "ONNX" if _is_onnx else detect_model_source(model_id)
 
@@ -593,9 +853,10 @@ def _run_single_build(
     print_setup(
         console,
         model=model_label,
-        config=Path(config_file).name,
+        config=Path(config_file).name if config_file else "(auto)",
         output=str(resolved_dir),
         source=source,
+        auto=config.auto,
     )
     print_stages_header(console)
 
@@ -619,6 +880,7 @@ def _run_single_build(
 
     try:
         if _is_onnx:
+            assert model_id is not None  # _is_onnx implies this
             stage_timings = _build_onnx_pipeline(
                 config=config,
                 onnx_path=Path(model_id),
@@ -638,16 +900,21 @@ def _run_single_build(
                 ep=ep,
                 device=device,
                 extra_kwargs=extra_kwargs,
+                preloaded_hf_config=preloaded_hf_config,
             )
 
         elapsed = time.monotonic() - start_time
         final_path = resolved_dir / "model.onnx"
         if final_path.exists() and stage_timings:
+            config_json = resolved_dir / (
+                f"{cache_key}_winml_build_config.json" if cache_key else "winml_build_config.json"
+            )
             print_final(
                 console,
                 elapsed,
                 str(final_path),
                 stage_timings=stage_timings,
+                config=str(config_json) if config_json.exists() else None,
             )
     finally:
         logging.captureWarnings(False)
@@ -683,13 +950,13 @@ def _show_io(sl: Any, config: WinMLBuildConfig) -> None:
         return
     inputs = export_cfg.input_tensors or []
     outputs = export_cfg.output_tensors or []
-    for i, t in enumerate(inputs):
-        name = t.name or "(unnamed)"
-        shape = str(list(t.shape)) if getattr(t, "shape", None) else "dynamic"
-        dtype = getattr(t, "dtype", None) or "?"
+    for i, in_spec in enumerate(inputs):
+        name = in_spec.name or "(unnamed)"
+        shape = str(list(in_spec.shape)) if in_spec.shape else "dynamic"
+        dtype = getattr(in_spec, "dtype", None) or "?"
         sl.io_input(name, shape, dtype, first=(i == 0))
-    for i, t in enumerate(outputs):
-        name = t.name or "(unnamed)"
+    for i, out_spec in enumerate(outputs):
+        name = out_spec.name or "(unnamed)"
         # OutputTensorSpec has name only — show name, no shape/dtype
         label = "Output:       " if i == 0 else "              "
         sl.detail(f"{label}[cyan]{name}[/cyan]")
@@ -705,11 +972,13 @@ def _run_optimize_stage(
     config: WinMLBuildConfig,
     model_path: Path,
     optimized_path: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     max_iters: int,
     stage_timings: list[tuple[str, float | None]],
     show_io_first: bool = False,
+    analyze_output_path: Path | None = None,
+    allow_unsupported_nodes: bool = False,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -743,7 +1012,7 @@ def _run_optimize_stage(
         _ep_bars: dict[str, int] = {}
         _ep_counts: dict[str, dict[str, int]] = {}
         _ep_totals: dict[str, int] = {}
-        _current_ep = [""]
+        _current_ep: EPName | None = None
         _current_iter = [0, 0]  # [iteration, max_iter]
         _header_shown = [False]
 
@@ -755,8 +1024,16 @@ def _run_optimize_stage(
             _current_iter[1] = max_iter
             _header_shown[0] = False
 
-        def _on_ep_start(ep_name: str, operator_counts: dict) -> None:
-            _current_ep[0] = ep_name
+        # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
+        # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        from ..analyze.utils.ep_utils import has_rule_data_for_ep
+        from ..sysinfo import resolve_device as _resolve_device
+
+        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+
+        def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
+            nonlocal _current_ep
+            _current_ep = ep_name
             _ep_counts[ep_name] = {}
             total = sum(operator_counts.values())
             _ep_totals[ep_name] = total
@@ -767,10 +1044,14 @@ def _run_optimize_stage(
                     f"[bold]Analyzing[/bold] [cyan]{total}[/cyan] nodes  "
                     f"[dim](iter {_current_iter[0]}/{_current_iter[1]})[/dim]"
                 )
-            _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
+            # Skip bar for EPs with no rule data — all results would be 0/0/0
+            if has_rule_data_for_ep(ep_name, _resolved_device or ""):
+                _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
 
         def _on_node_result(pattern_runtime: Any) -> None:
-            ep_name = _current_ep[0]
+            ep_name = _current_ep
+            if ep_name is None:
+                return  # pre-init: _on_ep_start hasn't fired yet
             level = pattern_runtime.result.classification.value
             counts = _ep_counts.setdefault(ep_name, {})
             counts[level] = counts.get(level, 0) + 1
@@ -806,13 +1087,17 @@ def _run_optimize_stage(
             ep=ep,
             device=device,
             max_optim_iterations=max_iters,
+            allow_unsupported_nodes=allow_unsupported_nodes,
             on_ep_start=_on_ep_start,
             on_node_result=_on_node_result,
             on_iteration_start=_on_iteration_start,
             on_patterns_discovered=_on_patterns,
             on_reoptimize=_on_reoptimize,
             use_external_data=True,
+            analyze_output_path=analyze_output_path,
         )
+        # Mark config as resolved so CI/CD reruns skip the analyzer.
+        config.auto = False
         opt_elapsed = time.monotonic() - t0
 
         if analyze_iters > 0:
@@ -867,7 +1152,7 @@ def _run_quantize_stage(
         return current_path
 
     with StageLive("quantize", console) as sl:
-        wt = config.quant.weight_type or "?"
+        wt = config.quant.weight_type
         sl.set_status(f"Quantizing ({wt})...")
         # Calibration info before blocking call
         ds = config.quant.dataset_name or "default"
@@ -1008,9 +1293,10 @@ def _build_hf_pipeline(
     output_dir: Path,
     rebuild: bool,
     cache_key: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
+    preloaded_hf_config: Any | None = None,
 ) -> list[tuple[str, float | None]] | None:
     """HF build pipeline with cascading StageLive per stage.
 
@@ -1023,6 +1309,7 @@ def _build_hf_pipeline(
     from ..utils.console import StageLive
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
     model_label = model_id or "random-init"
 
     # ── Validate + setup ─────────────────────────────────────────
@@ -1042,6 +1329,7 @@ def _build_hf_pipeline(
     compiled_path = output_dir / _name("compiled.onnx")
     final_path = output_dir / _name("model.onnx")
     config_path = output_dir / _name("winml_build_config.json")
+    analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Reuse check
     if final_path.exists() and not rebuild:
@@ -1063,7 +1351,9 @@ def _build_hf_pipeline(
         sl.set_status("Exporting to ONNX...")
 
         # Load + export (blocking)
-        pytorch_model = _load_model(config, model_id, trust_remote_code=False)
+        pytorch_model = _load_model(
+            config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
+        )
         t0 = time.monotonic()
         export_onnx(
             model=pytorch_model,
@@ -1097,6 +1387,8 @@ def _build_hf_pipeline(
         max_iters=max_iters,
         stage_timings=stage_timings,
         show_io_first=False,
+        analyze_output_path=analyze_result_path,
+        allow_unsupported_nodes=allow_unsupported_nodes,
     )
 
     # Persist config after autoconf
@@ -1131,7 +1423,7 @@ def _build_onnx_pipeline(
     onnx_path: Path,
     output_dir: Path,
     rebuild: bool,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> list[tuple[str, float | None]] | None:
@@ -1143,6 +1435,7 @@ def _build_onnx_pipeline(
     from ..onnx import copy_onnx_model
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
 
     # ── Validate + setup ─────────────────────────────────────────
     if not onnx_path.exists():
@@ -1160,6 +1453,7 @@ def _build_onnx_pipeline(
     compiled_path = output_dir / f"{stem}_compiled.onnx"
     final_path = output_dir / "model.onnx"
     config_path = output_dir / "winml_build_config.json"
+    analyze_result_path = output_dir / "analyze_result.json"
 
     # Reuse check
     if final_path.exists() and not rebuild:
@@ -1189,6 +1483,8 @@ def _build_onnx_pipeline(
         max_iters=max_iters,
         stage_timings=stage_timings,
         show_io_first=True,
+        analyze_output_path=analyze_result_path,
+        allow_unsupported_nodes=allow_unsupported_nodes,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))

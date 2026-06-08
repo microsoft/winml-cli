@@ -50,6 +50,62 @@ class ImageDataset(BaseTaskDataset):
         if self._dataset_name is None:
             self._dataset_name = "timm/mini-imagenet"
             self._data_split = "train"
+            self._config.setdefault("streaming", True)
+
+    def _load_and_sample(self, revision: str | None = None) -> Any:
+        """Load the configured dataset and apply sample/shuffle.
+
+        Shared by ImageDataset and ObjectDetectionDataset. Column detection
+        is *not* done here — callers run their own detection on the returned
+        dataset because the column schema differs by task.
+
+        Args:
+            revision: Optional dataset revision (branch, tag, or commit) for
+                datasets that need to be pinned (e.g. ``refs/convert/parquet``).
+
+        Returns:
+            A materialized arrow Dataset of up to ``self._max_samples`` rows.
+        """
+        # Streaming only helps when capped by max_samples; otherwise we'd
+        # iterate the full remote stream into memory, which is worse than a
+        # bulk download.
+        streaming = self._config.get("streaming", False) and self._max_samples is not None
+        logger.info(f"Loading dataset: {self._dataset_name} with split: {self._data_split}")
+        try:
+            dataset = load_dataset(
+                self._dataset_name,
+                split=self._data_split,
+                streaming=streaming,
+                revision=revision,
+            )
+        except Exception as e:
+            logger.error(f"Failed to load dataset {self._dataset_name}: {e}")
+            raise
+
+        shuffle = self._config.get("shuffle", False)
+        seed = self._config.get("seed", 42)
+
+        if streaming:
+            # Streaming datasets aren't indexable: shuffle reservoir-samples
+            # within a buffer; take() pulls only the slice we need. Keep the
+            # 1000-item reservoir for class diversity on class-ordered streams.
+            if shuffle:
+                dataset = dataset.shuffle(seed=seed, buffer_size=1000)
+            dataset = dataset.take(self._max_samples)
+            from datasets import Dataset as ArrowDataset
+            dataset = ArrowDataset.from_list(list(dataset), features=dataset.features)
+        elif self._max_samples is not None:
+            max_samples = min(self._max_samples, len(dataset))
+            indices = (
+                Random(seed).sample(range(len(dataset)), max_samples)
+                if shuffle
+                else list(range(max_samples))
+            )
+            dataset = dataset.select(indices)
+        elif shuffle:
+            dataset = dataset.shuffle(seed=seed)
+
+        return dataset
 
     def _initialize(self) -> None:
         """Initialize the image classification dataset.
@@ -64,41 +120,20 @@ class ImageDataset(BaseTaskDataset):
         if self._dataset_name is None:
             self._get_default_dataset()
 
-        # 2. Load dataset
-        logger.info(f"Loading dataset: {self._dataset_name} with split: {self._data_split}")
-        try:
-            dataset = load_dataset(self._dataset_name, split=self._data_split)
-        except Exception as e:
-            logger.error(f"Failed to load dataset {self._dataset_name}: {e}")
-            raise
+        # 2. Load + sample (shared with subclasses)
+        dataset = self._load_and_sample()
 
         # 3. Detect columns using Features API
         self._detect_columns(dataset)
 
-        # 5. Efficient sampling and processing pipeline
-        shuffle = self._config.get("shuffle", False)
-        seed = self._config.get("seed", 42)
-
-        if self._max_samples is not None:
-            max_samples = min(self._max_samples, len(dataset))
-            indices = (
-                Random(seed).sample(range(len(dataset)), max_samples)
-                if shuffle
-                else list(range(max_samples))
-            )
-            dataset = dataset.select(indices)
-        elif shuffle:
-            dataset = dataset.shuffle(seed=seed)
-
-        # 6. Load processor and apply batch processing
+        # 4. Load processor and apply batch processing
         processor = AutoImageProcessor.from_pretrained(self._model_name, use_fast=True)
 
-
-        # 6. Conditional label alignment using should_align_labels()
+        # 5. Conditional label alignment using should_align_labels()
         if should_align_labels(self._dataset_name):
             dataset = dataset.align_labels_with_mapping(get_imagenet_label_map(), self._label_col)
 
-        # 7. Apply image processing with proper batch dimension
+        # 6. Apply image processing with proper batch dimension
         def preprocess_single_sample(example):
             # Process single image and add batch dimension
             return processor(example[self._image_col].convert("RGB"), return_tensors="pt")

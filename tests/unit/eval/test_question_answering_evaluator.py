@@ -24,8 +24,7 @@ from winml.modelkit.eval import WinMLQuestionAnsweringEvaluator
 
 def make_evaluator(io_config=None, columns_mapping=None):
     """Create evaluator without triggering __init__ data loading."""
-    from winml.modelkit.datasets import DatasetConfig
-    from winml.modelkit.eval import WinMLEvaluationConfig
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mapping = columns_mapping or {
         "question_column": "question",
@@ -59,27 +58,6 @@ def make_evaluator(io_config=None, columns_mapping=None):
 
 
 # ---------------------------------------------------------------------------
-# schema_info
-# ---------------------------------------------------------------------------
-
-
-class TestSchemaInfo:
-    def test_returns_four_columns(self):
-        schema = WinMLQuestionAnsweringEvaluator.schema_info()
-        assert len(schema) == 4
-
-    def test_column_names(self):
-        schema = WinMLQuestionAnsweringEvaluator.schema_info()
-        names = [col.name for col in schema]
-        assert names == ["question", "context", "id", "answers"]
-
-    def test_column_overrides(self):
-        schema = WinMLQuestionAnsweringEvaluator.schema_info()
-        overrides = [col.override for col in schema]
-        assert overrides == ["question_column", "context_column", "id_column", "label_column"]
-
-
-# ---------------------------------------------------------------------------
 # prepare_pipeline: tokenizer padding
 # ---------------------------------------------------------------------------
 
@@ -88,8 +66,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_sets_padding_when_io_config_present(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
@@ -121,8 +98,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_no_padding_without_tokenizer(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
@@ -152,8 +128,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_no_padding_without_shapes(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
@@ -183,8 +158,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_logs_warning_without_shapes(self, mock_load_ds, mock_pipeline, caplog):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
@@ -274,7 +248,7 @@ class TestCompute:
         assert call_kwargs["label_column"] == "ans"
 
     def test_label_col_default_derived_from_schema(self):
-        """When label_column is not in columns_mapping, fallback comes from schema_info."""
+        """When label_column is not in columns_mapping, default is 'answers'."""
         ev = make_evaluator(columns_mapping={
             "question_column": "question",
             "context_column": "context",
@@ -288,7 +262,7 @@ class TestCompute:
         with patch("evaluate.evaluator", return_value=mock_task_evaluator):
             ev.compute()
 
-        # is_squad_v2_format should receive the schema default "answers"
+        # is_squad_v2_format should receive the default "answers"
         v2_call_kwargs = mock_task_evaluator.is_squad_v2_format.call_args
         assert v2_call_kwargs[1]["label_column"] == "answers"
 

@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Early warning filter configuration for ModelKit.
+"""Early warning filter configuration for WinML CLI.
 
 This module configures warning filters ON IMPORT. It MUST have no dependencies
 on modelkit subpackages to avoid triggering the import chain that loads
@@ -12,7 +12,7 @@ Usage:
     from . import _warnings  # Filters are configured automatically
 
 Environment Variables:
-    MODELKIT_SHOW_ALL_WARNINGS: Set to "1" or "true" to disable warning suppression
+    WINMLCLI_SHOW_ALL_WARNINGS: Set to "1" or "true" to disable warning suppression
 """
 
 from __future__ import annotations
@@ -27,8 +27,14 @@ def _configure() -> None:
     # Environment variable to reduce tokenizers noise
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
+    # Suppress huggingface_hub tqdm download progress bars by default.
+    # These are written directly to stderr by tqdm and cannot be routed
+    # through Python logging.  Users can override with
+    # HF_HUB_DISABLE_PROGRESS_BARS=0 to restore them.
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
     # Allow users to see all warnings if they want
-    if os.environ.get("MODELKIT_SHOW_ALL_WARNINGS", "").lower() in ("1", "true", "yes"):
+    if os.environ.get("WINMLCLI_SHOW_ALL_WARNINGS", "").lower() in ("1", "true", "yes"):
         return
 
     # =========================================================================
@@ -65,7 +71,11 @@ def _configure() -> None:
             msg = record.getMessage()
             return not any(s in msg for s in self._SUPPRESSED)
 
-    logging.getLogger("transformers.pipelines.base").addFilter(_PipelineNoiseFilter())
+    for logger_name in (
+        "transformers.pipelines.base",
+        "transformers.models.auto.image_processing_auto",
+    ):
+        logging.getLogger(logger_name).addFilter(_PipelineNoiseFilter())
 
     # =========================================================================
     # Warning filters (for warnings.warn() calls)
@@ -89,6 +99,89 @@ def _configure() -> None:
     warnings.filterwarnings(
         "ignore", message=r".*CUDA.*", category=UserWarning, module=r"diffusers.*"
     )
+
+    # =========================================================================
+    # py.warnings logger filters (for warnings routed via logging.captureWarnings)
+    # =========================================================================
+
+    class _HFSymlinksInfoFilter(logging.Filter):
+        r"""Downgrade the huggingface_hub symlinks UserWarning from WARNING to INFO.
+
+        On Windows without Developer Mode, huggingface_hub warns that symlinks
+        are unsupported and the cache will use copies instead. This is cosmetic —
+        the cache still works, just without deduplication. WARNING is misleading
+        here; INFO is the appropriate level.
+
+        When warnings are routed via logging.captureWarnings(True), Python's
+        warnings.formatwarning() embeds the source filename in the log message
+        body ("path/to/huggingface_hub/file_download.py:1: UserWarning: ..."),
+        so we match against getMessage() rather than record.pathname (which
+        is always warnings.py in that path).
+
+        Before (WARNING level, always visible):
+            [09:12:34] WARNING  C:\\...\\huggingface_hub\\file_download.py:1:
+                                UserWarning: `huggingface_hub` cache-system uses
+                                symlinks by default to efficiently store
+                                duplicated files but your machine does not
+                                support them
+
+        After (INFO level, only visible with --verbose or -v):
+            [09:12:34] INFO     C:\\...\\huggingface_hub\\file_download.py:1:
+                                UserWarning: `huggingface_hub` cache-system uses
+                                symlinks by default to efficiently store
+                                duplicated files but your machine does not
+                                support them
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            if "symlinks" in msg and "huggingface_hub" in msg:
+                record.levelno = logging.INFO
+                record.levelname = "INFO"
+            return True
+
+    logging.getLogger("py.warnings").addFilter(_HFSymlinksInfoFilter())
+
+    # Suppress the huggingface_hub symlinks warning at the Python warnings level
+    # so it is hidden even before captureWarnings(True) is activated in build.py.
+    # When captureWarnings(True) is active, _HFSymlinksInfoFilter above handles
+    # the same message for loggers that need it at INFO (e.g. with --verbose).
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*huggingface_hub.*cache-system.*symlinks.*",
+        category=UserWarning,
+    )
+
+    class _TasksManagerFilter(logging.Filter):
+        """Downgrade optimum TasksManager architecture-mismatch notice to INFO.
+
+        optimum logs a WARNING when TasksManager selects a different Auto class
+        than the one in config.architectures (e.g. AutoModelForSequenceClassification
+        vs RobertaForSequenceClassification).  This is expected behaviour for
+        WinML models and is purely informational.
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            if "TasksManager returned" in record.getMessage():
+                record.levelno = logging.INFO
+                record.levelname = "INFO"
+            return True
+
+    logging.getLogger("optimum.exporters.tasks").addFilter(_TasksManagerFilter())
+
+    class _TransformersWeightsFilter(logging.Filter):
+        """Suppress the transformers "weights not used" notice.
+
+        When loading a checkpoint, transformers warns about pooler or other
+        weights that are intentionally absent in the target architecture.
+        This is expected (e.g. RobertaForSequenceClassification drops the
+        pooler from a base checkpoint) and is purely cosmetic noise.
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "were not used when initializing" not in record.getMessage()
+
+    logging.getLogger("transformers.modeling_utils").addFilter(_TransformersWeightsFilter())
 
 
 # Auto-configure on import

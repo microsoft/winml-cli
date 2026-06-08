@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ..utils.eval_utils import DatasetValidationError
 from .base_evaluator import WinMLEvaluator
 from .metrics import IGNORE_INDEX
 
@@ -32,9 +33,8 @@ if TYPE_CHECKING:
     from datasets import Dataset
     from transformers.pipelines.base import Pipeline
 
-    from ..datasets.config import DatasetConfig
     from ..models.winml.base import WinMLPreTrainedModel
-    from .config import WinMLEvaluationConfig
+    from .config import DatasetConfig, WinMLEvaluationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -42,28 +42,19 @@ logger = logging.getLogger(__name__)
 class WinMLImageSegmentationEvaluator(WinMLEvaluator):
     """Evaluator for semantic segmentation using mIoU metrics."""
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for image segmentation."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("image", "Image", "input_column", description="PIL Image"),
-            SchemaColumn(
-                "annotation",
-                "Image",
-                "annotation_column",
-                description="Single-channel annotation image (pixel value = class ID)",
-            ),
-        ]
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
-        ds = config.dataset
-        self._annotation_col = ds.columns_mapping.get("annotation_column", "annotation")
+        from ..utils.eval_utils import get_default
+
+        mapping = config.dataset.columns_mapping
+        task = "image-segmentation"
+        self._image_col = mapping.get("input_column", get_default(task, "input_column"))
+        self._annotation_col = mapping.get(
+            "annotation_column", get_default(task, "annotation_column"),
+        )
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:
@@ -114,7 +105,7 @@ class WinMLImageSegmentationEvaluator(WinMLEvaluator):
         )
 
         for i, sample in enumerate(self.data):
-            image = sample.get("image")
+            image = sample.get(self._image_col)
             annotation = sample.get(self._annotation_col)
 
             if image is None or annotation is None:
@@ -191,12 +182,12 @@ class WinMLImageSegmentationEvaluator(WinMLEvaluator):
     def _validate_schema(self, dataset: Dataset) -> None:
         """Check dataset has required columns."""
         if "image" not in dataset.column_names:
-            raise ValueError(
-                f"Dataset missing 'image' column. Available: {list(dataset.column_names)}."
+            raise DatasetValidationError(
+                f"Dataset missing 'image' column. Available: {list(dataset.column_names)}.",
             )
         if self._annotation_col not in dataset.column_names:
-            raise ValueError(
+            raise DatasetValidationError(
                 f"Dataset missing annotation column '{self._annotation_col}'. "
                 f"Available: {list(dataset.column_names)}. "
-                f"Set annotation_column in columns_mapping."
+                f"Set annotation_column in columns_mapping.",
             )

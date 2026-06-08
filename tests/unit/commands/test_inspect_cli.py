@@ -10,10 +10,15 @@ NO actual HuggingFace downloads or model loading.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -105,6 +110,43 @@ class TestInspectCliInterface:
 
         result = runner.invoke(inspect, ["-m", "test", "-f", "xml"], obj={})
         assert result.exit_code != 0
+
+    def test_invalid_task_rejected_at_click_time(self, runner: CliRunner) -> None:
+        """`--task bogus-task` must fail with a clean error before any heavy work.
+
+        Patches _inspect_model_v2 to assert validation kicks in *before* the API
+        is reached — fail-fast on bad input.
+        """
+        from winml.modelkit.commands.inspect import inspect
+
+        with patch(_INSPECT_MODEL) as mock_api:
+            result = runner.invoke(
+                inspect, ["-m", "test", "--task", "bogus-task"], obj={}
+            )
+            assert result.exit_code == 2, f"Expected exit 2, got {result.exit_code}"
+            mock_api.assert_not_called()
+            # User-facing error must name the bad value and point to --list-tasks,
+            # and must NOT leak internal optimum jargon (see issue #546).
+            assert "bogus-task" in result.output
+            assert "--list-tasks" in result.output
+            assert "TasksManager" not in result.output
+            assert "optimum" not in result.output.lower()
+
+    def test_valid_task_accepted(
+        self,
+        runner: CliRunner,
+        mock_inspect_result: MagicMock,
+    ) -> None:
+        from winml.modelkit.commands.inspect import inspect
+
+        with (
+            patch(_INSPECT_MODEL, return_value=mock_inspect_result),
+            patch(_OUTPUT_TABLE),
+        ):
+            result = runner.invoke(
+                inspect, ["-m", "test", "--task", "image-classification"], obj={}
+            )
+            assert result.exit_code == 0, f"Failed: {result.output}"
 
 
 # =============================================================================
@@ -263,3 +305,74 @@ class TestInspectErrors:
             result = runner.invoke(inspect, ["-m", "test"], obj={})
             assert result.exit_code != 0
             assert "Inspection error" in result.output
+
+    def test_missing_local_file_shows_path_error(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Absolute path to a missing .onnx file shows a clear local error, not 'Network error'."""
+        from winml.modelkit.commands.inspect import inspect
+
+        missing = str(tmp_path / "missing.onnx")
+        result = runner.invoke(inspect, ["-m", missing], obj={})
+        assert result.exit_code != 0
+        assert "does not exist" in result.output
+        assert "Network error" not in result.output
+
+    def test_missing_local_relative_path_shows_path_error(self, runner: CliRunner) -> None:
+        """Relative path starting with '.' shows a clear local error, not 'Network error'."""
+        from winml.modelkit.commands.inspect import inspect
+
+        result = runner.invoke(inspect, ["-m", "./does-not-exist.onnx"], obj={})
+        assert result.exit_code != 0
+        assert "does not exist" in result.output
+        assert "Network error" not in result.output
+
+    def test_bogus_hf_id_shows_model_not_found(self, runner: CliRunner) -> None:
+        """transformers wraps HF Hub 404 as a plain OSError; must show 'Model not found'."""
+        from winml.modelkit.commands.inspect import inspect
+
+        # Reproduce what AutoConfig.from_pretrained actually raises for a missing repo:
+        # transformers catches RepositoryNotFoundError internally and re-raises as OSError.
+        hf_oserror = OSError(
+            "totally-bogus/does-not-exist is not a local folder and is not a valid model "
+            "identifier listed on 'https://huggingface.co/models'\n"
+            "If this is a private repository, make sure to pass a token having permission "
+            "to this repo either by logging in with `hf auth login` or by passing "
+            "`token=<your_token>`"
+        )
+        with patch(
+            "transformers.AutoConfig.from_pretrained",
+            side_effect=hf_oserror,
+        ):
+            result = runner.invoke(inspect, ["-m", "totally-bogus/does-not-exist"], obj={})
+            assert result.exit_code != 0
+            assert "Model not found" in result.output
+            assert "Network error" not in result.output
+            # Private-repo hint must be preserved in the error output.
+            assert "private repository" in result.output
+
+    def test_bogus_hf_id_repository_not_found_error(self, runner: CliRunner) -> None:
+        """RepositoryNotFoundError surfaced directly also maps to 'Model not found'."""
+        from huggingface_hub.utils import RepositoryNotFoundError
+
+        from winml.modelkit.commands.inspect import inspect
+
+        with patch(
+            "transformers.AutoConfig.from_pretrained",
+            side_effect=RepositoryNotFoundError("totally-bogus/does-not-exist"),
+        ):
+            result = runner.invoke(inspect, ["-m", "totally-bogus/does-not-exist"], obj={})
+            assert result.exit_code != 0
+            assert "Model not found" in result.output
+            assert "Network error" not in result.output
+
+    def test_dotted_hf_id_reaches_hub_path(self, runner: CliRunner) -> None:
+        """HF IDs with version dots (e.g. Phi-3.5) must not be classified as local paths."""
+        from winml.modelkit.commands.inspect import inspect
+
+        with patch(
+            "transformers.AutoConfig.from_pretrained",
+            side_effect=RuntimeError("intentional — proves we reached the Hub path"),
+        ):
+            result = runner.invoke(inspect, ["-m", "microsoft/Phi-3.5-mini-instruct"], obj={})
+        assert "does not exist" not in result.output, (
+            "dotted HF ID was misclassified as a local path"
+        )

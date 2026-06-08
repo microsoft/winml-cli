@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import logging
 from dataclasses import dataclass, field
@@ -74,6 +75,7 @@ if TYPE_CHECKING:
     from torch import nn
 
     from ..eval.config import WinMLEvaluationConfig  # noqa: TC004
+    from ..utils.constants import EPNameOrAlias
 
 __all__ = [
     "WinMLBuildConfig",
@@ -133,6 +135,7 @@ class WinMLBuildConfig:
     quant: WinMLQuantizationConfig | None = field(default_factory=WinMLQuantizationConfig)
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
+    auto: bool = True
 
     def __post_init__(self) -> None:
         # Lazy import: inject into module globals so typing.get_type_hints()
@@ -165,16 +168,22 @@ class WinMLBuildConfig:
                 WinMLCompileConfig.from_dict(compile_data) if compile_data is not None else None
             ),
             eval=eval_cfg,
+            auto=config_dict.get("auto", True),
         )
 
     def to_dict(self) -> dict:
         """Convert config to nested dictionary."""
-        result: dict = {
-            "export": self.export.to_dict() if self.export is not None else None,
-            "optim": self.optim.to_dict(),
-            "quant": self.quant.to_dict() if self.quant is not None else None,
-            "compile": self.compile.to_dict() if self.compile is not None else None,
-        }
+        result: dict = {}
+        if not self.auto:
+            result["auto"] = False
+        result.update(
+            {
+                "export": self.export.to_dict() if self.export is not None else None,
+                "optim": self.optim.to_dict(),
+                "quant": self.quant.to_dict() if self.quant is not None else None,
+                "compile": self.compile.to_dict() if self.compile is not None else None,
+            }
+        )
         # Only include loader if it has non-default values
         loader_dict = self.loader.to_dict()
         if loader_dict:
@@ -208,9 +217,9 @@ class WinMLBuildConfig:
             errors.append("loader.task is required for full model builds")
         # export=None is valid for ONNX builds
 
-        # 2. optim config always required
+        # 2. optim config always required (runtime callers may pass None despite the type)
         if self.optim is None:
-            errors.append("optim config is required")
+            errors.append("optim config is required")  # type: ignore[unreachable]
 
         # 3. quant validation (when present)
         # Exceptions: ONNX builds (export=None) don't need quant.task/model_name
@@ -236,6 +245,7 @@ class WinMLBuildConfig:
     def generate_cache_key(self) -> str:
         """Generate deterministic cache key for caching pipeline outputs."""
         components = self.to_dict()
+        components.pop("auto", None)
         json_str = json.dumps(components, sort_keys=True)
         return hashlib.sha256(json_str.encode()).hexdigest()[:16]
 
@@ -243,6 +253,22 @@ class WinMLBuildConfig:
 # =============================================================================
 # SUBMODULE INFO DATACLASS
 # =============================================================================
+
+
+class SubmoduleClassNotFoundError(LookupError):
+    """Raised when no submodule matches the requested class name.
+
+    Attributes:
+        class_name: The class name that was requested.
+        available_classes: Sorted list of submodule class names actually
+            present (and executed) in the traced model — used by callers to
+            render "did you mean…?" suggestions.
+    """
+
+    def __init__(self, class_name: str, available_classes: list[str]) -> None:
+        self.class_name = class_name
+        self.available_classes = available_classes
+        super().__init__(f"No submodule with class '{class_name}' found")
 
 
 @dataclass
@@ -259,6 +285,9 @@ class SubmoduleInfo:
         output_shapes: Shape of each output tensor (e.g., [[1,16,64]])
         input_dtypes: Dtype of each input tensor (e.g., ["float32", "float32"])
         output_dtypes: Dtype of each output tensor (e.g., ["float32"])
+        input_names: Forward-arg names for each input (e.g., ["hidden_state"]
+            or ["pixel_values"]). Empty when hook capture didn't run; callers
+            then fall back to generic ``input_{i}`` names.
     """
 
     class_name: str
@@ -267,6 +296,7 @@ class SubmoduleInfo:
     output_shapes: list[list[int]]
     input_dtypes: list[str]
     output_dtypes: list[str]
+    input_names: list[str] = field(default_factory=list)
 
 
 # =============================================================================
@@ -276,7 +306,7 @@ def resolve_quant_compile_config(
     *,
     device: str = "auto",
     precision: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     task: str | None = None,
 ) -> tuple[WinMLQuantizationConfig | None, WinMLCompileConfig | None]:
     """Resolve quantization and compilation config from device/precision policy.
@@ -296,10 +326,10 @@ def resolve_quant_compile_config(
         Tuple of (quant_config, compile_config). Either may be None when the
         policy does not require that stage (e.g., CPU with fp32).
     """
-    from ..sysinfo import resolve_device
+    from ..sysinfo import resolve_check_device_ep
     from .precision import resolve_precision
 
-    resolved_device, available_devices = resolve_device(device=device)
+    resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -309,7 +339,7 @@ def resolve_quant_compile_config(
     policy = resolve_precision(
         device=resolved_device,
         precision=precision,
-        ep=ep,
+        ep=resolved_eps[0],
         available_devices=available_devices,
         task=task,
     )
@@ -317,15 +347,15 @@ def resolve_quant_compile_config(
     if policy.device == "auto":
         return None, None
 
-    # Quant config
+    # Quant config (weight_type and activation_type are always both-None or both-set)
     quant_config: WinMLQuantizationConfig | None = None
-    if policy.weight_type is not None:
+    if policy.weight_type is not None and policy.activation_type is not None:
         quant_config = WinMLQuantizationConfig()
         quant_config.weight_type = policy.weight_type
         quant_config.activation_type = policy.activation_type
 
     # Compile config
-    compile_config = WinMLCompileConfig.for_provider(policy.compile_provider)
+    compile_config = WinMLCompileConfig.for_provider(policy.compile_provider, device=policy.device)
 
     return quant_config, compile_config
 
@@ -341,7 +371,7 @@ def generate_onnx_build_config(
     task: str | None = None,
     device: str = "auto",
     precision: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     override: WinMLBuildConfig | None = None,
 ) -> WinMLBuildConfig:
     """Generate build config for a pre-exported ONNX model (Scenario D).
@@ -435,7 +465,8 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
+    no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
 
 
@@ -453,7 +484,8 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
+    no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
 
 
@@ -470,7 +502,8 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
+    no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
 
@@ -521,6 +554,10 @@ def generate_hf_build_config(
     _trust_remote_code = trust_remote_code or (
         override.loader.trust_remote_code if override and override.loader else False
     )
+    if _trust_remote_code:
+        from ..utils.cli import warn_trust_remote_code
+
+        warn_trust_remote_code()
     loader_config, hf_config, resolved_class = resolve_loader_config(
         model_id,
         task=task,
@@ -529,6 +566,9 @@ def generate_hf_build_config(
         trust_remote_code=_trust_remote_code,
         library_name=library_name,
     )
+    # resolve_loader_config guarantees both fields are populated (it raises otherwise).
+    assert loader_config.model_type is not None
+    assert loader_config.task is not None
 
     # =========================================================================
     # STEP 2: Lookup registered config FIRST (may short-circuit Optimum)
@@ -588,12 +628,12 @@ def generate_hf_build_config(
     # =========================================================================
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
-    from ..sysinfo import resolve_device
+    from ..sysinfo import resolve_check_device_ep
     from .precision import resolve_precision
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
     # blindly default to QNN on machines without an NPU (#412).
-    resolved_device, available_devices = resolve_device(device=device)
+    resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -603,38 +643,32 @@ def generate_hf_build_config(
     policy = resolve_precision(
         device=resolved_device,
         precision=precision,
-        ep=ep,
+        ep=resolved_eps[0],
         available_devices=available_devices,
         task=parent_config.loader.task,
     )
 
-    # Apply policy: set compile provider from detected hardware
-    if policy.device != "auto":
-        # Quant config (weight_type and activation_type are always both-None or both-set)
-        if policy.weight_type is not None:
-            if parent_config.quant is None:
-                parent_config.quant = WinMLQuantizationConfig()
-            parent_config.quant.weight_type = policy.weight_type
-            parent_config.quant.activation_type = policy.activation_type
-        else:
-            parent_config.quant = None
-
-        # Compile config
-        parent_config.compile = WinMLCompileConfig.for_provider(
-            policy.compile_provider,
-        )
+    # Apply policy: resolve_device() always returns a concrete device so
+    # policy.device is never "auto" here.
+    # Quant config (weight_type and activation_type are always both-None or both-set)
+    if policy.weight_type is not None and policy.activation_type is not None:
+        if parent_config.quant is None:
+            parent_config.quant = WinMLQuantizationConfig()
+        parent_config.quant.weight_type = policy.weight_type
+        parent_config.quant.activation_type = policy.activation_type
     else:
-        # Even in auto/auto mode, set compile provider from detected hardware
-        # instead of preserving the hardcoded EPConfig default (#412).
-        from .precision import get_provider_for_device
+        # CPU/GPU: precision is float (fp16/fp32) — no quantization
+        parent_config.quant = None
 
-        hw_provider = get_provider_for_device(resolved_device)
-        if hw_provider is not None:
-            parent_config.compile = WinMLCompileConfig.for_provider(
-                hw_provider,
-            )
-        # When hw_provider is None (CPU-only), keep the default compile config
-        # so the pipeline still has a valid compile section.
+    # Compile config
+    parent_config.compile = WinMLCompileConfig.for_provider(
+        policy.compile_provider,
+        device=policy.device,
+    )
+
+    # no_compile overrides policy — applied last so it always wins
+    if no_compile:
+        parent_config.compile = None
 
     # =========================================================================
     # STEP 5: Specialize for submodules if requested
@@ -648,11 +682,12 @@ def generate_hf_build_config(
             model = resolved_class(hf_config)
         except OSError as e:
             logger.debug("Direct construction failed (%s), using from_config()", e)
-            model = resolved_class.from_config(hf_config)
+            # HF Auto* classes expose from_config(); base `type` annotation can't see it.
+            model = resolved_class.from_config(hf_config)  # type: ignore[attr-defined]
 
         # Extract input shapes and dtypes from export_config -- NO HARDCODED VALUES
         input_tensors = [t for t in (export_config.input_tensors or []) if t.shape is not None]
-        input_shapes = [t.shape for t in input_tensors]
+        input_shapes = [t.shape for t in input_tensors if t.shape is not None]
         input_dtypes = [t.dtype for t in input_tensors]
         if not input_shapes:
             raise ValueError(
@@ -692,7 +727,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig: ...
 
@@ -711,7 +746,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     onnx_path: str | Path | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -729,7 +764,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig by orchestrating existing modules.
@@ -769,20 +804,24 @@ def generate_build_config(
             ep=ep,
             override=override,
         )
-    return generate_hf_build_config(
-        model_id,
-        task=task,
-        model_class=model_class,
-        model_type=model_type,
-        module=module,
-        override=override,
-        shape_config=shape_config,
-        library_name=library_name,
-        device=device,
-        precision=precision,
-        trust_remote_code=trust_remote_code,
-        ep=ep,
-    )
+    # Split branches so mypy can pick the matching overload of generate_hf_build_config.
+    # Typed as dict[str, Any] so per-kwarg type checks happen at the callee, not on the
+    # widened Union mypy would otherwise infer from this heterogeneous literal.
+    common_kwargs: dict[str, Any] = {
+        "task": task,
+        "model_class": model_class,
+        "model_type": model_type,
+        "override": override,
+        "shape_config": shape_config,
+        "library_name": library_name,
+        "device": device,
+        "precision": precision,
+        "trust_remote_code": trust_remote_code,
+        "ep": ep,
+    }
+    if module is None:
+        return generate_hf_build_config(model_id, module=None, **common_kwargs)
+    return generate_hf_build_config(model_id, module=module, **common_kwargs)
 
 
 # =============================================================================
@@ -814,10 +853,20 @@ def _build_submodule_config(
         - Inherited optim/compile from parent
         - Quant with task=None, model_name=None (RandomDataset fallback)
     """
-    # Build InputTensorSpec for EACH input tensor (not just the first)
+
+    # Build InputTensorSpec for EACH input tensor (not just the first).
+    # Use the submodule's actual forward-arg names so build_hf_model can
+    # call submodule(**kwargs) correctly — submodule forward args may be
+    # positional (e.g. `input`) or keyword (e.g. `hidden_state`). Fall back
+    # to generic input_{i} only when names were not discovered.
+    def _input_name(i: int) -> str:
+        if i < len(sub_info.input_names) and sub_info.input_names[i]:
+            return sub_info.input_names[i]
+        return f"input_{i}"
+
     input_tensors = [
         InputTensorSpec(
-            name=f"input_{i}",
+            name=_input_name(i),
             shape=tuple(shape),
             dtype=sub_info.input_dtypes[i] if i < len(sub_info.input_dtypes) else None,
         )
@@ -1053,12 +1102,16 @@ def _find_submodules_by_class(
         depth=10,
     )
 
-    # Collect torchinfo-discovered modules matching class_name
+    # Collect torchinfo-discovered modules matching class_name, plus the
+    # full set of executed class names — surfaced via SubmoduleClassNotFoundError
+    # so the CLI can suggest valid alternatives on a typo.
     torchinfo_modules: list[tuple[str, Any]] = []  # (full_path, layer_info)
+    executed_class_names: set[str] = set()
     for layer_info in model_info.summary_list:
-        if layer_info.class_name != class_name:
-            continue
         if not layer_info.executed:
+            continue
+        executed_class_names.add(layer_info.class_name)
+        if layer_info.class_name != class_name:
             continue
 
         # Build full dotted path by walking parent chain (matches named_modules())
@@ -1069,6 +1122,9 @@ def _find_submodules_by_class(
             node = node.parent_info
         full_path = ".".join(reversed(parts))
         torchinfo_modules.append((full_path, layer_info))
+
+    if not torchinfo_modules:
+        raise SubmoduleClassNotFoundError(class_name, sorted(executed_class_names))
 
     # Second pass: hook-based capture for complete multi-input I/O data.
     # torchinfo only captures the first input tensor per module; our hooks
@@ -1081,12 +1137,14 @@ def _find_submodules_by_class(
     results = []
     for full_path, layer_info in torchinfo_modules:
         io_info = hook_data.get(full_path)
+        layer_input_names: list[str] = []
         if io_info and io_info.input_shapes:
             # Prefer hook-captured data (has complete multi-input info)
             layer_input_shapes = io_info.input_shapes
             layer_output_shapes = io_info.output_shapes
             layer_input_dtypes = io_info.input_dtypes
             layer_output_dtypes = io_info.output_dtypes
+            layer_input_names = io_info.input_names
         else:
             # Fall back to torchinfo data (single input only)
             layer_input_shapes = [layer_info.input_size] if layer_info.input_size else []
@@ -1102,6 +1160,16 @@ def _find_submodules_by_class(
             layer_input_dtypes = [param_dtype] * len(layer_input_shapes)
             layer_output_dtypes = [param_dtype] * len(layer_output_shapes)
 
+            # Without hook data, derive names from the forward signature so
+            # build_hf_model can invoke the submodule with the correct kwargs.
+            try:
+                sig = inspect.signature(layer_info.module.forward)
+                layer_input_names = [p.name for p in sig.parameters.values() if p.name != "self"][
+                    : len(layer_input_shapes)
+                ]
+            except (TypeError, ValueError):
+                layer_input_names = []
+
         results.append(
             SubmoduleInfo(
                 class_name=layer_info.class_name,
@@ -1110,6 +1178,7 @@ def _find_submodules_by_class(
                 output_shapes=layer_output_shapes,
                 input_dtypes=layer_input_dtypes,
                 output_dtypes=layer_output_dtypes,
+                input_names=layer_input_names,
             )
         )
 

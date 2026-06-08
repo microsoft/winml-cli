@@ -21,11 +21,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import click
 from rich.console import Console
 
+from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
+
+
+if TYPE_CHECKING:
+    from typing import Literal
 
 
 logger = logging.getLogger(__name__)
@@ -40,19 +46,14 @@ console = Console()
     type=click.Path(exists=True, path_type=Path),
     help="Input ONNX model file",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output path (default: {input}_qdq.onnx)",
-)
+@cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
 @click.option(
     "--precision",
     "-p",
     type=str,
     default=None,
-    help="Quantization precision: int8, int16, or w{x}a{y} (e.g., w8a16). "
+    help="Quantization precision. Accepted: auto, int8, int16, or w{x}a{y} "
+    "where x,y in {8,16} (e.g., w8a8, w8a16, w16a16). "
     "Overridden by explicit --weight-type/--activation-type.",
 )
 @click.option(
@@ -98,12 +99,14 @@ console = Console()
     help="Task for calibration dataset selection (e.g., 'image-classification').",
 )
 @click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output",
+    "--model-name",
+    type=str,
+    default=None,
+    help="HuggingFace model name (e.g., 'microsoft/resnet-50'). When provided "
+    "with --task, enables task-aware calibration datasets using the model's preprocessor.",
 )
+@cli_utils.build_config_option()
+@cli_utils.verbosity_options()
 @click.pass_context
 def quantize(
     ctx: click.Context,
@@ -117,7 +120,10 @@ def quantize(
     per_channel: bool,
     symmetric: bool,
     task: str | None,
-    verbose: bool,
+    model_name: str | None,
+    verbose: int,
+    quiet: bool,
+    config_file: Path | None,
 ) -> None:
     r"""Quantize ONNX model by inserting QDQ nodes.
 
@@ -142,11 +148,31 @@ def quantize(
         # Explicit types with entropy calibration
         winml quantize -m model.onnx --weight-type int8 --method entropy
     """
-    # Inherit debug mode from parent
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
+    # Merge top-level -v/-q with subcommand-level flags so either position works.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+    configure_logging(verbosity=verbose, quiet=quiet)
 
-    configure_logging(verbose=verbose)
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Only read the JSON for what explicitly specified in config file.
+    if config_file is not None:
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        qc = raw_cfg.get("quant") or {}
+        if not cli_utils.is_cli_provided(ctx, "samples") and "samples" in qc:
+            samples = qc["samples"]
+        if not cli_utils.is_cli_provided(ctx, "method") and "calibration_method" in qc:
+            method = qc["calibration_method"]
+        if not cli_utils.is_cli_provided(ctx, "weight_type") and "weight_type" in qc:
+            weight_type = qc["weight_type"]
+        if not cli_utils.is_cli_provided(ctx, "activation_type") and "activation_type" in qc:
+            activation_type = qc["activation_type"]
+        if not cli_utils.is_cli_provided(ctx, "per_channel") and "per_channel" in qc:
+            per_channel = qc["per_channel"]
+        if not cli_utils.is_cli_provided(ctx, "symmetric") and "symmetric" in qc:
+            symmetric = qc["symmetric"]
+        if not cli_utils.is_cli_provided(ctx, "task") and "task" in qc:
+            task = qc["task"]
+        if not cli_utils.is_cli_provided(ctx, "model_name") and "model_name" in qc:
+            model_name = qc["model_name"]
 
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
@@ -159,26 +185,29 @@ def quantize(
     # Determine output path
     if output is None:
         output = model.parent / f"{model.stem}_qdq.onnx"
+    output.parent.mkdir(parents=True, exist_ok=True)
 
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Output:[/bold blue] {output}")
-    if precision:
-        console.print(f"[bold blue]Precision:[/bold blue] {precision}")
+    console.print(f"[bold blue]Precision:[/bold blue] {precision or 'auto'}")
     console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
     console.print(f"[bold blue]Activation type:[/bold blue] {resolved_activation}")
     console.print(f"[bold blue]Samples:[/bold blue] {samples}")
     console.print(f"[bold blue]Method:[/bold blue] {method}")
 
-    # Create config (output_path is passed separately to API)
+    # Create config (output_path is passed separately to API).
+    # Click's Choice validates these strings at parse time, so cast acknowledges
+    # the Literal[] contract that mypy can't see through the str return type.
     config = WinMLQuantizationConfig(
         samples=samples,
-        calibration_method=method,
-        weight_type=resolved_weight,
-        activation_type=resolved_activation,
+        calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
+        weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
+        activation_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_activation),
         per_channel=per_channel,
         symmetric=symmetric,
         task=task,
+        model_name=model_name,
     )
 
     # Display dataset info from config
@@ -230,8 +259,15 @@ def _resolve_quant_types(
 
     if precision and is_quantized_precision(precision):
         default_w, default_a = resolve_quant_types(precision)
-    else:
+    elif precision is None or precision.lower() == "auto":
         default_w, default_a = "uint8", "uint8"
+    else:
+        raise click.BadParameter(
+            f"'{precision}' is not a supported quantization precision. "
+            "Accepted: auto, int8, int16, or w{x}a{y} with x,y in {8,16} "
+            "(e.g., w8a8, w8a16, w16a16).",
+            param_hint="'-p' / '--precision'",
+        )
 
     # Explicit flags override precision defaults
     resolved_w = weight_type if weight_type else default_w

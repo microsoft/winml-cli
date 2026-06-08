@@ -1,4 +1,4 @@
-name: ModelKit CI
+name: WinML CLI CI
 
 on:
   pull_request:
@@ -34,7 +34,7 @@ jobs:
           - group: remaining
             paths: >-
               tests/unit/core tests/unit/onnx tests/unit/cache
-              tests/unit/utils tests/unit/sysinfo tests/unit/inspect
+              tests/unit/utils tests/unit/test_helpers tests/unit/sysinfo tests/unit/inspect
               tests/unit/optracing tests/regression tests/cli
 
     name: test (${{ matrix.group }})
@@ -49,7 +49,7 @@ jobs:
           cache-dependency-glob: pyproject.toml
 
       - name: Set up Python
-        run: uv python install 3.10
+        run: uv python install 3.11
 
       - name: Install dependencies
         run: uv sync --all-extras

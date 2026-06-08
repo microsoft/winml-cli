@@ -5,7 +5,7 @@
 """QAIRT SDK compilation script - executed in isolated venv-winml subprocess.
 
 This script is invoked by qnn_compiler._compile_qairt() and runs in a separate
-Python 3.10 virtual environment with QAIRT SDK dependencies installed.
+Python 3.11 virtual environment with QAIRT SDK dependencies installed.
 
 Errors are written to stderr. Return code 0 indicates success.
 """
@@ -49,9 +49,8 @@ def extract_input_specs(model_path: Path) -> list[dict]:
     import numpy as np
     import onnx
 
-    from ...onnx import load_onnx
-
-    model = load_onnx(model_path, validate=False)
+    # This script runs inside the QAIRT SDK's venv; use vanilla onnx.load.
+    model = onnx.load(str(model_path))
 
     dtype_map = {
         onnx.TensorProto.FLOAT: np.float32,

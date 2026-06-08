@@ -31,7 +31,11 @@ from typing import TYPE_CHECKING
 
 from transformers import AutoConfig
 
-from .task import _detect_task_from_config, normalize_task, resolve_task_and_model_class
+from .task import (
+    _detect_task_from_config,
+    normalize_task,
+    resolve_task_and_model_class,
+)
 
 
 if TYPE_CHECKING:
@@ -145,6 +149,7 @@ def load_hf_model(
     model_class: str | None = None,
     user_script: str | None = None,
     trust_remote_code: bool = False,
+    hf_config: PretrainedConfig | None = None,
 ) -> tuple[nn.Module, PretrainedConfig, str]:
     """Load, detect task, and prepare HuggingFace model.
 
@@ -169,6 +174,9 @@ def load_hf_model(
             The script must define a class matching `model_class` at module level.
             Requires trust_remote_code=True for security.
         trust_remote_code: Whether to trust remote code (required for user_script)
+        hf_config: Optional pre-loaded HF config. When supplied, the
+            ``AutoConfig.from_pretrained`` round-trip is skipped — same dedup
+            pattern as ``resolve_loader_config(hf_config=...)`` from PR #719.
 
     Returns:
         Tuple of (model, hf_config, task)
@@ -194,6 +202,11 @@ def load_hf_model(
     """
     logger.info("Loading HF model: %s", model_name_or_path)
 
+    if trust_remote_code:
+        from ..utils.cli import warn_trust_remote_code
+
+        warn_trust_remote_code()
+
     # Validate user_script requirements before any network calls
     if user_script is not None:
         if not trust_remote_code:
@@ -205,10 +218,11 @@ def load_hf_model(
             raise ValueError("model_class must be specified when using user_script")
 
     # [1] Load HF Config
-    hf_config = AutoConfig.from_pretrained(
-        model_name_or_path,
-        trust_remote_code=trust_remote_code,
-    )
+    if hf_config is None:
+        hf_config = AutoConfig.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=trust_remote_code,
+        )
 
     # [2] Task & Model Class Resolution
     if user_script is not None:
@@ -219,6 +233,7 @@ def load_hf_model(
         task = _detect_task_from_config(hf_config) if task is None else normalize_task(task)
     else:
         # Standard resolution via resolve_task_and_model_class()
+        # (model-id task overrides are handled inside _detect_task_from_config)
         try:
             task, resolved_class = resolve_task_and_model_class(
                 hf_config,

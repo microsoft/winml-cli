@@ -15,22 +15,23 @@ from .context import CompileContext
 from .result import CompileResult
 
 
-# Device → available compilers
-DEVICE_COMPILER_MAPPING: dict[str | None, list[str]] = {
-    "qnn": ["ort", "qairt"],
+if TYPE_CHECKING:
+    from ..utils.constants import EPName
+    from .configs import WinMLCompileConfig
+    from .stages.base import BaseStage
+
+
+# EP → available compilers. Keys are canonical EPName (or None for the default).
+EP_COMPILER_MAPPING: dict[EPName | None, list[str]] = {
+    "QNNExecutionProvider": ["ort", "qairt"],
     None: ["ort"],
 }
 
 
-def list_compilers(device: str) -> str:
-    """Return available compilers for a device as a comma-separated string."""
-    compilers = DEVICE_COMPILER_MAPPING.get(device, DEVICE_COMPILER_MAPPING[None])
+def list_compilers(ep: EPName | None) -> str:
+    """Return available compilers for an EP as a comma-separated string."""
+    compilers = EP_COMPILER_MAPPING.get(ep, EP_COMPILER_MAPPING[None])
     return ", ".join(compilers)
-
-
-if TYPE_CHECKING:
-    from .configs import WinMLCompileConfig
-    from .stages.base import BaseStage
 
 
 class Compiler:
@@ -92,7 +93,7 @@ class Compiler:
         if config is None:
             return CompileResult(
                 success=True,
-                output_path=str(model_path),
+                output_path=model_path,
                 errors=[],
                 warnings=["No compile config provided, skipping compilation (passthrough)"],
             )

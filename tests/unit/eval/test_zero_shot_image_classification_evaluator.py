@@ -102,8 +102,7 @@ def _make_evaluator(class_names=None):
     """Instantiate evaluator by patching external dependencies."""
     from datasets import ClassLabel, Dataset, Features, Image
 
-    from winml.modelkit.datasets import DatasetConfig
-    from winml.modelkit.eval import WinMLEvaluationConfig
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     class_names = class_names or ["airplane", "automobile", "bird", "cat", "deer",
                                    "dog", "frog", "horse", "ship", "truck"]
@@ -166,12 +165,6 @@ class TestEvaluatorSetup:
         mock_ds = MagicMock()
         result = ev.align_labels(mock_ds, MagicMock())
         assert result is mock_ds
-
-    def test_schema_has_image_and_label(self):
-        schema = WinMLZeroShotImageClassificationEvaluator.schema_info()
-        names = [col.name for col in schema]
-        assert "image" in names
-        assert "label" in names
 
 
 class TestEvaluatorCompute:

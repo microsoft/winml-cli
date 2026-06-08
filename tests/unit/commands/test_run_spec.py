@@ -98,7 +98,7 @@ class TestModelOption:
         with patch(_ENGINE_PATH, return_value=engine):
             runner.invoke(run, ["--model", "microsoft/resnet-50", "--text", "x"])
         engine.load.assert_called_once_with(
-            "microsoft/resnet-50", task=None, device="auto", ep=None
+            "microsoft/resnet-50", task=None, device="auto", ep=None, allow_unsupported_nodes=False
         )
 
 
@@ -504,9 +504,7 @@ class TestEPOption:
         [
             "qnn",
             "openvino",
-            "ov",
             "vitisai",
-            "vitis",
             "QNNExecutionProvider",
             "OpenVINOExecutionProvider",
             "VitisAIExecutionProvider",
@@ -1202,7 +1200,7 @@ class TestPrintResultNoMutation:
             ],
         }
         out = tmp_path / "out.txt"
-        _print_result(result, output_format="text", output_path=str(out))
+        _print_result(result, output_format="text", output_path=out)
         # Original should still have mask
         assert result["predictions"][0]["mask"] == "base64encodeddata"
 
@@ -1216,7 +1214,7 @@ class TestPrintResultNoMutation:
             ],
         }
         out = tmp_path / "out.json"
-        _print_result(result, output_format="json", output_path=str(out))
+        _print_result(result, output_format="json", output_path=out)
         assert "base64data" in out.read_text()
 
 

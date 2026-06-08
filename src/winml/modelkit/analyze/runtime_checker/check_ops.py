@@ -15,8 +15,10 @@ Usage:
         python -m winml.modelkit.analyze.runtime_checker.check_ops --all_ops
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import onnxruntime as ort
 from onnx.defs import SchemaError
@@ -28,6 +30,12 @@ from ...pattern.op_input_gen import (
     get_registered_operators,
     get_runtime_checker_op,
 )
+
+
+if TYPE_CHECKING:
+    import argparse
+
+    from ...utils.constants import EPName
 from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 from ...sysinfo import SysInfo
 from ...utils import constants
@@ -61,7 +69,7 @@ def check_ops(
     not_run_start_id: int = 1,
     case_index: str | list[str] | None = None,
     conflict_file: str | Path | None = None,
-):
+) -> None:
     """Run operators on execution provider.
 
     Args:
@@ -277,7 +285,7 @@ class RTXChecker(EPChecker):
         )
 
 
-def get_ep_checker(ep_name: str, device: str) -> EPChecker:
+def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
     """Get EPChecker for given execution provider name.
 
     Args:
@@ -306,7 +314,7 @@ def get_ep_checker(ep_name: str, device: str) -> EPChecker:
     return ep_name_to_checker[ep_name](device_type=device_type)
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     """Build argument parser for check_ops-style commands."""
     import argparse
 

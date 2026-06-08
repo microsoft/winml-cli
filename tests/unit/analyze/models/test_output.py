@@ -160,7 +160,6 @@ class TestAnalysisOutputValidation:
     def test_valid_analysis_output(self):
         """Test that valid AnalysisOutput is accepted."""
         output = AnalysisOutput(
-            analyzer_version="1.0.0",
             metadata=ModelStats(
                 model_path="/models/resnet50.onnx",
                 opset_version=13,
@@ -187,13 +186,11 @@ class TestAnalysisOutputValidation:
 
         assert output.metadata.model_path == "/models/resnet50.onnx"
         assert len(output.results) == 1
-        assert output.analyzer_version == "1.0.0"
 
     def test_unique_ihv_types_validation(self):
         """Test that IHV types must be unique in results."""
         # Valid: unique IHV types
         output = AnalysisOutput(
-            analyzer_version="1.0.0",
             metadata=ModelStats(
                 model_path="/test.onnx",
                 opset_version=13,
@@ -231,10 +228,9 @@ class TestAnalysisOutputValidation:
         )
         assert len(output.results) == 2
 
-        # Invalid: duplicate IHV types
-        with pytest.raises(ValidationError, match="Duplicate IHV types found"):
+        # Invalid: duplicate EP types
+        with pytest.raises(ValidationError, match="Duplicate EP types found"):
             AnalysisOutput(
-                analyzer_version="1.0.0",
                 metadata=ModelStats(
                     model_path="/test.onnx",
                     opset_version=13,
@@ -275,7 +271,6 @@ class TestAnalysisOutputValidation:
         """Test that results list has max 4 items."""
         # Valid: 4 results
         output = AnalysisOutput(
-            analyzer_version="1.0.0",
             metadata=ModelStats(
                 model_path="/test.onnx",
                 opset_version=13,
@@ -340,7 +335,6 @@ class TestAnalysisOutputValidation:
     def test_model_dump_json_serialization(self):
         """Test that model_dump_json() produces valid JSON."""
         output = AnalysisOutput(
-            analyzer_version="1.0.0",
             metadata=ModelStats(
                 model_path="/models/test.onnx",
                 opset_version=14,
@@ -374,7 +368,6 @@ class TestAnalysisOutputValidation:
         assert parsed["metadata"]["opset_version"] == 14
         assert parsed["metadata"]["total_operators"] == 3
         assert parsed["metadata"]["operator_counts"]["Conv"] == 1
-        assert parsed["analyzer_version"] == "1.0.0"
 
     def test_comprehensive_output_with_all_fields(self):
         """Test AnalysisOutput with all fields populated."""
@@ -390,7 +383,6 @@ class TestAnalysisOutputValidation:
         )
 
         output = AnalysisOutput(
-            analyzer_version="1.0.0",
             metadata=ModelStats(
                 model_path="/models/comprehensive.onnx",
                 opset_version=15,
@@ -444,4 +436,3 @@ class TestAnalysisOutputValidation:
 
         assert "metadata" in parsed
         assert "results" in parsed
-        assert "analyzer_version" in parsed

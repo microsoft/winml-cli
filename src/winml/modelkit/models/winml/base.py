@@ -36,6 +36,8 @@ from ...session.session import WinMLSession
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
+    from ...utils.constants import EPName, EPNameOrAlias
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,7 +67,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         config: PretrainedConfig | None = None,
         device: str = "auto",
         session_options: Any | None = None,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
     ) -> None:
         """Initialize inference model.
 
@@ -73,7 +75,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
             onnx_path: Path to ONNX model file
             config: HuggingFace PretrainedConfig (num_labels, id2label, etc.)
             device: Target device ("auto", "npu", "gpu", "cpu")
-            session_options: ORT SessionOptions (e.g., for graph_optimization_level)
+            session_options: Factory returning an ORT SessionOptions (e.g., for
+                graph_optimization_level). Called fresh per ORT session.
             ep: Explicit EP short name (e.g., "dml", "qnn"). Forwarded to WinMLSession.
         """
         self._onnx_path = Path(onnx_path)
@@ -95,6 +98,11 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
     def io_config(self) -> dict:
         """ONNX I/O metadata (delegated to session)."""
         return self._session.io_config
+
+    @property
+    def onnx_path(self) -> Path:
+        """Path to the ONNX model file."""
+        return self._onnx_path
 
     def _format_inputs(
         self,
@@ -211,6 +219,11 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
     def device(self) -> str:
         """Current device (delegates to session, resolved after compile)."""
         return self._session.device
+
+    @property
+    def ep_name(self) -> EPName | None:
+        """Primary EP bound by ORT (delegates to session, None before compile)."""
+        return self._session.ep_name
 
     @property
     def task(self) -> str | None:

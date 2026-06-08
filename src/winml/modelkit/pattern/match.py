@@ -20,7 +20,8 @@ import numpy as np
 if TYPE_CHECKING:
     from onnx import NodeProto
 
-    from winml.modelkit.pattern.base import Pattern, PatternMatcher
+    from .base import Pattern, PatternMatcher
+    from .models import Pattern as PatternModel
 
 
 @dataclass
@@ -56,24 +57,24 @@ class SkeletonMatchResult:
                   dangling tensor references. A skeleton is removable iff none of the
                   intermediate tensors (outputs of skeleton nodes, excluding the final
                   skeleton output) are consumed by nodes outside the skeleton.
+        matched_node_keys: List of stable node keys aligned with matched_nodes.
     """
 
-    pattern: "Pattern"  # Pattern instance
+    pattern: "Pattern | PatternModel"  # Pattern ABC instance or Pydantic Pattern model
     matched_nodes: list["NodeProto"]
     matcher: "PatternMatcher" = field(repr=False)  # PatternMatcher reference
     inputs: list[str] = field(default_factory=list)
     output: str = ""
     removable: bool = False
+    matched_node_keys: list[str] = field(default_factory=list)
 
-    @property
-    def matched_node_names(self) -> list[str]:
-        """Get matched node names as strings.
-
-        Returns:
-            List of node name strings. For unnamed nodes, returns formatted
-            name like "OpType_node" (e.g., "Conv_node").
-        """
-        return [node.name if node.name else f"{node.op_type}_node" for node in self.matched_nodes]
+    def __post_init__(self) -> None:
+        """Validate that stable node keys are provided for each matched node."""
+        if len(self.matched_node_keys) != len(self.matched_nodes):
+            raise ValueError(
+                "matched_node_keys must be provided and aligned with matched_nodes "
+                f"(got {len(self.matched_node_keys)} keys for {len(self.matched_nodes)} nodes)"
+            )
 
 
 @dataclass
@@ -102,7 +103,7 @@ class PatternMatchResult:
     match_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     @property
-    def pattern(self):
+    def pattern(self) -> Pattern | PatternModel:
         """Get the pattern that was matched."""
         return self.skeleton_match_result.pattern
 
@@ -127,12 +128,17 @@ class PatternMatchResult:
 
     @property
     def matched_nodes(self) -> list[str]:
-        """Get matched node names as strings.
+        """Get matched stable node keys as strings.
 
         Returns:
-            List of node name strings (e.g., ["node1", "node2"]).
+            List of stable node keys (e.g., ["node1", "node_0"]).
         """
-        return self.skeleton_match_result.matched_node_names
+        return self.skeleton_match_result.matched_node_keys
+
+    @property
+    def matched_node_keys(self) -> list[str]:
+        """Get matched stable node keys as strings."""
+        return self.skeleton_match_result.matched_node_keys
 
     @property
     def matched_node_names(self):
@@ -148,23 +154,26 @@ class PatternMatchResult:
         try:
             from ..analyze import ONNXOp
 
+            node_keys = self.skeleton_match_result.matched_node_keys
+
             return [
                 ONNXOp(
-                    node_name=node.name if node.name else f"{node.op_type}_node",
+                    node_name=node_keys[idx],
                     op_type=node.op_type,
                     namespace=node.domain if node.domain else "ai.onnx",
                 )
-                for node in self.skeleton_match_result.matched_nodes
+                for idx, node in enumerate(self.skeleton_match_result.matched_nodes)
             ]
         except ImportError:
             # When used outside analyze context, return node info as dicts
+            node_keys = self.skeleton_match_result.matched_node_keys
             return [
                 {
-                    "node_name": node.name if node.name else f"{node.op_type}_node",
+                    "node_name": node_keys[idx],
                     "op_type": node.op_type,
                     "namespace": node.domain if node.domain else "ai.onnx",
                 }
-                for node in self.skeleton_match_result.matched_nodes
+                for idx, node in enumerate(self.skeleton_match_result.matched_nodes)
             ]
 
     @property

@@ -8,8 +8,8 @@
 import pytest
 from datasets import ClassLabel, Dataset, Features, Sequence, Value
 
-from winml.modelkit.datasets import DatasetConfig
-from winml.modelkit.eval import WinMLObjectDetectionEvaluator
+from winml.modelkit.eval import DatasetConfig, WinMLEvaluator, WinMLObjectDetectionEvaluator
+from winml.modelkit.utils.eval_utils import DatasetValidationError
 
 
 # ---------------------------------------------------------------------------
@@ -33,10 +33,12 @@ def make_evaluator(label2id=None, columns_mapping=None):
     """Create evaluator without triggering __init__ data loading."""
     ev = object.__new__(WinMLObjectDetectionEvaluator)
     ev.model = MockModel(label2id)
+    ev._image_col = "image"
     ev._annotation_col = "objects"
     ev._bbox_key = "bbox"
     ev._category_key = "category"
     if columns_mapping:
+        ev._image_col = columns_mapping.get("input_column", "image")
         ev._annotation_col = columns_mapping.get("annotation_column", "objects")
         ev._bbox_key = columns_mapping.get("bbox_key", "bbox")
         ev._category_key = columns_mapping.get("category_key", "category")
@@ -79,7 +81,7 @@ class TestValidateSchema:
     def test_missing_annotation_column_raises(self):
         ev = make_evaluator()
         ds = Dataset.from_dict({"image": ["a.jpg"], "label": [0]})
-        with pytest.raises(ValueError, match="No column 'objects'"):
+        with pytest.raises(DatasetValidationError, match="No column 'objects'"):
             ev._validate_schema(ds)
 
     def test_missing_bbox_key_raises(self):
@@ -94,7 +96,7 @@ class TestValidateSchema:
             {"image": ["a.jpg"], "objects": [{"category": [0]}]},
             features=features,
         )
-        with pytest.raises(ValueError, match="has no key 'bbox'"):
+        with pytest.raises(DatasetValidationError, match="has no key 'bbox'"):
             ev._validate_schema(ds)
 
     def test_missing_category_key_raises(self):
@@ -111,7 +113,7 @@ class TestValidateSchema:
             {"image": ["a.jpg"], "objects": [{"bbox": [[0, 0, 1, 1]]}]},
             features=features,
         )
-        with pytest.raises(ValueError, match="has no key 'category'"):
+        with pytest.raises(DatasetValidationError, match="has no key 'category'"):
             ev._validate_schema(ds)
 
 
@@ -146,7 +148,7 @@ class TestAlignLabels:
         ds = make_od_dataset([[0, 1]], ["cat", "dog"])
         ds_config = DatasetConfig(path="test")
 
-        with pytest.raises(ValueError, match="Dataset label 'dog' not in"):
+        with pytest.raises(DatasetValidationError, match="Dataset label 'dog' not in"):
             ev.align_labels(ds, ds_config)
 
     def test_no_label2id_warns_and_skips(self):
@@ -195,3 +197,81 @@ class TestAlignLabels:
 
         result = ev.align_labels(ds, ds_config)
         assert result["objects"][0]["category"] == [1, 2]
+
+
+# ---------------------------------------------------------------------------
+# Pipeline preparation
+# ---------------------------------------------------------------------------
+
+
+class _FakeProcessor:
+    """Minimal stand-in for an HF image processor with the attributes we read."""
+
+    def __init__(self) -> None:
+        self.size: dict | None = None
+        self.pad_size: dict | None = None
+        self.do_pad: bool | None = None
+
+
+class _FakePipe:
+    def __init__(self) -> None:
+        self.image_processor = _FakeProcessor()
+
+
+def _patch_super_prepare_pipeline(monkeypatch, fake_pipe) -> None:
+    """Patch the *parent* prepare_pipeline so super() in the subclass returns fake_pipe.
+
+    Uses monkeypatch so the override is reverted on teardown — directly assigning
+    to a parent class attribute leaks across tests in the same session. Patches
+    ``WinMLEvaluator`` explicitly rather than ``__mro__[1]`` so that inserting a
+    mixin in the future fails loudly at collection instead of silently mis-patching.
+    """
+    monkeypatch.setattr(WinMLEvaluator, "prepare_pipeline", lambda self: fake_pipe)
+
+
+class TestPreparePipeline:
+    """Cover the two branches in prepare_pipeline()."""
+
+    @pytest.mark.parametrize(
+        ("h", "w", "shortest", "longest"),
+        [
+            (800, 800, 800, 800),
+            (800, 1333, 800, 1333),
+            (1333, 800, 800, 1333),
+        ],
+    )
+    def test_pixel_mask_path_enables_padding(self, monkeypatch, h, w, shortest, longest) -> None:
+        """Model declaring pixel_mask: aspect-preserving size + pad_size + do_pad."""
+        ev = make_evaluator()
+        ev.model.io_config = {
+            "input_names": ["pixel_values", "pixel_mask"],
+            "input_shapes": [[1, 3, h, w], [1, h, w]],
+        }
+        fake_pipe = _FakePipe()
+        _patch_super_prepare_pipeline(monkeypatch, fake_pipe)
+
+        pipe = ev.prepare_pipeline()
+        proc = pipe.image_processor
+        assert proc.size == {"shortest_edge": shortest, "longest_edge": longest}
+        assert proc.pad_size == {"height": h, "width": w}
+        assert proc.do_pad is True
+
+    def test_no_pixel_mask_path_disables_padding(self, monkeypatch) -> None:
+        """No pixel_mask input: exact resize, no padding (legacy behavior)."""
+        ev = make_evaluator()
+        ev.model.io_config = {
+            "input_names": ["pixel_values"],
+            "input_shapes": [[1, 3, 640, 640]],
+        }
+        fake_pipe = _FakePipe()
+        # Sentinel values let us prove the pixel_mask branch did NOT run.
+        fake_pipe.image_processor.pad_size = "untouched"
+        fake_pipe.image_processor.do_pad = "untouched"
+        _patch_super_prepare_pipeline(monkeypatch, fake_pipe)
+
+        pipe = ev.prepare_pipeline()
+        proc = pipe.image_processor
+        assert proc.size == {"height": 640, "width": 640}
+        assert proc.do_pad is False
+        # pad_size must remain the sentinel — pixel_mask branch never executed.
+        assert proc.pad_size == "untouched"

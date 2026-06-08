@@ -21,8 +21,7 @@ from winml.modelkit.eval import KNNAccuracyMetric, WinMLImageFeatureExtractionEv
 
 def make_evaluator(columns_mapping=None):
     """Instantiate evaluator by patching external dependencies."""
-    from winml.modelkit.datasets import DatasetConfig
-    from winml.modelkit.eval import WinMLEvaluationConfig
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mapping = columns_mapping or {}
 
@@ -30,7 +29,10 @@ def make_evaluator(columns_mapping=None):
     mock_ds.__len__ = lambda self: 10
     mock_ds.shuffle.return_value = mock_ds
     mock_ds.select.return_value = mock_ds
-    mock_ds.column_names = ["image", "label"]
+    mock_ds.column_names = [
+        mapping.get("input_column", "image"),
+        mapping.get("label_column", "label"),
+    ]
 
     mock_pipe = MagicMock()
     mock_pipe.image_processor = MagicMock()
@@ -125,20 +127,6 @@ class TestKNNAccuracyMetric:
 # WinMLImageFeatureExtractionEvaluator
 # ---------------------------------------------------------------------------
 
-class TestImageFeatureExtractionEvaluatorSchema:
-    def test_schema_has_image_and_label(self):
-        schema = WinMLImageFeatureExtractionEvaluator.schema_info()
-        names = [col.name for col in schema]
-        assert "image" in names
-        assert "label" in names
-
-    def test_schema_column_types(self):
-        schema = WinMLImageFeatureExtractionEvaluator.schema_info()
-        type_map = {col.name: col.type for col in schema}
-        assert type_map["image"] == "Image"
-        assert type_map["label"] == "ClassLabel"
-
-
 class TestImageFeatureExtractionEvaluatorInit:
     def test_default_label_column(self):
         evaluator = make_evaluator()
@@ -196,11 +184,12 @@ class TestExtractImageEmbedding:
 
 class TestImageFeatureExtractionEvaluatorRegistry:
     def test_registered_in_evaluator_registry(self):
-        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY, get_evaluator_class
 
         assert "image-feature-extraction" in _EVALUATOR_REGISTRY
         assert (
-            _EVALUATOR_REGISTRY["image-feature-extraction"]
+            get_evaluator_class(WinMLEvaluationConfig(task="image-feature-extraction"))
             is WinMLImageFeatureExtractionEvaluator
         )
 
@@ -209,8 +198,7 @@ class TestImageFeatureExtractionEvaluatorRegistry:
 
         assert "image-feature-extraction" in _DEFAULT_DATASETS
         ds = _DEFAULT_DATASETS["image-feature-extraction"]
-        assert ds.path == "timm/mini-imagenet"
-        assert ds.samples == 1000
+        assert ds["path"] == "timm/mini-imagenet"
 
 
 # ---------------------------------------------------------------------------

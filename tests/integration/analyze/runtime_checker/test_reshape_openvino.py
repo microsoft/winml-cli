@@ -10,14 +10,11 @@ from tests.integration.analyze.runtime_checker.test_helper import (
     reshape_quick_helper,
     should_run_ep_test,
 )
-from winml.modelkit import winml
+from winml.modelkit.analyze.runtime_checker.ep_checker import EPChecker
 
 
-winml.register_execution_providers(ort=True)
-
-from winml.modelkit.analyze.runtime_checker.ep_checker import (  # noqa: E402
-    EPChecker,
-)
+def _require_openvino_device(device_type: ort.OrtHardwareDeviceType, skip_message: str) -> None:
+    should_run_ep_test("OpenVINOExecutionProvider", device_type, skip_message)
 
 
 # don't use EPChecker directly as there is a bug with pytest in subprocess
@@ -45,8 +42,7 @@ class OVGPUChecker(EPChecker):
 
 
 def test_reshape_openvino_npu_quick() -> None:
-    should_run_ep_test(
-        "OpenVINOExecutionProvider",
+    _require_openvino_device(
         ort.OrtHardwareDeviceType.NPU,
         "OpenVINO NPU tests require OpenVINO NPU hardware",
     )
@@ -57,8 +53,7 @@ def test_reshape_openvino_npu_quick() -> None:
 
 
 def test_reshape_openvino_cpu_quick() -> None:
-    should_run_ep_test(
-        "OpenVINOExecutionProvider",
+    _require_openvino_device(
         ort.OrtHardwareDeviceType.CPU,
         "OpenVINO CPU tests require OpenVINO CPU hardware",
     )
@@ -69,8 +64,7 @@ def test_reshape_openvino_cpu_quick() -> None:
 
 
 def test_reshape_openvino_gpu_quick() -> None:
-    should_run_ep_test(
-        "OpenVINOExecutionProvider",
+    _require_openvino_device(
         ort.OrtHardwareDeviceType.GPU,
         "OpenVINO GPU tests require OpenVINO GPU hardware",
     )

@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     import torch.nn as nn
 
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ def build_hf_model(
     trust_remote_code: bool = False,
     random_init: bool = False,
     cache_key: str | None = None,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     **kwargs: Any,
 ) -> BuildResult:
@@ -121,6 +122,8 @@ def build_hf_model(
             - ``hack_max_optim_iterations`` (int, default 3): TEMPORARY HACK —
               Max analyzer iterations. 0 disables analyzer.
               TODO: Move to global env / build config.
+            - ``allow_unsupported_nodes`` (bool, default False): If True, warn
+              instead of raising when unsupported nodes persist after analysis.
             - ``use_external_data`` (bool, default True): Whether to use ONNX
               external data format. Default True for large model compatibility.
               TODO: Move to global env / build config.
@@ -135,6 +138,7 @@ def build_hf_model(
     """
     # TODO: Move hack_max_optim_iterations to global env config
     hack_max_optim_iterations: int = kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = kwargs.pop("allow_unsupported_nodes", False)
 
     # ONNX-level kwargs forwarded to export, optimize, quantize stages
     onnx_kwargs = {
@@ -170,6 +174,7 @@ def build_hf_model(
     final_path = output_dir / _name("model.onnx")
     config_path = output_dir / _name("winml_build_config.json")
     manifest_path = output_dir / _name("build_manifest.json")
+    analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Check for existing artifact (skip build if present and not rebuilding)
     if final_path.exists() and not rebuild:
@@ -273,6 +278,8 @@ def build_hf_model(
             ep=ep,
             device=device,
             max_optim_iterations=hack_max_optim_iterations,
+            allow_unsupported_nodes=allow_unsupported_nodes,
+            analyze_output_path=analyze_result_path,
             **onnx_kwargs,
         )
         stage_timings["optimize"] = opt_elapsed
@@ -432,14 +439,28 @@ def _load_model(
     model_id: str | None,
     trust_remote_code: bool,
     random_init: bool = False,
+    hf_config: Any | None = None,
 ) -> Any:
-    """Load PyTorch model — pretrained or random weights."""
+    """Load PyTorch model — pretrained or random weights.
+
+    Args:
+        config: Build config (loader fields used).
+        model_id: HuggingFace model ID or local path.
+        trust_remote_code: Whether to trust remote code.
+        random_init: If True, build with random weights (no download).
+        hf_config: Optional pre-loaded ``PretrainedConfig`` to reuse. When
+            provided, skips the ``AutoConfig.from_pretrained`` round-trip in
+            both the random-init path and the pretrained ``load_hf_model``
+            path (PR #719 dedup pattern).
+    """
     task = config.loader.task
 
     if random_init:
         from transformers import AutoConfig
 
-        if model_id is not None:
+        if hf_config is not None:
+            pass
+        elif model_id is not None:
             hf_config = AutoConfig.from_pretrained(model_id)
         else:
             logger.warning(
@@ -461,7 +482,10 @@ def _load_model(
 
         # Prefer explicit model_class from loader config (set by winml config),
         # fall back to resolve_task_and_model_class for auto-detection.
-        model_class = None
+        # Annotated Any: resolvers return bare `type`, but the actual classes are
+        # HF model classes with extra methods (from_config, from_pretrained, etc.)
+        # that bare `type` doesn't expose.
+        model_class: Any = None
         if config.loader.model_class:
             from ..loader import resolve_hf_model_class
 
@@ -490,6 +514,7 @@ def _load_model(
             model_name_or_path=model_id,
             task=task,
             trust_remote_code=effective_trust,
+            hf_config=hf_config,
         )
         return pytorch_model
 

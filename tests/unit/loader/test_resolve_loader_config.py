@@ -15,7 +15,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.loader import WinMLLoaderConfig, resolve_loader_config
+from winml.modelkit.loader import (
+    WinMLLoaderConfig,
+    resolve_loader_config,
+)
 
 
 # =============================================================================
@@ -59,6 +62,35 @@ class TestResolveLoaderConfig:
         """Neither model_id nor model_type raises ValueError."""
         with pytest.raises(ValueError, match="At least one of"):
             resolve_loader_config()
+
+    def test_hf_config_kwarg_skips_autoconfig_fetch(self) -> None:
+        """When the caller supplies hf_config, step 1's AutoConfig.from_pretrained
+        is skipped — used by inspect to avoid double-fetching the config.
+        """
+        provided_config = MagicMock()
+        provided_config.model_type = "bert"
+        mock_class = MagicMock(spec=[])
+        mock_class.__name__ = "BertForMaskedLM"
+        mock_class.config_class = None
+
+        with (
+            patch("transformers.AutoConfig.from_pretrained") as mock_from_pretrained,
+            patch(
+                "winml.modelkit.loader.task.resolve_task_and_model_class",
+                return_value=("fill-mask", mock_class),
+            ),
+        ):
+            loader_config, hf_config, _ = resolve_loader_config(
+                "bert-base-uncased",
+                task="fill-mask",
+                hf_config=provided_config,
+            )
+
+        assert mock_from_pretrained.call_count == 0, (
+            "Pre-loaded hf_config must short-circuit AutoConfig.from_pretrained"
+        )
+        assert hf_config is provided_config
+        assert loader_config.model_type == "bert"
 
     def test_model_type_only_creates_default_config(self) -> None:
         """model_type without model_id uses create_hf_config_from_model_type."""

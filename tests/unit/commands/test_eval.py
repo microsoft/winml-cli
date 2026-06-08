@@ -72,13 +72,20 @@ class TestSinglePlain:
         assert path is None
         assert mid == "microsoft/resnet-50"
 
-    def test_plain_hf_id_explicit_model_id_wins(self):
-        """Explicit --model-id takes precedence over an HF-ID-shaped -m."""
+    def test_plain_hf_id_with_conflicting_model_id_raises(self):
+        """Passing both -m <hf_id> and --model-id is rejected as a conflict."""
+        with pytest.raises(click.UsageError, match="Cannot pass both"):
+            _resolve_model_path(
+                model=("microsoft/resnet-50",), model_id="Intel/bert-base-uncased-mrpc",
+            )
+
+    def test_plain_hf_id_with_matching_model_id_ok(self):
+        """Passing --model-id equal to -m <hf_id> is allowed (no-op duplicate)."""
         path, mid = _resolve_model_path(
-            model=("microsoft/resnet-50",), model_id="Intel/bert-base-uncased-mrpc",
+            model=("microsoft/resnet-50",), model_id="microsoft/resnet-50",
         )
         assert path is None
-        assert mid == "Intel/bert-base-uncased-mrpc"
+        assert mid == "microsoft/resnet-50"
 
     def test_plain_onnx_with_model_id(self, onnx_file):
         path, mid = _resolve_model_path(
@@ -200,6 +207,17 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+class TestEvalHelp:
+    def test_model_help_mentions_onnx_model_id_and_role_path(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "requires --model-id" in result.output
+        assert "role=path" in result.output
+
+
 @pytest.fixture
 def eval_config_file(tmp_path):
     config = {
@@ -280,3 +298,398 @@ class TestEvalConfigPrecedence:
 
         # config > dataclass defaults (task default is None)
         assert cfg.task == "image-classification"
+
+    def test_cli_default_device_propagates_when_not_explicitly_passed(
+        self,
+        runner: CliRunner,
+    ):
+        """The CLI option default must win over any (stale) dataclass default.
+
+        Even when the user doesn't pass ``--device``, the CLI's default value
+        ("auto") must be the effective config — never a different dataclass
+        default. This guards against the bug where ``--device`` was sourced
+        from ``ParameterSource.DEFAULT`` and silently dropped.
+        """
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+
+            class _R:
+                config = cfg
+                metrics = {"accuracy": 1.0}  # noqa: RUF012
+
+                def to_dict(self):
+                    return {"metrics": self.metrics, "config": cfg.to_dict()}
+
+            return _R()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                ["-m", "microsoft/resnet-50", "--task", "image-classification"],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+        # Find CLI default; ``--device`` was not passed, so the resolved
+        # config must equal the CLI default (not, e.g., a stale "cpu" dataclass default).
+        cli_default = next(p.default for p in eval_cmd.params if p.name == "device")
+        assert cfg.device == cli_default
+
+    def test_config_file_device_wins_over_cli_default(
+        self,
+        runner: CliRunner,
+        eval_config_file,
+    ):
+        """Config-file values must override CLI defaults (but not CLI explicit)."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+
+            class _R:
+                config = cfg
+                metrics = {"accuracy": 1.0}  # noqa: RUF012
+
+                def to_dict(self):
+                    return {"metrics": self.metrics, "config": cfg.to_dict()}
+
+            return _R()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                ["--config", str(eval_config_file), "-m", "microsoft/resnet-50"],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+        # eval_config_file sets device: "gpu"; CLI --device not passed -> "gpu"
+        assert cfg.device == "gpu"
+        # And config-file dataset.samples (33) wins over CLI default
+        assert cfg.dataset.samples == 33
+
+    @pytest.mark.parametrize(
+        ("extra_args", "expected"),
+        [(["--allow-unsupported-nodes"], True), ([], False)],
+    )
+    def test_allow_unsupported_nodes_flag_propagates(
+        self,
+        runner: CliRunner,
+        extra_args,
+        expected,
+    ):
+        """``--allow-unsupported-nodes`` maps to the eval config field."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+
+            class _R:
+                config = cfg
+                metrics = {"accuracy": 1.0}  # noqa: RUF012
+
+                def to_dict(self):
+                    return {"metrics": self.metrics, "config": cfg.to_dict()}
+
+            return _R()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                ["-m", "microsoft/resnet-50", "--task", "image-classification", *extra_args],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured_cfg["cfg"].allow_unsupported_nodes is expected
+
+
+# ---------------------------------------------------------------------------
+# --label-mapping wiring (Click Path → label_mapping_file str)
+# ---------------------------------------------------------------------------
+
+
+class TestLabelMappingWiring:
+    """``--label-mapping`` is a Click ``Path`` that must land in
+    ``cfg.dataset.label_mapping_file`` (a ``str``), NOT in
+    ``cfg.dataset.label_mapping`` (the *parsed* ``dict[str, int] | None``).
+
+    The Click param name is ``label_mapping_path`` (distinct from the
+    ``DatasetConfig.label_mapping`` field) precisely so
+    ``cli_utils.collect_cli_overrides`` doesn't accidentally pass a Path
+    into the dict field. This test locks in that wiring.
+    """
+
+    def test_label_mapping_path_routes_to_file_field_not_dict_field(
+        self,
+        runner: CliRunner,
+        tmp_path,
+    ):
+        """--label-mapping <file> must set cfg.dataset.label_mapping_file (str)
+        and leave cfg.dataset.label_mapping (dict) untouched at this stage."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        # Sentinel mapping file; existence matters because Click validates the path.
+        label_file = tmp_path / "labels.json"
+        label_file.write_text(json.dumps({"cat": 0, "dog": 1}), encoding="utf-8")
+
+        captured_cfg: dict = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+
+            class _R:
+                config = cfg
+                metrics = {"accuracy": 1.0}  # noqa: RUF012
+
+                def to_dict(self):
+                    return {"metrics": self.metrics, "config": cfg.to_dict()}
+
+            return _R()
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch(
+                "winml.modelkit.commands.eval._resolve_label_mapping",
+                return_value=None,
+            ),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "-m",
+                    "microsoft/resnet-50",
+                    "--task",
+                    "image-classification",
+                    "--label-mapping",
+                    str(label_file),
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+
+        # The CLI Path must land in label_mapping_file as a str — the field
+        # is serialized via to_dict(), so a Path would break JSON output.
+        assert cfg.dataset.label_mapping_file == str(label_file)
+        assert isinstance(cfg.dataset.label_mapping_file, str)
+
+        # label_mapping is the *parsed* dict and must stay at its default
+        # (None) until _resolve_label_mapping loads it at eval time. If the
+        # Click Path ever leaks into this field, this assertion fails — that
+        # was the bug introduced when ``collect_cli_overrides`` saw a Click
+        # param named ``label_mapping`` matching a same-named dataclass field.
+        assert cfg.dataset.label_mapping is None
+
+
+# ---------------------------------------------------------------------------
+# Per-task default dataset resolution
+# ---------------------------------------------------------------------------
+
+
+class TestPerTaskDefaultDataset:
+    """When the user does not provide --dataset, the per-task default dataset
+    (path, split, columns_mapping, ...) must reach the evaluator. Only
+    ``samples`` is carried over from the user's CLI value.
+
+    Regression guard for the bug where Click's ``--split validation`` default
+    silently clobbered the per-task default split (e.g. coco→"val",
+    cifar100→"test"), making the per-task split values dead code.
+    """
+
+    @staticmethod
+    def _run_and_capture(runner: CliRunner, args: list[str]):
+        """Invoke the eval CLI, letting ``evaluate()`` run end-to-end with
+        ``_load_model`` and the evaluator class stubbed. Returns the cfg
+        observed by the evaluator (i.e. after default-injection)."""
+        import importlib
+
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        evaluate_mod = importlib.import_module("winml.modelkit.eval.evaluate")
+
+        captured_cfg = {}
+
+        class _FakeEvaluator:
+            def __init__(self, cfg, _model):
+                captured_cfg["cfg"] = cfg
+
+            def compute(self):
+                return {"accuracy": 1.0}
+
+        with (
+            patch.object(evaluate_mod, "_load_model", return_value=object()),
+            patch.object(
+                evaluate_mod, "get_evaluator_class", return_value=_FakeEvaluator,
+            ),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(eval_cmd, args, obj={"debug": False})
+
+        assert result.exit_code == 0, result.output
+        return captured_cfg["cfg"]
+
+    @pytest.mark.parametrize(
+        ("task", "expected_path", "expected_split"),
+        [
+            ("object-detection", "detection-datasets/coco", "val"),
+            ("zero-shot-classification", "fancyzhx/ag_news", "test"),
+            ("zero-shot-image-classification", "uoft-cs/cifar100", "test"),
+            ("image-classification", "timm/mini-imagenet", "test"),
+        ],
+    )
+    def test_per_task_default_split_reaches_evaluator(
+        self,
+        runner: CliRunner,
+        task: str,
+        expected_path: str,
+        expected_split: str,
+    ):
+        cfg = self._run_and_capture(
+            runner, ["-m", "some/model", "--task", task],
+        )
+        assert cfg.dataset.path == expected_path
+        assert cfg.dataset.split == expected_split
+
+    def test_user_samples_preserved_when_default_dataset_used(
+        self,
+        runner: CliRunner,
+    ):
+        """``--samples N`` must NOT be clobbered by the per-task default's samples
+        when the user didn't provide ``--dataset``.
+        """
+        cfg = self._run_and_capture(
+            runner,
+            [
+                "-m", "some/model",
+                "--task", "image-classification",
+                "--samples", "4",
+            ],
+        )
+        # Per-task default path filled in:
+        assert cfg.dataset.path == "timm/mini-imagenet"
+        # ...but user-set --samples preserved.
+        assert cfg.dataset.samples == 4
+
+    def test_user_split_ignored_when_default_dataset_used(
+        self,
+        runner: CliRunner,
+    ):
+        """When falling back to the per-task default dataset, the default owns
+        the split. ``--split`` is intentionally ignored (only ``samples`` is
+        carried over from the user). Users wanting a different split must
+        also pass ``--dataset``.
+        """
+        cfg = self._run_and_capture(
+            runner,
+            [
+                "-m", "some/model",
+                "--task", "image-classification",
+                "--split", "train",
+            ],
+        )
+        assert cfg.dataset.split == "test"  # the default's split wins
+
+    def test_user_column_ignored_when_default_dataset_used(
+        self,
+        runner: CliRunner,
+    ):
+        """``--column`` overrides are ignored when the default dataset fills
+        in. The default owns ``columns_mapping`` wholesale. To customize
+        columns, the user must also pass ``--dataset``.
+        """
+        cfg = self._run_and_capture(
+            runner,
+            [
+                "-m", "some/model",
+                "--task", "text-classification",
+                "--column", "input_column=my_text",
+            ],
+        )
+        # Default's columns_mapping wins wholesale; user's --column dropped.
+        assert cfg.dataset.columns_mapping == {
+            "input_column": "sentence1",
+            "second_input_column": "sentence2",
+        }
+
+    def test_user_streaming_ignored_when_default_dataset_used(
+        self,
+        runner: CliRunner,
+    ):
+        """``--streaming`` is ignored when the default dataset fills in;
+        the default's ``streaming`` value wins.
+        """
+        # fill-mask default has streaming=True; user passing nothing should
+        # still get streaming=True (from default), not the Click default False.
+        cfg = self._run_and_capture(
+            runner,
+            ["-m", "some/model", "--task", "fill-mask"],
+        )
+        assert cfg.dataset.streaming is True
+
+    def test_user_dataset_name_ignored_when_default_dataset_used(
+        self,
+        runner: CliRunner,
+    ):
+        """``--dataset-name`` is ignored when the default dataset fills in.
+        Only ``samples`` is carried over from the user's config.
+        """
+        cfg = self._run_and_capture(
+            runner,
+            [
+                "-m", "some/model",
+                "--task", "text-classification",
+                "--dataset-name", "sst2",
+            ],
+        )
+        # Default's name ("mrpc") wins; user's --dataset-name dropped.
+        assert cfg.dataset.name == "mrpc"
+
+    def test_default_dataset_logs_warning(
+        self,
+        runner: CliRunner,
+        caplog,
+    ):
+        """When falling back to the default dataset, a warning is emitted
+        listing the default and the ignored options.
+        """
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.eval.evaluate"):
+            self._run_and_capture(
+                runner,
+                ["-m", "some/model", "--task", "image-classification"],
+            )
+        msgs = [r.getMessage() for r in caplog.records]
+        assert any(
+            "--dataset not specified" in m
+            and "image-classification" in m
+            and "timm/mini-imagenet" in m
+            for m in msgs
+        ), f"expected warning not found in {msgs!r}"

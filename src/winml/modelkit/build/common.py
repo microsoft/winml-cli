@@ -23,6 +23,7 @@ from ..optim import optimize_onnx
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +33,16 @@ def run_optimize_analyze_loop(
     optimized_path: Path,
     config: WinMLBuildConfig,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     max_optim_iterations: int = 0,
+    allow_unsupported_nodes: bool = False,
     on_ep_start: Any = None,
     on_node_result: Any = None,
     on_iteration_start: Any = None,
     on_patterns_discovered: Any = None,
     on_reoptimize: Any = None,
+    analyze_output_path: Path | None = None,
     **onnx_kwargs: Any,
 ) -> tuple[Path, float, int, int, dict]:
     """Optimize an ONNX model, analyze, and optionally re-optimize via autoconf.
@@ -60,6 +63,12 @@ def run_optimize_analyze_loop(
         device: Target device for the analyzer.
         max_optim_iterations: Maximum autoconf re-optimization rounds.
             0 means optimize+analyze only (no autoconf re-optimization).
+        allow_unsupported_nodes: If True, log a warning instead of raising when
+            unsupported nodes persist after analysis, letting the build proceed
+            (the EP may still run them, e.g. via CPU fallback).
+        analyze_output_path: Optional path to write the full analysis result as
+            JSON. Written after every analyze pass; each pass overwrites the
+            previous one so the file always reflects the most recent analysis.
         **onnx_kwargs: Additional ONNX-level kwargs.
 
     Returns:
@@ -68,6 +77,10 @@ def run_optimize_analyze_loop(
     Raises:
         RuntimeError: If unsupported nodes persist after analysis.
     """
+    # Respect auto=False: flags are pre-configured, skip autoconf
+    if not config.auto:
+        max_optim_iterations = 0
+
     t0 = time.monotonic()
 
     # 1. Optimize
@@ -86,33 +99,38 @@ def run_optimize_analyze_loop(
             ep=ep,
             device=device,
             max_optim_iterations=max_optim_iterations,
+            allow_unsupported_nodes=allow_unsupported_nodes,
             config=config,
             on_ep_start=on_ep_start,
             on_node_result=on_node_result,
             on_iteration_start=on_iteration_start,
             on_patterns_discovered=on_patterns_discovered,
             on_reoptimize=on_reoptimize,
+            analyze_output_path=analyze_output_path,
             **onnx_kwargs,
         )
     else:
         analyze_iterations, analyze_black_nodes, analyze_details = 0, 0, {}
 
     elapsed = time.monotonic() - t0
+
     return current_path, elapsed, analyze_iterations, analyze_black_nodes, analyze_details
 
 
 def _run_analyze_loop(
     *,
     optimized_path: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     max_optim_iterations: int,
     config: WinMLBuildConfig,
+    allow_unsupported_nodes: bool = False,
     on_ep_start: Any = None,
     on_node_result: Any = None,
     on_iteration_start: Any = None,
     on_patterns_discovered: Any = None,
     on_reoptimize: Any = None,
+    analyze_output_path: Path | None = None,
     **kwargs: Any,
 ) -> tuple[int, int, dict]:
     """Run iterative analyzer autoconf loop in a temp folder.
@@ -146,34 +164,36 @@ def _run_analyze_loop(
                 run_unknown_op=False,
                 on_ep_start=on_ep_start,
                 on_node_result=on_node_result,
+                output_path=analyze_output_path,
             )
             analyze_iterations += 1
 
-            if not analysis.autoconf:
+            optim_config = analysis.optimization_config
+            if not optim_config:
                 break
 
             logger.info(
                 "Autoconf iteration %d: discovered %s",
                 _iteration + 1,
-                analysis.optimization_config.to_dict(),
+                optim_config.to_dict(),
             )
 
             # Notify: patterns discovered
             if on_patterns_discovered is not None:
-                on_patterns_discovered(analysis.optimization_config)
+                on_patterns_discovered(optim_config)
 
             # Notify: re-optimizing with discovered flags
             if on_reoptimize is not None:
-                on_reoptimize(analysis.optimization_config)
+                on_reoptimize(optim_config)
 
             # Re-optimize with ONLY the autoconf flags (not merged with original)
             optimize_onnx(
                 model=iter_model,
                 output=iter_model,
                 **kwargs,
-                **analysis.optimization_config,
+                **optim_config,
             )
-            discovered_optim.update(analysis.optimization_config)
+            discovered_optim.update(optim_config)
         else:
             logger.warning(
                 "Autoconf did not converge after %d iteration(s)",
@@ -191,6 +211,7 @@ def _run_analyze_loop(
             device=device,
             run_unknown_op=False,
             on_node_result=lambda _: None,
+            output_path=analyze_output_path,
         )
 
         copy_onnx_model(iter_model, optimized_path)
@@ -200,17 +221,28 @@ def _run_analyze_loop(
         config.optim.update(discovered_optim)
         logger.info("  [autoconf] final config: %s", discovered_optim)
 
-    if analysis.autoconf:
+    # analysis is None only when max_optim_iterations == 0 (the loop body never
+    # ran, so analyze_onnx was never called).
+    final_optim_config = analysis.optimization_config if analysis else None
+    if final_optim_config:
         logger.warning(
             "Analysis still has autoconf suggestions: %s",
-            analysis.optimization_config.to_dict(),
+            final_optim_config.to_dict(),
         )
 
     if analysis is not None and analysis.has_errors:
-        raise RuntimeError(
+        message = (
             f"Unsupported nodes persist after {analyze_iterations} analyze "
             f"pass(es): {analysis.lint.error_patterns}"
         )
+        if allow_unsupported_nodes:
+            logger.warning(
+                "%s. Continuing anyway (allow_unsupported_nodes=True); the EP may "
+                "fall back to another device for these nodes.",
+                message,
+            )
+        else:
+            raise RuntimeError(message)
 
     analyze_black_nodes = analysis.lint.errors if analysis else 0
 

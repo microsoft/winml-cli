@@ -44,7 +44,7 @@ MINIMAL_CATALOG = {
                 "cpu": ["CPU"],
                 "dml": ["GPU"],
                 "qnn": ["GPU", "NPU"],
-                "ov": ["CPU", "GPU", "NPU"],
+                "openvino": ["CPU", "GPU", "NPU"],
             },
         },
         {
@@ -56,7 +56,7 @@ MINIMAL_CATALOG = {
                 "cpu": ["CPU"],
                 "dml": ["GPU"],
                 "qnn": ["GPU", "NPU"],
-                "ov": ["CPU", "GPU", "NPU"],
+                "openvino": ["CPU", "GPU", "NPU"],
             },
         },
         {
@@ -68,7 +68,7 @@ MINIMAL_CATALOG = {
             "supported_eps": {
                 "cpu": ["CPU"],
                 "dml": ["GPU"],
-                "ov": ["CPU", "GPU", "NPU"],
+                "openvino": ["CPU", "GPU", "NPU"],
             },
         },
         {
@@ -142,20 +142,33 @@ def test_fmt_model_id_with_org():
     assert "clip-vit-base-patch32" in t.plain
 
 
+def test_fmt_model_id_org_prefix_dimmed():
+    """Full model ID should be rendered in uniform cyan bold."""
+    t = _fmt_model_id("openai/clip-vit-base-patch32")
+    spans = list(t._spans)
+    # Single span covers the entire model ID in cyan bold
+    assert len(spans) == 1
+    span = spans[0]
+    assert span.start == 0
+    assert span.end == len("openai/clip-vit-base-patch32")
+    assert "cyan" in str(span.style)
+    assert "bold" in str(span.style)
+
+
 def test_fmt_model_id_no_org():
     t = _fmt_model_id("bert-base-uncased")
     assert t.plain == "bert-base-uncased"
 
 
 def test_fmt_model_id_overflow_is_ascii_safe():
-    """Text overflow must use 'crop', not 'ellipsis' (regression: #233).
+    """Text overflow must use 'fold', not 'ellipsis' (regression: #233).
 
     'ellipsis' emits U+2026 (…) which is unrepresentable in cp1252 terminals.
-    'crop' simply truncates without appending any non-ASCII character.
+    'fold' wraps long text onto the next line without emitting non-ASCII chars.
     """
     t = _fmt_model_id("org/model-name")
-    assert t.overflow == "crop", (
-        f"Expected overflow='crop', got {t.overflow!r}. "
+    assert t.overflow == "fold", (
+        f"Expected overflow='fold', got {t.overflow!r}. "
         "Using 'ellipsis' would emit U+2026 (…) on cp1252 terminals."
     )
 
@@ -211,7 +224,7 @@ def test_catalog_default_shows_table(runner, patched_catalog, tmp_path):
     out = tmp_path / "out.json"
     result = runner.invoke(catalog, ["--output", str(out)])
     assert result.exit_code == 0
-    assert "ModelKit Catalog" in result.output
+    assert "WinML CLI Catalog" in result.output
     assert "4 validated model(s)" in result.output
     assert "bert" in result.output
     assert "detr" in result.output
@@ -317,11 +330,11 @@ def test_filter_by_ep_qnn_alias():
     assert all("qnn" in m["supported_eps"] for m in result)
 
 
-def test_filter_by_ep_ov_alias():
+def test_filter_by_ep_openvino_alias():
     # bert (x2) and detr have OV; clip does not
-    result = _filter_by_ep(MINIMAL_CATALOG["models"], "ov")
+    result = _filter_by_ep(MINIMAL_CATALOG["models"], "openvino")
     assert len(result) == 3
-    assert all("ov" in m["supported_eps"] for m in result)
+    assert all("openvino" in m["supported_eps"] for m in result)
 
 
 def test_filter_by_ep_vitisai_alias():
@@ -447,16 +460,16 @@ def test_make_ep_col_fn_for_device_header():
 
 
 def test_make_ep_col_fn_for_device_npu_all_eps():
-    """Model with QNN+OV shows both labels in supported_eps key order."""
+    """Model with QNN+OpenVINO shows both labels in supported_eps key order."""
     _, fn = _make_ep_col_fn_for_device("NPU")
-    bert = MINIMAL_CATALOG["models"][0]  # google-bert: qnn before ov in JSON
-    assert fn(bert) == "QNN / OV"
+    bert = MINIMAL_CATALOG["models"][0]  # google-bert: qnn before openvino in JSON
+    assert fn(bert) == "QNN / OPENVINO"
 
 
-def test_make_ep_col_fn_for_device_npu_ov_only():
+def test_make_ep_col_fn_for_device_npu_openvino_only():
     _, fn = _make_ep_col_fn_for_device("NPU")
-    detr = MINIMAL_CATALOG["models"][2]  # ov only
-    assert fn(detr) == "OV"
+    detr = MINIMAL_CATALOG["models"][2]  # openvino only
+    assert fn(detr) == "OPENVINO"
 
 
 def test_make_ep_col_fn_for_device_npu_vitisai_only():
@@ -472,16 +485,16 @@ def test_make_ep_col_fn_for_device_cpu_always_present():
         assert "CPU" in fn(m)
 
 
-def test_make_ep_col_fn_for_device_cpu_ov_added_when_present():
+def test_make_ep_col_fn_for_device_cpu_openvino_added_when_present():
     _, fn = _make_ep_col_fn_for_device("CPU")
-    bert = MINIMAL_CATALOG["models"][0]  # has cpu + ov (both support CPU)
-    assert fn(bert) == "CPU / OV"
+    bert = MINIMAL_CATALOG["models"][0]  # has cpu + openvino (both support CPU)
+    assert fn(bert) == "CPU / OPENVINO"
 
 
 def test_make_ep_col_fn_for_device_gpu_shows_all_gpu_eps():
     _, fn = _make_ep_col_fn_for_device("GPU")
-    bert = MINIMAL_CATALOG["models"][0]  # dml + qnn + ov all support GPU
-    assert fn(bert) == "DML / QNN / OV"
+    bert = MINIMAL_CATALOG["models"][0]  # dml + qnn + openvino all support GPU
+    assert fn(bert) == "DML / QNN / OPENVINO"
 
 
 def test_make_ep_col_fn_for_device_gpu_dml_always_present():
@@ -577,7 +590,7 @@ def test_device_filter_shows_correct_eps():
     _, fn = _make_ep_col_fn_for_device("NPU")
     wide.print(_build_list_renderable(MINIMAL_CATALOG["models"], ep_col_header="EPs", ep_col_fn=fn))
     rendered = buf.getvalue()
-    assert "QNN / OV" in rendered  # bert models (JSON key order: qnn before ov)
+    assert "QNN / OPENVINO" in rendered  # bert models (JSON key order: qnn before openvino)
     assert "VITISAI" in rendered  # clip model
 
 

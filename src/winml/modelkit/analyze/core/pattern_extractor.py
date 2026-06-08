@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher
 from ...pattern.config import UnifiedPatternConfig
-from ..models.onnx_model import ONNXModel
+from ..models.onnx_model import ModelTag, ONNXModel
 from ..models.output import extract_model_stats
 from ..utils.timing_utils import make_timing_logger
 
@@ -305,7 +305,7 @@ class PatternExtractor:
             # Model is invalid for pattern matching (e.g., nodes with empty names)
             logger.warning("Model validation failed for pattern matching: %s", str(e))
             # Mark model with the exception's associated tag and error message
-            self._model.model_tags[e.error_tag] = str(e)
+            self._model.model_tags[ModelTag(e.error_tag)] = str(e)
             _log_timing(
                 "pattern_extractor.pattern_matcher",
                 model=self._model.model_path,
@@ -359,8 +359,8 @@ class PatternExtractor:
                 len(skeleton_results),
             )
             if skeleton_results:
-                matched_node_names = skeleton_results[0].matched_node_names
-                sample_nodes = matched_node_names[:3] if matched_node_names else []
+                matched_node_keys = skeleton_results[0].matched_node_keys
+                sample_nodes = matched_node_keys[:3] if matched_node_keys else []
                 logger.info(
                     "Sample skeleton match - Pattern: %s, Nodes: %s",
                     skeleton_results[0].pattern.__class__.__name__,
@@ -412,7 +412,7 @@ class PatternExtractor:
 
         Args:
             pattern: SubgraphPattern definition
-            grouped_nodes: Dict mapping tag to list of (node_name, tag) tuples
+            grouped_nodes: Dict mapping tag to list of (node identifier, tag) tuples
             source_type: Source of the match ("hierarchy_tag" or "htp_metadata")
 
         Returns:
@@ -425,7 +425,6 @@ class PatternExtractor:
         # are based on tags rather than topology matching.
 
         detected_matches: list[PatternMatchResult] = []
-        model_proto = self._model.get_model()
 
         for tag, node_list in grouped_nodes.items():
             logger.debug(
@@ -435,22 +434,25 @@ class PatternExtractor:
                 pattern.semantic_label,
             )
 
-            # Extract node names
-            matched_node_names = [node_name for node_name, _ in node_list]
-
-            # Convert node names to NodeProto objects
-            node_name_to_proto = {node.name: node for node in model_proto.graph.node}
-            matched_nodes = [
-                node_name_to_proto[name]
-                for name in matched_node_names
-                if name in node_name_to_proto
-            ]
+            # Resolve identifiers to NodeProto and normalize to stable keys.
+            matched_node_identifiers = [node_identifier for node_identifier, _ in node_list]
+            matched_nodes = []
+            matched_node_keys = []
+            for node_identifier in matched_node_identifiers:
+                node_proto = self._model.get_node_by_key(node_identifier)
+                if node_proto is None:
+                    node_proto = self._model.get_node_by_name(node_identifier)
+                if node_proto is None:
+                    continue
+                matched_nodes.append(node_proto)
+                matched_node_keys.append(self._model.get_node_key(node_proto))
 
             # Create a minimal SkeletonMatchResult for API compatibility
             # This is a placeholder since hierarchy_tag matches don't have full skeleton info
             skeleton_result = SkeletonMatchResult(
                 pattern=pattern,  # Use the SubgraphPattern directly
                 matched_nodes=matched_nodes,
+                matched_node_keys=matched_node_keys,
                 matcher=None,  # type: ignore
                 inputs=[],
                 output="",
@@ -498,6 +500,7 @@ class PatternExtractor:
             return []
 
         pattern_label = pattern.semantic_label
+        assert pattern_label is not None  # ensured by _validate_pattern_for_matching
 
         # Get ONNX model
         model_proto = self._model.get_model()
@@ -516,7 +519,7 @@ class PatternExtractor:
             if pattern_label in hierarchy_tag:
                 if hierarchy_tag not in grouped_nodes:
                     grouped_nodes[hierarchy_tag] = []
-                grouped_nodes[hierarchy_tag].append((node.name, hierarchy_tag))
+                grouped_nodes[hierarchy_tag].append((self._model.get_node_key(node), hierarchy_tag))
 
         # Create PatternMatch instances
         detected_matches = self._create_pattern_matches(
@@ -575,10 +578,14 @@ class PatternExtractor:
             return []
 
         pattern_label = pattern.semantic_label
+        assert pattern_label is not None  # ensured by _validate_pattern_for_matching
+
+        # The 'nodes' section of HTP metadata maps node names to traced tags (str -> str).
+        nodes_mapping = cast("dict[str, str]", htp_metadata["nodes"])
 
         # Group nodes by traced_tag that contains pattern_label
         grouped_nodes = self._group_nodes_by_traced_tag(
-            nodes_mapping=htp_metadata["nodes"],
+            nodes_mapping=nodes_mapping,
             pattern_label=pattern_label,
         )
 
@@ -664,7 +671,7 @@ class PatternExtractor:
     def model_summary(
         self,
         detected_pattern_count: dict[str, int] | None = None,
-    ) -> ModelStats:  # type: ignore[name-defined]
+    ) -> ModelStats:
         """Get model metadata and statistics.
 
         Args:

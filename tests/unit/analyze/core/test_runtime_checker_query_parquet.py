@@ -73,10 +73,14 @@ def patched_query_conditions(monkeypatch: pytest.MonkeyPatch):
 
     def _fake_get_query_conditions_for_node(*args, **kwargs):
         del args, kwargs
-        return {
-            "T_Add": "FLOAT",
-            "input_dim": 4,
-        }, [], False
+        return (
+            {
+                "T_Add": "FLOAT",
+                "input_dim": 4,
+            },
+            [],
+            False,
+        )
 
     monkeypatch.setattr(
         runtime_checker_query_module,
@@ -105,7 +109,7 @@ class TestRuntimeCheckerQueryParquet:
         """Per-op parquet lookup should return compile/run values from matched parquet row."""
         del patched_query_conditions
 
-        monkeypatch.setenv("MODELKIT_RULES_DIR", str(tmp_path))
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
         _write_parquet_rules(tmp_path)
 
         model = _build_add_model()
@@ -129,7 +133,7 @@ class TestRuntimeCheckerQueryParquet:
         """Multiple RuntimeCheckerQuery instances should share the module-level parquet cache."""
         del patched_query_conditions
 
-        monkeypatch.setenv("MODELKIT_RULES_DIR", str(tmp_path))
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
         _write_parquet_rules(tmp_path)
 
         read_count = 0
@@ -168,7 +172,7 @@ class TestRuntimeCheckerQueryParquet:
         """Concurrent requests should wait for the same in-flight parquet load."""
         del patched_query_conditions
 
-        monkeypatch.setenv("MODELKIT_RULES_DIR", str(tmp_path))
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
         _write_parquet_rules(tmp_path)
 
         load_started = threading.Event()
@@ -235,7 +239,7 @@ class TestRuntimeCheckerQueryParquet:
         """Condition-tree lookup should avoid DataFrame exact-match scan."""
         del patched_query_conditions
 
-        monkeypatch.setenv("MODELKIT_RULES_DIR", str(tmp_path))
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
         _write_parquet_rules(tmp_path)
 
         def _unexpected_scan(*args, **kwargs):
@@ -270,7 +274,7 @@ class TestRuntimeCheckerQueryParquet:
         """Legacy tables with row_index should still match via condition columns."""
         del patched_query_conditions
 
-        monkeypatch.setenv("MODELKIT_RULES_DIR", str(tmp_path))
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
         _write_legacy_parquet_rules_with_row_index(tmp_path)
 
         model = _build_add_model()

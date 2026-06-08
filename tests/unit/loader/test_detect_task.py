@@ -1,0 +1,97 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+"""Unit tests for ``loader.task.detect_task`` — the single modality-aware detector.
+
+These tests pin the D2 vision-modality upgrade, which is applied to the RETURNED
+task only. The internal ``_detect_task_from_config`` (used for model-class
+resolution) is mocked so the dispatch reaches the TasksManager branch
+deterministically without network.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import patch
+
+from winml.modelkit.loader import detect_task, resolve_task_and_model_class
+
+
+class _FakeConfig:
+    """Minimal stand-in for a HF PretrainedConfig used by detect_task."""
+
+    def __init__(
+        self,
+        model_type: str,
+        *,
+        image_size: int | None = None,
+        patch_size: int | None = None,
+        architectures: list[str] | None = None,
+    ) -> None:
+        self.model_type = model_type
+        self.architectures = architectures or ["FakeModel"]
+        if image_size is not None:
+            self.image_size = image_size
+        if patch_size is not None:
+            self.patch_size = patch_size
+
+    def to_dict(self) -> dict:
+        d: dict = {"model_type": self.model_type}
+        if hasattr(self, "image_size"):
+            d["image_size"] = self.image_size
+        if hasattr(self, "patch_size"):
+            d["patch_size"] = self.patch_size
+        return d
+
+
+_DETECT = "winml.modelkit.loader.task._detect_task_from_config"
+
+
+def test_d2_upgrades_vision_feature_extraction_on_returned_task() -> None:
+    """Top-level image_size/patch_size + feature-extraction -> image-feature-extraction."""
+    cfg = _FakeConfig("faketype", image_size=518, patch_size=14)
+    with patch(_DETECT, return_value="feature-extraction") as m:
+        task, source = detect_task(cfg)
+    assert task == "image-feature-extraction"
+    assert source == "TasksManager"
+    # Internal Optimum-canonical detection is still consulted (pre-D2).
+    m.assert_called_once()
+
+
+def test_d2_does_not_fire_for_text_feature_extraction() -> None:
+    """No top-level image_size/patch_size -> feature-extraction stays as-is (text)."""
+    cfg = _FakeConfig("faketype")  # no vision fields
+    with patch(_DETECT, return_value="feature-extraction"):
+        task, source = detect_task(cfg)
+    assert task == "feature-extraction"
+    assert source == "TasksManager"
+
+
+def test_d2_only_upgrades_feature_extraction() -> None:
+    """A vision config whose task is NOT feature-extraction is left untouched."""
+    cfg = _FakeConfig("faketype", image_size=224, patch_size=16)
+    with patch(_DETECT, return_value="image-classification"):
+        task, _ = detect_task(cfg)
+    assert task == "image-classification"
+
+
+def test_detect_task_falls_back_to_hf_task_defaults() -> None:
+    """When TasksManager detection raises ValueError, fall back to HF_TASK_DEFAULTS."""
+    cfg = _FakeConfig("faketype")
+    with patch(_DETECT, side_effect=ValueError("no task")):
+        _, source = detect_task(cfg)
+    assert source == "HF_TASK_DEFAULTS"
+
+
+def test_resolve_case1_surfaces_modality_aware_task() -> None:
+    """Orchestrator Case 1 (auto-detect) surfaces the D2-upgraded task; the model
+    class is unchanged (resolved from the pre-upgrade Optimum task)."""
+    cfg = _FakeConfig("faketype", image_size=518)
+    sentinel_cls = type("Sentinel", (), {})
+    with patch(
+        "winml.modelkit.loader.task._detect_task_and_class_from_config",
+        return_value=("feature-extraction", sentinel_cls),
+    ):
+        task, cls = resolve_task_and_model_class(cfg)
+    assert task == "image-feature-extraction"
+    assert cls is sentinel_cls

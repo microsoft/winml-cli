@@ -19,6 +19,7 @@ import numpy as np
 import onnx
 import pytest
 
+from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.analyze import ONNXModel, RuntimeChecker, RuntimeTestResult
 from winml.modelkit.analyze.core import runtime_checker_query as runtime_checker_query_module
 from winml.modelkit.analyze.core.runtime_checker_query import RuntimeCheckerQuery
@@ -76,6 +77,7 @@ def sample_pattern_match() -> PatternMatchResult:
     skeleton_result = SkeletonMatchResult(
         pattern=pattern,
         matched_nodes=[node_proto],
+        matched_node_keys=_stable_test_node_keys([node_proto]),
         matcher=None,
     )
 
@@ -231,15 +233,6 @@ class TestRuntimeCheckerValidation:
                 device="NPU",
                 model=None,
                 patterns=None,
-            )
-
-    def test_requires_non_empty_ep(self, simple_onnx_model: ONNXModel):
-        """Test that ep parameter cannot be empty."""
-        with pytest.raises(ValueError, match="ep parameter cannot be empty"):
-            RuntimeChecker(
-                ep="",
-                device="NPU",
-                model=simple_onnx_model,
             )
 
     def test_requires_non_empty_device(self, simple_onnx_model: ONNXModel):
@@ -435,7 +428,12 @@ class TestRuntimeCheckerIntegration:
                 op_type=node.op_type,
                 description="",
             )
-            skeleton = SkeletonMatchResult(pattern=pattern, matched_nodes=[node], matcher=None)
+            skeleton = SkeletonMatchResult(
+                pattern=pattern,
+                matched_nodes=[node],
+                matched_node_keys=_stable_test_node_keys([node]),
+                matcher=None,
+            )
             return PatternMatchResult(
                 skeleton_match_result=skeleton,
                 schema_input_to_value={},

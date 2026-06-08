@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 from onnxruntime.quantization import CalibrationDataReader
 
 from .base import BaseTaskDataset
-from .config import DatasetConfig
 from .data_utils import format_data
+from .depth_estimation import DEFAULT_DEPTH_ESTIMATION_SIZE, DepthEstimationDataset
 from .image import ImageDataset
 from .image_segmentation import ImageSegmentationDataset
 from .object_detection import DEFAULT_OBJECT_DETECTION_SIZE, ObjectDetectionDataset
@@ -45,12 +45,22 @@ TASK_DATASET_MAPPING = {
     "sentence-similarity": TextDataset,
     "next-sentence-prediction": TextDataset,
     "fill-mask": TextDataset,
-    "text2text-generation": TextDataset,
     "zero-shot-classification": TextDataset,
     "image-segmentation": ImageSegmentationDataset,
+    "depth-estimation": DepthEstimationDataset,
     "random": RandomDataset,
     # Add more task types as needed
 }
+
+
+def _resolve_dataset_class(task: str) -> tuple[type, str]:
+    """Resolve the dataset class for ``task``.
+
+    Every task now maps directly to one dataset class: detection yields modality-aware
+    tasks (e.g. ``image-feature-extraction`` rather than the lossy ``feature-extraction``),
+    so the previous io_config-based reverse reconstruction is no longer needed.
+    """
+    return TASK_DATASET_MAPPING[task], task
 
 
 def universal_calib_dataset(
@@ -100,7 +110,7 @@ def universal_calib_dataset(
 
     # Create dataset with error handling
     try:
-        dataset_class = TASK_DATASET_MAPPING[task]
+        dataset_class, task = _resolve_dataset_class(task)
 
         # Craft kwargs - only add optional parameters if provided
         dataset_kwargs = {
@@ -270,10 +280,11 @@ __all__ = [  # noqa: RUF022
     # Calibration reader
     "DatasetCalibrationReader",
     # Config
-    "DatasetConfig",
     "DEFAULT_OBJECT_DETECTION_SIZE",
+    "DEFAULT_DEPTH_ESTIMATION_SIZE",
     # Dataset classes
     "BaseTaskDataset",
+    "DepthEstimationDataset",
     "ImageDataset",
     "ImageSegmentationDataset",
     "ObjectDetectionDataset",

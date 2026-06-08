@@ -14,20 +14,42 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal, cast
 
 import click
 from rich.console import Console
 from rich.live import Live
 from rich.logging import RichHandler
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TaskID,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 from rich.text import Text
 
-from ..analyze import QDQ_SUFFIX
 from ..utils import cli as cli_utils
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import (
+    ALL_EP_NAMES,
+    DEVICE_TYPE_TO_DEVICE,
+    EP_SUPPORTED_DEVICES,
+    SUPPORTED_DEVICES,
+    SUPPORTED_EPS,
+    EPName,
+    EPNameOrAlias,
+    normalize_ep_name,
+)
 from ..utils.logging import configure_logging
+
+
+if TYPE_CHECKING:
+    from ..analyze.models.runtime_checks import PatternRuntime
 
 
 logger = logging.getLogger(__name__)
@@ -63,9 +85,23 @@ def _discover_runtime_rule_parquet_files() -> tuple[list[Path], list[Path]]:
     return search_dirs, parquet_files
 
 
+_TRAILING_PAREN_RE = re.compile(r" \([^()]*\)$")
+
+
 def _display_name(pattern_id: str) -> str:
-    """Extract operator display name from pattern_id ('OP/ai.onnx/Conv' -> 'Conv')."""
-    return pattern_id.split("/")[-1]
+    """Extract operator display name from pattern_id.
+
+    Examples::
+
+        'OP/ai.onnx/Conv'              -> 'Conv'
+        'OP/ai.onnx/Conv (QDQ)'        -> 'Conv'
+        'OP/com.microsoft/EPContext (QNN)' -> 'EPContext'
+
+    Strips any trailing ``" (xxx)"`` annotation (QDQ marker, EP-prefix
+    suffix produced by EPContextNodeChecker, etc.).
+    """
+    name = pattern_id.split("/")[-1]
+    return _TRAILING_PAREN_RE.sub("", name)
 
 
 _LEVEL_ICONS = [
@@ -110,7 +146,7 @@ def _build_stacked_bar(counts: dict[str, int], max_count: int) -> Text:
 
 
 def _build_analyzed_text(counts: dict[str, int]) -> Text:
-    """Build 'W/G/B' format like '53/0/0' or '12/5/1' with colors."""
+    """Build 'S/P/U/Unk' format like '53/0/0/0' or '12/5/1/3' with colors."""
     w = counts.get("supported", 0)
     g = counts.get("partial", 0)
     b = counts.get("unsupported", 0)
@@ -122,17 +158,17 @@ def _build_analyzed_text(counts: dict[str, int]) -> Text:
     text.append(str(g), style="bold yellow" if g > 0 else "dim")
     text.append("/", style="dim")
     text.append(str(b), style="bold red" if b > 0 else "dim")
-    if u > 0:
-        text.append("/", style="dim")
-        text.append(str(u), style="bold bright_black")
+    text.append("/", style="dim")
+    text.append(str(u), style="bold bright_black" if u > 0 else "dim")
     return text
 
 
 def _build_analysis_table(
     data: dict[str, dict[str, int]],
-    ep_name: str = "",
+    ep_device_pair_display_name: str | None = None,
     complete: bool = False,
     all_ops: dict[str, int] | None = None,
+    op_check_skipped: bool = False,
 ) -> Table:
     """Build the analysis table with variable-width stacked bars.
 
@@ -140,10 +176,33 @@ def _build_analysis_table(
         data: Per-op instance counts (filled in as analysis progresses).
               Ops with data show colored bars (partial or complete).
               Ops in all_ops but not in data show dim pending rows.
-        ep_name: EP name for title
+          ep_device_pair_display_name: EP/device display label for title
         complete: Show complete marker
         all_ops: All op types with total counts (for showing pending rows)
+        op_check_skipped: If True, render a title-only table (no rows/columns)
     """
+    title = "📊 OP CHECK"
+    if ep_device_pair_display_name:
+        title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
+
+    if op_check_skipped:
+        title += "  Skipped - no rule data"
+        table = Table(
+            title=title,
+            show_header=False,
+            header_style="bold",
+            box=None,
+            padding=(0, 1),
+            expand=False,
+            width=80,
+        )
+        # add_column is required even though no rows are added — without it the
+        # empty table doesn't render the centered title.
+        table.add_column("")
+        return table
+    if complete:
+        title += "  [bold green]✅ Complete[/bold green]"
+
     # Build display order: all_ops sorted by count, or just data if no all_ops
     if all_ops:
         display_order = sorted(all_ops, key=lambda x: all_ops[x], reverse=True)
@@ -156,12 +215,6 @@ def _build_analysis_table(
     else:
         max_count = max((sum(v.values()) for v in data.values()), default=1)
 
-    title = "📊 OP CHECK"
-    if ep_name:
-        title += f" — [bold cyan]{ep_name}[/bold cyan]"
-    if complete:
-        title += "  [bold green]✅ Complete[/bold green]"
-
     table = Table(
         title=title,
         show_header=True,
@@ -172,7 +225,7 @@ def _build_analysis_table(
     )
 
     table.add_column("Op Type", width=28, no_wrap=True)
-    table.add_column("S/P/U", width=14, no_wrap=True)
+    table.add_column("S/P/U/Unk", width=16, no_wrap=True)
     table.add_column("", no_wrap=True)
 
     agg: dict[str, int] = {"supported": 0, "partial": 0, "unsupported": 0, "unknown": 0}
@@ -317,11 +370,13 @@ def _extract_ep_patterns(
 def _render_analysis_summary(
     console: Console,
     results: list,
-    ep_instance_counts: dict[str, dict[str, dict[str, int]]],
+    ep_instance_counts: dict[tuple[str, str], dict[str, dict[str, int]]],
     ep_patterns: dict[str, dict[str, dict]] | None = None,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | Literal["all", "auto"] | None = None,
     device: str | None = None,
+    no_data_eps: set[tuple[str, str]] | None = None,
+    op_check_skipped: bool = False,
 ) -> None:
     """Render the Analysis Summary section after pattern detection.
 
@@ -329,10 +384,14 @@ def _render_analysis_summary(
         console: Rich console for output.
         results: List of EPSupport objects from AnalysisOutput.
         ep_instance_counts: Per-EP instance counts accumulated during analysis,
-            keyed by EP name, then op name, then support level.
+            keyed by ``(ep_name, device)``, then op name, then support level.
         ep_patterns: Per-EP subgraph pattern support extracted from results.
         ep: Requested EP name (for display when no results).
         device: Requested device (for display when no results).
+        op_check_skipped: True when op check was skipped (no rule data, no
+            unknown-op probing). When True, the per-op classification list is
+            suppressed — every op would land in "unknown" with no actionable
+            information.
     """
     from ..analyze.models.support_level import SupportLevel
 
@@ -341,7 +400,7 @@ def _render_analysis_summary(
     console.print("═" * 80)
 
     if not results:
-        ep_label = ep or "all EPs"
+        ep_label: str = ep or "all EPs"
         if device:
             msg = (
                 f"   [dim]No runtime check results for [bold]{ep_label}[/bold] "
@@ -358,9 +417,43 @@ def _render_analysis_summary(
 
     for ep_support in results:
         ep_name = ep_support.ep_type
+        device_name = (ep_support.device_type or device or "").upper()
+        ep_device_pair = (ep_name, device_name)
+        ep_label = (
+            ep_name if not device_name else _ep_name_device_display_name(ep_name, device_name)
+        )
 
-        # Aggregate instance counts for this EP
-        ep_data = ep_instance_counts.get(ep_name, {})
+        # Aggregate instance counts for this EP.
+        ep_data = ep_instance_counts.get(ep_device_pair)
+        if ep_data is None:
+            ep_data = {}
+        has_instance_data = any(
+            sum(
+                counts.get(level, 0) for level in ("supported", "partial", "unsupported", "unknown")
+            )
+            > 0
+            for counts in ep_data.values()
+        )
+
+        # For EPs with no rule data, skip op-level rows — only show patterns.
+        # Always render at least a header so the EP is visible in the summary.
+        if no_data_eps and ep_device_pair in no_data_eps and not has_instance_data:
+            patterns = (ep_patterns or {}).get(ep_name, {})
+            console.print(f"   🔵 [bold bright_black]{ep_label}[/bold bright_black]:")
+            if patterns:
+                console.print("      [dim]Op check skipped — no rule data[/dim]")
+                for pid, p in sorted(patterns.items(), key=lambda x: x[1]["count"], reverse=True):
+                    status = p["status"]
+                    icon_p = _STATUS_ICONS.get(status, "❓")
+                    label = _PATTERN_STATUS_LABELS.get(status, "unknown")
+                    console.print(
+                        f"      {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
+                    )
+            else:
+                console.print("      [dim]Op check skipped — no rule data, no patterns[/dim]")
+            console.print()
+            continue
+
         agg: dict[str, int] = {"supported": 0, "partial": 0, "unsupported": 0, "unknown": 0}
         for counts in ep_data.values():
             for level in agg:
@@ -379,22 +472,24 @@ def _render_analysis_summary(
             ep_style = "bold green"
 
         analyzed = _build_analyzed_text(agg)
-        console.print(f"   {icon} [{ep_style}]{ep_name}[/{ep_style}]: ", end="")
+        console.print(f"   {icon} [{ep_style}]{ep_label}[/{ep_style}]: ", end="")
         console.print(analyzed)
 
-        # List ops by non-white support level
-        classification = ep_support.classification
+        # List ops by non-white support level (skip when op check was skipped \u2014
+        # the classification would be all-unknown with no useful detail).
         _issue_sections = [
             (SupportLevel.UNSUPPORTED, "red", "\u26d4 Unsupported"),
             (SupportLevel.PARTIAL, "yellow", "\u26a0\ufe0f  Partial"),
             (SupportLevel.UNKNOWN, "bright_black", "\u2753 Unknown"),
         ]
-        for level, color, heading in _issue_sections:
-            ops = classification.get(level, [])
-            if ops:
-                console.print(f"      [{color}]{heading}:[/{color}]")
-                for op in sorted(ops):
-                    console.print(f"         \u2022 [dim]{op}[/dim]")
+        classification = ep_support.classification
+        if not op_check_skipped:
+            for level, color, heading in _issue_sections:
+                ops = classification.get(level, [])
+                if ops:
+                    console.print(f"      [{color}]{heading}:[/{color}]")
+                    for op in sorted(ops):
+                        console.print(f"         \u2022 [dim]{op}[/dim]")
 
         # List non-supported patterns for this EP
         patterns = (ep_patterns or {}).get(ep_name, {})
@@ -409,11 +504,127 @@ def _render_analysis_summary(
                     f"         {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
                 )
 
-        has_issues = any(classification.get(lvl) for lvl, _, _ in _issue_sections) or bad_patterns
-        if not has_issues:
-            console.print("      [green]Ready to deploy[/green]")
+        # "Ready to deploy" requires actual op-check data; suppress when skipped.
+        if not op_check_skipped:
+            has_issues = (
+                any(classification.get(lvl) for lvl, _, _ in _issue_sections) or bad_patterns
+            )
+            if not has_issues:
+                console.print("      [green]Ready to deploy[/green]")
 
         console.print()
+
+
+def _resolve_run_unknown_op(
+    ep: EPName,
+    device: str,
+    run_unknown_op: bool,
+    local_pairs: set[tuple[EPName, str]],
+) -> bool:
+    """Resolve whether to run unknown operators for a given (EP, device) pair.
+
+    Some execution providers (e.g., VitisAI) do not have sufficient runtime
+    data to support unknown operator checks, so --run-unknown-op is disabled
+    for them regardless of the user's flag. Unknown-op probing also requires
+    the pair to be available locally — probing a non-local pair would just
+    fail at session creation.
+
+    Args:
+        ep: Execution provider name (e.g., "VitisAIExecutionProvider")
+        device: Device name (e.g., "NPU")
+        run_unknown_op: User-requested flag value
+        local_pairs: Set of (ep, device) pairs available on the local machine
+
+    Returns:
+        Effective run_unknown_op value for this (ep, device) pair
+    """
+    if run_unknown_op and ep == "VitisAIExecutionProvider":
+        logger.info(
+            "Disabling --run-unknown-op for VitisAIExecutionProvider: "
+            "AMD op runtime results are not available yet"
+        )
+        return False
+    if run_unknown_op and (ep, device) not in local_pairs:
+        logger.warning(
+            "Disabling --run-unknown-op for %s: pair is not available on the local machine",
+            _ep_name_device_display_name(ep, device),
+        )
+        return False
+    return run_unknown_op
+
+
+def _get_local_ep_device_pairs() -> list[tuple[EPName, str]]:
+    """Return locally available (EP, device) pairs from ORT autoEP API.
+
+    Registers WinML EP libraries first, then queries ``ort.get_ep_devices()``.
+    Any ``.AUTO`` EP aliases are filtered out (e.g. OpenVINOExecutionProvider.AUTO).
+    """
+    pairs: set[tuple[EPName, str]] = set()
+
+    try:
+        from .. import winml
+
+        for registered_ep_device in winml.get_registered_ep_devices():
+            ep_name_raw = str(getattr(registered_ep_device, "ep_name", ""))
+            if not ep_name_raw or ep_name_raw.endswith(".AUTO"):
+                continue
+
+            # ep_name_raw is an arbitrary attribute string from ORT; cast lets
+            # normalize_ep_name (typed for EPNameOrAlias | None) accept it.
+            # Unknown values return None and get filtered below.
+            ep_name = normalize_ep_name(cast("EPNameOrAlias", ep_name_raw))
+            if ep_name is None or ep_name not in SUPPORTED_EPS:
+                continue
+
+            device_obj = getattr(registered_ep_device, "device", None)
+            device_type = getattr(device_obj, "type", None)
+            device_name = DEVICE_TYPE_TO_DEVICE.get(device_type)
+            if device_name is None:
+                continue
+
+            pairs.add((ep_name, device_name))
+    except Exception:
+        logger.debug(
+            "Failed to query local EP/device pairs via ort.get_ep_devices()",
+            exc_info=True,
+        )
+
+    return _sort_ep_device_pairs(pairs)
+
+
+def _sort_ep_device_pairs(
+    pairs: set[tuple[EPName, str]] | list[tuple[EPName, str]],
+) -> list[tuple[EPName, str]]:
+    """Sort EP/device pairs using ``EP_SUPPORTED_DEVICES`` declaration order.
+
+    Priority is derived from a single source of truth:
+    - EP priority: insertion order of keys in ``EP_SUPPORTED_DEVICES``
+    - Device priority: per-EP device tuple order in ``EP_SUPPORTED_DEVICES``
+    """
+    ep_priority = {ep_name: idx for idx, ep_name in enumerate(EP_SUPPORTED_DEVICES)}
+    device_priority_by_ep = {
+        ep_name: {device_name.upper(): idx for idx, device_name in enumerate(device_names)}
+        for ep_name, device_names in EP_SUPPORTED_DEVICES.items()
+    }
+
+    def _pair_sort_key(pair: tuple[EPName, str]) -> tuple[int, int, str, str]:
+        ep_name, device_name = pair
+        ep_rank = ep_priority.get(ep_name, len(ep_priority))
+        device_rank = device_priority_by_ep.get(ep_name, {}).get(
+            device_name.upper(),
+            len(device_priority_by_ep.get(ep_name, {})),
+        )
+        return ep_rank, device_rank, ep_name, device_name
+
+    return sorted(
+        set(pairs),
+        key=_pair_sort_key,
+    )
+
+
+def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
+    """Return EP/device label for table and summary display."""
+    return f"{ep_name} ({device_name.upper()})"
 
 
 # ── Click command ─────────────────────────────────────────────────────────
@@ -421,20 +632,32 @@ def _render_analysis_summary(
 
 @click.command(name="analyze")
 @cli_utils.model_path_option(required=True)
-@cli_utils.ep_option(
-    required=False, optional_message="If not specified, analyzes all supported EPs"
-)
-@cli_utils.device_option(
-    required=False, optional_message="If not specified, uses NPU as default", default="NPU"
-)
-@cli_utils.verbosity_options
-@cli_utils.build_config_option
 @click.option(
-    "--output",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Save JSON output to file",
+    "--ep",
+    "--execution-provider",
+    required=False,
+    default="auto",
+    show_default=True,
+    type=click.Choice([*ALL_EP_NAMES, "all", "auto"], case_sensitive=False),
+    help=(
+        "Target execution provider. Supports canonical names, aliases, and all/auto. "
+        "all = evaluate all rule-data-backed EPs; auto = infer from local availability"
+    ),
 )
+@click.option(
+    "--device",
+    required=False,
+    default="auto",
+    show_default=True,
+    type=click.Choice([*SUPPORTED_DEVICES, "all", "auto"], case_sensitive=False),
+    help=(
+        "Target device type. Supports CPU/GPU/NPU and all/auto. "
+        "all = all rule-data-backed devices; auto = infer from local availability"
+    ),
+)
+@cli_utils.verbosity_options()
+@cli_utils.build_config_option()
+@cli_utils.output_option("Save JSON output to file")
 @click.option(
     "--information/--no-information",
     default=True,
@@ -448,8 +671,8 @@ def _render_analysis_summary(
 )
 @click.option(
     "--run-unknown-op/--no-run-unknown-op",
-    default=True,
-    help="Run unknown operators on local machine if possible (default: enabled)",
+    default=False,
+    help="Run unknown operators on local machine if possible (default: disabled)",
 )
 @click.option(
     "--save-node",
@@ -468,7 +691,7 @@ def _render_analysis_summary(
 def analyze(
     ctx: click.Context,
     model: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | Literal["all", "auto"] | None,
     device: str | None,
     output: Path | None,
     information: bool,
@@ -499,13 +722,17 @@ def analyze(
         winml analyze --model model.onnx --ep ov --device GPU
         winml analyze --model model.onnx --output results.json
     """
-    # Apply build config defaults (CLI explicit options take precedence)
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.compile and not cli_utils.is_cli_provided(ctx, "ep"):
-            ep = build_cfg.compile.ep_config.provider
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        cc = raw_cfg.get("compile") or {}
+        if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
+            ep = cc["execution_provider"]
 
-    # Configure logging
+    # Configure logging — merge with top-level group so `winml -v analyze …`
+    # and `winml analyze -v …` are equivalent.
+    verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
     try:
@@ -520,45 +747,94 @@ def analyze(
         if not parquet_files:
             searched = ", ".join(str(p) for p in search_dirs) if search_dirs else "(none)"
             logger.error("No runtime rule parquet files were found.")
-            logger.error(
-                "Please reinstall winml-modelkit, or manually download rule parquet files."
-            )
+            logger.error("Please reinstall winml-cli, or manually download rule parquet files.")
             logger.error("Searched directories: %s", searched)
             sys.exit(2)
 
         from ..analyze.utils.ep_utils import (
-            get_devices_with_rule_data,
             has_rule_data_for_ep,
         )
 
-        ep_normalized = normalize_ep_name(ep)
+        devices: list[str]
+        if device == "auto":
+            from ..sysinfo.device import _get_available_devices
 
-        # Validate only when the user explicitly specified --device
-        if (
-            cli_utils.is_cli_provided(ctx, "device")
-            and ep_normalized
-            and device
-            and not has_rule_data_for_ep(ep_normalized, device)
-        ):
-            available = get_devices_with_rule_data(ep_normalized)
-            if available:
-                logger.error(
-                    "%s only supports %s.",
-                    ep_normalized,
-                    ", ".join(available),
+            devices = list(_get_available_devices())
+        elif device == "all":
+            devices = list(SUPPORTED_DEVICES)
+        elif device is not None:
+            devices = [device]
+        else:
+            devices = []
+        devices = sorted(d.upper() for d in devices)
+
+        eps: list[EPName | None]
+        if ep == "auto":
+            from ..sysinfo.device import _get_available_eps
+
+            eps = list(_get_available_eps())
+        elif ep == "all":
+            eps = list(SUPPORTED_EPS)
+        else:
+            # ep is a specific EP or alias
+            eps = [normalize_ep_name(ep)]
+
+        # Build with a for-loop rather than a single nested comprehension so
+        # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
+        # narrowing carries through to the appended tuple's type (EPName,
+        # not str). The inner generator stays a comprehension to satisfy
+        # ruff PERF401.
+        execution_pairs: list[tuple[EPName, str]] = []
+        for candidate_ep in eps:
+            if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
+                continue
+            execution_pairs.extend(
+                (candidate_ep, candidate_device)
+                for candidate_device in devices
+                if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+            )
+        execution_pairs = _sort_ep_device_pairs(execution_pairs)
+
+        local_pairs = set(_get_local_ep_device_pairs())
+
+        if device == "auto" and ep == "auto":
+            execution_pairs = [pair for pair in execution_pairs if pair in local_pairs]
+        elif device == "auto":
+            unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
+            if unsupported_pairs:
+                logger.warning(
+                    "--device auto resolves from local availability, but --ep is pinned;"
+                    " the following pairs are not available on this machine: %s",
+                    ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
                 )
-            else:
-                logger.error(
-                    "%s has no rule data for %s.",
-                    ep_normalized,
-                    device,
+        elif ep == "auto":
+            unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
+            if unsupported_pairs:
+                logger.warning(
+                    "--ep auto resolves from local availability, but --device is pinned;"
+                    " the following pairs are not available on this machine: %s",
+                    ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
                 )
+
+        if not execution_pairs:
+            logger.error("No EP/device combination matched the current selection.")
             sys.exit(2)
 
-        ep_label = ep_normalized or "all EPs"
-        device_label = device or "NPU"
         logger.info("Analyzing model: %s", model)
-        logger.info("Target: %s on %s", ep_label, device_label)
+        logger.info(
+            "Local targets: %s",
+            ", ".join(
+                _ep_name_device_display_name(candidate_ep, candidate_device)
+                for candidate_ep, candidate_device in local_pairs
+            ),
+        )
+        logger.info(
+            "Execution targets: %s",
+            ", ".join(
+                _ep_name_device_display_name(target_ep, target_device)
+                for target_ep, target_device in execution_pairs
+            ),
+        )
 
         analyzer = ONNXStaticAnalyzer()
 
@@ -591,29 +867,76 @@ def analyze(
                     f"   📋 Operators: [cyan]{_total_ops}[/cyan] total, "
                     f"[cyan]{_unique_ops}[/cyan] unique types"
                 )
-                console.print(
-                    f"   🎯 Target: [bold]{ep_label}[/bold] on [bold]{device_label}[/bold]"
-                )
+                if len(execution_pairs) > 1:
+                    execution_labels = ", ".join(
+                        _ep_name_device_display_name(target_ep, target_device)
+                        for target_ep, target_device in execution_pairs
+                    )
+                    console.print(f"   🎯 Analysis targets: [cyan]{execution_labels}[/cyan]")
                 console.print()
                 del _proto  # free memory
             except Exception:
                 logger.debug("Could not load model metadata for header display")
 
         # Per-EP state for Live display
-        current_ep_name = ""
+        current_ep_device_pair: tuple[str, str] | None = None
+        current_device = execution_pairs[0][1]
         all_op_counts: dict[str, int] = {}
         instance_counts: dict[str, dict[str, int]] = {}
-        ep_instance_counts: dict[str, dict[str, dict[str, int]]] = {}
+        ep_instance_counts: dict[tuple[str, str], dict[str, dict[str, int]]] = {}
         live: Live | None = None
+        unknown_op_progress: Progress | None = None
+        unknown_op_task_id: TaskID | None = None
+        unknown_op_total_nodes = 0
         ep_counter = 0
+        _no_data_eps: set[tuple[str, str]] = set()  # EP/device pairs with no op rule data
+        analysis_results: list = []
+        current_run_unknown_op = False
+        current_op_check_skipped = False
 
-        run_unknown_op_for_ep = run_unknown_op
-        if ep == "VitisAIExecutionProvider":
-            run_unknown_op_for_ep = False
-            logger.info(
-                "Disabling --run-unknown-op for VitisAIExecutionProvider: "
-                "AMD op runtime results are not available yet"
-            )
+        def _current_ep_device_pair_display_name() -> str:
+            """Return current EP/device display label, or empty when unset."""
+            if current_ep_device_pair is None:
+                return ""
+            return _ep_name_device_display_name(*current_ep_device_pair)
+
+        def _finalize_unknown_op_progress() -> None:
+            """Stop active unknown-op progress bar for no-rule-data probing."""
+            nonlocal unknown_op_progress, unknown_op_task_id, unknown_op_total_nodes
+            if unknown_op_progress is None:
+                return
+            try:
+                if unknown_op_task_id is not None and unknown_op_total_nodes > 0:
+                    unknown_op_progress.update(
+                        unknown_op_task_id,
+                        completed=unknown_op_total_nodes,
+                    )
+            except Exception:
+                logger.debug("Failed to finalize unknown-op progress", exc_info=True)
+            finally:
+                unknown_op_progress.stop()
+
+                # Persist and render per-op compile/run snapshot after probing completes.
+                if current_ep_device_pair is not None and instance_counts:
+                    ep_instance_counts[current_ep_device_pair] = {
+                        k: dict(v) for k, v in instance_counts.items()
+                    }
+                    try:
+                        console.print(
+                            _build_analysis_table(
+                                instance_counts,
+                                ep_device_pair_display_name=_current_ep_device_pair_display_name(),
+                                complete=True,
+                                all_ops=all_op_counts,
+                                op_check_skipped=current_op_check_skipped,
+                            )
+                        )
+                    except Exception:
+                        logger.debug("Failed to render unknown-op final table", exc_info=True)
+
+                unknown_op_progress = None
+                unknown_op_task_id = None
+                unknown_op_total_nodes = 0
 
         def _finalize_live(mark_complete: bool = True) -> None:
             """Stop the active Live display, optionally marking it complete."""
@@ -621,16 +944,17 @@ def analyze(
             if live is None:
                 return
             try:
-                if mark_complete and current_ep_name:
-                    ep_instance_counts[current_ep_name] = {
+                if mark_complete and current_ep_device_pair is not None:
+                    ep_instance_counts[current_ep_device_pair] = {
                         k: dict(v) for k, v in instance_counts.items()
                     }
                     live.update(
                         _build_analysis_table(
                             instance_counts,
-                            ep_name=current_ep_name,
+                            ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                             complete=True,
                             all_ops=all_op_counts,
+                            op_check_skipped=current_op_check_skipped,
                         )
                     )
             except Exception:
@@ -639,41 +963,89 @@ def analyze(
                 live.stop()
                 live = None
 
-        def on_ep_start(ep_name, operator_counts):
+        def on_ep_start(ep_name: EPName, operator_counts: dict[str, int]) -> None:
             """Called when analysis starts for a new EP."""
-            nonlocal current_ep_name, instance_counts, all_op_counts, ep_counter, live
-            ep_counter += 1
+            nonlocal current_ep_device_pair
+            nonlocal instance_counts, all_op_counts, ep_counter, live
+            nonlocal unknown_op_progress, unknown_op_task_id, unknown_op_total_nodes
+            nonlocal current_run_unknown_op, current_op_check_skipped
 
             # Finalize previous EP's Live display
-            if current_ep_name:
+            if current_ep_device_pair is not None:
                 _finalize_live()
+                _finalize_unknown_op_progress()
                 console.print()  # blank line between EP tables
 
             # Reset for new EP (normalize keys to display names)
-            current_ep_name = ep_name
+            current_ep_device_pair = (ep_name, current_device)
             all_op_counts = {_display_name(k): v for k, v in operator_counts.items()}
             instance_counts = {}
 
+            has_rule_data = has_rule_data_for_ep(ep_name, current_device)
+            current_op_check_skipped = not has_rule_data and not current_run_unknown_op
+
+            # Skip OP CHECK display for EPs with no rule data —
+            # op results would all be 0/0/0 (unknown). Pattern detection
+            # still runs; results appear in the ANALYSIS SUMMARY.
+            if not has_rule_data:
+                _no_data_eps.add((ep_name, current_device))
+
+                if current_run_unknown_op:
+                    ep_counter += 1
+                    total_nodes = sum(operator_counts.values())
+                    unknown_op_total_nodes = max(0, total_nodes)
+
+                    console.print("─" * 80)
+                    console.print(
+                        f"💻 [bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
+                        f"on [bold]{current_device}[/bold]"
+                    )
+                    console.print("─" * 80)
+                    console.print(
+                        "   [yellow]No rule data detected; probing unknown ops "
+                        "one by one...[/yellow]"
+                    )
+
+                    unknown_op_progress = Progress(
+                        TextColumn("   [cyan]Unknown-op progress[/cyan]"),
+                        BarColumn(),
+                        MofNCompleteColumn(),
+                        TimeElapsedColumn(),
+                        console=console,
+                    )
+                    unknown_op_progress.start()
+                    unknown_op_task_id = unknown_op_progress.add_task(
+                        "unknown-op",
+                        total=max(1, unknown_op_total_nodes),
+                    )
+                    return
+
+            ep_counter += 1
+
             # EP section header
             console.print("─" * 80)
-            console.print(f"💻 [bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan]")
+            console.print(
+                f"💻 [bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
+                f"on [bold]{current_device}[/bold]"
+            )
             console.print("─" * 80)
 
             # Start new Live display — all ops shown as pending
             live = Live(
                 _build_analysis_table(
                     instance_counts,
-                    ep_name=ep_name,
+                    ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                     all_ops=all_op_counts,
+                    op_check_skipped=current_op_check_skipped,
                 ),
                 console=console,
                 refresh_per_second=30,
             )
             live.start()
 
-        def on_node_result(pattern_runtime):
+        def on_node_result(pattern_runtime: PatternRuntime) -> None:
             """Callback invoked per-node during analysis."""
-            op = _display_name(pattern_runtime.pattern_id).removesuffix(QDQ_SUFFIX)
+            op = _display_name(pattern_runtime.pattern_id)
             level = pattern_runtime.result.classification.value
             op_counts = instance_counts.setdefault(op, {})
             op_counts[level] = op_counts.get(level, 0) + 1
@@ -682,10 +1054,16 @@ def analyze(
                 live.update(
                     _build_analysis_table(
                         instance_counts,
-                        ep_name=current_ep_name,
+                        ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                         all_ops=all_op_counts,
+                        op_check_skipped=current_op_check_skipped,
                     )
                 )
+
+            if unknown_op_progress is not None and unknown_op_task_id is not None:
+                unknown_op_progress.advance(unknown_op_task_id, 1)
+
+        save_node_types = set(save_node)
 
         if not quiet:
             # Redirect logging through Rich console so log messages render
@@ -702,71 +1080,103 @@ def analyze(
             root_logger.handlers = [rich_handler]
 
             try:
-                save_node_types = set(save_node)
+                for target_ep, target_device in execution_pairs:
+                    current_device = target_device
+                    current_ep_device_pair = None
+
+                    run_unknown_op_for_ep = _resolve_run_unknown_op(
+                        target_ep, target_device, run_unknown_op, local_pairs
+                    )
+
+                    current_run_unknown_op = run_unknown_op_for_ep
+
+                    result = analyzer.analyze(
+                        model_path=str(model),
+                        ep=target_ep,
+                        device=target_device,
+                        enable_information=information,
+                        htp_metadata_path=str(htp_metadata) if htp_metadata else None,
+                        run_unknown_op=run_unknown_op_for_ep,
+                        save_node_types=save_node_types,
+                        on_node_result=on_node_result,
+                        on_ep_start=on_ep_start,
+                    )
+                    analysis_results.append(result)
+
+                    # Extract per-EP pattern support (available now)
+                    ep_patterns = _extract_ep_patterns(result.output.results)
+
+                    # Finalize last EP's Live display
+                    _finalize_live()
+                    _finalize_unknown_op_progress()
+
+                    console.print()
+
+                    # Pattern Matching section (per-EP)
+                    _render_pattern_matching(console, ep_patterns)
+
+                    # Analysis Summary section
+                    _render_analysis_summary(
+                        console,
+                        result.output.results,
+                        ep_instance_counts,
+                        ep_patterns=ep_patterns,
+                        ep=target_ep,
+                        device=target_device,
+                        no_data_eps=_no_data_eps,
+                        op_check_skipped=current_op_check_skipped,
+                    )
+
+                    # Legend (at the very bottom, only when there are EP results)
+                    if result.output.results:
+                        console.print(
+                            "  [dim]S/P/U/Unk = Supported/Partial/Unsupported/Unknown[/dim]"
+                            "  [green]██[/green] supported"
+                            "  [yellow]██[/yellow] partial"
+                            "  [red]██[/red] unsupported"
+                            "  [bright_black]██[/bright_black] unknown"
+                        )
+                        console.print()
+            finally:
+                # Safety: stop Live if still running (e.g. on exception)
+                _finalize_live(mark_complete=False)
+                _finalize_unknown_op_progress()
+                root_logger.handlers = old_handlers
+        else:
+            # Quiet mode — no live display
+            for target_ep, target_device in execution_pairs:
+                run_unknown_op_for_ep = _resolve_run_unknown_op(
+                    target_ep, target_device, run_unknown_op, local_pairs
+                )
+
                 result = analyzer.analyze(
                     model_path=str(model),
-                    ep=ep_normalized,
-                    device=device,
+                    ep=target_ep,
+                    device=target_device,
                     enable_information=information,
                     htp_metadata_path=str(htp_metadata) if htp_metadata else None,
                     run_unknown_op=run_unknown_op_for_ep,
                     save_node_types=save_node_types,
-                    on_node_result=on_node_result,
-                    on_ep_start=on_ep_start,
                 )
+                analysis_results.append(result)
 
-                # Extract per-EP pattern support (available now)
-                ep_patterns = _extract_ep_patterns(result.output.results)
-
-                # Finalize last EP's Live display
-                _finalize_live()
-            finally:
-                # Safety: stop Live if still running (e.g. on exception)
-                _finalize_live(mark_complete=False)
-                root_logger.handlers = old_handlers
-
-            console.print()
-
-            # Pattern Matching section (per-EP)
-            _render_pattern_matching(console, ep_patterns)
-
-            # Analysis Summary section
-            _render_analysis_summary(
-                console,
-                result.output.results,
-                ep_instance_counts,
-                ep_patterns=ep_patterns,
-                ep=ep_normalized,
-                device=device,
-            )
-
-            # Legend (at the very bottom, only when there are EP results)
-            if result.output.results:
-                console.print(
-                    "  [dim]S/P/U = Supported/Partial/Unsupported[/dim]"
-                    "  [green]██[/green] supported"
-                    "  [yellow]██[/yellow] partial"
-                    "  [red]██[/red] unsupported"
-                    "  [bright_black]██[/bright_black] unknown"
-                )
-                console.print()
-        else:
-            # Quiet mode — no live display
-            save_node_types = set(save_node)
-            result = analyzer.analyze(
-                model_path=str(model),
-                ep=ep_normalized,
-                device=device,
-                enable_information=information,
-                htp_metadata_path=str(htp_metadata) if htp_metadata else None,
-                run_unknown_op=run_unknown_op_for_ep,
-                save_node_types=save_node_types,
-            )
+        result = analysis_results[-1]
 
         # Save JSON if requested
         if output:
             try:
-                output.write_text(result.to_json(), encoding="utf-8")
+                output.parent.mkdir(parents=True, exist_ok=True)
+                if len(analysis_results) == 1:
+                    output.write_text(result.to_json(), encoding="utf-8")
+                else:
+                    import json
+
+                    output.write_text(
+                        json.dumps(
+                            [json.loads(run_result.to_json()) for run_result in analysis_results]
+                        ),
+                        encoding="utf-8",
+                    )
                 logger.info("JSON results saved to: %s", output)
             except OSError as e:
                 logger.error("Failed to write JSON output to %s: %s", output, e)
@@ -779,8 +1189,39 @@ def analyze(
             import json
 
             try:
-                config = result.get_optimization_config(ep=ep_normalized)
-                optim_config.write_text(json.dumps(config.to_dict(), indent=2), encoding="utf-8")
+                # Merge optimization configs from all execution pairs; warn on conflicts.
+
+                per_pair_values: dict[str, list[tuple[tuple[str, str], object]]] = {}
+                for (target_ep, target_device), run_result in zip(
+                    execution_pairs, analysis_results, strict=True
+                ):
+                    pair_config = run_result.get_optimization_config(ep=target_ep).to_dict()
+                    for key, value in pair_config.items():
+                        per_pair_values.setdefault(key, []).append(
+                            ((target_ep, target_device), value)
+                        )
+
+                merged: dict[str, object] = {}
+                for key, entries in per_pair_values.items():
+                    merged[key] = entries[0][1]
+                    distinct = {value for _, value in entries}
+                    if len(distinct) == 1:
+                        continue
+                    detail = ", ".join(
+                        f"{_ep_name_device_display_name(pair[0], pair[1])}={value!r}"
+                        for pair, value in entries
+                    )
+                    logger.warning(
+                        "Conflicting optimization setting %r across analysis pairs: %s "
+                        "(using %r from first pair in merged config)",
+                        key,
+                        detail,
+                        merged[key],
+                    )
+
+                merged = dict(sorted(merged.items()))
+                optim_config.parent.mkdir(parents=True, exist_ok=True)
+                optim_config.write_text(json.dumps(merged, indent=2), encoding="utf-8")
                 logger.info("Optimization config saved to: %s", optim_config)
             except OSError as e:
                 logger.error("Failed to write config to %s: %s", optim_config, e)
@@ -789,7 +1230,8 @@ def analyze(
                 logger.debug("Config generation traceback:", exc_info=True)
 
         # Exit code: 0 = fully supported, 1 = partial support
-        sys.exit(0 if result.is_fully_supported() else 1)
+        overall_supported = all(run_result.is_fully_supported() for run_result in analysis_results)
+        sys.exit(0 if overall_supported else 1)
 
     except FileNotFoundError as e:
         logger.error("File not found: %s", e)

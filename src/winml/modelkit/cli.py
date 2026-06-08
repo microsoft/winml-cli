@@ -2,9 +2,9 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WinML ModelKit CLI - Universal ONNX export from command line.
+"""WinML CLI - Universal ONNX export from command line.
 
-This module provides the main CLI entry point for ModelKit with lazy
+This module provides the main entry point for WinML CLI with lazy
 command discovery from the commands/ directory.
 
 Usage:
@@ -29,7 +29,8 @@ import click
 from . import __version__
 from .telemetry import ActionGroup
 from .telemetry import telemetry as _telemetry_mod
-from .utils.logging import configure_logging
+from .utils.cli import verbosity_options
+from .utils.logging import configure_logging, flush_ort_startup_logs
 
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,7 @@ class LazyGroup(ActionGroup):
     parsing (no module execution).
 
     Extends :class:`ActionGroup` so every resolved subcommand is also
-    auto-instrumented with ModelKit telemetry.
+    auto-instrumented with WinML CLI telemetry.
     """
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -204,6 +205,13 @@ class LazyGroup(ActionGroup):
                 discovered = attr
         return discovered
 
+    def resolve_command(self, ctx: click.Context, args: list[str]):
+        """Seed ``self.commands`` so Click can emit a did-you-mean hint on typos."""
+        # Click's NoSuchCommand exception uses self.commands to find suggestions.
+        for name in self.list_commands(ctx):
+            self.commands.setdefault(name, None)  # type: ignore[arg-type]
+        return super().resolve_command(ctx, args)
+
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Emit banner to stderr, then delegate to normal help formatting."""
         _print_banner(__version__)
@@ -227,21 +235,13 @@ class LazyGroup(ActionGroup):
                 formatter.write_dl(rows)
 
 
-@click.group(cls=LazyGroup, invoke_without_command=True)
+@click.group(
+    cls=LazyGroup,
+    invoke_without_command=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 @click.version_option(version=__version__, prog_name="winml")
-@click.option(
-    "--verbose",
-    "-v",
-    count=True,
-    help="Increase verbosity (-v=INFO, -vv=DEBUG)",
-)
-@click.option(
-    "--quiet",
-    "-q",
-    is_flag=True,
-    default=False,
-    help="Quiet mode - errors only",
-)
+@verbosity_options()
 @click.option(
     "--debug",
     is_flag=True,
@@ -251,15 +251,21 @@ class LazyGroup(ActionGroup):
 )
 @click.pass_context
 def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
-    """WML ModelKit - Accelerate Model Deployment on WinML.
+    """WinML CLI - Accelerate Model Deployment on WinML.
 
-    Universal ONNX export with QNN and OpenVINO backend support.
+    Universal ONNX export with various WinML execution providers support.
     """
     # --debug is a backward-compat alias for -vv
     if debug:
         verbose = max(verbose, 2)
 
     configure_logging(verbosity=verbose, quiet=quiet)
+
+    # Replay ORT native stderr captured during onnxruntime import.
+    # onnxruntime is imported at module level in constants.py (before configure_logging
+    # runs), so any native C++ messages are buffered.  Flushing here — after
+    # configure_logging — ensures they are emitted at the correct log level.
+    flush_ort_startup_logs()
 
     # Store verbosity in context for subcommands
     ctx.ensure_object(dict)

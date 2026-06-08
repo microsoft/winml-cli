@@ -8,8 +8,11 @@ For Microsoft internal use only. Requires gh CLI authenticated with an account
 that has access to the gim-home org.
 
 External contributors should instead download rule parquet files from the latest
-WinML-ModelKit GitHub release; see
+winml-cli GitHub release; see
 src/winml/modelkit/analyze/rules/runtime_check_rules/README.md.
+
+This script does not download release assets. It pulls parquet files directly
+from gim-home/ModelKitArtifacts/rules.
 
 Usage:
     uv run python scripts/download_rules.py --account <account>
@@ -110,7 +113,9 @@ def _sparse_clone(clone_url: str, dest: Path) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Download runtime check rule parquet files")
+    parser = argparse.ArgumentParser(
+        description="Download runtime check rule parquet files from gim-home/ModelKitArtifacts"
+    )
     parser.add_argument("--force", action="store_true", help="Re-download all parquet files")
     parser.add_argument("--account", type=str, help="gh CLI account with access to gim-home org")
     args = parser.parse_args()

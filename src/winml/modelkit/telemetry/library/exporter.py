@@ -275,10 +275,13 @@ def _resource_to_ext(resource) -> dict:
         os.arch         → ext.device.deviceClass
         os.name         → ext.os.name
         os.version      → ext.os.ver
-        os.release      → ext.os.release
         app_version     → ext.app.ver
         app_instance_id → ext.app.sesId
-        initTs          → ext.app.initTs
+
+    `os.release` and `initTs` are intentionally NOT mapped: neither field
+    exists in the documented CS 4.0 `ext.os` / `ext.app` slots, and
+    including them causes OneCollector to reject the entire batch with
+    ``{"acc":0,"efi":{"InvalidEventFormat":"all"}}``.
     """
     if resource is None:
         return {}
@@ -298,14 +301,10 @@ def _resource_to_ext(resource) -> dict:
         os_["name"] = attrs["os.name"]
     if "os.version" in attrs:
         os_["ver"] = attrs["os.version"]
-    if "os.release" in attrs:
-        os_["release"] = attrs["os.release"]
     if "app_version" in attrs:
         app["ver"] = attrs["app_version"]
     if "app_instance_id" in attrs:
         app["sesId"] = attrs["app_instance_id"]
-    if "initTs" in attrs:
-        app["initTs"] = attrs["initTs"]
 
     if device:
         ext["device"] = device

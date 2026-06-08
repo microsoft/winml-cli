@@ -5,7 +5,7 @@
 """ONNX model persistence utilities.
 
 Load, save, and clean up ONNX models with external data support.
-Designed as the canonical persistence API for ModelKit ONNX workflows.
+Designed as the canonical persistence API for WinML CLI ONNX workflows.
 
 See also: docs/design/onnx/persistence.md (if available)
 """
@@ -130,7 +130,7 @@ def save_onnx(
             os.chdir(path.parent)
             onnx.save_model(
                 model,
-                str(path),
+                path.name,
                 save_as_external_data=True,
                 all_tensors_to_one_file=True,
                 location=ext_location,

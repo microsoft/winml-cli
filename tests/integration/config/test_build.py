@@ -19,6 +19,19 @@ from winml.modelkit.export import InputTensorSpec, OutputTensorSpec, WinMLExport
 from winml.modelkit.loader import WinMLLoaderConfig
 
 
+@pytest.fixture(autouse=True)
+def mock_device_resolution() -> None:
+    """Keep build-config integration tests independent of host EP discovery."""
+    with (
+        patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
+        patch(
+            "winml.modelkit.config.precision.resolve_eps",
+            return_value=["CPUExecutionProvider"],
+        ),
+    ):
+        yield
+
+
 @pytest.mark.slow
 class TestGenerateBuildConfigSlow:
     """Slow tests for generate_build_config (downloads models)."""

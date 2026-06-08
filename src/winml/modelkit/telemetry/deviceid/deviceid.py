@@ -3,16 +3,16 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Stable-per-device ID used as the telemetry device_id.
+r"""Stable-per-device ID used as the telemetry device_id.
 
-Derived from a random UUID4, hashed with SHA256, and persisted so the same
-machine reports the same id across sessions. Users can reset by removing the
-stored value (registry on Windows, state file elsewhere).
+A random UUID4 in CS 4.0 ``ext.device.localId`` form (``r:<canonical-uuid>``,
+where ``r`` is the random scope). Persisted so the same machine reports the
+same id across sessions. Users can reset by removing the stored value
+(``HKCU\SOFTWARE\Microsoft\DeveloperTools\.modelkit``).
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import uuid
 from enum import Enum
@@ -21,7 +21,11 @@ from . import _store
 
 
 _LOGGER = logging.getLogger(__name__)
-_STORAGE_KEY = "deviceid"
+# Renamed from the prior "deviceid" key in 0.0.5 — releases <= 0.0.4 wrote a
+# SHA256 hex digest under "deviceid" that OneCollector rejects (see #691).
+# New code reads/writes a different key so the legacy value is invisible
+# instead of needing runtime validation. The orphan REG_SZ is harmless.
+_STORAGE_KEY = "device_id"
 
 
 class IdStatus(str, Enum):
@@ -53,14 +57,10 @@ def get_or_create_device_id() -> tuple[str, IdStatus]:
     if existing:
         return existing, IdStatus.EXISTING
 
-    new_id = _hash_uuid(uuid.uuid4())
+    new_id = f"r:{uuid.uuid4()}"
     try:
         _store.write_key(_STORAGE_KEY, new_id)
     except Exception:
         _LOGGER.debug("deviceid write failed", exc_info=True)
         return "", IdStatus.FAILED
     return new_id, IdStatus.NEW
-
-
-def _hash_uuid(value: uuid.UUID) -> str:
-    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
