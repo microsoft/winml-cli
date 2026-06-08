@@ -36,6 +36,25 @@ class TestEvaluationConfig:
         assert restored.dataset.path == config.dataset.path
         assert restored.dataset.columns_mapping == config.dataset.columns_mapping
 
+    def test_config_roundtrip_preserves_revision(self):
+        """DatasetConfig.revision survives to_dict/from_dict roundtrip."""
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="depth-estimation",
+            dataset=DatasetConfig(
+                path="sayakpaul/nyu_depth_v2",
+                revision="refs/convert/parquet",
+            ),
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.dataset.revision == "refs/convert/parquet"
+
+    def test_dataset_config_revision_default_is_none(self):
+        """Revision defaults to None when not specified."""
+        ds = DatasetConfig(path="some-dataset")
+        assert ds.revision is None
+        assert "revision" not in ds.to_dict()
+
     def test_eval_result_to_dict(self):
         config = WinMLEvaluationConfig(
             model_id="test/model",
@@ -91,9 +110,7 @@ class TestResolveTask:
         fake_onnx_config = MagicMock()
         fake_onnx_config.inputs = {"pixel_values": object()}
 
-        config = WinMLEvaluationConfig(
-            model_id="facebook/dinov2-base", task="feature-extraction"
-        )
+        config = WinMLEvaluationConfig(model_id="facebook/dinov2-base", task="feature-extraction")
         with (
             patch(
                 "transformers.AutoConfig.from_pretrained",
@@ -111,7 +128,7 @@ class TestGetEvaluatorClass:
     """Tests for get_evaluator_class registry lookup."""
 
     def test_registered_task_returns_class(self):
-        from winml.modelkit.eval import WinMLEvaluator, get_evaluator_class
+        from winml.modelkit.eval import WinMLEvaluationConfig, WinMLEvaluator, get_evaluator_class
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
 
         # _EVALUATOR_REGISTRY stores "module_path:ClassName" strings so that
@@ -123,29 +140,75 @@ class TestGetEvaluatorClass:
             assert isinstance(spec, str) and ":" in spec, (
                 f"Registry value for {task!r} must be a 'module:Class' string."
             )
-            cls = get_evaluator_class(task)
+            cls = get_evaluator_class(WinMLEvaluationConfig(task=task))
             assert isinstance(cls, type)
-            assert issubclass(cls, WinMLEvaluator)
+            # Task evaluators inherit from WinMLEvaluator; "compare-tensor"
+            # is a non-task entry (TensorSimilarityEvaluator) with its own
+            # shape and is exempt from the base-class check.
+            if task != "compare-tensor":
+                assert issubclass(cls, WinMLEvaluator)
             # The resolved class must match the qualified name in the spec.
             module_path, class_name = spec.rsplit(":", 1)
             assert cls.__module__ == module_path
             assert cls.__name__ == class_name
 
     def test_unsupported_task_raises_value_error(self):
-        from winml.modelkit.eval import get_evaluator_class
+        from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
 
         with pytest.raises(ValueError, match="not supported by `winml eval`"):
-            get_evaluator_class("made-up-task")
+            get_evaluator_class(WinMLEvaluationConfig(task="made-up-task"))
 
     def test_evaluator_registry_matches_schema_tasks(self):
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
         from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
 
-        assert set(_EVALUATOR_REGISTRY) == set(TASK_SCHEMAS)
+        # "compare-tensor" is a non-task evaluator entry (no labeled-dataset
+        # schema); exclude it from the task<->schema equivalence check.
+        assert set(_EVALUATOR_REGISTRY) - {"compare-tensor"} == set(TASK_SCHEMAS)
 
 
 class TestEvaluate:
     """Tests for evaluate() entry point."""
+
+    def test_invalid_mode_raises(self):
+        """evaluate() rejects unknown mode values with a clear error."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(model_id="test/model", task="feature-extraction")
+        config.mode = "hf"  # bypass dataclass type hint
+
+        with pytest.raises(ValueError, match="Invalid mode"):
+            eval_mod.evaluate(config)
+
+    def test_none_mode_normalizes_to_onnx(self):
+        """evaluate() treats mode=None as the default onnx mode."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="imagenet-1k"),
+        )
+        config.mode = None  # bypass dataclass type hint
+
+        evaluator = MagicMock()
+        evaluator.compute.return_value = {"accuracy": 1.0}
+        with (
+            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
+        ):
+            result = eval_mod.evaluate(config)
+        assert result.config.mode == "onnx"
 
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""
@@ -370,6 +433,78 @@ class TestWinMLEvaluator:
         mock_ds.select.assert_called_once_with(range(50))
         # config.dataset.samples should NOT be mutated
         assert ev.config.dataset.samples == 100
+
+    @patch("evaluate.evaluator")
+    @patch("transformers.pipeline")
+    @patch("datasets.load_dataset")
+    def test_revision_passed_to_load_dataset(
+        self,
+        mock_load_ds,
+        mock_pipeline,
+        mock_hf_eval,
+    ):
+        """DatasetConfig.revision is forwarded to load_dataset()."""
+        from winml.modelkit.eval import WinMLEvaluator
+
+        mock_ds = MagicMock()
+        mock_ds.__len__ = lambda self: 10
+        mock_ds.shuffle.return_value = mock_ds
+        mock_ds.select.return_value = mock_ds
+        mock_load_ds.return_value = mock_ds
+        mock_pipeline.return_value = MagicMock()
+        mock_hf_eval.return_value = MagicMock(compute=MagicMock(return_value={}))
+
+        model = MagicMock()
+        model.config.label2id = None
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(
+                path="some/dataset",
+                samples=5,
+                revision="refs/convert/parquet",
+            ),
+        )
+
+        WinMLEvaluator(config, model)
+
+        mock_load_ds.assert_called_once()
+        assert mock_load_ds.call_args.kwargs["revision"] == "refs/convert/parquet"
+
+    @patch("evaluate.evaluator")
+    @patch("transformers.pipeline")
+    @patch("datasets.load_dataset")
+    def test_revision_defaults_to_none(
+        self,
+        mock_load_ds,
+        mock_pipeline,
+        mock_hf_eval,
+    ):
+        """When revision is unset, load_dataset receives revision=None."""
+        from winml.modelkit.eval import WinMLEvaluator
+
+        mock_ds = MagicMock()
+        mock_ds.__len__ = lambda self: 10
+        mock_ds.shuffle.return_value = mock_ds
+        mock_ds.select.return_value = mock_ds
+        mock_load_ds.return_value = mock_ds
+        mock_pipeline.return_value = MagicMock()
+        mock_hf_eval.return_value = MagicMock(compute=MagicMock(return_value={}))
+
+        model = MagicMock()
+        model.config.label2id = None
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="some/dataset", samples=5),
+        )
+
+        WinMLEvaluator(config, model)
+
+        mock_load_ds.assert_called_once()
+        assert mock_load_ds.call_args.kwargs["revision"] is None
 
     @patch("evaluate.evaluator")
     @patch("transformers.pipeline")
@@ -1066,6 +1201,45 @@ class TestBuildEvalResultEpField:
             ep="qnn",
         )
         assert result["ep"] == "qnn"
+
+    def test_sanitize_fn_preserves_raw_perf_output(self):
+        reporter = self._load_reporter()
+
+        perf_proc = {
+            "exit_code": 0,
+            "stdout": "Latency (ms): 12.5\nThroughput: 80 samples/sec\nsome error line",
+            "stderr": "warning: device busy",
+            "elapsed": 5.0,
+            "timeout": False,
+            "command": "winml perf",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+
+        def strip_perf(text: str) -> str:
+            return "\n".join(
+                line
+                for line in text.splitlines()
+                if "latency" not in line.lower() and "throughput" not in line.lower()
+            )
+
+        result = reporter.build_eval_result(
+            entry=self._make_entry(),
+            perf_proc=perf_proc,
+            device="cpu",
+            eval_types_run=["perf"],
+            accuracy_result=None,
+            ep=None,
+            sanitize_fn=strip_perf,
+        )
+
+        perf = result["perf"]
+        # sanitized output should not contain latency/throughput lines
+        assert "Latency" not in perf["stdout_output"]
+        assert "Throughput" not in perf["stdout_output"]
+        # raw output preserves the original perf data
+        assert "Latency (ms): 12.5" in perf["raw_stdout"]
+        assert "Throughput: 80 samples/sec" in perf["raw_stdout"]
+        assert perf["raw_stderr"] == "warning: device busy"
 
 
 class TestDefaultDatasetImmutability:

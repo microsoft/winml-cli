@@ -53,6 +53,7 @@
   "eval": {
     "task": "token-classification",
     "dataset": {
+      "samples": 100,
       "path": "~/.cache/winml/eval_datasets/build_indonlu_posp",
       "columns_mapping": {
         "label_column": "pos_tags"

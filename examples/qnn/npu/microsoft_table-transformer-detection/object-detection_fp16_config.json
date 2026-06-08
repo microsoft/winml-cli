@@ -48,6 +48,7 @@
       "build_script": "scripts/e2e_eval/datasets/build_pubtables1m_detection.py",
       "path": "~/.cache/winml/eval_datasets/build_pubtables1m_detection",
       "split": "validation",
+      "samples": 100,
       "columns_mapping": {
         "annotation_column": "objects",
         "bbox_key": "bbox",

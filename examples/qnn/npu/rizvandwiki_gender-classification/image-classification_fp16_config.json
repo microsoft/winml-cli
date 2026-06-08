@@ -41,6 +41,7 @@
   "eval": {
     "task": "image-classification",
     "dataset": {
+      "samples": 100,
       "path": "~/.cache/winml/eval_datasets/build_fairface",
       "columns_mapping": {
         "label_column": "gender"

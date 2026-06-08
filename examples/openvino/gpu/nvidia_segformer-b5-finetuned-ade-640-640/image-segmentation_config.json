@@ -44,6 +44,7 @@
     "dataset": {
       "path": "danjacobellis/scene_parse_150",
       "split": "validation",
+      "samples": 1000,
       "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json",
       "columns_mapping": {
         "annotation_column": "annotation"

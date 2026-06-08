@@ -16,7 +16,7 @@ import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
-from ..utils.eval_utils import TASK_SCHEMAS, TaskSchema
+from ..utils.eval_utils import EVAL_MODES, TASK_SCHEMAS, EvalMode, TaskSchema
 from ..utils.logging import configure_logging
 
 
@@ -59,6 +59,14 @@ logger = logging.getLogger(__name__)
     type=str,
     default=None,
     help="Dataset config name for multi-config datasets (e.g. 'mrpc').",
+)
+@click.option(
+    "--dataset-revision",
+    "revision",
+    type=str,
+    default=None,
+    help="Git revision (branch, tag, or commit) to load. Useful for script-based "
+    "datasets that have a parquet mirror at 'refs/convert/parquet'.",
 )
 @click.option(
     "--task",
@@ -141,6 +149,18 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Print expected dataset schema for the given --task and exit.",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(EVAL_MODES, case_sensitive=False),
+    default="onnx",
+    show_default=True,
+    help=(
+        "Evaluation mode. "
+        "'onnx' (default): evaluate the ONNX candidate on the dataset. "
+        "'compare': compare ONNX vs HF reference output tensors on identical "
+        "random inputs and report tensor-similarity metrics per output tensor."
+    ),
+)
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @click.pass_context
@@ -150,6 +170,7 @@ def eval(
     model_id: str | None,
     dataset_path: str,
     dataset_name: str | None,
+    revision: str | None,
     task: str | None,
     device: str,
     precision: str,
@@ -166,6 +187,7 @@ def eval(
     dataset_script: str | None,
     trust_remote_code: bool,
     show_schema: bool,
+    mode: EvalMode,
     config_file: Path | None,
 ) -> None:
     r"""Evaluate a model for a task.
@@ -501,7 +523,8 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
-    console.print(f"[dim]Dataset:[/dim]    {ds.path}")
+    if ds.path:
+        console.print(f"[dim]Dataset:[/dim]    {ds.path}")
     console.print(f"[dim]Samples:[/dim]    {ds.samples}")
     if cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")

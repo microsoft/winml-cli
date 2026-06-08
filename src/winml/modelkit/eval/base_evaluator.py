@@ -89,18 +89,16 @@ class WinMLEvaluator:
             ds.samples,
         )
         try:
-            ds_path_str = ds.path
-            ds_path_expanded = (
-                Path(ds_path_str).expanduser() if ds_path_str else None
-            )
-            if ds_path_expanded and ds_path_expanded.is_dir():
-                dataset = load_from_disk(str(ds_path_expanded))
+            ds_path = Path(ds.path).expanduser() if ds.path else None
+            if ds_path and ds_path.is_dir():
+                dataset = load_from_disk(str(ds_path))
             else:
                 dataset = load_dataset(
                     ds.path,
                     name=ds.name,
                     split=ds.split,
                     streaming=ds.streaming,
+                    revision=ds.revision,
                 )
         except Exception as e:
             raise DatasetValidationError(

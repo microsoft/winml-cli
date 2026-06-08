@@ -71,6 +71,7 @@
     "dataset": {
       "path": "nyu-mll/glue",
       "name": "sst2",
+      "samples": 1000,
       "columns_mapping": {
         "input_column": "sentence"
       }

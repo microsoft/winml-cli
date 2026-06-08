@@ -83,6 +83,7 @@
   "eval": {
     "task": "token-classification",
     "dataset": {
+      "samples": 1000,
       "path": "BramVanroy/conll2003",
       "columns_mapping": {
         "label_column": "ner_tags"

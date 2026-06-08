@@ -50,8 +50,5 @@
     "task": "text-classification",
     "model_class": "AutoModelForSequenceClassification",
     "model_type": "xlm-roberta"
-  },
-  "eval": {
-    "task": "text-classification"
   }
 }
