@@ -40,8 +40,8 @@ class PerformanceMonitor:
     """Monitor and track performance metrics across operations."""
 
     def __init__(self) -> None:
-        self.timings = defaultdict(list)
-        self.counters = defaultdict(int)
+        self.timings: defaultdict[str, list[float]] = defaultdict(list)
+        self.counters: defaultdict[str, int] = defaultdict(int)
 
     def time_operation(self, operation_name: str) -> Callable[..., Any]:
         """Decorator to time an operation."""
@@ -70,7 +70,7 @@ class PerformanceMonitor:
 
     def get_metrics(self) -> dict[str, Any]:
         """Get all collected metrics."""
-        metrics = {}
+        metrics: dict[str, Any] = {}
 
         # Timing metrics
         for operation, times in self.timings.items():
@@ -158,7 +158,7 @@ class UnifiedOptimizer:
 
     def __init__(self) -> None:
         self.monitor = PerformanceMonitor()
-        self.applied_optimizations = []
+        self.applied_optimizations: list[str] = []
 
     def optimize_exporter(self, exporter: Any, strategy_name: str) -> OptimizationProfile:
         """Apply optimizations to an exporter based on its strategy.
@@ -264,7 +264,9 @@ class UnifiedOptimizer:
         if strategy_name == "htp":
             # Apply HTP-specific optimizations from iteration 17
             try:
-                from ..strategies.htp.optimizations import apply_htp_optimizations
+                from ..strategies.htp.optimizations import (  # type: ignore[import-not-found]
+                    apply_htp_optimizations,
+                )
 
                 apply_htp_optimizations(exporter)
                 profile.optimizations_applied.extend(
@@ -276,7 +278,7 @@ class UnifiedOptimizer:
         elif strategy_name == "usage_based":
             # Apply Usage-Based optimizations from iteration 18
             try:
-                from ..strategies.usage_based.optimizations import (
+                from ..strategies.usage_based.optimizations import (  # type: ignore[import-not-found]
                     apply_usage_based_optimizations,
                 )
 
@@ -298,7 +300,7 @@ class UnifiedOptimizer:
         # Add graph caching for FX
         if hasattr(exporter, "_trace_transformers_model"):
             original_trace = exporter._trace_transformers_model
-            graph_cache = {}
+            graph_cache: dict[int, Any] = {}
 
             @wraps(original_trace)
             def cached_trace(
@@ -329,15 +331,15 @@ def create_optimized_exporter(strategy: str, **kwargs: Any) -> Any:
     """
     # Import strategy modules
     if strategy == "usage_based":
-        from ..strategies.usage_based import UsageBasedExporter
+        from ..strategies.usage_based import UsageBasedExporter  # type: ignore[import-not-found]
 
         exporter = UsageBasedExporter(**kwargs)
     elif strategy == "htp":
-        from ..strategies.htp import HTPExporter
+        from ..strategies.htp import HTPExporter  # type: ignore[import-not-found]
 
         exporter = HTPExporter(**kwargs)
     elif strategy == "fx_graph" or strategy == "fx":
-        from ..strategies.fx import FXHierarchyExporter
+        from ..strategies.fx import FXHierarchyExporter  # type: ignore[import-not-found]
 
         exporter = FXHierarchyExporter(**kwargs)
     else:
@@ -371,7 +373,7 @@ class OptimizationBenchmark:
         import tempfile
         from pathlib import Path
 
-        results = {
+        results: dict[str, Any] = {
             "strategy": strategy,
             "original_times": [],
             "optimized_times": [],
