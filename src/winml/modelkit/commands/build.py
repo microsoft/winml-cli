@@ -669,8 +669,10 @@ def build(
             extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
-        if allow_unsupported_nodes:
-            extra_kwargs["allow_unsupported_nodes"] = True
+        # Always set (even when False) so downstream pipeline functions can rely
+        # on the key being present, matching the module-mode path which passes
+        # allow_unsupported_nodes explicitly regardless of its value.
+        extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----

@@ -535,15 +535,15 @@ class TestBuildFlagPassthrough:
         extras = mock_run_single_build.call_args.kwargs["extra_kwargs"]
         assert extras.get("allow_unsupported_nodes") is True
 
-    def test_allow_unsupported_nodes_absent_by_default(
+    def test_allow_unsupported_nodes_false_by_default(
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):
-        """Without the flag, ``allow_unsupported_nodes`` is not forwarded."""
+        """Without the flag, ``allow_unsupported_nodes`` is forwarded as False."""
         cfg = _make_minimal_config_file(tmp_path)
         result = _invoke(self._base_args(cfg, tmp_path))
         assert result.exit_code == 0, result.output
         extras = mock_run_single_build.call_args.kwargs["extra_kwargs"]
-        assert "allow_unsupported_nodes" not in extras
+        assert extras.get("allow_unsupported_nodes") is False
 
     def test_no_analyze_wins_over_max_iterations(
         self, tmp_path: Path, mock_run_single_build: MagicMock

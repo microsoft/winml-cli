@@ -308,7 +308,9 @@ class InferenceEngine:
             device: "auto" | "cpu" | "gpu" | "npu".
             ep: Explicit EP short name (e.g. "dml", "qnn").  Overrides device.
             allow_unsupported_nodes: If True, warn instead of raising when the
-                analyzer reports unsupported nodes during an HF build.
+                analyzer reports unsupported nodes during an HF build. Note: has
+                no effect when loading from a pre-built ONNX file or a cached
+                build directory (no build/analyze step runs in those paths).
         """
         self._model_path = str(model_path)
         self._device = device

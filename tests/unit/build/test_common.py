@@ -97,7 +97,9 @@ class TestAllowUnsupportedNodesGate:
         optimized = tmp_path / "out.onnx"
         p_opt, p_analyze, p_copy = _patched_loop(tmp_path)
 
-        with p_opt, p_analyze, p_copy, caplog.at_level("WARNING"):
+        with p_opt, p_analyze, p_copy, caplog.at_level(
+            "WARNING", logger="winml.modelkit.build.common"
+        ):
             result = run_optimize_analyze_loop(
                 model_path=model,
                 optimized_path=optimized,
