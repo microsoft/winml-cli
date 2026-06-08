@@ -72,7 +72,7 @@ Six data classes, one role each. The naming principle: **`WinML*`-prefixed class
 
 | Class | Role | Created by | Prefix rule |
 |---|---|---|---|
-| `EPDeviceTarget(ep: str, device: str, source: str \| None = None)` | Pure intent. `"auto"` allowed on either axis. Optional `source` carries the Scenario B disambiguator (a tag string like `"pypi"`). | CLI parser, JSON config loader, tests, `resolve()` | **No prefix** — user-craftable |
+| `EPDeviceTarget(ep: str, device: str, source: str \| None = None)` | Pure intent. `"auto"` allowed on either axis. Optional `source` carries the Scenario B disambiguator (a tag string like `"pypi"`). Construction-time validation lives in `EPDeviceTarget.__post_init__`; see `3_design_classes.md` §3.1. | CLI parser, JSON config loader, tests, `resolve()` | **No prefix** — user-craftable |
 | `EPDeviceSpec(ep, device, default_provider_options)` | Catalog row — what *could* exist for an EP, independent of installation state. Process-constant. | static `EP_DEVICE_SPECS` table in `ep_device.py` | **`WinML*`** — predefined |
 | `EPEntry(ep_name, dll_path, source, status, version)` | Filesystem-discovery record. One per `(ep_name, on-disk-source)` pair. No DLL load. | `discover_all_eps()` walking each `EPSource.resolve()`; tests may construct directly | **No prefix** — user-craftable (for tests); produced by filesystem-only scan in production |
 | `WinMLDevice` | Vendor-normalized adapter over `ort.OrtEpDevice` — single concrete class; dispatches by `ep_name` internally via module-level tables. See [`4_winml_device.md`](4_winml_device.md). | `wrap_ort_device(handle)` after a successful registration | **`WinML*`** — system-generated |

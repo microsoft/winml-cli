@@ -95,6 +95,84 @@ def test_from_dict_forward_compat_with_optional_source() -> None:
     assert EPDeviceTarget.from_dict(serialized) == new
 
 
+def test_from_dict_roundtrips_source_field() -> None:
+    """source field round-trips through to_dict/from_dict cleanly."""
+    target = EPDeviceTarget(
+        ep="OpenVINOExecutionProvider",
+        device="npu",
+        vendor_id=0x8086,
+        device_id=0x64A0,
+        source="pypi",
+    )
+    d = target.to_dict()
+    assert d["source"] == "pypi"
+    restored = EPDeviceTarget.from_dict(d)
+    assert restored.source == "pypi"
+    assert restored == target
+
+
+def test_from_dict_legacy_without_vendor_id() -> None:
+    """JSON written before Batch C strip — no vendor_id/device_id/vendor keys.
+
+    The Batch C refactor will strip vendor_id/device_id/vendor from the
+    dataclass; this test pins the forward-compat tolerance so configs
+    written by that future code rehydrate cleanly under the current shape.
+    """
+    legacy = {"ep": "openvino", "device": "npu"}
+    target = EPDeviceTarget.from_dict(legacy)
+    assert target.vendor_id == 0  # default
+    assert target.device_id == 0  # default
+    assert target.vendor == ""  # default
+    assert target.source is None
+
+
+class TestEPDeviceTargetValidation:
+    """Construction-time validation per __post_init__."""
+
+    def test_invalid_device_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown device"):
+            EPDeviceTarget(
+                ep="openvino",
+                device="tpu",
+                vendor_id=0x8086,
+                device_id=0x64A0,
+            )
+
+    def test_invalid_ep_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown EP"):
+            EPDeviceTarget(
+                ep="bogus_ep",
+                device="npu",
+                vendor_id=0x8086,
+                device_id=0x64A0,
+            )
+
+    def test_invalid_source_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown source tag"):
+            EPDeviceTarget(
+                ep="openvino",
+                device="npu",
+                source="not-a-real-tag",
+                vendor_id=0x8086,
+                device_id=0x64A0,
+            )
+
+    def test_auto_passes(self) -> None:
+        # 'auto' on either axis bypasses the catalog check.
+        EPDeviceTarget(ep="auto", device="auto", vendor_id=0, device_id=0)
+        EPDeviceTarget(ep="openvino", device="auto", vendor_id=0x8086, device_id=0x64A0)
+        EPDeviceTarget(ep="auto", device="npu", vendor_id=0, device_id=0)
+
+    def test_full_ep_name_accepted(self) -> None:
+        # Full EP names also work (not only short forms).
+        EPDeviceTarget(
+            ep="OpenVINOExecutionProvider",
+            device="npu",
+            vendor_id=0x8086,
+            device_id=0x64A0,
+        )
+
+
 def test_expand_ep_name_short_form() -> None:
     assert expand_ep_name("qnn") == "QNNExecutionProvider"
     assert expand_ep_name("openvino") == "OpenVINOExecutionProvider"

@@ -48,40 +48,9 @@ class WinMLEPMonitorMismatch(Exception):  # noqa: N818
     """Monitor.ep_name does not agree with EPDeviceTarget.ep."""
 
 
-# --- dataclass -------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class EPDeviceTarget:
-    """Pure-data identifier of one (EP, hardware-device) binding target."""
-
-    ep: str
-    device: str
-    vendor_id: int
-    device_id: int
-    vendor: str = ""
-    source: str | None = None
-
-    def __post_init__(self) -> None:
-        # Frozen dataclass — must use object.__setattr__ to mutate.
-        if self.device != self.device.lower():
-            object.__setattr__(self, "device", self.device.lower())
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to a plain dict suitable for JSON round-trip."""
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> EPDeviceTarget:
-        """Rehydrate from a dict produced by to_dict."""
-        return cls(
-            ep=d["ep"],
-            device=d["device"],
-            vendor_id=d["vendor_id"],
-            device_id=d["device_id"],
-            vendor=d.get("vendor", ""),
-            source=d.get("source"),
-        )
+# --- EP-name short<->full helpers -----------------------------------------
+# These live above EPDeviceTarget so its __post_init__ can validate ep names
+# against the known catalog without forward references.
 
 
 _SHORT_TO_FULL: Final[dict[str, str]] = {
@@ -127,6 +96,122 @@ def short_ep_name(full: str) -> str:
     if full in _FULL_TO_SHORT:
         return _FULL_TO_SHORT[full]
     return full.removesuffix("ExecutionProvider").lower()
+
+
+# --- validation closed-sets -----------------------------------------------
+# These three closed sets are the canonical authority used by
+# EPDeviceTarget.__post_init__ for construction-time validation.
+# - VALID_DEVICES: the 3 device categories ORT enumerates.
+# - VALID_SOURCE_TAGS: the 7 canonical EPSource origin tags (see
+#   docs/design/session/3_design_classes.md §4).
+# - known_ep_short_names(): derived from _SHORT_TO_FULL (no hardcoded list,
+#   per CLAUDE.md cardinal rule #1).
+
+VALID_DEVICES: Final[frozenset[str]] = frozenset({"npu", "gpu", "cpu"})
+
+VALID_SOURCE_TAGS: Final[frozenset[str]] = frozenset(
+    {
+        "bundled",
+        "pypi",
+        "nuget",
+        "msix-microsoft",
+        "msix-workload",
+        "winml-catalog",
+        "directory",
+    }
+)
+
+
+def known_ep_short_names() -> frozenset[str]:
+    """Set of EP short names registered in ``_SHORT_TO_FULL``.
+
+    Derived (not hardcoded) per CLAUDE.md cardinal rule #1 — adding a new
+    EP to ``_SHORT_TO_FULL`` automatically expands the validation set.
+    """
+    return frozenset(_SHORT_TO_FULL.keys())
+
+
+# --- dataclass -------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EPDeviceTarget:
+    """Pure-data identifier of one (EP, hardware-device) binding target.
+
+    Construction-time validation (see ``__post_init__``):
+      - ``device``: must be ``"auto"`` or in :data:`VALID_DEVICES`
+      - ``ep``:     must be ``"auto"`` or a known short/full name from
+                    :data:`_SHORT_TO_FULL`
+      - ``source``: must be ``None`` or in :data:`VALID_SOURCE_TAGS`
+
+    Note: ``vendor_id``, ``device_id``, and ``vendor`` fields are runtime
+    hardware fingerprints that will be stripped in the Batch C atomic
+    refactor (they belong on ``WinMLDevice``, the ``OrtEpDevice`` adapter,
+    not on this user-craftable intent type). For now they remain on the
+    dataclass because ``session.py:189-212`` still reads them for the
+    ``OrtEpDevice`` dedup filter — that filter relocates in Batch C.
+    """
+
+    ep: str
+    device: str
+    vendor_id: int
+    device_id: int
+    vendor: str = ""
+    source: str | None = None
+
+    def __post_init__(self) -> None:
+        # Frozen dataclass — must use object.__setattr__ to mutate.
+        # Normalize device casing (existing behavior — preserve).
+        if self.device != self.device.lower():
+            object.__setattr__(self, "device", self.device.lower())
+
+        # Validate device class.
+        if self.device != "auto" and self.device not in VALID_DEVICES:
+            raise ValueError(
+                f"Unknown device {self.device!r}; "
+                f"expected one of {sorted(VALID_DEVICES)} or 'auto'"
+            )
+
+        # Validate EP name (short OR full).
+        if (
+            self.ep != "auto"
+            and self.ep.lower() not in known_ep_short_names()
+            and self.ep not in _FULL_TO_SHORT
+        ):
+            raise ValueError(
+                f"Unknown EP {self.ep!r}; "
+                f"expected one of {sorted(known_ep_short_names())} or 'auto' "
+                f"(also accepts full names like 'OpenVINOExecutionProvider')"
+            )
+
+        # Validate source tag.
+        if self.source is not None and self.source not in VALID_SOURCE_TAGS:
+            raise ValueError(
+                f"Unknown source tag {self.source!r}; "
+                f"expected one of {sorted(VALID_SOURCE_TAGS)} or None"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict suitable for JSON round-trip."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> EPDeviceTarget:
+        """Rehydrate from a dict produced by to_dict.
+
+        Legacy keys ``vendor_id``/``device_id``/``vendor`` are tolerated
+        (read with ``.get`` defaults). The Batch C refactor will strip
+        these fields from the dataclass entirely; until then they are
+        kept for the ``OrtEpDevice`` dedup filter at ``session.py:189-212``.
+        """
+        return cls(
+            ep=d["ep"],
+            device=d["device"],
+            vendor_id=d.get("vendor_id", 0),
+            device_id=d.get("device_id", 0),
+            vendor=d.get("vendor", ""),
+            source=d.get("source"),
+        )
 
 
 # --- EP / device taxonomy --------------------------------------------------
@@ -187,11 +272,13 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
 # O(1) lookup cache built from the ordered catalog.
 _BY_KEY: Final[dict[tuple[str, str], EPDeviceSpec]] = {(s.ep, s.device): s for s in EP_DEVICE_SPECS}
 
-# Public frozensets for callers that only need membership tests.
+# Public frozenset for callers that only need EP membership tests.
 # VALID_EPS uses short names for backward compatibility with callers that pass
 # short forms (e.g. "qnn", "dml").  The catalog uses full names internally.
+# VALID_DEVICES is defined above (alongside EPDeviceTarget validation) and the
+# closed set is invariant against this catalog by construction — every
+# EP_DEVICE_SPECS row's device must be in VALID_DEVICES.
 VALID_EPS: Final[frozenset[str]] = frozenset({short_ep_name(s.ep) for s in EP_DEVICE_SPECS})
-VALID_DEVICES: Final[frozenset[str]] = frozenset({s.device for s in EP_DEVICE_SPECS})
 
 
 def lookup_device_spec(ep: str, device: str) -> EPDeviceSpec | None:

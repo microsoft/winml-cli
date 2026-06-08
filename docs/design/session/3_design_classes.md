@@ -96,6 +96,24 @@ target = EPDeviceTarget.from_dict({"ep": "qnn", "device": "npu"})  # source defa
 target = EPDeviceTarget(ep="cpu", device="cpu", source=None)
 ```
 
+### Construction-time validation
+
+`__post_init__` enforces the constructor contract — bad input fails at construction
+time (CLI parse, JSON load, test fixture), not five layers deeper inside `auto_device`.
+
+| Check | Allowed | Raises |
+|---|---|---|
+| `device` value | `"auto"` or one of `VALID_DEVICES` (`{"npu","gpu","cpu"}`); case-normalized to lower | `ValueError` with the allowed list |
+| `ep` value | `"auto"` or a short name in `known_ep_short_names()` (derived from `_SHORT_TO_FULL`, not hardcoded) or a full name from `_FULL_TO_SHORT` | `ValueError` with the allowed list |
+| `source` value | `None` or one of `VALID_SOURCE_TAGS` (the 7 canonical tags: `bundled`, `pypi`, `nuget`, `msix-microsoft`, `msix-workload`, `winml-catalog`, `directory`) | `ValueError` with the allowed list |
+
+Validation is **structural only** — it checks the field shape, not environmental fit.
+Whether the EP is actually registered on this host, or whether the source tag has a
+match in `discover_all_eps()`, is `resolve()`'s job.
+
+The closed sets (`VALID_DEVICES`, `VALID_SOURCE_TAGS`) and the `known_ep_short_names()`
+helper live in `session/ep_device.py` alongside `EPDeviceTarget`.
+
 **More detail.** Path-level walkthroughs at [`2_coreloop.md`](2_coreloop.md) §4.1 (Scenarios A.1-A.4) and §4.2 (Scenarios A.5-A.6); persisted-config round-trip at [`2_coreloop.md`](2_coreloop.md) §4.5.
 
 ### 3.2 `EPDeviceSpec`
@@ -116,6 +134,10 @@ provider_options = dict(spec.default_provider_options)   # mutable copy for merg
 # Default-device deduction:
 device = default_device_for_ep("openvino")               # consults the spec set
 ```
+
+The `known_ep_short_names()` helper in `session/ep_device.py` (used by `EPDeviceTarget`
+validation) derives its closed set from this catalog — there is no hardcoded EP name
+list anywhere.
 
 **More detail.** Catalog scope and the catalog-vs-registration distinction at [`3_design_ep.md`](3_design_ep.md) §6.4 and §9.
 
@@ -396,7 +418,7 @@ classDiagram
     class EPEntry {
         +ep_name: str
         +dll_path: Path
-        +source: str
+        +source: EPSource
         +status: str
         +version: str
     }
