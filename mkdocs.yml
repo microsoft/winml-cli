@@ -9,6 +9,8 @@ docs_dir: docs
 
 exclude_docs: |
   /design/
+  /naming-convention.md
+  /pytest-best-practices.md
 
 extra:
   version:
