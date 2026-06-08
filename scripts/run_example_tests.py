@@ -174,13 +174,18 @@ def select_build_configs(config_paths: list[Path]) -> list[tuple[Path, str | Non
     return [(config_path, None) for config_path, _group_stem, _role in parsed]
 
 
-def build_grouped_configs(model_dirs: list[Path]) -> list[tuple[Path, str, list[Path]]]:
+def build_grouped_configs(
+    model_dirs: list[Path],
+    precision: str | None = None,
+) -> list[tuple[Path, str, list[Path]]]:
     """Group configs by logical model+task prefix, with split/single safeguards.
 
     We treat split-component configs ("*_config_<component>.json") as one logical
     group. If the same prefix also has non-split configs, we only merge a single
     eval wrapper config; other non-split configs are kept as standalone groups to
     avoid cross-task mixing.
+
+    If ``precision`` is given, only groups whose key matches that precision are returned.
     """
     grouped_configs: list[tuple[Path, str, list[Path]]] = []
     for model_dir in model_dirs:
@@ -188,8 +193,10 @@ def build_grouped_configs(model_dirs: list[Path]) -> list[tuple[Path, str, list[
         group_stems: dict[tuple[str, str | None], str] = {}
         for cfg_file in sorted(model_dir.glob("*_config*.json")):
             group_stem, _role = split_config_stem(cfg_file)
-            task_name, precision = split_task_precision(group_stem)
-            group_key = (task_name, precision)
+            task_name, group_precision = split_task_precision(group_stem)
+            if precision is not None and group_precision != precision:
+                continue
+            group_key = (task_name, group_precision)
             groups.setdefault(group_key, []).append(cfg_file)
             # Keep one representative stem for naming/logging.
             group_stems.setdefault(group_key, group_stem)
@@ -479,7 +486,22 @@ def main() -> None:
         action="store_true",
         help="If set, delete existing *_eval_result.error.txt / *.timeout and retry those configs.",
     )
+    parser.add_argument(
+        "--rerun",
+        action="store_true",
+        help="Bypass skip-on-existing-result so passing configs are re-evaluated and overwritten.",
+    )
     parser.add_argument("--models", type=str, default=None, help="Comma-separated model slugs")
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default=None,
+        choices=list(KNOWN_PRECISIONS),
+        help=(
+            "Restrict to config groups for a single precision "
+            f"({', '.join(KNOWN_PRECISIONS)}). Applies before all skip/retry logic."
+        ),
+    )
     args = parser.parse_args()
 
     ep_for_winml, examples_ep = resolve_ep_and_examples_folder(args.ep)
@@ -493,7 +515,7 @@ def main() -> None:
         allowed = set(args.models.split(","))
         model_dirs = [d for d in model_dirs if d.name in allowed]
 
-    grouped_configs = build_grouped_configs(model_dirs)
+    grouped_configs = build_grouped_configs(model_dirs, precision=args.precision)
 
     print(f"EP: {ep_for_winml}, Device: {args.device} (examples/{examples_ep}/{args.device})")
     print(f"Models: {len(model_dirs)}, Config groups: {len(grouped_configs)}")
@@ -529,12 +551,13 @@ def main() -> None:
             if eval_tmo.exists():
                 eval_tmo.unlink()
 
-        if eval_output.exists():
-            results["SKIP"] += 1
-            continue
-        if (eval_err.exists() or eval_tmo.exists()) and not args.retry_failed:
-            results["SKIP"] += 1
-            continue
+        if not args.rerun:
+            if eval_output.exists():
+                results["SKIP"] += 1
+                continue
+            if (eval_err.exists() or eval_tmo.exists()) and not args.retry_failed:
+                results["SKIP"] += 1
+                continue
 
         # Clean caches between different models when enabled
         if args.clean_cache and model_slug != prev_model and prev_model is not None:
