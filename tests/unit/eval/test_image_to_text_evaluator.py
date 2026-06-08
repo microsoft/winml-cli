@@ -67,11 +67,15 @@ class TestAlignLabels:
 
 class TestRegistry:
     def test_registered(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY, get_evaluator_class
 
         assert "image-to-text" in _EVALUATOR_REGISTRY
         # Registry stores "module:Class" strings now (lazy resolution).
-        assert get_evaluator_class("image-to-text") is WinMLImageToTextEvaluator
+        assert (
+            get_evaluator_class(WinMLEvaluationConfig(task="image-to-text"))
+            is WinMLImageToTextEvaluator
+        )
 
 
 class TestCompute:
