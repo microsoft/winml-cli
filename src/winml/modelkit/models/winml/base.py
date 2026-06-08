@@ -99,6 +99,11 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         """ONNX I/O metadata (delegated to session)."""
         return self._session.io_config
 
+    @property
+    def onnx_path(self) -> Path:
+        """Path to the ONNX model file."""
+        return self._onnx_path
+
     def _format_inputs(
         self,
         data: torch.Tensor | np.ndarray | list | dict | None = None,

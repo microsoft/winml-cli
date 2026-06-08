@@ -566,16 +566,24 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
     console = _get_console()
     console.print("\n[bold blue]Available Devices (priority order)[/bold blue]")
     for dev in devices:
+        # highlight=False keeps Rich's auto-highlighter (which would otherwise
+        # colorize numbers, IDs, paths, etc.) off the device name. Markup styles
+        # ([bold], [cyan]) on the prefix still apply.
         console.print(
-            f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {dev['name']}"
+            f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {dev['name']}",
+            highlight=False,
         )
         details = dev.get("details", {})
         if "error" in details:
             console.print(f"             [red]Error: {details['error']}[/red]")
         elif dev["type"] in ("NPU", "GPU"):
+            # Explicit [green] markup with highlight=False — Rich's auto-highlighter
+            # mis-styles driver version strings, so opt out of it here and apply
+            # the green via markup we control.
             console.print(
-                f"             Driver: {details.get('driver', 'N/A')} | "
-                f"Manufacturer: {details.get('manufacturer', 'N/A')}"
+                f"             Driver: [bold bright_green]{details.get('driver', 'N/A')}[/] | "
+                f"Manufacturer: {details.get('manufacturer', 'N/A')}",
+                highlight=False,
             )
         elif dev["type"] == "CPU":
             console.print(

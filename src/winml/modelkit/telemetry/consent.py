@@ -45,10 +45,10 @@ _CONFIG_PATH: Path | None = _default_config_path()
 # stored records with an older version are treated as unrecorded on
 # read so the user sees the updated notice and re-consents. Records
 # predating the version field are grandfathered as the current version.
-_CONSENT_VERSION: int = 1
+_CONSENT_VERSION: int = 2
 
 _PROMPT_TEXT = """\
-WinML CLI can collect anonymous usage data to help improve the product.
+WinML CLI can collect unlinked pseudonymized usage data to help improve the product.
 
 What is collected:
   - Command name, duration, success/failure
