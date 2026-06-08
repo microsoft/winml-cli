@@ -142,8 +142,7 @@ class WinMLEvaluationConfig:
             result["output_path"] = str(self.output_path)
         if self.mode != "onnx":
             result["mode"] = self.mode
-        if not self.skip_build:
-            result["skip_build"] = self.skip_build
+        result["skip_build"] = self.skip_build
         return result
 
     @classmethod

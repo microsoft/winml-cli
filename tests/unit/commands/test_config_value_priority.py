@@ -296,6 +296,7 @@ def _run_perf(
         captured["config"] = config
         instance = MagicMock()
         instance.run.return_value = MagicMock()
+        captured["instance"] = instance
         return instance
 
     args = ["-m", str(model), *cli_args]
@@ -316,6 +317,14 @@ def _run_perf(
     ):
         r = CliRunner().invoke(perf_cmd, args, obj={}, catch_exceptions=False)
     assert r.exit_code == 0, r.output
+
+    # Guard against the perf command short-circuiting before the benchmark
+    # runs (e.g. an early return after constructing PerfBenchmark): the
+    # captured BenchmarkConfig would still let the priority assertions pass
+    # but the command wouldn't be exercising the real flow.
+    assert captured["instance"].run.call_count == 1, (
+        "PerfBenchmark was constructed but .run() was never invoked"
+    )
 
     cfg = captured["config"]
     return {"ep": cfg.ep}

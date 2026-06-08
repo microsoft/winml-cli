@@ -308,12 +308,18 @@ class InferenceEngine:
             task: Required when model_path is a raw .onnx file.
             device: "auto" | "cpu" | "gpu" | "npu".
             ep: Explicit EP short name (e.g. "dml", "qnn").  Overrides device.
-            skip_build: When True (default), use a raw .onnx file as-is. When
-                False, run the build pipeline (optimize/quantize/compile)
-                build output directories.
+            skip_build: When True (default), use a raw .onnx file as-is.
+                When False, run the build pipeline
+                (optimize/quantize/compile) before inference. Honored only
+                for raw .onnx paths; ignored for HF model IDs and pre-built
+                build directories. A build directory always loads its
+                cached ONNX as-is — to re-run the build pipeline on a
+                model already in a build dir, point ``model_path`` at the
+                explicit .onnx file inside it.
             allow_unsupported_nodes: If True, warn instead of raising when the
                 analyzer reports unsupported nodes during an HF build. Note: has
-                build directory (no build/analyze step runs in those paths).
+                no effect on raw .onnx files or pre-built build directories
+                (no build/analyze step runs in those paths).
         """
         self._model_path = str(model_path)
         self._ep = ep
