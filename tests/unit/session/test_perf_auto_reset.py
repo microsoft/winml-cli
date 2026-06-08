@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import patch
 
 import onnxruntime as ort
 
@@ -25,32 +24,24 @@ def _get_real_cpu_ort_device():
 
 
 def _make_cpu_session(model_path):
-    """Create a WinMLSession bound to CPU with mocked WinMLEPRegistry."""
-    from winml.modelkit.session import EPDeviceTarget
+    """Create a WinMLSession bound to CPU with a stub WinMLEPDevice."""
     from winml.modelkit.session.session import WinMLSession
 
+    from .conftest import make_stub_winml_ep_device
+
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = EPDeviceTarget(
-        ep="CPUExecutionProvider",
-        device="cpu",
-        vendor_id=cpu_dev.device.vendor_id,
-        device_id=cpu_dev.device.device_id,
-    )
-    with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-        mock_reg.get_instance.return_value.register_ep.return_value = [cpu_dev]
-        return WinMLSession(model_path, ep_device=cpu_ep_device), cpu_dev, cpu_ep_device
+    cpu_ep_device = make_stub_winml_ep_device(cpu_dev, "CPUExecutionProvider")
+    return WinMLSession(model_path, ep_device=cpu_ep_device), cpu_dev, cpu_ep_device
 
 
 def test_auto_reset_fires_when_options_contributed(caplog):
     """If session is already compiled AND monitor contributes provider_options,
     session.perf().__enter__ auto-resets with a WARNING log.
-
-    The WinMLEPRegistry mock must be active during perf() as well as construction,
-    because the auto-reset + rebuild path calls _build_session_options().
     """
-    from winml.modelkit.session import EPDeviceTarget
     from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
     from winml.modelkit.session.session import WinMLSession
+
+    from .conftest import make_stub_winml_ep_device
 
     class _ContributingMonitor(WinMLEPMonitor):
         @classmethod
@@ -70,24 +61,16 @@ def test_auto_reset_fires_when_options_contributed(caplog):
             return {"some_key": "1"}
 
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = EPDeviceTarget(
-        ep="CPUExecutionProvider",
-        device="cpu",
-        vendor_id=cpu_dev.device.vendor_id,
-        device_id=cpu_dev.device.device_id,
-    )
+    cpu_ep_device = make_stub_winml_ep_device(cpu_dev, "CPUExecutionProvider")
 
-    # Registry mock must stay active across both __init__ and perf() rebuild.
-    with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-        mock_reg.get_instance.return_value.register_ep.return_value = [cpu_dev]
-        session = WinMLSession(get_minimal_onnx_model_path(), ep_device=cpu_ep_device)
+    session = WinMLSession(get_minimal_onnx_model_path(), ep_device=cpu_ep_device)
 
-        session.compile()
-        assert session._session is not None
-        pre_session = session._session
+    session.compile()
+    assert session._session is not None
+    pre_session = session._session
 
-        with caplog.at_level(logging.WARNING), session.perf(monitor=_ContributingMonitor()):
-            pass
+    with caplog.at_level(logging.WARNING), session.perf(monitor=_ContributingMonitor()):
+        pass
 
     # NFR-3: the verbatim phrase MUST appear as a substring of the log.
     expected = "auto-resetting compiled session to apply monitor session/provider options"

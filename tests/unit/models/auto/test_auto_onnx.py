@@ -27,14 +27,14 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture()
-def cpu_ep_device() -> EPDeviceTarget:
-    """Minimal EPDeviceTarget for CPU used across from_onnx/from_pretrained tests."""
-    return EPDeviceTarget(
-        ep="CPUExecutionProvider",
-        device="cpu",
-        vendor_id=0x1234,
-        device_id=0x0001,
-    )
+def cpu_ep_device():
+    """Minimal stub WinMLEPDevice for CPU used across from_onnx/from_pretrained tests."""
+    from unittest.mock import MagicMock as _MM
+
+    ep_device = _MM()
+    ep_device.device.ep_name = "CPUExecutionProvider"
+    ep_device.device.device_type = "CPU"
+    return ep_device
 
 
 @pytest.fixture()
@@ -128,13 +128,10 @@ class TestFromOnnx:
         assert call_kwargs["config"].optim.get("gelu_fusion") is True  # from override
 
     def test_passes_ep_and_device_to_build(self, fake_onnx: Path, tmp_path: Path):
-        """from_onnx() extracts ep and device from EPDeviceTarget and forwards to build_onnx_model."""
-        npu_ep_device = EPDeviceTarget(
-            ep="QNNExecutionProvider",
-            device="npu",
-            vendor_id=0x17CB,
-            device_id=0x0001,
-        )
+        """from_onnx() extracts ep and device from WinMLEPDevice and forwards to build_onnx_model."""
+        npu_ep_device = MagicMock()
+        npu_ep_device.device.ep_name = "QNNExecutionProvider"
+        npu_ep_device.device.device_type = "NPU"
         mock_config = MagicMock()
         mock_config.loader = None
         with (
@@ -224,7 +221,9 @@ class TestFromPretrainedDelegatesToFromOnnx:
             )
 
         call_kwargs = mock_from_onnx.call_args.kwargs
-        assert call_kwargs["ep_device"].ep == "CPUExecutionProvider"
+        # ep_device is forwarded as-is — assert identity rather than walking
+        # the (now nested) device.ep_name attribute on the stub MagicMock.
+        assert call_kwargs["ep_device"] is cpu_ep_device
 
 
 # =============================================================================

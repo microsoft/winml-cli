@@ -34,7 +34,7 @@ from ._pre_bench import print_pre_bench_block
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
-    from ..session import EPDeviceTarget
+    from ..session import WinMLEPDevice
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.stats import PerfStats
 
@@ -458,15 +458,16 @@ class PerfBenchmark:
         """Load model via WinMLAutoModel (handles both HF and ONNX)."""
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
-        from ..session import resolve_device
+        from ..session import WinMLEPRegistry, resolve_device
 
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
 
-        # Resolve (ep, device) to EPDeviceTarget at the CLI boundary.
-        # resolve_device deduces missing sides and normalizes "auto".
-        ep_device = resolve_device(ep=self.config.ep or None, device=self.config.device)
+        # Resolve (ep, device) to EPDeviceTarget at the CLI boundary; then
+        # bind a WinMLEPDevice via auto_device (loads the plugin DLL).
+        target = resolve_device(ep=self.config.ep or None, device=self.config.device)
+        ep_device = WinMLEPRegistry.get_instance().auto_device(target)
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -761,12 +762,14 @@ def _perf_modules(
                 )
 
                 # Benchmark using WinMLSession
-                from ..session import WinMLSession, resolve_device
+                from ..session import WinMLEPRegistry, WinMLSession, resolve_device
 
                 # CPU sniff — uses live resolve_device; future opt: cache
+                cpu_target = resolve_device("cpu", "cpu")
+                cpu_ep_device = WinMLEPRegistry.get_instance().auto_device(cpu_target)
                 session = WinMLSession(
                     str(build_result.final_onnx_path),
-                    ep_device=resolve_device("cpu", "cpu"),
+                    ep_device=cpu_ep_device,
                 )
                 io_cfg = session.io_config
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
@@ -1086,7 +1089,7 @@ def _run_simple_loop(
 def _run_onnx_benchmark(
     onnx_path: Path,
     *,
-    ep_device: EPDeviceTarget,
+    ep_device: WinMLEPDevice,
     iterations: int,
     warmup: int,
     batch_size: int,
@@ -1149,7 +1152,7 @@ def _run_onnx_benchmark(
                 total_iterations=total_iterations,
                 warmup=warmup,
                 model_id=str(onnx_path.name),
-                device=ep_device.device,
+                device=ep_device.device.device_type.lower(),
             )
             hw_metrics = hw.to_dict()
         stats = ctx.stats
@@ -1537,11 +1540,11 @@ def perf(
                 raise FileNotFoundError(f"ONNX file not found: {model_path}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
 
-            from ..session import resolve_device
+            from ..session import WinMLEPRegistry, resolve_device
 
-            # Resolve to a EPDeviceTarget: resolve_device handles "auto" and
-            # deduces missing ep or device.
-            ep_device = resolve_device(ep=config.ep or None, device=config.device)
+            # Resolve to a EPDeviceTarget then bind via auto_device.
+            target = resolve_device(ep=config.ep or None, device=config.device)
+            ep_device = WinMLEPRegistry.get_instance().auto_device(target)
 
             result = _run_onnx_benchmark(
                 model_path,

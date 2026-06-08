@@ -11,43 +11,25 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from winml.modelkit.session import (
-    AmbiguousMatch,
-    DeviceNotFound,
     EPDeviceTarget,
     expand_ep_name,
     resolve_device,
     short_ep_name,
 )
 
-from .conftest import QNN_VENDOR_ID
-
 
 def test_ep_device_round_trip() -> None:
     """EPDeviceTarget -> to_dict -> from_dict yields an equal instance."""
-    original = EPDeviceTarget(
-        ep="QNNExecutionProvider",
-        device="npu",
-        vendor_id=QNN_VENDOR_ID,
-        device_id=0x0001,
-        vendor="Qualcomm",
-    )
+    original = EPDeviceTarget(ep="QNNExecutionProvider", device="npu")
     rehydrated = EPDeviceTarget.from_dict(original.to_dict())
     assert rehydrated == original
     assert rehydrated.ep == "QNNExecutionProvider"
     assert rehydrated.device == "npu"
-    assert rehydrated.vendor_id == QNN_VENDOR_ID
-    assert rehydrated.device_id == 0x0001
-    assert rehydrated.vendor == "Qualcomm"
 
 
 def test_ep_device_lowercase_invariant() -> None:
     """`device` field is forced to lowercase by __post_init__."""
-    ep_device = EPDeviceTarget(
-        ep="QNNExecutionProvider",
-        device="NPU",
-        vendor_id=QNN_VENDOR_ID,
-        device_id=0x0001,
-    )
+    ep_device = EPDeviceTarget(ep="QNNExecutionProvider", device="NPU")
     assert ep_device.device == "npu"
 
 
@@ -60,22 +42,16 @@ def test_from_dict_forward_compat_with_optional_source() -> None:
 
     Pins the forward-compatibility contract for the EPDeviceTarget JSON shape.
     """
-    # Legacy JSON (no source field) — must default to source=None.
+    # Legacy JSON (no source field; also tolerates legacy vendor_id/device_id keys).
     legacy = EPDeviceTarget.from_dict(
         {
             "ep": "QNNExecutionProvider",
             "device": "npu",
-            "vendor_id": QNN_VENDOR_ID,
-            "device_id": 0x0001,
+            "vendor_id": 0x4D4F,  # legacy key — silently ignored
+            "device_id": 0x0001,  # legacy key — silently ignored
         }
     )
-    assert legacy == EPDeviceTarget(
-        ep="QNNExecutionProvider",
-        device="npu",
-        vendor_id=QNN_VENDOR_ID,
-        device_id=0x0001,
-        source=None,
-    )
+    assert legacy == EPDeviceTarget(ep="QNNExecutionProvider", device="npu", source=None)
     assert legacy.source is None
 
     # New JSON with source — must round-trip via to_dict / from_dict.
@@ -83,13 +59,10 @@ def test_from_dict_forward_compat_with_optional_source() -> None:
         {
             "ep": "QNNExecutionProvider",
             "device": "npu",
-            "vendor_id": QNN_VENDOR_ID,
-            "device_id": 0x0001,
             "source": "pypi",
         }
     )
     assert new.source == "pypi"
-    # to_dict must serialize source so persistence round-trips cleanly.
     serialized = new.to_dict()
     assert serialized["source"] == "pypi"
     assert EPDeviceTarget.from_dict(serialized) == new
@@ -100,8 +73,6 @@ def test_from_dict_roundtrips_source_field() -> None:
     target = EPDeviceTarget(
         ep="OpenVINOExecutionProvider",
         device="npu",
-        vendor_id=0x8086,
-        device_id=0x64A0,
         source="pypi",
     )
     d = target.to_dict()
@@ -112,18 +83,14 @@ def test_from_dict_roundtrips_source_field() -> None:
 
 
 def test_from_dict_legacy_without_vendor_id() -> None:
-    """JSON written before Batch C strip — no vendor_id/device_id/vendor keys.
-
-    The Batch C refactor will strip vendor_id/device_id/vendor from the
-    dataclass; this test pins the forward-compat tolerance so configs
-    written by that future code rehydrate cleanly under the current shape.
-    """
+    """JSON written before Batch C strip — no vendor_id/device_id/vendor keys."""
     legacy = {"ep": "openvino", "device": "npu"}
     target = EPDeviceTarget.from_dict(legacy)
-    assert target.vendor_id == 0  # default
-    assert target.device_id == 0  # default
-    assert target.vendor == ""  # default
     assert target.source is None
+    # Stripped fields must NOT appear on the dataclass post-Batch-C.
+    assert not hasattr(target, "vendor_id")
+    assert not hasattr(target, "device_id")
+    assert not hasattr(target, "vendor")
 
 
 class TestEPDeviceTargetValidation:
@@ -131,46 +98,25 @@ class TestEPDeviceTargetValidation:
 
     def test_invalid_device_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown device"):
-            EPDeviceTarget(
-                ep="openvino",
-                device="tpu",
-                vendor_id=0x8086,
-                device_id=0x64A0,
-            )
+            EPDeviceTarget(ep="openvino", device="tpu")
 
     def test_invalid_ep_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown EP"):
-            EPDeviceTarget(
-                ep="bogus_ep",
-                device="npu",
-                vendor_id=0x8086,
-                device_id=0x64A0,
-            )
+            EPDeviceTarget(ep="bogus_ep", device="npu")
 
     def test_invalid_source_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown source tag"):
-            EPDeviceTarget(
-                ep="openvino",
-                device="npu",
-                source="not-a-real-tag",
-                vendor_id=0x8086,
-                device_id=0x64A0,
-            )
+            EPDeviceTarget(ep="openvino", device="npu", source="not-a-real-tag")
 
     def test_auto_passes(self) -> None:
         # 'auto' on either axis bypasses the catalog check.
-        EPDeviceTarget(ep="auto", device="auto", vendor_id=0, device_id=0)
-        EPDeviceTarget(ep="openvino", device="auto", vendor_id=0x8086, device_id=0x64A0)
-        EPDeviceTarget(ep="auto", device="npu", vendor_id=0, device_id=0)
+        EPDeviceTarget(ep="auto", device="auto")
+        EPDeviceTarget(ep="openvino", device="auto")
+        EPDeviceTarget(ep="auto", device="npu")
 
     def test_full_ep_name_accepted(self) -> None:
         # Full EP names also work (not only short forms).
-        EPDeviceTarget(
-            ep="OpenVINOExecutionProvider",
-            device="npu",
-            vendor_id=0x8086,
-            device_id=0x64A0,
-        )
+        EPDeviceTarget(ep="OpenVINOExecutionProvider", device="npu")
 
 
 def test_expand_ep_name_short_form() -> None:
@@ -226,67 +172,35 @@ def test_short_full_loopback(short: str, full: str) -> None:
     )
 
 
-# --- resolve_device tests ---------------------------------------------------
-
-
-def _fake_ort_dev(dev_type: str, vendor_id: int, device_id: int) -> MagicMock:
-    d = MagicMock()
-    d.device.type.name = dev_type
-    d.device.vendor_id = vendor_id
-    d.device.device_id = device_id
-    d.device.vendor = "Qualcomm"
-    return d
+# --- resolve_device tests (pure-deduction; no DLL load) ----------------------
 
 
 def test_resolve_device_qnn_npu() -> None:
-    """resolve_device selects the NPU entry when device='npu'."""
-    devices = [
-        _fake_ort_dev("NPU", QNN_VENDOR_ID, 0x0001),
-        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0002),
-        _fake_ort_dev("CPU", QNN_VENDOR_ID, 0x0003),
-    ]
-    with patch("winml.modelkit.session.ep_device.WinMLEPRegistry") as mock_reg:
-        mock_reg.get_instance.return_value.register_ep.return_value = devices
-        result = resolve_device("qnn", "npu")
+    """resolve_device returns the requested (ep, device) pair without registry calls."""
+    result = resolve_device("qnn", "npu")
     assert result.ep == "QNNExecutionProvider"
     assert result.device == "npu"
-    assert result.vendor_id == QNN_VENDOR_ID
-    assert result.device_id == 0x0001
-    assert result.vendor == "Qualcomm"
+    assert result.source is None
 
 
-def test_resolve_device_dedup_qnn_gpu() -> None:
-    """Two OrtEpDevices with identical (vendor_id, device_id) collapse to one."""
-    devices = [
-        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0002),
-        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0002),
-    ]
-    with patch("winml.modelkit.session.ep_device.WinMLEPRegistry") as mock_reg:
-        mock_reg.get_instance.return_value.register_ep.return_value = devices
-        result = resolve_device("qnn", "gpu")
-    assert result.device == "gpu"
-    assert result.device_id == 0x0002
+def test_resolve_device_threads_source_through() -> None:
+    """resolve_device passes source through to EPDeviceTarget."""
+    result = resolve_device("qnn", "npu", source="pypi")
+    assert result.source == "pypi"
 
 
-def test_resolve_device_device_not_found_raises() -> None:
-    """DeviceNotFound is raised when no OrtEpDevice matches the requested type."""
-    devices = [_fake_ort_dev("NPU", QNN_VENDOR_ID, 0x0001)]
-    with patch("winml.modelkit.session.ep_device.WinMLEPRegistry") as mock_reg:
-        mock_reg.get_instance.return_value.register_ep.return_value = devices
-        with pytest.raises(DeviceNotFound):
-            resolve_device("qnn", "gpu")
+def test_resolve_device_does_not_load_dll() -> None:
+    """resolve_device must NOT touch WinMLEPRegistry in the new architecture.
 
-
-def test_resolve_device_ambiguous_raises() -> None:
-    """Two distinct GPU entries (different device_id) cannot be auto-resolved."""
-    devices = [
-        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0002),
-        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0003),
-    ]
-    with patch("winml.modelkit.session.ep_device.WinMLEPRegistry") as mock_reg:
-        mock_reg.get_instance.return_value.register_ep.return_value = devices
-        with pytest.raises(AmbiguousMatch):
-            resolve_device("qnn", "gpu")
+    DLL load + handle binding lives in WinMLEPRegistry.auto_device. This test
+    guards the boundary: if resolve_device ever re-acquires the registry it
+    will re-introduce the same circular-import / slow-startup bugs Batch C
+    removed.
+    """
+    with patch("winml.modelkit.session.ep_registry.WinMLEPRegistry") as mock_reg:
+        result = resolve_device("qnn", "npu")
+    assert result.ep == "QNNExecutionProvider"
+    mock_reg.get_instance.assert_not_called()
 
 
 # --- short_ep_name tests ---------------------------------------------------
@@ -573,46 +487,26 @@ def test_default_ep_for_device_returns_none_when_no_registered_ep_for_device() -
 def test_resolve_device_device_only_picks_registered_ep() -> None:
     """resolve_device(device='npu') with no ep must pick a REGISTERED EP.
 
-    Spec: §6.4. Today the device-only branch (ep_device.py:379) calls
-    default_ep_for_device which returns QNN unconditionally — so on an
-    OpenVINO-only box this attempts to register QNN, then fails.
-
-    Correct behavior: deduce OpenVINOExecutionProvider, register it,
-    resolve to the OpenVINO NPU OrtEpDevice.
+    Spec: §6.4. On an OpenVINO-only box, deduction must walk the catalog
+    AND filter by available_eps() so QNN is not returned. Post-Batch-C,
+    resolve_device is pure-deduction (no DLL load), so the test verifies
+    the deduced EP name only.
     """
     import contextlib
 
     from winml.modelkit.session import resolve_device
 
     available = frozenset({"OpenVINOExecutionProvider", "CPUExecutionProvider"})
-    intel_vendor_id = 0x8086
-    openvino_npu_device_id = 0x643E
-
-    ov_npu = _fake_ort_dev("NPU", intel_vendor_id, openvino_npu_device_id)
-    ov_npu.device.vendor = "Intel Corporation"
 
     with contextlib.ExitStack() as stack:
         for cm in _patch_available_eps(available):
             stack.enter_context(cm)
-        mock_reg = stack.enter_context(
-            patch("winml.modelkit.session.ep_device.WinMLEPRegistry")
-        )
-        mock_reg.get_instance.return_value.register_ep.return_value = [ov_npu]
-
         result = resolve_device(device="npu")
 
-        # The fix MUST request OpenVINOExecutionProvider from the registry,
-        # not QNNExecutionProvider — otherwise it's still walking the static
-        # catalog first.
-        registered = mock_reg.get_instance.return_value.register_ep.call_args
-        assert registered is not None, "register_ep was never called"
-        assert registered.args[0] == "OpenVINOExecutionProvider", (
-            f"register_ep was called with {registered.args[0]!r}; "
-            "expected 'OpenVINOExecutionProvider' (the only registered NPU EP). "
-            "Static-catalog deduction returned an unregistered EP."
-        )
-
-    assert result.ep == "OpenVINOExecutionProvider"
+    assert result.ep == "OpenVINOExecutionProvider", (
+        f"resolve_device returned {result.ep!r}; expected "
+        "'OpenVINOExecutionProvider' (the only registered NPU EP on this stub host)."
+    )
     assert result.device == "npu"
 
 

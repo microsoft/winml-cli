@@ -10,8 +10,6 @@ This file grows across multiple tasks (7, 8).
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import numpy as np
 import onnxruntime as ort
 import pytest
@@ -33,24 +31,18 @@ def _get_real_cpu_ort_device():
 
 
 def _make_cpu_session(model_path):
-    """Create a WinMLSession bound to CPU, mocking WinMLEPRegistry at construction.
+    """Create a WinMLSession bound to a stub CPU WinMLEPDevice.
 
-    The real OrtEpDevice is passed to register_ep() so that
-    add_provider_for_devices() receives a genuine handle and ORT can run.
+    The real OrtEpDevice is wrapped so add_provider_for_devices() receives a
+    genuine handle and ORT can run.
     """
-    from winml.modelkit.session import EPDeviceTarget
     from winml.modelkit.session.session import WinMLSession
 
+    from .conftest import make_stub_winml_ep_device
+
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = EPDeviceTarget(
-        ep="CPUExecutionProvider",
-        device="cpu",
-        vendor_id=cpu_dev.device.vendor_id,
-        device_id=cpu_dev.device.device_id,
-    )
-    with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-        mock_reg.get_instance.return_value.register_ep.return_value = [cpu_dev]
-        return WinMLSession(model_path, ep_device=cpu_ep_device)
+    cpu_ep_device = make_stub_winml_ep_device(cpu_dev, "CPUExecutionProvider")
+    return WinMLSession(model_path, ep_device=cpu_ep_device)
 
 
 # ---------------------------------------------------------------------------
@@ -171,9 +163,10 @@ def test_monitor_enter_raises_leaves_session_clean():
     (which calls WinMLEPRegistry). The mock therefore must stay active across the
     entire perf() call.
     """
-    from winml.modelkit.session import EPDeviceTarget
     from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
     from winml.modelkit.session.session import WinMLSession
+
+    from .conftest import make_stub_winml_ep_device
 
     class _RaisingEnterMonitor(WinMLEPMonitor):
         @classmethod
@@ -193,30 +186,22 @@ def test_monitor_enter_raises_leaves_session_clean():
             return {"some_key": "1"}
 
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = EPDeviceTarget(
-        ep="CPUExecutionProvider",
-        device="cpu",
-        vendor_id=cpu_dev.device.vendor_id,
-        device_id=cpu_dev.device.device_id,
-    )
+    cpu_ep_device = make_stub_winml_ep_device(cpu_dev, "CPUExecutionProvider")
 
-    # Registry mock must be active for both __init__ AND the perf() rebuild path.
-    with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-        mock_reg.get_instance.return_value.register_ep.return_value = [cpu_dev]
-        session = WinMLSession(get_minimal_onnx_model_path(), ep_device=cpu_ep_device)
+    session = WinMLSession(get_minimal_onnx_model_path(), ep_device=cpu_ep_device)
 
-        mon = _RaisingEnterMonitor()
-        with pytest.raises(RuntimeError, match="simulated"), session.perf(monitor=mon):
-            pass  # never reached
+    mon = _RaisingEnterMonitor()
+    with pytest.raises(RuntimeError, match="simulated"), session.perf(monitor=mon):
+        pass  # never reached
 
-        # Session state must be fully restored
-        assert session._perf_stats is None
-        assert session._active_session_option_entries == {}
-        assert session._provider_options == {}
+    # Session state must be fully restored
+    assert session._perf_stats is None
+    assert session._active_session_option_entries == {}
+    assert session._provider_options == {}
 
-        # Subsequent perf() MUST work (no stuck state)
-        with session.perf() as ctx:
-            assert ctx is not None
+    # Subsequent perf() MUST work (no stuck state)
+    with session.perf() as ctx:
+        assert ctx is not None
 
 
 def test_perf_calls_set_onnx_op_types_on_monitor():

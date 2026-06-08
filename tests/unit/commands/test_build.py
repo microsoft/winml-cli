@@ -38,12 +38,7 @@ def mock_resolve_device():
     mock_registry = MagicMock()
     mock_registry.is_ep_available.return_value = False
 
-    fake_cpu_ep_device = EPDeviceTarget(
-        ep="CPUExecutionProvider",
-        device="cpu",
-        vendor_id=0x0000,
-        device_id=0x0001,
-    )
+    fake_cpu_ep_device = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
 
     with (
         patch(

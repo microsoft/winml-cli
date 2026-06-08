@@ -36,7 +36,7 @@ from ...session.session import WinMLSession
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
-    from ...session import EPDeviceTarget
+    from ...session import WinMLEPDevice
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
     def __init__(
         self,
         onnx_path: str | Path,
-        ep_device: EPDeviceTarget,
+        ep_device: WinMLEPDevice,
         config: PretrainedConfig | None = None,
     ) -> None:
         """Initialize inference model.

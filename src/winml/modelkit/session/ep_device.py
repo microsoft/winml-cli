@@ -15,7 +15,6 @@ at session-build time and never stored on EPDeviceTarget itself.
 
 from __future__ import annotations
 
-import importlib
 import logging
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
@@ -193,25 +192,21 @@ def known_ep_short_names() -> frozenset[str]:
 class EPDeviceTarget:
     """Pure-data identifier of one (EP, hardware-device) binding target.
 
+    No runtime hardware fingerprints (vendor_id/device_id/vendor) — those
+    belong on :class:`WinMLDevice`, the ``OrtEpDevice`` adapter. This is
+    the user-craftable intent type: "I want EP X on device class Y, optionally
+    via source tag Z." The OrtEpDevice handle is resolved at session-build
+    time by :meth:`WinMLEPRegistry.auto_device`.
+
     Construction-time validation (see ``__post_init__``):
       - ``device``: must be ``"auto"`` or in :data:`VALID_DEVICES`
       - ``ep``:     must be ``"auto"`` or a known short/full name from
                     :data:`_SHORT_TO_FULL`
       - ``source``: must be ``None`` or in :data:`VALID_SOURCE_TAGS`
-
-    Note: ``vendor_id``, ``device_id``, and ``vendor`` fields are runtime
-    hardware fingerprints that will be stripped in the Batch C atomic
-    refactor (they belong on ``WinMLDevice``, the ``OrtEpDevice`` adapter,
-    not on this user-craftable intent type). For now they remain on the
-    dataclass because ``session.py:189-212`` still reads them for the
-    ``OrtEpDevice`` dedup filter — that filter relocates in Batch C.
     """
 
     ep: str
     device: str
-    vendor_id: int
-    device_id: int
-    vendor: str = ""
     source: str | None = None
 
     def __post_init__(self) -> None:
@@ -254,17 +249,13 @@ class EPDeviceTarget:
     def from_dict(cls, d: dict[str, Any]) -> EPDeviceTarget:
         """Rehydrate from a dict produced by to_dict.
 
-        Legacy keys ``vendor_id``/``device_id``/``vendor`` are tolerated
-        (read with ``.get`` defaults). The Batch C refactor will strip
-        these fields from the dataclass entirely; until then they are
-        kept for the ``OrtEpDevice`` dedup filter at ``session.py:189-212``.
+        Legacy keys ``vendor_id``/``device_id``/``vendor`` are silently
+        ignored (forward-compat for persisted JSON written before the
+        Batch C strip).
         """
         return cls(
             ep=d["ep"],
             device=d["device"],
-            vendor_id=d.get("vendor_id", 0),
-            device_id=d.get("device_id", 0),
-            vendor=d.get("vendor", ""),
             source=d.get("source"),
         )
 
@@ -280,8 +271,9 @@ class EPDeviceSpec:
 
     Distinct from EPDeviceTarget:
       - EPDeviceSpec is the *kind-of-target* (machine-independent).
-      - EPDeviceTarget is the *runtime instance* (machine-specific, carries
-        vendor_id / device_id from the OrtEpDevice handle).
+      - EPDeviceTarget is the *user intent* (machine-independent pair, plus
+        optional source tag). Runtime hardware fingerprints live on
+        :class:`WinMLDevice`.
     Many EPDeviceTargets map to one EPDeviceSpec.
     """
 
@@ -468,29 +460,19 @@ def auto_detect_device() -> str:
 
 # --- resolution ------------------------------------------------------------
 
-# Module-level sentinel — populated lazily on first call to resolve_device so
-# that the circular-import at startup (ep_registry imports ep_device) is
-# avoided. Tests patch this binding directly via:
-#   patch("winml.modelkit.session.ep_device.WinMLEPRegistry")
-# which replaces the name in this module's namespace before resolve_device runs,
-# so the lazy-load branch is never taken during tests.
-WinMLEPRegistry: Any = None
-
-
-def _get_ep_registry() -> Any:
-    """Return WinMLEPRegistry, importing ep_registry lazily on first real call."""
-    global WinMLEPRegistry
-    if WinMLEPRegistry is None:
-        mod = importlib.import_module(".ep_registry", package=__name__.rsplit(".", 1)[0])
-        WinMLEPRegistry = mod.WinMLEPRegistry
-    return WinMLEPRegistry
-
 
 def resolve_device(
     ep: str | None = None,
     device: str | None = None,
+    source: str | None = None,
 ) -> EPDeviceTarget:
-    """Resolve a (EP name, device kind) pair to a EPDeviceTarget.
+    """Pure-deduction resolver: (EP, device, optional source) -> EPDeviceTarget.
+
+    Fills ``"auto"`` for ep and device using the catalog; validates
+    against ``available_eps()`` (cheap, no DLL load). The DLL-load +
+    runtime-handle binding (formerly in this function's tail) now lives
+    in :meth:`WinMLEPRegistry.auto_device` — see
+    ``docs/design/session/3_design_classes.md`` §6.
 
     Deduction matrix:
         both given   -> validate + return
@@ -504,13 +486,13 @@ def resolve_device(
             ``None`` deduces from *device*.
         device: ``"cpu"`` | ``"gpu"`` | ``"npu"`` (case-insensitive).
             ``None`` or ``"auto"`` deduces from *ep* or sysinfo.
+        source: Optional source tag (e.g. ``"pypi"``, ``"msix-microsoft"``).
+            Passed through to the resulting EPDeviceTarget. ``None`` means
+            "any source" — :meth:`WinMLEPRegistry.auto_device` walks
+            discovered candidates in precedence order.
 
     Raises:
-        ValueError:           Unknown EP or device string.
-        WinMLEPNotDiscovered:      EP plugin not in catalog or WINMLCLI_EP_PATH.
-        WinMLEPRegistrationFailed: ort.register_execution_provider_library raised.
-        DeviceNotFound:       EP registered, but no matching OrtEpDevice.
-        AmbiguousMatch:       multiple OrtEpDevice match after dedup.
+        ValueError: Unknown EP or device string.
     """
     # --- deduction phase ---------------------------------------------------
     if device is not None and device.lower() == "auto":
@@ -547,45 +529,6 @@ def resolve_device(
     assert ep is not None
     assert device is not None
 
-    # --- resolution phase --------------------------------------------------
     ep_full = expand_ep_name(ep)
     device_lower = device.lower()
-    registry_cls = _get_ep_registry()
-    devices = registry_cls.get_instance().register_ep(ep_full)
-
-    matching = [d for d in devices if d.device.type.name.lower() == device_lower]
-
-    # Dedup by (vendor_id, device_id) — handles QNN's duplicate-GPU rows.
-    seen: set[tuple[int, int]] = set()
-    deduped: list[Any] = []
-    for d in matching:
-        key = (d.device.vendor_id, d.device.device_id)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(d)
-
-    if not deduped:
-        available = [
-            (d.device.type.name, hex(d.device.vendor_id), hex(d.device.device_id)) for d in devices
-        ]
-        raise DeviceNotFound(
-            f"No OrtEpDevice for {ep_full} matches device={device_lower!r}. Available: {available}"
-        )
-    if len(deduped) > 1:
-        conflicting = [
-            (d.device.type.name, hex(d.device.vendor_id), hex(d.device.device_id)) for d in deduped
-        ]
-        raise AmbiguousMatch(
-            f"Multiple OrtEpDevice match {ep_full}+{device_lower} after "
-            f"dedup: {conflicting}. This is a registry bug; not a user error."
-        )
-
-    chosen = deduped[0]
-    return EPDeviceTarget(
-        ep=ep_full,
-        device=device_lower,
-        vendor_id=chosen.device.vendor_id,
-        device_id=chosen.device.device_id,
-        vendor=getattr(chosen.device, "vendor", "") or "",
-    )
+    return EPDeviceTarget(ep=ep_full, device=device_lower, source=source)

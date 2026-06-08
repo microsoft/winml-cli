@@ -26,32 +26,33 @@ def mock_ep_registration():
     """Prevent WinML EP registration from loading native DLLs."""
     from winml.modelkit.session import EPDeviceTarget
 
-    fake_qnn_npu = EPDeviceTarget(
-        ep="QNNExecutionProvider",
-        device="npu",
-        vendor_id=QNN_VENDOR_ID,
-        device_id=0x0001,
-        vendor="Qualcomm",
-    )
+    from .conftest import make_stub_winml_ep_device
+
+    fake_ort_npu = MagicMock()
+    fake_ort_npu.ep_name = "QNNExecutionProvider"
+    fake_ort_npu.device.type.name = "NPU"
+    fake_ort_npu.device.vendor_id = QNN_VENDOR_ID
+    fake_ort_npu.device.device_id = 0x0001
+    fake_qnn_target = EPDeviceTarget(ep="QNNExecutionProvider", device="npu")
+    fake_qnn_ep_device = make_stub_winml_ep_device(fake_ort_npu, "QNNExecutionProvider")
     with (
         patch("winml.modelkit.session.ep_registry.ensure_initialized"),
         # Patch resolve_device where it is imported (in qairt_session module)
         patch(
             "winml.modelkit.session.qairt.qairt_session.resolve_device",
-            return_value=fake_qnn_npu,
+            return_value=fake_qnn_target,
         ),
-        patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
+        # auto_device is the new compound resolution step.
+        patch(
+            "winml.modelkit.session.qairt.qairt_session.WinMLEPRegistry"
+        ) as mock_reg,
         patch("winml.modelkit.session.session.ort.InferenceSession"),
         patch(
             "winml.modelkit.session.session.ort.SessionOptions",
             return_value=MagicMock(),
         ),
     ):
-        fake_ort_npu = MagicMock()
-        fake_ort_npu.device.type.name = "NPU"
-        fake_ort_npu.device.vendor_id = QNN_VENDOR_ID
-        fake_ort_npu.device.device_id = 0x0001
-        mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
+        mock_reg.get_instance.return_value.auto_device.return_value = fake_qnn_ep_device
         yield
 
 

@@ -14,18 +14,83 @@ from __future__ import annotations
 import functools
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import onnxruntime as ort
 
 from ..ep_path import EPEntry, EPSource, discover_eps
-from .ep_device import WinMLEPNotDiscovered, WinMLEPRegistrationFailed
-from .winml_device import WinMLDevice
+from .ep_device import (
+    DeviceNotFound,
+    EPDeviceTarget,
+    UnknownListingPick,
+    WinMLEPNotDiscovered,
+    WinMLEPRegistrationFailed,
+    expand_ep_name,
+)
+from .winml_device import WinMLDevice, wrap_ort_device
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
 
 # Singleton instance
 _winml_ep_registry: WinMLEPRegistry | None = None
+
+
+def _dedup_ort_devices(devices: list[ort.OrtEpDevice]) -> list[ort.OrtEpDevice]:
+    """Collapse OrtEpDevices that share ``(vendor_id, device_id, type)``.
+
+    Some hosts (dual-iGPU listings, OpenVINO on Intel) emit duplicate handles
+    for the same physical device.
+    """
+    seen: set[tuple[int, int, str]] = set()
+    out: list[ort.OrtEpDevice] = []
+    for d in devices:
+        try:
+            key = (d.device.vendor_id, d.device.device_id, d.device.type.name)
+        except AttributeError:
+            out.append(d)
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(d)
+    return out
+
+
+def _entry_source_tag(entry: EPEntry) -> str:
+    """Derive the canonical source tag for an :class:`EPEntry`.
+
+    Mirrors :func:`commands.sys._describe_source` but lives here so
+    :meth:`WinMLEPRegistry.auto_device` can match against ``EPDeviceTarget.source``
+    without depending on a CLI module.
+    """
+    from ..ep_path import (
+        FilesystemSource,
+        MSIXPackageSource,
+        NuGetSource,
+        PyPISource,
+        WinMLCatalogSource,
+    )
+
+    s = entry.source
+    if isinstance(s, PyPISource):
+        return "pypi"
+    if isinstance(s, NuGetSource):
+        return "nuget"
+    if isinstance(s, WinMLCatalogSource):
+        return "winml-catalog"
+    if isinstance(s, FilesystemSource):
+        return "directory"
+    if isinstance(s, MSIXPackageSource):
+        prefix = getattr(s, "family_name_prefix", "")
+        if prefix.startswith("WindowsWorkload.EP."):
+            return "msix-workload"
+        return "msix-microsoft"
+    return "unknown"
 
 
 @dataclass(frozen=True)
@@ -105,6 +170,9 @@ class WinMLEPRegistry:
         self._ep_sources: dict[str, EPSource] = {}
         self._registered_eps: list[str] = []
         self._registration_failures: dict[str, str] = {}
+        # Cache of successful registrations keyed by EPEntry.dll_path so
+        # repeated requests for the same plugin DLL short-circuit.
+        self._registered: dict[Path, WinMLEP] = {}
 
         self._discover_eps()
 
@@ -146,67 +214,129 @@ class WinMLEPRegistry:
 
         return self._registered_eps.copy()
 
-    def register_ep(self, ep_name: str) -> list[ort.OrtEpDevice]:
-        """Register a single discovered EP and return its claimed devices.
+    def register_ep(self, entry: EPEntry) -> WinMLEP:
+        """Atomic registration: load entry.dll_path, enumerate OrtEpDevices, wrap.
 
-        Idempotent: if already registered, returns the current device list
-        without re-loading the DLL. Callers must pass the EP's canonical
-        name (the spelling ORT registers under and reports via
-        ``ort.get_ep_devices()``) — no alias normalization layer.
-
-        Bundled EPs (e.g. ``CPUExecutionProvider``, ``DmlExecutionProvider``)
-        ship with ORT itself rather than as plugin DLLs. They appear in
-        ``ort.get_ep_devices()`` without ever needing
-        ``register_execution_provider_library``. If the EP is already
-        visible, this method short-circuits and returns its devices without
-        consulting the catalog.
+        Idempotent at the ``entry.dll_path`` level — re-registering returns
+        the cached :class:`WinMLEP`. The aggregate wraps every
+        :class:`WinMLDevice` ORT exposed after the
+        ``register_execution_provider_library`` call.
 
         Raises:
-            WinMLEPNotDiscovered:      ep_name absent from both the catalog
-                                  *and* ``ort.get_ep_devices()`` (i.e. not
-                                  a bundled EP and not a discovered plugin).
-            WinMLEPRegistrationFailed: ort.register_execution_provider_library
-                                  raised (original exception chained).
+            WinMLEPRegistrationFailed: DLL load failure or ORT registered the
+                DLL but yielded zero devices.
         """
-        # Plugin EP path: catalog knows about it, register from DLL.
-        if ep_name in self._ep_paths:
-            if ep_name not in self._registered_eps:
-                # Defensive: another singleton (e.g. winml.py:WinML) may have
-                # already called ort.register_execution_provider_library for
-                # this EP in the same process.  ORT's C++ layer is NOT
-                # idempotent — a second registration of the same DLL calls
-                # exit(127) with no Python traceback.  Check ORT's live device
-                # list before attempting the DLL load.
-                already_loaded = any(d.ep_name == ep_name for d in ort.get_ep_devices())
-                if already_loaded:
-                    logger.debug(
-                        "EP %s already loaded by another caller; skipping DLL register",
-                        ep_name,
-                    )
-                    self._registered_eps.append(ep_name)
-                else:
-                    dll_path = self._ep_paths[ep_name]
-                    try:
-                        ort.register_execution_provider_library(ep_name, dll_path)
-                    except Exception as exc:
-                        raise WinMLEPRegistrationFailed(
-                            f"ort.register_execution_provider_library({ep_name!r}, "
-                            f"{dll_path!r}) failed: {exc}"
-                        ) from exc
-                    self._registered_eps.append(ep_name)
-            return [d for d in ort.get_ep_devices() if d.ep_name == ep_name]
+        # Idempotency — keyed on the DLL path because two EPEntries pointing
+        # at the same DLL must collapse to one registration.
+        cached = self._registered.get(entry.dll_path)
+        if cached is not None:
+            return cached
 
-        # Not in catalog — might be a bundled EP (e.g. CPUExecutionProvider,
-        # DmlExecutionProvider) that ships with ORT itself and is visible
-        # via get_ep_devices() without ever needing register_execution_provider_library.
-        bundled = [d for d in ort.get_ep_devices() if d.ep_name == ep_name]
-        if bundled:
-            return bundled
+        # Defensive: another singleton (e.g. winml.py:WinML) may have already
+        # called ort.register_execution_provider_library for this EP.  ORT's
+        # C++ layer is NOT idempotent — a second registration of the same DLL
+        # calls exit(127) with no Python traceback.  Check ORT's live device
+        # list before attempting the DLL load.
+        already_loaded = any(d.ep_name == entry.ep_name for d in ort.get_ep_devices())
+        if not already_loaded:
+            try:
+                ort.register_execution_provider_library(entry.ep_name, str(entry.dll_path))
+            except Exception as exc:
+                raise WinMLEPRegistrationFailed(
+                    f"ort.register_execution_provider_library({entry.ep_name!r}, "
+                    f"{str(entry.dll_path)!r}) failed: {exc}"
+                ) from exc
+        else:
+            logger.debug(
+                "EP %s already loaded by another caller; skipping DLL register",
+                entry.ep_name,
+            )
 
-        raise WinMLEPNotDiscovered(
-            f"EP {ep_name!r} not in discovered catalog and not visible via "
-            f"ort.get_ep_devices(). Catalog: {sorted(self._ep_paths)}. "
-            f"Hint: install the plugin or set WINMLCLI_EP_PATH."
+        # Enumerate devices for this EP and dedup by (vendor_id, device_id).
+        all_handles = ort.get_ep_devices()
+        matching = [d for d in all_handles if d.ep_name == entry.ep_name]
+        deduped = _dedup_ort_devices(matching)
+
+        if not deduped:
+            raise WinMLEPRegistrationFailed(
+                f"Registered {entry.ep_name!r} from {entry.dll_path} but no "
+                f"OrtEpDevices visible in ort.get_ep_devices()."
+            )
+
+        # Mirror old bookkeeping so module-level helpers (available_eps,
+        # ensure_initialized) and existing tests that probe these lists keep
+        # working without rewiring.
+        if entry.ep_name not in self._registered_eps:
+            self._registered_eps.append(entry.ep_name)
+
+        devices = tuple(wrap_ort_device(h) for h in deduped)
+        winml_ep = WinMLEP(source=entry, devices=devices)
+        self._registered[entry.dll_path] = winml_ep
+        return winml_ep
+
+    def auto_device(self, target: EPDeviceTarget) -> WinMLEPDevice:
+        """Find the first source satisfying ``target`` (ep + device + optional source).
+
+        ``target`` must be fully resolved (no ``"auto"`` values). Filters
+        :func:`discover_all_eps` by ``target.ep`` + optional ``target.source``
+        tag, then tries each candidate in precedence order. First
+        registration that succeeds *and* exposes ``target.device`` wins.
+
+        Raises:
+            ValueError: when ``target`` still contains an ``"auto"`` axis.
+            WinMLEPNotDiscovered: no candidate EPEntry for the requested ep.
+            UnknownListingPick: ``target.source`` is set but doesn't match any
+                discovered EPEntry for ``target.ep``.
+            WinMLEPRegistrationFailed: every candidate either failed to
+                register or exposed no matching device class.
+            DeviceNotFound: candidates registered cleanly but none exposed
+                ``target.device``.
+        """
+        if target.ep == "auto" or target.device == "auto":
+            raise ValueError(
+                "auto_device requires a resolved EPDeviceTarget; "
+                "call resolve_device() first"
+            )
+
+        from ..ep_path import discover_all_eps
+
+        ep_full = expand_ep_name(target.ep)
+        all_entries = discover_all_eps()
+        candidates = [e for e in all_entries if e.ep_name == ep_full]
+
+        if not candidates:
+            raise WinMLEPNotDiscovered(
+                f"No EPEntry discovered for ep={target.ep!r}. "
+                f"Hint: install the plugin or set WINMLCLI_EP_PATH."
+            )
+
+        if target.source is not None:
+            tagged = [e for e in candidates if _entry_source_tag(e) == target.source]
+            if not tagged:
+                raise UnknownListingPick(target.ep, target.source)
+            candidates = tagged
+
+        target_device_upper = target.device.upper()
+        last_error: Exception | None = None
+        for entry in candidates:
+            try:
+                winml_ep = self.register_ep(entry)
+            except WinMLEPRegistrationFailed as e:
+                last_error = e
+                continue
+            for device in winml_ep.devices:
+                if device.device_type == target_device_upper:
+                    return WinMLEPDevice(ep=winml_ep, device=device)
+
+        # All candidates exhausted without a match.
+        if last_error is not None:
+            raise WinMLEPRegistrationFailed(
+                f"No compatible source for {target.ep}/{target.device}; "
+                f"all {len(candidates)} candidates failed"
+            ) from last_error
+        raise DeviceNotFound(
+            f"No source for {target.ep}/{target.device} exposed device "
+            f"class {target.device.upper()!r}"
         )
 
     def get_ep_library_path(self, ep_name: str) -> str | None:

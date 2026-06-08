@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
     from ..config import WinMLBuildConfig
-    from ..session import EPDeviceTarget
+    from ..session import WinMLEPDevice
     from .winml.base import WinMLPreTrainedModel
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ class WinMLAutoModel:
         cls,
         onnx_path: str | Path | dict[str, str | Path],
         *,
-        ep_device: EPDeviceTarget,
+        ep_device: WinMLEPDevice,
         task: str | None = None,
         config: WinMLBuildConfig | None = None,
         precision: str = "auto",
@@ -170,9 +170,9 @@ class WinMLAutoModel:
         config = generate_onnx_build_config(
             onnx_path,
             task=task,
-            device=ep_device.device,
+            device=ep_device.device.device_type.lower(),
             precision=precision,
-            ep=short_ep_name(ep_device.ep),
+            ep=short_ep_name(ep_device.device.ep_name),
             override=config,
         )
 
@@ -214,8 +214,8 @@ class WinMLAutoModel:
             config=config,
             output_dir=output_dir,
             rebuild=force_rebuild,
-            ep=short_ep_name(ep_device.ep),
-            device=ep_device.device,
+            ep=short_ep_name(ep_device.device.ep_name),
+            device=ep_device.device.device_type.lower(),
             **kwargs,
         )
 
@@ -233,7 +233,7 @@ class WinMLAutoModel:
     def from_pretrained(
         cls,
         model_id_or_path: str | Path,
-        ep_device: EPDeviceTarget,
+        ep_device: WinMLEPDevice,
         *,
         task: str | None = None,
         config: WinMLBuildConfig | None = None,
@@ -353,9 +353,9 @@ class WinMLAutoModel:
             task=task,
             override=config,
             shape_config=shape_config,
-            device=ep_device.device,
+            device=ep_device.device.device_type.lower(),
             precision=precision,
-            ep=short_ep_name(ep_device.ep),
+            ep=short_ep_name(ep_device.device.ep_name),
         )
 
         resolved_task = build_config.loader.task

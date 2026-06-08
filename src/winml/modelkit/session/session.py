@@ -20,14 +20,10 @@ import onnxruntime as ort
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
 from .ep_device import (
-    AmbiguousMatch,
-    DeviceNotFound,
-    EPDeviceTarget,
     WinMLEPMonitorMismatch,
     expand_ep_name,
     lookup_device_spec,
 )
-from .ep_registry import WinMLEPRegistry
 from .monitor.ep_monitor import WinMLEPMonitor
 from .stats import PerfStats
 
@@ -36,6 +32,7 @@ if TYPE_CHECKING:
     import onnx
 
     from ..compiler.configs import EPConfig
+    from .ep_registry import WinMLEPDevice
 
 
 logger = logging.getLogger(__name__)
@@ -85,7 +82,7 @@ class PerfContext:
     monitor: WinMLEPMonitor  # NullEPMonitor when no monitor was passed
 
 
-def _ep_defaults(ep_device: EPDeviceTarget) -> dict[str, str]:
+def _ep_defaults(ep_device: WinMLEPDevice) -> dict[str, str]:
     """EP-specific defaults from the EPDeviceSpec catalog.
 
     Most EPs return {} — they pick up settings via ep_config.provider_options
@@ -100,12 +97,12 @@ def _ep_defaults(ep_device: EPDeviceTarget) -> dict[str, str]:
     Returns a fresh dict copy so callers can mutate without aliasing the
     catalog entry's immutable Mapping.
     """
-    spec = lookup_device_spec(ep_device.ep, ep_device.device)
+    spec = lookup_device_spec(ep_device.device.ep_name, ep_device.device.device_type.lower())
     return dict(spec.default_provider_options) if spec else {}
 
 
 def _build_provider_options(
-    ep_device: EPDeviceTarget,
+    ep_device: WinMLEPDevice,
     ep_config: EPConfig | None,
     ep_monitor: WinMLEPMonitor | None,
 ) -> dict[str, str]:
@@ -169,16 +166,17 @@ class NotCompiledError(WinMLSessionError):
 
 
 def _build_session_options(
-    ep_device: EPDeviceTarget,
+    ep_device: WinMLEPDevice,
     ep_config: EPConfig | None = None,
     ep_monitor: WinMLEPMonitor | None = None,
     base_session_options: ort.SessionOptions | None = None,
 ) -> ort.SessionOptions:
-    """Build a fully-bound ort.SessionOptions for one EPDeviceTarget target.
+    """Build a fully-bound ort.SessionOptions for one WinMLEPDevice pair.
 
-    Free function (not a method): pure inputs -> pure outputs.
-    Bridges the EPDeviceTarget descriptor to an OrtEpDevice handle inline —
-    no _select_one / to_ort_ep_device helper.
+    Free function (not a method): pure inputs -> pure outputs. The caller
+    (typically :meth:`WinMLEPRegistry.auto_device`) has already resolved
+    the (source, device) pair, so no registry / handle filtering happens
+    here.
     """
     so = base_session_options if base_session_options is not None else ort.SessionOptions()
 
@@ -186,76 +184,54 @@ def _build_session_options(
         for key, value in ep_monitor.get_session_options().items():
             so.add_session_config_entry(key, value)
 
-    devices = WinMLEPRegistry.get_instance().register_ep(ep_device.ep)
-    matching = [
-        d
-        for d in devices
-        if d.device.type.name.lower() == ep_device.device
-        and d.device.vendor_id == ep_device.vendor_id
-        and d.device.device_id == ep_device.device_id
-    ]
-    if not matching:
-        available = [
-            (d.device.type.name, hex(d.device.vendor_id), hex(d.device.device_id)) for d in devices
-        ]
-        raise DeviceNotFound(
-            f"No OrtEpDevice for {ep_device.ep} matches device="
-            f"{ep_device.device}, vendor_id=0x{ep_device.vendor_id:x}, "
-            f"device_id=0x{ep_device.device_id:x}. Available: {available}"
-        )
-    # Some hosts (dual-iGPU listings, OpenVINO on Intel) report multiple
-    # OrtEpDevices with identical (ep, type, vendor_id, device_id) — already
-    # collapsed to a single EPDeviceTarget by resolve_device(). Mirror that dedup
-    # here so add_provider_for_devices sees one handle.
-    if len(matching) > 1:
-        unique_keys = {
-            (d.ep_name, d.device.type.name, d.device.vendor_id, d.device.device_id)
-            for d in matching
-        }
-        if len(unique_keys) > 1:
-            raise AmbiguousMatch(
-                f"Multiple OrtEpDevices match {ep_device!r} after dedup — "
-                f"registry bug. Matched count: {len(matching)}."
-            )
-        matching = matching[:1]
-
+    handle = ep_device.device._ort
     options = _build_provider_options(ep_device, ep_config, ep_monitor)
-    so.add_provider_for_devices([matching[0]], options)
+    so.add_provider_for_devices([handle], options)
     return so
 
 
 class WinMLSession:
-    """ONNX Runtime session bound to one explicit (EP, device) target."""
+    """ONNX Runtime session bound to one resolved :class:`WinMLEPDevice`."""
 
     def __init__(
         self,
         onnx_path: str | Path,
-        ep_device: EPDeviceTarget,
+        ep_device: WinMLEPDevice,
         *,
         ep_config: EPConfig | None = None,
+        ep_monitor: WinMLEPMonitor | None = None,
         base_session_options: ort.SessionOptions | None = None,
     ) -> None:
         """Initialize WinMLSession.
 
         Args:
             onnx_path: Path to ONNX model.
-            ep_device: Resolved (EP, device) target — required. Use
-                ``resolve_device(ep, device)`` from ``.ep_device`` to construct.
+            ep_device: Fully-resolved (source, device) pair. Construct via
+                :meth:`WinMLEPRegistry.auto_device` after calling
+                :func:`resolve_device`; tests may construct directly with a
+                stub :class:`WinMLEP` + :class:`WinMLDevice`.
             ep_config: Optional EP configuration (provider_options, etc.).
+            ep_monitor: Optional monitor. When passed, its session-config
+                entries are threaded into the initial
+                :func:`_build_session_options` call.
             base_session_options: ORT SessionOptions base. If None, creates default.
         """
         self._onnx_path = Path(onnx_path)
         self._ep_device = ep_device
         self._ep_config = ep_config
+        self._ep_monitor = ep_monitor
         self._base_session_options = base_session_options
 
         # Snapshots preserved across perf() entry/exit (see perf()).
-        self._provider_options: dict[str, str] = _build_provider_options(ep_device, ep_config, None)
+        self._provider_options: dict[str, str] = _build_provider_options(
+            ep_device, ep_config, ep_monitor
+        )
         self._active_session_option_entries: dict[str, str] = {}
-        self._ep: str = ep_device.ep  # legacy alias; TODO Task 10: replace consumers and remove
+        # Convenience: the canonical EP name from the chosen handle.
+        self._ep: str = ep_device.device.ep_name
 
         # Derived convenience attributes consumed by compile(), device property, etc.
-        self._device: str = ep_device.device
+        self._device: str = ep_device.device.device_type.lower()
         self._persist_jit: bool = ep_config.enable_ep_context if ep_config else False
         self._embed_context: bool = ep_config.embed_context if ep_config else False
 
@@ -274,13 +250,12 @@ class WinMLSession:
         self._perf_stats: PerfStats | None = None
 
         # Compile workflows defer session creation to compile(); runtime workflows
-        # create the session eagerly here.  ep_monitor=None — contributed at
-        # perf() time, not __init__.
+        # create the session eagerly here.
         if not self._persist_jit:
             so = _build_session_options(
                 self._ep_device,
                 self._ep_config,
-                None,
+                ep_monitor,
                 self._base_session_options,
             )
             self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
@@ -664,12 +639,12 @@ class WinMLSession:
         if (
             monitor is not None
             and monitor.ep_name is not None
-            and expand_ep_name(monitor.ep_name) != self._ep_device.ep
+            and expand_ep_name(monitor.ep_name) != self._ep
         ):
             raise WinMLEPMonitorMismatch(
                 f"Monitor ep_name={monitor.ep_name!r} expands to "
                 f"{expand_ep_name(monitor.ep_name)!r}, but session is bound "
-                f"to {self._ep_device.ep!r}. Monitor and session must agree."
+                f"to {self._ep!r}. Monitor and session must agree."
             )
 
         # Build merged provider_options for this perf window.

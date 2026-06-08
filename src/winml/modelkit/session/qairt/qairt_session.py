@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...utils.python_env import ensure_venv
-from .. import EPDeviceTarget, resolve_device
+from .. import WinMLEPDevice, WinMLEPRegistry, resolve_device
 from ..session import SessionState, WinMLSession
 
 
@@ -52,12 +52,13 @@ class WinMLQairtSession(WinMLSession):
     def __init__(
         self,
         onnx_path: str | Path,
-        ep_device: EPDeviceTarget | None = None,
+        ep_device: WinMLEPDevice | None = None,
         ep_config: EPConfig | None = None,
     ) -> None:
         # Default to QNN NPU if no ep_device is provided.
         if ep_device is None:
-            ep_device = resolve_device("qnn", "npu")
+            target = resolve_device("qnn", "npu")
+            ep_device = WinMLEPRegistry.get_instance().auto_device(target)
         # Initialize parent WinMLSession
         super().__init__(onnx_path, ep_device, ep_config=ep_config)
 

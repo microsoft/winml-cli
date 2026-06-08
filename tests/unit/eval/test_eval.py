@@ -792,19 +792,20 @@ class TestLoadModel:
 
     @pytest.fixture(autouse=True)
     def _mock_resolve_device(self):
-        """Mock resolve_device in evaluate so unit tests don't hit live EP registry."""
+        """Mock resolve_device + auto_device so unit tests don't hit live EP registry."""
         from winml.modelkit.session import EPDeviceTarget
 
-        fake_cpu = EPDeviceTarget(
-            ep="CPUExecutionProvider",
-            device="cpu",
-            vendor_id=0x1234,
-            device_id=0x0001,
-        )
-        with patch(
-            "winml.modelkit.session.resolve_device",
-            return_value=fake_cpu,
+        fake_cpu = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=fake_cpu,
+            ),
+            patch(
+                "winml.modelkit.session.WinMLEPRegistry"
+            ) as mock_reg,
         ):
+            mock_reg.get_instance.return_value.auto_device.return_value = MagicMock()
             yield
 
     def test_load_model_no_model_id_raises(self):
@@ -842,10 +843,10 @@ class TestLoadModel:
 
         mock_auto.from_pretrained.assert_called_once()
         call_args = mock_auto.from_pretrained.call_args
-        # _load_model now passes ep_device as 2nd positional arg (EPDeviceTarget object)
+        # _load_model now passes a WinMLEPDevice as the 2nd positional arg.
         assert call_args.args[0] == "test/model"
-        ep_device = call_args.args[1]
-        assert ep_device.device == "cpu"
+        # The mock auto_device returns a MagicMock — just confirm it landed.
+        assert call_args.args[1] is not None
         assert call_args.kwargs["task"] == "image-classification"
         assert result is mock_model
 

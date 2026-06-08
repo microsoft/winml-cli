@@ -20,26 +20,52 @@ EP Markers:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 import onnx
 import onnxruntime as ort
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.session import EPDeviceTarget
+from winml.modelkit.ep_path import EPEntry, PyPISource
+from winml.modelkit.session import EPDeviceTarget, WinMLEP, WinMLEPDevice, wrap_ort_device
 from winml.modelkit.session.session import WinMLSession
 
 
 # Qualcomm vendor ID used in test fixtures — 0x4D4F is the 16-bit prefix from Qualcomm's
 # device identification scheme. Centralised here so all session tests share one definition.
 QNN_VENDOR_ID: int = 0x4D4F
+
+
+def _stub_ep_entry(ep_name: str) -> EPEntry:
+    """Build a minimal EPEntry suitable for wrapping a mocked OrtEpDevice.
+
+    The dll_path is fictional — tests never load the DLL because they
+    construct WinMLEP/WinMLEPDevice directly.
+    """
+    return EPEntry(
+        ep_name=ep_name,
+        dll_path=Path(f"C:/fake/{ep_name}.dll"),
+        source=PyPISource(
+            distribution="fake-dist",
+            relative_dll="fake.dll",
+            eps=(ep_name,),
+        ),
+    )
+
+
+def make_stub_winml_ep_device(ort_device: object, ep_name: str) -> WinMLEPDevice:
+    """Wrap an :class:`ort.OrtEpDevice` (real or mocked) into a :class:`WinMLEPDevice`.
+
+    Tests use this when they need to hand a fully-resolved (source, device)
+    pair to :class:`WinMLSession` without going through the discovery layer.
+    """
+    winml_device = wrap_ort_device(ort_device)  # type: ignore[arg-type]
+    entry = _stub_ep_entry(ep_name)
+    winml_ep = WinMLEP(source=entry, devices=(winml_device,))
+    return WinMLEPDevice(ep=winml_ep, device=winml_device)
 
 
 @pytest.fixture(autouse=True)
@@ -273,19 +299,21 @@ def sample_input() -> dict[str, np.ndarray]:
 
 
 @pytest.fixture
-def qnn_npu_ep_device() -> EPDeviceTarget:
-    return EPDeviceTarget(
-        ep="QNNExecutionProvider",
-        device="npu",
-        vendor_id=QNN_VENDOR_ID,
-        device_id=0x0001,
-        vendor="Qualcomm",
-    )
+def qnn_npu_ep_device(fake_ort_npu: MagicMock) -> WinMLEPDevice:
+    """Pre-resolved WinMLEPDevice for QNN NPU built around the fake_ort_npu handle."""
+    return make_stub_winml_ep_device(fake_ort_npu, "QNNExecutionProvider")
+
+
+@pytest.fixture
+def qnn_npu_target() -> EPDeviceTarget:
+    """Pure-intent target — useful for tests that exercise the deduction path."""
+    return EPDeviceTarget(ep="QNNExecutionProvider", device="npu")
 
 
 @pytest.fixture
 def fake_ort_npu() -> MagicMock:
     d = MagicMock()
+    d.ep_name = "QNNExecutionProvider"
     d.device.type.name = "NPU"
     d.device.vendor_id = QNN_VENDOR_ID
     d.device.device_id = 0x0001
@@ -319,25 +347,23 @@ def real_cpu_ort_device() -> ort.OrtEpDevice:
 
 
 @pytest.fixture
-def cpu_ep_device(real_cpu_ort_device: ort.OrtEpDevice) -> EPDeviceTarget:
-    """EPDeviceTarget that targets CPUExecutionProvider, matching the real OrtEpDevice."""
-    return EPDeviceTarget(
-        ep="CPUExecutionProvider",
-        device="cpu",
-        vendor_id=real_cpu_ort_device.device.vendor_id,
-        device_id=real_cpu_ort_device.device.device_id,
-    )
+def cpu_ep_device(real_cpu_ort_device: ort.OrtEpDevice) -> WinMLEPDevice:
+    """Pre-resolved WinMLEPDevice for CPUExecutionProvider wrapping the real OrtEpDevice."""
+    return make_stub_winml_ep_device(real_cpu_ort_device, "CPUExecutionProvider")
+
+
+@pytest.fixture
+def cpu_target() -> EPDeviceTarget:
+    """Pure-intent target for CPU — used by tests exercising the resolver."""
+    return EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
 
 
 @pytest.fixture
 def cpu_winml_session(
     simple_matmul_onnx: Path,
-    cpu_ep_device: EPDeviceTarget,
-    real_cpu_ort_device: ort.OrtEpDevice,
+    cpu_ep_device: WinMLEPDevice,
 ) -> WinMLSession:
-    """WinMLSession bound to CPU, using a mocked WinMLEPRegistry so that the
-    real OrtEpDevice is returned by register_ep() and ORT inference runs.
+    """WinMLSession bound to CPU. cpu_ep_device wraps the real OrtEpDevice so
+    add_provider_for_devices() receives a genuine handle and ORT can run.
     """
-    with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-        mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
-        return WinMLSession(simple_matmul_onnx, ep_device=cpu_ep_device)
+    return WinMLSession(simple_matmul_onnx, ep_device=cpu_ep_device)

@@ -15,7 +15,13 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 
 from ...onnx import load_onnx, save_onnx
-from ...session import EPDeviceTarget, WinMLQairtSession, WinMLSession, resolve_device
+from ...session import (
+    EPDeviceTarget,
+    WinMLEPRegistry,
+    WinMLQairtSession,
+    WinMLSession,
+    resolve_device,
+)
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -67,13 +73,16 @@ class CompileStage(BaseStage):
             # Fall back to inferring from execution_provider for non-CLI invocations.
             ep_device_dict = context.config.get("ep_device")
             if ep_device_dict:
-                ep_device: EPDeviceTarget = EPDeviceTarget.from_dict(ep_device_dict)
+                target: EPDeviceTarget = EPDeviceTarget.from_dict(ep_device_dict)
             elif compile_cfg.ep_device is not None:
-                ep_device = compile_cfg.ep_device
+                target = compile_cfg.ep_device
             else:
                 ep_str = context.execution_provider
-                ep_device = resolve_device(ep=ep_str)
-            context.log(f"Creating {session_cls.__name__} for {ep_device.ep}/{ep_device.device}")
+                target = resolve_device(ep=ep_str)
+            ep_device = WinMLEPRegistry.get_instance().auto_device(target)
+            context.log(
+                f"Creating {session_cls.__name__} for {target.ep}/{target.device}"
+            )
             winml_session = session_cls(
                 onnx_path=model_path,
                 ep_device=ep_device,

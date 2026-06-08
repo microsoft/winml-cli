@@ -2,31 +2,53 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for ep_registry module-level helpers and WinMLEPRegistry.register_ep."""
+"""Tests for ep_registry module-level helpers and WinMLEPRegistry.register_ep.
+
+Post-Batch-C: register_ep takes an EPEntry and returns a WinMLEP. Most of
+the old tests that verified the (name -> list[OrtEpDevice]) shape now exercise
+the new atomic-registration semantics — DLL load happens at the entry level,
+the returned WinMLEP wraps every device the EP exposed.
+"""
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.session import WinMLEPNotDiscovered, WinMLEPRegistrationFailed
+from winml.modelkit.ep_path import EPEntry, PyPISource
+from winml.modelkit.session import WinMLEP, WinMLEPRegistrationFailed
 from winml.modelkit.session.ep_registry import WinMLEPRegistry, ensure_initialized
 
 from .conftest import QNN_VENDOR_ID
 
 
+def _ep_entry(ep_name: str, dll: str = "C:/fake/qnn.dll") -> EPEntry:
+    """Build a minimal EPEntry suitable for register_ep tests."""
+    return EPEntry(
+        ep_name=ep_name,
+        dll_path=Path(dll),
+        source=PyPISource(
+            distribution="fake-dist",
+            relative_dll="fake.dll",
+            eps=(ep_name,),
+        ),
+    )
+
+
 @pytest.fixture
 def fresh_registry() -> WinMLEPRegistry:
-    """Singleton with stubbed catalog + cleared registered list."""
+    """Singleton with stubbed catalog + cleared registration caches."""
     reg = WinMLEPRegistry.get_instance()
     reg._ep_paths = {"QNNExecutionProvider": "C:/fake/qnn.dll"}
     reg._registered_eps = []
+    reg._registered = {}
     return reg
 
 
-def _fake_ep_device(ep_name: str, dev_type: str) -> MagicMock:
+def _fake_ort_device(ep_name: str, dev_type: str) -> MagicMock:
     """Build a MagicMock matching the OrtEpDevice shape used downstream."""
     d = MagicMock()
     d.ep_name = ep_name
@@ -64,11 +86,7 @@ def test_ensure_initialized_calls_registry_once():
 
 
 def test_ensure_initialized_failure_logs_warning(caplog):
-    """NFR-2: registration failure must log at WARNING (not DEBUG) with exception class.
-
-    The previous DEBUG-level swallow downgraded real environmental failures
-    (broken Windows App SDK, etc.) to invisible "feature unavailable".
-    """
+    """NFR-2: registration failure must log at WARNING (not DEBUG) with exception class."""
     with patch("winml.modelkit.session.ep_registry.WinMLEPRegistry") as mock_registry_cls:
         instance = mock_registry_cls.get_instance.return_value
         instance.winml_available = True
@@ -101,12 +119,7 @@ def test_ensure_initialized_allows_retry_after_failure(caplog):
 
 def test_register_to_ort_failure_records_per_ep_state():
     """NFR-2: per-EP registration failures must be tracked in registration_failures."""
-    from winml.modelkit.session.ep_registry import WinMLEPRegistry
-
-    # Reset the singleton's failure dict for test isolation by using
-    # get_instance + manipulating instance state directly.
     registry = WinMLEPRegistry.get_instance()
-    # Inject test EP paths and force registration failure
     registry._ep_paths = {"FakeEP": "C:/nonexistent/fake.dll"}
     registry._registered_eps = []
     registry._registration_failures = {}
@@ -131,63 +144,55 @@ def test_register_to_ort_failure_records_per_ep_state():
 
 
 def test_register_ep_happy_path(fresh_registry: WinMLEPRegistry) -> None:
-    """register_ep returns only the devices matching the requested EP name.
-
-    get_ep_devices is called twice:
-      1. The defensive check (before DLL load) — must return empty so the DLL
-         load path is taken rather than the skip-if-already-loaded path.
-      2. The final return value — returns all matching devices.
-    """
+    """register_ep(entry) loads the DLL, wraps every matching device, returns WinMLEP."""
+    entry = _ep_entry("QNNExecutionProvider")
     qnn_devs = [
-        _fake_ep_device("QNNExecutionProvider", "NPU"),
-        _fake_ep_device("QNNExecutionProvider", "GPU"),
-        _fake_ep_device("QNNExecutionProvider", "GPU"),
-        _fake_ep_device("QNNExecutionProvider", "CPU"),
+        _fake_ort_device("QNNExecutionProvider", "NPU"),
     ]
-    other = _fake_ep_device("CPUExecutionProvider", "CPU")
-    all_devs = [*qnn_devs, other]
+    other = _fake_ort_device("CPUExecutionProvider", "CPU")
     with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
         # First call: defensive pre-check (empty → not yet loaded → proceed with DLL load).
-        # Second call: final return value filtering.
-        mock_ort.get_ep_devices.side_effect = [[], all_devs]
+        # Second call: enumerate devices after registration.
+        mock_ort.get_ep_devices.side_effect = [[], [*qnn_devs, other]]
         mock_ort.register_execution_provider_library = MagicMock()
-        result = fresh_registry.register_ep("QNNExecutionProvider")
-    mock_ort.register_execution_provider_library.assert_called_once_with(
-        "QNNExecutionProvider", "C:/fake/qnn.dll"
-    )
-    assert result == qnn_devs
+        result = fresh_registry.register_ep(entry)
+
+    mock_ort.register_execution_provider_library.assert_called_once()
+    args, _ = mock_ort.register_execution_provider_library.call_args
+    assert args[0] == "QNNExecutionProvider"
+    # Path is rendered via str(Path(...)) which uses OS-native separators.
+    assert Path(args[1]) == Path("C:/fake/qnn.dll")
+    assert isinstance(result, WinMLEP)
+    assert result.source is entry
+    # Only the matching ep_name's devices land in result.devices.
+    assert len(result.devices) == 1
+    assert result.devices[0].device_type == "NPU"
 
 
-def test_register_ep_unknown_raises(fresh_registry: WinMLEPRegistry) -> None:
-    """register_ep raises WinMLEPNotDiscovered for an EP not in the catalog."""
-    with pytest.raises(WinMLEPNotDiscovered):
-        fresh_registry.register_ep("MysteryExecutionProvider")
+def test_register_ep_idempotent_on_dll_path(fresh_registry: WinMLEPRegistry) -> None:
+    """A repeated register_ep on the same dll_path returns the cached WinMLEP.
 
-
-def test_register_ep_idempotent(fresh_registry: WinMLEPRegistry) -> None:
-    """register_ep skips DLL loading on a second call for the same EP.
-
-    Call sequence for get_ep_devices:
-      1st call (first register_ep, defensive pre-check): empty → DLL load proceeds.
-      2nd call (first register_ep, return value): [qnn].
-      3rd call (second register_ep, return value — ep already in _registered_eps): [qnn].
+    Post-Batch-C, the cache key is ``entry.dll_path`` rather than ep_name.
     """
-    qnn = _fake_ep_device("QNNExecutionProvider", "NPU")
+    entry = _ep_entry("QNNExecutionProvider")
+    qnn = _fake_ort_device("QNNExecutionProvider", "NPU")
     with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
-        mock_ort.get_ep_devices.side_effect = [[], [qnn], [qnn]]
+        mock_ort.get_ep_devices.side_effect = [[], [qnn]]
         mock_ort.register_execution_provider_library = MagicMock()
-        fresh_registry.register_ep("QNNExecutionProvider")
-        fresh_registry.register_ep("QNNExecutionProvider")
+        first = fresh_registry.register_ep(entry)
+        second = fresh_registry.register_ep(entry)
+    assert first is second
     assert mock_ort.register_execution_provider_library.call_count == 1
 
 
 def test_register_ep_failure_wraps(fresh_registry: WinMLEPRegistry) -> None:
     """register_ep raises WinMLEPRegistrationFailed when ORT's register call raises."""
+    entry = _ep_entry("QNNExecutionProvider")
     with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
         mock_ort.register_execution_provider_library.side_effect = RuntimeError("dll boom")
         mock_ort.get_ep_devices.return_value = []
         with pytest.raises(WinMLEPRegistrationFailed):
-            fresh_registry.register_ep("QNNExecutionProvider")
+            fresh_registry.register_ep(entry)
 
 
 def test_register_ep_skips_if_already_loaded(fresh_registry: WinMLEPRegistry) -> None:
@@ -195,43 +200,30 @@ def test_register_ep_skips_if_already_loaded(fresh_registry: WinMLEPRegistry) ->
 
     Defensive check: ort.get_ep_devices() is consulted first; if the EP is
     already visible, register_execution_provider_library must NOT be called.
-    The EP is still recorded in _registered_eps so subsequent calls are
-    short-circuited by the existing idempotency guard.
     """
-    fake_dev = _fake_ep_device("QNNExecutionProvider", "NPU")
+    entry = _ep_entry("QNNExecutionProvider")
+    fake_dev = _fake_ort_device("QNNExecutionProvider", "NPU")
     with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
         mock_ort.get_ep_devices.return_value = [fake_dev]  # already loaded externally
         mock_ort.register_execution_provider_library = MagicMock()
+        result = fresh_registry.register_ep(entry)
 
-        result = fresh_registry.register_ep("QNNExecutionProvider")
-
-    # Critical: DLL register must NOT be called a second time.
+    # Critical: DLL register must NOT be called.
     mock_ort.register_execution_provider_library.assert_not_called()
+    assert isinstance(result, WinMLEP)
     assert "QNNExecutionProvider" in fresh_registry._registered_eps
-    assert result == [fake_dev]
 
 
-def test_register_ep_after_external_registration_no_double_register() -> None:
-    """Simulates the dual-singleton crash: winml.py registers first, then WinMLEPRegistry.
+def test_register_ep_yields_zero_devices_raises(fresh_registry: WinMLEPRegistry) -> None:
+    """register_ep raises when ORT registers the DLL but yields zero devices.
 
-    Guards against `winml perf -m microsoft/resnet-50 --ep qnn --device npu`
-    exiting 127 because ort.register_execution_provider_library is NOT idempotent
-    — a second registration of the same DLL causes a native exit(127) with no
-    Python traceback.
+    Defends against silent partial-failure where the plugin loads but no
+    OrtEpDevice records appear (e.g. driver mismatch).
     """
-    fake_dev = MagicMock()
-    fake_dev.ep_name = "QNNExecutionProvider"
-
+    entry = _ep_entry("QNNExecutionProvider")
     with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
-        mock_ort.get_ep_devices.return_value = [fake_dev]  # already loaded by WinML singleton
-
-        registry = WinMLEPRegistry.get_instance()
-        registry._ep_paths["QNNExecutionProvider"] = "C:/fake/qnn.dll"
-        registry._registered_eps = []  # WinMLEPRegistry has NOT seen this registration
-
-        result = registry.register_ep("QNNExecutionProvider")
-
-        # Critical assertion: DLL register MUST NOT be called.
-        mock_ort.register_execution_provider_library.assert_not_called()
-        assert "QNNExecutionProvider" in registry._registered_eps
-        assert result == [fake_dev]
+        # Empty before AND after the DLL load — guaranteed zero devices.
+        mock_ort.get_ep_devices.return_value = []
+        mock_ort.register_execution_provider_library = MagicMock()
+        with pytest.raises(WinMLEPRegistrationFailed, match="no OrtEpDevices"):
+            fresh_registry.register_ep(entry)

@@ -37,44 +37,36 @@ class TestWinMLSessionInstantiation:
     def test_session_init_with_npu_device(
         self, simple_matmul_onnx: Path, qnn_npu_ep_device: EPDeviceTarget, fake_ort_npu: MagicMock
     ):
-        """Test that WinMLSession can be initialized with an NPU EPDeviceTarget.
+        """Test that WinMLSession can be initialized with an NPU WinMLEPDevice.
 
         ORT InferenceSession is also mocked because the fake_ort_npu MagicMock
         cannot be passed to add_provider_for_devices() (requires a real C++ object).
         """
         with (
-            patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
             patch("winml.modelkit.session.session.ort.InferenceSession"),
             patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
         ):
-            mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
             session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=qnn_npu_ep_device)
 
         assert session.device == "npu"
         assert session.state == SessionState.INITIALIZED
 
     def test_session_init_with_cpu_ep_device(
-        self, simple_matmul_onnx: Path, cpu_ep_device: EPDeviceTarget, real_cpu_ort_device: object
+        self, simple_matmul_onnx: Path, cpu_ep_device: EPDeviceTarget
     ):
-        """Test that WinMLSession can be initialized with a CPU EPDeviceTarget."""
-        with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-            mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
-            session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=cpu_ep_device)
+        """Test that WinMLSession can be initialized with a CPU WinMLEPDevice."""
+        session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=cpu_ep_device)
 
         assert session.device == "cpu"
         assert session.state == SessionState.INITIALIZED
 
     def test_session_init_file_not_found(
-        self, tmp_path: Path, cpu_ep_device: EPDeviceTarget, real_cpu_ort_device: object
+        self, tmp_path: Path, cpu_ep_device: EPDeviceTarget
     ):
         """Test that WinMLSession raises an ORT error for a non-existent ONNX file."""
         from onnxruntime.capi.onnxruntime_pybind11_state import NoSuchFile
 
-        with (
-            patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
-            pytest.raises(NoSuchFile),
-        ):
-            mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
+        with pytest.raises(NoSuchFile):
             WinMLSession(onnx_path=tmp_path / "nonexistent.onnx", ep_device=cpu_ep_device)
 
 
@@ -447,17 +439,14 @@ class TestWinMLSessionExplicitProviders:
         self,
         simple_matmul_onnx: Path,
         cpu_ep_device: EPDeviceTarget,
-        real_cpu_ort_device: object,
         sample_input: dict[str, np.ndarray],
     ):
         """Test that ep_config is accepted and CPU provider is active."""
-        with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-            mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
-            session = WinMLSession(
-                onnx_path=simple_matmul_onnx,
-                ep_device=cpu_ep_device,
-                ep_config=EPConfig(provider="cpu", provider_options={}),
-            )
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            ep_device=cpu_ep_device,
+            ep_config=EPConfig(provider="cpu", provider_options={}),
+        )
 
         outputs = session.run(sample_input)
 
@@ -469,17 +458,14 @@ class TestWinMLSessionExplicitProviders:
         self,
         simple_matmul_onnx: Path,
         cpu_ep_device: EPDeviceTarget,
-        real_cpu_ort_device: object,
         sample_input: dict[str, np.ndarray],
     ):
         """Test that ep_config.provider_options is accepted without error."""
-        with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
-            mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
-            session = WinMLSession(
-                onnx_path=simple_matmul_onnx,
-                ep_device=cpu_ep_device,
-                ep_config=EPConfig(provider="cpu", provider_options={}),
-            )
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            ep_device=cpu_ep_device,
+            ep_config=EPConfig(provider="cpu", provider_options={}),
+        )
 
         outputs = session.run(sample_input)
         assert "C" in outputs
@@ -631,18 +617,16 @@ class TestWinMLSessionPerfTracking:
 
 
 def test_winml_session_accepts_ep_device(tmp_path, qnn_npu_ep_device, fake_ort_npu) -> None:
-    """WinMLSession compiles with an explicit EPDeviceTarget."""
+    """WinMLSession compiles with an explicit WinMLEPDevice."""
     onnx_path = tmp_path / "noop.onnx"
     onnx_path.write_bytes(b"\x08\x01")  # minimal placeholder; ORT is mocked
     with (
-        patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
         patch("winml.modelkit.session.session.ort.InferenceSession") as mock_sess,
         patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
     ):
-        mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
         sess = WinMLSession(onnx_path, ep_device=qnn_npu_ep_device)
     mock_sess.assert_called_once()
-    assert sess._ep_device == qnn_npu_ep_device
+    assert sess._ep_device is qnn_npu_ep_device
 
 
 def test_winml_session_rejects_legacy_ep_kwarg(tmp_path, qnn_npu_ep_device) -> None:
@@ -667,30 +651,26 @@ def test_winml_session_rejects_legacy_device_kwarg(tmp_path) -> None:
 
 
 def test_perf_validates_monitor_ep_name_match(tmp_path, qnn_npu_ep_device, fake_ort_npu) -> None:
-    """Monitor for QNN against an OpenVINO EPDeviceTarget -> WinMLEPMonitorMismatch."""
+    """Monitor for QNN against an OpenVINO WinMLEPDevice -> WinMLEPMonitorMismatch."""
+    from .conftest import make_stub_winml_ep_device
+
     onnx_path = tmp_path / "noop.onnx"
     onnx_path.write_bytes(b"\x08\x01")
-    openvino_ep = EPDeviceTarget(
-        ep="OpenVINOExecutionProvider",
-        device="npu",
-        vendor_id=0x8086,
-        device_id=0x0BD0,
-    )
     fake_ov = MagicMock()
+    fake_ov.ep_name = "OpenVINOExecutionProvider"
     fake_ov.device.type.name = "NPU"
     fake_ov.device.vendor_id = 0x8086
     fake_ov.device.device_id = 0x0BD0
+    openvino_ep_device = make_stub_winml_ep_device(fake_ov, "OpenVINOExecutionProvider")
     qnn_monitor = MagicMock()
     qnn_monitor.ep_name = "qnn"
     qnn_monitor.get_provider_options.return_value = {}
     qnn_monitor.get_session_options.return_value = {}
     with (
-        patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
         patch("winml.modelkit.session.session.ort.InferenceSession"),
         patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
     ):
-        mock_reg.get_instance.return_value.register_ep.return_value = [fake_ov]
-        sess = WinMLSession(onnx_path, ep_device=openvino_ep)
+        sess = WinMLSession(onnx_path, ep_device=openvino_ep_device)
         with pytest.raises(WinMLEPMonitorMismatch), sess.perf(monitor=qnn_monitor):
             pass
 
@@ -705,11 +685,9 @@ def test_perf_preserves_save_restore(tmp_path, qnn_npu_ep_device, fake_ort_npu) 
     bad_monitor.get_session_options.return_value = {}
     bad_monitor.__enter__.side_effect = RuntimeError("boom")
     with (
-        patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
         patch("winml.modelkit.session.session.ort.InferenceSession"),
         patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
     ):
-        mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
         sess = WinMLSession(onnx_path, ep_device=qnn_npu_ep_device)
         snapshot = dict(sess._provider_options)
         with pytest.raises(RuntimeError), sess.perf(monitor=bad_monitor):

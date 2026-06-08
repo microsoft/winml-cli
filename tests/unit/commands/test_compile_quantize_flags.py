@@ -13,7 +13,7 @@ from winml.modelkit.session import EPDeviceTarget
 
 
 def _fake_ep_device(ep: str, device: str) -> EPDeviceTarget:
-    return EPDeviceTarget(ep=ep, device=device, vendor_id=0, device_id=0, vendor="")
+    return EPDeviceTarget(ep=ep, device=device)
 
 
 # =============================================================================
