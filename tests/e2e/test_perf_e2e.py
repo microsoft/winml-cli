@@ -109,6 +109,7 @@ def _build_perf_args(
     module: str | None = None,
     monitor: bool = False,
     verbose: bool = False,
+    no_skip_build: bool = False,
 ) -> list[str]:
     """Build the argv list passed to the perf CLI.
 
@@ -137,6 +138,8 @@ def _build_perf_args(
         args.append("--monitor")
     if verbose:
         args.append("--verbose")
+    if no_skip_build:
+        args.append("--no-skip-build")
     return args
 
 
@@ -236,6 +239,23 @@ class _PerfBenchmarkSuite:
             perf,
             _build_perf_args(
                 model_arg=model_arg, output_file=output_file, device="cpu", verbose=True
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        assert output_file.exists()
+        assert "Results saved to" in result.output
+
+    def test_benchmark_cpu_build(self, tmp_path: Path, model_arg: str):
+        """Benchmark with --no-skip-build should succeed and show debug output."""
+        output_file = tmp_path / "perf_cpu_build.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="cpu", no_skip_build=True
             ),
             obj={},
             catch_exceptions=False,
@@ -419,9 +439,7 @@ class _PerfBenchmarkSuite:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(
-            data, device="gpu", ep=EP_ALIASES[ep], require_utilization=False
-        )
+        _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep], require_utilization=False)
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, model_arg: str):
@@ -448,9 +466,7 @@ class _PerfBenchmarkSuite:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(
-            data, device="npu", ep=EP_ALIASES[ep], require_utilization=False
-        )
+        _assert_monitor_result(data, device="npu", ep=EP_ALIASES[ep], require_utilization=False)
 
 
 # ===========================================================================

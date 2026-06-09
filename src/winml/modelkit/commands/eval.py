@@ -142,6 +142,7 @@ logger = logging.getLogger(__name__)
     help="Path to a Python script that builds the evaluation dataset.",
 )
 @cli_utils.trust_remote_code_option(optional_message="Required when --dataset-script is used.")
+@cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--schema",
     "show_schema",
@@ -161,6 +162,7 @@ logger = logging.getLogger(__name__)
         "random inputs and report tensor-similarity metrics per output tensor."
     ),
 )
+@cli_utils.skip_build_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @click.pass_context
@@ -186,9 +188,11 @@ def eval(
     quiet: bool,
     dataset_script: str | None,
     trust_remote_code: bool,
+    allow_unsupported_nodes: bool,
     show_schema: bool,
     mode: EvalMode,
     config_file: Path | None,
+    skip_build: bool,
 ) -> None:
     r"""Evaluate a model for a task.
 

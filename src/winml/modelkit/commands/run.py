@@ -497,6 +497,8 @@ def _print_input_hint(engine: Any) -> None:
     default=False,
     help="Auto-connect to a running winml serve instance instead of embedded inference",
 )
+@cli_utils.skip_build_option()
+@cli_utils.allow_unsupported_nodes_option()
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -514,6 +516,8 @@ def run(
     port: int,
     connect_host: str,
     connect: bool,
+    skip_build: bool,
+    allow_unsupported_nodes: bool,
 ) -> None:
     r"""Run one-shot inference on a model.
 
@@ -626,7 +630,14 @@ def run(
         # prints (from optimum, onnxruntime, etc.) don't contaminate
         # structured output (--format json) or text output parsing.
         with contextlib.redirect_stdout(sys.stderr):
-            engine.load(model, task=task, device=device, ep=ep)
+            engine.load(
+                model,
+                task=task,
+                device=device,
+                ep=ep,
+                skip_build=skip_build,
+                allow_unsupported_nodes=allow_unsupported_nodes,
+            )
     except (OSError, ValueError, RuntimeError) as exc:
         click.echo(f"Error loading model: {exc}", err=True)
         ctx.exit(3)
