@@ -223,13 +223,15 @@ def run_winml_perf(
 def cleanup_onnx_artifacts(model_dir: Path) -> None:
     """Delete intermediate ONNX and binary artifacts after eval.
 
-    Removes ``*.onnx``, ``*.onnx.data``, and ``*.bin`` (QNN binary) files.
+    Removes all non-JSON files including ``*.onnx``, ``*.onnx.data``,
+    ``*.bin``, and extensionless ONNX external data files (e.g. weight
+    tensors like ``roberta.embeddings.word_embeddings.weight``).
     JSON result files and perf logs are preserved so --report-only and
     --use-cache still work for the JSON-driven stages.
     """
     freed = 0
-    for pattern in ("*.onnx", "*.onnx.data", "*.bin"):
-        for f in model_dir.glob(pattern):
+    for f in model_dir.iterdir():
+        if f.is_file() and f.suffix != ".json":
             size = f.stat().st_size
             f.unlink()
             freed += size
@@ -876,6 +878,25 @@ def evaluate_model(
     return result
 
 
+def _should_skip_existing(existing: dict, retry_types: set[str] | None) -> bool:
+    """Return True if an existing sa_eval_result should be skipped (not re-run).
+
+    *retry_types* semantics (mirrors run_eval.py):
+      - ``None``  → ``--continue`` only: skip every existing result.
+      - ``set()`` → ``--retry-failed`` with no args: retry ALL non-COMPLETE.
+      - ``{"SKIP_BUILD", ...}`` → retry only matching statuses.
+    """
+    if retry_types is None:
+        return True  # --continue without --retry-failed: skip all existing
+
+    status = existing.get("status", "COMPLETE")
+    if status == "COMPLETE":
+        return True  # completed models are always kept
+
+    # Non-COMPLETE → check whether this status matches the retry filter
+    return not (not retry_types or status in retry_types)
+
+
 def _skip_result(hf_id: str, task: str, model_type: str, status: str, model_dir: Path) -> dict:
     result = {"model": hf_id, "task": task, "model_type": model_type, "status": status}
     (model_dir / "sa_eval_result.json").write_text(
@@ -1131,6 +1152,23 @@ def main() -> None:
             "models/ subdirectories and regenerate the HTML report only."
         ),
     )
+    parser.add_argument(
+        "--continue",
+        dest="continue_run",
+        action="store_true",
+        help="Skip models that already have sa_eval_result.json",
+    )
+    parser.add_argument(
+        "--retry-failed",
+        nargs="*",
+        metavar="STATUS",
+        help=(
+            "Re-run models matching given failure statuses "
+            "(e.g. SKIP_BUILD, SKIP_SA_PRE, SKIP_SA_POST, SKIP_GRAPH_OPT). "
+            "Use without args to retry ALL non-COMPLETE models. "
+            "Implies --continue for completed models."
+        ),
+    )
     args = parser.parse_args()
 
     output_dir = (args.output_dir or Path(f"sa_eval_results/{date.today().isoformat()}")).resolve()
@@ -1194,12 +1232,51 @@ def main() -> None:
     else:
         models_to_run = all_models
 
+    # --retry-failed implies --continue for passing models
+    retry_types: set[str] | None = None
+    if args.retry_failed is not None:
+        args.continue_run = True
+        retry_types = {t.upper() for t in args.retry_failed} if args.retry_failed else set()
+
     safe_print(f"Models to evaluate: {len(models_to_run)}")
+    if retry_types is not None:
+        if retry_types:
+            safe_print(f"Retry mode: {', '.join(sorted(retry_types))}")
+        else:
+            safe_print("Retry mode: ALL non-COMPLETE models")
+    elif args.continue_run:
+        safe_print("Continue mode: skipping models with existing sa_eval_result.json")
 
     t_start = time.monotonic()
     all_results: list[dict] = []
+    cached_count = 0
 
     for i, entry in enumerate(models_to_run, 1):
+        hf_id = entry["hf_id"]
+        task = entry.get("task", "")
+        slug = make_slug(hf_id, task)
+        model_dir = output_dir / "models" / slug
+        result_path = model_dir / "sa_eval_result.json"
+
+        # --continue / --retry-failed: check existing sa_eval_result.json
+        if args.continue_run and result_path.exists():
+            try:
+                existing = json.loads(result_path.read_text(encoding="utf-8"))
+
+                if _should_skip_existing(existing, retry_types):
+                    all_results.append(existing)
+                    cached_count += 1
+                    status = existing.get("status", "COMPLETE")
+                    safe_print(f"\n[{i}/{len(models_to_run)}] {hf_id}  (SKIP - {status}, cached)")
+                    continue
+
+                safe_print(
+                    f"\n[{i}/{len(models_to_run)}] {hf_id}  "
+                    f"(RETRY - was {existing.get('status', '?')})"
+                )
+            except (json.JSONDecodeError, KeyError):
+                pass  # Corrupted result file — re-run
+
         safe_print(f"\n[{i}/{len(models_to_run)}]")
         result = evaluate_model(
             entry,
@@ -1226,6 +1303,8 @@ def main() -> None:
     safe_print(f"{'=' * 60}")
     safe_print(f"Models complete: {len(complete)}")
     safe_print(f"Models skipped:  {len(all_results) - len(complete)}")
+    if cached_count:
+        safe_print(f"Models cached:   {cached_count}")
     safe_print(f"Total time:      {elapsed:.1f}s")
 
     if complete:
