@@ -79,6 +79,7 @@ class BenchmarkConfig:
     no_quantize: bool = False
     rebuild: bool = False
     ignore_cache: bool = False
+    skip_build: bool = True
     allow_unsupported_nodes: bool = False
     monitor: bool = False
     ep: EPNameOrAlias | None = None
@@ -321,13 +322,25 @@ class PerfBenchmark:
         return self._collect_results(stats)
 
     def _load_model(self) -> None:
-        """Load model via WinMLAutoModel (handles both HF and ONNX)."""
+        """Load model via WinMLAutoModel.
+
+        Both HF model IDs and pre-exported .onnx files flow through this
+        single path so latency numbers stay comparable: HF runs export →
+        optimize → [quantize] → [compile], and ONNX runs the same pipeline
+        minus export.
+        """
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
 
         model_id = self.config.model_id
         model_path = Path(model_id)
-        is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
+        is_onnx = model_path.suffix.lower() == ".onnx"
+        if is_onnx and not model_path.exists():
+            # Surface a clear error for programmatic callers. The CLI guards
+            # this earlier, but without this check from_pretrained would fall
+            # through to HF loading and produce a confusing "not a valid JSON
+            # file" error from AutoConfig.
+            raise FileNotFoundError(f"ONNX file not found: {model_path}")
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -353,6 +366,7 @@ class PerfBenchmark:
         if is_onnx:
             self._model = WinMLAutoModel.from_onnx(
                 onnx_path=model_path,
+                skip_build=self.config.skip_build,
                 **common_kwargs,
             )
         else:
@@ -957,10 +971,7 @@ def _run_monitored_loop(
     model_id: str,
     device: str,
 ) -> None:
-    """Run the benchmark iteration loop with live hardware monitoring.
-
-    Shared by both HF-path (PerfBenchmark) and ONNX-path (_run_onnx_benchmark).
-    """
+    """Run the benchmark iteration loop with live hardware monitoring."""
     display = LiveMonitorDisplay(
         total_iterations=total_iterations,
         warmup=warmup,
@@ -990,118 +1001,12 @@ def _run_simple_loop(
     inputs: dict[str, Any],
     total_iterations: int,
 ) -> None:
-    """Run the benchmark iteration loop with periodic debug logging.
-
-    Shared by both HF-path (PerfBenchmark) and ONNX-path (_run_onnx_benchmark).
-    """
+    """Run the benchmark iteration loop with periodic debug logging."""
     for i in range(total_iterations):
         session.run(inputs)
 
         if (i + 1) % max(1, total_iterations // 10) == 0:
             logger.debug("Progress: %d/%d", i + 1, total_iterations)
-
-
-# =============================================================================
-# ONNX Direct Benchmark
-# =============================================================================
-
-
-def _run_onnx_benchmark(
-    onnx_path: Path,
-    *,
-    device: str,
-    iterations: int,
-    warmup: int,
-    batch_size: int,
-    config: BenchmarkConfig,
-) -> BenchmarkResult:
-    """Benchmark an ONNX file directly via WinMLSession (no HF build).
-
-    Creates a WinMLSession, reads io_config for input shapes,
-    generates random inputs, and runs the standard benchmark loop.
-    """
-    from ..session import WinMLSession
-
-    session = WinMLSession(onnx_path=onnx_path, device=device, ep=config.ep)
-
-    # Generate random inputs from session's I/O config
-    io_cfg = session.io_config
-    inputs = generate_random_inputs(io_config=io_cfg, batch_size=batch_size)
-
-    # Compile session early so session.device is resolved for display
-    session.compile()
-
-    # Print model info before benchmark starts
-    _print_model_info(io_cfg, req_device=device, act_device=session.device, ep_name=session.ep_name)
-
-    # Run benchmark
-    total_iterations = warmup + iterations
-    hw_metrics = None
-    hw_ctx = None
-
-    # Determine if hardware monitoring is available
-    if config.monitor:
-        from ..session.monitor.hw_monitor import HWMonitor
-
-        if HWMonitor.is_available():
-            hw_ctx = HWMonitor(
-                poll_interval_ms=_HW_POLL_INTERVAL_MS,
-                device=session.device or device,
-                ep_name=session.ep_name,
-            )
-        else:
-            Console(stderr=True).print(
-                "[yellow]Warning:[/yellow] HWMonitor unavailable. "
-                "Running ONNX benchmark without monitoring."
-            )
-
-    if hw_ctx:
-        with session.perf(warmup=warmup) as stats, hw_ctx as hw:
-            _run_monitored_loop(
-                session,
-                inputs,
-                stats,
-                hw,
-                total_iterations=total_iterations,
-                warmup=warmup,
-                model_id=str(onnx_path.name),
-                device=session.device or device,
-            )
-            hw_metrics = hw.to_dict()
-    else:
-        with session.perf(warmup=warmup) as stats:
-            _run_simple_loop(session, inputs, total_iterations)
-
-    # Collect results
-    mean_latency_sec = stats.mean_ms / 1000.0
-    samples_per_sec = batch_size / mean_latency_sec if mean_latency_sec > 0 else 0
-    batches_per_sec = 1.0 / mean_latency_sec if mean_latency_sec > 0 else 0
-    samples = stats.samples_ms
-    std_ms = float(np.std(samples)) if samples else 0.0
-
-    return BenchmarkResult(
-        config=config,
-        input_names=io_cfg["input_names"],
-        input_shapes=[list(s) if s else [] for s in io_cfg["input_shapes"]],
-        input_types=[str(t) for t in io_cfg["input_types"]],
-        output_names=io_cfg["output_names"],
-        output_shapes=[list(s) if s else [] for s in io_cfg["output_shapes"]],
-        mean_ms=stats.mean_ms,
-        min_ms=stats.min_ms,
-        max_ms=stats.max_ms,
-        p50_ms=stats.p50_ms,
-        p90_ms=stats.p90_ms,
-        p95_ms=stats.p95_ms,
-        p99_ms=stats.p99_ms,
-        std_ms=std_ms,
-        raw_samples_ms=stats.samples_ms,
-        samples_per_sec=samples_per_sec,
-        batches_per_sec=batches_per_sec,
-        actual_device=session.device,
-        actual_task="n/a (direct ONNX)",
-        actual_ep=session.ep_name,
-        hw_monitor=hw_metrics,
-    )
 
 
 # =============================================================================
@@ -1179,6 +1084,7 @@ def _run_onnx_benchmark(
     default=False,
     help="Build from scratch in a temp folder (discard after benchmarking)",
 )
+@cli_utils.skip_build_option()
 @cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--module",
@@ -1222,6 +1128,7 @@ def perf(
     no_quantize: bool,
     rebuild: bool,
     ignore_cache: bool,
+    skip_build: bool,
     allow_unsupported_nodes: bool,
     module_class: str | None,
     monitor: bool,
@@ -1235,8 +1142,10 @@ def perf(
     Measures latency and throughput using random input data generated
     from the model's I/O configuration.
 
-    Accepts both HuggingFace model IDs and local .onnx files.
-    HF models go through PerfBenchmark; .onnx files use _run_onnx_benchmark.
+    Accepts both HuggingFace model IDs and local .onnx files. Both flow
+    through the same PerfBenchmark pipeline (optimize → [quantize] → [compile]
+    minus export for ONNX inputs), so latency numbers are directly comparable
+    between the two inputs.
 
     \b
     Examples:
@@ -1356,6 +1265,7 @@ def perf(
         no_quantize=no_quantize,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
+        skip_build=skip_build,
         allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
         ep=ep,
@@ -1367,33 +1277,25 @@ def perf(
         is_onnx = model_path.suffix.lower() == ".onnx"
 
         if is_onnx:
-            # ONNX direct path -- skip HF build, benchmark via WinMLSession
+            # Validate file existence up front; otherwise WinMLAutoModel would
+            # fall through to HF loading and surface a confusing
+            # "not a valid JSON file" error from AutoConfig.
+            if not model_path.exists():
+                raise FileNotFoundError(f"ONNX file not found: {model_path}")
             if shape_config:
                 console.print(
                     "[yellow]Warning:[/yellow] --shape-config is ignored for "
                     "pre-exported ONNX files (shapes are baked into the model)."
                 )
                 config.shape_config = None
-            if not model_path.exists():
-                raise FileNotFoundError(f"ONNX file not found: {model_path}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
-
-            result = _run_onnx_benchmark(
-                model_path,
-                device=config.device,
-                iterations=iterations,
-                warmup=warmup,
-                batch_size=batch_size,
-                config=config,
-            )
         else:
-            # HF model path -- full build + benchmark via PerfBenchmark
             if precision != "auto":
                 console.print(f"[dim]Precision: {precision} (applied during model build)[/dim]")
             console.print(f"[dim]Loading model:[/dim] {hf_model}")
 
-            benchmark = PerfBenchmark(config)
-            result = benchmark.run()
+        benchmark = PerfBenchmark(config)
+        result = benchmark.run()
 
         # Display console report
         display_console_report(result, console)

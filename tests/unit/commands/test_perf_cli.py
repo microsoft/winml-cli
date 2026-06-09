@@ -10,6 +10,7 @@ NO WinMLAutoModel involvement, NO actual inference.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -279,14 +280,22 @@ class TestPerfUnifiedPipeline:
         override = mock_from_pretrained.call_args.kwargs["config"]
         assert override is None
 
-    def test_cli_onnx_goes_through_onnx_benchmark(self, runner: CliRunner, tmp_path: Path) -> None:
-        """CLI with .onnx file should route through _run_onnx_benchmark."""
+    def test_cli_onnx_routes_through_perf_benchmark(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """CLI with .onnx file should route through the same PerfBenchmark as HF.
+
+        Both paths must share the build+benchmark pipeline so latency numbers
+        from `winml perf -m hf/id` and `winml perf -m <built.onnx>` are
+        comparable (issue #596).
+        """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
 
         with (
-            patch(
-                "winml.modelkit.commands.perf._run_onnx_benchmark",
+            patch.object(
+                PerfBenchmark,
+                "run",
                 return_value=MagicMock(),
             ) as mock_run,
             patch(
@@ -304,6 +313,55 @@ class TestPerfUnifiedPipeline:
 
         assert result.exit_code == 0, result.output
         mock_run.assert_called_once()
+
+    def test_cli_onnx_clears_shape_config_with_warning(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """ONNX input with --shape-config: warn + clear shape_config before PerfBenchmark.
+
+        Shapes are baked into a pre-exported ONNX, so --shape-config is silently
+        ignored; we want to be sure the CLI both surfaces the warning to the
+        user and actually drops the override before constructing PerfBenchmark.
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        shape_cfg_file = tmp_path / "shapes.json"
+        shape_cfg_file.write_text(json.dumps({"input_ids": [1, 128]}))
+
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--shape-config",
+                    str(shape_cfg_file),
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "shape-config is ignored" in result.output
+        assert "Benchmarking ONNX" in result.output
+        assert captured["config"].shape_config is None
 
     def test_cli_onnx_not_found_error(self, runner: CliRunner, tmp_path: Path) -> None:
         """CLI with non-existent .onnx file should raise FileNotFoundError."""
