@@ -72,11 +72,3 @@ Agent (with skill):
 5. Runs `winml perf -m output/model.onnx -d npu --monitor`
 6. Reports latency + NPU utilization to user
 ```
-
----
-
-## Updating the skill
-
-The skill lives at `skills/use-winml-cli/SKILL.md` in the repository root.
-When commands or flags change, update both the docs site and the skill file to
-keep agent behavior aligned with the CLI.
