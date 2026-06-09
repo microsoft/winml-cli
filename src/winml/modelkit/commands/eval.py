@@ -162,6 +162,7 @@ logger = logging.getLogger(__name__)
         "random inputs and report tensor-similarity metrics per output tensor."
     ),
 )
+@cli_utils.skip_build_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @click.pass_context
@@ -191,6 +192,7 @@ def eval(
     show_schema: bool,
     mode: EvalMode,
     config_file: Path | None,
+    skip_build: bool,
 ) -> None:
     r"""Evaluate a model for a task.
 
