@@ -271,7 +271,24 @@ def _detect_task_from_config(config: PretrainedConfig) -> str:
     """
     model_class = _resolve_model_class_from_config(config)
     task = _detect_task_from_model_class(model_class)
+    task = _upgrade_fill_mask_for_seq2seq(task, config)
     logger.info("Detected task: %s (from %s)", task, model_class.__name__)
+    return task
+
+
+def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
+    """Correct Optimum's ``fill-mask`` mislabel for encoder-decoder generation heads.
+
+    ``TasksManager`` maps some encoder-decoder ``*ForConditionalGeneration`` classes
+    (e.g. ``BartForConditionalGeneration``) to ``fill-mask``. A real masked-LM is
+    encoder-only, so a config that is ``is_encoder_decoder`` yet reported as
+    ``fill-mask`` is actually a seq2seq generator -> ``text2text-generation``.
+    Architecture-agnostic: keyed on the ``is_encoder_decoder`` flag, not model names.
+    Requires the flag to be explicitly ``True`` (HF configs set a real bool) so a
+    partial/duck-typed config without the field is never silently upgraded.
+    """
+    if task == "fill-mask" and getattr(config, "is_encoder_decoder", False) is True:
+        return "text2text-generation"
     return task
 
 
@@ -508,6 +525,7 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
 
     # [2] Infer task from model class
     task = _detect_task_from_model_class(arch_model_class)
+    task = _upgrade_fill_mask_for_seq2seq(task, config)
     logger.info("Detected task: %s (from %s)", task, arch_name)
 
     # [3] Get model_type - REQUIRED for specialization lookup

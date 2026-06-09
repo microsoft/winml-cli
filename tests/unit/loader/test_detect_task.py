@@ -15,6 +15,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from winml.modelkit.loader import detect_task, resolve_task_and_model_class
+from winml.modelkit.loader.task import _upgrade_fill_mask_for_seq2seq
 
 
 class _FakeConfig:
@@ -27,9 +28,11 @@ class _FakeConfig:
         image_size: int | None = None,
         patch_size: int | None = None,
         architectures: list[str] | None = None,
+        is_encoder_decoder: bool = False,
     ) -> None:
         self.model_type = model_type
         self.architectures = architectures or ["FakeModel"]
+        self.is_encoder_decoder = is_encoder_decoder
         if image_size is not None:
             self.image_size = image_size
         if patch_size is not None:
@@ -45,6 +48,25 @@ class _FakeConfig:
 
 
 _DETECT = "winml.modelkit.loader.task._detect_task_from_config"
+
+
+def test_upgrade_fill_mask_for_seq2seq_upgrades_encoder_decoder() -> None:
+    """Optimum mislabels encoder-decoder generation heads (e.g. BartForConditionalGeneration)
+    as fill-mask; an is_encoder_decoder config reported as fill-mask is a seq2seq generator."""
+    cfg = _FakeConfig("bart", is_encoder_decoder=True)
+    assert _upgrade_fill_mask_for_seq2seq("fill-mask", cfg) == "text2text-generation"
+
+
+def test_upgrade_fill_mask_for_seq2seq_leaves_encoder_only_masked_lm() -> None:
+    """A real masked-LM (BERT/RoBERTa) is encoder-only -> fill-mask stays fill-mask."""
+    cfg = _FakeConfig("bert", is_encoder_decoder=False)
+    assert _upgrade_fill_mask_for_seq2seq("fill-mask", cfg) == "fill-mask"
+
+
+def test_upgrade_fill_mask_for_seq2seq_only_touches_fill_mask() -> None:
+    """Tasks other than fill-mask are never rewritten, even for encoder-decoder configs."""
+    cfg = _FakeConfig("bart", is_encoder_decoder=True)
+    assert _upgrade_fill_mask_for_seq2seq("text-classification", cfg) == "text-classification"
 
 
 def test_d2_upgrades_vision_feature_extraction_on_returned_task() -> None:
