@@ -93,6 +93,7 @@ $ winml config -m facebook/convnext-tiny-224.onnx --no-quant -o convnext_optim_o
 
 - [Config and build](../concepts/config-and-build.md) — structure of `WinMLBuildConfig` and how stages interact
 - [Config Schema](../reference/index.md) — full field-by-field config reference
+- [Supported Models](../reference/supported-models.md) — validated model architectures
 - [build.md](build.md) — run the full pipeline using a generated config
 - [export.md](export.md) — export a HuggingFace model to ONNX as a standalone step
 - [optimize.md](optimize.md) — apply graph optimizations to an existing ONNX file

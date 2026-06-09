@@ -83,8 +83,8 @@ winml export -m microsoft/resnet-50 -o resnet50_clean.onnx --clean-onnx
 
 ## See also
 
-- [Output Layout](../reference/output-layout.md) — what each output file contains
 - [winml optimize](optimize.md) — the next pipeline stage after export
+- [Supported Models](../reference/supported-models.md) — full list of validated architectures
 - [Load and export concept](../concepts/load-and-export.md) — details on the export process
 
 ## Common pitfalls

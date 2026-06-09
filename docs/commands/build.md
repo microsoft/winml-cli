@@ -113,3 +113,4 @@ winml build -c config.json -m microsoft/resnet-50 \
 - [How it works](../concepts/how-it-works.md)
 - [Config Schema](../reference/index.md) — full field-by-field config reference
 - [Output Layout](../reference/output-layout.md) — what each output file contains
+- [Supported Models](../reference/supported-models.md) — validated model architectures
