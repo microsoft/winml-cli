@@ -21,7 +21,7 @@ $ winml export [options]
 | `--model` | `-m` | string | *(required)* | Hugging Face model name or local path (e.g., `prajjwal1/bert-tiny`). |
 | `--output` | `-o` | path | *(required)* | Output ONNX file path (e.g., `model.onnx`). |
 | `--with-report/--no-with-report` | | flag | `false` | Generate full export reports: Markdown, JSON, and a console tree. |
-| `--no-hierarchy` | | flag | `true` | Preserve `hierarchy_tag` metadata in ONNX nodes (use `--no-hierarchy` for a clean ONNX file). |
+| `--hierarchy/--no-hierarchy` | | flag | `true` | Preserve `hierarchy_tag` metadata in ONNX nodes (use `--no-hierarchy` for a clean ONNX file). |
 | `--dynamo/--no-dynamo` | | flag | `false` | Enable PyTorch 2.9+ dynamo export for richer node metadata. (Experimental — currently logs a warning.) |
 | `--torch-module` | | string | `None` | Comma-separated list of `torch.nn` module types to include in hierarchy (e.g., `LayerNorm,Embedding`). (Experimental — currently logs a warning.) |
 | `--input-specs` | | path | `None` | JSON file with explicit input tensor specifications. Auto-generated when omitted. |
