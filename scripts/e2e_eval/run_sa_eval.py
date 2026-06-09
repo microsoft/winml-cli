@@ -285,12 +285,15 @@ def stage_build(
     optimized_path = model_dir / "optimized.onnx"
 
     # Skip entire build if key artifacts already exist and cache is enabled
+    force_rebuild = False
     if use_cache and is_cached(export_path) and is_cached(optimized_path):
         # Also check quantized/compiled if those stages are requested
         if run_quantize and not is_cached(model_dir / "quantized.onnx"):
-            safe_print("  [Build] Cache incomplete (missing quantized.onnx), rebuilding...")
+            safe_print("  [Build] Cache incomplete (missing quantized.onnx), resuming build...")
+            force_rebuild = True
         elif run_compile and not is_cached(model_dir / "compiled.onnx"):
-            safe_print("  [Build] Cache incomplete (missing compiled.onnx), rebuilding...")
+            safe_print("  [Build] Cache incomplete (missing compiled.onnx), resuming build...")
+            force_rebuild = True
         else:
             safe_print("  [Build] Using cached artifacts (export.onnx, optimized.onnx)")
             return None
@@ -334,7 +337,7 @@ def stage_build(
         "--ep",
         _resolve_ep_arg(ep) if ep else "qnn",
     ]
-    if not use_cache:
+    if not use_cache or force_rebuild:
         build_args += ["--rebuild"]
     if not run_compile:
         build_args += ["--no-compile"]
