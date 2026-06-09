@@ -59,25 +59,6 @@ winml-cli/
 
 ---
 
-## Key principles encoded in the skill
-
-1. **Inspect first** — always run `winml inspect` before building to catch
-   unsupported architectures early.
-
-2. **Don't fabricate flags** — if a flag isn't in `--help`, it doesn't exist.
-   The skill enforces this as a hard rule.
-
-3. **Published outputs only** — each command has an explicit `-o` output; never
-   fish artifacts from internal cache.
-
-4. **EP-compiled models are EP-bound** — don't benchmark a QNN-compiled model on
-   the CPU EP. Use the pre-compile optimized ONNX for cross-EP comparison.
-
-5. **Scope gate** — the agent will refuse to attempt generative/decoder-only
-   models (GPT, LLaMA, Phi, Stable Diffusion) and explain they're out of scope.
-
----
-
 ## Example agent interaction
 
 ```
