@@ -28,9 +28,9 @@ from .base import ModelValidator
 
 
 if TYPE_CHECKING:
+    from ....utils.constants import EPName
     from ...models.onnx_model import ONNXModel
     from ...models.runtime_checks import PatternRuntime
-    from ....utils.constants import EPName
 
 logger = logging.getLogger(__name__)
 
