@@ -274,6 +274,39 @@ def build_config_option(help: str | None = None) -> Callable[[F], F]:
     )
 
 
+def skip_build_option(
+    default: bool = True,
+    optional_message: str | None = None,
+) -> Callable[[F], F]:
+    """Add --skip-build/--no-skip-build toggle for commands that accept ONNX inputs.
+
+    When skip-build is on, the build pipeline (optimize -> [quantize] -> [compile])
+    is bypassed and the ONNX file is used as-is. Applies only to ONNX inputs.
+
+    Args:
+        default: Default value (True = skip build by default, use --no-skip-build
+            to run the full build pipeline on the ONNX file).
+        optional_message: Extra command-specific guidance appended to help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = (
+        "Skip the build pipeline (optimize/quantize/compile) and use the ONNX "
+        "file as-is. Use --no-skip-build to run the full build pipeline. "
+        "Applies only to ONNX inputs."
+    )
+    if optional_message:
+        help_text = f"{help_text} {optional_message}"
+
+    return click.option(
+        "--skip-build/--no-skip-build",
+        default=default,
+        show_default=True,
+        help=help_text,
+    )
+
+
 def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add shared --trust-remote-code option to a Click command.
 
