@@ -277,11 +277,11 @@ class TestExportExportConfig:
         mock_load_hf_model: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Test --clean-onnx sets enable_hierarchy_tags=False."""
+        """Test --clean-onnx sets enable_hierarchy_tags=False and emits deprecation warning."""
         from winml.modelkit.commands.export import export
 
         output_path = tmp_path / "model.onnx"
-        runner.invoke(
+        result = runner.invoke(
             export,
             ["--model", "test-model", "--output", str(output_path), "--clean-onnx"],
             obj={"debug": False},
@@ -290,6 +290,7 @@ class TestExportExportConfig:
         call_kwargs = mock_export_onnx.call_args.kwargs
         config = call_kwargs["export_config"]
         assert config.enable_hierarchy_tags is False
+        assert "--clean-onnx is deprecated" in result.output
 
     def test_export_no_hierarchy_disables_hierarchy_tags(
         self,

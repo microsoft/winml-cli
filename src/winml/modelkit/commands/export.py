@@ -216,8 +216,13 @@ def export(
     from ..export import export_pytorch as export_onnx
     from ..loader import load_hf_model
 
-    if clean_onnx and not cli_utils.is_cli_provided(ctx, "hierarchy"):
-        hierarchy = False
+    if clean_onnx:
+        click.echo(
+            "warning: --clean-onnx is deprecated; use --no-hierarchy instead.",
+            err=True,
+        )
+        if not cli_utils.is_cli_provided(ctx, "hierarchy"):
+            hierarchy = False
 
     # Configure logging — stderr only, shared format with the rest of the CLI.
     configure_logging(verbosity=verbose, quiet=quiet)

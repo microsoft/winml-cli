@@ -151,14 +151,9 @@ class TestDefaultValues:
 class TestFlagValueParsing:
     """Verify that positive and negative flag forms set the correct values.
 
-    Uses a minimal Click invocation that captures ctx.params without running
-    the full command logic.
+    Uses Click's make_context with resilient_parsing to parse flags and inspect
+    ctx.params directly, without running the full command logic.
     """
-
-    @pytest.fixture
-    def _capture_params(self):
-        """Return a dict that will be populated with captured params."""
-        return {}
 
     @pytest.mark.parametrize(
         ("command", "flag", "param_name", "expected_value"),
@@ -212,30 +207,12 @@ class TestFlagValueParsing:
     def test_flag_sets_expected_value(
         self, command, flag: str, param_name: str, expected_value
     ) -> None:
-        """Verify each flag form correctly sets its parameter value."""
-        # Use --help trick: invoke with the flag + --help so the command
-        # doesn't actually run but Click still parses the flag.
-        # Instead, we inspect Click's param parsing directly.
-        runner = CliRunner()
-        # We only need to confirm Click accepts the flag without error.
-        # Invoke with --help after the flag to avoid missing required args.
-        result = runner.invoke(command, [flag, "--help"])
-        assert result.exit_code == 0, f"{flag} failed: {result.output}"
+        """Verify each flag form correctly sets its parameter value via make_context."""
+        import click as _click
 
-        # Also verify via Click's internal parameter resolution that the
-        # flag actually maps to the expected param.
-        found = False
-        for param in command.params:
-            if param.name == param_name:
-                found = True
-                # For boolean flag pairs, check that the flag string appears
-                # in either the primary or secondary opts
-                all_opts = list(param.opts) + list(param.secondary_opts)
-                # The flag or its bare form should be recognized
-                flag_bare = flag.lstrip("-")
-                assert (
-                    any(flag_bare in opt.lstrip("-") for opt in all_opts)
-                    or param.name == param_name
-                )
-                break
-        assert found, f"Param {param_name!r} not found on {command.name}"
+        ctx = _click.Context(command, info_name=command.name, resilient_parsing=True)
+        command.parse_args(ctx, [flag])
+        assert ctx.params[param_name] is expected_value, (
+            f"Expected {command.name} {flag} to set {param_name}={expected_value!r}, "
+            f"got {ctx.params[param_name]!r}"
+        )
