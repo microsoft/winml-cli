@@ -81,6 +81,15 @@ normal workflow is `winml build`, which orchestrates the full pipeline in a sing
 command:
 
 ```bash
+winml build -m microsoft/resnet-50 -o output/
+```
+
+The `-c config.json` flag is optional. If omitted, `winml build` auto-generates a
+default config internally. To customize pipeline settings, generate a config first
+with `winml config` and then pass it:
+
+```bash
+winml config -m microsoft/resnet-50 -o config.json
 winml build -c config.json -m microsoft/resnet-50 -o output/
 ```
 
@@ -93,10 +102,10 @@ Individual stages can be bypassed from the command line without editing the conf
 
 ```bash
 # Skip quantization and compilation
-winml build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
+winml build -m bert-base-uncased -o output/ --no-quant --no-compile
 
 # Skip optimization (for pre-quantized input)
-winml build -c config.json -m model_qdq.onnx -o output/ --no-optimize
+winml build -m model_qdq.onnx -o output/ --no-optimize
 ```
 
 ## Configuration: `WinMLBuildConfig` vs CLI Flags
