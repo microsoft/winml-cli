@@ -677,8 +677,9 @@ def evaluate_model(
     task = model_entry.get("task", "")
     model_type = model_entry.get("model_type", "")
 
-    # Non-NPU devices: skip quantize entirely
-    if device.upper() != "NPU":
+    # Non-NPU devices: skip quantize by default (user can still force with explicit flags)
+    if device.upper() != "NPU" and run_quantize:
+        safe_print("  [Note] Non-NPU device: skipping quantize (use --device npu to enable)")
         run_quantize = False
 
     safe_print(f"\n{'=' * 60}")

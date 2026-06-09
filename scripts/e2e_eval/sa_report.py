@@ -200,7 +200,10 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
     # Perf gain summary stats (from viewer_data)
     # "final" perf = compiled if available, else quantized
     def _final_perf(d: dict) -> float | None:
-        return d.get("perf_compiled_mean") or d.get("perf_quantized_mean")
+        v = d.get("perf_compiled_mean")
+        if v is not None:
+            return v
+        return d.get("perf_quantized_mean")
 
     n_unlocked = sum(
         1 for d in viewer_data if d["perf_exported_mean"] is None and _final_perf(d) is not None
@@ -212,7 +215,13 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
     ]
     avg_perf_gain = sum(gain_vals) / len(gain_vals) if gain_vals else None
     n_with_gain = sum(1 for g in gain_vals if g > 1)
-    gain_cls = "c-good" if avg_perf_gain and avg_perf_gain > 1 else "c-muted"
+    gain_cls = (
+        "c-good"
+        if avg_perf_gain is not None and avg_perf_gain > 1
+        else "c-bad"
+        if avg_perf_gain is not None and avg_perf_gain < -1
+        else "c-muted"
+    )
     avg_gain_str = f"{avg_perf_gain:+.1f}%" if avg_perf_gain is not None else "—"
 
     def _epctx_card(label: str, acc: float | None, n: int) -> str:
