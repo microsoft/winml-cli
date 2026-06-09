@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from .registry import DataRegistry
 
@@ -66,11 +66,11 @@ class ImageClassificationDataset:
             self.images.append(tensor.numpy())
             self.labels.append(0)  # Placeholder label
 
-    def __len__(self) -> int:
+    def __len__(self):
         """Return dataset length."""
         return min(len(self.images), len(self.labels))
 
-    def __getitem__(self, idx: int) -> dict[str, Any]:
+    def __getitem__(self, idx):
         """Get item by index.
 
         Args:

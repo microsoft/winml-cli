@@ -142,7 +142,6 @@ logger = logging.getLogger(__name__)
     help="Path to a Python script that builds the evaluation dataset.",
 )
 @cli_utils.trust_remote_code_option(optional_message="Required when --dataset-script is used.")
-@cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--schema",
     "show_schema",
@@ -187,7 +186,6 @@ def eval(
     quiet: bool,
     dataset_script: str | None,
     trust_remote_code: bool,
-    allow_unsupported_nodes: bool,
     show_schema: bool,
     mode: EvalMode,
     config_file: Path | None,

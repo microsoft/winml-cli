@@ -9,7 +9,6 @@ handle nodes with no scope (assign to root module).
 """
 
 from collections import defaultdict
-from typing import Any
 
 import onnx
 
@@ -70,7 +69,7 @@ def extract_scope_from_node(node: onnx.NodeProto) -> str:
     return scope_name if scope_name else "__root__"
 
 
-def demonstrate_bucketization() -> defaultdict[str, list[Any]]:
+def demonstrate_bucketization():
     """Demonstrate the bucketization process with examples."""
     # Example ONNX node names and their expected scopes
     example_nodes = [

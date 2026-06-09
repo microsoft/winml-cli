@@ -21,7 +21,7 @@ class DummyDataset(RandomDataset):
     and debugging.
     """
 
-    def _generate_data(self, shape: list[int], dtype: np.dtype) -> np.ndarray:
+    def _generate_data(self, shape, dtype):
         """Generate all-ones data for a given shape and dtype.
 
         Args:

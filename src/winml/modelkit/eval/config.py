@@ -115,7 +115,6 @@ class WinMLEvaluationConfig:
     device: str = "auto"
     precision: str = "auto"
     ep: EPNameOrAlias | None = None
-    allow_unsupported_nodes: bool = False
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
     mode: EvalMode = "onnx"
@@ -134,8 +133,6 @@ class WinMLEvaluationConfig:
             result["precision"] = self.precision
         if self.ep is not None:
             result["ep"] = self.ep
-        if self.allow_unsupported_nodes:
-            result["allow_unsupported_nodes"] = self.allow_unsupported_nodes
         result["dataset"] = self.dataset.to_dict()
         if self.output_path is not None:
             result["output_path"] = str(self.output_path)
@@ -167,7 +164,6 @@ class WinMLEvaluationConfig:
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),
             ep=data.get("ep"),
-            allow_unsupported_nodes=data.get("allow_unsupported_nodes", False),
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
             mode=data.get("mode", "onnx"),

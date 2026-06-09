@@ -4,8 +4,6 @@
 # --------------------------------------------------------------------------
 """Core utilities for WinML CLI."""
 
-from typing import Any
-
 from .model_input_generator import generate_dummy_inputs_from_specs
 from .node_metadata import (
     NodeMetadata,
@@ -40,7 +38,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str):
     """Lazy-load onnx_utils (imports torch at module level)."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]

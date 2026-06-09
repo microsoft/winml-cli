@@ -298,7 +298,6 @@ class InferenceEngine:
         task: str | None = None,
         device: str = "auto",
         ep: EPNameOrAlias | None = None,
-        allow_unsupported_nodes: bool = False,
     ) -> None:
         """Load model from model_path.
 
@@ -307,10 +306,6 @@ class InferenceEngine:
             task: Required when model_path is a raw .onnx file.
             device: "auto" | "cpu" | "gpu" | "npu".
             ep: Explicit EP short name (e.g. "dml", "qnn").  Overrides device.
-            allow_unsupported_nodes: If True, warn instead of raising when the
-                analyzer reports unsupported nodes during an HF build. Note: has
-                no effect when loading from a pre-built ONNX file or a cached
-                build directory (no build/analyze step runs in those paths).
         """
         self._model_path = str(model_path)
         self._device = device
@@ -335,25 +330,13 @@ class InferenceEngine:
                         path,
                         model_id,
                     )
-                    self._load_from_hf(
-                        model_id,
-                        task=task,
-                        device=device,
-                        ep=ep,
-                        allow_unsupported_nodes=allow_unsupported_nodes,
-                    )
+                    self._load_from_hf(model_id, task=task, device=device, ep=ep)
                 else:
                     raise
         elif path.suffix == ".onnx" and path.exists():
             self._load_from_onnx(path, task=task, device=device, ep=ep)
         else:
-            self._load_from_hf(
-                str(model_path),
-                task=task,
-                device=device,
-                ep=ep,
-                allow_unsupported_nodes=allow_unsupported_nodes,
-            )
+            self._load_from_hf(str(model_path), task=task, device=device, ep=ep)
 
         # Create HF pipeline for preprocess + postprocess
         self._pipeline = self._create_pipeline()
@@ -982,18 +965,11 @@ class InferenceEngine:
         task: str | None,
         device: str,
         ep: EPNameOrAlias | None,
-        allow_unsupported_nodes: bool = False,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 
         self._model_id = model_id
-        self._model = WinMLAutoModel.from_pretrained(
-            model_id,
-            task=task,
-            device=device,
-            ep=ep,
-            allow_unsupported_nodes=allow_unsupported_nodes,
-        )
+        self._model = WinMLAutoModel.from_pretrained(model_id, task=task, device=device, ep=ep)
         self._task = (
             task
             or getattr(self._model, "task", None)

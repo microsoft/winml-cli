@@ -220,7 +220,6 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         device=config.device,
         precision=config.precision,
         ep=config.ep,
-        allow_unsupported_nodes=config.allow_unsupported_nodes,
     )
 
 

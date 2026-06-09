@@ -109,7 +109,6 @@ class WinMLAutoModel:
         use_cache: bool = True,
         force_rebuild: bool = False,
         skip_build: bool = False,
-        allow_unsupported_nodes: bool = False,
         session_options: Any | None = None,
         hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
@@ -129,9 +128,6 @@ class WinMLAutoModel:
             cache_dir: Override cache directory.
             use_cache: Whether to use persistent cache.
             force_rebuild: Force rebuild even if cached.
-            allow_unsupported_nodes: If True, warn instead of raising when the
-                analyzer reports unsupported nodes during the build. Has no
-                effect when ``skip_build=True`` (no analyze step runs).
             hf_config: HF ``PretrainedConfig`` for composite (dict) dispatch only.
                 Required when ``onnx_path`` is a dict so the composite registry
                 lookup can resolve ``(model_type, task)``. Ignored for single-file
@@ -221,7 +217,6 @@ class WinMLAutoModel:
             rebuild=force_rebuild,
             ep=ep,
             device=device,
-            allow_unsupported_nodes=allow_unsupported_nodes,
             **kwargs,
         )
 
@@ -252,7 +247,6 @@ class WinMLAutoModel:
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
         no_compile: bool = False,
-        allow_unsupported_nodes: bool = False,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel:
         """Load appropriate WinML model based on task detection.
@@ -284,9 +278,6 @@ class WinMLAutoModel:
             shape_config: Shape overrides passed to generate_build_config().
                 Valid keys -- text: sequence_length; vision: height, width;
                 audio: feature_size, nb_max_frames, audio_sequence_length.
-            allow_unsupported_nodes: If True, warn instead of raising when the
-                analyzer reports unsupported nodes that persist; the build
-                proceeds and the EP may fall back to another device for them.
             **kwargs: Additional arguments
 
         Returns:
@@ -320,7 +311,6 @@ class WinMLAutoModel:
                 cache_dir=cache_dir,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
-                allow_unsupported_nodes=allow_unsupported_nodes,
                 **kwargs,
             )
 
@@ -358,7 +348,6 @@ class WinMLAutoModel:
                     precision=precision,
                     config=config,
                     cache_dir=cache_dir,
-                    allow_unsupported_nodes=allow_unsupported_nodes,
                     **kwargs,
                 )
 
@@ -442,7 +431,6 @@ class WinMLAutoModel:
             cache_key=cache_key,
             ep=resolved_ep,
             device=device,
-            allow_unsupported_nodes=allow_unsupported_nodes,
         )
         onnx_path = result.final_onnx_path
 

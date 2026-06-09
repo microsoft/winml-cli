@@ -63,7 +63,7 @@ class ONNXNodeTagger:
         self.model_root_tag = self._extract_model_root_tag()
 
         # Pre-compute scope lookup for efficiency
-        self.scope_to_tag: dict[str, str] = {
+        self.scope_to_tag = {
             module_name: module_info["traced_tag"]
             for module_name, module_info in hierarchy_data.items()
         }

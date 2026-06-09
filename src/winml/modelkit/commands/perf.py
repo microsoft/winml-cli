@@ -79,7 +79,6 @@ class BenchmarkConfig:
     no_quantize: bool = False
     rebuild: bool = False
     ignore_cache: bool = False
-    allow_unsupported_nodes: bool = False
     monitor: bool = False
     ep: EPNameOrAlias | None = None
     shape_config: dict | None = None
@@ -347,7 +346,6 @@ class PerfBenchmark:
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
             "shape_config": self.config.shape_config,
-            "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
         }
 
         if is_onnx:
@@ -527,7 +525,6 @@ def _perf_modules(
     device: str = "auto",
     ep: EPNameOrAlias | None = None,
     precision: str = "auto",
-    allow_unsupported_nodes: bool = False,
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
 
@@ -551,8 +548,6 @@ def _perf_modules(
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
             device-to-provider mapping when set.
         precision: Precision mode passed through to the build stage.
-        allow_unsupported_nodes: If True, warn instead of failing the build when
-            the analyzer reports unsupported nodes that persist.
     """
     import difflib
     import json as json_mod
@@ -649,7 +644,6 @@ def _perf_modules(
                     pytorch_model=submodule,
                     ep=ep,
                     device=resolved_device,
-                    allow_unsupported_nodes=allow_unsupported_nodes,
                 )
 
                 # Benchmark using WinMLSession
@@ -1179,7 +1173,6 @@ def _run_onnx_benchmark(
     default=False,
     help="Build from scratch in a temp folder (discard after benchmarking)",
 )
-@cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--module",
     "module_class",
@@ -1222,7 +1215,6 @@ def perf(
     no_quantize: bool,
     rebuild: bool,
     ignore_cache: bool,
-    allow_unsupported_nodes: bool,
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
@@ -1315,7 +1307,6 @@ def perf(
             device=device.lower(),
             ep=ep,
             precision=precision.lower(),
-            allow_unsupported_nodes=allow_unsupported_nodes,
         )
         return
 
@@ -1356,7 +1347,6 @@ def perf(
         no_quantize=no_quantize,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
-        allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
         ep=ep,
         shape_config=shape_config,

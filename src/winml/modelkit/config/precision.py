@@ -13,15 +13,12 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Literal
 
 from ..sysinfo import resolve_eps
 from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
 
 
 logger = logging.getLogger(__name__)
-
-QuantType = Literal["uint8", "int8", "uint16", "int16"]
 
 # Tasks where GPU auto-precision may differ (LLM = w4a16 recommendation)
 _LLM_TASKS = frozenset(
@@ -39,14 +36,14 @@ _AUTO_PRECISION: dict[str, str] = {
 }
 
 # Precision -> weight/activation type mapping (named presets)
-_WEIGHT_TYPE: dict[str, QuantType | None] = {
+_WEIGHT_TYPE: dict[str, str | None] = {
     "int8": "uint8",
     "int16": "int16",
     "fp16": None,
     "fp32": None,
 }
 
-_ACTIVATION_TYPE: dict[str, QuantType | None] = {
+_ACTIVATION_TYPE: dict[str, str | None] = {
     "int8": "uint8",
     "int16": "uint16",
     "fp16": None,
@@ -57,12 +54,12 @@ _ACTIVATION_TYPE: dict[str, QuantType | None] = {
 # Uses unsigned types by default (works for QNN EP).
 # TODO: If a future EP (e.g., OpenVINO) requires signed types (int8/int16),
 # add an EP-specific override layer keyed by compile_provider.
-_BITS_TO_WEIGHT_TYPE: dict[int, QuantType] = {
+_BITS_TO_WEIGHT_TYPE: dict[int, str] = {
     8: "uint8",
     16: "int16",
 }
 
-_BITS_TO_ACTIVATION_TYPE: dict[int, QuantType] = {
+_BITS_TO_ACTIVATION_TYPE: dict[int, str] = {
     8: "uint8",
     16: "uint16",
 }
@@ -77,7 +74,7 @@ _NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int8", "int16"})
 _MIXED_RE = re.compile(r"^w(\d+)a(\d+)$")
 
 
-def resolve_quant_types(precision: str) -> tuple[QuantType, QuantType]:
+def resolve_quant_types(precision: str) -> tuple[str, str]:
     """Resolve a precision string to (weight_type, activation_type).
 
     Handles both named presets ("int8", "int16") and mixed format ("w8a16").
@@ -97,7 +94,7 @@ def resolve_quant_types(precision: str) -> tuple[QuantType, QuantType]:
     # Named preset
     if p in _WEIGHT_TYPE:
         w, a = _WEIGHT_TYPE[p], _ACTIVATION_TYPE[p]
-        if w is None or a is None:
+        if w is None:
             raise ValueError(f"Precision '{precision}' is a float type — no quantization types.")
         return w, a
 
@@ -166,8 +163,8 @@ class PrecisionPolicy:
 
     device: str
     precision: str
-    weight_type: QuantType | None
-    activation_type: QuantType | None
+    weight_type: str | None
+    activation_type: str | None
     compile_provider: EPName | None
 
 

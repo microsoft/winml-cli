@@ -322,7 +322,6 @@ class TestRunCLI:
             task=None,
             device="auto",
             ep=None,
-            allow_unsupported_nodes=False,
         )
         engine.predict.assert_called_once_with(inputs={"text": "hello world"})
 
@@ -465,7 +464,6 @@ class TestRunCLI:
             task="image-classification",
             device="auto",
             ep=None,
-            allow_unsupported_nodes=False,
         )
 
     def test_device_and_ep_forwarded(self, runner: CliRunner) -> None:
@@ -492,7 +490,6 @@ class TestRunCLI:
             task=None,
             device="gpu",
             ep="qnn",
-            allow_unsupported_nodes=False,
         )
 
     # ---- -P / --param tests ----
