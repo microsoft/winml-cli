@@ -289,7 +289,7 @@ class WinMLEPRegistry:
                 if provider.library_path == "":
                     continue
                 self._ep_paths[cast("EPName", provider.name)] = provider.library_path
-                logger.debug("Found EP: %s at %s", provider.name, provider.library_path)
+                logger.info("Found EP: %s at %s", provider.name, provider.library_path)
 
     def register_to_ort(self) -> list[EPName]:
         """Register discovered EPs to ONNX Runtime.
