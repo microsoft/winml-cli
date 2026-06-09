@@ -1,5 +1,6 @@
 {
   "model_id": "google-bert/bert-base-uncased",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\google-bert_bert-base-uncased\\fill-mask_build_artifacts\\model.onnx",
   "task": "fill-mask",
   "device": "cpu",
   "ep": "cpu",

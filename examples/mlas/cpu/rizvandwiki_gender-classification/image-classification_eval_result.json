@@ -6,7 +6,7 @@
   "ep": "cpu",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "~/.cache/winml/eval_datasets/build_fairface",
@@ -17,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\rizvandwiki_gender-classification\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.85,
-    "total_time_in_seconds": 9.200266600120813,
-    "samples_per_second": 10.869250245279508,
-    "latency_in_seconds": 0.09200266600120811
+    "accuracy": 0.812,
+    "total_time_in_seconds": 89.14712180000788,
+    "samples_per_second": 11.217412069044629,
+    "latency_in_seconds": 0.08914712180000789
   }
 }

@@ -1,10 +1,12 @@
 {
   "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\sentence-transformers_all-MiniLM-L6-v2\\feature-extraction_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "cpu",
+  "ep": "cpu",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -16,6 +18,6 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\sentence-transformers_all-MiniLM-L6-v2\\feature-extraction_eval_result.json",
   "metrics": {
-    "cosine_spearman": 81.3502
+    "cosine_spearman": 81.9722
   }
 }

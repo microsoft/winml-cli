@@ -14,8 +14,8 @@
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\microsoft_swinv2-tiny-patch4-window16-256\\image-classification_eval_result.json",
   "metrics": {
     "accuracy": 0.78,
-    "total_time_in_seconds": 10.550358799984679,
-    "samples_per_second": 9.47835063203208,
-    "latency_in_seconds": 0.10550358799984678
+    "total_time_in_seconds": 10.181282200006535,
+    "samples_per_second": 9.821945609162647,
+    "latency_in_seconds": 0.10181282200006535
   }
 }
