@@ -10,7 +10,7 @@ For EPs that are fully integrated into ONNX Runtime — CPU, DirectML, and simil
 
 For EPs that support ahead-of-time compilation (e.g. `--ep qnn` for Qualcomm NPUs and `--ep vitisai` for AMD NPUs), the compiler goes further. It takes the ONNX graph and produces a binary artifact — the **EP context blob** — that encodes the fully compiled, hardware-ready version of the network. This blob is then associated with the ONNX model file. On subsequent loads, the EP reads the blob rather than re-compiling the graph, which makes session creation dramatically faster.
 
-The default compiler backend is `ort` — it uses ONNX Runtime's built-in EP context generation to produce the compiled blob, with no external SDK required.
+The default compiler backend is `ort` (ONNX Runtime).
 
 ## Embedded vs external EPContext
 
