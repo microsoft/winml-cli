@@ -1,6 +1,6 @@
 # winml sys
 
-> Inspect your machine — devices, EPs, SDKs, runtime versions at a glance.
+> Inspect your machine — devices, EPs, and runtime versions at a glance.
 
 ## When to use this
 
@@ -21,7 +21,7 @@ $ winml sys [options]
 | `--format` | `-f` | `text` \| `json` \| `compact` | `text` | Output format. `text` renders rich tables, `json` emits machine-readable JSON, `compact` prints a single-line summary. |
 | `--list-device` | — | flag | `false` | List available compute devices (NPU, GPU, CPU) in priority order instead of showing the full system report. |
 | `--list-ep` | — | flag | `false` | List available ONNX Runtime execution providers instead of showing the full system report. Can be combined with `--list-device`. |
-| `--verbose` | `-v` | flag | `false` | Surface additional diagnostic sections: Backend SDKs and Export Readiness. |
+| `--verbose` | `-v` | flag | `false` | Surface additional diagnostic sections: backend availability and Export Readiness. |
 | `--help` | `-h` | flag | — | Show help and exit. |
 
 > `winml sys` takes no `--model`, `--device`, `--ep`, `--task`, or `--precision`
@@ -31,10 +31,10 @@ $ winml sys [options]
 
 `winml sys` queries Python's `platform` and `importlib.metadata` modules to report
 library versions, then probes PyTorch for CUDA availability and GPU device names.
-Backend SDK detection checks for `QNN_SDK_ROOT` / `QAIRT_SDK_ROOT` environment
-variables (QNN) and attempts to import `openvino` (OpenVINO). Device enumeration
-queries hardware directly in NPU > GPU > CPU priority order, while EP enumeration
-merges the WinML EP registry with ONNX Runtime's `get_available_providers()`. When
+Backend availability checks use the installed runtime environment, while device
+enumeration queries hardware directly in NPU > GPU > CPU priority order, and EP
+enumeration merges the WinML EP registry with ONNX Runtime's
+`get_available_providers()`. When
 `--format json` is used the full report — including devices and EPs — is emitted as
 a single JSON object, making it easy to capture in CI pipelines.
 
@@ -96,10 +96,6 @@ $ winml sys --list-ep --format json
 
 ## Common pitfalls
 
-- **QNN SDK not found even though it is installed.** The detection relies on the
-  `QNN_SDK_ROOT` or `QAIRT_SDK_ROOT` environment variables. If neither is set,
-  `winml sys` will report the SDK as absent even if the binaries exist on disk.
-  Set the variable and re-run.
 - **`--list-device` and `--list-ep` suppress the full report.** When either flag is
   present, only the requested section is printed. Omit both flags to see the
   complete system report.

@@ -65,7 +65,7 @@ Available Execution Providers
   CPUExecutionProvider           -> CPU
 ```
 
-This command enumerates available compute devices and execution providers on your machine. If an expected device or SDK is missing, `winml sys` is the right place to diagnose it. See [winml sys](../commands/sys.md) for the full flag reference and troubleshooting tips.
+This command enumerates available compute devices and execution providers on your machine. If an expected device or execution provider is missing, `winml sys` is the right place to diagnose it. See [winml sys](../commands/sys.md) for the full flag reference and troubleshooting tips.
 
 ## Next steps
 

@@ -23,10 +23,8 @@ reading from that device.
     To target an NPU you also need:
 
     - A device with an NPU (e.g., Qualcomm Snapdragon X, Intel Core Ultra)
-    - `--extra qnn` installed (for Qualcomm NPU, Python 3.11+)
-    - Only if using `--compiler qairt`: QAIRT SDK installed with `QNN_SDK_ROOT` env var set. The default `--compiler ort` does not require any external SDK.
 
-    Everything else on this page works without these.
+    Everything else on this page works without it.
 
 ## Step 0: See what your machine has
 
@@ -109,11 +107,6 @@ or `--rebuild` to force re-running even when cached artifacts exist. For a
 deeper look at how each stage works, see
 [Concepts → How winml-cli works](../concepts/how-it-works.md) and
 [Config and Build](../concepts/config-and-build.md).
-
-!!! warning "NPU users"
-    `winml build` reads `QNN_SDK_ROOT` from the environment. Make sure it
-    points at your QAIRT SDK before this step, or the compile stage will fail
-    with *"QAIRT SDK path not found"*.
 
 ## Step 3: Benchmark on your device
 

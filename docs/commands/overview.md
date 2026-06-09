@@ -23,7 +23,7 @@ measure speed and accuracy.
 
 | Command | Group | Purpose |
 |---|---|---|
-| [`sys`](sys.md) | Discover | Inspect your machine — devices, EPs, SDKs, runtime versions at a glance. |
+| [`sys`](sys.md) | Discover | Inspect your machine — devices, EPs, and runtime versions at a glance. |
 | [`inspect`](inspect.md) | Discover | Inspect a model's tasks, classes, and hierarchy before committing to an export. |
 | [`catalog`](catalog.md) | Discover | Browse the curated winml-cli catalog of validated models and benchmarks. |
 | [`analyze`](analyze.md) | Discover | Verify an ONNX model is compatible with a target execution provider before deployment. |

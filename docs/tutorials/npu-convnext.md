@@ -21,8 +21,6 @@ The tutorial is split into two sections. Section A runs through eight primitive 
 - **Copilot+PC with NPU** — 40+ TOPS recommended; CPU and DirectML work as fallback throughout
 - **Python 3.11** and **uv** installed (`pip install uv` or follow [astral.sh/uv](https://astral.sh/uv))
 - **winml-cli** installed — see [Installation](../getting-started/installation.md)
-- **For QNN (Snapdragon NPU):** QAIRT SDK installed and `QNN_SDK_ROOT` set to its root directory
-- **For OpenVINO (Intel CPU/GPU/NPU):** OpenVINO runtime installed and registered as an ONNX Runtime EP
 
 > No NPU? Set `--device cpu` wherever you see `--device npu` and drop `--monitor` from perf commands. Every other flag stays the same.
 
@@ -140,24 +138,16 @@ The quantizer generates 32 random calibration samples, runs them through the mod
 
 ### Step 7: Compile for the target EP
 
-Compilation converts the portable quantized ONNX into an EP-specific binary format that the execution provider can load directly, skipping JIT compilation at inference time. This is the step that produces a device-locked artifact — the output is tied to the specific EP and, for QNN, to the QNN SDK version.
+Compilation converts the portable quantized ONNX into an EP-specific binary format that the execution provider can load directly, skipping JIT compilation at inference time. This is the step that produces a device-locked artifact tied to the selected EP.
 
-Two compiler backends are available:
+The examples below use the default compiler backend:
 
-- **`--compiler ort`** (default) — uses ONNX Runtime's built-in EP context compiler. Works for QNN and OpenVINO targets without needing the vendor SDK on the build machine (the ORT package bundles the necessary libraries).
-- **`--compiler qairt`** — uses the QAIRT SDK's offline compiler directly. Requires `QNN_SDK_ROOT` to point at a local QAIRT SDK installation. Produces the same EPContext output but goes through Qualcomm's native toolchain.
+- **`--compiler ort`** (default) — uses ONNX Runtime's built-in EP context compiler.
 
 === "QNN via ORT (default)"
 
     ```bash
     uv run winml compile -m convnext_int8.onnx --device npu
-    ```
-
-=== "QNN via QAIRT SDK"
-
-    ```bash
-    # Requires QNN_SDK_ROOT env var set to your QAIRT SDK root
-    uv run winml compile -m convnext_int8.onnx --device npu --compiler qairt
     ```
 
 === "OpenVINO (Intel CPU/GPU/NPU)"
@@ -169,7 +159,7 @@ Two compiler backends are available:
 The compiled output file appears in the same directory as the input model. The file name follows the pattern `convnext_int8_npu_ctx.onnx` (using the resolved device string `npu`, not the EP name) and an accompanying `.bin` context binary is written alongside it (unless `--embed` is passed, which embeds the binary inside the ONNX file). CPU builds do not produce a new artifact — the compile step validates EP compatibility but writes no output file; use `convnext_int8.onnx` directly for CPU inference.
 
 !!! note "What we just did"
-    Compilation embeds EP context — the compiled binary — inside or alongside the ONNX file using the `EPContext` node convention. At inference time the runtime loads the pre-compiled binary directly rather than re-compiling from the ONNX graph, eliminating the 15–60 second JIT penalty on first load. The default `--compiler ort` backend bundles compilation within ONNX Runtime itself. The `--compiler qairt` backend calls the QAIRT SDK directly and requires `QNN_SDK_ROOT` (set as an environment variable, or passed with `--qnn-sdk-root` on `winml compile`). `winml build` reads only the env var. See [Concepts → Compile and EPContext](../concepts/compile-and-epcontext.md) for the full picture of what gets embedded and how the context is consumed at runtime.
+    Compilation embeds EP context — the compiled binary — inside or alongside the ONNX file using the `EPContext` node convention. At inference time the runtime loads the pre-compiled binary directly rather than re-compiling from the ONNX graph, eliminating the 15–60 second JIT penalty on first load. The default `--compiler ort` backend bundles compilation within ONNX Runtime itself. See [Concepts → Compile and EPContext](../concepts/compile-and-epcontext.md) for the full picture of what gets embedded and how the context is consumed at runtime.
 
 ---
 
@@ -259,7 +249,7 @@ uv run winml build -c convnext_config.json -m facebook/convnext-tiny-224 -o conv
 ```
 
 !!! note "What we just did"
-    `winml build` is the production workflow. It guarantees that stages run in the correct order, passes intermediate artifacts through the pipeline automatically, and records which stages completed or were skipped in the result summary. The config file you pass with `-c` fully specifies the device target, precision, and EP — so you get an NPU-targeted INT8 compiled model without needing to repeat those flags on every primitive command. The QNN SDK path is read from the `QNN_SDK_ROOT` environment variable, not from the config or CLI flags.
+    `winml build` is the production workflow. It guarantees that stages run in the correct order, passes intermediate artifacts through the pipeline automatically, and records which stages completed or were skipped in the result summary. The config file you pass with `-c` fully specifies the device target, precision, and EP — so you get an NPU-targeted INT8 compiled model without needing to repeat those flags on every primitive command.
 
 Once the build completes, benchmark the final artifact from `convnext_out/`:
 

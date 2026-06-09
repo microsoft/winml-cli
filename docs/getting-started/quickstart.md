@@ -15,7 +15,7 @@ uv run winml sys --list-device --list-ep
 ```
 
 `--list-device` and `--list-ep` print only the hardware and EP inventory,
-skipping SDK versions and Python environment details that plain `winml sys`
+skipping runtime-version and Python environment details that plain `winml sys`
 would include. If the command exits without error, your winml-cli install is
 ready. See [`winml sys`](../commands/sys.md) for the full flag reference.
 

@@ -28,7 +28,7 @@ When end-to-end latency is higher than expected, per-operator tracing lets you f
 
 `--op-tracing detail` goes further, collecting timing for every individual operator node in the graph. This is useful when the same operator type appears in different parts of the model with very different costs — for instance, early-layer convolutions versus late-layer convolutions in a ResNet-style architecture.
 
-Both levels require an `onnxruntime-qnn` build with profiling support. If the requirement is not met, `winml-cli` will tell you at startup rather than silently running without tracing.
+If tracing is unavailable, `winml-cli` will tell you at startup rather than silently running without tracing.
 
 ## Per-module benchmarking
 

@@ -14,8 +14,6 @@ The tutorial is split into two sections. Section A walks through the analyze →
 - **Python 3.11** and **uv** installed (`pip install uv` or follow [astral.sh/uv](https://astral.sh/uv))
 - **winml-cli** installed — see [Installation](../getting-started/installation.md)
 - **An ONNX model file** — this tutorial uses `my_model.onnx` as a placeholder; substitute your own file
-- **For QNN (Snapdragon NPU):** QAIRT SDK installed and `QNN_SDK_ROOT` set to its root directory
-- **For OpenVINO (Intel CPU/GPU/NPU):** OpenVINO runtime installed and registered as an ONNX Runtime EP
 
 > No NPU? Set `--device cpu` wherever you see `--device npu`. Every other flag stays the same.
 
@@ -151,7 +149,7 @@ If your target is NPU deployment, continue the pipeline with quantization and co
 # Quantize (INT8, QDQ format)
 uv run winml quantize -m my_model_optimized.onnx -o my_model_int8.onnx --precision int8 --samples 32
 
-# Compile for NPU (default --compiler ort; use --compiler qairt for QAIRT SDK)
+# Compile for NPU
 uv run winml compile -m my_model_int8.onnx --device npu
 ```
 
@@ -229,7 +227,7 @@ By default when auto-generating config (no `-c` flag):
 Override flags:
 
 - `--no-quant` — force skip quantization (even on NPU)
-- `--compile` — force enable compilation (requires EP SDK)
+- `--compile` — force enable compilation
 - `--no-compile` — force skip compilation (default when no config file)
 
 ```bash
@@ -284,7 +282,7 @@ print(f"Final model: {result.final_onnx_path}")
 | Analyzer reports unsupported ops | Check if an optimization fusion resolves them; if not, the model needs modification for that EP |
 | Optimization loop doesn't converge | The default max is 3 iterations; if patterns persist, they may not be fusible — use `--no-quant --no-compile` and inspect |
 | Quantization accuracy regression | Try `--precision int16`, `--per-channel`, or increase `--samples` for better calibration |
-| EP compilation fails | Ensure the target EP SDK is installed (`QNN_SDK_ROOT` for QNN, OpenVINO runtime for Intel) |
+| EP compilation fails | Check the selected EP, model compatibility, and target device availability |
 | Model too large for memory | Use `--no-compile` and compile on the target device |
 
 ---

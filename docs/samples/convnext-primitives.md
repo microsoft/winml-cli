@@ -13,7 +13,6 @@ This walkthrough drives the full pipeline using the primitive commands directly:
 
 - winml-cli installed and `winml` available on your PATH — see [Installation](../getting-started/installation.md).
 - Internet access so HuggingFace Hub can download the model weights on first run.
-- Optional: QNN SDK installed on a Snapdragon Copilot+ PC for the NPU section.
 
 ## Step 1: Inspect the model
 
@@ -84,7 +83,7 @@ Saved: convnext_int8.onnx
 
 ## Step 5: Compile for each EP
 
-Compilation pre-bakes an EP-specific binary cache into the ONNX graph so the runtime can skip per-session JIT compilation. Two compiler backends are available: `ort` (default, uses ONNX Runtime's built-in compiler) and `qairt` (uses the QAIRT SDK's offline compiler directly). Pass `--compiler qairt` if you have the QAIRT SDK and want direct QNN compilation.
+Compilation pre-bakes an EP-specific binary cache into the ONNX graph so the runtime can skip per-session JIT compilation. The examples below use the default `ort` compiler backend, which uses ONNX Runtime's built-in compiler.
 
 === "CPU"
 
@@ -104,15 +103,8 @@ Compilation pre-bakes an EP-specific binary cache into the ONNX graph so the run
     winml compile -m convnext_int8.onnx --output-dir . --device npu
     ```
 
-=== "NPU (QAIRT SDK)"
-
-    ```bash
-    # Requires QNN_SDK_ROOT env var or --qnn-sdk-root
-    winml compile -m convnext_int8.onnx --output-dir . --device npu --compiler qairt --qnn-sdk-root <path-to-qnn-sdk>
-    ```
-
-!!! note "NPU compiler backends"
-    The default `--compiler ort` backend uses ONNX Runtime's built-in QNN compilation — no separate SDK installation is needed. The `--compiler qairt` backend calls the QAIRT SDK's offline compiler directly and requires either `--qnn-sdk-root` or the `QNN_SDK_ROOT` environment variable. Both produce the same EPContext output format. For a full explanation of how EPs relate to device targets see [ONNX & Execution Providers](../concepts/eps-and-devices.md).
+!!! note "NPU compiler backend"
+    The default `--compiler ort` backend uses ONNX Runtime's built-in compilation. For a full explanation of how EPs relate to device targets see [ONNX & Execution Providers](../concepts/eps-and-devices.md).
 
 Only the NPU invocation writes a new compiled artifact — `convnext_int8_npu_ctx.onnx` — which contains an EPContext node embedding the pre-compiled binary. CPU and GPU compile with `enable_ep_context=False` by default: the compile step validates the model against the target EP but does not produce a new file. For CPU and GPU perf benchmarks (Step 6), use the quantized `convnext_int8.onnx` directly.
 
@@ -180,4 +172,4 @@ To compare quantized accuracy against the floating-point baseline, run the same 
 - [BERT — Config + Build + Perf](bert-config-build.md) — the same pipeline driven through `winml build` with a config file
 - [How winml-cli Works](../concepts/how-it-works.md) — pipeline overview and stage descriptions
 - [Quantization & QDQ](../concepts/quantization.md) — calibration methods and accuracy trade-offs
-- [ONNX & Execution Providers](../concepts/eps-and-devices.md) — EP selection, device flags, and QNN SDK setup
+- [ONNX & Execution Providers](../concepts/eps-and-devices.md) — EP selection and device flags

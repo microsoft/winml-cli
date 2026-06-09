@@ -24,7 +24,7 @@ $ winml compile [options]
 | `--ep` | | choice | `None` | Force a specific execution provider, overriding device-to-provider mapping. Choices: `cpu`, `cuda`, `dml`, `migraphx`, `openvino`, `qnn`, `tensorrt`, `vitisai`. |
 | `--no-validate` | | flag | `false` | Skip validation of the compiled model after compilation. |
 | `--compiler` | | choice | `ort` | Compiler backend: `ort` (ONNX Runtime) or `qairt` (Qualcomm AI Runtime Tools). |
-| `--qnn-sdk-root` | | path | `None` | Path to the QAIRT/QNN SDK root directory. Required when `--compiler qairt` is set. |
+| `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |
 | `--embed` | | flag | `false` | Embed the EP context blob inside the ONNX file instead of writing a separate `.bin` file. |
 | `--list` | | flag | `false` | List available compiler backends for the selected device and exit without compiling. |
 | `--help` | `-h` | flag | | Show this message and exit. |
@@ -37,9 +37,8 @@ EP's offline compilation toolchain. When `--device auto` (the default), the
 target EP is determined by auto-detecting available hardware. For NPU targets,
 ONNX Runtime's QNN EP generates a binary `.bin` context file (or embeds it
 inline with `--embed`) that encodes the hardware-optimized execution plan,
-eliminating graph partitioning at load time. When `--compiler qairt` is used,
-the Qualcomm AI Runtime Tools SDK is invoked directly (requires `--qnn-sdk-root`).
-An optional post-compilation validation pass runs a forward pass through the
+eliminating graph partitioning at load time. An optional post-compilation
+validation pass runs a forward pass through the
 target EP; skip it with `--no-validate` when the target hardware is absent.
 
 ## Examples
@@ -78,18 +77,8 @@ winml compile -m bert-base-uncased_qdq.onnx --embed
 winml compile -m microsoft_resnet50.onnx --device gpu --ep migraphx
 ```
 
-```bash
-# Compile using the QAIRT SDK and skip post-compilation validation
-winml compile -m facebook_convnext_qdq.onnx \
-  --compiler qairt \
-  --qnn-sdk-root /opt/qnn-sdk \
-  --no-validate
-```
-
 ## Common pitfalls
 
-- **`--compiler qairt` requires `--qnn-sdk-root`.** Without a valid SDK path,
-  compilation will fail immediately with a missing-executable error.
 - **`--embed` inflates the `.onnx` file significantly.** Embedding the EP
   context produces a single portable file but can make it impractical to open or
   inspect the ONNX graph with standard tooling.

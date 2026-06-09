@@ -31,7 +31,6 @@ $ winml perf [options]
 | `--ignore-cache` | | flag | `false` | Build from scratch in a temporary folder and discard the artifact after benchmarking. Implies `--rebuild`. |
 | `--module` | | `TEXT` | — | PyTorch module class name for per-module benchmarking (e.g., `BertAttention`). Builds and times each matching instance separately. See [Load and export](../concepts/load-and-export.md). |
 | `--monitor` | | flag | `false` | Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. |
-| `--op-tracing` | | `basic\|detail` | — | *(Advanced, hidden=True)* Enable operator-level profiling. Requires `onnxruntime-qnn`. Hidden from `--help` by design; gated on QNN-only profiling support. |
 
 ## How it works
 
@@ -89,7 +88,6 @@ $ winml perf -m bert-base-uncased --module BertAttention --iterations 200
 
 - **Warm-up too low on NPU.** The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need `--warmup 30` or higher to reach steady-state latency.
 - **`--shape-config` is silently ignored in two cases.** It has no effect on pre-exported ONNX files (shapes are baked into the graph) and is ignored in `--module` mode. The command prints a warning in both situations.
-- **`--op-tracing` requires `onnxruntime-qnn`.** The flag activates the QNN profiler, which is only present in the `onnxruntime-qnn` package. If that package is not installed, the benchmark still runs but the op-trace step exits with an error.
 - **Random inputs do not represent real data distributions.** Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.
 - **Cross-device comparison.** To compare performance across devices, run `winml perf` separately with different `--device` values and compare the resulting JSON reports.
 

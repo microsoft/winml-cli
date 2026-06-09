@@ -10,7 +10,7 @@ For EPs that are fully integrated into ONNX Runtime — CPU, DirectML, and simil
 
 For QNN-family EPs (the `--ep qnn` and `--ep vitisai` targets used for NPU inference), the compiler goes further. QNN takes the ONNX graph and produces a binary artifact — the **EP context blob** — that encodes the fully compiled, hardware-ready version of the network. This blob is then associated with the ONNX model file. On subsequent loads, the QNN EP reads the blob rather than re-compiling the graph, which makes session creation dramatically faster.
 
-The default compiler backend is `ort` (ONNX Runtime). If you have a QAIRT SDK installed you can select `--compiler qairt` and point `--qnn-sdk-root` at the SDK root for direct QAIRT compilation instead.
+The default compiler backend is `ort` (ONNX Runtime).
 
 ## Embedded vs external EPContext
 
