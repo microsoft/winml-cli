@@ -327,7 +327,7 @@ def _run_perf(
     )
 
     cfg = captured["config"]
-    return {"ep": cfg.ep}
+    return {"ep": cfg.ep, "skip_build": cfg.skip_build}
 
 
 def _run_analyze(
@@ -746,6 +746,33 @@ class TestPerfPriority:
     @pytest.mark.parametrize("case", PERF_CASES, ids=lambda c: c.field)
     def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_perf, case, tmp_path)
+
+    # ------------------------------------------------------------------
+    # Targeted tests for the ``--skip-build/--no-skip-build`` toggle.
+    # Unlike ``ep``, ``skip_build`` has NO JSON config source: perf's merge
+    # block (perf.py) only reads ``task`` and ``execution_provider`` from
+    # the ``-c`` file, so ``skip_build`` flows CLI -> BenchmarkConfig
+    # directly with no Tier-2 path. That, plus the boolean flag not fitting
+    # the FieldCase ``[flag, value]`` shape, is why it's tested explicitly
+    # here rather than as a PERF_CASES FieldCase. These guard against a
+    # param-name mismatch in the ``perf()`` signature and against the CLI
+    # option default drifting from the BenchmarkConfig field default.
+    # ------------------------------------------------------------------
+
+    def test_skip_build_default_is_true(self, tmp_path: Path) -> None:
+        """No flag -> cfg.skip_build keeps the True default."""
+        eff = _run_perf([], None, tmp_path)
+        assert eff["skip_build"] is True
+
+    def test_no_skip_build_flag_sets_false(self, tmp_path: Path) -> None:
+        """``--no-skip-build`` -> cfg.skip_build is False."""
+        eff = _run_perf(["--no-skip-build"], None, tmp_path)
+        assert eff["skip_build"] is False
+
+    def test_skip_build_flag_sets_true(self, tmp_path: Path) -> None:
+        """``--skip-build`` -> cfg.skip_build is True."""
+        eff = _run_perf(["--skip-build"], None, tmp_path)
+        assert eff["skip_build"] is True
 
 
 class TestAnalyzePriority:

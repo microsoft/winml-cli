@@ -323,6 +323,7 @@ class InferenceEngine:
         """
         self._model_path = str(model_path)
         self._ep = ep
+        self._device = device
         self._load_start = time.time()
 
         path = Path(model_path)
