@@ -241,10 +241,13 @@ def cleanup_onnx_artifacts(model_dir: Path) -> None:
     Removes all non-JSON files including ``*.onnx``, ``*.onnx.data``,
     ``*.bin``, and extensionless ONNX external data files (e.g. weight
     tensors like ``roberta.embeddings.word_embeddings.weight``).
+    Also cleans up stray ``.data`` files in the current working directory
+    left by ``winml build``'s export step (external data overflow).
     JSON result files and perf logs are preserved so --report-only and
     --use-cache still work for the JSON-driven stages.
     """
     freed = 0
+    # Clean model_dir (recurse into subdirs)
     for f in model_dir.rglob("*"):
         if f.is_file() and f.suffix != ".json":
             try:
@@ -253,6 +256,14 @@ def cleanup_onnx_artifacts(model_dir: Path) -> None:
                 freed += size
             except OSError:
                 pass  # File may be locked by a subprocess; skip it
+    # Clean stray .data files in cwd (written by winml export for large models)
+    for f in Path.cwd().glob("*.data"):
+        try:
+            size = f.stat().st_size
+            f.unlink()
+            freed += size
+        except OSError:
+            pass  # File may be locked; skip it
     safe_print(f"  [cleanup] Freed {freed / 1024**2:.1f} MB of artifacts")
 
 
@@ -708,7 +719,7 @@ def evaluate_model(
         run_quantize=run_quantize,
     )
     if skip_reason:
-        return _skip_result(hf_id, task, model_type, skip_reason, model_dir)
+        return _skip_result(hf_id, task, model_type, skip_reason, model_dir, cleanup=cleanup)
 
     export_path = model_dir / "export.onnx"
     optimized_path = model_dir / "optimized.onnx"
@@ -746,12 +757,12 @@ def evaluate_model(
 
     # Stage 3: Baseline graph optimization (no SA flags) → graph_optimized.onnx
     if not stage_graph_optimize(model_dir, use_cache):
-        return _skip_result(hf_id, task, model_type, "SKIP_GRAPH_OPT", model_dir)
+        return _skip_result(hf_id, task, model_type, "SKIP_GRAPH_OPT", model_dir, cleanup=cleanup)
 
     # Stage 4: SA pre-check (on graph_optimized.onnx — baseline, before SA optimization)
     pre_result = stage_sa_pre(model_dir, use_cache, ep=ep, device=device)
     if pre_result is None:
-        return _skip_result(hf_id, task, model_type, "SKIP_SA_PRE", model_dir)
+        return _skip_result(hf_id, task, model_type, "SKIP_SA_PRE", model_dir, cleanup=cleanup)
     sa_pre, pre_info_items = pre_result
 
     # Stage 5: Compile baseline model for PRE EPCTX diff
@@ -765,7 +776,7 @@ def evaluate_model(
     # Stage 7: SA post-check (on optimized.onnx — after SA optimization)
     post_result = stage_sa_post(model_dir, use_cache, ep=ep, device=device)
     if post_result is None:
-        return _skip_result(hf_id, task, model_type, "SKIP_SA_POST", model_dir)
+        return _skip_result(hf_id, task, model_type, "SKIP_SA_POST", model_dir, cleanup=cleanup)
     sa_post, post_info_items = post_result
 
     # Read optimization flags from winml_build_config.json
@@ -925,11 +936,15 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None) -> bool:
     return not (not retry_types or status in retry_types)
 
 
-def _skip_result(hf_id: str, task: str, model_type: str, status: str, model_dir: Path) -> dict:
+def _skip_result(
+    hf_id: str, task: str, model_type: str, status: str, model_dir: Path, cleanup: bool = False
+) -> dict:
     result = {"model": hf_id, "task": task, "model_type": model_type, "status": status}
     (model_dir / "sa_eval_result.json").write_text(
         json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    if cleanup:
+        cleanup_onnx_artifacts(model_dir)
     return result
 
 
