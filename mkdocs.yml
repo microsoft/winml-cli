@@ -105,12 +105,12 @@ nav:
           - sys: commands/sys.md
           - inspect: commands/inspect.md
           - catalog: commands/catalog.md
-          - analyze: commands/analyze.md
       - Configure:
           - config: commands/config.md
-          - optimize: commands/optimize.md
       - Build:
           - export: commands/export.md
+          - analyze: commands/analyze.md
+          - optimize: commands/optimize.md
           - quantize: commands/quantize.md
           - compile: commands/compile.md
           - build: commands/build.md

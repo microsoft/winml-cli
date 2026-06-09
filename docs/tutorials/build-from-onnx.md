@@ -43,28 +43,9 @@ The output shows per-EP compatibility results:
 
 ```text
 ══════════════════════════════════════════════════════════════════════════
-📊 OP CHECK
+ ANALYSIS SUMMARY
 ══════════════════════════════════════════════════════════════════════════
-   📚 Model: my_model.onnx
-   🔺 Opset: 17  Producer: pytorch v2.12.0
-   📏 Operators: 122 total, 7 unique types
-   🏗️ Analysis targets: QNNExecutionProvider (NPU), QNNExecutionProvider (GPU)
-────────────────────────────────────────────────────────────────────────
-👻 EP 1: QNNExecutionProvider on NPU
-────────────────────────────────────────────────────────────────────────
- Op Type                       S/P/U/Unk
- 🃓 Conv (53)                  53/0/0/0
- 🃓 Relu (49)                  49/0/0/0
- 🃓 Add (16)                   16/0/0/0
- 🃓 MaxPool (1)                1/0/0/0
- 🃓 GlobalAveragePool (1)      1/0/0/0
- 🃓 Flatten (1)                1/0/0/0
- 🃓 Gemm (1)                   1/0/0/0
- TOTAL (122)                   122/0/0/0
-══════════════════════════════════════════════════════════════════════════
-📊 ANALYSIS SUMMARY
-══════════════════════════════════════════════════════════════════════════
-   🃓 QNNExecutionProvider (NPU): 122/0/0/0
+   QNNExecutionProvider (NPU): 122/0/0/0
       Ready to deploy
 ```
 
@@ -75,7 +56,7 @@ If the analyzer detects fusible patterns (GeLU, LayerNorm, etc.), they will appe
 
 ---
 
-### Step 2: Optimize with the generated config
+### Step 2: Optimize the graph
 
 Pass the analyzer's output config directly to the optimizer:
 
@@ -83,14 +64,11 @@ Pass the analyzer's output config directly to the optimizer:
 uv run winml optimize -m my_model.onnx -c optim_config.json -o my_model_optimized.onnx
 ```
 
-The optimizer applies the fusions specified in the config. Output:
+The optimizer applies the fusions specified in the config and reports how many nodes it reduced:
 
 ```text
 Input: my_model.onnx
 Output: my_model_optimized.onnx
-Loading model...
-Running optimizer...
-Saving optimized model...
 
 Success! Model optimized: my_model_optimized.onnx
 Nodes: 122 -> 122 (0.0% reduction)
@@ -98,12 +76,6 @@ Nodes: 122 -> 122 (0.0% reduction)
 
 !!! tip
     The node reduction depends on your model's architecture. Simple models like ResNet (only Conv, Relu, Add) have no fusible patterns. Transformer-based models (BERT, ViT) typically see 10–30% node reduction from GeLU, LayerNorm, and Attention fusions.
-
-To see all available optimization capabilities:
-
-```bash
-uv run winml optimize --list-capabilities
-```
 
 !!! note "What we just did"
     Graph optimization fuses multi-node patterns (like the 5-node GeLU/Erf sequence) into single high-level operators that EPs can execute more efficiently. The optimizer is purely a graph transformation — it doesn't change the model's numerical behavior or require calibration data. Running it before quantization is important: calibration should be performed on the already-fused topology, not the verbose original graph.
@@ -125,39 +97,72 @@ If the original analysis found fusible patterns that were optimized away, this r
 
 ---
 
-### Step 4: Benchmark the optimized model
+### Step 4 (optional): Quantize
 
-Measure the performance improvement from optimization:
-
-```bash
-uv run winml perf -m my_model_optimized.onnx --device cpu --warmup 5 --iterations 50
-```
-
-For NPU (if you have the compiled model from a later step):
+Insert QDQ (Quantize-Dequantize) nodes into the optimized graph using static calibration:
 
 ```bash
-uv run winml perf -m my_model_optimized.onnx --device npu --warmup 5 --iterations 50
+uv run winml quantize -m my_model_optimized.onnx -o my_model_int8.onnx --precision int8 --samples 32
 ```
+
+The quantizer generates 32 random calibration samples, runs them through the model to collect activation statistics, and uses those statistics to set the quantization scale and zero-point for each tensor.
+
+!!! note "What we just did"
+    `--precision int8` sets both weights and activations to 8-bit integers, which is the precision most NPU compilers expect. The output model still contains standard `QuantizeLinear` and `DequantizeLinear` ONNX nodes, so it is portable and can run on any ONNX Runtime backend. See [Concepts → Quantization and QDQ](../concepts/quantization.md) for calibration methods and per-channel options.
 
 ---
 
-### Step 5 (optional): Quantize and compile for NPU
+### Step 5 (optional): Compile for the target EP
 
-If your target is NPU deployment, continue the pipeline with quantization and compilation:
+Compilation converts the portable quantized ONNX into an EP-specific binary format that the execution provider can load directly, skipping JIT compilation at inference time:
 
-```bash
-# Quantize (INT8, QDQ format)
-uv run winml quantize -m my_model_optimized.onnx -o my_model_int8.onnx --precision int8 --samples 32
+=== "Qualcomm NPU"
 
-# Compile for NPU
-uv run winml compile -m my_model_int8.onnx --device npu
-```
+    ```bash
+    uv run winml compile -m my_model_int8.onnx --device npu --ep qnn
+    ```
 
-Then benchmark the final compiled artifact:
+=== "Intel NPU"
 
-```bash
-uv run winml perf -m my_model_int8_npu_ctx.onnx --device npu --iterations 50 --monitor
-```
+    ```bash
+    uv run winml compile -m my_model_int8.onnx --device npu --ep openvino
+    ```
+
+=== "AMD NPU"
+
+    ```bash
+    uv run winml compile -m my_model_int8.onnx --device npu --ep vitisai
+    ```
+
+=== "CPU"
+
+    ```bash
+    uv run winml compile -m my_model_int8.onnx --device cpu
+    ```
+
+!!! note "What we just did"
+    Compilation embeds EP context — the compiled binary — inside or alongside the ONNX file using the `EPContext` node convention. At inference time the runtime loads the pre-compiled binary directly rather than re-compiling from the ONNX graph. See [Concepts → Compile and EPContext](../concepts/compile-and-epcontext.md) for details.
+
+---
+
+### Step 6: Benchmark
+
+Measure the performance of your model:
+
+=== "Optimized (CPU)"
+
+    ```bash
+    uv run winml perf -m my_model_optimized.onnx --device cpu --warmup 5 --iterations 50
+    ```
+
+=== "Compiled (NPU)"
+
+    ```bash
+    uv run winml perf -m my_model_int8_npu_ctx.onnx --device npu --iterations 50 --monitor
+    ```
+
+!!! note "What we just did"
+    `winml perf` generates random inputs matching the model's I/O spec, runs warmup iterations (excluded from statistics), then the benchmark iterations, and reports full latency percentiles alongside throughput. The `--monitor` flag activates live hardware utilization polling. See [Concepts → Perf and monitoring](../concepts/perf-and-monitoring.md) for details.
 
 ---
 
@@ -165,45 +170,23 @@ uv run winml perf -m my_model_int8_npu_ctx.onnx --device npu --iterations 50 --m
 
 Once you understand the analyze → optimize → re-analyze loop (which you now do), you can let `winml build` handle everything in one command. When you pass a `.onnx` file, winml-cli auto-detects it and skips the export stage — running the optimization loop, quantization, and compilation automatically.
 
-### CPU target (optimize only)
-
 ```bash
-uv run winml build -m my_model.onnx -d cpu -o output/
+uv run winml build -m my_model.onnx -o output/ --device npu --precision int8
 ```
 
-Since `-d cpu` resolves to fp16 precision (no quantization) and compilation is off by default, this just runs the analyze–optimize convergence loop:
+!!! tip "Config file is optional"
+    The `-c config.json` flag is optional. Without it, `winml build` auto-generates an internal config from the flags you pass (like `--device` and `--precision`). If you need a reusable config, generate one with [`winml config`](../commands/config.md):
+
+    ```bash
+    uv run winml config --onnx my_model.onnx -d npu --precision int8 -o config.json
+    uv run winml build -m my_model.onnx -c config.json -o output/
+    ```
+
+The pipeline runs: **analyze → optimize → (re-analyze → re-optimize if needed) → quantize → compile → model.onnx**. The output directory looks like:
 
 ```text
 output/
-├── model.onnx                     ← Deploy this
-├── my_model.onnx                  ← Copy of your input
-├── my_model_optimized.onnx        ← After graph optimization
-├── winml_build_config.json        ← Auto-generated build config
-└── analyze_result.json            ← Final analysis output
-```
-
-### NPU target (full pipeline)
-
-To get a quantized, compiled model for NPU in one shot, pass `--compile`:
-
-```bash
-uv run winml build -m my_model.onnx -d npu --compile -o output/
-```
-
-Or generate a config first for more control:
-
-```bash
-uv run winml config --onnx my_model.onnx -d npu --precision int8 -o config.json
-uv run winml build -m my_model.onnx -c config.json -o output/
-```
-
-The pipeline runs: **analyze → optimize → (re-analyze → re-optimize if needed) → quantize → compile → model.onnx**.
-
-The output directory for a full NPU build looks like:
-
-```text
-output/
-├── model.onnx                     ← FINAL: compiled NPU artifact
+├── model.onnx                     ← FINAL: deploy this
 ├── my_model.onnx                  ← Copy of your input
 ├── my_model_optimized.onnx        ← After optimization loop converged
 ├── my_model_quantized.onnx        ← After INT8 quantization
@@ -212,36 +195,25 @@ output/
 └── analyze_result.json            ← Analysis from optimize stage
 ```
 
-!!! note "What we just did"
-    `winml build` with an ONNX input runs the same analyze → optimize → re-analyze convergence loop from Section A, but automatically. It reads the analyzer's recommendations, applies them, re-runs the analyzer, and repeats until no new recommendations appear (max 3 iterations by default). The config file specifies device, precision, and EP — so `--device npu --precision int8` in the config causes quantize and compile stages to run automatically.
+You can selectively skip stages using the override flags:
 
-### Selectively skip stages
+- `--no-optimize` — skip graph optimization (rarely needed; useful if you have a pre-optimized ONNX)
+- `--no-quant` — skip quantization (produces a floating-point compiled model)
+- `--no-compile` — skip compilation (produces a quantized but not device-locked ONNX)
 
-By default when auto-generating config (no `-c` flag):
-
-- **Compilation is OFF** — pass `--compile` to enable it
-- **Quantization depends on device**:
-    - `-d npu` → quantization ON (w8a16 precision by default)
-    - `-d gpu` / `-d cpu` → quantization OFF (fp16, no quantization)
-
-Override flags:
-
-- `--no-quant` — force skip quantization (even on NPU)
-- `--compile` — force enable compilation
-- `--no-compile` — force skip compilation (default when no config file)
+For example, to produce an optimized model without quantization or compilation:
 
 ```bash
-# NPU: optimize + quantize (w8a16), skip compilation
-uv run winml build -m my_model.onnx -d npu -o output/
+uv run winml build -m my_model.onnx -o output/ --device cpu
+```
 
-# NPU: full pipeline including compilation
-uv run winml build -m my_model.onnx -d npu --compile -o output/
+!!! note "What we just did"
+    `winml build` is the production workflow. It guarantees that stages run in the correct order, passes intermediate artifacts through the pipeline automatically, and records which stages completed or were skipped in the result summary.
 
-# NPU: optimize only, no quantize, no compile
-uv run winml build -m my_model.onnx -d npu --no-quant -o output/
+Once the build completes, benchmark the final artifact:
 
-# CPU/GPU: optimize only (quantize and compile are already off)
-uv run winml build -m my_model.onnx -d cpu -o output/
+```bash
+uv run winml perf -m output/model.onnx --device npu --iterations 50 --monitor
 ```
 
 ---

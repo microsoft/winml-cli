@@ -140,20 +140,30 @@ The quantizer generates 32 random calibration samples, runs them through the mod
 
 Compilation converts the portable quantized ONNX into an EP-specific binary format that the execution provider can load directly, skipping JIT compilation at inference time. This is the step that produces a device-locked artifact tied to the selected EP.
 
-The examples below use the default compiler backend:
+The examples below use the default compiler backend (`--compiler ort`), which uses ONNX Runtime's built-in EP context compiler:
 
-- **`--compiler ort`** (default) — uses ONNX Runtime's built-in EP context compiler.
-
-=== "QNN via ORT (default)"
+=== "Qualcomm NPU"
 
     ```bash
-    uv run winml compile -m convnext_int8.onnx --device npu
+    uv run winml compile -m convnext_int8.onnx --device npu --ep qnn
     ```
 
-=== "OpenVINO (Intel CPU/GPU/NPU)"
+=== "Intel NPU"
 
     ```bash
     uv run winml compile -m convnext_int8.onnx --device npu --ep openvino
+    ```
+
+=== "AMD NPU"
+
+    ```bash
+    uv run winml compile -m convnext_int8.onnx --device npu --ep vitisai
+    ```
+
+=== "CPU"
+
+    ```bash
+    uv run winml compile -m convnext_int8.onnx --device cpu
     ```
 
 The compiled output file appears in the same directory as the input model. The file name follows the pattern `convnext_int8_npu_ctx.onnx` (using the resolved device string `npu`, not the EP name) and an accompanying `.bin` context binary is written alongside it (unless `--embed` is passed, which embeds the binary inside the ONNX file). CPU builds do not produce a new artifact — the compile step validates EP compatibility but writes no output file; use `convnext_int8.onnx` directly for CPU inference.
@@ -228,11 +238,14 @@ The `--model-id` flag is required when passing an ONNX file, because the evaluat
 
 ## Section B — One-shot with `winml build`
 
-Once you understand what each primitive stage does (which you now do), you can collapse the entire pipeline into a single command. `winml build` orchestrates export, optimize, quantize, and compile in sequence using the config file you generated in Step 2.
+Once you understand what each primitive stage does (which you now do), you can collapse the entire pipeline into a single command. `winml build` orchestrates export, optimize, quantize, and compile in sequence.
 
 ```bash
-uv run winml build -c convnext_config.json -m facebook/convnext-tiny-224 -o convnext_out/
+uv run winml build -m facebook/convnext-tiny-224 -o convnext_out/ --device npu --precision int8
 ```
+
+!!! tip "Config file is optional"
+    The `-c config.json` flag is optional. Without it, `winml build` auto-generates an internal config from the flags you pass (like `--device` and `--precision`). If you need a reusable config, generate one with [`winml config`](../commands/config.md).
 
 The command downloads the pretrained weights, runs all four pipeline stages, and writes every intermediate and final artifact into `convnext_out/`. The stage timing is printed as each stage completes, and the final line tells you the path of the compiled model.
 
@@ -245,11 +258,11 @@ You can selectively skip stages using the override flags:
 For example, to produce an optimized and quantized model without the compile step:
 
 ```bash
-uv run winml build -c convnext_config.json -m facebook/convnext-tiny-224 -o convnext_out/ --no-compile
+uv run winml build -m facebook/convnext-tiny-224 -o convnext_out/ --device npu --precision int8 --no-compile
 ```
 
 !!! note "What we just did"
-    `winml build` is the production workflow. It guarantees that stages run in the correct order, passes intermediate artifacts through the pipeline automatically, and records which stages completed or were skipped in the result summary. The config file you pass with `-c` fully specifies the device target, precision, and EP — so you get an NPU-targeted INT8 compiled model without needing to repeat those flags on every primitive command.
+    `winml build` is the production workflow. It guarantees that stages run in the correct order, passes intermediate artifacts through the pipeline automatically, and records which stages completed or were skipped in the result summary.
 
 Once the build completes, benchmark the final artifact from `convnext_out/`:
 

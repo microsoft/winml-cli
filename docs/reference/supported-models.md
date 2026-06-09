@@ -75,47 +75,47 @@ testing. Use `winml catalog` to browse the full list interactively.
 
 ### Image Classification
 
-| Model | Architecture | EPs Tested |
+| Model | Architecture | EPs |
 |-------|-------------|------------|
-| `microsoft/resnet-50` | ResNet | CPU, QNN (GPU/NPU), OpenVINO |
-| `facebook/convnext-tiny-224` | ConvNeXt | CPU, QNN (GPU/NPU), OpenVINO |
-| `google/vit-base-patch16-224` | ViT | CPU, QNN (GPU/NPU), OpenVINO |
+| `microsoft/resnet-50` | ResNet | All EPs |
+| `facebook/convnext-tiny-224` | ConvNeXt | All EPs |
+| `google/vit-base-patch16-224` | ViT | All EPs |
 
 ### Text Classification & NLU
 
-| Model | Architecture | EPs Tested |
+| Model | Architecture | EPs |
 |-------|-------------|------------|
-| `bert-base-uncased` | BERT | CPU, QNN (GPU/NPU), OpenVINO |
-| `FacebookAI/roberta-base` | RoBERTa | CPU, QNN, OpenVINO |
-| `FacebookAI/xlm-roberta-base` | XLM-RoBERTa | CPU, QNN, OpenVINO |
+| `bert-base-uncased` | BERT | All EPs |
+| `FacebookAI/roberta-base` | RoBERTa | All EPs |
+| `FacebookAI/xlm-roberta-base` | XLM-RoBERTa | All EPs |
 
 ### Feature Extraction & Embeddings
 
-| Model | Architecture | EPs Tested |
+| Model | Architecture | EPs |
 |-------|-------------|------------|
-| `BAAI/bge-base-en-v1.5` | BERT | CPU, QNN (GPU/NPU), OpenVINO |
-| `BAAI/bge-small-en-v1.5` | BERT | CPU, QNN (GPU/NPU), OpenVINO |
-| `sentence-transformers/all-MiniLM-L6-v2` | BERT | CPU, QNN, OpenVINO |
+| `BAAI/bge-base-en-v1.5` | BERT | All EPs |
+| `BAAI/bge-small-en-v1.5` | BERT | All EPs |
+| `sentence-transformers/all-MiniLM-L6-v2` | BERT | All EPs |
 
 ### Vision-Language
 
-| Model | Architecture | EPs Tested |
+| Model | Architecture | EPs |
 |-------|-------------|------------|
-| `openai/clip-vit-base-patch32` | CLIP | CPU, QNN, OpenVINO |
-| `openai/clip-vit-large-patch14` | CLIP | CPU, QNN, OpenVINO |
+| `openai/clip-vit-base-patch32` | CLIP | All EPs |
+| `openai/clip-vit-large-patch14` | CLIP | All EPs |
 
 ### Segmentation
 
-| Model | Architecture | EPs Tested |
+| Model | Architecture | EPs |
 |-------|-------------|------------|
-| `nvidia/segformer-b0-finetuned-ade-512-512` | Segformer | CPU, QNN, OpenVINO |
-| `nvidia/segformer-b1-finetuned-cityscapes-1024-1024` | Segformer | CPU, QNN, OpenVINO |
+| `nvidia/segformer-b0-finetuned-ade-512-512` | Segformer | All EPs |
+| `nvidia/segformer-b1-finetuned-cityscapes-1024-1024` | Segformer | All EPs |
 
 ### Object Detection
 
-| Model | Architecture | EPs Tested |
+| Model | Architecture | EPs |
 |-------|-------------|------------|
-| `microsoft/table-transformer-detection` | Table-Transformer | CPU, OpenVINO |
+| `microsoft/table-transformer-detection` | Table-Transformer | All EPs |
 
 ---
 
