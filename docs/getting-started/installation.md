@@ -16,18 +16,25 @@
 ## Install
 
 ```bash
-git clone https://github.com/microsoft/winml-cli.git
-cd winml-cli
 uv python install 3.11
-uv sync
+uv pip install winml-cli
 ```
 
-Cloning the repository pulls down all source code and configuration. `uv python install 3.11` downloads and pins the exact Python version the project requires. `uv sync` creates an isolated virtual environment and installs all declared dependencies from `pyproject.toml` in a single step. No separate `pip install` or manual venv activation is needed.
+`uv python install 3.11` downloads and pins the exact Python version the project requires. `uv pip install winml-cli` installs the latest release from PyPI into a managed environment. No separate venv activation is needed.
+
+!!! tip "Install from source (for development)"
+    If you want to contribute or run the latest unreleased code:
+
+    ```bash
+    git clone https://github.com/microsoft/winml-cli.git
+    cd winml-cli
+    uv sync
+    ```
 
 ## Verify
 
 ```bash
-uv run winml sys
+winml sys
 ```
 
 Expected output (abbreviated):
@@ -60,24 +67,24 @@ Available Execution Providers
 
 This command enumerates available compute devices and execution providers on your machine. If an expected device or SDK is missing, `winml sys` is the right place to diagnose it. See [winml sys](../commands/sys.md) for the full flag reference and troubleshooting tips.
 
-## Optional extras
+??? note "Optional extras (hardware-specific backends)"
 
-Two optional dependency groups are available for hardware-specific backends:
+    Two optional dependency groups are available:
 
-- `--extra openvino` — installs [OpenVINO](https://docs.openvino.ai/) for inference on Intel CPU and GPU targets.
-- `--extra qnn` — installs `onnxruntime-qnn` for Qualcomm NPU support.
+    - `--extra openvino` — installs [OpenVINO](https://docs.openvino.ai/) for inference on Intel CPU and GPU targets.
+    - `--extra qnn` — installs `onnxruntime-qnn` for Qualcomm NPU support.
 
-To install an extra:
+    To install an extra:
 
-```bash
-uv sync --extra openvino
-```
+    ```bash
+    uv pip install winml-cli[qnn]
+    ```
 
-Both extras can be combined:
+    Both extras can be combined:
 
-```bash
-uv sync --extra openvino --extra qnn
-```
+    ```bash
+    uv pip install winml-cli[openvino,qnn]
+    ```
 
 ## Next steps
 

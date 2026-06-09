@@ -64,9 +64,9 @@ ML Libraries
   ...
 
 Available Devices (priority order)
-  #1  NPU   Qualcomm(R) AI 100
-  #2  GPU   NVIDIA GeForce RTX 4090
-  #3  CPU   AMD Ryzen 9 7940HS
+  #1  NPU   Qualcomm(R) Hexagon NPU
+  #2  GPU   Qualcomm(R) Adreno GPU
+  #3  CPU   Snapdragon(R) X Elite
 
 Available Execution Providers
   QNNExecutionProvider           -> NPU
