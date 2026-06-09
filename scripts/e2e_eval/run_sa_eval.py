@@ -910,7 +910,12 @@ def _skip_result(hf_id: str, task: str, model_type: str, status: str, model_dir:
 # ---------------------------------------------------------------------------
 
 
-def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
+def build_aggregate_report(
+    results: list[dict],
+    models_input: Path,
+    ep: str = "",
+    device: str = "",
+) -> dict:
     """Build aggregate SA eval report from per-model results."""
     complete = [r for r in results if r.get("status") == "COMPLETE"]
     skipped: dict[str, int] = defaultdict(int)
@@ -987,6 +992,8 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
         "run_date": date.today().isoformat(),
         "run_timestamp": datetime.now(timezone.utc).isoformat(),
         "input": str(models_input),
+        "ep": ep,
+        "device": device,
         "models_total": len(results),
         "models_complete": len(complete),
         "models_skipped": dict(skipped),
@@ -1184,7 +1191,9 @@ def main() -> None:
             sys.exit(1)
         all_results = [json.loads(f.read_text(encoding="utf-8")) for f in result_files]
         safe_print(f"Collected {len(all_results)} model results from disk.")
-        report = build_aggregate_report(all_results, args.models_file)
+        report = build_aggregate_report(
+            all_results, args.models_file, ep=args.ep, device=args.device
+        )
         report_json = output_dir / "sa_eval_report.json"
         report_json.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
         safe_print(f"Report JSON: {report_json}")
@@ -1314,7 +1323,9 @@ def main() -> None:
             f"Avg supported ratio: {avg_pre:.0%} -> {avg_post:.0%} ({avg_post - avg_pre:+.0%})"
         )
 
-        report = build_aggregate_report(all_results, args.models_file)
+        report = build_aggregate_report(
+            all_results, args.models_file, ep=args.ep, device=args.device
+        )
         report["total_elapsed"] = round(elapsed, 2)
 
         report_json = output_dir / "sa_eval_report.json"

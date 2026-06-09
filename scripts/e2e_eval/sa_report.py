@@ -28,6 +28,8 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
     epctx_post_acc = epctx_gt.get("avg_accuracy_post")
     epctx_pre_n = epctx_gt.get("models_with_pre_gt", 0)
     epctx_post_n = epctx_gt.get("models_with_post_gt", 0)
+    report_ep = report_data.get("ep", "")
+    report_device = report_data.get("device", "")
 
     viewer_data = []
     for r in results:
@@ -187,6 +189,8 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     n_complete = report_data.get("models_complete", 0)
     n_total = report_data.get("models_total", 0)
+    report_ep_display = report_ep or "auto"
+    report_device_display = report_device or "auto"
     avg_pre = pre_opt.get("avg_supported_ratio", 0)
     avg_post = post_opt.get("avg_supported_ratio", 0)
     avg_delta = effectiveness.get("avg_supported_ratio_delta", 0)
@@ -322,6 +326,8 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
   <div class="header-stats">
     <div>Generated: <span>{generated_at}</span></div>
     <div>Models: <span>{n_complete}</span> / {n_total} complete</div>
+    <div>EP: <span>{report_ep_display}</span></div>
+    <div>Device: <span>{report_device_display}</span></div>
   </div>
 </div>
 
