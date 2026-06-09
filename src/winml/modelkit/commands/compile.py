@@ -85,9 +85,9 @@ console = Console()
     help="Path to QAIRT SDK root",
 )
 @click.option(
-    "--embed",
-    is_flag=True,
+    "--embed/--no-embed",
     default=False,
+    show_default=True,
     help="Embed EP context in ONNX file (default: external .bin file)",
 )
 @click.option(
