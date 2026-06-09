@@ -11,7 +11,7 @@ Covers:
     - WinMLCatalogSource.resolve(): graceful no-yield when the
       WinAppSDK ML Python binding is not installed.
     - WINMLCLI_EP_PATH env-var override parsing.
-    - discover_eps(): first-hit-wins precedence, extra_sources
+    - _winners(discover_all_eps()): first-hit-wins precedence, extra_sources
       override, dedup, error tolerance.
 """
 
@@ -33,14 +33,21 @@ from winml.modelkit.ep_path import (
     _get_detected_vendors,
     _parse_winmlcli_ep_path,
     _qnn_arch_resolver,
-    discover_eps,
+    discover_all_eps,
 )
+
+
+def _winners(entries: list[EPEntry]) -> dict[str, tuple[Path, EPSource]]:
+    """Mirror legacy ``discover_eps`` precedence-winner-only shape from a
+    flat ``discover_all_eps`` result. Kept local to tests; production code
+    uses ``discover_all_eps`` directly."""
+    return {e.ep_name: (e.dll_path, e.source) for e in entries if e.status == "primary"}
 
 
 # ---------------------------------------------------------------------------
 # File-scoped autouse: prevent any test in this file from loading the live
 # wasdk binding via ``_get_catalog``. None of the tests here need it; without
-# this gate, tests that call ``discover_eps()`` (which walks the default
+# this gate, tests that call ``_winners(discover_all_eps())`` (which walks the default
 # EP source list including WinMLCatalogSource entries) would lazy-load the binding
 # on machines with the [winml-catalog] extra installed and the OS-level
 # Windows App Runtime present, polluting the module-level catalog singleton
@@ -427,7 +434,7 @@ class TestWinmlEpPathOverride:
         # _skip_live_catalog_in_ep_path_tests fixture handles the catalog
         # source side.)
         monkeypatch.delenv("RYZEN_AI_INSTALLATION_PATH", raising=False)
-        resolved = discover_eps()
+        resolved = _winners(discover_all_eps())
         assert "VitisAIExecutionProvider" in resolved
         path, _src = resolved["VitisAIExecutionProvider"]
         assert path == dll.resolve()
@@ -483,7 +490,7 @@ class TestDiscoverEps:
             dll_patterns={"OpenVINOExecutionProvider": fake_dll.name},
         )
         monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
-        resolved = discover_eps(extra_sources=[extra])
+        resolved = _winners(discover_all_eps(extra_sources=[extra]))
         assert "OpenVINOExecutionProvider" in resolved
         path, source = resolved["OpenVINOExecutionProvider"]
         assert path == fake_dll.resolve()
@@ -503,7 +510,7 @@ class TestDiscoverEps:
             dll_patterns={"VitisAIExecutionProvider": b.name},
         )
         monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
-        resolved = discover_eps(extra_sources=[first, second])
+        resolved = _winners(discover_all_eps(extra_sources=[first, second]))
         assert resolved["VitisAIExecutionProvider"][0] == a.resolve()
 
     def test_winml_catalog_source_does_not_abort_walk(
@@ -521,7 +528,7 @@ class TestDiscoverEps:
             dll_patterns={"QNNExecutionProvider": fake_dll.name},
         )
         monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
-        resolved = discover_eps(extra_sources=[catalog, good])
+        resolved = _winners(discover_all_eps(extra_sources=[catalog, good]))
         assert resolved["QNNExecutionProvider"][0] == fake_dll.resolve()
 
     def test_resolve_returns_path_and_source(
@@ -533,20 +540,20 @@ class TestDiscoverEps:
             dll_patterns={"QNNExecutionProvider": fake_dll.name},
         )
         monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
-        resolved = discover_eps(extra_sources=[src])
+        resolved = _winners(discover_all_eps(extra_sources=[src]))
         assert resolved["QNNExecutionProvider"] == (fake_dll.resolve(), src)
 
     def test_discover_eps_returns_tuple_shape(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """discover_eps() (no flag) returns dict[str, (Path, EPSource)]."""
+        """_winners(discover_all_eps()) (no flag) returns dict[str, (Path, EPSource)]."""
         fake_dll = _touch(tmp_path / "fake.dll")
         src = FilesystemSource(
             root=tmp_path,
             dll_patterns={"QNNExecutionProvider": fake_dll.name},
         )
         monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
-        result = discover_eps(extra_sources=[src])
+        result = _winners(discover_all_eps(extra_sources=[src]))
         for value in result.values():
             assert isinstance(value, tuple)
             assert len(value) == 2

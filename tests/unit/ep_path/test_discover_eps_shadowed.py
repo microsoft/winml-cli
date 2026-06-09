@@ -2,9 +2,9 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for ``discover_all_eps()`` and the default ``discover_eps()`` shape.
+"""Tests for ``discover_all_eps()`` and the default ``_winners(discover_all_eps())`` shape.
 
-The default ``discover_eps()`` shape (one (path, source) per EP) is
+The default ``_winners(discover_all_eps())`` shape (one (path, source) per EP) is
 also covered by ``test_ep_path.py``. This file focuses on
 ``discover_all_eps()`` and the :class:`EPEntry` ordering rules.
 """
@@ -25,8 +25,13 @@ from winml.modelkit.ep_path import (
     EPSource,
     FilesystemSource,
     discover_all_eps,
-    discover_eps,
 )
+
+
+def _winners(entries: list[EPEntry]) -> dict[str, tuple[Path, EPSource]]:
+    """Mirror legacy ``discover_eps`` precedence-winner-only shape from a
+    flat ``discover_all_eps`` result."""
+    return {e.ep_name: (e.dll_path, e.source) for e in entries if e.status == "primary"}
 
 
 def _group_by_ep(entries: list[EPEntry]) -> dict[str, list[EPEntry]]:
@@ -233,17 +238,17 @@ class TestDiscoverAllEpsFormerReturnShadowed:
 
 
 # ---------------------------------------------------------------------------
-# Default shape: discover_eps() returns (path, source) per EP.
+# Default shape: _winners(discover_all_eps()) returns (path, source) per EP.
 # ---------------------------------------------------------------------------
 
 
 class TestDefaultShape:
-    """``discover_eps()`` (default) returns dict[str, (path, source)]."""
+    """``_winners(discover_all_eps())`` (default) returns dict[str, (path, source)]."""
 
     def test_default_returns_legacy_shape(self, tmp_path: Path) -> None:
         dll = _touch(tmp_path / "qnn.dll")
         src = _filesystem_source_for(tmp_path, "QNNExecutionProvider", dll.name)
-        result = discover_eps(extra_sources=[src])
+        result = _winners(discover_all_eps(extra_sources=[src]))
         # Legacy: one entry per name, value is (path, source) tuple.
         assert isinstance(result, dict)
         path, source = result["QNNExecutionProvider"]
@@ -257,7 +262,7 @@ class TestDefaultShape:
             _filesystem_source_for(tmp_path / "a", "QNNExecutionProvider", "qnn.dll"),
             _filesystem_source_for(tmp_path / "b", "QNNExecutionProvider", "qnn.dll"),
         ]
-        result = discover_eps(extra_sources=srcs)
+        result = _winners(discover_all_eps(extra_sources=srcs))
         # One entry only; the b/ source is shadowed and not in legacy shape.
         path, source = result["QNNExecutionProvider"]
         assert "a" in str(path)

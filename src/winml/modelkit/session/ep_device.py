@@ -546,13 +546,13 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
     # When the caller pinned a source tag, validate it against the
     # discovery layer. Defer IncompatibleListingPick to a later batch.
     if source is not None:
-        from ..ep_path import discover_all_eps
-        from .ep_registry import _entry_source_tag
+        from .ep_registry import WinMLEPRegistry, _entry_source_tag
 
+        registry = WinMLEPRegistry.instance()
         matches = [
             e
-            for e in discover_all_eps()
-            if e.ep_name == ep_full and _entry_source_tag(e) == source
+            for e in registry.entries_for(ep_full)
+            if _entry_source_tag(e) == source
         ]
         if not matches:
             raise UnknownListingPick(ep_full, source)

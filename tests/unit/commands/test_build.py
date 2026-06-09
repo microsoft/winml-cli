@@ -36,7 +36,8 @@ def mock_resolve_device():
     from winml.modelkit.session import EPDeviceTarget
 
     mock_registry = MagicMock()
-    mock_registry.is_ep_available.return_value = False
+    mock_registry._entries = []
+    mock_registry.entries_for.return_value = []
 
     fake_cpu_ep_device = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
 

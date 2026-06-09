@@ -14,9 +14,9 @@ Each test corresponds to one of the seven scenarios locked for Batch E:
     f. EPDeviceTarget("auto", "auto") passed       -> ValueError
     g. source tag does not match any candidate     -> UnknownListingPick
 
-The harness drives ``discover_all_eps`` and ``register_ep`` via patching so we
-can construct deterministic candidate lists and registration outcomes without
-touching any real plugin DLL.
+The harness drives the registry's cached ``_entries`` list and patches
+``register_ep`` so we can construct deterministic candidate lists and
+registration outcomes without touching any real plugin DLL.
 """
 
 from __future__ import annotations
@@ -90,14 +90,13 @@ def _winml_ep_with_device(entry: EPEntry, device_type: str) -> WinMLEP:
 def fresh_registry() -> WinMLEPRegistry:
     """Singleton with cleared registration caches.
 
-    Each scenario patches discover_all_eps and register_ep, so the only
-    state we need to reset is the per-DLL cache that ``register_ep``
-    would otherwise short-circuit.
+    Each scenario patches ``_entries`` (the cached discovery list) and
+    ``register_ep``, so the only state we need to reset is the per-DLL
+    cache that ``register_ep`` would otherwise short-circuit.
     """
     reg = WinMLEPRegistry.instance()
     reg._registered = {}
-    reg._registered_eps = []
-    reg._registration_failures = {}
+    reg._entries = []
     return reg
 
 
@@ -113,16 +112,11 @@ class TestAutoDevice:
         """Scenario a: single PyPI source discovered, source=None on target."""
         entry = _pypi_entry("OpenVINOExecutionProvider")
         winml_ep = _winml_ep_with_device(entry, "NPU")
+        fresh_registry._entries = [entry]
 
-        with (
-            patch(
-                "winml.modelkit.ep_path.discover_all_eps",
-                return_value=[entry],
-            ),
-            patch.object(
-                fresh_registry, "register_ep", return_value=winml_ep
-            ) as mock_register,
-        ):
+        with patch.object(
+            fresh_registry, "register_ep", return_value=winml_ep
+        ) as mock_register:
             target = EPDeviceTarget(ep="openvino", device="npu")
             result = fresh_registry.auto_device(target)
 
@@ -135,16 +129,11 @@ class TestAutoDevice:
         """Scenario b: source='pypi' pinned, candidate exists."""
         entry = _pypi_entry("OpenVINOExecutionProvider")
         winml_ep = _winml_ep_with_device(entry, "NPU")
+        fresh_registry._entries = [entry]
 
-        with (
-            patch(
-                "winml.modelkit.ep_path.discover_all_eps",
-                return_value=[entry],
-            ),
-            patch.object(
-                fresh_registry, "register_ep", return_value=winml_ep
-            ) as mock_register,
-        ):
+        with patch.object(
+            fresh_registry, "register_ep", return_value=winml_ep
+        ) as mock_register:
             target = EPDeviceTarget(ep="openvino", device="npu", source="pypi")
             result = fresh_registry.auto_device(target)
 
@@ -174,15 +163,10 @@ class TestAutoDevice:
                 raise primary_error
             return shadowed_ep
 
-        with (
-            patch(
-                "winml.modelkit.ep_path.discover_all_eps",
-                return_value=[primary, shadowed],
-            ),
-            patch.object(
-                fresh_registry, "register_ep", side_effect=selective_register
-            ) as mock_register,
-        ):
+        fresh_registry._entries = [primary, shadowed]
+        with patch.object(
+            fresh_registry, "register_ep", side_effect=selective_register
+        ) as mock_register:
             target = EPDeviceTarget(ep="openvino", device="npu")
             result = fresh_registry.auto_device(target)
 
@@ -201,14 +185,9 @@ class TestAutoDevice:
         entry = _pypi_entry("OpenVINOExecutionProvider")
         # Source exposes a GPU device, but target requests NPU.
         winml_ep = _winml_ep_with_device(entry, "GPU")
+        fresh_registry._entries = [entry]
 
-        with (
-            patch(
-                "winml.modelkit.ep_path.discover_all_eps",
-                return_value=[entry],
-            ),
-            patch.object(fresh_registry, "register_ep", return_value=winml_ep),
-        ):
+        with patch.object(fresh_registry, "register_ep", return_value=winml_ep):
             target = EPDeviceTarget(ep="openvino", device="npu")
             with pytest.raises(DeviceNotFound, match="NPU"):
                 fresh_registry.auto_device(target)
@@ -219,17 +198,12 @@ class TestAutoDevice:
         """Scenario e: every candidate raises WinMLEPRegistrationFailed."""
         entry1 = _pypi_entry("OpenVINOExecutionProvider", dll="C:/fake/a.dll")
         entry2 = _pypi_entry("OpenVINOExecutionProvider", dll="C:/fake/b.dll")
+        fresh_registry._entries = [entry1, entry2]
 
-        with (
-            patch(
-                "winml.modelkit.ep_path.discover_all_eps",
-                return_value=[entry1, entry2],
-            ),
-            patch.object(
-                fresh_registry,
-                "register_ep",
-                side_effect=WinMLEPRegistrationFailed("dll boom"),
-            ),
+        with patch.object(
+            fresh_registry,
+            "register_ep",
+            side_effect=WinMLEPRegistrationFailed("dll boom"),
         ):
             target = EPDeviceTarget(ep="openvino", device="npu")
             with pytest.raises(WinMLEPRegistrationFailed) as ei:
@@ -275,16 +249,13 @@ class TestAutoDevice:
         have been discovered for OpenVINO.
         """
         entry = _pypi_entry("OpenVINOExecutionProvider")  # pypi only
+        fresh_registry._entries = [entry]
 
-        with patch(
-            "winml.modelkit.ep_path.discover_all_eps",
-            return_value=[entry],
-        ):
-            target = EPDeviceTarget(
-                ep="openvino", device="npu", source="msix-workload"
-            )
-            with pytest.raises(UnknownListingPick) as ei:
-                fresh_registry.auto_device(target)
+        target = EPDeviceTarget(
+            ep="openvino", device="npu", source="msix-workload"
+        )
+        with pytest.raises(UnknownListingPick) as ei:
+            fresh_registry.auto_device(target)
 
         assert ei.value.ep_name == "openvino"
         assert ei.value.source_tag == "msix-workload"
@@ -311,14 +282,9 @@ class TestAutoDevice:
                 f"got {entry.dll_path}"
             )
 
-        with (
-            patch(
-                "winml.modelkit.ep_path.discover_all_eps",
-                return_value=[pypi_entry, msix_entry],
-            ),
-            patch.object(
-                fresh_registry, "register_ep", side_effect=selective_register
-            ),
+        fresh_registry._entries = [pypi_entry, msix_entry]
+        with patch.object(
+            fresh_registry, "register_ep", side_effect=selective_register
         ):
             target = EPDeviceTarget(
                 ep="qnn", device="npu", source="msix-workload"
@@ -337,10 +303,7 @@ class TestAutoDevice:
         """
         from winml.modelkit.session import WinMLEPNotDiscovered
 
-        with patch(
-            "winml.modelkit.ep_path.discover_all_eps",
-            return_value=[],
-        ):
-            target = EPDeviceTarget(ep="openvino", device="npu")
-            with pytest.raises(WinMLEPNotDiscovered):
-                fresh_registry.auto_device(target)
+        fresh_registry._entries = []
+        target = EPDeviceTarget(ep="openvino", device="npu")
+        with pytest.raises(WinMLEPNotDiscovered):
+            fresh_registry.auto_device(target)

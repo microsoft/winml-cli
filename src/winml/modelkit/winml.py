@@ -37,7 +37,6 @@ from .ep_path import (
     WinMLCatalogSource,
     _default_ep_sources,
     discover_all_eps,
-    discover_eps,
     list_msix_eps,
 )
 
@@ -51,7 +50,7 @@ logger = logging.getLogger(__name__)
 # The two PyPI-only entries we historically advertised. Kept as a frozen
 # view of the default EP source list's ``PyPISource`` rows so callers that
 # still iterate this dict (none in-tree at time of writing) keep working.
-# New code should use ``_default_ep_sources()`` and ``discover_eps()`` instead.
+# New code should use ``_default_ep_sources()`` and ``discover_all_eps()`` instead.
 def _legacy_ep_plugin_registry() -> dict[str, tuple[str, str]]:
     out: dict[str, tuple[str, str]] = {}
     for source in _default_ep_sources():
@@ -72,15 +71,13 @@ def resolve_plugin_dll(ep_name: str) -> Path | None:
     """Resolve the absolute DLL path for a plugin EP, or None if unavailable.
 
     Backwards-compat shim. Walks the default EP source list via
-    :func:`discover_eps` and returns the first absolute path resolved for
-    ``ep_name``, or ``None``.
+    :func:`discover_all_eps` and returns the first absolute path resolved
+    for ``ep_name`` (the primary entry), or ``None``.
     """
-    resolved = discover_eps()
-    entry = resolved.get(ep_name)
-    if entry is None:
-        return None
-    path, _source = entry
-    return path if path.exists() else None
+    for entry in discover_all_eps():
+        if entry.ep_name == ep_name and entry.status == "primary":
+            return entry.dll_path if entry.dll_path.exists() else None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -110,9 +107,13 @@ class WinML:
         self._initialized = True
 
         # Walk the default EP source list (plus WINMLCLI_EP_PATH env var
-        # entries, if any) and capture (ep_name -> abs path) for every
-        # discovered plugin.
-        self._resolved: dict[str, tuple[Path, EPSource]] = discover_eps()
+        # entries, if any) and capture (ep_name -> abs path) for the
+        # primary entry per EP.
+        self._resolved: dict[str, tuple[Path, EPSource]] = {
+            e.ep_name: (e.dll_path, e.source)
+            for e in discover_all_eps()
+            if e.status == "primary"
+        }
         # Preserve the legacy attribute name and shape so any external
         # caller that introspects the singleton sees the same dict it
         # used to. Only the abs path is exposed (not the source).
@@ -147,7 +148,11 @@ class WinML:
         # the override takes precedence. Otherwise reuse the cached set
         # captured at __init__ to preserve singleton semantics.
         if extra_sources:
-            resolved = discover_eps(extra_sources=extra_sources)
+            resolved = {
+                e.ep_name: (e.dll_path, e.source)
+                for e in discover_all_eps(extra_sources=extra_sources)
+                if e.status == "primary"
+            }
             ep_paths = {name: str(path) for name, (path, _) in resolved.items()}
         else:
             ep_paths = self._ep_paths
@@ -272,7 +277,6 @@ __all__ = [
     "WinMLCatalogSource",
     "add_ep_for_device",
     "discover_all_eps",
-    "discover_eps",
     "list_msix_eps",
     "register_execution_providers",
     "resolve_plugin_dll",

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 import onnxruntime as ort
 
-from ..ep_path import EPEntry, EPSource, discover_eps
+from ..ep_path import EPEntry, discover_all_eps
 from .ep_device import (
     DeviceNotFound,
     EPDeviceTarget,
@@ -141,14 +141,16 @@ class WinMLEPDevice:
 class WinMLEPRegistry:
     """Execution Provider Registry for plugin-style ONNX Runtime EPs.
 
-    Discovers plugin EPs via :func:`winml.modelkit.ep_path.discover_eps`
+    Discovers plugin EPs via :func:`winml.modelkit.ep_path.discover_all_eps`
     (which walks the default EP source list and the ``WINMLCLI_EP_PATH``
-    env-var override) and registers them with ONNX Runtime.
+    env-var override) once at construction time, caches the result in
+    ``self._entries``, and registers entries with ONNX Runtime on demand
+    via :meth:`register_ep`.
 
     Usage:
         registry = WinMLEPRegistry.instance()
-        registry.register_to_ort()
-        available = registry.get_available_eps()
+        target = resolve_device(EPDeviceTarget(ep="auto", device="auto"))
+        ep_device = registry.auto_device(target)
     """
 
     def __new__(cls) -> WinMLEPRegistry:
@@ -166,53 +168,15 @@ class WinMLEPRegistry:
             return
         self._initialized = True
 
-        self._ep_paths: dict[str, str] = {}
-        self._ep_sources: dict[str, EPSource] = {}
-        self._registered_eps: list[str] = []
-        self._registration_failures: dict[str, str] = {}
+        # Single canonical cache — one filesystem scan per process.
+        self._entries: list[EPEntry] = list(discover_all_eps())
         # Cache of successful registrations keyed by EPEntry.dll_path so
         # repeated requests for the same plugin DLL short-circuit.
         self._registered: dict[Path, WinMLEP] = {}
 
-        self._discover_eps()
-
-    def _discover_eps(self) -> None:
-        """Discover plugin EPs via the unified ep_path discovery layer."""
-        for ep_name, (path, source) in discover_eps().items():
-            self._ep_paths[ep_name] = str(path)
-            self._ep_sources[ep_name] = source
-            logger.debug("Found EP: %s at %s (from %r)", ep_name, path, source)
-
-    def register_to_ort(self) -> list[str]:
-        """Register discovered EPs with ONNX Runtime.
-
-        Returns:
-            List of successfully registered EP names.
-        """
-        if not self._ep_paths:
-            logger.debug("No plugin EPs found, skipping registration")
-            return []
-
-        import onnxruntime as ort
-
-        for name, dll_path in self._ep_paths.items():
-            if name in self._registered_eps:
-                continue
-
-            try:
-                ort.register_execution_provider_library(name, dll_path)
-                self._registered_eps.append(name)
-                # Clear any prior failure record on successful re-register.
-                self._registration_failures.pop(name, None)
-                logger.debug("Registered EP: %s -> %s", name, dll_path)
-            except Exception as e:
-                # NFR-2: surface EP name + exception class so users can
-                # diagnose which provider failed to register and why.
-                msg = f"{type(e).__name__}: {e}"
-                self._registration_failures[name] = msg
-                logger.warning("Failed to register EP %s (%s)", name, msg)
-
-        return self._registered_eps.copy()
+    def entries_for(self, ep_full_name: str) -> list[EPEntry]:
+        """Return cached EPEntries for the given EP name (no fresh scan)."""
+        return [e for e in self._entries if e.ep_name == ep_full_name]
 
     def register_ep(self, entry: EPEntry) -> WinMLEP:
         """Atomic registration: load entry.dll_path, enumerate OrtEpDevices, wrap.
@@ -263,12 +227,6 @@ class WinMLEPRegistry:
                 f"OrtEpDevices visible in ort.get_ep_devices()."
             )
 
-        # Mirror old bookkeeping so module-level helpers (available_eps)
-        # and existing tests that probe these lists keep working without
-        # rewiring.
-        if entry.ep_name not in self._registered_eps:
-            self._registered_eps.append(entry.ep_name)
-
         devices = tuple(wrap_ort_device(h) for h in deduped)
         winml_ep = WinMLEP(source=entry, devices=devices)
         self._registered[entry.dll_path] = winml_ep
@@ -278,9 +236,10 @@ class WinMLEPRegistry:
         """Find the first source satisfying ``target`` (ep + device + optional source).
 
         ``target`` must be fully resolved (no ``"auto"`` values). Filters
-        :func:`discover_all_eps` by ``target.ep`` + optional ``target.source``
-        tag, then tries each candidate in precedence order. First
-        registration that succeeds *and* exposes ``target.device`` wins.
+        the cached :attr:`_entries` list by ``target.ep`` + optional
+        ``target.source`` tag, then tries each candidate in precedence
+        order. First registration that succeeds *and* exposes
+        ``target.device`` wins.
 
         Raises:
             ValueError: when ``target`` still contains an ``"auto"`` axis.
@@ -298,11 +257,8 @@ class WinMLEPRegistry:
                 "call resolve_device(target) first"
             )
 
-        from ..ep_path import discover_all_eps
-
         ep_full = expand_ep_name(target.ep)
-        all_entries = discover_all_eps()
-        candidates = [e for e in all_entries if e.ep_name == ep_full]
+        candidates = self.entries_for(ep_full)
 
         if not candidates:
             raise WinMLEPNotDiscovered(
@@ -339,37 +295,6 @@ class WinMLEPRegistry:
             f"class {target.device.upper()!r}"
         )
 
-    def get_ep_library_path(self, ep_name: str) -> str | None:
-        """Get the library path for an EP."""
-        return self._ep_paths.get(ep_name)
-
-    def get_available_eps(self) -> dict[str, str]:
-        """Get available EPs and their paths."""
-        return self._ep_paths.copy()
-
-    def get_registered_eps(self) -> list[str]:
-        """Get list of EPs registered with ORT."""
-        return self._registered_eps.copy()
-
-    def is_ep_available(self, ep_name: str) -> bool:
-        """Check if an EP is available."""
-        return ep_name in self._ep_paths
-
-    @property
-    def winml_available(self) -> bool:
-        """Whether any plugin EP package is installed and resolvable."""
-        return bool(self._ep_paths)
-
-    @property
-    def registration_failures(self) -> dict[str, str]:
-        """Per-EP registration failures from the most recent ``register_to_ort()``.
-
-        Maps EP name → ``"<ExcClass>: <message>"`` for any provider that
-        failed to register. Empty when all registrations succeeded.
-        Successful re-registration clears the corresponding entry.
-        """
-        return self._registration_failures.copy()
-
     @classmethod
     def instance(cls) -> WinMLEPRegistry:
         """Get singleton instance."""
@@ -390,7 +315,7 @@ def available_eps() -> frozenset[str]:
 
     try:
         registry = WinMLEPRegistry.instance()
-        eps.update(registry.get_available_eps().keys())
+        eps.update(e.ep_name for e in registry._entries)
     except (ImportError, RuntimeError):
         pass  # WinML not available
     except Exception:
@@ -430,7 +355,18 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
     if use_winml:
         try:
             registry = WinMLEPRegistry.instance()
-            registry.register_to_ort()
+            # Best-effort: drive the same inline-loop pattern as commands/sys.py.
+            # Per-entry failures are logged at WARN and don't abort the walk.
+            for entry in registry._entries:
+                try:
+                    registry.register_ep(entry)
+                except WinMLEPRegistrationFailed as e:
+                    logger.warning(
+                        "Failed to register EP %s (%s: %s)",
+                        entry.ep_name,
+                        type(e).__name__,
+                        e,
+                    )
         except Exception as e:
             # NFR-2: surface real failures at WARNING so users can diagnose.
             logger.warning(

@@ -137,11 +137,18 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     import onnxruntime as ort
 
-    from winml.modelkit.session import WinMLEPRegistry
+    from winml.modelkit.session import WinMLEPRegistrationFailed, WinMLEPRegistry
 
-    # Register WinML EPs so ort.get_ep_devices() includes them
+    # Register WinML EPs so ort.get_ep_devices() includes them. Walk the cached
+    # entries one-by-one — the legacy bulk register_to_ort() helper is gone.
     registry = WinMLEPRegistry.instance()
-    registry.register_to_ort()
+    for entry in registry._entries:
+        try:
+            registry.register_ep(entry)
+        except WinMLEPRegistrationFailed:
+            # Best-effort: an individual EP failure must not skip every
+            # ep-marked test in the collection.
+            continue
 
     # Use ort.get_ep_devices() for hardware-accurate availability (only returns
     # EPs backed by actual hardware, not just library-present registrations).

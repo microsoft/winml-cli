@@ -39,10 +39,9 @@ def _ep_entry(ep_name: str, dll: str = "C:/fake/qnn.dll") -> EPEntry:
 
 @pytest.fixture
 def fresh_registry() -> WinMLEPRegistry:
-    """Singleton with stubbed catalog + cleared registration caches."""
+    """Singleton with stubbed cache + cleared registration caches."""
     reg = WinMLEPRegistry.instance()
-    reg._ep_paths = {"QNNExecutionProvider": "C:/fake/qnn.dll"}
-    reg._registered_eps = []
+    reg._entries = [_ep_entry("QNNExecutionProvider")]
     reg._registered = {}
     return reg
 
@@ -55,32 +54,6 @@ def _fake_ort_device(ep_name: str, dev_type: str) -> MagicMock:
     d.device.vendor_id = QNN_VENDOR_ID
     d.device.device_id = 0x0001
     return d
-
-
-def test_register_to_ort_failure_records_per_ep_state():
-    """NFR-2: per-EP registration failures must be tracked in registration_failures."""
-    registry = WinMLEPRegistry.instance()
-    registry._ep_paths = {"FakeEP": "C:/nonexistent/fake.dll"}
-    registry._registered_eps = []
-    registry._registration_failures = {}
-    registry._winml_available = True
-
-    fake_ort = type("M", (), {})()
-
-    def _bad_register(name, path):
-        raise RuntimeError(f"cannot load {path}")
-
-    fake_ort.register_execution_provider_library = _bad_register
-
-    with patch.dict("sys.modules", {"onnxruntime": fake_ort}):
-        registry.register_to_ort()
-
-    assert "FakeEP" in registry.registration_failures
-    assert "RuntimeError" in registry.registration_failures["FakeEP"]
-    # Property returns a copy — mutating it must not corrupt internal state.
-    snap = registry.registration_failures
-    snap.clear()
-    assert "FakeEP" in registry.registration_failures
 
 
 def test_register_ep_happy_path(fresh_registry: WinMLEPRegistry) -> None:
@@ -151,7 +124,8 @@ def test_register_ep_skips_if_already_loaded(fresh_registry: WinMLEPRegistry) ->
     # Critical: DLL register must NOT be called.
     mock_ort.register_execution_provider_library.assert_not_called()
     assert isinstance(result, WinMLEP)
-    assert "QNNExecutionProvider" in fresh_registry._registered_eps
+    # Cached by dll_path on success.
+    assert entry.dll_path in fresh_registry._registered
 
 
 def test_register_ep_yields_zero_devices_raises(fresh_registry: WinMLEPRegistry) -> None:

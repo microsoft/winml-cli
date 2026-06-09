@@ -31,12 +31,11 @@ Public API:
   by family-name prefix (handles non-current versions and the
   ``WindowsWorkload.EP.*`` OEM channel).
 * :class:`EPSource`: abstract base for the five concrete sources.
-* :func:`discover_eps`: walk the default EP source list (plus any extras)
-  and return ``{ep_name: (dll_path, source)}`` with first-hit-wins
-  semantics. One precedence winner per EP.
-* :func:`discover_all_eps`: same precedence rules, but return a flat
-  ``list[EPEntry]`` containing the primary winner per EP followed by any
-  shadowed entries. Used by the inventory CLI (``winml sys --list-ep``).
+* :func:`discover_all_eps`: walk the default EP source list (plus any
+  extras) and return a flat ``list[EPEntry]`` containing the primary
+  winner per EP followed by any shadowed entries. Single canonical
+  discovery entry point — used by ``WinMLEPRegistry``, the inventory CLI
+  (``winml sys --list-ep``), and the legacy ``winml.py`` shim.
 """
 
 from __future__ import annotations
@@ -331,7 +330,7 @@ class EPSource(ABC):
         that lose precedence against an earlier source.
 
         Errors during resolution should be logged and swallowed (yield
-        nothing) — :func:`discover_eps` tolerates source-level failures
+        nothing) — :func:`discover_all_eps` tolerates source-level failures
         but cannot recover from a raised exception.
         """
 
@@ -1376,9 +1375,10 @@ def discover_all_eps(
 ) -> list[EPEntry]:
     """Walk the default EP source list and return a flat ``list[EPEntry]``.
 
-    Companion to :func:`discover_eps`. Used by ``winml sys --list-ep`` to
-    enumerate every source contributing each EP, so users can see when a
-    later source is being shadowed by a higher-precedence one.
+    Single canonical discovery entry point. Used by ``winml sys --list-ep``
+    to enumerate every source contributing each EP (so users can see when
+    a later source is being shadowed by a higher-precedence one) and by
+    ``WinMLEPRegistry`` to populate its cached ``_entries`` list.
 
     The returned list preserves source-walk order. The first entry per
     ``ep_name`` carries ``status="primary"``; subsequent entries for the
@@ -1457,37 +1457,6 @@ def discover_all_eps(
     return result
 
 
-def discover_eps(
-    extra_sources: list[EPSource] | None = None,
-    *,
-    extra_sources_after: list[EPSource] | None = None,
-) -> dict[str, tuple[Path, EPSource]]:
-    """Walk the default EP source list and return one ``(dll_path, source)`` per EP.
-
-    Returns the precedence winner per EP. Thin wrapper over
-    :func:`discover_all_eps` — keeps the legacy dict-of-tuples shape for
-    callers that only need the primary winner.
-
-    Precedence (highest first):
-
-    1. ``extra_sources`` (programmatic override; useful for tests)
-    2. ``WINMLCLI_EP_PATH`` env-var entries (parsed into FilesystemSources)
-    3. The default EP source list (``_default_ep_sources()``)
-    4. ``extra_sources_after`` (lowest precedence; used by inventory CLI)
-
-    Within that combined list, first-hit-wins per canonical EP name.
-    """
-    all_entries = discover_all_eps(
-        extra_sources=extra_sources,
-        extra_sources_after=extra_sources_after,
-    )
-    result: dict[str, tuple[Path, EPSource]] = {}
-    for entry in all_entries:
-        if entry.status == "primary":
-            result[entry.ep_name] = (entry.dll_path, entry.source)
-    return result
-
-
 __all__ = [
     "EP_CATALOG",
     "EPCatalog",
@@ -1499,6 +1468,5 @@ __all__ = [
     "PyPISource",
     "WinMLCatalogSource",
     "discover_all_eps",
-    "discover_eps",
     "list_msix_eps",
 ]
