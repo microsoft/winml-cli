@@ -345,7 +345,7 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
     #    to exactly one *real* (non-None) task. With multiple distinct tasks the
     #    architecture head is what disambiguates, so fall through to step 3 instead
     #    of guessing; the None sentinel alone never decides the task.
-    distinct_tasks = {
+    distinct_tasks: set[str] = {
         mapped
         for mt, mapped in HF_MODEL_CLASS_MAPPING
         if mt == model_type_normalized and mapped is not None

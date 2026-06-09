@@ -20,6 +20,12 @@ from winml.modelkit.inspect import detect_task as inspect_detect_task
 from winml.modelkit.loader import detect_task
 
 
+# Every test here calls AutoConfig.from_pretrained, which hits the network unless
+# the HF config is already cached; mark the module so offline runs can skip via
+# ``-m 'not network'`` instead of failing with a confusing ConnectionError.
+pytestmark = pytest.mark.network
+
+
 # (model_id, expected WinMLTask) — exercises the D2 modality upgrade (DINOv2),
 # a top-level-nested vision config that must NOT upgrade (CLIP), and a text control.
 CASES = [

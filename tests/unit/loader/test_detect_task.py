@@ -107,6 +107,18 @@ def test_detect_task_uses_single_real_task_despite_none_sentinel() -> None:
     m.assert_not_called()
 
 
+def test_detect_task_falls_through_for_multi_task_model_type_sam2() -> None:
+    """sam2 maps to multiple real tasks (image-segmentation, feature-extraction,
+    image-feature-extraction, mask-generation) in MODEL_CLASS_MAPPING, so the
+    (sam2, None) sentinel cannot disambiguate and detection must fall through to
+    architecture-aware detection rather than short-circuiting."""
+    cfg = _FakeConfig("sam2")
+    with patch(_DETECT, return_value="feature-extraction") as m:
+        task, source = detect_task(cfg)
+    assert (task, source) == ("feature-extraction", "TasksManager")
+    m.assert_called_once()
+
+
 def test_detect_task_short_circuits_for_unambiguous_model_type() -> None:
     """A model_type with a single task entry (segformer -> image-segmentation)
     still short-circuits via MODEL_CLASS_MAPPING without consulting TasksManager."""
