@@ -12,7 +12,7 @@ lists what's validated and how to discover model support.
 uv run winml catalog
 
 # Filter by task
-uv run winml catalog -k image-classification
+uv run winml catalog -t image-classification
 
 # Check if a specific model is supported
 uv run winml inspect -m microsoft/resnet-50

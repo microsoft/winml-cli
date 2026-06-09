@@ -78,9 +78,6 @@ $ winml catalog --task image-classification --output results/image_catalog.json
 
 ## Common pitfalls
 
-- **`--task` short flag is `-k`, not `-t`.** The `-t` short flag is taken by
-  `--model-type`. Using `-t text-classification` will set the architecture filter,
-  not the task filter. Use `-k` or the full `--task` flag.
 - **The catalog reflects a point-in-time snapshot.** Models listed in the catalog
   were validated against a specific version of winml-cli, ONNX Runtime, and the
   relevant EP driver. Accuracy and latency may differ on your hardware or with
