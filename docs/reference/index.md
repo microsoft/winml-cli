@@ -1,8 +1,13 @@
 # Reference — Config Schema
 
 This page documents the full schema for `WinMLBuildConfig`, the JSON configuration
-file that drives `winml build` and related commands. Generate a config with
-`winml config`, then customize it before feeding it to `winml build -c config.json`.
+file that drives the winml-cli pipeline. Generate a config with
+`winml config`, then pass it to any command with `-c config.json`.
+
+The config is accepted by **all pipeline commands** — not just `winml build`. For
+example, `winml export -c config.json`, `winml quantize -c config.json`, and
+`winml compile -c config.json` each read the relevant section of the same config
+file. This lets you use a single config as the source of truth across all stages.
 
 ## Top-Level Structure
 

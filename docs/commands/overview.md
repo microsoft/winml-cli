@@ -26,10 +26,10 @@ measure speed and accuracy.
 | [`sys`](sys.md) | Discover | Inspect your machine — devices, EPs, and runtime versions at a glance. |
 | [`inspect`](inspect.md) | Discover | Inspect a model's tasks, classes, and hierarchy before committing to an export. |
 | [`catalog`](catalog.md) | Discover | Browse the curated winml-cli catalog of validated models and benchmarks. |
-| [`analyze`](analyze.md) | Discover | Verify an ONNX model is compatible with a target execution provider before deployment. |
 | [`config`](config.md) | Configure | Generate a reusable build configuration for a Hugging Face model or ONNX file. |
-| [`optimize`](optimize.md) | Configure | Apply graph optimizations and fusions to an ONNX model to reduce node count and improve inference speed. |
 | [`export`](export.md) | Build | Convert a PyTorch / Hugging Face model to ONNX, preserving module hierarchy. |
+| [`analyze`](analyze.md) | Build | Verify an ONNX model is compatible with a target execution provider before deployment. |
+| [`optimize`](optimize.md) | Build | Apply graph optimizations and fusions to an ONNX model to reduce node count and improve inference speed. |
 | [`quantize`](quantize.md) | Build | Quantize an ONNX model with QDQ insertion and calibration-based scaling. |
 | [`compile`](compile.md) | Build | Compile an ONNX model to an EP-specific format for fast runtime loading. |
 | [`build`](build.md) | Build | Run the entire winml-cli pipeline (export → optimize → quantize → compile) in one command. |
