@@ -112,9 +112,9 @@ logger = logging.getLogger(__name__)
     help="Shuffle dataset before sampling.",
 )
 @click.option(
-    "--streaming",
-    is_flag=True,
+    "--streaming/--no-streaming",
     default=False,
+    show_default=True,
     help="Stream dataset instead of downloading fully.",
 )
 @click.option(

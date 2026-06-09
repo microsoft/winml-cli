@@ -436,22 +436,23 @@ def _validate_loader_tasks_for_model(
     help="Output directory for all build artifacts",
 )
 @click.option(
-    "--use-cache",
-    is_flag=True,
+    "--use-cache/--no-use-cache",
     default=False,
+    show_default=True,
     help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
 )
 @click.option(
-    "--rebuild",
-    is_flag=True,
+    "--rebuild/--no-rebuild",
     default=False,
+    show_default=True,
     help="Overwrite existing artifacts and rebuild",
 )
 @click.option(
-    "--no-quant",
-    is_flag=True,
-    default=False,
-    help="Skip quantization (overrides config)",
+    "--quant/--no-quant",
+    "quant",
+    default=True,
+    show_default=True,
+    help="Enable quantization (use --no-quant to skip, overrides config)",
 )
 @click.option(
     "--no-compile/--compile",
@@ -472,16 +473,18 @@ def _validate_loader_tasks_for_model(
     optional_message="Default: auto-detect.",
 )
 @click.option(
-    "--no-analyze",
-    is_flag=True,
-    default=False,
-    help="Skip analyzer loop during build",
+    "--analyze/--no-analyze",
+    "analyze",
+    default=True,
+    show_default=True,
+    help="Run analyzer loop during build (use --no-analyze to skip)",
 )
 @click.option(
-    "--no-optimize",
-    is_flag=True,
-    default=False,
-    help="Skip optimization (for pre-quantized ONNX models)",
+    "--optimize/--no-optimize",
+    "optimize",
+    default=True,
+    show_default=True,
+    help="Run optimization (use --no-optimize to skip for pre-quantized ONNX models)",
 )
 @click.option(
     "--max-optim-iterations",
@@ -503,12 +506,12 @@ def build(
     output_dir: str | None,
     use_cache: bool,
     rebuild: bool,
-    no_quant: bool,
+    quant: bool,
     no_compile: bool | None,
-    no_optimize: bool,
+    optimize: bool,
     ep: EPNameOrAlias | None,
     device: str,
-    no_analyze: bool,
+    analyze: bool,
     max_optim_iterations: int | None,
     allow_unsupported_nodes: bool,
     trust_remote_code: bool,
@@ -579,7 +582,7 @@ def build(
         if config_file is not None:
             config_or_configs = _load_config(
                 config_file,
-                no_quant=no_quant,
+                no_quant=not quant,
                 no_compile=no_compile,
             )
         else:
@@ -592,7 +595,7 @@ def build(
                 trust_remote_code=trust_remote_code,
                 device=device,
             )
-            if no_quant:
+            if not quant:
                 config_or_configs.quant = None
             # Auto-generated configs: compile disabled by default unless
             # --compile was explicitly passed (no_compile=False).
@@ -610,7 +613,7 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(device=device, ep=ep)
-                if no_quant or resolved_quant is None:
+                if not quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
@@ -643,9 +646,7 @@ def build(
         # scratch state when the user passes the wrong file or a
         # hand-edited config (#P1 UX).
         _configs_to_validate: list[WinMLBuildConfig] = (
-            config_or_configs
-            if isinstance(config_or_configs, list)
-            else [config_or_configs]
+            config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
         )
         try:
             for _cfg in _configs_to_validate:
@@ -661,9 +662,9 @@ def build(
 
         # Build extra kwargs for pipeline control
         extra_kwargs: dict[str, Any] = {}
-        if no_optimize:
+        if not optimize:
             extra_kwargs["skip_optimize"] = True
-        if no_analyze:
+        if not analyze:
             extra_kwargs["hack_max_optim_iterations"] = 0
         elif max_optim_iterations is not None:
             extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
