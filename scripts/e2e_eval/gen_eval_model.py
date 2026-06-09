@@ -92,7 +92,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            pass
+            pass  # Already killed; ignore if OS is slow to reap
 
     t_out.join(timeout=5)
     t_err.join(timeout=5)

@@ -237,7 +237,7 @@ def cleanup_onnx_artifacts(model_dir: Path) -> None:
                 f.unlink()
                 freed += size
             except OSError:
-                pass
+                pass  # File may be locked by a subprocess; skip it
     safe_print(f"  [cleanup] Freed {freed / 1024**2:.1f} MB of artifacts")
 
 
@@ -271,8 +271,14 @@ def stage_build(
 
     # Skip entire build if key artifacts already exist and cache is enabled
     if use_cache and is_cached(export_path) and is_cached(optimized_path):
-        safe_print("  [Build] Using cached artifacts (export.onnx, optimized.onnx)")
-        return None
+        # Also check quantized/compiled if those stages are requested
+        if run_quantize and not is_cached(model_dir / "quantized.onnx"):
+            safe_print("  [Build] Cache incomplete (missing quantized.onnx), rebuilding...")
+        elif run_compile and not is_cached(model_dir / "compiled.onnx"):
+            safe_print("  [Build] Cache incomplete (missing compiled.onnx), rebuilding...")
+        else:
+            safe_print("  [Build] Using cached artifacts (export.onnx, optimized.onnx)")
+            return None
 
     # Stage 1: Generate config
     safe_print(f"  [Build] Generating config for {hf_id}...")
