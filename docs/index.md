@@ -24,7 +24,7 @@ winml-cli is a CLI toolkit to build portable, performant, and high-quality model
 
 - **[How winml-cli Works](concepts/how-it-works.md)** — the pipeline from a PyTorch model to an EP-compiled artifact.
 - **[Commands](commands/overview.md)** — reference for all 12 `winml` subcommands.
-- **[Samples](samples/convnext-primitives.md)** — end-to-end walkthroughs for ConvNeXt, BERT, and Qwen3.
+- **[Samples](samples/convnext-primitives.md)** — end-to-end walkthroughs for ConvNeXt, BERT, and CLIP.
 
 ## License
 
