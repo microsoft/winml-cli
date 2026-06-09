@@ -75,7 +75,7 @@ class WinMLCompileConfig:
 
     Examples:
         # Resolve hardware target, then build the compile config.
-        ep_device = resolve_device(ep="qnn", device="npu")
+        ep_device = resolve_device(EPDeviceTarget(ep="qnn", device="npu"))
         config = WinMLCompileConfig.for_ep_device(ep_device)
 
         # Custom provider options after construction.

@@ -458,7 +458,7 @@ class PerfBenchmark:
         """Load model via WinMLAutoModel (handles both HF and ONNX)."""
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
-        from ..session import WinMLEPRegistry, resolve_device
+        from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
         model_id = self.config.model_id
         model_path = Path(model_id)
@@ -466,7 +466,12 @@ class PerfBenchmark:
 
         # Resolve (ep, device) to EPDeviceTarget at the CLI boundary; then
         # bind a WinMLEPDevice via auto_device (loads the plugin DLL).
-        target = resolve_device(ep=self.config.ep or None, device=self.config.device)
+        target = resolve_device(
+            EPDeviceTarget(
+                ep=self.config.ep or "auto",
+                device=self.config.device or "auto",
+            )
+        )
         ep_device = WinMLEPRegistry.instance().auto_device(target)
 
         # Only override config when user explicitly passes --no-quantize
@@ -762,10 +767,10 @@ def _perf_modules(
                 )
 
                 # Benchmark using WinMLSession
-                from ..session import WinMLEPRegistry, WinMLSession, resolve_device
+                from ..session import EPDeviceTarget, WinMLEPRegistry, WinMLSession, resolve_device
 
                 # CPU sniff — uses live resolve_device; future opt: cache
-                cpu_target = resolve_device("cpu", "cpu")
+                cpu_target = resolve_device(EPDeviceTarget(ep="cpu", device="cpu"))
                 cpu_ep_device = WinMLEPRegistry.instance().auto_device(cpu_target)
                 session = WinMLSession(
                     str(build_result.final_onnx_path),
@@ -1540,10 +1545,15 @@ def perf(
                 raise FileNotFoundError(f"ONNX file not found: {model_path}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
 
-            from ..session import WinMLEPRegistry, resolve_device
+            from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
             # Resolve to a EPDeviceTarget then bind via auto_device.
-            target = resolve_device(ep=config.ep or None, device=config.device)
+            target = resolve_device(
+                EPDeviceTarget(
+                    ep=config.ep or "auto",
+                    device=config.device or "auto",
+                )
+            )
             ep_device = WinMLEPRegistry.instance().auto_device(target)
 
             result = _run_onnx_benchmark(

@@ -8,9 +8,10 @@
 
 EPDeviceTarget is a pure-data identifier for one (EP, hardware-device) target.
 It is frozen, JSON-serializable, and has no runtime dependency on ORT.
-Construction is performed by resolve_device(...) or rehydrated via
-from_dict(...). The OrtEpDevice handle is re-derived inside session.py
-at session-build time and never stored on EPDeviceTarget itself.
+Construction is performed by the CLI parser / JSON loader / tests, then
+fed through resolve_device(target) which fills in any ``"auto"`` axes.
+The OrtEpDevice handle is re-derived inside session.py at session-build
+time and never stored on EPDeviceTarget itself.
 """
 
 from __future__ import annotations
@@ -461,49 +462,58 @@ def auto_detect_device() -> str:
 # --- resolution ------------------------------------------------------------
 
 
-def resolve_device(
-    ep: str | None = None,
-    device: str | None = None,
-    source: str | None = None,
-) -> EPDeviceTarget:
-    """Pure-deduction resolver: (EP, device, optional source) -> EPDeviceTarget.
+def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
+    """Pure-deduction resolver: EPDeviceTarget -> EPDeviceTarget.
 
-    Fills ``"auto"`` for ep and device using the catalog; validates
-    against ``available_eps()`` (cheap, no DLL load). The DLL-load +
-    runtime-handle binding (formerly in this function's tail) now lives
-    in :meth:`WinMLEPRegistry.auto_device` — see
-    ``docs/design/session/3_design_classes.md`` §6.
+    Takes a typed :class:`EPDeviceTarget` intent (possibly carrying
+    ``"auto"`` on either axis and ``source=None``) and returns a
+    self-describing :class:`EPDeviceTarget` whose ``ep`` and ``device``
+    are concrete. ``source`` is passed through unchanged in Scenario A
+    (``target.source is None``); in Scenario B (``target.source is not
+    None``) it is validated against the discovered EPEntry set.
 
-    Deduction matrix:
-        both given   -> validate + return
-        ep only      -> default_device_for_ep(ep) gives device
-        device only  -> default_ep_for_device(device) gives ep
-        neither      -> sysinfo auto-detect: pick strongest device,
-                        then fall through to the device-only path
+    Validation against ``available_eps()`` is cheap (no DLL load); the
+    DLL-load + runtime-handle binding lives in
+    :meth:`WinMLEPRegistry.auto_device` — see
+    ``docs/design/session/2_coreloop.md`` §4.3.
+
+    Deduction matrix (matches the prior loose-string ``resolve_device``):
+        both concrete -> validate + return
+        ep only       -> ``default_device_for_ep(ep)`` gives device
+        device only   -> ``default_ep_for_device(device)`` gives ep
+                         (filtered by ``available_eps()``)
+        neither       -> ``auto_detect_device()`` picks device,
+                         then fall through to the device-only branch
 
     Args:
-        ep: User-supplied EP name (short form e.g. ``"qnn"`` or full).
-            ``None`` deduces from *device*.
-        device: ``"cpu"`` | ``"gpu"`` | ``"npu"`` (case-insensitive).
-            ``None`` or ``"auto"`` deduces from *ep* or sysinfo.
-        source: Optional source tag (e.g. ``"pypi"``, ``"msix-microsoft"``).
-            Passed through to the resulting EPDeviceTarget. ``None`` means
-            "any source" — :meth:`WinMLEPRegistry.auto_device` walks
-            discovered candidates in precedence order.
+        target: User intent. ``target.ep`` and ``target.device`` may be
+            the literal ``"auto"``; ``target.source`` may be ``None`` or
+            a canonical source tag.
+
+    Returns:
+        Resolved :class:`EPDeviceTarget` with no ``"auto"`` values and a
+        validated ``source`` (when set by the caller).
 
     Raises:
-        ValueError: Unknown EP or device string.
+        ValueError: Unknown EP or device after deduction, or no
+            registered EP backs the requested device.
+        UnknownListingPick: ``target.source`` is set but no discovered
+            EPEntry for ``target.ep`` matches that source tag (Scenario B).
     """
-    # --- deduction phase ---------------------------------------------------
-    if device is not None and device.lower() == "auto":
-        device = None
+    # --- Step 1: normalize "auto" sentinels into None for the matrix ----
+    ep: str | None = None if target.ep == "auto" else target.ep
+    device: str | None = (
+        None if target.device == "auto" or target.device is None else target.device.lower()
+    )
+    source = target.source  # passthrough; validated in Step 4
 
+    # --- Step 2: deduction matrix (same body as the prior signature) ----
     if ep is None and device is None:
         # Auto-detect: pick strongest available device on this host.
         device = auto_detect_device()
 
     if ep is not None and device is None:
-        # ep given, device missing — infer from catalog
+        # ep given, device missing — infer from catalog.
         ep_full = expand_ep_name(ep)
         deduced = default_device_for_ep(ep_full)
         if deduced is None:
@@ -512,7 +522,7 @@ def resolve_device(
         logger.debug("Deduced device=%r from ep=%r", device, ep)
 
     if device is not None and ep is None:
-        # device given, ep missing — infer default EP from catalog
+        # device given, ep missing — infer default EP from catalog.
         device_lower = device.lower()
         if device_lower not in VALID_DEVICES:
             raise ValueError(f"Unknown device '{device}'. Expected one of: {sorted(VALID_DEVICES)}")
@@ -525,10 +535,27 @@ def resolve_device(
         ep = short_ep_name(default_ep_full)
         logger.debug("Deduced ep=%r from device=%r", ep, device_lower)
 
-    # At this point both ep and device are non-None strings (type-checker aid)
+    # At this point both ep and device are non-None strings (type-checker aid).
     assert ep is not None
     assert device is not None
 
     ep_full = expand_ep_name(ep)
     device_lower = device.lower()
+
+    # --- Step 3: source validation (Scenario B only) --------------------
+    # When the caller pinned a source tag, validate it against the
+    # discovery layer. Defer IncompatibleListingPick to a later batch.
+    if source is not None:
+        from ..ep_path import discover_all_eps
+        from .ep_registry import _entry_source_tag
+
+        matches = [
+            e
+            for e in discover_all_eps()
+            if e.ep_name == ep_full and _entry_source_tag(e) == source
+        ]
+        if not matches:
+            raise UnknownListingPick(ep_full, source)
+
+    # --- Step 4: return self-describing resolved target -----------------
     return EPDeviceTarget(ep=ep_full, device=device_lower, source=source)

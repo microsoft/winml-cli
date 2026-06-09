@@ -372,10 +372,10 @@ def build(
     # available (EP, device) pair via the catalog + host inventory.  No
     # hardcoded device priorities here; the dispatcher does the dispatching.
     if ep is None:
-        from ..session import resolve_device, short_ep_name
+        from ..session import EPDeviceTarget, resolve_device, short_ep_name
 
         try:
-            _auto_ep_device = resolve_device(ep=None, device=None)
+            _auto_ep_device = resolve_device(EPDeviceTarget(ep="auto", device="auto"))
         except Exception as exc:
             logger.warning(
                 "EP unspecified for build, and auto-selection failed: %s. "

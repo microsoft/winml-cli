@@ -72,7 +72,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         Args:
             onnx_path: Path to ONNX model file
             ep_device: Resolved (EP, device) target — required. Use
-                ``resolve_device(ep, device)`` from ``session.ep_device``.
+                ``resolve_device(EPDeviceTarget(...))`` from ``session.ep_device``.
             config: HuggingFace PretrainedConfig (num_labels, id2label, etc.)
         """
         self._onnx_path = Path(onnx_path)

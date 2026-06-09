@@ -78,7 +78,9 @@ class CompileStage(BaseStage):
                 target = compile_cfg.ep_device
             else:
                 ep_str = context.execution_provider
-                target = resolve_device(ep=ep_str)
+                target = resolve_device(
+                    EPDeviceTarget(ep=ep_str or "auto", device="auto")
+                )
             ep_device = WinMLEPRegistry.instance().auto_device(target)
             context.log(
                 f"Creating {session_cls.__name__} for {target.ep}/{target.device}"

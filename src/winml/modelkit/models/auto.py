@@ -121,7 +121,7 @@ class WinMLAutoModel:
 
         Args:
             onnx_path: Path to existing ONNX model file.
-            ep_device: Resolved (EP, device) target. Use ``resolve_device(ep, device)``
+            ep_device: Resolved (EP, device) target. Use ``resolve_device(EPDeviceTarget(...))``
                 from ``session.ep_device`` to construct this.
             task: Task name. Optional for ONNX builds (not needed for build pipeline).
             config: Build config. If None, auto-generated with device/precision resolution.
@@ -259,7 +259,7 @@ class WinMLAutoModel:
 
         Args:
             model_id_or_path: HF model ID, local path, or path to .onnx file.
-            ep_device: Resolved (EP, device) target. Use ``resolve_device(ep, device)``
+            ep_device: Resolved (EP, device) target. Use ``resolve_device(EPDeviceTarget(...))``
                 from ``session.ep_device`` to construct this. Required.
             task: Explicit task name. If None, auto-detected from config.
             config: WinMLBuildConfig for pipeline configuration.

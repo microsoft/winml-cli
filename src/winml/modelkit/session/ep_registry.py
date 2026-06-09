@@ -295,7 +295,7 @@ class WinMLEPRegistry:
         if target.ep == "auto" or target.device == "auto":
             raise ValueError(
                 "auto_device requires a resolved EPDeviceTarget; "
-                "call resolve_device() first"
+                "call resolve_device(target) first"
             )
 
         from ..ep_path import discover_all_eps

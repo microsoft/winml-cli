@@ -27,7 +27,7 @@ from rich.console import Console
 
 from ..config import VALID_EPS
 from ..onnx import is_compiled_onnx
-from ..session import VALID_DEVICES, resolve_device
+from ..session import VALID_DEVICES, EPDeviceTarget, resolve_device
 from ..session.ep_device import DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
@@ -169,10 +169,12 @@ def compile(
     configure_logging(verbose=verbose)
 
     # Resolve EP+device at the CLI boundary (plan §C / Decision B).
-    # device="auto" is treated as None (let resolve_device pick via sysinfo).
-    _device_arg = None if (device is None or device.lower() == "auto") else device.lower()
+    # device=None or "auto" both signal auto-detect via the resolver.
+    _device_arg = "auto" if (device is None or device.lower() == "auto") else device.lower()
     try:
-        ep_device_resolved = resolve_device(ep=ep, device=_device_arg)
+        ep_device_resolved = resolve_device(
+            EPDeviceTarget(ep=ep or "auto", device=_device_arg)
+        )
     except DeviceNotFound as e:
         raise click.ClickException(str(e)) from e
     except WinMLEPNotDiscovered as e:

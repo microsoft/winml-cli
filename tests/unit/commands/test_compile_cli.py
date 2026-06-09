@@ -161,39 +161,39 @@ class TestCompileCliDeviceEpFlags:
         """resolve_device() is called exactly once with the CLI args."""
         _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx), "--ep", "qnn", "--device", "npu"])
-        mock_resolve.assert_called_once_with(ep="qnn", device="npu")
+        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="qnn", device="npu"))
 
     def test_resolve_device_called_ep_only(
         self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
     ) -> None:
-        """--ep only: resolve_device(ep=..., device=None)."""
+        """--ep only: resolve_device(EPDeviceTarget(ep=..., device='auto'))."""
         _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx), "--ep", "vitisai"])
-        mock_resolve.assert_called_once_with(ep="vitisai", device=None)
+        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="vitisai", device="auto"))
 
     def test_resolve_device_called_device_only(
         self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
     ) -> None:
-        """--device only: resolve_device(ep=None, device=...)."""
+        """--device only: resolve_device(EPDeviceTarget(ep='auto', device=...))."""
         _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx), "--device", "gpu"])
-        mock_resolve.assert_called_once_with(ep=None, device="gpu")
+        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="auto", device="gpu"))
 
     def test_resolve_device_called_neither(
         self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
     ) -> None:
-        """Neither --ep nor --device: resolve_device(ep=None, device=None)."""
+        """Neither --ep nor --device: resolve_device(EPDeviceTarget(ep='auto', device='auto'))."""
         _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx)])
-        mock_resolve.assert_called_once_with(ep=None, device=None)
+        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="auto", device="auto"))
 
     def test_device_auto_treated_as_none(
         self, runner: CliRunner, fake_onnx: Path, mock_compile_onnx
     ) -> None:
-        """--device auto: treated as None, resolve_device(ep=None, device=None)."""
+        """--device auto: passes EPDeviceTarget(ep='auto', device='auto')."""
         _result, mock_resolve = mock_compile_onnx
         runner.invoke(compile, ["-m", str(fake_onnx), "--device", "auto"])
-        mock_resolve.assert_called_once_with(ep=None, device=None)
+        mock_resolve.assert_called_once_with(EPDeviceTarget(ep="auto", device="auto"))
 
     def test_invalid_device_rejected(self, runner: CliRunner, fake_onnx: Path) -> None:
         """Unknown device string is rejected by Click."""

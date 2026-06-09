@@ -177,7 +177,7 @@ def test_short_full_loopback(short: str, full: str) -> None:
 
 def test_resolve_device_qnn_npu() -> None:
     """resolve_device returns the requested (ep, device) pair without registry calls."""
-    result = resolve_device("qnn", "npu")
+    result = resolve_device(EPDeviceTarget(ep="qnn", device="npu"))
     assert result.ep == "QNNExecutionProvider"
     assert result.device == "npu"
     assert result.source is None
@@ -185,7 +185,30 @@ def test_resolve_device_qnn_npu() -> None:
 
 def test_resolve_device_threads_source_through() -> None:
     """resolve_device passes source through to EPDeviceTarget."""
-    result = resolve_device("qnn", "npu", source="pypi")
+    # source validation needs discover_all_eps to return a matching EPEntry —
+    # patch it so this stays a pure pass-through test.
+    with patch(
+        "winml.modelkit.ep_path.discover_all_eps",
+        return_value=[],
+    ), patch(
+        "winml.modelkit.session.ep_registry._entry_source_tag",
+        return_value="pypi",
+    ):
+        # discover returns empty so the source validation block raises.
+        # Use a stub that satisfies both conditions.
+        pass
+
+    # Better: stub discover to return an EPEntry-like that matches.
+    fake_entry = MagicMock()
+    fake_entry.ep_name = "QNNExecutionProvider"
+    with patch(
+        "winml.modelkit.ep_path.discover_all_eps",
+        return_value=[fake_entry],
+    ), patch(
+        "winml.modelkit.session.ep_registry._entry_source_tag",
+        return_value="pypi",
+    ):
+        result = resolve_device(EPDeviceTarget(ep="qnn", device="npu", source="pypi"))
     assert result.source == "pypi"
 
 
@@ -198,7 +221,7 @@ def test_resolve_device_does_not_load_dll() -> None:
     removed.
     """
     with patch("winml.modelkit.session.ep_registry.WinMLEPRegistry") as mock_reg:
-        result = resolve_device("qnn", "npu")
+        result = resolve_device(EPDeviceTarget(ep="qnn", device="npu"))
     assert result.ep == "QNNExecutionProvider"
     mock_reg.instance.assert_not_called()
 
@@ -501,7 +524,7 @@ def test_resolve_device_device_only_picks_registered_ep() -> None:
     with contextlib.ExitStack() as stack:
         for cm in _patch_available_eps(available):
             stack.enter_context(cm)
-        result = resolve_device(device="npu")
+        result = resolve_device(EPDeviceTarget(ep="auto", device="npu"))
 
     assert result.ep == "OpenVINOExecutionProvider", (
         f"resolve_device returned {result.ep!r}; expected "
