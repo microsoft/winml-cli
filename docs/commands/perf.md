@@ -35,7 +35,7 @@ $ winml perf [options]
 
 ## How it works
 
-`winml perf` loads the model through `WinMLAutoModel` — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When `--monitor` is active, a hardware polling loop runs in parallel and records NPU utilization, CPU usage, and device memory alongside the timing data.
+`winml perf` loads the model through `WinMLAutoModel` — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When `--monitor` is active, a hardware polling loop runs in parallel and records NPU / GPU utilization, CPU usage, and device memory alongside the timing data.
 
 ## Examples
 
@@ -91,7 +91,7 @@ $ winml perf -m bert-base-uncased --module BertAttention --iterations 200
 - **`--shape-config` is silently ignored in two cases.** It has no effect on pre-exported ONNX files (shapes are baked into the graph) and is ignored in `--module` mode. The command prints a warning in both situations.
 - **`--op-tracing` requires `onnxruntime-qnn`.** The flag activates the QNN profiler, which is only present in the `onnxruntime-qnn` package. If that package is not installed, the benchmark still runs but the op-trace step exits with an error.
 - **Random inputs do not represent real data distributions.** Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.
-- **Cross-device comparison.** There is no `--compare-devices` flag. To compare performance across devices, run `winml perf` separately with different `--device` values and compare the resulting JSON files.
+- **Cross-device comparison.** To compare performance across devices, run `winml perf` separately with different `--device` values and compare the resulting JSON reports.
 
 ## See also
 

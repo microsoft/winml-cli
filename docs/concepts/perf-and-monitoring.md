@@ -10,7 +10,7 @@ At its core, `winml perf` runs a configurable number of inference iterations and
 
 You can control the run length with `--iterations` and the input shape with `--batch-size` or a `--shape-config` JSON file for models with dynamic axes. The `--device` flag selects the target EP — `cpu`, `gpu`, `npu`, or `auto` (default) — allowing you to collect numbers on each target with the same command and compare them directly. For fine-grained EP control, `--ep` lets you name a specific provider such as `qnn` or `dml`.
 
-The results are written to a JSON file at `~/.cache/winml/perf/<slug>/<timestamp>.json` so they can be archived and compared across builds.
+The results are written to a JSON file at `~/.cache/winml/perf/<slug>/<timestamp>.json` (or a custom path via `--output`) so they can be archived and compared across builds.
 
 ## Live monitoring
 
