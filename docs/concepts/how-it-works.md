@@ -110,7 +110,8 @@ WinMLBuildConfig
 ├── export    — input tensor specs, opset, backend
 ├── optim     — fusion flags, optimization level
 ├── quant     — precision, calibration settings (null = skip stage)
-└── compile   — target EP, device (null = skip stage)
+├── compile   — target EP, device (null = skip stage)
+└── eval      — evaluation settings
 ```
 
 Setting `quant` or `compile` to `null` in the JSON file is equivalent to passing
@@ -122,6 +123,8 @@ The config file is written (or updated) to the output directory after the optimi
 completes, capturing any autoconf-adjusted fusion flags so the build is reproducible.
 This persisted `winml_build_config.json` is a self-contained pipeline specification that
 you can check into version control and run in CI/CD (`winml build -c winml_build_config.json -m <model> -o output/`) for repeatable, unattended builds across environments.
+
+For the full field-by-field schema, see [Reference — Config Schema](../reference/index.md).
 
 ## See Also
 
