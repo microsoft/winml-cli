@@ -230,11 +230,14 @@ def cleanup_onnx_artifacts(model_dir: Path) -> None:
     --use-cache still work for the JSON-driven stages.
     """
     freed = 0
-    for f in model_dir.iterdir():
+    for f in model_dir.rglob("*"):
         if f.is_file() and f.suffix != ".json":
-            size = f.stat().st_size
-            f.unlink()
-            freed += size
+            try:
+                size = f.stat().st_size
+                f.unlink()
+                freed += size
+            except OSError:
+                pass
     safe_print(f"  [cleanup] Freed {freed / 1024**2:.1f} MB of artifacts")
 
 
@@ -479,7 +482,7 @@ def stage_sa_pre(
     ep: str = "QNNExecutionProvider",
     device: str = "NPU",
 ) -> tuple[dict[str, str], list[dict]] | None:
-    """Run SA with information on export.onnx (pre-optimization state).
+    """Run SA with information on graph_optimized.onnx (pre-optimization state).
 
     Returns (classifications, info_items) or None on failure.
     """
@@ -1192,7 +1195,7 @@ def main() -> None:
         all_results = [json.loads(f.read_text(encoding="utf-8")) for f in result_files]
         safe_print(f"Collected {len(all_results)} model results from disk.")
         report = build_aggregate_report(
-            all_results, args.models_file, ep=args.ep, device=args.device
+            all_results, args.registry or args.models_file, ep=args.ep, device=args.device
         )
         report_json = output_dir / "sa_eval_report.json"
         report_json.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1324,7 +1327,7 @@ def main() -> None:
         )
 
         report = build_aggregate_report(
-            all_results, args.models_file, ep=args.ep, device=args.device
+            all_results, args.registry or args.models_file, ep=args.ep, device=args.device
         )
         report["total_elapsed"] = round(elapsed, 2)
 

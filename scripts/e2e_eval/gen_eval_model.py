@@ -89,7 +89,10 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     except subprocess.TimeoutExpired:
         timed_out = True
         proc.kill()
-        proc.wait(timeout=10)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
 
     t_out.join(timeout=5)
     t_err.join(timeout=5)
@@ -138,10 +141,15 @@ def export_model(
 
     output_path = model_dir / "export.onnx"
 
-    # Skip if already exported
+    # Skip if already exported (single model or composite sub-exports)
+    composite_exports = list(model_dir.glob("export_*.onnx"))
     if output_path.exists() and output_path.stat().st_size > 0:
         safe_print(f"  [cached] {output_path}")
         return {"success": True, "onnx_path": str(output_path), "elapsed": 0}
+    if composite_exports and all(f.stat().st_size > 0 for f in composite_exports):
+        paths = ", ".join(str(f) for f in composite_exports)
+        safe_print(f"  [cached] {paths}")
+        return {"success": True, "onnx_path": paths, "elapsed": 0}
 
     # Step 1: winml config to get consistent export settings
     cfg_path = config_path or (model_dir / "build_config.json")

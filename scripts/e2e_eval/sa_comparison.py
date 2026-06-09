@@ -93,7 +93,7 @@ def run_sa_with_info(
         )
 
     # Get optimization config from SA recommendations
-    optim_config = dict(result.get_optimization_config(ep))
+    optim_config = dict(result.get_optimization_config(ep)) if ep_found else {}
 
     return classifications, optim_config, info_items
 
