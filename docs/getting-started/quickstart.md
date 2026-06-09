@@ -28,13 +28,13 @@ uv run winml inspect -m microsoft/resnet-50
 ```
 
 ```text
-╭─────────────────────────── microsoft/resnet-50 ───────────────────────────╮
-│ Task          image-classification                                         │
-│ Model Class   ResNetForImageClassification                                 │
-│ Exporter      OptimumExporter                                              │
-│ WinML Class   WinMLImageClassificationModel                                │
-│ Status        Supported                                                    │
-╰────────────────────────────────────────────────────────────────────────────╯
++--------------------------- microsoft/resnet-50 ---------------------------+
+| Task          image-classification                                         |
+| Model Class   ResNetForImageClassification                                 |
+| Exporter      OptimumExporter                                              |
+| WinML Class   WinMLImageClassificationModel                                |
+| Status        Supported                                                    |
++---------------------------------------------------------------------------+
 ```
 
 !!! note "What just happened"

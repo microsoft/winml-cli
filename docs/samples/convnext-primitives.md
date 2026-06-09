@@ -23,13 +23,13 @@ winml inspect -m facebook/convnext-tiny-224
 ```
 
 ```text
-╭─────────────────────────── facebook/convnext-tiny-224 ────────────────────────╮
-│ Task          image-classification                                              │
-│ Model Class   ConvNextForImageClassification                                   │
-│ Exporter      OptimumExporter                                                  │
-│ WinML Class   WinMLImageClassificationModel                                    │
-│ Status        Supported                                                        │
-╰────────────────────────────────────────────────────────────────────────────────╯
++------------------------- facebook/convnext-tiny-224 --------------------------+
+| Task          image-classification                                             |
+| Model Class   ConvNextForImageClassification                                   |
+| Exporter      OptimumExporter                                                  |
+| WinML Class   WinMLImageClassificationModel                                    |
+| Status        Supported                                                        |
++-------------------------------------------------------------------------------+
 ```
 
 !!! note "What we just did"

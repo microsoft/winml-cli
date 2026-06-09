@@ -46,13 +46,13 @@ $ winml catalog
 ```
 
 ```text
-╭─── winml-cli Catalog  |  12 validated model(s) ───────────────────────────╮
-│  Model                             Task                    Model Type     │
-│ ├ microsoft/resnet-50              image-classification    resnet         │
-│ ├ bert-base-uncased                fill-mask               bert           │
-│ ├ ProsusAI/finbert                 text-classification     bert           │
-│ └ ...                                                                     │
-╰────────────────────────────────────────────────────────────────────────────╯
++--- winml-cli Catalog  |  12 validated model(s) --------------------------+
+|  Model                             Task                    Model Type     |
+|  microsoft/resnet-50              image-classification    resnet          |
+|  bert-base-uncased                fill-mask               bert            |
+|  ProsusAI/finbert                 text-classification     bert            |
+|  ...                                                                      |
++---------------------------------------------------------------------------+
 Use  --ep  or  --device  to filter by execution provider or target device.
 ```
 

@@ -40,9 +40,9 @@ winml sys
 Expected output (abbreviated):
 
 ```text
-╭──────────────────────────────────╮
-│   winml-cli System Information    │
-╰──────────────────────────────────╯
++------------------------------------+
+|   winml-cli System Information     |
++------------------------------------+
 
 Environment
   Python Version    3.11.x
