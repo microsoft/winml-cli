@@ -5,8 +5,8 @@
 | Component | Details |
 |---|---|
 | Windows | Windows 11 24H2 or later (required for NPU support) |
-| Hardware | Copilot+PC with NPU (40+ TOPS recommended for NPU acceleration; CPU/DirectML works without an NPU) |
-| Python | 3.11 (the project pins `requires-python = ">=3.11,<3.12"`) |
+| Hardware | Device with CPU, GPU, or NPU |
+| Python | 3.11 |
 | Package manager | [`uv`](https://github.com/astral-sh/uv) |
 | Version control | `git` |
 
@@ -66,25 +66,6 @@ Available Execution Providers
 ```
 
 This command enumerates available compute devices and execution providers on your machine. If an expected device or SDK is missing, `winml sys` is the right place to diagnose it. See [winml sys](../commands/sys.md) for the full flag reference and troubleshooting tips.
-
-??? note "Optional extras (hardware-specific backends)"
-
-    Two optional dependency groups are available:
-
-    - `--extra openvino` — installs [OpenVINO](https://docs.openvino.ai/) for inference on Intel CPU and GPU targets.
-    - `--extra qnn` — installs `onnxruntime-qnn` for Qualcomm NPU support.
-
-    To install an extra:
-
-    ```bash
-    uv pip install winml-cli[qnn]
-    ```
-
-    Both extras can be combined:
-
-    ```bash
-    uv pip install winml-cli[openvino,qnn]
-    ```
 
 ## Next steps
 
