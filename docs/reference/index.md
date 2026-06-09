@@ -1,4 +1,4 @@
-# Reference — Build Configuration Schema
+# Reference — Config Schema
 
 This page documents the full schema for `WinMLBuildConfig`, the JSON configuration
 file that drives `winml build` and related commands. Generate a config with

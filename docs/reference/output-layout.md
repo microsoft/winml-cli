@@ -233,5 +233,5 @@ Key fields:
 ## See also
 
 - [winml build](../commands/build.md) — build command reference
-- [Reference — Build Configuration Schema](index.md) — config file format
+- [Reference — Config Schema](index.md) — config file format
 - [How winml-cli Works](../concepts/how-it-works.md) — pipeline stages explained

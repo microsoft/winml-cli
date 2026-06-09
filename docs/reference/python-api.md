@@ -253,6 +253,6 @@ print(f"P99 latency: {stats.p99_ms:.2f} ms")
 
 ## See also
 
-- [Reference — Build Configuration Schema](index.md) — full config field reference
+- [Reference — Config Schema](index.md) — full config field reference
 - [winml build](../commands/build.md) — CLI equivalent
 - [How winml-cli Works](../concepts/how-it-works.md) — pipeline overview
