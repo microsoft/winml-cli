@@ -26,7 +26,7 @@ The skill teaches the agent:
 
 ### With GitHub Copilot Coding Agent
 
-The [Copilot Coding Agent](https://docs.github.com/en/copilot/using-github-copilot/using-the-copilot-coding-agent)
+The [Copilot Coding Agent](https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/overview)
 (the cloud agent that creates PRs) automatically reads `skills/use-winml-cli/SKILL.md`
 when working on this repository. No setup needed — assign an issue or ask
 Copilot to build/optimize a model and it will follow the skill's guidance to
