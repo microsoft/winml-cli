@@ -19,8 +19,8 @@ $ winml catalog [options]
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--model-type` | `-t` | string | `null` | Filter the catalog by model architecture (case-insensitive). Examples: `bert`, `roberta`, `vit`. |
-| `--task` | `-k` | string | `null` | Filter by HuggingFace task (case-insensitive). Examples: `text-classification`, `image-segmentation`. |
+| `--model-type` | | string | `null` | Filter the catalog by model architecture (case-insensitive). Examples: `bert`, `roberta`, `vit`. |
+| `--task` | `-t` | string | `null` | Filter by HuggingFace task (case-insensitive). Examples: `text-classification`, `image-segmentation`. |
 | `--ep` | | string | `null` | Filter by execution provider (e.g., `qnn`, `dml`). If not specified, shows all EPs. |
 | `--device` | | string | `null` | Filter by target device (e.g., `npu`, `gpu`). If not specified, shows all devices. |
 | `--output` | `-o` | path | `null` | Save the displayed results to a JSON file. |
