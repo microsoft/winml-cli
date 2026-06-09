@@ -19,9 +19,10 @@ class TestUnifiedPatternConfig:
         htp_patterns = config.get_htp_patterns()
 
         # Should load all patterns from default.json
-        # 8 patterns: Gelu1-4, MatMulAdd, LayerNormPow, LayerNormMul, ReshapeTransposeReshape
-        assert len(skeleton_patterns) == 8, (
-            f"Expected 8 skeleton patterns, got {len(skeleton_patterns)}"
+        # 9 patterns: Gelu1-4, MatMulAdd, LayerNormPow, LayerNormMul,
+        # ReshapeTransposeReshape, UnsqueezeCast
+        assert len(skeleton_patterns) == 9, (
+            f"Expected 9 skeleton patterns, got {len(skeleton_patterns)}"
         )
         assert len(htp_patterns) == 1, f"Expected 1 HTP pattern, got {len(htp_patterns)}"
 
@@ -32,6 +33,7 @@ class TestUnifiedPatternConfig:
             "SUBGRAPH/GemmPattern",  # MatMulAdd
             "SUBGRAPH/LayerNormalizationPattern",  # Shared by Pow and Mul variants
             "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+            "SUBGRAPH/UnsqueezeCastPattern",
         }
         assert skeleton_pattern_ids == expected_ids, f"Pattern IDs mismatch: {skeleton_pattern_ids}"
 
@@ -43,9 +45,9 @@ class TestUnifiedPatternConfig:
         htp_patterns = config.get_htp_patterns()
 
         # Should load all patterns from default + QNN overrides
-        # 9 patterns: 8 from default + TransposeAttentionPattern from QNN
-        assert len(skeleton_patterns) == 9, (
-            f"Expected 9 skeleton patterns, got {len(skeleton_patterns)}"
+        # 10 patterns: 9 from default + TransposeAttentionPattern from QNN
+        assert len(skeleton_patterns) == 10, (
+            f"Expected 10 skeleton patterns, got {len(skeleton_patterns)}"
         )
         # HTP patterns should be inherited from default
         assert len(htp_patterns) == 1, f"Expected 1 HTP pattern, got {len(htp_patterns)}"
@@ -160,7 +162,7 @@ class TestUnifiedPatternConfig:
 
         # Should load default patterns with a warning
         skeleton_patterns = config.get_skeleton_patterns()
-        assert len(skeleton_patterns) == 8, "Should fall back to default patterns"
+        assert len(skeleton_patterns) == 9, "Should fall back to default patterns"
 
     def test_alternatives_with_pattern_class(self):
         """Test that alternatives with pattern_class field are loaded correctly."""

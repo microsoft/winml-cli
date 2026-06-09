@@ -31,7 +31,7 @@ class TestPatternInputGeneratorRegistry:
     def test_all_patterns_registered(self) -> None:
         """Test that all patterns are registered."""
         registered = get_registered_pattern_input_generators()
-        assert len(registered) == 19
+        assert len(registered) == 20
 
     def test_get_pattern_input_generator(self) -> None:
         """Test retrieving pattern generators by name."""
