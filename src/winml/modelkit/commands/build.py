@@ -166,6 +166,7 @@ def _build_modules(
     rebuild: bool = False,
     ep: EPNameOrAlias | None = None,
     device: str | None = None,
+    allow_unsupported_nodes: bool = False,
 ) -> list[BuildResult]:
     """Build each module config using init-weight parent for submodule extraction.
 
@@ -182,6 +183,8 @@ def _build_modules(
         rebuild: If True, overwrite existing artifacts.
         ep: Target execution provider for analyzer.
         device: Target device for analyzer.
+        allow_unsupported_nodes: If True, warn instead of failing the build when
+            the analyzer reports unsupported nodes that persist.
 
     Returns:
         List of BuildResult in the same order as *configs*.
@@ -222,6 +225,7 @@ def _build_modules(
             rebuild=rebuild,
             ep=ep,
             device=device,
+            allow_unsupported_nodes=allow_unsupported_nodes,
         )
         results.append(result)
 
@@ -486,6 +490,7 @@ def _validate_loader_tasks_for_model(
     default=None,
     help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
 )
+@cli_utils.allow_unsupported_nodes_option()
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
@@ -505,6 +510,7 @@ def build(
     device: str,
     no_analyze: bool,
     max_optim_iterations: int | None,
+    allow_unsupported_nodes: bool,
     trust_remote_code: bool,
     verbose: int,
     quiet: bool,
@@ -663,6 +669,10 @@ def build(
             extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
+        # Always set (even when False) so downstream pipeline functions can rely
+        # on the key being present, matching the module-mode path which passes
+        # allow_unsupported_nodes explicitly regardless of its value.
+        extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
@@ -697,6 +707,7 @@ def build(
                 rebuild=rebuild,
                 ep=ep,
                 device=device,
+                allow_unsupported_nodes=allow_unsupported_nodes,
             )
 
             # Report per-module results
@@ -967,6 +978,7 @@ def _run_optimize_stage(
     stage_timings: list[tuple[str, float | None]],
     show_io_first: bool = False,
     analyze_output_path: Path | None = None,
+    allow_unsupported_nodes: bool = False,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -1075,6 +1087,7 @@ def _run_optimize_stage(
             ep=ep,
             device=device,
             max_optim_iterations=max_iters,
+            allow_unsupported_nodes=allow_unsupported_nodes,
             on_ep_start=_on_ep_start,
             on_node_result=_on_node_result,
             on_iteration_start=_on_iteration_start,
@@ -1296,6 +1309,7 @@ def _build_hf_pipeline(
     from ..utils.console import StageLive
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
     model_label = model_id or "random-init"
 
     # ── Validate + setup ─────────────────────────────────────────
@@ -1374,6 +1388,7 @@ def _build_hf_pipeline(
         stage_timings=stage_timings,
         show_io_first=False,
         analyze_output_path=analyze_result_path,
+        allow_unsupported_nodes=allow_unsupported_nodes,
     )
 
     # Persist config after autoconf
@@ -1420,6 +1435,7 @@ def _build_onnx_pipeline(
     from ..onnx import copy_onnx_model
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
 
     # ── Validate + setup ─────────────────────────────────────────
     if not onnx_path.exists():
@@ -1468,6 +1484,7 @@ def _build_onnx_pipeline(
         stage_timings=stage_timings,
         show_io_first=True,
         analyze_output_path=analyze_result_path,
+        allow_unsupported_nodes=allow_unsupported_nodes,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
