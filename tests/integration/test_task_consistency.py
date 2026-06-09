@@ -26,6 +26,14 @@ CASES = [
     ("facebook/dinov2-small", "image-feature-extraction"),
     ("openai/clip-vit-base-patch32", "feature-extraction"),  # image_size nested -> no D2
     ("bert-base-uncased", "fill-mask"),
+    # bart maps to >1 task (feature-extraction + text2text-generation) in
+    # MODEL_CLASS_MAPPING; detect_task must consult the architecture head instead
+    # of short-circuiting to the first key, so a sequence-classification BART
+    # resolves to text-classification rather than the lossy feature-extraction.
+    ("facebook/bart-large-mnli", "text-classification"),
+    # sam has a (sam, None) default-class sentinel plus a single real task; the
+    # sentinel must not make detection fall through — it resolves to mask-generation.
+    ("facebook/sam-vit-base", "mask-generation"),
 ]
 
 
