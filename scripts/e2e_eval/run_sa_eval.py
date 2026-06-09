@@ -121,6 +121,21 @@ _EP_TO_PERF_ARG: dict[str, str] = {
     "NvTensorRTRTXExecutionProvider": "nv_tensorrt_rtx",
 }
 
+# Reverse map: short alias → full ORT EP name
+_PERF_ARG_TO_EP: dict[str, str] = {v: k for k, v in _EP_TO_PERF_ARG.items()}
+
+
+def _normalize_ep(ep: str) -> str:
+    """Normalize EP input to full ORT name. Accepts both alias (qnn) and full name."""
+    if ep in _EP_TO_PERF_ARG:
+        return ep  # already full name
+    if ep.lower() in _PERF_ARG_TO_EP:
+        return _PERF_ARG_TO_EP[ep.lower()]
+    raise ValueError(
+        f"Unknown EP {ep!r}. Use alias ({', '.join(sorted(_PERF_ARG_TO_EP))}) "
+        f"or full name ({', '.join(sorted(_EP_TO_PERF_ARG))})."
+    )
+
 
 def _resolve_ep_arg(ep: str) -> str:
     """Resolve full ORT EP name to the short form accepted by winml CLI --ep."""
@@ -1119,7 +1134,7 @@ def main() -> None:
     parser.add_argument(
         "--ep",
         default="QNNExecutionProvider",
-        help="Execution provider (default: QNNExecutionProvider)",
+        help="Execution provider — alias (qnn, dml, cpu) or full name (default: QNNExecutionProvider)",
     )
     parser.add_argument("--device", default="NPU", help="Target device (default: NPU)")
     parser.add_argument(
@@ -1186,6 +1201,10 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+
+    # Normalize EP: accept both alias (qnn, dml) and full name (QNNExecutionProvider)
+    if args.ep:
+        args.ep = _normalize_ep(args.ep)
 
     output_dir = (args.output_dir or Path(f"sa_eval_results/{date.today().isoformat()}")).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
