@@ -1,0 +1,42 @@
+{
+  "model_id": "mattmdjaga/segformer_b2_clothes",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_build_artifacts\\model.onnx",
+  "task": "image-segmentation",
+  "device": "gpu",
+  "ep": "nv_tensorrt_rtx",
+  "dataset": {
+    "split": "train",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mattmdjaga/human_parsing_dataset",
+    "columns_mapping": {
+      "annotation_column": "mask"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_eval_result.json",
+  "metrics": {
+    "mean_iou": 0.7797841429710388,
+    "overall_accuracy": 0.9759967923164368,
+    "per_category_iou": [
+      0.9869382381439209,
+      0.8134227991104126,
+      0.825954794883728,
+      0.6331802606582642,
+      0.8912779092788696,
+      0.8758335113525391,
+      0.9016518592834473,
+      0.8597465753555298,
+      0.36698275804519653,
+      0.6366361379623413,
+      0.6457447409629822,
+      0.8536158800125122,
+      0.8160503506660461,
+      0.8069218397140503,
+      0.7921363115310669,
+      0.7961858510971069,
+      0.8268190026283264,
+      0.7070150375366211
+    ]
+  }
+}

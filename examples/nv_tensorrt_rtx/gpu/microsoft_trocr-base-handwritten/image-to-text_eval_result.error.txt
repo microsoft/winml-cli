@@ -1,0 +1,27 @@
+[19:59:22 WARNING winml.modelkit.config.precision] GPU + LLM task 'text2text-generation': auto-precision is fp16 (no quantization). For better performance, consider w4a16 quantization manually.
+[19:59:22 WARNING winml.modelkit.models.winml] Class WinMLModelForSeq2SeqLM not implemented for task 'text2text-generation', using generic fallback
+[WinML] Installing Execution Provider: MIGraphXExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+MIGraphXExecutionProvider EP installed successfully.
+- Version: 1.8.56.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.GPU.EP.1.8_8wekyb3d8bbwe
+[WinML] Installing Execution Provider: VitisAIExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+VitisAIExecutionProvider EP installed successfully.
+- Version: 1.8.62.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.NPU.EP.1.8_8wekyb3d8bbwe
+[WinML] Installing Execution Provider: NvTensorRTRTXExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+NvTensorRTRTXExecutionProvider EP installed successfully.
+- Version: 0.0.33.0
+- Package Family Name: MicrosoftCorporationII.WinML.NVIDIA.TRT-RTX.EP.2_8wekyb3d8bbwe
+Error: Evaluation failed: Dataset 'Teklia/IAM-line' is not compatible with task 'image-to-text': Failed to load dataset 'Teklia/IAM-line' (name=None, split='test'): 502 Server Error: Bad Gateway for url: https://huggingface.co/api/datasets/Teklia/IAM-line/xet-read-token/fbdad97500ce54635c0d1ba306bf535cb40656cf (Amz CF ID: iQRGx6xvZ0WuaqPSYvkikgpCzR2bulz8Qixqyil9bfyxzK9cOYubSg==). Use --dataset to specify a different dataset, or run 'winml eval --schema --task image-to-text' to see the expected schema.

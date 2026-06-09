@@ -1,7 +1,9 @@
 {
   "model_id": "FacebookAI/roberta-base",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\FacebookAI_roberta-base\\fill-mask_build_artifacts\\model.onnx",
   "task": "fill-mask",
   "device": "gpu",
+  "ep": "nv_tensorrt_rtx",
   "dataset": {
     "split": "test",
     "samples": 100,

@@ -1,19 +1,21 @@
 {
   "model_id": "google/vit-base-patch16-224",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\google_vit-base-patch16-224\\image-classification_build_artifacts\\model.onnx",
   "task": "image-classification",
   "device": "gpu",
+  "ep": "nv_tensorrt_rtx",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\google_vit-base-patch16-224\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.7,
-    "total_time_in_seconds": 2.7152015999890864,
-    "samples_per_second": 36.82967776698494,
-    "latency_in_seconds": 0.027152015999890863
+    "accuracy": 0.784,
+    "total_time_in_seconds": 16.472156100000575,
+    "samples_per_second": 60.708506763116766,
+    "latency_in_seconds": 0.016472156100000575
   }
 }
