@@ -100,6 +100,7 @@ $ winml inspect -m facebook/convnext-tiny-224 -v -H
 
 - [catalog.md](catalog.md) — browse the curated catalog and check accuracy verdicts before
   inspecting
+- [Supported Models](../reference/supported-models.md) — full list of validated model architectures
 - [Load and export concept](../concepts/load-and-export.md) — how `winml.hierarchy.tag`
   metadata is written and what you can do with the module tree
 - [How winml-cli Works](../concepts/how-it-works.md) — pipeline overview showing where

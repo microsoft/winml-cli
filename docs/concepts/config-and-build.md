@@ -157,5 +157,6 @@ benefits:
 
 - [Primitives and pipeline](primitives-and-pipeline.md) — when to use `winml build`
   vs individual primitive commands
+- [Config Schema](../reference/index.md) — full field-by-field config reference
 - [winml config command reference](../commands/config.md)
 - [winml build command reference](../commands/build.md)

@@ -155,6 +155,12 @@ artifact path from the build output to get the exact name.
     Throughput: 80.45 samples/sec
     ```
 
+## See also
+
+- [Config Schema](../reference/index.md) — full field-by-field config reference
+- [Output Layout](../reference/output-layout.md) — what each output file contains
+- [How winml-cli Works](../concepts/how-it-works.md) — pipeline overview
+
 === "CPU"
 
     ```text

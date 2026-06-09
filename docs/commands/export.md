@@ -81,6 +81,12 @@ winml export -m bert-base-uncased -o bert.onnx --input-specs inputs.json
 winml export -m microsoft/resnet-50 -o resnet50_clean.onnx --clean-onnx
 ```
 
+## See also
+
+- [Output Layout](../reference/output-layout.md) — what each output file contains
+- [winml optimize](optimize.md) — the next pipeline stage after export
+- [Load and export concept](../concepts/load-and-export.md) — details on the export process
+
 ## Common pitfalls
 
 - **Task detection fails on unusual model IDs.** If auto-detection picks the
