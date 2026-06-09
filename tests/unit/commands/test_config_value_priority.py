@@ -545,6 +545,7 @@ def _run_eval(
         "ep": cfg.ep,
         "task": cfg.task,
         "device": cfg.device,
+        "skip_build": cfg.skip_build,
         "dataset_samples": cfg.dataset.samples,
         "dataset_name": cfg.dataset.name,
     }
@@ -900,6 +901,34 @@ class TestEvalPriority:
     @pytest.mark.parametrize("case", EVAL_CASES, ids=lambda c: c.field)
     def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_eval, case, tmp_path)
+
+    # ------------------------------------------------------------------
+    # Targeted tests for the ``--skip-build/--no-skip-build`` toggle.
+    # Unlike perf's ``skip_build`` (no JSON source -> CLI-only), eval's
+    # ``skip_build`` has a full Tier-2 path: ``{"eval": {"skip_build": ...}}``
+    # flows through ``merge_config(cfg, eval_data)`` in ``_build_eval_config``,
+    # and the CLI layer (``collect_cli_overrides``) overrides it. The boolean
+    # flag doesn't fit the FieldCase ``[flag, value]`` shape, so the full
+    # CLI > config-file > default contract is verified explicitly here.
+    # ------------------------------------------------------------------
+
+    def test_skip_build_default_is_true(self, tmp_path: Path) -> None:
+        """Tier 3: no flag, no JSON -> cfg.skip_build keeps the True default."""
+        assert _run_eval([], None, tmp_path)["skip_build"] is True
+
+    def test_no_skip_build_flag_sets_false(self, tmp_path: Path) -> None:
+        """Tier 1: ``--no-skip-build`` -> cfg.skip_build is False."""
+        assert _run_eval(["--no-skip-build"], None, tmp_path)["skip_build"] is False
+
+    def test_json_skip_build_false_applies(self, tmp_path: Path) -> None:
+        """Tier 2: config file ``{"eval": {"skip_build": false}}`` must take effect."""
+        eff = _run_eval([], {"eval": {"skip_build": False}}, tmp_path)
+        assert eff["skip_build"] is False
+
+    def test_cli_beats_json_skip_build(self, tmp_path: Path) -> None:
+        """Tier 1 > Tier 2: explicit CLI ``--skip-build`` must win over JSON False."""
+        eff = _run_eval(["--skip-build"], {"eval": {"skip_build": False}}, tmp_path)
+        assert eff["skip_build"] is True
 
     def test_empty_quant_section_does_not_leak_to_dataset_samples(self, tmp_path: Path) -> None:
         """JSON ``{"quant": {}}`` must NOT change ``cfg.dataset.samples``.
