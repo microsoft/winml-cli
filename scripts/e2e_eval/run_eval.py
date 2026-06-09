@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -700,6 +701,162 @@ _BUILD_ONLY_EP_MATRIX: tuple[tuple[str, str, str], ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Build-only: export dedup
+# ---------------------------------------------------------------------------
+
+
+def _hash_files(paths: list[Path]) -> str:
+    """SHA-256 over a set of files (name + streamed content), order-independent."""
+    h = hashlib.sha256()
+    for p in sorted(paths, key=lambda x: x.name):
+        h.update(p.name.encode("utf-8"))
+        try:
+            with p.open("rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+        except OSError:
+            h.update(b"<unreadable>")
+    return h.hexdigest()
+
+
+def _dedup_export(build_dir: Path, shared_dir: Path, canonical_hash: str | None, label: str) -> str | None:
+    """Deduplicate this combo's export.onnx(+sidecar) against a per-model canonical.
+
+    The export stage is EP/device-independent, so every combo produces an
+    identical ``export.onnx``. The first one is moved into ``shared_dir``
+    (``_shared/``); later identical ones are deleted to keep one copy on disk.
+
+    Returns the (possibly newly-set) canonical hash.
+    """
+    export_files = sorted(build_dir.glob("export.onnx*"))
+    if not export_files:
+        return canonical_hash  # composite/no top-level export — leave untouched
+    h = _hash_files(export_files)
+    if canonical_hash is None:
+        shared_dir.mkdir(parents=True, exist_ok=True)
+        for f in export_files:
+            shutil.move(str(f), str(shared_dir / f.name))
+        safe_print(f"  [dedup] export -> {shared_dir.name}/ (canonical, {len(export_files)} file(s))")
+        return h
+    if h == canonical_hash:
+        for f in export_files:
+            f.unlink(missing_ok=True)
+        safe_print(f"  [dedup] {label}: export identical -> removed (using {shared_dir.name}/)")
+        return canonical_hash
+    safe_print(f"  [dedup] WARNING {label}: export differs from canonical — keeping in place")
+    return canonical_hash
+
+
+# ---------------------------------------------------------------------------
+# Build-only: Azure Artifacts feed upload (Universal Packages, az CLI, no PAT)
+# ---------------------------------------------------------------------------
+
+
+def _run_az(args: list[str], timeout: int = 600) -> dict:
+    """Run an `az ...` command, returning the same dict shape as _run_subprocess."""
+    az = shutil.which("az")
+    if az is None:
+        return {
+            "stdout": "",
+            "stderr": "az CLI not found on PATH",
+            "exit_code": 127,
+            "elapsed": 0.0,
+            "timeout": False,
+            "command": "az " + " ".join(args),
+        }
+    # Pass the az path (incl. az.cmd on Windows) directly in list form.
+    # subprocess handles .cmd resolution and arg quoting correctly; wrapping in
+    # `cmd /c` breaks when the az path has spaces (C:\Program Files\...) and an
+    # arg also contains spaces (e.g. --description), because cmd.exe then mangles
+    # the quotes and tries to run 'C:\Program'.
+    return _run_subprocess([az, *args], timeout)
+
+
+def _ensure_feed_ready(timeout: int = 180) -> str | None:
+    """Verify az + azure-devops extension + login. Returns an error string or None."""
+    if shutil.which("az") is None:
+        return "az CLI not found. Install Azure CLI (https://aka.ms/azcli)."
+    ext = _run_az(["extension", "show", "--name", "azure-devops"], timeout)
+    if ext["exit_code"] != 0:
+        safe_print("  [upload] Installing 'azure-devops' az extension...")
+        add = _run_az(["extension", "add", "--name", "azure-devops"], timeout)
+        if add["exit_code"] != 0:
+            return f"Failed to install 'azure-devops' az extension: {add['stderr'][:300]}"
+    acct = _run_az(["account", "show"], timeout)
+    if acct["exit_code"] != 0:
+        return "Not logged in to Azure. Run 'az login' (PAT not required), then retry."
+    return None
+
+
+def _slugify_version(text: str) -> str:
+    """Lowercase + collapse non-[0-9a-z] runs to single dashes (semver prerelease-safe)."""
+    s = re.sub(r"[^0-9a-z]+", "-", text.lower())
+    return re.sub(r"-{2,}", "-", s).strip("-")
+
+
+def _feed_version_for(entry: ModelEntry, run_stamp: str) -> str:
+    """Per-model Universal Package version: ``0.0.0-<run-stamp>-<model-slug>``.
+
+    Universal Packages require a valid lowercase SemVer 2.0 version, so the
+    ``major.minor.patch`` core is fixed at ``0.0.0`` and the batch stamp + model
+    identity live in the pre-release segment. The run stamp (a date like
+    ``20260609``) groups a batch under a common prefix and lets an interrupted
+    batch resume by re-using the same stamp (see ``--run-stamp`` / ``--continue``).
+    """
+    parts = [run_stamp, entry.hf_id]
+    if entry.task:
+        parts.append(entry.task)
+    return "0.0.0-" + _slugify_version("-".join(parts))
+
+
+def _is_publish_conflict(proc: dict) -> bool:
+    """True if a publish failed because the version already exists in the feed."""
+    blob = (proc.get("stdout", "") + proc.get("stderr", "")).lower()
+    return any(s in blob for s in ("already exist", "conflict", "409"))
+
+
+def _upload_model_dir(args: argparse.Namespace, model_dir: Path, version: str, timeout: int) -> dict:
+    """Publish a model dir to the feed as a Universal Package version."""
+    return _run_az(
+        [
+            "artifacts",
+            "universal",
+            "publish",
+            "--organization",
+            args.feed_org,
+            "--project",
+            args.feed_project,
+            "--scope",
+            "project",
+            "--feed",
+            args.feed,
+            "--name",
+            args.package_name,
+            "--version",
+            version,
+            "--path",
+            str(model_dir),
+            "--description",
+            f"build-only artifacts: {version}",
+        ],
+        timeout,
+    )
+
+
+def _load_upload_manifest(path: Path) -> dict:
+    """Load the build_only_uploads.json manifest, or {} on any error."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_upload_manifest(path: Path, manifest: dict) -> None:
+    """Persist the upload manifest (model version -> details)."""
+    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None:
     """Build each model to disk with --no-compile (no execution provider needed).
 
@@ -708,9 +865,14 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
 
     When neither --ep nor --device is pinned, every model is built once per EP in
     :data:`_BUILD_ONLY_EP_MATRIX`, each into a ``<model_dir>/<ep>_<device>/``
-    subdir. When --ep or --device is pinned, a single build is written directly
-    into ``<model_dir>``. Precision per combo follows the same policy as the eval
-    path (NPU defaults to w8a16; CPU/GPU omit the flag; native-quant EPs skip).
+    subdir. The identical ``export.onnx`` is deduped into ``<model_dir>/_shared/``.
+    When --ep or --device is pinned, a single build is written directly into
+    ``<model_dir>`` (no dedup). Precision per combo follows the same policy as the
+    eval path (NPU defaults to w8a16; CPU/GPU omit the flag; native-quant EPs skip).
+
+    With ``--upload``, each model's dir is published to the Azure Artifacts feed as
+    a Universal Package version (``<package-name>@0.0.0-<run-stamp>-<model-slug>``)
+    and then deleted locally to bound disk usage.
     """
     output_dir = args.output_dir or Path(f"eval_results/{date.today().isoformat()}")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -719,6 +881,25 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
     use_matrix = args.ep is None and args.device == "auto"
     # Single combo uses an empty label (no subdir); matrix uses (label, ep, device).
     combos = list(_BUILD_ONLY_EP_MATRIX) if use_matrix else [("", args.ep, args.device)]
+
+    # Verify feed prerequisites once, up front. --upload exists to keep disk
+    # bounded, so a broken az setup must abort (not silently fall back to
+    # keeping everything local, which would fill the disk it was meant to save).
+    manifest: dict = {}
+    manifest_path = output_dir / "build_only_uploads.json"
+    run_stamp = _slugify_version(args.run_stamp or date.today().strftime("%Y%m%d"))
+    if args.upload:
+        err = _ensure_feed_ready()
+        if err is not None:
+            safe_print(f"[upload] Cannot upload: {err}")
+            sys.exit(2)
+        manifest = _load_upload_manifest(manifest_path)
+        safe_print(
+            f"[upload] Feed ready: {args.feed_org} / {args.feed_project} / "
+            f"feed={args.feed} / package={args.package_name} | run-stamp={run_stamp}"
+        )
+        if args.continue_run:
+            safe_print("[upload] Continue: skipping models already uploaded for this run-stamp")
 
     safe_print(f"Build-only: {len(entries)} models -> {output_dir}")
     if use_matrix:
@@ -734,11 +915,26 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
 
     total_builds = len(entries) * len(combos)
     succeeded = 0
+    uploaded = 0
     interrupted = False
 
     for i, entry in enumerate(entries, 1):
         label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
         model_dir = model_result_dir(output_dir, entry.hf_id, entry.task)
+        shared_dir = model_dir / "_shared"
+        canonical_hash: str | None = None
+        built_labels: list[str] = []
+        version = _feed_version_for(entry, run_stamp)
+
+        # Resume: skip models already uploaded for this run-stamp (manifest is
+        # the source of truth; failed/unrecorded models are (re)built). Skipping
+        # here avoids the expensive 8-EP rebuild, not just the upload.
+        if args.upload and args.continue_run:
+            prev = manifest.get(version)
+            if prev and prev.get("status") in ("uploaded", "exists-skipped"):
+                safe_print(f"\n[{i}/{len(entries)}] {label}  (SKIP - {prev['status']}: {version})")
+                continue
+
         safe_print(f"\n[{i}/{len(entries)}] {label}  ({entry.priority}, {entry.group})")
 
         for combo_label, ep, device in combos:
@@ -762,7 +958,13 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
 
             if build["success"]:
                 succeeded += 1
+                built_labels.append(combo_label or "(pinned)")
                 safe_print(f"  [OK]{tag} artifacts -> {build_dir}")
+                # Dedup the EP-independent export into _shared/ (matrix only).
+                if use_matrix:
+                    canonical_hash = _dedup_export(
+                        build_dir, shared_dir, canonical_hash, combo_label
+                    )
             else:
                 safe_print(f"  [FAIL @ {build['stage']}]{tag}")
                 if args.verbose:
@@ -774,13 +976,54 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
         if interrupted:
             break
 
+        # Upload the whole model dir, then delete locally to bound disk usage.
+        if args.upload and built_labels:
+            safe_print(f"  [upload] {args.package_name}@{version} ...")
+            up = _upload_model_dir(args, model_dir, version, args.timeout)
+            ok = up["exit_code"] == 0
+            conflict = (not ok) and _is_publish_conflict(up)
+            status: str
+            if ok:
+                status = "uploaded"
+                uploaded += 1
+                safe_print(f"  [upload OK] {args.package_name}@{version}")
+            elif conflict and args.upload_skip_existing:
+                status = "exists-skipped"
+                safe_print(f"  [upload SKIP] version exists: {version}")
+            else:
+                status = "failed"
+                safe_print(f"  [upload FAIL] {args.package_name}@{version} (kept local)")
+                if args.verbose:
+                    for line in (up.get("stderr", "")).strip().splitlines()[-12:]:
+                        safe_print(f"    {line}")
+
+            manifest[version] = {
+                "hf_id": entry.hf_id,
+                "task": entry.task,
+                "package": args.package_name,
+                "run_stamp": run_stamp,
+                "combos": built_labels,
+                "status": status,
+                "uploaded_at": _utc_now(),
+            }
+            _write_upload_manifest(manifest_path, manifest)
+
+            # Delete local copy only when the artifacts are safely in the feed.
+            if status in ("uploaded", "exists-skipped") and not args.keep_local:
+                try:
+                    shutil.rmtree(model_dir)
+                    safe_print(f"  [upload] Removed local: {model_dir}")
+                except OSError as exc:
+                    safe_print(f"  [upload] Warning: could not remove {model_dir}: {exc}")
+
         # Clean caches once per model (after all EP combos finish), not per
         # combo: combos share the same HF download, so clearing between
         # combos forces redundant re-downloads of the same weights.
         if args.clean_cache:
             _clear_disk_caches()
 
-    safe_print(f"\nBuild-only complete: {succeeded}/{total_builds} builds -> {output_dir}")
+    tail = f" | uploaded {uploaded} models" if args.upload else ""
+    safe_print(f"\nBuild-only complete: {succeeded}/{total_builds} builds -> {output_dir}{tail}")
 
 
 # ---------------------------------------------------------------------------
@@ -1236,7 +1479,7 @@ def save_environment_info(path: Path) -> None:
     # `winml sys --format json` captures hardware details (devices, EPs,
     # backends) that the lightweight package-version probes above miss.
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [sys.executable, "-m", "winml", "sys", "--format", "json"],
             capture_output=True,
             text=True,
@@ -1345,7 +1588,64 @@ def parse_args() -> argparse.Namespace:
             "stage's ONNX (export/optimize/quantize) to the output dir. No execution "
             "provider required; perf/accuracy are skipped. When --ep/--device are "
             "omitted, builds once per EP in the build-only matrix "
-            "(qnn/openvino/mlas/dml/vitisai) into <model_dir>/<ep>_<device>/ subdirs."
+            "(qnn/openvino/mlas/dml/vitisai) into <model_dir>/<ep>_<device>/ subdirs. "
+            "Identical export.onnx is deduped into <model_dir>/_shared/."
+        ),
+    )
+    # --- Build-only feed upload (Azure Artifacts Universal Packages) ---
+    parser.add_argument(
+        "--upload",
+        dest="upload",
+        action="store_true",
+        help=(
+            "Build-only only: after each model's combos are built, publish the "
+            "model dir to an Azure Artifacts feed (Universal Package) and delete "
+            "it locally to bound disk usage. Auth via 'az login' (no PAT)."
+        ),
+    )
+    parser.add_argument(
+        "--feed",
+        default="Modelkit",
+        help="Azure Artifacts feed name for --upload (default: Modelkit)",
+    )
+    parser.add_argument(
+        "--feed-org",
+        default="https://dev.azure.com/microsoft",
+        help="Azure DevOps org URL for --upload (default: https://dev.azure.com/microsoft)",
+    )
+    parser.add_argument(
+        "--feed-project",
+        default="windows.ai.toolkit",
+        help="Azure DevOps project for the project-scoped feed (default: windows.ai.toolkit)",
+    )
+    parser.add_argument(
+        "--package-name",
+        default="winml-cli-models",
+        help="Universal Package name for --upload (default: winml-cli-models)",
+    )
+    parser.add_argument(
+        "--run-stamp",
+        dest="run_stamp",
+        default=None,
+        help=(
+            "Batch stamp used as the feed version prefix (<stamp>-<model-slug>). "
+            "Defaults to today's date (YYYYMMDD). Pass the SAME stamp with "
+            "--continue to resume an interrupted batch."
+        ),
+    )
+    parser.add_argument(
+        "--keep-local",
+        dest="keep_local",
+        action="store_true",
+        help="With --upload, do NOT delete the local model dir after a successful upload.",
+    )
+    parser.add_argument(
+        "--upload-skip-existing",
+        dest="upload_skip_existing",
+        action="store_true",
+        help=(
+            "With --upload, skip building+uploading a model whose package version "
+            "already exists in the feed (resume support)."
         ),
     )
     parser.add_argument(

@@ -130,6 +130,67 @@ uv run python scripts/e2e_eval/run_eval.py --build-only --hf-model microsoft/res
 Composite models (multiple sub-components) are built into per-component subdirectories
 under each EP subdir.
 
+**Export dedup**: the `export.onnx` stage is EP/device-independent, so it is identical
+across all matrix combos. It is stored once under `<model_dir>/_shared/export.onnx`
+and removed from each `<ep>_<device>/` subdir, keeping only one copy on disk.
+
+#### Streaming upload to the Azure Artifacts feed (`--upload`)
+
+Running the full matrix over many models fills the local disk fast. `--upload`
+publishes each model's artifacts to the **`Modelkit`** Azure Artifacts feed
+(Universal Package) as soon as its combos are built, then deletes the local copy —
+so peak disk stays at roughly one model's matrix.
+
+- **Auth**: uses `az login` (Entra ID) — no PAT. The script verifies the
+  `azure-devops` az extension is installed (auto-adds it) and that you're logged in;
+  if not, it aborts (so disk isn't silently filled).
+- **Package**: one package `winml-cli-models`, **one version per model**, named
+  `0.0.0-<run-stamp>-<model-slug>` where the run-stamp is a date (default today,
+  `YYYYMMDD`). e.g. `0.0.0-20260609-microsoft-resnet-50-image-classification`
+  (the `0.0.0-` core keeps it valid SemVer 2.0; the stamp+slug are the
+  pre-release segment). The shared run-stamp prefix groups a batch together.
+- A `build_only_uploads.json` manifest (version → run-stamp → combos → status) is
+  written in the output dir; it drives `--continue`.
+
+```bash
+# Build the matrix and stream each model to the feed, deleting locals
+uv run python scripts/e2e_eval/run_eval.py --build-only --upload --priority P0
+
+# Resume an interrupted batch: same run-stamp + --continue skips models already
+# uploaded (per the manifest) without rebuilding them.
+uv run python scripts/e2e_eval/run_eval.py --build-only --upload --continue \
+  --run-stamp 20260609 --priority P0
+
+# --upload-skip-existing: if the feed already has a version (e.g. manifest lost),
+# treat the publish conflict as done and delete the local copy.
+uv run python scripts/e2e_eval/run_eval.py --build-only --upload --upload-skip-existing
+
+# Upload but keep local copies (debug)
+uv run python scripts/e2e_eval/run_eval.py --build-only --upload --keep-local
+```
+
+Download a specific model's specific file later with `--file-filter`:
+
+```bash
+az artifacts universal download \
+  --organization https://dev.azure.com/microsoft --project windows.ai.toolkit \
+  --scope project --feed Modelkit --name winml-cli-models \
+  --version 0.0.0-20260609-microsoft-resnet-50-image-classification \
+  --path ./out --file-filter 'qnn_npu/quantized.onnx'
+```
+
+| Upload flag | Default | Description |
+|---|---|---|
+| `--upload` | off | Publish each model dir to the feed, then delete it locally |
+| `--run-stamp` | today (`YYYYMMDD`) | Version prefix; pass the same stamp + `--continue` to resume |
+| `--continue` | off | Skip models already uploaded for this run-stamp (no rebuild) |
+| `--feed` | `Modelkit` | Azure Artifacts feed name |
+| `--feed-org` | `https://dev.azure.com/microsoft` | Azure DevOps org URL |
+| `--feed-project` | `windows.ai.toolkit` | Project for the project-scoped feed |
+| `--package-name` | `winml-cli-models` | Universal Package name |
+| `--keep-local` | off | Upload but do not delete the local dir |
+| `--upload-skip-existing` | off | Treat an existing feed version as done (feed-based resume) |
+
 ### `generate_report.py` — Regenerate Reports
 
 Re-reads cached `result.json` files and regenerates reports using the latest
