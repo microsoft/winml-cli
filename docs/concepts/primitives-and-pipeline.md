@@ -2,10 +2,11 @@
 
 winml-cli exposes two ways to turn a Hugging Face model or ONNX file into a
 Windows ML-ready artifact. You can invoke each stage of the pipeline as an
-individual primitive command — `winml export`, `winml optimize`, `winml quantize`,
-`winml compile`, `winml perf`, `winml eval` — running one step at a time with
-full control over inputs and outputs. Alternatively, `winml build` wraps all of
-those stages into a single command driven by a `WinMLBuildConfig` JSON file.
+individual primitive command — `winml export`, `winml analyze`, `winml optimize`,
+`winml quantize`, `winml compile`, `winml perf`, `winml eval` — running one step
+at a time with full control over inputs and outputs. Alternatively, `winml build`
+wraps all of those stages into a single command driven by a `WinMLBuildConfig`
+JSON file.
 
 Understanding when to reach for a primitive versus the pipeline wrapper is the
 central workflow decision in winml-cli. Both paths produce the same artifacts;
@@ -21,6 +22,9 @@ file that the next stage consumes:
 - **`winml export`** — loads a Hugging Face model, traces it with PyTorch and the
   Optimum exporter, and writes a portable float32 ONNX file with no EP-specific
   nodes.
+- **`winml analyze`** — runs compatibility and runtime checks on the exported ONNX
+  graph, detecting unsupported operators, QDQ issues, and device-specific
+  constraints before further pipeline stages.
 - **`winml optimize`** — applies graph transformations (operator fusion, constant
   folding, graph pruning) and runs an autoconf loop to maximize EP-compatible
   coverage.
@@ -56,8 +60,8 @@ achieves the same effect at runtime without editing the file.
 
 When the model argument points to an existing ONNX file instead of a Hugging Face
 ID, `winml build` detects this and skips the export stage, running
-optimize → quantize → compile directly. This mirrors how each primitive command
-handles the same case.
+analyze → optimize → quantize → compile directly. This mirrors how each primitive
+command handles the same case.
 
 `winml build` also accepts `--use-cache` in place of `-o`/`--output-dir`, routing
 artifacts to the winml-cli global cache at `~/.cache/winml/` instead of a local
