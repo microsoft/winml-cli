@@ -62,7 +62,7 @@ Success! Model exported to: convnext.onnx
 ```
 
 !!! note "Hierarchy metadata"
-    By default `winml export` embeds `hierarchy_tag` metadata in each ONNX node, recording which PyTorch module the node originated from. This lets downstream tools like `winml perf --module` and `winml analyze` reason about operator groups rather than flat graph positions. To skip the metadata and produce a clean ONNX file, add `--clean-onnx`. For more detail see [Load and export](../concepts/load-and-export.md).
+    By default `winml export` embeds `hierarchy_tag` metadata in each ONNX node, recording which PyTorch module the node originated from. This lets downstream tools like `winml perf --module` and `winml analyze` reason about operator groups rather than flat graph positions. To skip the metadata and produce a clean ONNX file, add `--no-hierarchy`. For more detail see [Load and export](../concepts/load-and-export.md).
 
 ## Step 4: Quantize
 

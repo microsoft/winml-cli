@@ -25,7 +25,7 @@ $ winml compile [options]
 | `--no-validate` | | flag | `false` | Skip validation of the compiled model after compilation. |
 | `--compiler` | | choice | `ort` | Compiler backend: `ort` (ONNX Runtime) or `qairt` (Qualcomm AI Runtime Tools). |
 | `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |
-| `--embed` | | flag | `false` | Embed the EP context blob inside the ONNX file instead of writing a separate `.bin` file. |
+| `--embed/--no-embed` | | flag | `false` | Embed the EP context blob inside the ONNX file instead of writing a separate `.bin` file. |
 | `--list` | | flag | `false` | List available compiler backends for the selected device and exit without compiling. |
 | `--help` | `-h` | flag | | Show this message and exit. |
 

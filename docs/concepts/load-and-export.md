@@ -20,7 +20,7 @@ Some community models host custom Python code in their repositories. The loader 
 
 By default the exporter runs an eight-step process that includes hierarchy tracing and tag injection. Every ONNX node carries a `winml.hierarchy.tag` metadata entry recording the PyTorch module path it came from (e.g. `/BertModel/BertEncoder/BertLayer.3/BertAttention`), plus a companion `winml.hierarchy.depth` integer. The model itself also carries `winml.io.inputs` and `winml.io.outputs` JSON metadata describing the I/O tensor specs. Together these power per-module benchmarking with `winml perf --module`, inspector views with `winml inspect --hierarchy`, and optimizer scoping.
 
-If you need a clean, standard-compliant ONNX without custom metadata — to hand off to a third-party tool, for example — pass `--no-hierarchy` (alias `--clean-onnx`). The graph behaviour is unchanged, but hierarchy-dependent features will not work against that file.
+If you need a clean, standard-compliant ONNX without custom metadata — to hand off to a third-party tool, for example — pass `--no-hierarchy`. (The old `--clean-onnx` spelling remains as a deprecated hidden alias.) The graph behaviour is unchanged, but hierarchy-dependent features will not work against that file.
 
 Use `--with-report` to generate companion markdown and JSON reports alongside the output.
 

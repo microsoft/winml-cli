@@ -25,7 +25,7 @@ $ winml eval [options]
 | `--samples` | | `INTEGER` | `100` | Number of dataset samples to evaluate. |
 | `--split` | | `TEXT` | `validation` | Dataset split to use (e.g., `validation`, `test`, `train`). |
 | `--shuffle / --no-shuffle` | | flag | `shuffle` | Shuffle the dataset before sampling. Disable with `--no-shuffle` for reproducible sample ordering. |
-| `--streaming` | | flag | `false` | Stream the dataset from the Hub instead of downloading the full split. Useful for large datasets. |
+| `--streaming/--no-streaming` | | flag | `false` | Stream the dataset from the Hub instead of downloading the full split. Useful for large datasets. |
 | `--column` | | `TEXT` (multiple) | — | Column mapping as `key=value` pairs (e.g., `--column input_column=image`). Can be specified multiple times. |
 | `--label-mapping` | | `PATH` | — | Path to a JSON file mapping label names to integer IDs: `{"label_name": id}`. |
 | `--output` | `-o` | `PATH` | — | Output JSON file path for the evaluation results. |

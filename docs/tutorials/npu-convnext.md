@@ -81,7 +81,7 @@ uv run winml export -m facebook/convnext-tiny-224 -o convnext.onnx
 This runs an eight-stage export pipeline: model preparation, input generation, hierarchy building, ONNX conversion, node tagging, tag injection, and metadata generation. The result is a standards-compliant ONNX file with winml-cli's Hierarchy-preserving Tags Protocol (HTP) metadata embedded in node `metadata_props`. That metadata is what lets downstream tools make architecture-aware optimization decisions without hardcoded model knowledge.
 
 !!! note "What we just did"
-    The default export embeds hierarchy tags — a tree of source module names mapped onto ONNX nodes — so that the optimizer and analyzer can reason about the graph in terms of the original model structure rather than flat node lists. If you need a clean ONNX without that metadata (for compatibility with other tools), add `--clean-onnx`. See [Concepts → Load and export](../concepts/load-and-export.md) for what hierarchy preservation adds and when it matters.
+    The default export embeds hierarchy tags — a tree of source module names mapped onto ONNX nodes — so that the optimizer and analyzer can reason about the graph in terms of the original model structure rather than flat node lists. If you need a clean ONNX without that metadata (for compatibility with other tools), add `--no-hierarchy`. See [Concepts → Load and export](../concepts/load-and-export.md) for what hierarchy preservation adds and when it matters.
 
 ---
 

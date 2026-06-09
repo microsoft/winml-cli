@@ -26,8 +26,8 @@ $ winml quantize [options]
 | `--method` | | choice | `minmax` | Calibration algorithm: `minmax`, `entropy`, or `percentile`. |
 | `--weight-type` | | choice | `None` | Per-tensor type for weights: `uint8`, `int8`, `uint16`, or `int16`. Overrides `--precision`. |
 | `--activation-type` | | choice | `None` | Per-tensor type for activations: `uint8`, `int8`, `uint16`, or `int16`. Overrides `--precision`. |
-| `--per-channel` | | flag | `false` | Apply per-channel (rather than per-tensor) quantization to weight tensors. |
-| `--symmetric` | | flag | `false` | Use symmetric quantization (zero-point fixed at 0). |
+| `--per-channel/--no-per-channel` | | flag | `false` | Apply per-channel (rather than per-tensor) quantization to weight tensors. |
+| `--symmetric/--no-symmetric` | | flag | `false` | Use symmetric quantization (zero-point fixed at 0). |
 | `--help` | `-h` | flag | | Show this message and exit. |
 
 ## How it works

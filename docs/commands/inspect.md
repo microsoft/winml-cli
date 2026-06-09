@@ -22,7 +22,7 @@ $ winml inspect -m <model_id> [options]
 | `--model` | `-m` | string | **required** | HuggingFace model ID (e.g. `openai/clip-vit-base-patch32`). Required unless `--list-tasks` or `--help` is used. |
 | `--format` | `-f` | `table` \| `json` | `table` | Output format. `table` renders rich panels; `json` emits a machine-readable object. |
 | `--task` | `-t` | string | `null` | Override the auto-detected task (e.g. `image-classification`, `feature-extraction`). |
-| `--hierarchy` | `-H` | flag | `false` | Print the PyTorch module tree. Instantiates the model with random weights — no weight download required. |
+| `--hierarchy/--no-hierarchy` | `-H/-N` | flag | `false` | Print the PyTorch module tree. Instantiates the model with random weights — no weight download required. |
 | `--verbose` | `-v` | flag | `false` | Show full configuration details. |
 | `--list-tasks` | | flag | `false` | List all known tasks and exit. Does not require `--model`. |
 | `--model-type` | | string | `null` | Override model type (e.g. `bert`, `resnet`). Can be used without `--model`. |

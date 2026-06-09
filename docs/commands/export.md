@@ -20,14 +20,16 @@ $ winml export [options]
 |---|---|---|---|---|
 | `--model` | `-m` | string | *(required)* | Hugging Face model name or local path (e.g., `prajjwal1/bert-tiny`). |
 | `--output` | `-o` | path | *(required)* | Output ONNX file path (e.g., `model.onnx`). |
-| `--with-report` | | flag | `false` | Generate full export reports: Markdown, JSON, and a console tree. |
-| `--clean-onnx` / `--no-hierarchy` | | flag | `false` | Skip embedding `hierarchy_tag` metadata in ONNX nodes, producing a clean ONNX file. |
-| `--dynamo` | | flag | `false` | Enable PyTorch 2.9+ dynamo export for richer node metadata. (Experimental — currently logs a warning.) |
+| `--with-report/--no-with-report` | | flag | `false` | Generate full export reports: Markdown, JSON, and a console tree. |
+| `--hierarchy/--no-hierarchy` | | flag | `true` | Preserve `hierarchy_tag` metadata in ONNX nodes (use `--no-hierarchy` for a clean ONNX file). |
+| `--dynamo/--no-dynamo` | | flag | `false` | Enable PyTorch 2.9+ dynamo export for richer node metadata. (Experimental — currently logs a warning.) |
 | `--torch-module` | | string | `None` | Comma-separated list of `torch.nn` module types to include in hierarchy (e.g., `LayerNorm,Embedding`). (Experimental — currently logs a warning.) |
 | `--input-specs` | | path | `None` | JSON file with explicit input tensor specifications. Auto-generated when omitted. |
 | `--task` | `-t` | string | `None` | Override auto-detected Hugging Face task (e.g., `image-feature-extraction`). |
 | `--export-config` | | path | `None` | JSON file with ONNX export parameters such as `opset_version` and `do_constant_folding`. |
 | `--shape-config` | | path | `None` | JSON object mapping symbolic dimension names to concrete sizes (e.g., `{"sequence_length": 2048}`). Ignored when `--input-specs` is provided. |
+| `--trust-remote-code/--no-trust-remote-code` | | flag | `false` | Allow executing custom code from model repositories during export. Use only with trusted sources. |
+| `--allow-unsupported-nodes/--no-allow-unsupported-nodes` | | flag | `false` | Allow unsupported nodes to remain in the exported graph instead of failing export. |
 | `--help` | `-h` | flag | | Show this message and exit. |
 
 ## How it works
@@ -38,7 +40,7 @@ generation, module-hierarchy tracing, TorchScript ONNX export, node-tagger
 creation, per-node tagging, tag injection into ONNX `metadata_props`, and
 optional report generation. The hierarchy metadata allows downstream tools to
 reason about operators grouped by their originating module rather than flat
-graph position. When `--clean-onnx` is specified, hierarchy steps are bypassed
+graph position. When `--no-hierarchy` is specified, hierarchy steps are bypassed
 and a bare ONNX file is written, useful for third-party tools that do not
 understand custom metadata.
 
@@ -78,7 +80,7 @@ winml export -m bert-base-uncased -o bert.onnx --input-specs inputs.json
 
 ```bash
 # Produce clean ONNX without hierarchy metadata (for third-party optimizers)
-winml export -m microsoft/resnet-50 -o resnet50_clean.onnx --clean-onnx
+winml export -m microsoft/resnet-50 -o resnet50_clean.onnx --no-hierarchy
 ```
 
 ## See also

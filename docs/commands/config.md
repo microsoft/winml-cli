@@ -28,9 +28,9 @@ $ winml config [options]
 | `--precision` | `-p` | `TEXT` | `auto` | Target precision: `auto`, `fp32`, `fp16`, `int8`, `int16`, or a mixed format such as `w8a16`. `auto` selects the precision based on the chosen device. |
 | `--output` | `-o` | `PATH` | *(stdout)* | Write the generated JSON to this file instead of printing to stdout. |
 | `--library` | | `TEXT` | `transformers` | Source library for `TasksManager` task lookup. Defaults to `transformers`; set to `diffusers` or another Optimum-supported library when needed. |
-| `--no-quant` | | flag | off | Omit quantization from the generated config (sets `quant` to `null`). Equivalent to removing the `quant` section before passing to `winml build`. |
+| `--quant/--no-quant` | | flag | `true` | Include quantization in the generated config (use `--no-quant` to omit it and set `quant` to `null`). |
 | `--no-compile` / `--compile` | | flag | `--no-compile` (compile excluded by default) | Controls whether compilation is included in the generated config. By default compilation is **excluded** (`compile: null`). Pass `--compile` to include a compile section. |
-| `--trust-remote-code` | | flag | off | Allow execution of custom model code from the HuggingFace repository. Required for some community models. Only enable for repositories you trust. |
+| `--trust-remote-code/--no-trust-remote-code` | | flag | `false` | Allow execution of custom model code from the HuggingFace repository. Required for some community models. Only enable for repositories you trust. |
 
 ## How it works
 
