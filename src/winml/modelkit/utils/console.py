@@ -15,13 +15,18 @@ for machine-readable output (JSON configs, build manifests).
 
 from __future__ import annotations
 
+import functools
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.text import Text
+
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 if TYPE_CHECKING:
@@ -278,10 +283,25 @@ class _SafeLive(Live):
 
     This subclass catches :class:`OSError` in :meth:`refresh` and, after
     the first failure, disables further refreshes for the lifetime of
-    this Live instance.  The visible effect is that the final frame may
-    not animate further, but no traceback escapes and the surrounding
-    pipeline continues normally.
+    this Live instance.  ``start``/``stop``/``update`` are also wrapped
+    so callers can use ``_SafeLive`` exactly like :class:`Live`.  The
+    visible effect is that the final frame may not animate further, but
+    no traceback escapes and the surrounding pipeline continues normally.
     """
+
+    @staticmethod
+    def _swallow_oserror(method: F) -> F:
+        """Decorator: invoke ``method`` and swallow console ``OSError``."""
+
+        @functools.wraps(method)
+        def wrapper(self: _SafeLive, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return method(self, *args, **kwargs)
+            except OSError:
+                logger.debug("Ignoring OSError from Live.%s", method.__name__, exc_info=True)
+                return None
+
+        return wrapper  # type: ignore[return-value]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -299,13 +319,17 @@ class _SafeLive(Live):
             self._refresh_disabled = True
             logger.debug("Disabling Live refresh after OSError", exc_info=True)
 
+    @_swallow_oserror
+    def start(self, refresh: bool = False) -> None:  # type: ignore[override]
+        super().start(refresh=refresh)
 
-def _safe_call(func: Any, *args: Any, **kwargs: Any) -> None:
-    """Invoke a Rich Live operation, swallowing console OSErrors."""
-    try:
-        func(*args, **kwargs)
-    except OSError:
-        logger.debug("Ignoring OSError from Live operation", exc_info=True)
+    @_swallow_oserror
+    def stop(self) -> None:  # type: ignore[override]
+        super().stop()
+
+    @_swallow_oserror
+    def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:  # type: ignore[override]
+        super().update(renderable, refresh=refresh)
 
 
 class StageLive:
@@ -341,13 +365,13 @@ class StageLive:
             refresh_per_second=15,
             transient=False,
         )
-        _safe_call(self._live.start)
+        self._live.start()
         return self
 
     def __exit__(self, *_: object) -> None:
         if self._live:
-            _safe_call(self._live.update, self._render())
-            _safe_call(self._live.stop)
+            self._live.update(self._render())
+            self._live.stop()
             self._live = None
 
     def _render(self) -> Group:
@@ -355,7 +379,7 @@ class StageLive:
 
     def _update(self) -> None:
         if self._live:
-            _safe_call(self._live.update, self._render())
+            self._live.update(self._render())
 
     # ── Status line management ────────────────────────────────────
 
