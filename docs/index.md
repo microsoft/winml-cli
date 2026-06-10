@@ -1,24 +1,26 @@
 # winml-cli
 
-winml-cli is a CLI toolkit to build portable, performant, and high-quality models for [Windows ML](https://learn.microsoft.com/en-us/windows/ai/windows-ml/).
+Windows ML CLI is a command line tool for building portable, performant, and high-quality AI models for Windows ML. It takes you from a source model — whether from Hugging Face or your own pipeline — to a hardware-optimized artifact in a reproducible workflow.
+
+Purpose-built for Windows hardware diversity, the CLI handles conversion, graph optimization, and compilation across AMD, Intel, NVIDIA, and Qualcomm targets. The CLI fits naturally into CI/CD pipelines so teams can validate and ship models easily.
 
 ## What you can do
 
-- **Build once, run anywhere.** Compose your own workflow from primitive commands (`export`, `analyze`, `optimize`, `quantize`, `compile`), or hand a config to the built-in pipeline. Same portable ONNX, two complementary paths.
-- **Drill into the details.** Inspect operators, pinpoint compatibility errors, and trace performance bottlenecks at any stage of the pipeline.
-- **AI-ready.** Built-in agent skills work with mainstream coding agents — let the agent drive the pipeline for you.
+- **Build once, run across devices and EPs.** Compose your own workflow from primitive commands (`export`, `analyze`, `optimize`, `quantize`, `compile`), or hand a config to the built-in pipeline. Same portable ONNX, two complementary paths — with a repeatable and traceable workflow.
+- **Drill into the details.** Deep insights into operator compatibility, shape mismatches, graph optimizations, and EP-aware tuning at any stage of the pipeline.
+- **AI-ready.** CLI-driven tools with built-in skills, friendly to work with mainstream agents.
 
 ## What you get out of the box
 
-- **One toolkit, every EP.** All [supported execution providers](concepts/eps-and-devices.md#eps-winml-cli-supports) live behind the same commands.
-- **Repeatable and traceable.** Configs are deterministic; every pipeline run records inputs, outputs, and decisions at each stage.
-- **Quality gates built in.** The analyzer catches operator-compatibility issues before deployment and suggests fixes automatically.
+- **All Windows ML EPs supported.** Every [supported execution provider](concepts/eps-and-devices.md#eps-winml-cli-supports) is available behind the same commands.
+- **Curated model catalog.** A verified set of models that run across all Windows ML EPs — a reliable starting point.
+- **Repeatable and traceable workflow.** Configs are auto-generated — no hand-crafting required. Every pipeline run records inputs, outputs, and decisions at each stage.
+- **Bring your own ONNX.** Not only for converting from PyTorch — bring an existing ONNX model to get operator-compatibility insights and optimize it based on the analysis.
 
 ## Where to start
 
 - **[Installation](getting-started/installation.md)** — get the `winml` CLI running locally.
 - **[Quickstart](getting-started/quickstart.md)** — export a Hugging Face model in five minutes.
-- **[End-to-End Tour](getting-started/end-to-end.md)** — full pipeline targeting whatever hardware you have (NPU / GPU / CPU).
 
 ## Learn the model
 
