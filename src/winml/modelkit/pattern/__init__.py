@@ -81,6 +81,10 @@ from .transpose_patterns import (
     ReshapeTransposeReshapeOverlyHighDimPattern,
     ReshapeTransposeReshapeOverlyHighDimPatternInputGenerator,
 )
+from .unsqueeze_cast_patterns import (
+    UnsqueezeCastPattern,
+    UnsqueezeCastPatternInputGenerator,
+)
 
 
 __all__ = [
@@ -139,6 +143,8 @@ __all__ = [
     "TransposedSingleLayerNormalizationPatternInputGenerator",
     "TransposedSingleRMSNormalizationPattern",
     "TransposedSingleRMSNormalizationPatternInputGenerator",
+    "UnsqueezeCastPattern",
+    "UnsqueezeCastPatternInputGenerator",
     "get_pattern_input_generator",
     "get_registered_pattern_input_generators",
     "make_single_op_pattern",

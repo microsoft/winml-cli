@@ -965,14 +965,21 @@ class Pattern(ABC):
             Dictionary mapping type parameters (e.g., 'T') to actual types (e.g., 'tensor(float)').
         """
         schema = self.get_schema()
-        type_param_to_type = {}
+        matcher = skeleton_match_result.matcher
+        type_param_to_type: dict[str, str] = {}
 
         for idx, input_param in enumerate(schema.inputs):
-            if idx < len(skeleton_match_result.inputs):
-                tensor_name = skeleton_match_result.inputs[idx]
-                actual_type = skeleton_match_result.matcher.get_tensor_type_str(tensor_name)
-                if actual_type and input_param.type_str:
-                    type_param_to_type[input_param.type_str] = actual_type
+            if idx < len(skeleton_match_result.inputs) and input_param.type_str:
+                actual_type = matcher.get_tensor_type_str(skeleton_match_result.inputs[idx])
+                if actual_type:
+                    type_param_to_type.setdefault(input_param.type_str, actual_type)
+
+        if schema.outputs and skeleton_match_result.output:
+            output_param = schema.outputs[0]
+            if output_param.type_str:
+                actual_type = matcher.get_tensor_type_str(skeleton_match_result.output)
+                if actual_type:
+                    type_param_to_type.setdefault(output_param.type_str, actual_type)
 
         return type_param_to_type
 

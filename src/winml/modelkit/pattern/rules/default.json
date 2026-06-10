@@ -180,6 +180,14 @@
           "reason": "Merged axes reduce Transpose dimensionality for better hardware compatibility"
         }
       ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/UnsqueezeCastPattern",
+      "pattern_class": "UnsqueezeCastPattern",
+      "module": "winml.modelkit.pattern.unsqueeze_cast_patterns",
+      "enabled": true,
+      "flag_name": "unsqueezecast",
+      "description": "Unsqueeze followed by Cast(to=FLOAT) on a constant-axes Unsqueeze"
     }
   ]
 }
