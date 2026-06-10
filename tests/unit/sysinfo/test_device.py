@@ -386,7 +386,7 @@ class TestResolveDeviceWithEp:
         assert available == ["npu", "gpu"]
 
     def test_ep_explicit_device_filtered_out_raises(self) -> None:
-        """ep='qnn' + device='cpu' raises: cpu has no compatible EP within {QNN}."""
+        """ep='qnn' + device='cpu' raises the policy error before availability is checked."""
         with (
             _patch_device_ep_map(
                 {
@@ -401,9 +401,41 @@ class TestResolveDeviceWithEp:
                     {"QNNExecutionProvider", "CPUExecutionProvider"},
                 ),
             ),
-            pytest.raises(ValueError, match="no compatible EP"),
+            pytest.raises(ValueError, match="does not support device 'cpu'"),
         ):
             resolve_device("cpu", ep="qnn")
+
+    @pytest.mark.parametrize(
+        ("device", "ep"),
+        [
+            ("cpu", "qnn"),
+            ("cpu", "dml"),
+            ("cpu", "vitisai"),
+            ("cpu", "migraphx"),
+            ("npu", "cpu"),
+            ("npu", "dml"),
+            ("npu", "migraphx"),
+            ("gpu", "cpu"),
+            ("gpu", "vitisai"),
+        ],
+    )
+    def test_explicit_device_ep_policy_mismatch_raises(self, device: str, ep: str) -> None:
+        """Policy check rejects (device, ep) combos that ``EP_SUPPORTED_DEVICES`` forbids.
+
+        Independent of host EP availability — raises the policy error before
+        consulting the runtime device-EP map.
+        """
+        with (
+            _patch_device_ep_map(
+                {
+                    "npu": ("QNNExecutionProvider",),
+                    "gpu": ("QNNExecutionProvider", "DmlExecutionProvider"),
+                    "cpu": ("CPUExecutionProvider",),
+                }
+            ),
+            pytest.raises(ValueError, match=f"EP '{ep}' does not support device '{device}'"),
+        ):
+            resolve_device(device, ep=ep)
 
 
 class TestResolveEps:
