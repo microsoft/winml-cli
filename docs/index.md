@@ -6,16 +6,15 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 
 ## What you can do
 
-- **Build once, run across devices and EPs.** Compose your own workflow from primitive commands (`export`, `analyze`, `optimize`, `quantize`, `compile`), or hand a config to the built-in pipeline. Same portable ONNX, two complementary paths — with a repeatable and traceable workflow.
+- **Build once, run across hardwares.** Compose your own workflow from primitive commands (`export`, `analyze`, `optimize`, `quantize`, `compile`), or use an auto-generated config with `winml build` — both produce portable models that run across hardware.
 - **Drill into the details.** Deep insights into operator compatibility, shape mismatches, graph optimizations, and EP-aware tuning at any stage of the pipeline.
 - **AI-ready.** CLI-driven tools with built-in skills, friendly to work with mainstream agents.
 
 ## What you get out of the box
 
 - **All Windows ML EPs supported.** Every [supported execution provider](concepts/eps-and-devices.md#eps-winml-cli-supports) is available behind the same commands.
-- **Curated model catalog.** A verified set of models that run across all Windows ML EPs — a reliable starting point.
-- **Repeatable and traceable workflow.** Configs are auto-generated — no hand-crafting required. Every pipeline run records inputs, outputs, and decisions at each stage.
-- **Bring your own ONNX.** Not only for converting from PyTorch — bring an existing ONNX model to get operator-compatibility insights and optimize it based on the analysis.
+- **Curated model catalog.** A [verified set of models](reference/supported-models.md) that run across all Windows ML EPs — a reliable starting point.
+- **Bring your own ONNX.** Not only for converting from PyTorch — bring an [existing ONNX model](tutorials/build-from-onnx.md) to get operator-compatibility insights and optimize it based on the analysis.
 
 ## Where to start
 
