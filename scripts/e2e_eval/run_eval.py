@@ -752,6 +752,12 @@ def _dedup_export(build_dir: Path, shared_dir: Path, canonical_hash: str | None,
 # Build-only: Azure Artifacts feed upload (Universal Packages, az CLI, no PAT)
 # ---------------------------------------------------------------------------
 
+# Azure DevOps AAD application ID. Used as the token audience (``--resource``)
+# when querying the feed REST API with ``az rest``. Constant across all orgs and
+# not a secret (it is the public first-party app id for Azure DevOps).
+_AZURE_DEVOPS_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"
+_FEED_API_VERSION = "7.1-preview.1"
+
 
 def _run_az(args: list[str], timeout: int = 600) -> dict:
     """Run an `az ...` command, returning the same dict shape as _run_subprocess."""
@@ -857,6 +863,85 @@ def _write_upload_manifest(path: Path, manifest: dict) -> None:
     path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _feed_org_name(feed_org: str) -> str:
+    """Extract the Azure DevOps org name from a feed-org URL.
+
+    ``https://dev.azure.com/microsoft`` -> ``microsoft``
+    ``https://microsoft.visualstudio.com`` -> ``microsoft``
+    """
+    host_and_path = feed_org.rstrip("/").split("://", 1)[-1]
+    host, _, path = host_and_path.partition("/")
+    if path:
+        return path.split("/")[0]
+    if host.endswith(".visualstudio.com"):
+        return host.split(".", 1)[0]
+    return host
+
+
+def _fetch_feed_versions(
+    args: argparse.Namespace, run_stamp: str, timeout: int = 180
+) -> set[str] | None:
+    """Return package versions already published to the feed for ``run_stamp``.
+
+    The local manifest is only written after a successful upload, so a fresh
+    ``--output-dir`` starts empty even when the feed already holds versions from
+    a previous run. Querying the feed makes ``--continue`` authoritative: a model
+    is skipped if its version exists on the feed, regardless of local state.
+
+    Two ``&``-free REST GETs are used because ``az`` resolves to ``az.cmd``, which
+    runs through cmd.exe and would split a query string on ``&`` (dropping every
+    parameter after the first):
+        1. list packages, find the UPack package by name -> package GUID,
+        2. list that package's versions.
+
+    Returns the set of lowercased versions matching the ``0.0.0-<run_stamp>-``
+    prefix, an empty set if the feed is reachable but has no such versions yet,
+    or ``None`` if the feed could not be queried (caller falls back to the local
+    manifest only).
+    """
+    org = _feed_org_name(args.feed_org)
+    base = (
+        f"https://feeds.dev.azure.com/{org}/{args.feed_project}"
+        f"/_apis/packaging/feeds/{args.feed}"
+    )
+
+    def _get_json(url: str) -> dict | None:
+        res = _run_az(
+            ["rest", "--method", "get", "--resource", _AZURE_DEVOPS_RESOURCE, "--url", url],
+            timeout,
+        )
+        if res["exit_code"] != 0:
+            return None
+        try:
+            return json.loads(res["stdout"])
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    listing = _get_json(f"{base}/packages?api-version={_FEED_API_VERSION}")
+    if listing is None:
+        return None
+    pkg_id: str | None = None
+    for pkg in listing.get("value", []):
+        name_matches = (pkg.get("name") or "").lower() == args.package_name.lower()
+        is_upack = (pkg.get("protocolType") or "").lower() == "upack"
+        if name_matches and is_upack:
+            pkg_id = pkg.get("id")
+            break
+    if pkg_id is None:
+        return set()  # feed reachable, package not published yet
+
+    versions_doc = _get_json(f"{base}/packages/{pkg_id}/versions?api-version={_FEED_API_VERSION}")
+    if versions_doc is None:
+        return None
+    prefix = f"0.0.0-{run_stamp}-"
+    published: set[str] = set()
+    for entry in versions_doc.get("value", []):
+        version = (entry.get("version") or "").lower()
+        if version.startswith(prefix):
+            published.add(version)
+    return published
+
+
 def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None:
     """Build each model to disk with --no-compile (no execution provider needed).
 
@@ -900,6 +985,24 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
         )
         if args.continue_run:
             safe_print("[upload] Continue: skipping models already uploaded for this run-stamp")
+            # Seed the manifest from the feed: a fresh --output-dir has no local
+            # manifest, so the feed is the source of truth for what's published.
+            # Best-effort — a query failure falls back to local-manifest-only.
+            feed_versions = _fetch_feed_versions(args, run_stamp)
+            if feed_versions is None:
+                safe_print(
+                    "[upload] Continue: could not query feed; relying on local manifest only"
+                )
+            else:
+                seeded = 0
+                for feed_version in feed_versions:
+                    if feed_version not in manifest:
+                        manifest[feed_version] = {"status": "uploaded", "source": "feed"}
+                        seeded += 1
+                safe_print(
+                    f"[upload] Continue: feed has {len(feed_versions)} version(s) for "
+                    f"run-stamp {run_stamp}; {seeded} not in local manifest -> will skip"
+                )
 
     safe_print(f"Build-only: {len(entries)} models -> {output_dir}")
     if use_matrix:
@@ -932,7 +1035,11 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
         if args.upload and args.continue_run:
             prev = manifest.get(version)
             if prev and prev.get("status") in ("uploaded", "exists-skipped"):
-                safe_print(f"\n[{i}/{len(entries)}] {label}  (SKIP - {prev['status']}: {version})")
+                origin = " via feed" if prev.get("source") == "feed" else ""
+                safe_print(
+                    f"\n[{i}/{len(entries)}] {label}  "
+                    f"(SKIP - {prev['status']}{origin}: {version})"
+                )
                 continue
 
         safe_print(f"\n[{i}/{len(entries)}] {label}  ({entry.priority}, {entry.group})")
