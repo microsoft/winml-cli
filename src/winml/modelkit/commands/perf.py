@@ -1190,7 +1190,7 @@ def perf(
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
-    json_mode = output_format.lower() == "json"
+    json_mode = output_format == "json"
     console = Console(stderr=True) if json_mode else Console()
 
     # =========================================================================

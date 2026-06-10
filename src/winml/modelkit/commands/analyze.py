@@ -1229,7 +1229,7 @@ def analyze(
                 logger.debug("Config generation traceback:", exc_info=True)
 
         # Emit JSON to stdout if requested
-        json_mode = output_format.lower() == "json"
+        json_mode = output_format == "json"
         if json_mode:
             if len(analysis_results) == 1:
                 click.echo(result.to_json())

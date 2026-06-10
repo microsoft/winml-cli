@@ -727,7 +727,7 @@ def sysinfo(
     # them.
     configure_logging(verbosity=verbose, quiet=quiet)
 
-    use_json = output_format.lower() == "json"
+    use_json = output_format == "json"
 
     # Logging is configured via the shared, idempotent configure_logging above;
     # no per-command logger snapshot/restore is needed (every other command
@@ -752,7 +752,7 @@ def sysinfo(
                     msg = f"Error detecting execution providers: {e}"
                     raise click.ClickException(msg) from e
             click.echo(json.dumps(result, indent=2))
-        elif output_format.lower() == "compact":
+        elif output_format == "compact":
             if list_device:
                 try:
                     devices = _gather_device_info()
@@ -807,7 +807,7 @@ def sysinfo(
             except Exception:
                 info["executionProviders"] = []
             _output_json(info)
-        elif output_format.lower() == "compact":
+        elif output_format == "compact":
             _output_compact(info)
         else:
             _output_text(info, verbose=bool(verbose))

@@ -419,7 +419,7 @@ def catalog(
     models = _filter_by_ep(models, ep)
     models = _filter_by_device(models, device)
 
-    json_mode = output_format.lower() == "json"
+    json_mode = output_format == "json"
 
     if json_mode:
         click.echo(json.dumps(models, indent=2))

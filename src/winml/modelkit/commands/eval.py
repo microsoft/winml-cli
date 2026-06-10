@@ -250,7 +250,7 @@ def eval(
 
     logger.debug("Effective eval config: %s", cfg.to_dict())
 
-    json_mode = output_format.lower() == "json"
+    json_mode = output_format == "json"
 
     # ── 3. Evaluate ──
     try:

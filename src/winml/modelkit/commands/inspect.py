@@ -206,7 +206,7 @@ def inspect(
     # json` consumers still get clean stdout. Suppressed in --quiet mode
     # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
     # and JSON consumers expect clean stdout regardless).
-    json_mode = output_format.lower() == "json"
+    json_mode = output_format == "json"
     target = model_id or model_type or model_class
     if not quiet and not json_mode:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
@@ -238,7 +238,7 @@ def inspect(
                     include_hierarchy=hierarchy,
                 )
 
-        if output_format.lower() == "json":
+        if output_format == "json":
             click.echo(output_json(result, verbose=bool(verbose)))
         else:
             output_table(console, result, verbose=bool(verbose))
