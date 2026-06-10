@@ -90,7 +90,7 @@
     "device": "auto",
     "dataset": {
       "split": "validation",
-      "samples": 100,
+      "samples": 1000,
       "shuffle": true,
       "seed": 42,
       "path": "KorQuAD/squad_kor_v1",

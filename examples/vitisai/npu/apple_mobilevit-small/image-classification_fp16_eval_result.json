@@ -1,5 +1,6 @@
 {
   "model_id": "apple/mobilevit-small",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\apple_mobilevit-small\\image-classification_fp16_build_artifacts\\model.onnx",
   "task": "image-classification",
   "device": "npu",
   "ep": "vitisai",
@@ -12,9 +13,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\apple_mobilevit-small\\image-classification_fp16_eval_result.json",
   "metrics": {
-    "accuracy": 0.01,
-    "total_time_in_seconds": 4.210386299993843,
-    "samples_per_second": 23.75078980286114,
-    "latency_in_seconds": 0.04210386299993843
+    "accuracy": 0.75,
+    "total_time_in_seconds": 635.0808909999978,
+    "samples_per_second": 0.15746025650770265,
+    "latency_in_seconds": 6.350808909999978
   }
 }

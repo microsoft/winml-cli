@@ -1,0 +1,18 @@
+[WinML] Installing Execution Provider: MIGraphXExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+MIGraphXExecutionProvider EP installed successfully.
+- Version: 1.8.57.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.GPU.EP.1.8_8wekyb3d8bbwe
+[WinML] Installing Execution Provider: VitisAIExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+VitisAIExecutionProvider EP installed successfully.
+- Version: 1.8.63.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.NPU.EP.1.8_8wekyb3d8bbwe
+[07:19:34 WARNING winml.modelkit.eval.base_evaluator] Requested 1000 samples but dataset has 500. Using all.
+Error: Evaluation failed: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_8864730190322138582_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_8864730190322138582_0_0' Status Message: No such query request (73)

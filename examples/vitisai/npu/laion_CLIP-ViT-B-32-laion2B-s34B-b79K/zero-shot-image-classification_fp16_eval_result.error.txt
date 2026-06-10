@@ -1,0 +1,30 @@
+[WinML] Installing Execution Provider: MIGraphXExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+MIGraphXExecutionProvider EP installed successfully.
+- Version: 1.8.57.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.GPU.EP.1.8_8wekyb3d8bbwe
+[WinML] Installing Execution Provider: VitisAIExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+VitisAIExecutionProvider EP installed successfully.
+- Version: 1.8.63.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.NPU.EP.1.8_8wekyb3d8bbwe
+
+Generating train split:   0%|          | 0/50000 [00:00<?, ? examples/s]
+Generating train split:  19%|█▉        | 9500/50000 [00:00<00:00, 93220.06 examples/s]
+Generating train split:  54%|█████▍    | 26900/50000 [00:00<00:00, 139523.68 examples/s]
+Generating train split:  94%|█████████▍| 47100/50000 [00:00<00:00, 166894.15 examples/s]
+Generating train split: 100%|██████████| 50000/50000 [00:00<00:00, 151864.09 examples/s]
+
+Generating test split:   0%|          | 0/10000 [00:00<?, ? examples/s]
+Generating test split:  71%|███████   | 7100/10000 [00:00<00:00, 68847.31 examples/s]
+Generating test split: 100%|██████████| 10000/10000 [00:00<00:00, 84071.04 examples/s]
+
+Evaluating:   0%|          | 0/100 [00:00<?, ?sample/s]
+Evaluating:   0%|          | 0/100 [03:47<?, ?sample/s]
+Error: Evaluation failed: Failed to compile for npu | Context: device=npu, onnx_path=C:\Users\zhangchao\project\winml-cli\examples\vitisai\npu\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\zero-shot-image-classification_fp16_build_artifacts\text-encoder\model.onnx, error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Exception during initialization: ERROR: Failed to create Model for C:\temp\zhangchao\vaip\.cache\2a720d9d7670479033d1dc66c0c3bf63\vaiml_par_0, Reason: HW context creation unsuccessful, check for XRT version or recompile model with latest VAIML version | Suggestion: Verify NPU drivers and runtime are properly installed

@@ -1,11 +1,11 @@
 {
-  "analysis_timestamp": "2026-06-02T15:00:04.111987",
+  "analysis_timestamp": "2026-06-08T22:53:01.777564",
   "metadata": {
-    "model_path": "C:\\Users\\ZHANGC~1\\AppData\\Local\\Temp\\tmpi7aobywn\\iter.onnx",
+    "model_path": "C:\\Users\\ZHANGC~1\\AppData\\Local\\Temp\\tmpki0bhnse\\iter.onnx",
     "opset_version": 17,
     "producer_name": "pytorch",
     "producer_version": "2.12.0",
-    "total_operators": 369,
+    "total_operators": 366,
     "operator_counts": {
       "Conv": 1,
       "Reshape": 121,
@@ -13,15 +13,13 @@
       "Concat": 1,
       "Add": 25,
       "LayerNormalization": 25,
-      "Gemm": 73,
+      "Gemm": 72,
       "Mul": 24,
       "MatMul": 24,
       "Softmax": 12,
-      "Gelu": 12,
-      "Gather": 1,
-      "Tanh": 1
+      "Gelu": 12
     },
-    "unique_operator_types": 13,
+    "unique_operator_types": 11,
     "detected_pattern_count": {}
   },
   "results": [
@@ -47,9 +45,7 @@
           "OP/ai.onnx/Mul",
           "OP/ai.onnx/MatMul",
           "OP/ai.onnx/Softmax",
-          "OP/com.microsoft/Gelu",
-          "OP/ai.onnx/Gather",
-          "OP/ai.onnx/Tanh"
+          "OP/com.microsoft/Gelu"
         ]
       },
       "information": []

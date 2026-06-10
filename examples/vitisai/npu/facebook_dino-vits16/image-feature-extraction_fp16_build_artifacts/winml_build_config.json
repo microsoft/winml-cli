@@ -48,7 +48,7 @@
     "device": "auto",
     "dataset": {
       "split": "test",
-      "samples": 1000,
+      "samples": 100,
       "shuffle": true,
       "seed": 42,
       "path": "timm/mini-imagenet"

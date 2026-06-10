@@ -1,0 +1,20 @@
+[WinML] Installing Execution Provider: MIGraphXExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+MIGraphXExecutionProvider EP installed successfully.
+- Version: 1.8.57.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.GPU.EP.1.8_8wekyb3d8bbwe
+[WinML] Installing Execution Provider: VitisAIExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+VitisAIExecutionProvider EP installed successfully.
+- Version: 1.8.63.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.NPU.EP.1.8_8wekyb3d8bbwe
+
+Evaluating:   0%|          | 0/1000 [00:00<?, ?sample/s]
+Evaluating:   0%|          | 0/1000 [00:33<?, ?sample/s]
+Error: Evaluation failed: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_1474274522736196953_1 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_1474274522736196953_1_1' Status Message: No such query request (73)

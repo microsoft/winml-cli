@@ -75,7 +75,7 @@
     "device": "auto",
     "dataset": {
       "split": "validation",
-      "samples": 100,
+      "samples": 1000,
       "shuffle": true,
       "seed": 42,
       "path": "~/.cache/winml/eval_datasets/build_ai4privacy",

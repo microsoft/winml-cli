@@ -1,5 +1,6 @@
 {
   "model_id": "microsoft/resnet-18",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\microsoft_resnet-18\\image-classification_w8a16_build_artifacts\\model.onnx",
   "task": "image-classification",
   "device": "npu",
   "ep": "vitisai",
@@ -10,11 +11,11 @@
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\vitisai\\npu\\microsoft_resnet-18\\image-classification_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\microsoft_resnet-18\\image-classification_w8a16_eval_result.json",
   "metrics": {
     "accuracy": 0.68,
-    "total_time_in_seconds": 1.509195999999065,
-    "samples_per_second": 66.26044595934654,
-    "latency_in_seconds": 0.01509195999999065
+    "total_time_in_seconds": 6.004981500009308,
+    "samples_per_second": 16.652840645694745,
+    "latency_in_seconds": 0.06004981500009308
   }
 }

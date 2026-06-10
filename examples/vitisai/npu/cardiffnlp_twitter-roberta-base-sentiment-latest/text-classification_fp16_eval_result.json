@@ -1,5 +1,6 @@
 {
   "model_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_fp16_build_artifacts\\model.onnx",
   "task": "text-classification",
   "device": "npu",
   "ep": "vitisai",
@@ -14,11 +15,11 @@
       "input_column": "text"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\vitisai\\npu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_fp16_eval_result.json",
   "metrics": {
-    "accuracy": 0.41,
-    "total_time_in_seconds": 14.529381100001046,
-    "samples_per_second": 6.882605619037194,
-    "latency_in_seconds": 0.14529381100001046
+    "accuracy": 0.79,
+    "total_time_in_seconds": 167.23198180000327,
+    "samples_per_second": 0.5979717451389914,
+    "latency_in_seconds": 1.6723198180000325
   }
 }

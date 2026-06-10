@@ -1,5 +1,6 @@
 {
   "model_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_w8a16_build_artifacts\\model.onnx",
   "task": "zero-shot-classification",
   "device": "npu",
   "ep": "vitisai",
@@ -16,7 +17,7 @@
       "hypothesis_template": "This text is about {}."
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\vitisai\\npu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_w8a16_eval_result.json",
   "metrics": {
     "accuracy": 0.29,
     "f1": 0.19801051051051052

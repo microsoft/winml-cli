@@ -1,11 +1,12 @@
 {
   "model_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_w8a8_build_artifacts\\model.onnx",
   "task": "text-classification",
   "device": "npu",
   "ep": "vitisai",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "nyu-mll/glue",
@@ -14,11 +15,11 @@
       "input_column": "sentence"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\vitisai\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_w8a8_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_w8a8_eval_result.json",
   "metrics": {
-    "accuracy": 0.54,
-    "total_time_in_seconds": 6.605763999999908,
-    "samples_per_second": 15.13829437442836,
-    "latency_in_seconds": 0.06605763999999908
+    "accuracy": 0.49770642201834864,
+    "total_time_in_seconds": 61.093523800002004,
+    "samples_per_second": 14.273198626659859,
+    "latency_in_seconds": 0.07006138050458946
   }
 }

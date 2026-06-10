@@ -1,0 +1,26 @@
+{
+  "model_id": "openai/clip-vit-large-patch14-336",
+  "model_path": {
+    "image-encoder": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\openai_clip-vit-large-patch14-336\\zero-shot-image-classification_fp16_build_artifacts\\image-encoder\\model.onnx",
+    "text-encoder": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\openai_clip-vit-large-patch14-336\\zero-shot-image-classification_fp16_build_artifacts\\text-encoder\\model.onnx"
+  },
+  "task": "zero-shot-image-classification",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "uoft-cs/cifar100",
+    "columns_mapping": {
+      "input_column": "img",
+      "label_column": "fine_label"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\openai_clip-vit-large-patch14-336\\zero-shot-image-classification_fp16_eval_result.json",
+  "metrics": {
+    "top1_accuracy": 71.0,
+    "top5_accuracy": 91.0
+  }
+}

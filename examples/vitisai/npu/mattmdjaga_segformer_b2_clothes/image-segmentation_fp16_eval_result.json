@@ -1,0 +1,42 @@
+{
+  "model_id": "mattmdjaga/segformer_b2_clothes",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_fp16_build_artifacts\\model.onnx",
+  "task": "image-segmentation",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "train",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mattmdjaga/human_parsing_dataset",
+    "columns_mapping": {
+      "annotation_column": "mask"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_fp16_eval_result.json",
+  "metrics": {
+    "mean_iou": 0.7029367685317993,
+    "overall_accuracy": 0.9638330340385437,
+    "per_category_iou": [
+      0.9859176278114319,
+      0.6912770867347717,
+      0.817825198173523,
+      0.6387944221496582,
+      0.8004692196846008,
+      0.676580548286438,
+      0.8602114319801331,
+      0.5898416638374329,
+      0.31062719225883484,
+      0.5912272930145264,
+      0.6196948885917664,
+      0.8480246663093567,
+      0.809224009513855,
+      0.8080347776412964,
+      0.742522120475769,
+      0.7375231385231018,
+      0.8305367827415466,
+      0.2945287227630615
+    ]
+  }
+}

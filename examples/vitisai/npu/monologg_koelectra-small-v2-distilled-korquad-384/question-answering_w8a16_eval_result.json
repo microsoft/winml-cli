@@ -6,7 +6,7 @@
   "ep": "vitisai",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "KorQuAD/squad_kor_v1",
@@ -19,10 +19,10 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_w8a16_eval_result.json",
   "metrics": {
-    "exact_match": 0.0,
-    "f1": 1.5714285714285716,
-    "total_time_in_seconds": 34.180062900006305,
-    "samples_per_second": 2.925682152562146,
-    "latency_in_seconds": 0.3418006290000631
+    "exact_match": 0.4,
+    "f1": 1.3744444444444446,
+    "total_time_in_seconds": 51.55430519999936,
+    "samples_per_second": 19.39702215209007,
+    "latency_in_seconds": 0.051554305199999366
   }
 }

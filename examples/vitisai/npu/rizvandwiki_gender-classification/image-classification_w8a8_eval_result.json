@@ -6,7 +6,7 @@
   "ep": "vitisai",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "~/.cache/winml/eval_datasets/build_fairface",
@@ -17,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\rizvandwiki_gender-classification\\image-classification_w8a8_eval_result.json",
   "metrics": {
-    "accuracy": 0.43,
-    "total_time_in_seconds": 4.645661899994593,
-    "samples_per_second": 21.52545797620709,
-    "latency_in_seconds": 0.04645661899994593
+    "accuracy": 0.485,
+    "total_time_in_seconds": 52.81487190001644,
+    "samples_per_second": 18.93406088143307,
+    "latency_in_seconds": 0.05281487190001644
   }
 }
