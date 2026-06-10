@@ -26,6 +26,7 @@ import numpy as np
 from rich.console import Console
 from rich.table import Table
 
+from ..session.monitor.memory_tracker import MemoryProfile
 from ..utils import cli as cli_utils
 from ..utils.constants import EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
@@ -82,6 +83,7 @@ class BenchmarkConfig:
     skip_build: bool = True
     allow_unsupported_nodes: bool = False
     monitor: bool = False
+    memory: bool = True
     ep: EPNameOrAlias | None = None
     shape_config: dict | None = None
 
@@ -129,6 +131,9 @@ class BenchmarkResult:
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
 
+    # Memory profile (from MemoryTracker)
+    memory_profile: MemoryProfile | None = None
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
@@ -169,6 +174,8 @@ class BenchmarkResult:
         }
         if self.hw_monitor:
             result["hw_monitor"] = self.hw_monitor
+        if self.memory_profile:
+            result["memory"] = self.memory_profile.to_dict()
         return result
 
 
@@ -281,6 +288,7 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
+        self._memory_tracker: Any = None
 
     def run(self) -> BenchmarkResult:
         """Execute full benchmark pipeline.
@@ -288,10 +296,20 @@ class PerfBenchmark:
         Returns:
             BenchmarkResult with timing statistics
         """
+        # Initialize memory tracker if enabled
+        if self.config.memory:
+            from ..session.monitor.memory_tracker import MemoryTracker
+
+            self._memory_tracker = MemoryTracker()
+            self._memory_tracker.snapshot_baseline()
+
         # [1] Load model
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
         assert self._model is not None
+
+        if self._memory_tracker:
+            self._memory_tracker.snapshot_post_load()
 
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
@@ -299,6 +317,10 @@ class PerfBenchmark:
 
         # Compile session early so model.device is resolved for display
         self._model._session.compile()
+
+        if self._memory_tracker:
+            adapter_luid = self._resolve_adapter_luid()
+            self._memory_tracker.snapshot_post_compile(adapter_luid=adapter_luid)
 
         # Print model info before benchmark starts
         _print_model_info(
@@ -316,6 +338,10 @@ class PerfBenchmark:
             self.config.warmup,
         )
         stats = self._run_benchmark()
+
+        if self._memory_tracker:
+            adapter_luid = self._resolve_adapter_luid()
+            self._memory_tracker.snapshot_post_inference(adapter_luid=adapter_luid)
 
         # [4] Collect results
         logger.info("Collecting results")
@@ -383,6 +409,40 @@ class PerfBenchmark:
             io_config=io_config,
             batch_size=self.config.batch_size,
         )
+
+    def _resolve_adapter_luid(self) -> str | None:
+        """Resolve the adapter LUID for device memory queries.
+
+        Uses the same resolution logic as HWMonitor: device kind + EP name.
+        Returns None on non-Windows or when no adapter is available.
+        """
+        import sys
+
+        if sys.platform != "win32":
+            return None
+
+        assert self._model is not None
+        device = self._model.device or self.config.device
+        ep_name = self._model.ep_name
+
+        if device == "cpu":
+            return None
+
+        try:
+            from ..sysinfo.pdh_adapters import resolve_adapter_luid
+
+            if device == "npu":
+                return resolve_adapter_luid("npu", ep_name=ep_name)
+            if device == "gpu":
+                return resolve_adapter_luid("gpu", ep_name=ep_name)
+            # "auto" — try NPU first, then GPU
+            luid = resolve_adapter_luid("npu", ep_name=ep_name)
+            if luid:
+                return luid
+            return resolve_adapter_luid("gpu", ep_name=ep_name)
+        except Exception:
+            logger.debug("Could not resolve adapter LUID for memory query", exc_info=True)
+            return None
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing."""
@@ -517,6 +577,8 @@ class PerfBenchmark:
             actual_ep=self._model.ep_name,
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
+            # Memory profile (only present when --memory is used)
+            memory_profile=(self._memory_tracker.profile() if self._memory_tracker else None),
         )
 
 
@@ -874,6 +936,46 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
                 f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  Mem: {ram.get('used_mb', 0):.0f} MB"
             )
 
+    # Memory section (only when --memory is enabled)
+    if result.memory_profile:
+        console.print()
+        console.print("[bold]Memory[/bold]")
+        mem = result.memory_profile
+
+        mem_table = Table(show_header=True, header_style="bold cyan")
+        mem_table.add_column("Phase", style="dim")
+        mem_table.add_column("Working Set", justify="right")
+        mem_table.add_column("Private Bytes", justify="right")
+        mem_table.add_column("Device Mem", justify="right")
+        mem_table.add_column("Δ Working Set", justify="right")
+
+        phases = [
+            ("Baseline", mem.baseline, None),
+            ("Post-Load", mem.post_load, mem.load_delta_mb),
+            ("Post-Compile", mem.post_compile, mem.compile_delta_mb),
+            ("Post-Inference", mem.post_inference, mem.inference_delta_mb),
+        ]
+        for name, snap, delta in phases:
+            dev_str = f"{snap.device_local_mb:.1f} MB" if snap.device_local_mb > 0 else "—"
+            delta_str = f"+{delta:.1f} MB" if delta is not None else "—"
+            mem_table.add_row(
+                name,
+                f"{snap.working_set_mb:.1f} MB",
+                f"{snap.private_bytes_mb:.1f} MB",
+                dev_str,
+                delta_str,
+            )
+
+        console.print(mem_table)
+
+        # Summary line
+        peak_dev = mem.peak_device_local_mb
+        dev_summary = f" + {peak_dev:.1f} MB (device)" if peak_dev > 0 else ""
+        console.print(
+            f"  [dim]Peak Working Set: {mem.peak_working_set_mb:.1f} MB  |  "
+            f"Total Δ: +{mem.total_delta_mb:.1f} MB (process){dev_summary}[/dim]"
+        )
+
     console.print()
 
 
@@ -1104,6 +1206,12 @@ def _run_simple_loop(
     help="Show live hardware utilization chart for the benchmarked device (NPU, GPU, or CPU)",
 )
 @click.option(
+    "--memory/--no-memory",
+    default=True,
+    show_default=True,
+    help="Measure process and device memory at each benchmark phase",
+)
+@click.option(
     "--op-tracing",
     "op_tracing",
     type=click.Choice(["basic", "detail"], case_sensitive=False),
@@ -1133,6 +1241,7 @@ def perf(
     allow_unsupported_nodes: bool,
     module_class: str | None,
     monitor: bool,
+    memory: bool,
     op_tracing: str | None,
     verbose: int,
     quiet: bool,
@@ -1269,6 +1378,7 @@ def perf(
         skip_build=skip_build,
         allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
+        memory=memory,
         ep=ep,
         shape_config=shape_config,
     )
