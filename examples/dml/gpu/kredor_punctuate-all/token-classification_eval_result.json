@@ -1,0 +1,51 @@
+{
+  "model_id": "kredor/punctuate-all",
+  "model_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\kredor_punctuate-all\\token-classification_build_artifacts\\model.onnx",
+  "task": "token-classification",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "BramVanroy/conll2003",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    }
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\kredor_punctuate-all\\token-classification_eval_result.json",
+  "metrics": {
+    "LOC": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 62
+    },
+    "MISC": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 24
+    },
+    "ORG": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 36
+    },
+    "PER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 55
+    },
+    "overall_precision": 0.0,
+    "overall_recall": 0.0,
+    "overall_f1": 0.0,
+    "overall_accuracy": 0.0,
+    "total_time_in_seconds": 44.75021870015189,
+    "samples_per_second": 2.2346259505467083,
+    "latency_in_seconds": 0.4475021870015189
+  }
+}

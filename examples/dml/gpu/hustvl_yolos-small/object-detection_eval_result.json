@@ -1,0 +1,40 @@
+{
+  "model_id": "hustvl/yolos-small",
+  "model_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\hustvl_yolos-small\\object-detection_build_artifacts\\model.onnx",
+  "task": "object-detection",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "val",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "detection-datasets/coco",
+    "columns_mapping": {
+      "annotation_column": "objects",
+      "bbox_key": "bbox",
+      "category_key": "category",
+      "box_format": "xyxy"
+    }
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\hustvl_yolos-small\\object-detection_eval_result.json",
+  "metrics": {
+    "map": 0.4038737416267395,
+    "map_50": 0.6074345707893372,
+    "map_75": 0.429502010345459,
+    "num_predictions": 10000,
+    "num_ground_truths": 752,
+    "num_images": 100,
+    "map_small": 0.19215598702430725,
+    "map_medium": 0.34614256024360657,
+    "map_large": 0.6408403515815735,
+    "mar_1": 0.33180105686187744,
+    "mar_10": 0.5076603889465332,
+    "mar_100": 0.5459005832672119,
+    "mar_small": 0.25262269377708435,
+    "mar_medium": 0.48474326729774475,
+    "mar_large": 0.7518061399459839,
+    "map_per_class": -1.0,
+    "mar_100_per_class": -1.0
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+  "model_path": {
+    "image-encoder": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\zero-shot-image-classification_build_artifacts\\image-encoder\\model.onnx",
+    "text-encoder": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\zero-shot-image-classification_build_artifacts\\text-encoder\\model.onnx"
+  },
+  "task": "zero-shot-image-classification",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "uoft-cs/cifar100",
+    "columns_mapping": {
+      "input_column": "img",
+      "label_column": "fine_label"
+    }
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\zero-shot-image-classification_eval_result.json",
+  "metrics": {
+    "top1_accuracy": 73.0,
+    "top5_accuracy": 92.1
+  }
+}
