@@ -1,0 +1,6 @@
+[18:13:56 WARNING winml.modelkit.eval.evaluate] --dataset not specified; attempting default dataset 'timm/mini-imagenet' for task 'image-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+
+Filter:   0%|          | 0/100 [00:00<?, ? examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 143.18 examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 137.50 examples/s]
+Error: Evaluation failed: Failed to compute metrics for task 'image-classification' on dataset 'timm/mini-imagenet'. Run 'winml eval --schema --task image-classification' to see the expected schema.

@@ -1,0 +1,23 @@
+{
+  "model_id": "google-bert/bert-base-multilingual-cased",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\google-bert_bert-base-multilingual-cased\\fill-mask_build_artifacts\\model.onnx",
+  "task": "fill-mask",
+  "device": "gpu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Salesforce/wikitext",
+    "name": "wikitext-2-raw-v1",
+    "columns_mapping": {
+      "input_column": "text"
+    }
+  },
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\google-bert_bert-base-multilingual-cased\\fill-mask_eval_result.json",
+  "metrics": {
+    "pseudo_perplexity": 5.2262,
+    "nll": 1.6537
+  }
+}
