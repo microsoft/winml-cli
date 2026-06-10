@@ -81,6 +81,12 @@ class BatchedConstMatMulValidator(ModelValidator):
         if not self._is_enabled():
             return None
 
+        # Known gap: constants expressed as `Constant` op nodes (rather than
+        # graph initializers) are not detected here. The `untie-constant-batched
+        # -matmul` surgery in surgery.py has the same limitation, so detection
+        # and surgery stay consistent. Most exporters and ORT preprocessing emit
+        # weights as initializers, so this covers the disentangled-attention case
+        # in practice; `Constant`-node weights would need handling on both sides.
         initializers = {init.name for init in self.graph.initializer}
         rank_by_init = {init.name: len(init.dims) for init in self.graph.initializer}
 

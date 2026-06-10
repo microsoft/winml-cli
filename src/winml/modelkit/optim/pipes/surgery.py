@@ -350,10 +350,17 @@ class SurgeryPipe(BasePipe):
         so they fold into 3D constants and hit this case.
 
         Fix: route each such constant operand through ``Add(const, zero)`` where
-        ``zero = Sub(s, s)`` and ``s = ReduceMin(Cast(first_input -> float))``.
-        ``s`` is data-dependent, so OpenVINO's constant folder cannot collapse
+        ``zero`` is a runtime ``[1]`` tensor built from the first graph input's
+        *data*: ``Cast(first_input -> float) -> Reshape([-1]) -> Slice([0:1])``
+        yields a single element ``elem``, and ``zero = Sub(elem, elem) == 0.0``.
+        ``zero`` is data-dependent, so OpenVINO's constant folder cannot collapse
         the Add back into a packed gemm weight, yet ``+ 0`` leaves the values
         unchanged and the single batched MatMul is preserved (no perf cost).
+
+        Assumption: the first graph input has at least one element at runtime.
+        The ``Slice([0:1])`` is out of bounds for a zero-sized input (e.g. a
+        dynamic batch dimension fed an empty batch), which would raise at
+        inference time rather than produce a zero.
         """
         from onnx import TensorProto, helper, numpy_helper
 
@@ -403,13 +410,16 @@ class SurgeryPipe(BasePipe):
         new_inits.append(numpy_helper.from_array(np.array([-1], dtype=np.int64), f"{prefix}_m1"))
         new_nodes.append(helper.make_node("Reshape", [xf, f"{prefix}_m1"], [flat], name=flat))
         elem = f"{prefix}_elem"
-        new_inits.append(numpy_helper.from_array(np.array([0], dtype=np.int64), f"{prefix}_0"))
-        new_inits.append(numpy_helper.from_array(np.array([1], dtype=np.int64), f"{prefix}_1"))
-        new_nodes.append(
-            helper.make_node(
-                "Slice", [flat, f"{prefix}_0", f"{prefix}_1", f"{prefix}_0"], [elem], name=elem
-            )
-        )
+        # Slice(flat, starts=[0], ends=[1], axes=[0]) -> the first element.
+        # starts and axes are distinct tensors even though both hold [0], so a
+        # future edit to one role cannot silently corrupt the other.
+        starts = f"{prefix}_slice_starts"
+        ends = f"{prefix}_slice_ends"
+        axis = f"{prefix}_slice_axis"
+        new_inits.append(numpy_helper.from_array(np.array([0], dtype=np.int64), starts))
+        new_inits.append(numpy_helper.from_array(np.array([1], dtype=np.int64), ends))
+        new_inits.append(numpy_helper.from_array(np.array([0], dtype=np.int64), axis))
+        new_nodes.append(helper.make_node("Slice", [flat, starts, ends, axis], [elem], name=elem))
         # zero = elem - elem == 0.0 (data-dependent, so it is not folded away).
         zero_f32 = f"{prefix}_zero_f32"
         new_nodes.append(helper.make_node("Sub", [elem, elem], [zero_f32], name=zero_f32))
@@ -421,19 +431,20 @@ class SurgeryPipe(BasePipe):
             name = zero_by_dtype.get(dtype)
             if name is None:
                 name = f"{prefix}_zero_{dtype}"
-                new_nodes.append(
-                    helper.make_node("Cast", [zero_f32], [name], to=dtype, name=name)
-                )
+                new_nodes.append(helper.make_node("Cast", [zero_f32], [name], to=dtype, name=name))
                 zero_by_dtype[dtype] = name
             return name
 
         untied = 0
-        for node, idx in targets:
+        # Index the loop rather than node.name: node names are optional in ONNX
+        # and exporters routinely leave them blank or duplicated, so deriving
+        # `dyn` from the name would collide and produce an invalid graph.
+        for untie_idx, (node, idx) in enumerate(targets):
             const_name = node.input[idx]
             dtype = initializers[const_name].data_type
             if dtype not in (TensorProto.FLOAT, TensorProto.FLOAT16, TensorProto.DOUBLE):
                 continue
-            dyn = f"{prefix}_{node.name}_in{idx}".replace("/", "_")
+            dyn = f"{prefix}_untied{untie_idx}_in{idx}"
             new_nodes.append(
                 helper.make_node("Add", [const_name, zero_for(dtype)], [dyn], name=dyn)
             )

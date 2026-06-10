@@ -409,9 +409,7 @@ class TestUntieConstantBatchedMatmulProcess:
     def test_constant_operand_becomes_runtime_valued(self) -> None:
         """The MatMul no longer consumes the initializer directly."""
         model = _make_batched_const_matmul_model()
-        result = SurgeryPipe().process(
-            model, SurgeryPipeConfig(untie_constant_batched_matmul=True)
-        )
+        result = SurgeryPipe().process(model, SurgeryPipeConfig(untie_constant_batched_matmul=True))
 
         matmul = next(n for n in result.graph.node if n.op_type == "MatMul")
         initializer_names = {init.name for init in result.graph.initializer}
@@ -447,15 +445,55 @@ class TestUntieConstantBatchedMatmulProcess:
     def test_two_dim_constant_is_left_untouched(self) -> None:
         """Rank-2 constant gemm compiles on OV GPU, so it must not be rewritten."""
         model = _make_batched_const_matmul_model(const_rank=2)
-        result = SurgeryPipe().process(
-            model, SurgeryPipeConfig(untie_constant_batched_matmul=True)
-        )
+        result = SurgeryPipe().process(model, SurgeryPipeConfig(untie_constant_batched_matmul=True))
         assert not any(n.op_type == "Add" for n in result.graph.node)
 
     def test_constant_on_lhs_is_handled(self) -> None:
         """A constant rank-3 operand on the LHS is untied too."""
         model = _make_batched_const_matmul_model(const_on_rhs=False)
-        result = SurgeryPipe().process(
-            model, SurgeryPipeConfig(untie_constant_batched_matmul=True)
-        )
+        result = SurgeryPipe().process(model, SurgeryPipeConfig(untie_constant_batched_matmul=True))
         assert any(n.op_type == "Add" for n in result.graph.node)
+
+    def test_duplicate_node_names_do_not_collide(self) -> None:
+        """Two target MatMuls with empty names produce a valid graph.
+
+        Node names are optional in ONNX; exporters routinely leave them blank.
+        The generated dynamic-operand names must be unique regardless, or the
+        transformed graph would have colliding tensor names and fail validation.
+        """
+        from onnx import TensorProto, helper
+
+        rng = np.random.RandomState(0)
+        w1 = numpy_helper.from_array(rng.randn(2, 4, 5).astype(np.float32), "W1")
+        w2 = numpy_helper.from_array(rng.randn(2, 5, 6).astype(np.float32), "W2")
+        # Both MatMuls deliberately left unnamed (name="").
+        mm1 = helper.make_node("MatMul", ["data", "W1"], ["mid"], name="")
+        mm2 = helper.make_node("MatMul", ["mid", "W2"], ["out"], name="")
+        graph = helper.make_graph(
+            [mm1, mm2],
+            "test_dup_names",
+            [helper.make_tensor_value_info("data", TensorProto.FLOAT, [2, 3, 4])],
+            [helper.make_tensor_value_info("out", TensorProto.FLOAT, [2, 3, 6])],
+            initializer=[w1, w2],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+        result = SurgeryPipe().process(model, SurgeryPipeConfig(untie_constant_batched_matmul=True))
+
+        # Both constants are untied and the graph stays structurally valid.
+        add_nodes = [n for n in result.graph.node if n.op_type == "Add"]
+        assert len(add_nodes) == 2
+        assert len({n.output[0] for n in add_nodes}) == 2
+        onnx.checker.check_model(result)
+
+        # Numerics are unchanged versus the original model.
+        import onnxruntime as ort
+
+        feed = {"data": np.random.RandomState(7).randn(2, 3, 4).astype(np.float32)}
+        ref = ort.InferenceSession(
+            model.SerializeToString(), providers=["CPUExecutionProvider"]
+        ).run(None, feed)[0]
+        got = ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"]
+        ).run(None, feed)[0]
+        np.testing.assert_array_equal(ref, got)
