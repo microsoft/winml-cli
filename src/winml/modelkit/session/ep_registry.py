@@ -23,11 +23,12 @@ from .ep_device import (
     DeviceNotFound,
     EPDeviceTarget,
     UnknownListingPick,
+    WinMLDevice,
     WinMLEPNotDiscovered,
     WinMLEPRegistrationFailed,
     expand_ep_name,
+    wrap_ort_device,
 )
-from .winml_device import WinMLDevice, wrap_ort_device
 
 
 if TYPE_CHECKING:

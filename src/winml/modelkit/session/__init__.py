@@ -15,6 +15,7 @@ from .ep_device import (
     EPDeviceTarget,
     IncompatibleListingPick,
     UnknownListingPick,
+    WinMLDevice,
     WinMLEPMonitorMismatch,
     WinMLEPNotDiscovered,
     WinMLEPRegistrationFailed,
@@ -27,6 +28,7 @@ from .ep_device import (
     lookup_device_spec,
     resolve_device,
     short_ep_name,
+    wrap_ort_device,
 )
 from .ep_registry import WinMLEP, WinMLEPDevice, WinMLEPRegistry, available_eps
 from .monitor.ep_monitor import NullEPMonitor, WinMLEPMonitor
@@ -37,7 +39,6 @@ from .monitor.vitisai_monitor import VitisAIMonitor
 from .qairt.qairt_session import WinMLQairtSession
 from .session import InferenceError, SessionState, WinMLSession
 from .stats import PerfStats
-from .winml_device import WinMLDevice, wrap_ort_device
 
 
 __all__ = [

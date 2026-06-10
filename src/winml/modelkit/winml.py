@@ -2,93 +2,62 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Plugin-style ONNX Runtime execution provider registration.
+"""DEPRECATED legacy entry points for plugin-EP bulk registration.
 
-Discovers EP plugin DLLs via the unified :mod:`winml.modelkit.ep_path`
-discovery layer and registers them with ONNX Runtime via
-``register_execution_provider_library()`` (added in ORT 1.24). Built-in
-EPs (CPU, DML in 1.24+) are registered automatically by ORT and are not
-listed here.
+Every public symbol in this module is deprecated. Use the
+:mod:`winml.modelkit.session` machinery instead — see
+``docs/design/session/2_coreloop.md`` for the canonical Path A / Path B
+flows.
 
-The legacy ``EP_PLUGIN_REGISTRY`` dict and ``resolve_plugin_dll()``
-function are kept as backwards-compatibility shims that delegate to the
-new ``ep_path`` module. They will be removed once no internal callers
-remain (see ``docs/ep-path-design.md`` migration plan, step 5).
+Migration:
+
+- ``WinML().register_execution_providers(ort=True)`` and the module-level
+  ``register_execution_providers(...)`` →
+  ``WinMLEPRegistry.instance().register_ep(entry)`` per discovered
+  :class:`EPEntry`, or iterate :func:`discover_all_eps` for bulk.
+- ``add_ep_for_device(sess_options, ep_name, device_type)`` →
+  build :class:`EPDeviceTarget` → :func:`resolve_device` →
+  :meth:`WinMLEPRegistry.auto_device` → call
+  ``sess_options.add_provider_for_devices([ep_device.device._ort], options)``
+  inline.
+
+This module exists only to support in-tree ``analyze/*`` callers that
+have not yet migrated. New code MUST NOT depend on these symbols.
 """
+
 from __future__ import annotations
 
 import logging
 import sys
+import warnings
 from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-from .ep_path import (
-    EP_CATALOG,
-    DirectorySource,
-    EPCatalog,
-    EPEntry,
-    EPSource,
-    MSIXPackageSource,
-    NuGetSource,
-    PyPISource,
-    WinMLCatalogSource,
-    _default_ep_sources,
-    discover_all_eps,
-    list_msix_eps,
-)
+from .ep_path import EPSource, discover_all_eps
 
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Backwards-compat shims.
-# ---------------------------------------------------------------------------
-# The two PyPI-only entries we historically advertised. Kept as a frozen
-# view of the default EP source list's ``PyPISource`` rows so callers that
-# still iterate this dict (none in-tree at time of writing) keep working.
-# New code should use ``_default_ep_sources()`` and ``discover_all_eps()`` instead.
-def _legacy_ep_plugin_registry() -> dict[str, tuple[str, str]]:
-    out: dict[str, tuple[str, str]] = {}
-    for source in _default_ep_sources():
-        if not isinstance(source, PyPISource):
-            continue
-        rel = source.relative_dll
-        if source.arch_resolver is not None:
-            rel = source.arch_resolver(rel)
-        for ep_name in source.eps:
-            out.setdefault(ep_name, (source.distribution, rel))
-    return out
+_DEPRECATION_MSG = (
+    "winml.modelkit.winml is deprecated; use winml.modelkit.session "
+    "(WinMLEPRegistry, EPDeviceTarget, resolve_device) instead. "
+    "See docs/design/session/2_coreloop.md."
+)
 
-
-EP_PLUGIN_REGISTRY: dict[str, tuple[str, str]] = _legacy_ep_plugin_registry()
-
-
-def resolve_plugin_dll(ep_name: str) -> Path | None:
-    """Resolve the absolute DLL path for a plugin EP, or None if unavailable.
-
-    Backwards-compat shim. Walks the default EP source list via
-    :func:`discover_all_eps` and returns the first absolute path resolved
-    for ``ep_name`` (the primary entry), or ``None``.
-    """
-    for entry in discover_all_eps():
-        if entry.ep_name == ep_name and entry.status == "primary":
-            return entry.dll_path if entry.dll_path.exists() else None
-    return None
-
-
-# ---------------------------------------------------------------------------
-# WinML singleton.
-# ---------------------------------------------------------------------------
 
 _winml_instance: WinML | None = None
 
 
 class WinML:
-    """Singleton class for managing WinML execution providers."""
+    """DEPRECATED singleton for bulk plugin-EP registration.
+
+    Use :class:`winml.modelkit.session.WinMLEPRegistry` and its
+    :meth:`register_ep` / :meth:`auto_device` methods instead.
+    """
 
     _initialized: bool
 
@@ -105,6 +74,7 @@ class WinML:
         if self._initialized:
             return
         self._initialized = True
+        warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
 
         # Walk the default EP source list (plus WINMLCLI_EP_PATH env var
         # entries, if any) and capture (ep_name -> abs path) for the
@@ -114,9 +84,6 @@ class WinML:
             for e in discover_all_eps()
             if e.status == "primary"
         }
-        # Preserve the legacy attribute name and shape so any external
-        # caller that introspects the singleton sees the same dict it
-        # used to. Only the abs path is exposed (not the source).
         self._ep_paths: dict[str, str] = {
             name: str(path) for name, (path, _) in self._resolved.items()
         }
@@ -132,17 +99,10 @@ class WinML:
         ort_genai: bool = False,
         extra_sources: list[EPSource] | None = None,
     ) -> dict[str, list[str]]:
-        """Register WinML execution providers for ONNX Runtime modules.
+        """DEPRECATED. Returns ``{module_name: [registered_ep_names...]}``.
 
-        Args:
-            ort: Whether to register for ONNX Runtime.
-            ort_genai: Whether to register for ONNX Runtime GenAI.
-            extra_sources: Optional list of additional ``EPSource`` entries
-                to consult before the default EP source list. Useful for
-                tests and embedded apps. Has highest precedence.
-
-        Returns:
-            Dictionary of registered execution provider names by module.
+        Use :meth:`WinMLEPRegistry.register_ep` per :class:`EPEntry`, or
+        loop ``discover_all_eps()`` for bulk.
         """
         # When extra_sources are supplied, refresh the resolved set so
         # the override takes precedence. Otherwise reuse the cached set
@@ -183,7 +143,7 @@ class WinML:
                 # idempotent — a second call for the same DLL calls C++ exit(127) with
                 # no Python traceback (surfaces as STATUS_DLL_NOT_FOUND / 0xC000026F).
                 # WinMLEPRegistry (session/ep_registry.py) may have already registered
-                # this EP in the same process.  Consult the live ORT device list first.
+                # this EP in the same process. Consult the live ORT device list first.
                 try:
                     already_loaded = any(d.ep_name == name for d in module.get_ep_devices())
                 except Exception:
@@ -209,18 +169,12 @@ def register_execution_providers(
     ort_genai: bool = False,
     extra_sources: list[EPSource] | None = None,
 ) -> dict[str, list[str]]:
-    """Register WinML execution providers for ONNX Runtime and ORT GenAI.
+    """DEPRECATED. Thin wrapper that constructs the :class:`WinML` singleton.
 
-    Args:
-        ort (bool): Whether to register for ONNX Runtime.
-        ort_genai (bool): Whether to register for ONNX Runtime GenAI.
-        extra_sources: Optional list of additional ``EPSource`` entries
-            with highest precedence. Defaults to ``None`` (no extras).
-
-    Returns:
-        dict[str, list[str]]: Dictionary of registered execution provider
-        names by module.
+    Use :meth:`WinMLEPRegistry.register_ep` per :class:`EPEntry`, or
+    loop ``discover_all_eps()`` for bulk.
     """
+    warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
     return WinML().register_execution_providers(
         ort=ort, ort_genai=ort_genai, extra_sources=extra_sources
     )
@@ -232,27 +186,36 @@ def add_ep_for_device(
     device_type: Any,
     ep_options: dict | None = None,
 ) -> None:
-    """Ensures correct EP device selection for WinML. NEVER modify this function.
+    """DEPRECATED. Bind one (EP, device) ``OrtEpDevice`` to a ``SessionOptions``.
 
-    ep_name is one of:
-        - "CPUExecutionProvider"
-        - "DmlExecutionProvider"
-        - "WebGpuExecutionProvider"
-        - "QNNExecutionProvider"
-        - "OpenVINOExecutionProvider"
-        - "VitisAIExecutionProvider"
-        - "NvTensorRtRtxExecutionProvider"
+    Use the typed session-layer path instead::
 
-    device_type is one of:
-        - ort.OrtHardwareDeviceType.CPU
-        - ort.OrtHardwareDeviceType.GPU
-        - ort.OrtHardwareDeviceType.NPU
+        target = EPDeviceTarget(ep=short_ep_name(ep_name), device=device_type.name.lower())
+        resolved = resolve_device(target)
+        ep_device = WinMLEPRegistry.instance().auto_device(resolved)
+        session_options.add_provider_for_devices(
+            [ep_device.device._ort], ep_options or {},
+        )
+
+    See ``docs/design/session/2_coreloop.md`` for the full Path A flow.
+
+    Args:
+        session_options: An existing :class:`ort.SessionOptions` to mutate.
+        ep_name: Canonical EP name as ORT registers it (full form, e.g.
+            ``"QNNExecutionProvider"`` — no alias normalization).
+        device_type: An :class:`ort.OrtHardwareDeviceType` enum value.
+        ep_options: Optional per-EP provider options dict; ``None`` is
+            treated as ``{}``.
+
+    Silently no-ops when no ``OrtEpDevice`` matches the
+    ``(ep_name, device_type)`` pair (loud failure semantics live in the
+    new session-layer path via :meth:`WinMLEPRegistry.auto_device`).
     """
+    warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
     import onnxruntime as ort
 
     # Exact-match by ORT's canonical EP name. Callers must pass the
-    # spelling ORT registers under (e.g. ``NvTensorRtRtxExecutionProvider``,
-    # camelCase) — no alias normalization layer.
+    # spelling ORT registers under — no alias normalization layer.
     ep_devices = ort.get_ep_devices()
     for ep_device in ep_devices:
         if ep_device.ep_name == ep_name and ep_device.device.type == device_type:
@@ -264,20 +227,7 @@ def add_ep_for_device(
 
 
 __all__ = [
-    "EP_CATALOG",
-    "EP_PLUGIN_REGISTRY",
-    "DirectorySource",
-    "EPCatalog",
-    "EPEntry",
-    "EPSource",
-    "MSIXPackageSource",
-    "NuGetSource",
-    "PyPISource",
     "WinML",
-    "WinMLCatalogSource",
     "add_ep_for_device",
-    "discover_all_eps",
-    "list_msix_eps",
     "register_execution_providers",
-    "resolve_plugin_dll",
 ]

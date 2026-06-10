@@ -15,7 +15,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from winml.modelkit.session import WinMLDevice, wrap_ort_device
-from winml.modelkit.session.winml_device import _format_bytes
+from winml.modelkit.session.ep_device import _format_bytes
 
 
 def make_fake_ort_ep_device(
