@@ -322,6 +322,7 @@ class TestRunCLI:
             task=None,
             device="auto",
             ep=None,
+            skip_build=True,
             allow_unsupported_nodes=False,
         )
         engine.predict.assert_called_once_with(inputs={"text": "hello world"})
@@ -465,6 +466,7 @@ class TestRunCLI:
             task="image-classification",
             device="auto",
             ep=None,
+            skip_build=True,
             allow_unsupported_nodes=False,
         )
 
@@ -492,6 +494,7 @@ class TestRunCLI:
             task=None,
             device="gpu",
             ep="qnn",
+            skip_build=True,
             allow_unsupported_nodes=False,
         )
 

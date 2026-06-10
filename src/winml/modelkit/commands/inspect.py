@@ -105,10 +105,10 @@ def _looks_like_local_path(model_id: str) -> bool:
     help="Override auto-detected task (e.g., image-classification, feature-extraction)",
 )
 @click.option(
-    "-H",
-    "--hierarchy",
-    is_flag=True,
+    "-H/-N",
+    "--hierarchy/--no-hierarchy",
     default=False,
+    show_default=True,
     help="Show HF module hierarchy (uses random weights, no weight download)",
 )
 @click.option(

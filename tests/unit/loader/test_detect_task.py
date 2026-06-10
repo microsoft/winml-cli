@@ -83,6 +83,52 @@ def test_detect_task_falls_back_to_hf_task_defaults() -> None:
     assert source == "HF_TASK_DEFAULTS"
 
 
+def test_detect_task_does_not_short_circuit_for_ambiguous_model_type() -> None:
+    """A model_type with >1 distinct task in MODEL_CLASS_MAPPING (e.g. bart:
+    feature-extraction + text2text-generation) cannot be disambiguated by
+    model_type alone, so detect_task must fall through to architecture-aware
+    detection instead of short-circuiting to the first key (feature-extraction)."""
+    cfg = _FakeConfig("bart", architectures=["BartForSequenceClassification"])
+    with patch(_DETECT, return_value="text-classification") as m:
+        task, source = detect_task(cfg)
+    assert task == "text-classification"
+    assert source == "TasksManager"
+    m.assert_called_once()
+
+
+def test_detect_task_uses_single_real_task_despite_none_sentinel() -> None:
+    """A model_type with a None default-class sentinel plus exactly one real task
+    (sam: (sam, None) + (sam, mask-generation)) short-circuits to that real task
+    rather than falling through on the None sentinel."""
+    cfg = _FakeConfig("sam")
+    with patch(_DETECT) as m:
+        task, source = detect_task(cfg)
+    assert (task, source) == ("mask-generation", "HF_MODEL_CLASS_MAPPING")
+    m.assert_not_called()
+
+
+def test_detect_task_falls_through_for_multi_task_model_type_sam2() -> None:
+    """sam2 maps to multiple real tasks (image-segmentation, feature-extraction,
+    image-feature-extraction, mask-generation) in MODEL_CLASS_MAPPING, so the
+    (sam2, None) sentinel cannot disambiguate and detection must fall through to
+    architecture-aware detection rather than short-circuiting."""
+    cfg = _FakeConfig("sam2")
+    with patch(_DETECT, return_value="feature-extraction") as m:
+        task, source = detect_task(cfg)
+    assert (task, source) == ("feature-extraction", "TasksManager")
+    m.assert_called_once()
+
+
+def test_detect_task_short_circuits_for_unambiguous_model_type() -> None:
+    """A model_type with a single task entry (segformer -> image-segmentation)
+    still short-circuits via MODEL_CLASS_MAPPING without consulting TasksManager."""
+    cfg = _FakeConfig("segformer")
+    with patch(_DETECT) as m:
+        task, source = detect_task(cfg)
+    assert (task, source) == ("image-segmentation", "HF_MODEL_CLASS_MAPPING")
+    m.assert_not_called()
+
+
 def test_resolve_case1_surfaces_modality_aware_task() -> None:
     """Orchestrator Case 1 (auto-detect) surfaces the D2-upgraded task; the model
     class is unchanged (resolved from the pre-upgrade Optimum task)."""

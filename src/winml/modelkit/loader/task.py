@@ -337,11 +337,21 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
     task: str | None = None
     source = "none"
 
-    # 1. Explicit (model_type, task) mapping wins.
-    for mt, mapped_task in HF_MODEL_CLASS_MAPPING:
-        if mt == model_type_normalized:
-            task, source = mapped_task, "HF_MODEL_CLASS_MAPPING"
-            break
+    # 1. Explicit (model_type, task) mapping wins — but only when unambiguous.
+    #    The mapping is keyed by (model_type, task) and a model_type may appear
+    #    under several tasks: encoder-decoder types (bart/t5: feature-extraction +
+    #    text2text-generation) plus an optional (model_type, None) default-class
+    #    sentinel. Detection therefore short-circuits only when the model_type maps
+    #    to exactly one *real* (non-None) task. With multiple distinct tasks the
+    #    architecture head is what disambiguates, so fall through to step 3 instead
+    #    of guessing; the None sentinel alone never decides the task.
+    distinct_tasks: set[str] = {
+        mapped
+        for mt, mapped in HF_MODEL_CLASS_MAPPING
+        if mt == model_type_normalized and mapped is not None
+    }
+    if len(distinct_tasks) == 1:
+        task, source = next(iter(distinct_tasks)), "HF_MODEL_CLASS_MAPPING"
 
     # 2. Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
     #    `architectures`; resolve through their wrapped library instead of the
