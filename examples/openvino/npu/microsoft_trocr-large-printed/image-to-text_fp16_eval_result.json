@@ -1,0 +1,28 @@
+{
+  "model_id": "microsoft/trocr-large-printed",
+  "model_path": {
+    "decoder": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\microsoft_trocr-large-printed\\image-to-text_fp16_build_artifacts\\decoder\\model.onnx",
+    "encoder": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\microsoft_trocr-large-printed\\image-to-text_fp16_build_artifacts\\encoder\\model.onnx"
+  },
+  "task": "image-to-text",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 200,
+    "shuffle": true,
+    "seed": 42,
+    "path": "priyank-m/SROIE_2019_text_recognition",
+    "columns_mapping": {
+      "input_column": "image",
+      "label_column": "text"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\microsoft_trocr-large-printed\\image-to-text_fp16_eval_result.json",
+  "metrics": {
+    "cer": null,
+    "cider": null,
+    "n_samples": 0,
+    "skipped": 200
+  }
+}

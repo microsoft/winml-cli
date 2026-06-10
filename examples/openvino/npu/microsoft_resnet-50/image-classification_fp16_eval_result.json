@@ -1,0 +1,21 @@
+{
+  "model_id": "microsoft/resnet-50",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\microsoft_resnet-50\\image-classification_fp16_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\microsoft_resnet-50\\image-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.78,
+    "total_time_in_seconds": 3.4142282999819145,
+    "samples_per_second": 29.289195453195006,
+    "latency_in_seconds": 0.03414228299981914
+  }
+}

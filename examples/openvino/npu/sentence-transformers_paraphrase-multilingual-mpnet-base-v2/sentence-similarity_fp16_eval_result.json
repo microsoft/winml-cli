@@ -1,5 +1,6 @@
 {
   "model_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\sentence-transformers_paraphrase-multilingual-mpnet-base-v2\\sentence-similarity_fp16_build_artifacts\\model.onnx",
   "task": "sentence-similarity",
   "device": "npu",
   "ep": "openvino",
@@ -15,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\sentence-transformers_paraphrase-multilingual-mpnet-base-v2\\sentence-similarity_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\sentence-transformers_paraphrase-multilingual-mpnet-base-v2\\sentence-similarity_fp16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 86.1257
+    "cosine_spearman": 86.0458
   }
 }
