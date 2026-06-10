@@ -163,6 +163,14 @@ logger = logging.getLogger(__name__)
     ),
 )
 @cli_utils.skip_build_option()
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    help="Output format (default: text). 'json' prints structured JSON to stdout.",
+)
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @click.pass_context
@@ -184,6 +192,7 @@ def eval(
     column: tuple[str, ...],
     label_mapping_path: Path | None,
     output: Path | None,
+    output_format: str,
     verbose: int,
     quiet: bool,
     dataset_script: str | None,
@@ -248,10 +257,12 @@ def eval(
 
     logger.debug("Effective eval config: %s", cfg.to_dict())
 
+    json_mode = output_format.lower() == "json"
+
     # ── 3. Evaluate ──
     try:
         result = evaluate(cfg)
-        _write_and_display(result, cfg.output_path)
+        _write_and_display(result, cfg.output_path, json_mode=json_mode)
     except Exception as e:
         if verbose:
             logger.exception("Evaluation failed")
@@ -349,7 +360,7 @@ def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
 
     from ..sysinfo import resolve_device
 
-    console = Console()
+    console = Console(stderr=True)
     console.print("[bold]Detecting available devices...[/bold]")
     resolved, _ = resolve_device(cfg.device)
     cfg.device = resolved
@@ -390,7 +401,7 @@ def _run_dataset_script(cfg: WinMLEvaluationConfig, trust_remote_code: bool) -> 
 
     cmd = [sys.executable, str(script_path), "--output", str(Path(cfg.dataset.path).expanduser())]
 
-    Console().print(f"[bold]Building dataset via {script_path.name}...[/bold]")
+    Console(stderr=True).print(f"[bold]Building dataset via {script_path.name}...[/bold]")
     result = subprocess.run(  # noqa: S603
         cmd,
         capture_output=True,
@@ -404,16 +415,21 @@ def _run_dataset_script(cfg: WinMLEvaluationConfig, trust_remote_code: bool) -> 
         )
 
 
-def _write_and_display(result: EvalResult, output_path: Path | None) -> None:
+def _write_and_display(
+    result: EvalResult, output_path: Path | None, *, json_mode: bool = False
+) -> None:
     """Display evaluation results and optionally save to JSON."""
-    console = Console()
-    display_eval_report(result, console)
+    if json_mode:
+        click.echo(json.dumps(result.to_dict(), indent=2, default=_json_default))
+    else:
+        console = Console()
+        display_eval_report(result, console)
 
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
             json.dump(result.to_dict(), f, indent=2, default=_json_default)
-        console.print(f"[green]Results saved to:[/green] {output_path}")
+        Console(stderr=True).print(f"[green]Results saved to:[/green] {output_path}")
 
 
 def _resolve_model_path(

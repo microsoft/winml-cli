@@ -13,6 +13,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sys
@@ -670,6 +671,14 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     help="Path to HTP metadata JSON file for enhanced pattern extraction",
 )
 @click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    help="Output format (default: text). 'json' prints structured JSON to stdout.",
+)
+@click.option(
     "--run-unknown-op/--no-run-unknown-op",
     default=False,
     help="Run unknown operators on local machine if possible (default: disabled)",
@@ -695,6 +704,7 @@ def analyze(
     device: str | None,
     output: Path | None,
     information: bool,
+    output_format: str,
     verbose: int,
     quiet: bool,
     config_file: Path | None,
@@ -1169,8 +1179,6 @@ def analyze(
                 if len(analysis_results) == 1:
                     output.write_text(result.to_json(), encoding="utf-8")
                 else:
-                    import json
-
                     output.write_text(
                         json.dumps(
                             [json.loads(run_result.to_json()) for run_result in analysis_results]
@@ -1186,8 +1194,6 @@ def analyze(
 
         # Save optimization config if requested
         if optim_config:
-            import json
-
             try:
                 # Merge optimization configs from all execution pairs; warn on conflicts.
 
@@ -1228,6 +1234,19 @@ def analyze(
             except Exception as e:
                 logger.error("Failed to generate optimization config: %s", e)
                 logger.debug("Config generation traceback:", exc_info=True)
+
+        # Emit JSON to stdout if requested
+        json_mode = output_format.lower() == "json"
+        if json_mode:
+            if len(analysis_results) == 1:
+                click.echo(result.to_json())
+            else:
+                click.echo(
+                    json.dumps(
+                        [json.loads(run_result.to_json()) for run_result in analysis_results],
+                        indent=2,
+                    )
+                )
 
         # Exit code: 0 = fully supported, 1 = partial support
         overall_supported = all(run_result.is_fully_supported() for run_result in analysis_results)
