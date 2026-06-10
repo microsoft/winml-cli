@@ -20,7 +20,7 @@ import pytest
 
 from winml.modelkit.ep_path import (
     EP_CATALOG,
-    FilesystemSource,
+    DirectorySource,
     MSIXPackageSource,
     PyPISource,
     WinMLCatalogSource,
@@ -297,7 +297,7 @@ class TestSourceIsCompatible:
             "winml.modelkit.ep_path._get_detected_vendors",
             lambda: frozenset({"AMD"}),
         )
-        src = FilesystemSource(
+        src = DirectorySource(
             root=Path("ignored"),
             dll_patterns={"VitisAIExecutionProvider": "vitisai.dll"},
         )
@@ -341,7 +341,7 @@ class TestSourceIsCompatible:
             lambda: frozenset({"AMD"}),
         )
         # AMD-only box: VitisAI ok, but QNN and OpenVINO not.
-        src = FilesystemSource(
+        src = DirectorySource(
             root=Path("ignored"),
             dll_patterns={
                 "VitisAIExecutionProvider": "vitisai.dll",
@@ -368,7 +368,7 @@ class TestIterEps:
         assert list(src.iter_eps()) == ["QNNExecutionProvider"]
 
     def test_filesystem_source_iter_eps(self) -> None:
-        src = FilesystemSource(
+        src = DirectorySource(
             root=Path("ignored"),
             dll_patterns={
                 "VitisAIExecutionProvider": "vitisai.dll",
@@ -406,11 +406,11 @@ class TestIterEps:
             "winml.modelkit.ep_path._get_detected_vendors",
             lambda: frozenset({"AMD"}),
         )
-        ok_src = FilesystemSource(
+        ok_src = DirectorySource(
             root=Path("ignored"),
             dll_patterns={"VitisAIExecutionProvider": "v.dll"},
         )
-        bad_src = FilesystemSource(
+        bad_src = DirectorySource(
             root=Path("ignored"),
             dll_patterns={
                 "VitisAIExecutionProvider": "v.dll",

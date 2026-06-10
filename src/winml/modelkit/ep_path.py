@@ -22,7 +22,7 @@ Public API:
 * :class:`PyPISource`: pip-installed plugin EP wheels.
 * :class:`NuGetSource`: NuGet-cached plugin EP packages
   (``~/.nuget/packages/<id>/<version>/runtimes/<rid>/native/...``).
-* :class:`FilesystemSource`: directory drops (installer, unzipped archive,
+* :class:`DirectorySource`: directory drops (installer, unzipped archive,
   custom build).
 * :class:`WinMLCatalogSource`: WinAppSDK ``ExecutionProviderCatalog``
   MSIX-delivered EPs. Lazily imports the WinAppSDK ML Python binding;
@@ -295,7 +295,7 @@ class EPEntry:
     The optional ``version`` field carries per-subclass version metadata
     (PyPI distribution version, NuGet package version, MSIX
     ``Package.Id.Version``). ``None`` for sources with no version concept
-    (FilesystemSource, WinMLCatalogSource).
+    (DirectorySource, WinMLCatalogSource).
     """
 
     ep_name: str
@@ -315,7 +315,7 @@ class EPSource(ABC):
 
     Five concrete subclasses cover the origins documented in
     ``docs/ep-path-design.md``: :class:`PyPISource`, :class:`NuGetSource`,
-    :class:`FilesystemSource`, :class:`WinMLCatalogSource`, and
+    :class:`DirectorySource`, :class:`WinMLCatalogSource`, and
     :class:`MSIXPackageSource`. Subclasses are frozen dataclasses; this
     base provides the shared :meth:`is_compatible` body and documents
     the :meth:`resolve` / :meth:`iter_eps` contract.
@@ -568,7 +568,7 @@ class NuGetSource(EPSource):
 
 
 @dataclass(frozen=True)
-class FilesystemSource(EPSource):
+class DirectorySource(EPSource):
     r"""A directory tree containing one or more registrable plugin DLLs.
 
     Covers the third-party-installer case (Ryzen AI), the unzipped-GitHub
@@ -598,7 +598,7 @@ class FilesystemSource(EPSource):
     def resolve(self) -> Iterator[EPEntry]:
         """Yield one :class:`EPEntry` per matching pattern.
 
-        FilesystemSource has no version concept, so every yielded entry
+        DirectorySource has no version concept, so every yielded entry
         carries ``version=None``.
         """
         # Resolve env-var gate first: missing env var is a normal "not
@@ -608,7 +608,7 @@ class FilesystemSource(EPSource):
             env_value = os.environ.get(self.env_var)
             if not env_value:
                 logger.debug(
-                    "FilesystemSource: env var %r unset; skipping", self.env_var
+                    "DirectorySource: env var %r unset; skipping", self.env_var
                 )
                 return
             env_root = Path(env_value)
@@ -620,7 +620,7 @@ class FilesystemSource(EPSource):
         # configuration drift worth a warning.
         if not base.exists():
             logger.warning(
-                "FilesystemSource: root %s does not exist; skipping", base
+                "DirectorySource: root %s does not exist; skipping", base
             )
             return
 
@@ -629,7 +629,7 @@ class FilesystemSource(EPSource):
             marker_path = base / self.required_marker
             if not marker_path.exists():
                 logger.warning(
-                    "FilesystemSource: required marker %s missing under %s; skipping",
+                    "DirectorySource: required marker %s missing under %s; skipping",
                     self.required_marker,
                     base,
                 )
@@ -640,7 +640,7 @@ class FilesystemSource(EPSource):
             matches = list(base.glob(pattern))
             if not matches:
                 logger.debug(
-                    "FilesystemSource: no match for %s under %s", pattern, base
+                    "DirectorySource: no match for %s under %s", pattern, base
                 )
                 continue
             # First glob hit wins; multiple matches for one pattern is
@@ -1219,7 +1219,7 @@ def _default_ep_sources() -> list[EPSource]:
     user already restored into the global NuGet cache via a .NET
     project), then ``WinMLCatalogSource`` entries (opportunistic MSIX
     pickup for EPs we don't already have via PyPI / NuGet), then
-    ``FilesystemSource`` entries gated by env vars (Ryzen AI for
+    ``DirectorySource`` entries gated by env vars (Ryzen AI for
     VitisAI; user-specified for NvTRT-RTX).
 
     The ``WinMLCatalogSource`` rows are live: they yield nothing
@@ -1296,7 +1296,7 @@ def _default_ep_sources() -> list[EPSource]:
         ),
         # 4. Well-known third-party installer drops, gated by env var so
         #    they no-op on machines without the installer present.
-        FilesystemSource(
+        DirectorySource(
             root=Path("deployment"),
             env_var="RYZEN_AI_INSTALLATION_PATH",
             dll_patterns={
@@ -1308,7 +1308,7 @@ def _default_ep_sources() -> list[EPSource]:
         #    User points NVIDIA_TRT_RTX_EP at the ZIP root; we glob for
         #    the plugin DLL with no required marker (the ZIP is flat).
         #    Empty relative root means "use env_var value as-is".
-        FilesystemSource(
+        DirectorySource(
             root=Path(),
             env_var="NVIDIA_TRT_RTX_EP",
             dll_patterns={
@@ -1327,7 +1327,7 @@ def _default_ep_sources() -> list[EPSource]:
 
 
 def _parse_winmlcli_ep_path() -> list[EPSource]:
-    """Parse the ``WINMLCLI_EP_PATH`` env var into ``FilesystemSource`` entries.
+    """Parse the ``WINMLCLI_EP_PATH`` env var into ``DirectorySource`` entries.
 
     The env var is a path-list using OS-conventional separators (``;`` on
     Windows, ``:`` elsewhere — same semantics as the shell ``PATH``).
@@ -1337,7 +1337,7 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
 
     Returns an empty list when ``WINMLCLI_EP_PATH`` is unset or empty.
     Non-existent entries log a WARN and are skipped (matches the
-    ``FilesystemSource`` "configured-but-nonexistent root" pattern).
+    ``DirectorySource`` "configured-but-nonexistent root" pattern).
     """
     raw = os.environ.get("WINMLCLI_EP_PATH")
     if not raw:
@@ -1359,7 +1359,7 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
             dll = EP_CATALOG.dll_name_for(ep)
             if not dll:
                 continue  # bundled EPs have no DLL filename
-            sources.append(FilesystemSource(root=p, dll_patterns={ep: dll}))
+            sources.append(DirectorySource(root=p, dll_patterns={ep: dll}))
     return sources
 
 
@@ -1459,10 +1459,10 @@ def discover_all_eps(
 
 __all__ = [
     "EP_CATALOG",
+    "DirectorySource",
     "EPCatalog",
     "EPEntry",
     "EPSource",
-    "FilesystemSource",
     "MSIXPackageSource",
     "NuGetSource",
     "PyPISource",

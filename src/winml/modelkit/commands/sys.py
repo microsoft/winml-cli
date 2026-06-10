@@ -37,7 +37,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ..ep_path import (
-    FilesystemSource,
+    DirectorySource,
     MSIXPackageSource,
     NuGetSource,
     PyPISource,
@@ -528,7 +528,7 @@ def _describe_source(source: Any) -> dict[str, Any]:
         desc["nuget_id"] = source.distribution
     elif isinstance(source, WinMLCatalogSource):
         desc["catalog_name"] = source.catalog_name
-    elif isinstance(source, FilesystemSource):
+    elif isinstance(source, DirectorySource):
         desc["root"] = str(source.root)
         if source.env_var:
             desc["env_var"] = source.env_var
@@ -690,7 +690,7 @@ _SOURCE_KIND_LABEL = {
     "MSIXPackageSource": "MSIX",
     "NuGetSource": "NuGet",
     "WinMLCatalogSource": "Catalog",
-    "FilesystemSource": "FS",
+    "DirectorySource": "FS",
     "built-in": "built-in",
 }
 

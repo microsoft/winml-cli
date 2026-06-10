@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from winml.modelkit import ep_path as _ep
-from winml.modelkit.ep_path import FilesystemSource
+from winml.modelkit.ep_path import DirectorySource
 from winml.modelkit.winml import WinML
 
 
@@ -59,11 +59,11 @@ def test_extra_sources_overrides_cached_registration_on_second_call(
     """
     dll_a = _touch(tmp_path / "a" / "qnn.dll")
     dll_b = _touch(tmp_path / "b" / "qnn.dll")
-    src_a = FilesystemSource(
+    src_a = DirectorySource(
         root=tmp_path / "a",
         dll_patterns={"QNNExecutionProvider": "qnn.dll"},
     )
-    src_b = FilesystemSource(
+    src_b = DirectorySource(
         root=tmp_path / "b",
         dll_patterns={"QNNExecutionProvider": "qnn.dll"},
     )

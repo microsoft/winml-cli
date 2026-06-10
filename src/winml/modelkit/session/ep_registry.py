@@ -69,7 +69,7 @@ def _entry_source_tag(entry: EPEntry) -> str:
     without depending on a CLI module.
     """
     from ..ep_path import (
-        FilesystemSource,
+        DirectorySource,
         MSIXPackageSource,
         NuGetSource,
         PyPISource,
@@ -83,7 +83,7 @@ def _entry_source_tag(entry: EPEntry) -> str:
         return "nuget"
     if isinstance(s, WinMLCatalogSource):
         return "winml-catalog"
-    if isinstance(s, FilesystemSource):
+    if isinstance(s, DirectorySource):
         return "directory"
     if isinstance(s, MSIXPackageSource):
         prefix = getattr(s, "family_name_prefix", "")

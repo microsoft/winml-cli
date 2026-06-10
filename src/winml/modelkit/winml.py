@@ -27,10 +27,10 @@ if TYPE_CHECKING:
 
 from .ep_path import (
     EP_CATALOG,
+    DirectorySource,
     EPCatalog,
     EPEntry,
     EPSource,
-    FilesystemSource,
     MSIXPackageSource,
     NuGetSource,
     PyPISource,
@@ -266,10 +266,10 @@ def add_ep_for_device(
 __all__ = [
     "EP_CATALOG",
     "EP_PLUGIN_REGISTRY",
+    "DirectorySource",
     "EPCatalog",
     "EPEntry",
     "EPSource",
-    "FilesystemSource",
     "MSIXPackageSource",
     "NuGetSource",
     "PyPISource",

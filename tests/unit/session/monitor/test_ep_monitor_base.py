@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor, NullEPMonitor
+from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor, WinMLEPMonitor
 
 
 def test_null_monitor_default_get_session_options():

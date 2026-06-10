@@ -230,7 +230,7 @@ Tests reset via `_get_pkg_manager.cache_clear()`, parallel to the existing `_get
 
 ### Default `EP_PATH` is unchanged
 
-`MsixPackageSource` is **not** added to the default `EP_PATH`. The default keeps `[PyPiSource, WinMLCatalogSource, FilesystemSource]` — Microsoft's catalog opinion still wins by default. `MsixPackageSource` is **opt-in only**: users who want pinning add their own rows via `extra_sources=` or by appending to `EP_PATH` directly.
+`MsixPackageSource` is **not** added to the default `EP_PATH`. The default keeps `[PyPiSource, WinMLCatalogSource, DirectorySource]` — Microsoft's catalog opinion still wins by default. `MsixPackageSource` is **opt-in only**: users who want pinning add their own rows via `extra_sources=` or by appending to `EP_PATH` directly.
 
 Reasoning:
 1. **Reproducibility**: defaulting `MsixPackageSource` would make builds non-reproducible across machines (different MSIX versions installed → different EP picked). The catalog's "follow Windows Update's choice" is a more predictable default for non-pinning users.
@@ -377,7 +377,7 @@ class PyPiSource:
         return all(_ep_is_compatible(ep) for ep in self.eps)
 ```
 
-`FilesystemSource`, `WinMLCatalogSource`, and `MsixPackageSource` all get the identical method body. The CLI handler calls `source.is_compatible()` per resolved source; the result becomes the `[incompatible]` section-level tag (true iff *all* sources for an EP-name agree). Adding a new EP requires only one line in `_EP_VENDOR_REQUIREMENT` — no per-source-class changes.
+`DirectorySource`, `WinMLCatalogSource`, and `MsixPackageSource` all get the identical method body. The CLI handler calls `source.is_compatible()` per resolved source; the result becomes the `[incompatible]` section-level tag (true iff *all* sources for an EP-name agree). Adding a new EP requires only one line in `_EP_VENDOR_REQUIREMENT` — no per-source-class changes.
 
 **Matching is intentionally substring-based and case-insensitive.** Vendor strings reported by Windows differ across systems (`"Intel(R) Corporation"`, `"Intel"`, `"Intel Corp"`, etc.). Substring on `"Intel"` matches all variants. Misclassification risk is low because vendor name overlaps are rare (no IHV's name is a substring of another's in practice).
 
@@ -431,7 +431,7 @@ The earlier draft of this design proposed a separate `--list-msix-eps` flag for 
 The `WINML_EP_PATH` env var (added in this branch, not yet shipped externally) was renamed first to `MODELKIT_EP_PATH`, then to `WINMLCLI_EP_PATH`. Same semantics:
 
 - Path-list using OS-conventional separator (`;` on Windows, `:` on POSIX).
-- Each entry treated as a directory; instantiated as a `FilesystemSource` with `dll_patterns` covering every entry in `EP_DLL_NAMES`.
+- Each entry treated as a directory; instantiated as a `DirectorySource` with `dll_patterns` covering every entry in `EP_DLL_NAMES`.
 - Resolved before the default `EP_PATH` (i.e., user override beats default).
 - Empty/unset: no override.
 - Non-existent entries log a WARN and are skipped.
@@ -513,7 +513,7 @@ In dependency order:
    - Add `_EP_VENDOR_REQUIREMENT` table and `_ep_is_compatible(ep_name)` helper.
    - Add `_get_detected_vendors()` with `@functools.cache` (queries sysinfo hardware).
    - Add `MsixPackageSource` dataclass with `resolve()` and `is_compatible()`.
-   - Add `is_compatible()` method to `PyPiSource`, `FilesystemSource`, `WinMLCatalogSource` (one line each, delegates to `_ep_is_compatible`).
+   - Add `is_compatible()` method to `PyPiSource`, `DirectorySource`, `WinMLCatalogSource` (one line each, delegates to `_ep_is_compatible`).
    - Add `list_msix_eps()` helper.
    - Add `ResolvedEp` dataclass (ep_name, dll_path, source, status).
    - Add `discover_all_eps()` function. Returns `dict[str, list[ResolvedEp]]` with all matches per EP-name, sorted by precedence (primary first).

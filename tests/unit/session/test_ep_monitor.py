@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from winml.modelkit.session import WinMLEPMonitor, PerfStats, VitisAIMonitor
+from winml.modelkit.session import PerfStats, VitisAIMonitor, WinMLEPMonitor
 
 
 # ============================================================================

@@ -118,14 +118,14 @@ class WinMLCatalogSource:
     eps: tuple[str, ...]                      # canonical EP names this source provides
 
 @dataclass(frozen=True)
-class FilesystemSource:
+class DirectorySource:
     """A directory tree that contains a plugin DLL (installer drop, unzipped archive, custom build)."""
     root: Path                                # absolute, may include glob like .../1.7.1
     dll_patterns: dict[str, str]              # ep_name -> filename or relative glob
     env_var: str | None = None                # if set, root is `Path(os.environ[env_var])`; if envvar absent, source is skipped
     required_marker: str | None = None        # optional file inside root used as a sanity check before scanning
 
-EpSource = PyPiSource | WinMLCatalogSource | FilesystemSource
+EpSource = PyPiSource | WinMLCatalogSource | DirectorySource
 
 EP_PATH: list[EpSource] = [...]               # see "Default contents"
 ```
@@ -154,7 +154,7 @@ Per-source `resolve()` semantics:
 
 - `PyPiSource.resolve()` calls `importlib.metadata.distribution(self.distribution)`; on `PackageNotFoundError`, yields nothing. Otherwise, computes `dist.locate_file(self.relative_dll)`; yields `(ep, path)` for each ep in `self.eps` if the file exists. The `arch_resolver` hook covers QNN's `amd64`/`arm64ec` split — see [`src/winml/modelkit/winml.py:22`](../src/winml/modelkit/winml.py).
 - `WinMLCatalogSource.resolve()` lazily imports the WinAppSDK ML Python binding (the fully qualified module name is **TODO**, see open questions). Calls `catalog.find_all_providers()`, filters by `provider.name == self.catalog_name`, and for any provider whose `ready_state != NotPresent`, calls `ensure_ready_async().get()` and yields `(ep, Path(provider.library_path))`. If the binding is unavailable (Linux, ORT 1.24 without WinAppSDK ML, or WinAppSDK < 1.8), `resolve()` yields nothing silently.
-- `FilesystemSource.resolve()`: if `env_var` is set and `os.environ.get(env_var)` is empty, yield nothing. Otherwise, walks `self.root` (or `Path(os.environ[env_var]) / self.root` if root is relative) looking for each `dll_patterns[ep]` filename; supports glob through `Path.glob()`. Skips if `required_marker` is set and missing.
+- `DirectorySource.resolve()`: if `env_var` is set and `os.environ.get(env_var)` is empty, yield nothing. Otherwise, walks `self.root` (or `Path(os.environ[env_var]) / self.root` if root is relative) looking for each `dll_patterns[ep]` filename; supports glob through `Path.glob()`. Skips if `required_marker` is set and missing.
 
 ### Default contents
 
@@ -186,7 +186,7 @@ EP_PATH_WINDOWS = [
 
     # 3. Well-known third-party installers, gated by envvar so they no-op on machines
     #    without the installer present.
-    FilesystemSource(
+    DirectorySource(
         root=Path("deployment"),
         env_var="RYZEN_AI_INSTALLATION_PATH",
         dll_patterns={"VitisAIExecutionProvider": "onnxruntime_providers_vitisai.dll"},
@@ -212,7 +212,7 @@ EP_PATH_DARWIN = []
 
 Two override surfaces, in increasing precedence:
 
-1. **Environment variable `WINML_EP_PATH`** (Windows path-list semantics: `;`-separated on Windows, `:`-separated on POSIX). Each entry is a directory; the registry interprets each as a `FilesystemSource(root=Path(entry), dll_patterns=EP_DLL_NAMES)` — meaning every known DLL filename is searched in every supplied directory. This is the analog of `PATH`. Power-user knob, no per-EP filtering. Entries from `WINML_EP_PATH` are **prepended** to the default list (highest precedence).
+1. **Environment variable `WINML_EP_PATH`** (Windows path-list semantics: `;`-separated on Windows, `:`-separated on POSIX). Each entry is a directory; the registry interprets each as a `DirectorySource(root=Path(entry), dll_patterns=EP_DLL_NAMES)` — meaning every known DLL filename is searched in every supplied directory. This is the analog of `PATH`. Power-user knob, no per-EP filtering. Entries from `WINML_EP_PATH` are **prepended** to the default list (highest precedence).
 2. **Function argument `register_execution_providers(extra_sources=[...])`**. Same `EpSource` types as the default list. Useful for tests and embedded apps that want surgical control. Sources passed here are inserted at index 0, before envvar-derived entries.
 
 The `EP_DLL_NAMES` table that the envvar path uses is a small static dict:
@@ -250,8 +250,8 @@ Per-source failure modes and the registry's response:
 | WinAppSDK ML Python binding not importable | `WinMLCatalogSource` | Log DEBUG once per process; yield nothing. |
 | `ExecutionProviderCatalog.find_all_providers()` raises | `WinMLCatalogSource` | Log WARN; yield nothing. |
 | `ensure_ready_async().get()` returns non-Success status | `WinMLCatalogSource` | Log WARN with `result.status`; yield nothing. |
-| `env_var` set but `Path(os.environ[env_var])` does not exist | `FilesystemSource` | Log WARN; yield nothing. |
-| `required_marker` missing | `FilesystemSource` | Log WARN with the expected marker; yield nothing. |
+| `env_var` set but `Path(os.environ[env_var])` does not exist | `DirectorySource` | Log WARN; yield nothing. |
+| `required_marker` missing | `DirectorySource` | Log WARN with the expected marker; yield nothing. |
 | `register_execution_provider_library` raises | sink | Log ERROR with the EP name + path + exception; **continue** the walk (do not raise). The current `WinML.register_execution_providers` already does this with a `try/except Exception` ([`src/winml/modelkit/winml.py:111`](../src/winml/modelkit/winml.py)). Preserve the behavior. |
 
 The registry never raises for "EP unavailable." It returns the dict of successfully registered EPs. Callers that need a specific EP must check the return value or call `ort.get_ep_devices()` and filter.
@@ -269,7 +269,7 @@ The brief in the task description offered three shapes. The full analysis:
 | Windows + Linux symmetry | Manual with `os.name` checks at every site. | One default list per platform, swapped at module init. | Same. |
 | Diagnostics ("which source provided this DLL?") | Lost — the path is anonymous. | Trivial: log the source object. | Same. |
 | Surface area | 0 new types. | 4 new types (3 sources + the union). | 1 new type (manifest schema) but every consumer touches the parser. |
-| Composability with `WINML_EP_PATH` env var | Native — the env var IS a list of paths. | The env var is parsed into `FilesystemSource` entries; loses no fidelity. | The env var has to point at manifest files, not directories — much less ergonomic for end users. |
+| Composability with `WINML_EP_PATH` env var | Native — the env var IS a list of paths. | The env var is parsed into `DirectorySource` entries; loses no fidelity. | The env var has to point at manifest files, not directories — much less ergonomic for end users. |
 
 Option B is the only shape that satisfies all four origins without leaking origin-specific logic into the consumer. Option A is a non-starter for MSIX. Option C duplicates option B's structure in JSON without adding anything that callers want.
 
@@ -295,7 +295,7 @@ EP_PATH walk:
   WinMLCatalogSource("VitisAI")        -> WinAppSDK absent, yield nothing.
   WinMLCatalogSource("MIGraphX")       -> same.
   WinMLCatalogSource("NvTensorRtRtx")  -> same.
-  FilesystemSource(RYZEN_AI_INSTALLATION_PATH) -> envvar unset, yield nothing.
+  DirectorySource(RYZEN_AI_INSTALLATION_PATH) -> envvar unset, yield nothing.
 
 Result: {"OpenVINOExecutionProvider": [...], "QNNExecutionProvider": [...]}
 ```
@@ -317,7 +317,7 @@ EP_PATH walk:
         C:\Program Files\WindowsApps\Microsoft.WindowsAppRuntime.WinML.VitisAI_1.8.59.0_x64__8wekyb3d8bbwe\onnxruntime_providers_vitisai.dll
         yield ("VitisAIExecutionProvider", <that path>).
   ...continues...
-  FilesystemSource(RYZEN_AI_INSTALLATION_PATH) -> envvar = "C:\Program Files\RyzenAI\1.7.1",
+  DirectorySource(RYZEN_AI_INSTALLATION_PATH) -> envvar = "C:\Program Files\RyzenAI\1.7.1",
         root resolves to "C:\Program Files\RyzenAI\1.7.1\deployment",
         required_marker "onnxruntime_providers_shared.dll" present,
         dll for VitisAI present, BUT VitisAIExecutionProvider already registered from
@@ -334,7 +334,7 @@ Note the conflict resolution outcome: MSIX won over installer because MSIX appea
 WINML_EP_PATH=D:\src\onnxruntime\build\openvino\Release
 
 EP_PATH walk (envvar entries prepended):
-  FilesystemSource(D:\src\onnxruntime\build\openvino\Release, dll_patterns=EP_DLL_NAMES)
+  DirectorySource(D:\src\onnxruntime\build\openvino\Release, dll_patterns=EP_DLL_NAMES)
         -> finds onnxruntime_providers_openvino_plugin.dll,
         yield ("OpenVINOExecutionProvider", D:\src\...\Release\onnxruntime_providers_openvino_plugin.dll)
   PyPiSource(onnxruntime-ep-openvino) -> already registered; skip.
@@ -379,9 +379,9 @@ Concrete entries for each (EP, origin) cell under the Option B design. "n/a" mea
 |---|---|---|---|---|
 | `OpenVINOExecutionProvider` | `PyPiSource(distribution="onnxruntime-ep-openvino", relative_dll="onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll", eps=("OpenVINOExecutionProvider",))` (verified, 1.4.0) | `WinMLCatalogSource(catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",))` (MSIX 1.8.69.0; runtime-resolved path) | n/a (Intel OpenVINO Toolkit standalone install does not ship an ORT plugin DLL) | `WINML_EP_PATH=D:\custom\openvino\` + `EP_DLL_NAMES["OpenVINOExecutionProvider"]` |
 | `QNNExecutionProvider` | `PyPiSource(distribution="onnxruntime-qnn", relative_dll="onnxruntime_qnn/libs/{arch}/onnxruntime_providers_qnn.dll", eps=("QNNExecutionProvider",), arch_resolver=...)` (verified, 2.1.0) | `WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))` (MSIX 2.2420.43.0; runtime-resolved path) | n/a (Qualcomm QAIRT SDK ZIP does not ship an ORT plugin DLL) | `WINML_EP_PATH=D:\custom\qnn\amd64\` |
-| `VitisAIExecutionProvider` | n/a (404 on PyPI; AMD placeholder names at 0.0.0) | `WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))` (MSIX 1.8.59.0; runtime-resolved path) | `FilesystemSource(env_var="RYZEN_AI_INSTALLATION_PATH", root=Path("deployment"), dll_patterns={"VitisAIExecutionProvider": "onnxruntime_providers_vitisai.dll"}, required_marker="onnxruntime_providers_shared.dll")` (verified DLL leaf via AMD docs; default install root `C:\Program Files\RyzenAI\1.7.1\`) | `WINML_EP_PATH=C:\Program Files\RyzenAI\1.7.1\deployment\` |
+| `VitisAIExecutionProvider` | n/a (404 on PyPI; AMD placeholder names at 0.0.0) | `WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))` (MSIX 1.8.59.0; runtime-resolved path) | `DirectorySource(env_var="RYZEN_AI_INSTALLATION_PATH", root=Path("deployment"), dll_patterns={"VitisAIExecutionProvider": "onnxruntime_providers_vitisai.dll"}, required_marker="onnxruntime_providers_shared.dll")` (verified DLL leaf via AMD docs; default install root `C:\Program Files\RyzenAI\1.7.1\`) | `WINML_EP_PATH=C:\Program Files\RyzenAI\1.7.1\deployment\` |
 | `MIGraphXExecutionProvider` | n/a (`onnxruntime-ep-migraphx` is 0.0.0 placeholder; `onnxruntime-migraphx` is a vendor distro, not a plugin) | `WinMLCatalogSource(catalog_name="MIGraphX", eps=("MIGraphXExecutionProvider",))` (MSIX 1.8.55.0; runtime-resolved path) | TODO — investigate whether AMD ROCm 6.x or HIP SDK installers ship a registrable MIGraphX plugin DLL outside MSIX. As of 2026-04-27 no evidence of a third-party plugin drop. | `WINML_EP_PATH=D:\custom\migraphx\` (DLL leaf TBD; **TODO verify name**) |
-| `NvTensorRtRtxExecutionProvider` | n/a (`onnxruntime-trt-rtx` is a vendor distro; `onnxruntime-ep-tensorrt`/`-ep-trt-rtx` 404) | `WinMLCatalogSource(catalog_name="NvTensorRtRtx", eps=("NvTensorRtRtxExecutionProvider",))` (MSIX 0.0.28.0; runtime-resolved path) | `FilesystemSource(env_var="NVIDIA_TRT_RTX_EP", root=Path("."), dll_patterns={"NvTensorRtRtxExecutionProvider": "onnxruntime_providers_nv_tensorrt_rtx.dll"})` — user unzips the GitHub release ZIP somewhere and sets `NVIDIA_TRT_RTX_EP` to that root. The release body documents the package contents (`onnxruntime_providers_nv_tensorrt_rtx.dll`, `tensorrt_rtx_1_4.dll`, `tensorrt_onnxparser_rtx_1_4.dll`, `tensorrt_plugins.dll`, plus license/notice files) without subdirectory annotations, suggesting a flat layout. | `WINML_EP_PATH=D:\unzipped\trt-rtx-ep\` |
+| `NvTensorRtRtxExecutionProvider` | n/a (`onnxruntime-trt-rtx` is a vendor distro; `onnxruntime-ep-tensorrt`/`-ep-trt-rtx` 404) | `WinMLCatalogSource(catalog_name="NvTensorRtRtx", eps=("NvTensorRtRtxExecutionProvider",))` (MSIX 0.0.28.0; runtime-resolved path) | `DirectorySource(env_var="NVIDIA_TRT_RTX_EP", root=Path("."), dll_patterns={"NvTensorRtRtxExecutionProvider": "onnxruntime_providers_nv_tensorrt_rtx.dll"})` — user unzips the GitHub release ZIP somewhere and sets `NVIDIA_TRT_RTX_EP` to that root. The release body documents the package contents (`onnxruntime_providers_nv_tensorrt_rtx.dll`, `tensorrt_rtx_1_4.dll`, `tensorrt_onnxparser_rtx_1_4.dll`, `tensorrt_plugins.dll`, plus license/notice files) without subdirectory annotations, suggesting a flat layout. | `WINML_EP_PATH=D:\unzipped\trt-rtx-ep\` |
 
 ## Migration plan
 
@@ -471,7 +471,7 @@ src/winml/modelkit/winml.py
     # Public API:
     register_execution_providers(...)        # unchanged signature, plus extra_sources kwarg
     EP_PATH                                   # exported for inspection / tests
-    EpSource, PyPiSource, WinMLCatalogSource, FilesystemSource
+    EpSource, PyPiSource, WinMLCatalogSource, DirectorySource
 
     # Internal:
     _DEFAULT_EP_PATH_WINDOWS / _LINUX / _DARWIN
@@ -502,7 +502,7 @@ def register_execution_providers(
 
 1. Land the dataclasses + the new `EP_PATH` Windows default with only the two `PyPiSource` entries that match today's `EP_PLUGIN_REGISTRY`. The output is byte-for-byte identical to today's registration on a stock install. No behavior change.
 2. Add `WinMLCatalogSource` and the WinAppSDK ML import gate. On any machine where the Python binding is missing (which is currently every machine in this repo's CI — verify with `uv run python -c "import winml"` returning ImportError), the source no-ops. Land it dark.
-3. Add `FilesystemSource` with the `RYZEN_AI_INSTALLATION_PATH` entry. This activates the AMD third-party path on Ryzen AI machines but does nothing on machines without the envvar.
+3. Add `DirectorySource` with the `RYZEN_AI_INSTALLATION_PATH` entry. This activates the AMD third-party path on Ryzen AI machines but does nothing on machines without the envvar.
 4. Add `WINML_EP_PATH` parsing and the `extra_sources` kwarg. Both are inert until used.
 5. Once 1-4 are stable, delete `EP_PLUGIN_REGISTRY` and `resolve_plugin_dll`.
 
@@ -513,7 +513,7 @@ Each step is a separate commit; each commit can be reverted independently if a r
 Unit tests (no real DLLs needed):
 
 - `PyPiSource.resolve()` against a fixture distribution name that does and does not exist (`importlib.metadata` is monkeypatchable).
-- `FilesystemSource.resolve()` with `tmp_path` populated to mimic a Ryzen AI install root.
+- `DirectorySource.resolve()` with `tmp_path` populated to mimic a Ryzen AI install root.
 - `WINML_EP_PATH` parser: empty string, single entry, multi entry with `;` and `:` separators, entries with spaces, nonexistent paths.
 - Conflict resolution: a config with two sources providing the same EP and assert the first wins; ORT is mocked so we just check `register_execution_provider_library` arguments.
 - `extra_sources` precedence: an `extra_sources` entry overrides a default-list entry for the same EP.
@@ -523,7 +523,7 @@ Integration tests (real DLLs, gated by hardware availability):
 - On the Snapdragon CI box: assert `QNNExecutionProvider` registers from the `onnxruntime-qnn` PyPI source.
 - On any Windows box with `onnxruntime-ep-openvino` installed: assert OpenVINO registers.
 - MSIX path: not testable in this repo until a CI image with WinAppSDK ML preinstalled exists. Document the manual smoke test (run `register_execution_providers()` on a machine with a Windows-Update-installed VitisAI MSIX and verify `ort.get_ep_devices()` shows it).
-- ZIP path: gated on a fixture ZIP; download once, cache in `tests/_assets/trt-rtx-ep-fixture/`, assert `FilesystemSource` finds the DLL.
+- ZIP path: gated on a fixture ZIP; download once, cache in `tests/_assets/trt-rtx-ep-fixture/`, assert `DirectorySource` finds the DLL.
 
 The current test file is **TODO**: locate via `Grep "register_execution_providers" tests/`. Existing tests targeting `EP_PLUGIN_REGISTRY` (if any) need to be rewritten against the new shape.
 
@@ -532,7 +532,7 @@ The current test file is **TODO**: locate via `Grep "register_execution_provider
 `register_execution_provider_library(name, path)` calls `LoadLibrary(path)` directly ([`docs/ep-sideloading-research.md:27`](ep-sideloading-research.md)). Any DLL loaded this way runs in-process with full access to whatever the host has. Three threat surfaces matter for `EP_PATH`:
 
 1. **Untrusted `WINML_EP_PATH` values.** A malicious envvar pointing at `C:\Temp\` could redirect EP loading to a planted DLL with one of the canonical names. Mitigation: this is no worse than what `PATH` already enables (any executable resolution); we do not introduce new attack surface. We also do not auto-elevate or suppress AppLocker / WDAC; the OS loader policy still applies. Document the `WINML_EP_PATH` precedence in the user-facing README so that admins of locked-down machines know to clear it via Group Policy.
-2. **Glob expansion in `FilesystemSource.root`.** If an attacker controls a parent directory we glob, they could plant a same-named DLL in a sibling path. Mitigation: use `Path.glob()` only with literal patterns we author (no user-supplied glob), and require `required_marker` for installer roots.
+2. **Glob expansion in `DirectorySource.root`.** If an attacker controls a parent directory we glob, they could plant a same-named DLL in a sibling path. Mitigation: use `Path.glob()` only with literal patterns we author (no user-supplied glob), and require `required_marker` for installer roots.
 3. **NVIDIA ZIP / Ryzen AI installer integrity.** Out of scope for `EP_PATH`. The user / admin is responsible for the integrity of bytes on disk; the registry only finds and loads. We document this clearly.
 
 We do **not** verify code signatures before `LoadLibrary`. ORT itself doesn't, and adding a signature check at the registry layer would block the legitimate "developer custom build" use case without meaningfully raising the bar (an attacker who can plant a DLL can also strip a signature check). The explicit non-goal is documented below.

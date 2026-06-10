@@ -28,7 +28,12 @@ if TYPE_CHECKING:
 import pytest
 
 from winml.modelkit.compiler import EPConfig
-from winml.modelkit.session import EPDeviceTarget, WinMLEPMonitorMismatch, SessionState, WinMLSession
+from winml.modelkit.session import (
+    EPDeviceTarget,
+    SessionState,
+    WinMLEPMonitorMismatch,
+    WinMLSession,
+)
 
 
 class TestWinMLSessionInstantiation:

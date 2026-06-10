@@ -6,7 +6,7 @@
 
 Covers:
     - PyPISource.resolve(): present/missing distribution.
-    - FilesystemSource.resolve(): env-var gating, required marker,
+    - DirectorySource.resolve(): env-var gating, required marker,
       glob patterns, multiple EPs in one root.
     - WinMLCatalogSource.resolve(): graceful no-yield when the
       WinAppSDK ML Python binding is not installed.
@@ -23,9 +23,9 @@ import pytest
 
 from winml.modelkit.ep_path import (
     EP_CATALOG,
+    DirectorySource,
     EPEntry,
     EPSource,
-    FilesystemSource,
     NuGetSource,
     PyPISource,
     WinMLCatalogSource,
@@ -98,17 +98,17 @@ class TestPublicAPI:
         for entry in sources:
             assert isinstance(
                 entry,
-                (PyPISource, NuGetSource, FilesystemSource, WinMLCatalogSource),
+                (PyPISource, NuGetSource, DirectorySource, WinMLCatalogSource),
             )
 
     def test_ep_source_subclasses_inherit_from_abc(self) -> None:
         # EPSource is the abstract base class for all source kinds.
         assert PyPISource is not None
         assert NuGetSource is not None
-        assert FilesystemSource is not None
+        assert DirectorySource is not None
         assert WinMLCatalogSource is not None
         # Every concrete source kind must subclass the ABC.
-        for cls in (PyPISource, NuGetSource, FilesystemSource, WinMLCatalogSource):
+        for cls in (PyPISource, NuGetSource, DirectorySource, WinMLCatalogSource):
             assert issubclass(cls, EPSource)
 
 
@@ -219,7 +219,7 @@ class TestPyPISource:
 
 
 # ---------------------------------------------------------------------------
-# FilesystemSource.
+# DirectorySource.
 # ---------------------------------------------------------------------------
 
 
@@ -230,11 +230,11 @@ def _touch(path: Path) -> Path:
 
 
 class TestFilesystemSource:
-    """FilesystemSource scans a directory for plugin DLLs."""
+    """DirectorySource scans a directory for plugin DLLs."""
 
     def test_resolves_single_dll_in_root(self, tmp_path: Path) -> None:
         dll = _touch(tmp_path / "onnxruntime_providers_vitisai.dll")
-        source = FilesystemSource(
+        source = DirectorySource(
             root=tmp_path,
             dll_patterns={"VitisAIExecutionProvider": dll.name},
         )
@@ -244,11 +244,11 @@ class TestFilesystemSource:
         assert isinstance(entry, EPEntry)
         assert entry.ep_name == "VitisAIExecutionProvider"
         assert entry.dll_path == dll.resolve()
-        # FilesystemSource has no version concept.
+        # DirectorySource has no version concept.
         assert entry.version is None
 
     def test_yields_nothing_when_root_missing(self, tmp_path: Path) -> None:
-        source = FilesystemSource(
+        source = DirectorySource(
             root=tmp_path / "does-not-exist",
             dll_patterns={"VitisAIExecutionProvider": "any.dll"},
         )
@@ -258,7 +258,7 @@ class TestFilesystemSource:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("FAKE_INSTALLATION_PATH", raising=False)
-        source = FilesystemSource(
+        source = DirectorySource(
             root=Path("deployment"),
             env_var="FAKE_INSTALLATION_PATH",
             dll_patterns={"VitisAIExecutionProvider": "vitisai.dll"},
@@ -275,7 +275,7 @@ class TestFilesystemSource:
         marker = _touch(deployment / "onnxruntime_providers_shared.dll")
         monkeypatch.setenv("FAKE_INSTALLATION_PATH", str(tmp_path))
 
-        source = FilesystemSource(
+        source = DirectorySource(
             root=Path("deployment"),
             env_var="FAKE_INSTALLATION_PATH",
             dll_patterns={"VitisAIExecutionProvider": dll.name},
@@ -293,7 +293,7 @@ class TestFilesystemSource:
         _touch(deployment / "onnxruntime_providers_vitisai.dll")
         monkeypatch.setenv("FAKE_INSTALLATION_PATH", str(tmp_path))
 
-        source = FilesystemSource(
+        source = DirectorySource(
             root=Path("deployment"),
             env_var="FAKE_INSTALLATION_PATH",
             dll_patterns={"VitisAIExecutionProvider": "onnxruntime_providers_vitisai.dll"},
@@ -304,7 +304,7 @@ class TestFilesystemSource:
     def test_multiple_eps_in_one_root(self, tmp_path: Path) -> None:
         dll_a = _touch(tmp_path / "onnxruntime_providers_openvino_plugin.dll")
         dll_b = _touch(tmp_path / "onnxruntime_providers_qnn.dll")
-        source = FilesystemSource(
+        source = DirectorySource(
             root=tmp_path,
             dll_patterns={
                 "OpenVINOExecutionProvider": dll_a.name,
@@ -319,7 +319,7 @@ class TestFilesystemSource:
 
     def test_glob_pattern_matches(self, tmp_path: Path) -> None:
         dll = _touch(tmp_path / "subdir" / "onnxruntime_providers_qnn.dll")
-        source = FilesystemSource(
+        source = DirectorySource(
             root=tmp_path,
             dll_patterns={"QNNExecutionProvider": "*/onnxruntime_providers_qnn.dll"},
         )
@@ -358,7 +358,7 @@ class TestWinMLCatalogSourceBindingMissing:
 
 
 class TestWinmlEpPathOverride:
-    """Parsing the WINMLCLI_EP_PATH env var into FilesystemSource entries."""
+    """Parsing the WINMLCLI_EP_PATH env var into DirectorySource entries."""
 
     def test_unset_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
@@ -373,16 +373,16 @@ class TestWinmlEpPathOverride:
     ) -> None:
         monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
         sources = _parse_winmlcli_ep_path()
-        # Per the C1 fix, the parser emits ONE FilesystemSource per
+        # Per the C1 fix, the parser emits ONE DirectorySource per
         # (root, ep, dll_filename) combination — so a single entry with
         # five EPs (each with exactly one .dll filename) yields five sources.
         # Every known EP must be covered at least once.
-        assert all(isinstance(s, FilesystemSource) for s in sources)
+        assert all(isinstance(s, DirectorySource) for s in sources)
         assert all(s.root == tmp_path for s in sources)
         covered_eps = {
             ep
             for s in sources
-            if isinstance(s, FilesystemSource)
+            if isinstance(s, DirectorySource)
             for ep in s.dll_patterns
         }
         assert covered_eps == {ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep)}
@@ -392,14 +392,14 @@ class TestWinmlEpPathOverride:
     ) -> None:
         # This is a Windows-only project. EP_CATALOG entries contain
         # only .dll filenames (Linux .so entries were dropped in Task 6).
-        # The parser emits one FilesystemSource per (root, ep, dll_filename)
+        # The parser emits one DirectorySource per (root, ep, dll_filename)
         # tuple — all EPs should resolve correctly with their single DLL name.
         monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
         sources = _parse_winmlcli_ep_path()
         ov_dlls = [
             next(iter(s.dll_patterns.values()))
             for s in sources
-            if isinstance(s, FilesystemSource)
+            if isinstance(s, DirectorySource)
             and "OpenVINOExecutionProvider" in s.dll_patterns
         ]
         assert "onnxruntime_providers_openvino_plugin.dll" in ov_dlls
@@ -418,7 +418,7 @@ class TestWinmlEpPathOverride:
 
         monkeypatch.setenv("WINMLCLI_EP_PATH", f"{a}{os.pathsep}{b}")
         sources = _parse_winmlcli_ep_path()
-        roots = {s.root for s in sources if isinstance(s, FilesystemSource)}
+        roots = {s.root for s in sources if isinstance(s, DirectorySource)}
         assert a in roots
         assert b in roots
 
@@ -429,7 +429,7 @@ class TestWinmlEpPathOverride:
         # WINMLCLI_EP_PATH to that directory, confirm discover_eps finds it.
         dll = _touch(tmp_path / "onnxruntime_providers_vitisai.dll")
         monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
-        # Skip env-var-gated FilesystemSource so the env-var path is the
+        # Skip env-var-gated DirectorySource so the env-var path is the
         # only producer of a VitisAI hit. (The autouse
         # _skip_live_catalog_in_ep_path_tests fixture handles the catalog
         # source side.)
@@ -459,13 +459,13 @@ class TestWinmlEpPathOverride:
     def test_winmlcli_ep_path_accepts_existing_directory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """WINMLCLI_EP_PATH with a valid directory yields one FilesystemSource per known EP DLL."""
+        """WINMLCLI_EP_PATH with a valid directory yields one DirectorySource per known EP DLL."""
         from winml.modelkit.ep_path import _parse_winmlcli_ep_path
 
         monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
         sources = _parse_winmlcli_ep_path()
 
-        assert len(sources) > 0, "Expected at least one FilesystemSource"
+        assert len(sources) > 0, "Expected at least one DirectorySource"
         # All sources must point at the configured directory.
         for s in sources:
             assert tmp_path in s.root.parents or s.root == tmp_path
@@ -485,7 +485,7 @@ class TestDiscoverEps:
         # Build an extra source that "claims" OpenVINOExecutionProvider
         # with a synthetic DLL. It should beat the PyPI-resolved real one.
         fake_dll = _touch(tmp_path / "fake_openvino.dll")
-        extra = FilesystemSource(
+        extra = DirectorySource(
             root=tmp_path,
             dll_patterns={"OpenVINOExecutionProvider": fake_dll.name},
         )
@@ -501,11 +501,11 @@ class TestDiscoverEps:
     ) -> None:
         a = _touch(tmp_path / "a" / "vitisai.dll")
         b = _touch(tmp_path / "b" / "vitisai.dll")
-        first = FilesystemSource(
+        first = DirectorySource(
             root=a.parent,
             dll_patterns={"VitisAIExecutionProvider": a.name},
         )
-        second = FilesystemSource(
+        second = DirectorySource(
             root=b.parent,
             dll_patterns={"VitisAIExecutionProvider": b.name},
         )
@@ -523,7 +523,7 @@ class TestDiscoverEps:
         # ``_skip_live_catalog_in_ep_path_tests``.
         fake_dll = _touch(tmp_path / "fake_qnn.dll")
         catalog = WinMLCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
-        good = FilesystemSource(
+        good = DirectorySource(
             root=tmp_path,
             dll_patterns={"QNNExecutionProvider": fake_dll.name},
         )
@@ -535,7 +535,7 @@ class TestDiscoverEps:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         fake_dll = _touch(tmp_path / "fake.dll")
-        src = FilesystemSource(
+        src = DirectorySource(
             root=tmp_path,
             dll_patterns={"QNNExecutionProvider": fake_dll.name},
         )
@@ -548,7 +548,7 @@ class TestDiscoverEps:
     ) -> None:
         """_winners(discover_all_eps()) (no flag) returns dict[str, (Path, EPSource)]."""
         fake_dll = _touch(tmp_path / "fake.dll")
-        src = FilesystemSource(
+        src = DirectorySource(
             root=tmp_path,
             dll_patterns={"QNNExecutionProvider": fake_dll.name},
         )
@@ -669,6 +669,7 @@ class TestEPCatalog:
         """EPCatalog must be truly immutable — both attribute rebinding and
         underlying dict mutation must fail at runtime."""
         import pytest
+
         from winml.modelkit.ep_path import EP_CATALOG
 
         # Attribute rebind raises

@@ -21,9 +21,9 @@ if TYPE_CHECKING:
 
 from winml.modelkit import ep_path as _ep
 from winml.modelkit.ep_path import (
+    DirectorySource,
     EPEntry,
     EPSource,
-    FilesystemSource,
     discover_all_eps,
 )
 
@@ -57,8 +57,8 @@ def _touch(path: Path) -> Path:
     return path
 
 
-def _filesystem_source_for(root: Path, ep: str, dll_name: str) -> FilesystemSource:
-    return FilesystemSource(root=root, dll_patterns={ep: dll_name})
+def _filesystem_source_for(root: Path, ep: str, dll_name: str) -> DirectorySource:
+    return DirectorySource(root=root, dll_patterns={ep: dll_name})
 
 
 # ---------------------------------------------------------------------------
