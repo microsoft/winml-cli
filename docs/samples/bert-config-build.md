@@ -2,7 +2,7 @@
 
 BERT (`bert-base-uncased`) is a canonical text model that exercises every stage of the winml-cli pipeline: it has multiple input tensors, benefits from graph fusion (GeLU, LayerNorm, MatMul+Add), and produces quantizable activations that run well on NPU. That combination makes it a useful reference point for teams deploying transformer encoders on Windows.
 
-This sample walks through the production-style workflow: generate a reusable `WinMLBuildConfig` JSON file with `winml config`, run the full export → optimize → quantize → compile pipeline in one shot with `winml build`, and measure the result with `winml perf`. If you want to understand each pipeline stage individually before running the all-in-one command, read the [ConvNeXt on NPU tutorial](../tutorials/npu-convnext.md) first.
+This sample walks through the production-style workflow: generate a reusable `WinMLBuildConfig` JSON file with `winml config`, run the full export → optimize → quantize → compile pipeline in one shot with `winml build`, and measure the result with `winml perf`. If you want to understand each pipeline stage individually before running the all-in-one command, read the [Hugging Face Model to NPU tutorial](../tutorials/npu-convnext.md) first.
 
 ## Prerequisites
 

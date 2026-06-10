@@ -19,6 +19,7 @@ extra:
 
 theme:
   name: material
+  logo: ""
   features:
     - navigation.instant
     - navigation.tracking
@@ -122,7 +123,7 @@ nav:
       - CLIP — Composite Models: samples/clip-composite.md
   - Tutorials:
       - Overview: tutorials/index.md
-      - ConvNeXt on NPU: tutorials/npu-convnext.md
+      - Hugging Face Model to NPU: tutorials/npu-convnext.md
       - Bring Your Own ONNX Model: tutorials/build-from-onnx.md
   - Reference:
       - Config Schema: reference/index.md

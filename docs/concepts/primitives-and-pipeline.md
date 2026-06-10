@@ -105,5 +105,5 @@ tune fusion flags and calibration — and then encode the final settings into a
 - [Config and build](config-and-build.md) — generating and versioning a
   `WinMLBuildConfig`
 - [winml build command reference](../commands/build.md)
-- [ConvNeXt on NPU tutorial](../tutorials/npu-convnext.md) — worked example
+- [Hugging Face Model to NPU tutorial](../tutorials/npu-convnext.md) — worked example
   using primitive commands end-to-end

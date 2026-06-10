@@ -156,6 +156,6 @@ The same composite model pattern is used for:
 ## See also
 
 - [BERT — Config + Build + Perf](bert-config-build.md) — single-model workflow
-- [ConvNeXt on NPU](../tutorials/npu-convnext.md) — step-by-step pipeline
+- [Hugging Face Model to NPU](../tutorials/npu-convnext.md) — step-by-step pipeline
 - [Supported Models](../reference/supported-models.md) — full list of validated architectures
 - [Config and build](../concepts/config-and-build.md) — concept overview

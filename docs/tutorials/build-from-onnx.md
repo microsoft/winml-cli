@@ -2,7 +2,7 @@
 
 This tutorial walks you through the complete workflow for optimizing, analyzing, and deploying an ONNX model you already have — whether you exported it yourself (`torch.onnx.export`, ONNX Runtime tools), received it from a teammate, or downloaded it from the ONNX Model Zoo.
 
-Unlike the [ConvNeXt on NPU](npu-convnext.md) tutorial which starts from a HuggingFace model ID, this tutorial assumes you already have a `.onnx` file on disk and want to make it run faster on your target hardware.
+Unlike the [Hugging Face Model to NPU](npu-convnext.md) tutorial which starts from a HuggingFace model ID, this tutorial assumes you already have a `.onnx` file on disk and want to make it run faster on your target hardware.
 
 The tutorial is split into two sections. Section A walks through the analyze → optimize → re-analyze loop using primitive commands, teaching you how the optimization feedback cycle works. Section B shows how `winml build` automates that same loop in a single command, optionally targeting NPU with quantization.
 
@@ -261,7 +261,7 @@ print(f"Final model: {result.final_onnx_path}")
 
 ## Where to go next
 
-- [ConvNeXt on NPU](npu-convnext.md) — the same pipeline starting from HuggingFace (includes export stage)
+- [Hugging Face Model to NPU](npu-convnext.md) — the same pipeline starting from HuggingFace (includes export stage)
 - [Output Layout](../reference/output-layout.md) — what each output file contains and the `analyze_result.json` schema
 - [Concepts → Analyze and optimize](../concepts/analyze-and-optimize.md) — how the convergence loop works internally
 - [Build Config Schema](../reference/index.md) — customize quantization, compilation, and optimization settings

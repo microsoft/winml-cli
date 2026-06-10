@@ -1,4 +1,4 @@
-# ConvNeXt on NPU
+# Hugging Face Model to NPU
 
 !!! info "Pick the right ConvNeXt page"
     Two pages use ConvNeXt as their vehicle:
