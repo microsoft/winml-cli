@@ -87,7 +87,7 @@ class UniversalHierarchyExporter:
         dynamic_axes: dict[str, dict[int, str]] | None = None,
         opset_version: int = 17,
         do_constant_folding: bool = True,
-        **export_kwargs,
+        **export_kwargs: Any,
     ) -> dict[str, Any]:
         """Export model to ONNX with hierarchy preservation.
 
@@ -312,7 +312,7 @@ class UniversalHierarchyExporter:
         pytorch_internals_investigation.ipynb
         """
         self._original_setup_trace = getattr(torch.onnx.utils, "_setup_trace_module_map", None)
-        self._captured_trace_map = {}
+        self._captured_trace_map: dict[Any, Any] = {}
 
         def enhanced_setup_trace(*args: Any, **kwargs: Any) -> Any:
             """Hook to capture trace module map after PyTorch creates it."""
@@ -346,7 +346,7 @@ class UniversalHierarchyExporter:
         model: nn.Module,
         args: tuple[torch.Tensor, ...],
         output_path: str,
-        **export_kwargs,
+        **export_kwargs: Any,
     ) -> None:
         """Perform standard ONNX export to ensure R7: Topology Preservation.
 
@@ -476,7 +476,7 @@ class UniversalHierarchyExporter:
         Returns:
             Validation results
         """
-        validation = {
+        validation: dict[str, Any] = {
             "passed": True,
             "total_modules": len(expected_tags),
             "correct_tags": 0,
@@ -761,7 +761,7 @@ class UniversalHierarchyExporter:
             op_path = "/".join(path_parts[:-1])
 
         # Try to find the best matching module based on path similarity
-        best_match = None
+        best_match: str | None = None
         best_score = 0
 
         for module_name, context in self._operation_context.items():
@@ -795,7 +795,7 @@ class UniversalHierarchyExporter:
         # This was the original approach - use as fallback
         for context in reversed(list(self._operation_context.values())):
             if context.get("tag"):
-                return context["tag"]
+                return str(context["tag"])
 
         # Final fallback to root tag
         return f"/{self._get_root_class_name()}" if self._module_hierarchy else ""
@@ -825,7 +825,7 @@ def export_bert_tiny_with_validation() -> dict[str, Any]:
     from transformers import AutoModel, AutoTokenizer
 
     # Load model (CARDINAL RULE: NO HARDCODED LOGIC - this works with any HF model)
-    from ..constants import DEFAULT_TEST_MODEL
+    from ..constants import DEFAULT_TEST_MODEL  # type: ignore[import-not-found]
 
     model_name = DEFAULT_TEST_MODEL
     model = AutoModel.from_pretrained(model_name)

@@ -1,0 +1,39 @@
+{
+  "model_id": "deepset/roberta-base-squad2",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\deepset_roberta-base-squad2\\question-answering_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "gpu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\deepset_roberta-base-squad2\\question-answering_eval_result.json",
+  "metrics": {
+    "exact": 80.6,
+    "f1": 83.34631948157333,
+    "total": 1000,
+    "HasAns_exact": 77.68762677484787,
+    "HasAns_f1": 83.25825452651797,
+    "HasAns_total": 493,
+    "NoAns_exact": 83.4319526627219,
+    "NoAns_f1": 83.4319526627219,
+    "NoAns_total": 507,
+    "best_exact": 80.6,
+    "best_exact_thresh": 0.9946742653846741,
+    "best_f1": 83.34631948157332,
+    "best_f1_thresh": 0.9946742653846741,
+    "total_time_in_seconds": 134.1770652999985,
+    "samples_per_second": 7.452838514273356,
+    "latency_in_seconds": 0.1341770652999985
+  }
+}

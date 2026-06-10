@@ -59,4 +59,10 @@ class WinMLModelForFeatureExtraction(WinMLPreTrainedModel):
         pooling handles 1-D and 2-D after raw[0].
         """
         outputs = self._run_inference(self._format_inputs(**kwargs))
+        # WinMLEncoderDecoderModel expects its encoder sub-component to expose
+        # hidden states as "last_hidden_state". Alias the primary output when an
+        # encoder ONNX graph named it otherwise (e.g. "encoder_hidden_states").
+        # Appended last to preserve output[0] and the real ONNX output names.
+        if outputs and "last_hidden_state" not in outputs:
+            outputs["last_hidden_state"] = next(iter(outputs.values()))
         return FeatureExtractionModelOutput(outputs)
