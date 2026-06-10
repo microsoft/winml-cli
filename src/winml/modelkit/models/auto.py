@@ -199,10 +199,12 @@ class WinMLAutoModel:
                 ep=ep,
             )
 
-        # Resolve output directory
+        # Resolve output directory and cache key
+        task_abbrev = get_task_abbrev(resolved_task) if resolved_task else "onnx"
+        cache_key = get_cache_key(task_abbrev, config.generate_cache_key())
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
-            output_dir = get_model_dir(onnx_path.stem, cache_dir=cache_dir_path)
+            output_dir = get_model_dir(str(onnx_path.resolve()), cache_dir=cache_dir_path)
         else:
             import tempfile
 
@@ -221,6 +223,7 @@ class WinMLAutoModel:
             rebuild=force_rebuild,
             ep=ep,
             device=device,
+            cache_key=cache_key,
             allow_unsupported_nodes=allow_unsupported_nodes,
             **kwargs,
         )

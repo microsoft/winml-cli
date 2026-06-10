@@ -235,8 +235,96 @@ class TestFromPretrainedDelegatesToFromOnnx:
 
 
 # =============================================================================
-# from_onnx dict dispatch → WinMLCompositeModel.from_onnx
+# from_onnx cache dir and cache_key tests
 # =============================================================================
+
+
+class TestFromOnnxCacheDirAndKey:
+    """Verify from_onnx uses resolved path (not stem) and passes cache_key."""
+
+    def test_uses_resolved_path_not_stem_for_model_dir(self, fake_onnx: Path, tmp_path: Path):
+        """from_onnx uses str(onnx_path.resolve()) — not stem — as model_id for get_model_dir."""
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_eps",
+                return_value=["CPUExecutionProvider"],
+            ),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+            patch("winml.modelkit.models.auto.get_model_dir") as mock_get_model_dir,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+            mock_get_model_dir.return_value = tmp_path / "model_dir"
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+            )
+
+        mock_get_model_dir.assert_called_once()
+        model_id_arg = mock_get_model_dir.call_args.args[0]
+        # Must be the full resolved path string, not just the stem
+        assert model_id_arg == str(fake_onnx.resolve())
+        assert model_id_arg != fake_onnx.stem
+
+    def test_different_paths_same_stem_get_different_model_dirs(self, tmp_path: Path):
+        """Two ONNX files with the same filename but different dirs get different model dirs."""
+        from winml.modelkit.cache import get_cache_dir, get_model_dir
+
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+
+        onnx_a = dir_a / "model.onnx"
+        onnx_b = dir_b / "model.onnx"
+        onnx_a.write_bytes(b"fake")
+        onnx_b.write_bytes(b"fake")
+
+        cache = get_cache_dir()
+        model_dir_a = get_model_dir(str(onnx_a.resolve()), cache_dir=cache)
+        model_dir_b = get_model_dir(str(onnx_b.resolve()), cache_dir=cache)
+
+        assert model_dir_a != model_dir_b
+
+    def test_passes_cache_key_to_build_onnx_model(self, fake_onnx: Path, tmp_path: Path):
+        """from_onnx computes and passes a cache_key to build_onnx_model."""
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_eps",
+                return_value=["CPUExecutionProvider"],
+            ),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+            )
+
+        call_kwargs = mock_build.call_args.kwargs
+        assert "cache_key" in call_kwargs
+        # cache_key must be non-empty and contain the task abbreviation
+        assert call_kwargs["cache_key"]
+        assert "imgcls" in call_kwargs["cache_key"]
 
 
 class TestFromOnnxDictDispatch:
