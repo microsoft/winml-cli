@@ -82,6 +82,7 @@ nav:
   - Getting Started:
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
+      - UI Quickstart: getting-started/ui-quickstart.md
       - Use with AI Agent: getting-started/agent-skill.md
   - Concepts:
       - Fundamentals:
