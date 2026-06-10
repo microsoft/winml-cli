@@ -88,7 +88,7 @@
     "device": "auto",
     "dataset": {
       "split": "test",
-      "samples": 100,
+      "samples": 1000,
       "shuffle": true,
       "seed": 42,
       "path": "mteb/stsbenchmark-sts",

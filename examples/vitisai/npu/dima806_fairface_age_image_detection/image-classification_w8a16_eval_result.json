@@ -6,7 +6,7 @@
   "ep": "vitisai",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "~/.cache/winml/eval_datasets/build_fairface",
@@ -17,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\dima806_fairface_age_image_detection\\image-classification_w8a16_eval_result.json",
   "metrics": {
-    "accuracy": 0.32,
-    "total_time_in_seconds": 5.263577200006694,
-    "samples_per_second": 18.998486428559048,
-    "latency_in_seconds": 0.05263577200006694
+    "accuracy": 0.297,
+    "total_time_in_seconds": 22.043527400004677,
+    "samples_per_second": 45.364790391931,
+    "latency_in_seconds": 0.02204352740000468
   }
 }

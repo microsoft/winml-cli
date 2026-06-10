@@ -1,0 +1,28 @@
+{
+  "model_id": "tau/splinter-base",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\tau_splinter-base\\question-answering_w8a8_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\tau_splinter-base\\question-answering_w8a8_eval_result.json",
+  "metrics": {
+    "exact_match": 1.0,
+    "f1": 8.399236874236873,
+    "total_time_in_seconds": 46.09503549998044,
+    "samples_per_second": 2.169431022567331,
+    "latency_in_seconds": 0.46095035499980447
+  }
+}

@@ -6,7 +6,7 @@
   "ep": "nv_tensorrt_rtx",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "~/.cache/winml/eval_datasets/build_fairface",
@@ -17,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\rizvandwiki_gender-classification\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.85,
-    "total_time_in_seconds": 4.744289000009303,
-    "samples_per_second": 21.07797395980808,
-    "latency_in_seconds": 0.047442890000093024
+    "accuracy": 0.812,
+    "total_time_in_seconds": 11.455593199996656,
+    "samples_per_second": 87.29360256964186,
+    "latency_in_seconds": 0.011455593199996656
   }
 }

@@ -1,7 +1,9 @@
 {
   "model_id": "google/vit-base-patch16-224-in21k",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\google_vit-base-patch16-224-in21k\\image-feature-extraction_build_artifacts\\model.onnx",
   "task": "image-feature-extraction",
   "device": "gpu",
+  "ep": "nv_tensorrt_rtx",
   "dataset": {
     "split": "test",
     "samples": 1000,

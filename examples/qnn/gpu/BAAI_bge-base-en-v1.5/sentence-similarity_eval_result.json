@@ -1,0 +1,23 @@
+{
+  "model_id": "BAAI/bge-base-en-v1.5",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\BAAI_bge-base-en-v1.5\\sentence-similarity_build_artifacts\\model.onnx",
+  "task": "sentence-similarity",
+  "device": "gpu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\BAAI_bge-base-en-v1.5\\sentence-similarity_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 89.2759
+  }
+}

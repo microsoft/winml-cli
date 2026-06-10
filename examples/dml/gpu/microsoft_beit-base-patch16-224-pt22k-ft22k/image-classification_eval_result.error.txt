@@ -1,0 +1,11 @@
+[20:07:04 WARNING winml.modelkit.eval.evaluate] --dataset not specified; attempting default dataset 'timm/mini-imagenet' for task 'image-classification'. Any --split / --column / --streaming / --dataset-name options are ignored.
+
+Filter:   0%|          | 0/100 [00:00<?, ? examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 209.99 examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 206.67 examples/s]
+[20:07:26 ERROR   winml.modelkit.session.ep_registry] Failed to register OpenVINOExecutionProvider from C:\Program Files\WindowsApps\MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_1.8.15.0_x64__8wekyb3d8bbwe\ExecutionProvider\onnxruntime_providers_openvino_plugin.dll for module onnxruntime
+Traceback (most recent call last):
+  File "D:\LocalAI\public_repo\WinML-ModelKit\src\winml\modelkit\session\ep_registry.py", line 130, in register_execution_providers
+    module.register_execution_provider_library(name, path)
+onnxruntime.capi.onnxruntime_pybind11_state.Fail: [ONNXRuntimeError] : 1 : FAIL : Error loading "C:\Program Files\WindowsApps\MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_1.8.15.0_x64__8wekyb3d8bbwe\ExecutionProvider\onnxruntime_providers_openvino_plugin.dll" which depends on "onnxruntime_providers_shared.dll" which is missing. (Error 126: "The specified module could not be found.")
+Error: Evaluation failed: Failed to compute metrics for task 'image-classification' on dataset 'timm/mini-imagenet'. Run 'winml eval --schema --task image-classification' to see the expected schema.

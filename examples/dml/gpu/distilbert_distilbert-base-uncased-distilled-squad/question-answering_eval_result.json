@@ -1,0 +1,28 @@
+{
+  "model_id": "distilbert/distilbert-base-uncased-distilled-squad",
+  "model_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\distilbert_distilbert-base-uncased-distilled-squad\\question-answering_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\distilbert_distilbert-base-uncased-distilled-squad\\question-answering_eval_result.json",
+  "metrics": {
+    "exact_match": 81.0,
+    "f1": 85.51571428571428,
+    "total_time_in_seconds": 39.35853740014136,
+    "samples_per_second": 2.540744819436325,
+    "latency_in_seconds": 0.3935853740014136
+  }
+}

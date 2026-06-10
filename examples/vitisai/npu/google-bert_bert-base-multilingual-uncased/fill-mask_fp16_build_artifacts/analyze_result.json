@@ -1,7 +1,7 @@
 {
-  "analysis_timestamp": "2026-06-02T17:23:35.342849",
+  "analysis_timestamp": "2026-06-09T09:52:52.544720",
   "metadata": {
-    "model_path": "C:\\Users\\ZHANGC~1\\AppData\\Local\\Temp\\tmp1v14ud5s\\iter.onnx",
+    "model_path": "C:\\Users\\ZHANGC~1\\AppData\\Local\\Temp\\tmp4gy72bd1\\iter.onnx",
     "opset_version": 17,
     "producer_name": "pytorch",
     "producer_version": "2.12.0",

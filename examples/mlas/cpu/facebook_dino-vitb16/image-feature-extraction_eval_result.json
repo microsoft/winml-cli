@@ -1,7 +1,9 @@
 {
   "model_id": "facebook/dino-vitb16",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\facebook_dino-vitb16\\image-feature-extraction_build_artifacts\\model.onnx",
   "task": "image-feature-extraction",
   "device": "cpu",
+  "ep": "cpu",
   "dataset": {
     "split": "test",
     "samples": 1000,

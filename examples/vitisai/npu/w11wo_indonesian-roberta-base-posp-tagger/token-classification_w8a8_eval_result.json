@@ -6,7 +6,7 @@
   "ep": "vitisai",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "~/.cache/winml/eval_datasets/build_indonlu_posp",
@@ -17,156 +17,168 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\w11wo_indonesian-roberta-base-posp-tagger\\token-classification_w8a8_eval_result.json",
   "metrics": {
-    "ADJ": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 74
-    },
-    "ADK": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 40
-    },
-    "ADV": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 58
-    },
-    "ART": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 35
-    },
-    "CCN": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 46
-    },
-    "CSN": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 41
-    },
-    "KUA": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 11
-    },
-    "NEG": {
+    "$$$": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
       "number": 13
     },
+    "ADJ": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 633
+    },
+    "ADK": {
+      "precision": 0.3333333333333333,
+      "recall": 0.0033333333333333335,
+      "f1": 0.006600660066006601,
+      "number": 300
+    },
+    "ADV": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 478
+    },
+    "ART": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 365
+    },
+    "CCN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 484
+    },
+    "CSN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 301
+    },
+    "INT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "KUA": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 129
+    },
+    "NEG": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 143
+    },
     "NNO": {
-      "precision": 0.25357142857142856,
-      "recall": 0.12815884476534295,
-      "f1": 0.17026378896882494,
-      "number": 554
+      "precision": 0.26215738284703805,
+      "recall": 0.1252375923970433,
+      "f1": 0.16950121480634556,
+      "number": 4735
     },
     "NNP": {
-      "precision": 0.1991388589881593,
-      "recall": 0.8078602620087336,
-      "f1": 0.31951640759930916,
-      "number": 458
+      "precision": 0.19266114002956108,
+      "recall": 0.8118061196858922,
+      "f1": 0.3114158097018801,
+      "number": 3693
     },
     "NUM": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 100
+      "number": 791
     },
     "PAR": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 7
+      "number": 47
     },
     "PPO": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 199
+      "precision": 0.08333333333333333,
+      "recall": 0.0006285355122564425,
+      "f1": 0.0012476606363069245,
+      "number": 1591
     },
     "PRI": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 2
+      "number": 28
     },
     "PRK": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 1
+      "number": 27
     },
     "PRN": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 33
+      "number": 257
     },
     "PRR": {
-      "precision": 0.4791666666666667,
-      "recall": 1.0,
-      "f1": 0.647887323943662,
-      "number": 46
+      "precision": 0.5757978723404256,
+      "recall": 0.9863325740318907,
+      "f1": 0.727120067170445,
+      "number": 439
     },
     "SYM": {
-      "precision": 0.02040816326530612,
-      "recall": 0.00546448087431694,
-      "f1": 0.008620689655172414,
-      "number": 366
+      "precision": 0.021505376344086023,
+      "recall": 0.006765899864682003,
+      "f1": 0.01029336078229542,
+      "number": 2956
     },
     "UNS": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 2
+      "number": 15
     },
     "VBE": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 3
+      "number": 70
     },
     "VBI": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 75
+      "number": 553
     },
     "VBL": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 9
+      "number": 138
     },
     "VBP": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 71
+      "number": 541
     },
     "VBT": {
-      "precision": 0.25,
-      "recall": 0.009708737864077669,
-      "f1": 0.018691588785046728,
-      "number": 103
+      "precision": 0.08333333333333333,
+      "recall": 0.0022222222222222222,
+      "f1": 0.004329004329004329,
+      "number": 900
     },
-    "overall_precision": 0.2087771623348956,
-    "overall_recall": 0.2087771623348956,
-    "overall_f1": 0.20877716233489557,
-    "overall_accuracy": 0.2087771623348956,
-    "total_time_in_seconds": 6.647217399964575,
-    "samples_per_second": 15.043888891091923,
-    "latency_in_seconds": 0.06647217399964575
+    "overall_precision": 0.20622548270416222,
+    "overall_recall": 0.20622548270416222,
+    "overall_f1": 0.20622548270416222,
+    "overall_accuracy": 0.20622548270416222,
+    "total_time_in_seconds": 99.15185600001132,
+    "samples_per_second": 8.471853517294765,
+    "latency_in_seconds": 0.1180379238095373
   }
 }

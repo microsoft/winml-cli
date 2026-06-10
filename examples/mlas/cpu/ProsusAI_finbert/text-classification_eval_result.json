@@ -6,16 +6,16 @@
   "ep": "cpu",
   "dataset": {
     "split": "val",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "privet1mir/finbert_dataset"
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\ProsusAI_finbert\\text-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.71,
-    "total_time_in_seconds": 24.975022899918258,
-    "samples_per_second": 4.004000332681469,
-    "latency_in_seconds": 0.2497502289991826
+    "accuracy": 0.728,
+    "total_time_in_seconds": 118.58349879999878,
+    "samples_per_second": 4.216438248657958,
+    "latency_in_seconds": 0.23716699759999757
   }
 }

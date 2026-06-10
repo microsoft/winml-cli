@@ -13,7 +13,7 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\facebook_dino-vits16\\image-feature-extraction_w8a16_eval_result.json",
   "metrics": {
-    "knn_top1_accuracy": 80.2,
+    "knn_top1_accuracy": 80.1,
     "knn_top5_accuracy": 94.7
   }
 }

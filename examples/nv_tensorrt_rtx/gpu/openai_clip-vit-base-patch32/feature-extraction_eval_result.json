@@ -1,10 +1,12 @@
 {
   "model_id": "openai/clip-vit-base-patch32",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\openai_clip-vit-base-patch32\\feature-extraction_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "gpu",
+  "ep": "nv_tensorrt_rtx",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -16,6 +18,6 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\openai_clip-vit-base-patch32\\feature-extraction_eval_result.json",
   "metrics": {
-    "cosine_spearman": 63.7442
+    "cosine_spearman": 61.7878
   }
 }

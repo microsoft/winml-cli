@@ -68,7 +68,7 @@
     "device": "auto",
     "dataset": {
       "split": "val",
-      "samples": 100,
+      "samples": 1000,
       "shuffle": true,
       "seed": 42,
       "path": "detection-datasets/fashionpedia",

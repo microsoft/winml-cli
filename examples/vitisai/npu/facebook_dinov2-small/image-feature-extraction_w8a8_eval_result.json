@@ -1,5 +1,6 @@
 {
   "model_id": "facebook/dinov2-small",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\facebook_dinov2-small\\image-feature-extraction_w8a8_build_artifacts\\model.onnx",
   "task": "image-feature-extraction",
   "device": "npu",
   "ep": "vitisai",
@@ -12,7 +13,7 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\facebook_dinov2-small\\image-feature-extraction_w8a8_eval_result.json",
   "metrics": {
-    "knn_top1_accuracy": 85.8,
-    "knn_top5_accuracy": 96.8
+    "knn_top1_accuracy": 83.5,
+    "knn_top5_accuracy": 95.2
   }
 }

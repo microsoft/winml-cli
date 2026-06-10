@@ -1,5 +1,6 @@
 {
   "model_id": "monologg/koelectra-small-v2-distilled-korquad-384",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_fp16_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "npu",
   "ep": "vitisai",
@@ -18,10 +19,10 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_fp16_eval_result.json",
   "metrics": {
-    "exact_match": 0.0,
-    "f1": 1.5714285714285716,
-    "total_time_in_seconds": 2.3002670999849215,
-    "samples_per_second": 43.47321230680364,
-    "latency_in_seconds": 0.023002670999849213
+    "exact_match": 33.0,
+    "f1": 49.61666666666667,
+    "total_time_in_seconds": 61.61014579999028,
+    "samples_per_second": 1.6231092898990638,
+    "latency_in_seconds": 0.6161014579999028
   }
 }

@@ -1,0 +1,19 @@
+{
+  "model_id": "facebook/dinov2-large",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\facebook_dinov2-large\\image-feature-extraction_build_artifacts\\model.onnx",
+  "task": "image-feature-extraction",
+  "device": "gpu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\facebook_dinov2-large\\image-feature-extraction_eval_result.json",
+  "metrics": {
+    "knn_top1_accuracy": 1.3,
+    "knn_top5_accuracy": 5.0
+  }
+}

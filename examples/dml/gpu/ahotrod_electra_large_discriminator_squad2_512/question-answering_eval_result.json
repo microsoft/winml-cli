@@ -1,0 +1,39 @@
+{
+  "model_id": "ahotrod/electra_large_discriminator_squad2_512",
+  "model_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_eval_result.json",
+  "metrics": {
+    "exact": 87.0,
+    "f1": 89.96468253968254,
+    "total": 100,
+    "HasAns_exact": 85.41666666666667,
+    "HasAns_f1": 91.59308862433863,
+    "HasAns_total": 48,
+    "NoAns_exact": 88.46153846153847,
+    "NoAns_f1": 88.46153846153847,
+    "NoAns_total": 52,
+    "best_exact": 87.0,
+    "best_exact_thresh": 0.9942656755447388,
+    "best_f1": 89.96468253968254,
+    "best_f1_thresh": 0.9942656755447388,
+    "total_time_in_seconds": 155.21692069992423,
+    "samples_per_second": 0.6442596564154672,
+    "latency_in_seconds": 1.552169206999242
+  }
+}

@@ -6,16 +6,16 @@
   "ep": "cpu",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\microsoft_swin-large-patch4-window7-224\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.79,
-    "total_time_in_seconds": 25.082223300123587,
-    "samples_per_second": 3.9868873984351807,
-    "latency_in_seconds": 0.25082223300123585
+    "accuracy": 0.837,
+    "total_time_in_seconds": 216.78369130000647,
+    "samples_per_second": 4.6128931286445445,
+    "latency_in_seconds": 0.21678369130000646
   }
 }
