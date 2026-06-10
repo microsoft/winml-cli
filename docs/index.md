@@ -27,6 +27,10 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 - **[Commands](commands/overview.md)** — reference for all 12 `winml` subcommands.
 - **[Samples](samples/bert-config-build.md)** — walkthroughs for BERT and CLIP.
 
+## Repository access
+
+To request access to the Windows ML CLI repository, visit [aka.ms/winml-cli](https://aka.ms/winml-cli).
+
 ## License
 
 MIT. See [LICENSE](https://github.com/microsoft/winml-cli/blob/main/LICENSE.txt).
