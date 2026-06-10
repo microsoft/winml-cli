@@ -1,0 +1,25 @@
+{
+  "model_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_w8a8_build_artifacts\\model.onnx",
+  "task": "zero-shot-classification",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "fancyzhx/ag_news",
+    "columns_mapping": {
+      "input_column": "text",
+      "label_column": "label",
+      "candidate_labels": "World,Sports,Business,Sci/Tech",
+      "hypothesis_template": "This text is about {}."
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_w8a8_eval_result.json",
+  "metrics": {
+    "accuracy": 0.22,
+    "f1": 0.18015653603317516
+  }
+}

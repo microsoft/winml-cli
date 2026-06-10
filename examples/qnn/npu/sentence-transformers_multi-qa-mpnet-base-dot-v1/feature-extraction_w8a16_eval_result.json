@@ -1,0 +1,24 @@
+{
+  "model_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\feature-extraction_w8a16_build_artifacts\\model.onnx",
+  "task": "feature-extraction",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    },
+    "streaming": true
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\feature-extraction_w8a16_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 27.3538
+  }
+}
