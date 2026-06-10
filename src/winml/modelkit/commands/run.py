@@ -468,14 +468,7 @@ def _print_input_hint(engine: Any) -> None:
     default=False,
     help="Print model schema (inputs + parameters) and exit",
 )
-@click.option(
-    "--format",
-    "output_format",
-    type=click.Choice(["text", "json"]),
-    default="text",
-    show_default=True,
-    help="Output format",
-)
+@cli_utils.format_option(short_flag=False)
 @cli_utils.output_option("Write output to file instead of stdout")
 @click.option(
     "--port",
@@ -511,7 +504,7 @@ def run(
     ep: EPNameOrAlias | None,
     params: tuple[str, ...],
     show_schema: bool,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     output: Path | None,
     port: int,
     connect_host: str,
@@ -821,7 +814,7 @@ def _models_match(server_model: str, requested: str) -> bool:
 def _print_result(
     result: dict,
     *,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     output_path: Path | None,
 ) -> None:
     if output_format == "json":
