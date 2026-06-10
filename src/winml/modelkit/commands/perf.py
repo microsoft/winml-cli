@@ -1067,21 +1067,22 @@ def _run_simple_loop(
     help='JSON file with shape overrides (e.g., {"height": 480, "width": 480}).',
 )
 @click.option(
-    "--no-quantize",
-    is_flag=True,
-    default=False,
-    help="Skip quantization during model build",
+    "--quantize/--no-quantize",
+    "quantize",
+    default=True,
+    show_default=True,
+    help="Include quantization during model build (use --no-quantize to skip)",
 )
 @click.option(
-    "--rebuild",
-    is_flag=True,
+    "--rebuild/--no-rebuild",
     default=False,
+    show_default=True,
     help="Force rebuild even if cached artifacts exist",
 )
 @click.option(
-    "--ignore-cache",
-    is_flag=True,
+    "--ignore-cache/--no-ignore-cache",
     default=False,
+    show_default=True,
     help="Build from scratch in a temp folder (discard after benchmarking)",
 )
 @cli_utils.skip_build_option()
@@ -1097,9 +1098,9 @@ def _run_simple_loop(
     "not '--module encoder.layer.0.attention' (a path, will not match).",
 )
 @click.option(
-    "--monitor",
-    is_flag=True,
+    "--monitor/--no-monitor",
     default=False,
+    show_default=True,
     help="Show live hardware utilization chart for the benchmarked device (NPU, GPU, or CPU)",
 )
 @click.option(
@@ -1125,7 +1126,7 @@ def perf(
     output: Path | None,
     batch_size: int,
     shape_config_path: Path | None,
-    no_quantize: bool,
+    quantize: bool,
     rebuild: bool,
     ignore_cache: bool,
     skip_build: bool,
@@ -1216,7 +1217,7 @@ def perf(
             iterations=iterations,
             warmup=warmup,
             batch_size=batch_size,
-            no_quantize=no_quantize,
+            no_quantize=not quantize,
             output=output,
             verbose=bool(verbose),
             console=console,
@@ -1262,7 +1263,7 @@ def perf(
         warmup=warmup,
         batch_size=batch_size,
         output_path=output,
-        no_quantize=no_quantize,
+        no_quantize=not quantize,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         skip_build=skip_build,
