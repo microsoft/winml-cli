@@ -177,10 +177,12 @@ def resolve_device(
         ep_full = normalize_ep_name(ep)
         if ep_full not in EP_SUPPORTED_DEVICES:
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
+        # Static policy gate (see issue #860): reject EP/device combos the EP
+        # architecture cannot support, before consulting runtime ORT availability.
         if device != "auto" and device not in EP_SUPPORTED_DEVICES[ep_full]:
             raise ValueError(
                 f"EP '{ep}' does not support device '{device}'. "
-                f"Supported devices for {ep_full}: {', '.join(EP_SUPPORTED_DEVICES[ep_full])}."
+                f"Supported devices: {', '.join(EP_SUPPORTED_DEVICES[ep_full])}."
             )
         device_ep_map = {dev: (ep_full,) for dev, eps in device_ep_map.items() if ep_full in eps}
         if not device_ep_map:
