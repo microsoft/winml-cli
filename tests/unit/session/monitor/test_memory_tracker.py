@@ -163,5 +163,5 @@ class TestMemoryTracker:
         assert profile is not None
         # post_load should be >= baseline (we allocated memory)
         assert profile.post_load.working_set_mb >= profile.baseline.working_set_mb
-
-        del _data
+        # Keep _data alive until assertions complete so memory isn't reclaimed early
+        assert _data is not None
