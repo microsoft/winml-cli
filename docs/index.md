@@ -25,7 +25,7 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 
 - **[How winml-cli Works](concepts/how-it-works.md)** — the pipeline from a PyTorch model to an EP-compiled artifact.
 - **[Commands](commands/overview.md)** — reference for all 12 `winml` subcommands.
-- **[Samples](samples/convnext-primitives.md)** — end-to-end walkthroughs for ConvNeXt, BERT, and CLIP.
+- **[Samples](samples/bert-config-build.md)** — walkthroughs for BERT and CLIP.
 
 ## License
 

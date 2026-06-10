@@ -118,7 +118,6 @@ nav:
           - perf: commands/perf.md
           - eval: commands/eval.md
   - Samples:
-      - ConvNeXt — Primitives Walkthrough: samples/convnext-primitives.md
       - BERT — Config + Build + Perf: samples/bert-config-build.md
       - CLIP — Composite Models: samples/clip-composite.md
   - Tutorials:

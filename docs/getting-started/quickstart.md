@@ -75,7 +75,7 @@ uv run winml perf -m resnet_out/model.onnx --device auto --iterations 50 --monit
 ## What's next
 
 - **[How winml-cli Works](../concepts/how-it-works.md)** — understand what each command does under the hood.
-- **[ConvNeXt primitives sample](../samples/convnext-primitives.md)** — see every pipeline stage in detail with a representative model.
+- **[BERT sample](../samples/bert-config-build.md)** — see the config + build + perf workflow in detail with a representative model.
 
 ## See also
 
@@ -83,4 +83,3 @@ uv run winml perf -m resnet_out/model.onnx --device auto --iterations 50 --monit
 - [`winml inspect`](../commands/inspect.md)
 - [`winml perf`](../commands/perf.md)
 - [`winml sys`](../commands/sys.md)
-

@@ -1,11 +1,10 @@
 # ConvNeXt on NPU
 
 !!! info "Pick the right ConvNeXt page"
-    Three pages use ConvNeXt as their vehicle, each with a different teaching purpose:
+    Two pages use ConvNeXt as their vehicle:
 
     - **This tutorial** — the canonical deep-dive: full pipeline with both QNN and OpenVINO NPU backends, plus the `winml build` one-shot. Start here if you want to ship to NPU.
-    - **[ConvNeXt — Primitives Walkthrough](../samples/convnext-primitives.md)** — a CPU vs GPU vs NPU comparison using the primitive commands. Start here if you want to compare devices on the same model.
-    - **[End-to-End Tour](../getting-started/quickstart.md)** — the short Getting Started introduction. Start here for a 15-minute taste.
+    - **[Quickstart](../getting-started/quickstart.md)** — the short Getting Started introduction. Start here for a 15-minute taste.
 
 This tutorial walks you through the complete journey from a pretrained Hugging Face model — `facebook/convnext-tiny-224` — to a quantized, compiled artifact running on an NPU. By the end you will have benchmarked the model on your device and measured real inference latency. Nothing is skipped, and every command produces a file you can inspect or reuse.
 
@@ -278,7 +277,6 @@ The result should match what you saw in Step 8, confirming that the `winml build
 
 - [Concepts → How winml-cli works](../concepts/how-it-works.md) — the full mental model for the pipeline
 - [Concepts → Compile and EPContext](../concepts/compile-and-epcontext.md) — understanding the compiled artifact format
-- [Samples → ConvNeXt primitives walkthrough](../samples/convnext-primitives.md) — a side-by-side CPU vs. GPU vs. NPU device comparison using the same model
 - [Commands → Overview](../commands/overview.md) — quick reference for every flag on every command
 
 ## See also
