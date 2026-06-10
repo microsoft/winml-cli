@@ -75,119 +75,119 @@ testing. Use `winml catalog` to browse the full list interactively.
 
 ### Image Classification
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `AdamCodd/vit-base-nsfw-detector` | ViT | 83.4 MB |
-| `Falconsai/nsfw_image_detection` | ViT | 82.8 MB |
-| `amunchet/rorshark-vit-base` | ViT | 82.8 MB |
-| `apple/mobilevit-small` | MobileViT | 6.1 MB |
-| `dima806/fairface_age_image_detection` | ViT | 82.8 MB |
-| `google/vit-base-patch16-224` | ViT | 83.6 MB |
-| `microsoft/resnet-18` | ResNet | 11.2 MB |
-| `rizvandwiki/gender-classification` | ViT | 82.8 MB |
+| Model | Architecture |
+|-------|-------------|
+| `AdamCodd/vit-base-nsfw-detector` | ViT |
+| `Falconsai/nsfw_image_detection` | ViT |
+| `amunchet/rorshark-vit-base` | ViT |
+| `apple/mobilevit-small` | MobileViT |
+| `dima806/fairface_age_image_detection` | ViT |
+| `google/vit-base-patch16-224` | ViT |
+| `microsoft/resnet-18` | ResNet |
+| `rizvandwiki/gender-classification` | ViT |
 
 ### Image Feature Extraction
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `facebook/dino-vitb16` | ViT | 83.4 MB |
-| `facebook/dino-vits16` | ViT | 21.6 MB |
-| `facebook/dinov2-base` | DINOv2 | 82.8 MB |
-| `facebook/dinov2-large` | DINOv2 | 291.4 MB |
-| `facebook/dinov2-small` | DINOv2 | 21.4 MB |
-| `google/vit-base-patch16-224-in21k` | ViT | 83.4 MB |
-| `microsoft/rad-dino` | DINOv2 | 84.4 MB |
+| Model | Architecture |
+|-------|-------------|
+| `facebook/dino-vitb16` | ViT |
+| `facebook/dino-vits16` | ViT |
+| `facebook/dinov2-base` | DINOv2 |
+| `facebook/dinov2-large` | DINOv2 |
+| `facebook/dinov2-small` | DINOv2 |
+| `google/vit-base-patch16-224-in21k` | ViT |
+| `microsoft/rad-dino` | DINOv2 |
 
 ### Feature Extraction (Text)
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` | CLIP | 85.4 MB |
-| `openai/clip-vit-base-patch16` | CLIP | 85.5 MB |
-| `openai/clip-vit-base-patch32` | CLIP | 85.5 MB |
-| `sentence-transformers/all-MiniLM-L6-v2` | BERT | 33.2 MB |
-| `sentence-transformers/all-mpnet-base-v2` | MPNet | 133.4 MB |
-| `sentence-transformers/multi-qa-mpnet-base-dot-v1` | MPNet | 133.4 MB |
+| Model | Architecture |
+|-------|-------------|
+| `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` | CLIP |
+| `openai/clip-vit-base-patch16` | CLIP |
+| `openai/clip-vit-base-patch32` | CLIP |
+| `sentence-transformers/all-MiniLM-L6-v2` | BERT |
+| `sentence-transformers/all-mpnet-base-v2` | MPNet |
+| `sentence-transformers/multi-qa-mpnet-base-dot-v1` | MPNet |
 
 ### Sentence Similarity
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `BAAI/bge-large-en-v1.5` | BERT | 351.8 MB |
-| `BAAI/bge-small-en-v1.5` | BERT | 43.9 MB |
-| `sentence-transformers/all-MiniLM-L6-v2` | BERT | 33.4 MB |
-| `sentence-transformers/all-mpnet-base-v2` | MPNet | 134.0 MB |
-| `sentence-transformers/multi-qa-mpnet-base-dot-v1` | MPNet | 134.0 MB |
-| `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | BERT | 204.7 MB |
-| `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | XLM-RoBERTa | 450.3 MB |
+| Model | Architecture |
+|-------|-------------|
+| `BAAI/bge-large-en-v1.5` | BERT |
+| `BAAI/bge-small-en-v1.5` | BERT |
+| `sentence-transformers/all-MiniLM-L6-v2` | BERT |
+| `sentence-transformers/all-mpnet-base-v2` | MPNet |
+| `sentence-transformers/multi-qa-mpnet-base-dot-v1` | MPNet |
+| `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | BERT |
+| `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | XLM-RoBERTa |
 
 ### Fill-Mask
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `FacebookAI/roberta-base` | RoBERTa | 194.7 MB |
-| `FacebookAI/xlm-roberta-base` | XLM-RoBERTa | 634.4 MB |
-| `distilbert/distilbert-base-uncased` | DistilBERT | 109.5 MB |
-| `google-bert/bert-base-multilingual-cased` | BERT | 346.5 MB |
-| `google-bert/bert-base-multilingual-uncased` | BERT | 316.4 MB |
-| `google-bert/bert-base-uncased` | BERT | 150.5 MB |
-| `sentence-transformers/all-mpnet-base-v2` | MPNet | 156.5 MB |
-| `sentence-transformers/multi-qa-mpnet-base-dot-v1` | MPNet | 156.5 MB |
+| Model | Architecture |
+|-------|-------------|
+| `FacebookAI/roberta-base` | RoBERTa |
+| `FacebookAI/xlm-roberta-base` | XLM-RoBERTa |
+| `distilbert/distilbert-base-uncased` | DistilBERT |
+| `google-bert/bert-base-multilingual-cased` | BERT |
+| `google-bert/bert-base-multilingual-uncased` | BERT |
+| `google-bert/bert-base-uncased` | BERT |
+| `sentence-transformers/all-mpnet-base-v2` | MPNet |
+| `sentence-transformers/multi-qa-mpnet-base-dot-v1` | MPNet |
 
 ### Text Classification
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `cardiffnlp/twitter-roberta-base-sentiment-latest` | RoBERTa | 157.7 MB |
-| `cross-encoder/ms-marco-MiniLM-L4-v2` | BERT | 29.9 MB |
-| `cross-encoder/ms-marco-MiniLM-L6-v2` | BERT | 33.4 MB |
-| `distilbert/distilbert-base-uncased-finetuned-sst-2-english` | DistilBERT | 87.0 MB |
+| Model | Architecture |
+|-------|-------------|
+| `cardiffnlp/twitter-roberta-base-sentiment-latest` | RoBERTa |
+| `cross-encoder/ms-marco-MiniLM-L4-v2` | BERT |
+| `cross-encoder/ms-marco-MiniLM-L6-v2` | BERT |
+| `distilbert/distilbert-base-uncased-finetuned-sst-2-english` | DistilBERT |
 
 ### Token Classification
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `Isotonic/distilbert_finetuned_ai4privacy_v2` | DistilBERT | 86.6 MB |
-| `Jean-Baptiste/camembert-ner-with-dates` | CamemBERT | 130.4 MB |
-| `kredor/punctuate-all` | XLM-RoBERTa | 449.7 MB |
-| `w11wo/indonesian-roberta-base-posp-tagger` | RoBERTa | 157.2 MB |
+| Model | Architecture |
+|-------|-------------|
+| `Isotonic/distilbert_finetuned_ai4privacy_v2` | DistilBERT |
+| `Jean-Baptiste/camembert-ner-with-dates` | CamemBERT |
+| `kredor/punctuate-all` | XLM-RoBERTa |
+| `w11wo/indonesian-roberta-base-posp-tagger` | RoBERTa |
 
 ### Question Answering
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `ahotrod/electra_large_discriminator_squad2_512` | Electra | 350.9 MB |
-| `deepset/bert-large-uncased-whole-word-masking-squad2` | BERT | 350.9 MB |
-| `deepset/roberta-base-squad2` | RoBERTa | 157.2 MB |
-| `deepset/tinyroberta-squad2` | RoBERTa | 116.2 MB |
-| `distilbert/distilbert-base-cased-distilled-squad` | DistilBERT | 84.2 MB |
-| `distilbert/distilbert-base-uncased-distilled-squad` | DistilBERT | 86.5 MB |
-| `monologg/koelectra-small-v2-distilled-korquad-384` | Electra | 17.7 MB |
+| Model | Architecture |
+|-------|-------------|
+| `ahotrod/electra_large_discriminator_squad2_512` | Electra |
+| `deepset/bert-large-uncased-whole-word-masking-squad2` | BERT |
+| `deepset/roberta-base-squad2` | RoBERTa |
+| `deepset/tinyroberta-squad2` | RoBERTa |
+| `distilbert/distilbert-base-cased-distilled-squad` | DistilBERT |
+| `distilbert/distilbert-base-uncased-distilled-squad` | DistilBERT |
+| `monologg/koelectra-small-v2-distilled-korquad-384` | Electra |
 
 ### Zero-Shot Classification
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `lxyuan/distilbert-base-multilingual-cased-sentiments-student` | DistilBERT | 217.5 MB |
+| Model | Architecture |
+|-------|-------------|
+| `lxyuan/distilbert-base-multilingual-cased-sentiments-student` | DistilBERT |
 
 ### Zero-Shot Image Classification
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` | CLIP | 170.1 MB |
+| Model | Architecture |
+|-------|-------------|
+| `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` | CLIP |
 
 ### Object Detection
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `hustvl/yolos-small` | YOLOS | 38.1 MB |
-| `valentinafeve/yolos-fashionpedia` | YOLOS | 38.1 MB |
+| Model | Architecture |
+|-------|-------------|
+| `hustvl/yolos-small` | YOLOS |
+| `valentinafeve/yolos-fashionpedia` | YOLOS |
 
 ### Depth Estimation
 
-| Model | Architecture | Size |
-|-------|-------------|------|
-| `Intel/dpt-hybrid-midas` | DPT | 117.9 MB |
+| Model | Architecture |
+|-------|-------------|
+| `Intel/dpt-hybrid-midas` | DPT |
 
 ---
 
