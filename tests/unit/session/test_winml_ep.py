@@ -134,6 +134,51 @@ class TestWinMLEPDevicesFlatten:
             assert id(pair.device) in device_ids
 
 
+class TestWinMLEPDeviceInvariant:
+    """WinMLEPDevice.__post_init__ enforces the identity invariant.
+
+    ``device`` must be the *same object* (``is``) as one of ``ep.devices``,
+    not merely equal. See docs/design/session/3_design_classes.md section 3.6.
+    """
+
+    def test_winml_ep_device_passes_when_device_is_in_ep_devices(self) -> None:
+        """Constructing via ``ep.ep_devices()`` always satisfies the invariant."""
+        entry = _make_entry()
+        d_npu = wrap_ort_device(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
+        d_gpu = wrap_ort_device(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "GPU"))
+        ep = WinMLEP(source=entry, devices=(d_npu, d_gpu))
+        # Should not raise.
+        pairs = ep.ep_devices()
+        assert len(pairs) == 2
+
+    def test_winml_ep_device_passes_when_device_is_direct_member(self) -> None:
+        """Direct construction with an actual ep.devices member succeeds."""
+        entry = _make_entry()
+        device = wrap_ort_device(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
+        ep = WinMLEP(source=entry, devices=(device,))
+        pair = WinMLEPDevice(ep=ep, device=ep.devices[0])
+        assert pair.ep is ep
+        assert pair.device is ep.devices[0]
+
+    def test_winml_ep_device_raises_when_device_not_in_ep_devices(self) -> None:
+        """Foreign device (not the same object as any ep.devices member) is rejected.
+
+        Even when the foreign device is structurally identical to a member, the
+        invariant uses identity (``is``), so this must raise ``ValueError``.
+        """
+        entry = _make_entry()
+        member_device = wrap_ort_device(
+            _make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU")
+        )
+        # Distinct WinMLDevice instance, never inserted into ep.devices.
+        foreign_device = wrap_ort_device(
+            _make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU")
+        )
+        ep = WinMLEP(source=entry, devices=(member_device,))
+        with pytest.raises(ValueError, match="invariant violated"):
+            WinMLEPDevice(ep=ep, device=foreign_device)
+
+
 class TestWinMLEPFrozenness:
     """Frozen dataclass invariants — no field reassignment allowed."""
 

@@ -129,14 +129,22 @@ class WinMLEPDevice:
     """Flat (source, device) pair - project mirror of ort.OrtEpDevice.
 
     Invariant: .device is always one of .ep.devices (same object, not a copy).
-    Constructed only by WinMLEPRegistry.auto_device() (Batch C, not yet wired)
-    and by WinMLEP.ep_devices(); never by direct user code.
+    Constructed only by WinMLEPRegistry.auto_device() and by
+    WinMLEP.ep_devices(); never by direct user code.
 
     See docs/design/session/3_design_classes.md section 3.6.
     """
 
     ep: WinMLEP
     device: WinMLDevice
+
+    def __post_init__(self) -> None:
+        if not any(d is self.device for d in self.ep.devices):
+            raise ValueError(
+                "WinMLEPDevice invariant violated: device must be one of ep.devices "
+                f"(ep={self.ep.source.ep_name!r}, "
+                f"device.device_type={self.device.device_type!r})"
+            )
 
 
 class WinMLEPRegistry:
