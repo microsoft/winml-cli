@@ -5,7 +5,7 @@
 
     - **This tutorial** — the canonical deep-dive: full pipeline with both QNN and OpenVINO NPU backends, plus the `winml build` one-shot. Start here if you want to ship to NPU.
     - **[ConvNeXt — Primitives Walkthrough](../samples/convnext-primitives.md)** — a CPU vs GPU vs NPU comparison using the primitive commands. Start here if you want to compare devices on the same model.
-    - **[End-to-End Tour](../getting-started/end-to-end.md)** — the short Getting Started introduction. Start here for a 15-minute taste.
+    - **[End-to-End Tour](../getting-started/quickstart.md)** — the short Getting Started introduction. Start here for a 15-minute taste.
 
 This tutorial walks you through the complete journey from a pretrained Hugging Face model — `facebook/convnext-tiny-224` — to a quantized, compiled artifact running on an NPU. By the end you will have benchmarked the model on your device and measured real inference latency. Nothing is skipped, and every command produces a file you can inspect or reuse.
 

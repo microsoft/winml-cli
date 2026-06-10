@@ -11,7 +11,7 @@
 | Version control | `git` |
 
 !!! note "No NPU?"
-    You can follow most of these docs without NPU hardware. All winml-cli commands accept `--device auto` and fall back to CPU or DirectML automatically. The end-to-end tutorial documents an explicit CPU fallback path.
+    You can follow most of these docs without NPU hardware. All winml-cli commands accept `--device auto` and fall back to CPU or DirectML automatically. The tutorials document explicit CPU fallback paths.
 
 ## Install
 
@@ -70,5 +70,5 @@ This command enumerates available compute devices and execution providers on you
 ## Next steps
 
 - **[Quickstart](quickstart.md)** — export your first model in 5 minutes.
-- **[End-to-End Tour](end-to-end.md)** — full pipeline targeting whatever hardware you have (NPU / GPU / CPU).
+- **[End-to-End Tour](quickstart.md)** — full pipeline targeting whatever hardware you have (NPU / GPU / CPU).
 - **[How winml-cli Works](../concepts/how-it-works.md)** — the mental model.

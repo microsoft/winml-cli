@@ -3,7 +3,7 @@
 !!! info "Pick the right ConvNeXt page"
     - **This sample** — primitives on CPU, GPU (DirectML), and NPU (QNN) side-by-side. Best when you want to compare devices.
     - **[ConvNeXt on NPU](../tutorials/npu-convnext.md)** — the canonical NPU production tutorial with both QNN and OpenVINO, plus the `winml build` one-shot.
-    - **[End-to-End Tour](../getting-started/end-to-end.md)** — short Getting Started tour.
+    - **[Quickstart](../getting-started/quickstart.md)** — short Getting Started tour.
 
 ConvNeXt Tiny is a compact convolutional image classifier trained on ImageNet-1k. At roughly 28 million parameters it is small enough to export and quantize in minutes on a developer laptop, yet representative enough that the latency and accuracy numbers you observe reflect real-world deployment trade-offs. Its straightforward architecture — no attention mechanisms, no dynamic control flow — makes it an ideal first model for learning the winml-cli pipeline.
 
