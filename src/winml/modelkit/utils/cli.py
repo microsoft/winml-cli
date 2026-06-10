@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 F = TypeVar("F", bound="Callable[..., Any]")
 
 # Allowed values for ``--format`` / ``-f``.
-OutputFormat: TypeAlias = Literal["text", "json"]
+OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
 
 
 # Shared stderr console for security/diagnostic messages emitted from utils.
@@ -128,8 +128,8 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
 
 
 def format_option(
-    choices: list[str] | None = None,
-    default: str = "text",
+    choices: list[OutputFormat] | None = None,
+    default: OutputFormat = "text",
     short_flag: bool = True,
 ) -> Callable[[F], F]:
     """Add ``--format`` option to a Click command.
