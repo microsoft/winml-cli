@@ -264,5 +264,12 @@ def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) ->
 
     ``ep`` overrides the device mapping. Returns
     the canonical EP name (e.g., ``"QNNExecutionProvider"``).
+
+    Device/EP policy compatibility is enforced upstream by ``resolve_device``;
+    this helper trusts its inputs and only normalizes.
     """
-    return normalize_ep_name(ep) if ep else resolve_eps(resolved_device)[0]
+    if ep is not None:
+        normalized = normalize_ep_name(ep)
+        if normalized is not None:
+            return normalized
+    return resolve_eps(resolved_device)[0]
