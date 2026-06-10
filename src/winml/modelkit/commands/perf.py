@@ -14,6 +14,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -33,6 +34,8 @@ from ._live_chart import LiveMonitorDisplay
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
     from ..models.winml.base import WinMLPreTrainedModel
     from ..session.stats import PerfStats
 
@@ -258,6 +261,81 @@ def _resolve_shape(
     return tuple(resolved)
 
 
+def _aggregate_io_config(sub_models: Iterable[Any]) -> dict[str, Any]:
+    """Merge a composite model's sub-model io_configs into one unified view.
+
+    Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
+    session; they orchestrate several sub-models. For benchmarking we present a
+    unified io_config whose inputs are the union of every sub-model's inputs
+    (deduplicated by name, order preserved) -- which is exactly the set of
+    keyword arguments the composite's ``forward()`` consumes. Outputs are
+    likewise unioned for display and result-reporting purposes.
+    """
+    agg: dict[str, Any] = {
+        "input_names": [],
+        "input_shapes": [],
+        "input_types": [],
+        "output_names": [],
+        "output_shapes": [],
+        "output_types": [],
+        "precision": None,
+    }
+    seen_in: set[str] = set()
+    seen_out: set[str] = set()
+    for sub in sub_models:
+        io = sub.io_config
+        for name, shape, dtype in zip(
+            io["input_names"], io["input_shapes"], io["input_types"], strict=True
+        ):
+            if name not in seen_in:
+                seen_in.add(name)
+                agg["input_names"].append(name)
+                agg["input_shapes"].append(shape)
+                agg["input_types"].append(dtype)
+        out_types = io.get("output_types") or [None] * len(io["output_names"])
+        for name, shape, dtype in zip(
+            io["output_names"], io["output_shapes"], out_types, strict=False
+        ):
+            if name not in seen_out:
+                seen_out.add(name)
+                agg["output_names"].append(name)
+                agg["output_shapes"].append(shape)
+                agg["output_types"].append(dtype)
+        if agg["precision"] is None:
+            agg["precision"] = io.get("precision")
+    return agg
+
+
+def _describe_outputs(output: Any) -> tuple[list[str], list[list[int]], list[str | None]]:
+    """Extract ``(names, shapes, dtypes)`` from a model ``forward()`` result.
+
+    Architecture-agnostic: handles HuggingFace ``ModelOutput`` / ``dict``
+    (named fields), plain sequences (positional ``output_N`` names), and a
+    single tensor. ``None`` fields and non-array values are skipped. Used to
+    report a composite model's real task-level outputs (e.g. ``logits``)
+    rather than its sub-models' raw ONNX outputs.
+    """
+    if hasattr(output, "items"):
+        pairs = list(output.items())
+    elif isinstance(output, (list, tuple)):
+        pairs = [(f"output_{i}", value) for i, value in enumerate(output)]
+    else:
+        pairs = [("output_0", output)]
+
+    names: list[str] = []
+    shapes: list[list[int]] = []
+    types: list[str | None] = []
+    for name, value in pairs:
+        shape = getattr(value, "shape", None)
+        if value is None or shape is None:
+            continue
+        names.append(name)
+        shapes.append([int(dim) for dim in shape])
+        dtype = getattr(value, "dtype", None)
+        types.append(str(dtype) if dtype is not None else None)
+    return names, shapes, types
+
+
 # =============================================================================
 # Benchmark Engine
 # =============================================================================
@@ -281,6 +359,77 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
+        self._io_config: dict[str, Any] | None = None
+
+    @property
+    def _is_composite(self) -> bool:
+        """Composite models orchestrate multiple sub-sessions (e.g. CLIP/SigLIP)."""
+        return hasattr(self._model, "sub_models")
+
+    def _resolved_io_config(self) -> dict[str, Any]:
+        """Unified io_config (aggregated across sub-models for composites)."""
+        if self._io_config is None:
+            assert self._model is not None
+            if self._is_composite:
+                self._io_config = _aggregate_io_config(self._model.sub_models.values())
+            else:
+                self._io_config = self._model.io_config
+        return self._io_config
+
+    def _compile_model(self) -> None:
+        """Compile the underlying ORT session(s) so device/EP are resolved."""
+        assert self._model is not None
+        if self._is_composite:
+            for sub in self._model.sub_models.values():
+                sub._session.compile()
+        else:
+            self._model._session.compile()
+
+    def _resolved_device(self) -> str:
+        """Actual device bound after compile (representative sub-model for composites)."""
+        assert self._model is not None
+        if self._is_composite:
+            return next(iter(self._model.sub_models.values())).device
+        return self._model.device
+
+    def _resolved_ep(self) -> EPName | None:
+        """Primary EP bound after compile (representative sub-model for composites)."""
+        assert self._model is not None
+        if self._is_composite:
+            return next(iter(self._model.sub_models.values())).ep_name
+        return self._model.ep_name
+
+    def _resolved_task(self) -> str | None:
+        """Resolved task; composites fall back to the requested task."""
+        assert self._model is not None
+        if self._is_composite:
+            return self.config.task
+        return self._model.task or self.config.task
+
+    def _probe_composite_outputs(self) -> None:
+        """Overwrite a composite's reported outputs with its real forward() result.
+
+        Runs one ``forward()`` pass (an extra warmup) and introspects the
+        returned object so the displayed/reported outputs reflect the
+        composite's task-level tensors (e.g. ``logits_per_image``) instead of
+        the deduplicated union of its sub-models' raw ONNX outputs. Falls back
+        to the aggregated view if the probe fails or yields nothing.
+        """
+        assert self._model is not None
+        assert self._inputs is not None
+        try:
+            output = self._model(**self._inputs)
+        except Exception:  # best-effort display only; never fail the run
+            logger.debug("Composite output probe failed; keeping aggregated view", exc_info=True)
+            return
+
+        names, shapes, types = _describe_outputs(output)
+        if not names:
+            return
+        io = self._resolved_io_config()
+        io["output_names"] = names
+        io["output_shapes"] = shapes
+        io["output_types"] = types
 
     def run(self) -> BenchmarkResult:
         """Execute full benchmark pipeline.
@@ -297,16 +446,21 @@ class PerfBenchmark:
         logger.info("Generating benchmark inputs")
         self._generate_inputs()
 
-        # Compile session early so model.device is resolved for display
-        self._model._session.compile()
+        # Compile session(s) early so model.device is resolved for display
+        self._compile_model()
+
+        # Composite forward() returns task-level outputs (e.g. logits) that
+        # don't map to any single sub-model's ONNX outputs; probe the real ones.
+        if self._is_composite:
+            self._probe_composite_outputs()
 
         # Print model info before benchmark starts
         _print_model_info(
-            self._model.io_config,
-            task=self._model.task or self.config.task,
+            self._resolved_io_config(),
+            task=self._resolved_task(),
             req_device=self.config.device,
-            act_device=self._model.device,
-            ep_name=self._model.ep_name,
+            act_device=self._resolved_device(),
+            ep_name=self._resolved_ep(),
         )
 
         # [3] Run benchmark
@@ -378,11 +532,17 @@ class PerfBenchmark:
     def _generate_inputs(self) -> None:
         """Generate random inputs based on model io_config."""
         assert self._model is not None
-        io_config = self._model.io_config
+        io_config = self._resolved_io_config()
         self._inputs = generate_random_inputs(
             io_config=io_config,
             batch_size=self.config.batch_size,
         )
+
+    def _composite_run_iteration(self, stats: PerfStats) -> None:
+        """Time one full composite forward() pass (orchestrates all sub-sessions)."""
+        assert self._model is not None
+        assert self._inputs is not None
+        stats.record(lambda: self._model(**self._inputs))
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing."""
@@ -394,9 +554,21 @@ class PerfBenchmark:
         """Execute benchmark without live monitoring."""
         assert self._model is not None
         assert self._inputs is not None
-        session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
+        # Composite models have no single ORT session; time the full forward()
+        # pass with an external PerfStats instead of the session's perf() hook.
+        if self._is_composite:
+            from ..session.stats import PerfStats
+
+            stats = PerfStats(warmup=self.config.warmup)
+            for i in range(total_iterations):
+                self._composite_run_iteration(stats)
+                if (i + 1) % max(1, total_iterations // 10) == 0:
+                    logger.debug("Progress: %d/%d", i + 1, total_iterations)
+            return stats
+
+        session = self._model._session
         with session.perf(warmup=self.config.warmup) as stats:
             _run_simple_loop(session, self._inputs, total_iterations)
 
@@ -413,10 +585,10 @@ class PerfBenchmark:
         from ..session.monitor.ep_monitor import NullEPMonitor
         from ..session.monitor.hw_monitor import HWMonitor
         from ..session.monitor.vitisai_monitor import VitisAIMonitor
+        from ..session.stats import PerfStats
 
         assert self._model is not None
         assert self._inputs is not None
-        session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
         if not HWMonitor.is_available():
@@ -430,31 +602,49 @@ class PerfBenchmark:
         # GPU when --device gpu is specified, NPU when --device npu, etc.
         # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
         # metadata so we follow the adapter the session actually binds to.
-        monitor_device = self._model.device or self.config.device or "auto"
+        ep_name = self._resolved_ep()
+        monitor_device = self._resolved_device() or self.config.device or "auto"
         hw_monitor = HWMonitor(
             poll_interval_ms=_HW_POLL_INTERVAL_MS,
             device=monitor_device,
-            ep_name=session.ep_name,
+            ep_name=ep_name,
         )
 
         # EP-specific proof-of-execution monitor.
         # When QNN/OpenVINO monitors become real, add entries here.
         _ep_monitors: dict[EPName, Any] = {"VitisAIExecutionProvider": VitisAIMonitor}
-        monitor_cls = _ep_monitors.get(session.ep_name) if session.ep_name else None
+        monitor_cls = _ep_monitors.get(ep_name) if ep_name else None
         ep_monitor: Any
         if monitor_cls and monitor_cls.is_available():
             ep_monitor = monitor_cls()
         else:
             ep_monitor = NullEPMonitor()
 
+        # Composite models time the full forward() pass via an external
+        # PerfStats; single-session models record pure-ORT time inside the
+        # session's perf() context. The run callable abstracts that difference.
+        if self._is_composite:
+            stats_cm: Any = contextlib.nullcontext(PerfStats(warmup=self.config.warmup))
+        else:
+            stats_cm = self._model._session.perf(warmup=self.config.warmup)
+
         with (
-            session.perf(warmup=self.config.warmup) as stats,
+            stats_cm as stats,
             hw_monitor as hw,
             ep_monitor as ep_mon,
         ):
+            if self._is_composite:
+
+                def run_iteration() -> None:
+                    self._composite_run_iteration(stats)
+            else:
+                session = self._model._session
+
+                def run_iteration() -> None:
+                    session.run(self._inputs)
+
             _run_monitored_loop(
-                session,
-                self._inputs,
+                run_iteration,
                 stats,
                 hw,
                 total_iterations=total_iterations,
@@ -474,7 +664,7 @@ class PerfBenchmark:
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
         assert self._model is not None
-        io_config = self._model.io_config
+        io_config = self._resolved_io_config()
 
         # Calculate throughput
         mean_latency_sec = stats.mean_ms / 1000.0
@@ -512,9 +702,9 @@ class PerfBenchmark:
             samples_per_sec=samples_per_sec,
             batches_per_sec=batches_per_sec,
             # Actual values (resolved after build + compile)
-            actual_device=self._model.device,
-            actual_task=self._model.task or self.config.task or "auto-detected",
-            actual_ep=self._model.ep_name,
+            actual_device=self._resolved_device(),
+            actual_task=self._resolved_task() or "auto-detected",
+            actual_ep=self._resolved_ep(),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
         )
@@ -961,8 +1151,7 @@ def _print_model_info(
 
 
 def _run_monitored_loop(
-    session: Any,
-    inputs: dict[str, Any],
+    run_iteration: Callable[[], Any],
     stats: PerfStats,
     hw: Any,
     *,
@@ -971,7 +1160,12 @@ def _run_monitored_loop(
     model_id: str,
     device: str,
 ) -> None:
-    """Run the benchmark iteration loop with live hardware monitoring."""
+    """Run the benchmark iteration loop with live hardware monitoring.
+
+    ``run_iteration`` runs (and times into ``stats``) a single inference. For
+    single-session models it invokes ``session.run`` inside the session's
+    perf() context; for composite models it records a full ``forward()`` pass.
+    """
     display = LiveMonitorDisplay(
         total_iterations=total_iterations,
         warmup=warmup,
@@ -981,7 +1175,7 @@ def _run_monitored_loop(
     )
     with display:
         for i in range(total_iterations):
-            session.run(inputs)
+            run_iteration()
 
             latest_latency = stats.all_samples_ms[-1] if stats.all_samples_ms else 0
             display.update(
