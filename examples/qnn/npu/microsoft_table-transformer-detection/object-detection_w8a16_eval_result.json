@@ -1,0 +1,41 @@
+{
+  "model_id": "microsoft/table-transformer-detection",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\microsoft_table-transformer-detection\\object-detection_w8a16_build_artifacts\\model.onnx",
+  "task": "object-detection",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_pubtables1m_detection",
+    "columns_mapping": {
+      "annotation_column": "objects",
+      "bbox_key": "bbox",
+      "category_key": "category",
+      "box_format": "xyxy"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_pubtables1m_detection.py"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\microsoft_table-transformer-detection\\object-detection_w8a16_eval_result.json",
+  "metrics": {
+    "map": 0.9030327200889587,
+    "map_50": 0.9949454069137573,
+    "map_75": 0.9835229516029358,
+    "num_predictions": 15000,
+    "num_ground_truths": 1213,
+    "num_images": 1000,
+    "map_small": -1.0,
+    "map_medium": 0.6009901165962219,
+    "map_large": 0.9032958745956421,
+    "mar_1": 0.8541253209114075,
+    "mar_10": 0.9403535723686218,
+    "mar_100": 0.941222071647644,
+    "mar_small": -1.0,
+    "mar_medium": 0.6000000238418579,
+    "mar_large": 0.9414768218994141,
+    "map_per_class": -1.0,
+    "mar_100_per_class": -1.0
+  }
+}
