@@ -329,9 +329,9 @@ def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F
         return value
 
     return click.option(
-        "--trust-remote-code",
-        is_flag=True,
+        "--trust-remote-code/--no-trust-remote-code",
         default=False,
+        show_default=True,
         help=help_text,
         callback=_warn_callback,
     )
@@ -358,9 +358,9 @@ def allow_unsupported_nodes_option(optional_message: str | None = None) -> Calla
         help_text = f"{help_text} {optional_message}"
 
     return click.option(
-        "--allow-unsupported-nodes",
-        is_flag=True,
+        "--allow-unsupported-nodes/--no-allow-unsupported-nodes",
         default=False,
+        show_default=True,
         help=help_text,
     )
 
