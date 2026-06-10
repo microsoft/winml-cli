@@ -521,24 +521,13 @@ def _resolve_composite_model_components(
         return cls._SUB_MODEL_CONFIG if cls is not None else None
 
     # No --task: detect the task as `inspect` does, then expand seq2seq generators.
-    # Best-effort: a model we can't inspect is treated as non-composite; the main
-    # build path (re)loads it and surfaces any real error.
     from transformers import AutoConfig
 
-    try:
-        if hf_model is not None:
-            config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
-        elif model_type is not None:
-            config = AutoConfig.for_model(model_type)
-        else:
-            return None
-    except Exception:
-        logger.debug(
-            "Composite probe: could not load config for model=%r model_type=%r",
-            hf_model,
-            model_type,
-            exc_info=True,
-        )
+    if hf_model is not None:
+        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+    elif model_type is not None:
+        config = AutoConfig.for_model(model_type)
+    else:
         return None
 
     resolved_type = model_type or getattr(config, "model_type", None)
