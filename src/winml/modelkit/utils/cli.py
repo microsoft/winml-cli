@@ -130,8 +130,9 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
 def format_option(
     choices: list[str] | None = None,
     default: str = "text",
+    short_flag: bool = True,
 ) -> Callable[[F], F]:
-    """Add ``-f/--format`` option to a Click command.
+    """Add ``--format`` option to a Click command.
 
     The option is exposed as the ``output_format`` parameter in the
     decorated function (type: :data:`OutputFormat`).
@@ -139,12 +140,14 @@ def format_option(
     Args:
         choices: Allowed format values. Defaults to ``["text", "json"]``.
         default: Default format value. Defaults to ``"text"``.
+        short_flag: Whether to include ``-f`` short alias. Set to False
+            when another option already uses ``-f``.
     """
     if choices is None:
         choices = ["text", "json"]
+    args = ["-f", "--format"] if short_flag else ["--format"]
     return click.option(
-        "-f",
-        "--format",
+        *args,
         "output_format",
         type=click.Choice(choices, case_sensitive=False),
         default=default,
