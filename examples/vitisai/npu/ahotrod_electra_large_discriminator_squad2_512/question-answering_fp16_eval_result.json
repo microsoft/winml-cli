@@ -1,5 +1,6 @@
 {
   "model_id": "ahotrod/electra_large_discriminator_squad2_512",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_fp16_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "npu",
   "ep": "vitisai",
@@ -18,21 +19,21 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_fp16_eval_result.json",
   "metrics": {
-    "exact": 1.0,
-    "f1": 2.0378851540616245,
+    "exact": 89.0,
+    "f1": 91.96468253968254,
     "total": 100,
-    "HasAns_exact": 0.0,
-    "HasAns_f1": 2.162260737628385,
+    "HasAns_exact": 85.41666666666667,
+    "HasAns_f1": 91.59308862433863,
     "HasAns_total": 48,
-    "NoAns_exact": 1.9230769230769231,
-    "NoAns_f1": 1.9230769230769231,
+    "NoAns_exact": 92.3076923076923,
+    "NoAns_f1": 92.3076923076923,
     "NoAns_total": 52,
-    "best_exact": 52.0,
-    "best_exact_thresh": 0.0,
-    "best_f1": 52.0,
-    "best_f1_thresh": 0.0,
-    "total_time_in_seconds": 23.598867500026245,
-    "samples_per_second": 4.237491481313194,
-    "latency_in_seconds": 0.23598867500026244
+    "best_exact": 89.0,
+    "best_exact_thresh": 0.9941321611404419,
+    "best_f1": 91.96468253968254,
+    "best_f1_thresh": 0.9941321611404419,
+    "total_time_in_seconds": 176.80263829999967,
+    "samples_per_second": 0.5656024195200043,
+    "latency_in_seconds": 1.7680263829999967
   }
 }

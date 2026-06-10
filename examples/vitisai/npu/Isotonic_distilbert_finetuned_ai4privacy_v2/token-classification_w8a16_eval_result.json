@@ -6,7 +6,7 @@
   "ep": "vitisai",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "~/.cache/winml/eval_datasets/build_ai4privacy",
@@ -21,338 +21,344 @@
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 8
+      "number": 75
     },
     "ACCOUNTNUMBER": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 5
+      "number": 75
     },
     "AGE": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 9
+      "precision": 0.007142857142857143,
+      "recall": 0.017543859649122806,
+      "f1": 0.010152284263959392,
+      "number": 57
     },
     "AMOUNT": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 7
+      "number": 76
     },
     "BIC": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 2
+      "number": 14
     },
     "BITCOINADDRESS": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 13
+      "number": 67
     },
     "BUILDINGNUMBER": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 5
+      "number": 63
     },
     "CITY": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 7
+      "number": 60
     },
     "COMPANYNAME": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 8
+      "number": 55
     },
     "COUNTY": {
-      "precision": 0.2,
-      "recall": 0.25,
-      "f1": 0.22222222222222224,
-      "number": 4
+      "precision": 0.06666666666666667,
+      "recall": 0.03076923076923077,
+      "f1": 0.042105263157894736,
+      "number": 65
     },
     "CREDITCARDCVV": {
-      "precision": 0.028985507246376812,
-      "recall": 1.0,
-      "f1": 0.05633802816901409,
-      "number": 2
+      "precision": 0.015384615384615385,
+      "recall": 0.5,
+      "f1": 0.029850746268656723,
+      "number": 20
     },
     "CREDITCARDISSUER": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 3
+      "precision": 0.01824212271973466,
+      "recall": 0.3235294117647059,
+      "f1": 0.03453689167974883,
+      "number": 34
     },
     "CREDITCARDNUMBER": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 3
+      "number": 55
     },
     "CURRENCY": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 5
+      "number": 54
     },
     "CURRENCYCODE": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 1
+      "number": 12
     },
     "CURRENCYNAME": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 3
+      "number": 20
     },
     "CURRENCYSYMBOL": {
-      "precision": 0.3333333333333333,
-      "recall": 0.3333333333333333,
+      "precision": 0.44680851063829785,
+      "recall": 0.26582278481012656,
       "f1": 0.3333333333333333,
-      "number": 3
+      "number": 79
     },
     "DATE": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 16
+      "number": 88
     },
     "DOB": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 8
+      "number": 50
     },
     "EMAIL": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 9
+      "number": 83
     },
     "ETHEREUMADDRESS": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 6
+      "number": 41
+    },
+    "EYECOLOR": {
+      "precision": 0.2631578947368421,
+      "recall": 0.4166666666666667,
+      "f1": 0.3225806451612903,
+      "number": 12
     },
     "FIRSTNAME": {
-      "precision": 0.1111111111111111,
-      "recall": 0.0625,
-      "f1": 0.08,
-      "number": 32
+      "precision": 0.2857142857142857,
+      "recall": 0.06688963210702341,
+      "f1": 0.1084010840108401,
+      "number": 299
     },
     "GENDER": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 4
+      "precision": 0.08695652173913043,
+      "recall": 0.03389830508474576,
+      "f1": 0.04878048780487805,
+      "number": 59
     },
     "HEIGHT": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 1
+      "number": 17
     },
     "IBAN": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 1
+      "number": 37
     },
     "IP": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 7
+      "number": 57
     },
     "IPV4": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 7
+      "number": 59
     },
     "IPV6": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 3
+      "number": 63
     },
     "JOBAREA": {
-      "precision": 0.11538461538461539,
-      "recall": 0.42857142857142855,
-      "f1": 0.18181818181818182,
-      "number": 7
+      "precision": 0.0547945205479452,
+      "recall": 0.10666666666666667,
+      "f1": 0.07239819004524886,
+      "number": 75
     },
     "JOBTITLE": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 9
+      "number": 65
     },
     "JOBTYPE": {
-      "precision": 0.14285714285714285,
-      "recall": 1.0,
-      "f1": 0.25,
-      "number": 2
+      "precision": 0.15337423312883436,
+      "recall": 0.38461538461538464,
+      "f1": 0.21929824561403513,
+      "number": 65
     },
     "LASTNAME": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 9
+      "precision": 0.0625,
+      "recall": 0.011494252873563218,
+      "f1": 0.019417475728155338,
+      "number": 87
     },
     "LITECOINADDRESS": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 2
+      "number": 24
     },
     "MAC": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 0
+      "number": 21
     },
     "MASKEDNUMBER": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 6
+      "number": 45
     },
     "MIDDLENAME": {
-      "precision": 0.07407407407407407,
-      "recall": 0.6666666666666666,
-      "f1": 0.13333333333333333,
-      "number": 6
+      "precision": 0.10135135135135136,
+      "recall": 0.6716417910447762,
+      "f1": 0.17612524461839532,
+      "number": 67
     },
     "NEARBYGPSCOORDINATE": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 2
+      "number": 40
     },
     "ORDINALDIRECTION": {
-      "precision": 0.25,
+      "precision": 0.4696969696969697,
       "recall": 1.0,
-      "f1": 0.4,
-      "number": 1
+      "f1": 0.6391752577319588,
+      "number": 31
     },
     "PASSWORD": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 10
+      "number": 60
     },
     "PHONEIMEI": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 3
+      "number": 50
     },
     "PHONENUMBER": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 5
+      "number": 51
     },
     "PIN": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 4
+      "number": 17
     },
     "PREFIX": {
-      "precision": 0.2857142857142857,
-      "recall": 0.4,
-      "f1": 0.3333333333333333,
-      "number": 5
+      "precision": 0.2077922077922078,
+      "recall": 0.2857142857142857,
+      "f1": 0.2406015037593985,
+      "number": 56
     },
     "SECONDARYADDRESS": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 3
+      "number": 56
     },
     "SEX": {
-      "precision": 0.625,
+      "precision": 0.5617977528089888,
       "recall": 1.0,
-      "f1": 0.7692307692307693,
-      "number": 5
+      "f1": 0.7194244604316548,
+      "number": 50
     },
     "SSN": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 5
+      "number": 49
     },
     "STATE": {
-      "precision": 0.03636363636363636,
-      "recall": 0.2222222222222222,
-      "f1": 0.0625,
-      "number": 9
+      "precision": 0.0633245382585752,
+      "recall": 0.34285714285714286,
+      "f1": 0.10690423162583519,
+      "number": 70
     },
     "STREET": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 4
+      "number": 60
     },
     "TIME": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 7
+      "number": 59
     },
     "URL": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 6
+      "number": 53
     },
     "USERAGENT": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 5
+      "number": 53
     },
     "USERNAME": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 8
+      "number": 59
     },
     "VEHICLEVIN": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 1
+      "number": 16
     },
     "VEHICLEVRM": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 1
+      "number": 21
     },
     "ZIPCODE": {
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0,
-      "number": 6
+      "number": 53
     },
-    "overall_precision": 0.04553734061930783,
-    "overall_recall": 0.07987220447284345,
-    "overall_f1": 0.058004640371229696,
-    "overall_accuracy": 0.5519617224880383,
-    "total_time_in_seconds": 8.505285800027195,
-    "samples_per_second": 11.75739444283933,
-    "latency_in_seconds": 0.08505285800027194
+    "overall_precision": 0.05605935696619951,
+    "overall_recall": 0.0877702484672475,
+    "overall_f1": 0.06841906678405232,
+    "overall_accuracy": 0.5497817293443871,
+    "total_time_in_seconds": 65.07617349999782,
+    "samples_per_second": 15.366607257570752,
+    "latency_in_seconds": 0.06507617349999782
   }
 }

@@ -6,7 +6,7 @@
   "ep": "cpu",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -18,6 +18,6 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\Intel_bert-base-uncased-mrpc\\feature-extraction_eval_result.json",
   "metrics": {
-    "cosine_spearman": 42.985
+    "cosine_spearman": 40.6543
   }
 }

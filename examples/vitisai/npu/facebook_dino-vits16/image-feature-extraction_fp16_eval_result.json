@@ -6,14 +6,14 @@
   "ep": "vitisai",
   "dataset": {
     "split": "test",
-    "samples": 1000,
+    "samples": 100,
     "shuffle": true,
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\facebook_dino-vits16\\image-feature-extraction_fp16_eval_result.json",
   "metrics": {
-    "knn_top1_accuracy": 79.6,
-    "knn_top5_accuracy": 94.6
+    "knn_top1_accuracy": 34.0,
+    "knn_top5_accuracy": 48.0
   }
 }

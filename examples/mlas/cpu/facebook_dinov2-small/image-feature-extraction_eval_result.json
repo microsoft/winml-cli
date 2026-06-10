@@ -1,7 +1,9 @@
 {
   "model_id": "facebook/dinov2-small",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\facebook_dinov2-small\\image-feature-extraction_build_artifacts\\model.onnx",
   "task": "image-feature-extraction",
   "device": "cpu",
+  "ep": "cpu",
   "dataset": {
     "split": "test",
     "samples": 1000,

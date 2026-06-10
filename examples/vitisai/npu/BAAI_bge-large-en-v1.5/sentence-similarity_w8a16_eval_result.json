@@ -1,11 +1,12 @@
 {
   "model_id": "BAAI/bge-large-en-v1.5",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\BAAI_bge-large-en-v1.5\\sentence-similarity_w8a16_build_artifacts\\model.onnx",
   "task": "sentence-similarity",
   "device": "npu",
   "ep": "vitisai",
   "dataset": {
     "split": "test",
-    "samples": 10,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -15,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\vitisai\\npu\\BAAI_bge-large-en-v1.5\\sentence-similarity_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\BAAI_bge-large-en-v1.5\\sentence-similarity_w8a16_eval_result.json",
   "metrics": {
-    "cosine_spearman": -23.7809
+    "cosine_spearman": 5.0224
   }
 }

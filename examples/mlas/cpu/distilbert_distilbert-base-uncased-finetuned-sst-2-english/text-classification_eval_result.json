@@ -6,7 +6,7 @@
   "ep": "cpu",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "nyu-mll/glue",
@@ -17,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.91,
-    "total_time_in_seconds": 12.882350400090218,
-    "samples_per_second": 7.762558608815646,
-    "latency_in_seconds": 0.12882350400090217
+    "accuracy": 0.9105504587155964,
+    "total_time_in_seconds": 104.26676950000547,
+    "samples_per_second": 8.363163107301931,
+    "latency_in_seconds": 0.11957198337156591
   }
 }

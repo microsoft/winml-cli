@@ -1,0 +1,21 @@
+{
+  "model_id": "facebook/convnext-tiny-224",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\facebook_convnext-tiny-224\\image-classification_w8a8_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\facebook_convnext-tiny-224\\image-classification_w8a8_eval_result.json",
+  "metrics": {
+    "accuracy": 0.003,
+    "total_time_in_seconds": 50.27632910000102,
+    "samples_per_second": 19.890075864746848,
+    "latency_in_seconds": 0.05027632910000102
+  }
+}

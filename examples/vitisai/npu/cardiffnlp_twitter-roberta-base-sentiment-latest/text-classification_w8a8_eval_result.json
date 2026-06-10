@@ -1,11 +1,12 @@
 {
   "model_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_w8a8_build_artifacts\\model.onnx",
   "task": "text-classification",
   "device": "npu",
   "ep": "vitisai",
   "dataset": {
     "split": "validation",
-    "samples": 10,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "tweet_eval",
@@ -16,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_w8a8_eval_result.json",
   "metrics": {
-    "accuracy": 0.7,
-    "total_time_in_seconds": 2.369854999999916,
-    "samples_per_second": 4.219667448008572,
-    "latency_in_seconds": 0.2369854999999916
+    "accuracy": 0.42,
+    "total_time_in_seconds": 121.7947983999984,
+    "samples_per_second": 8.210531263542148,
+    "latency_in_seconds": 0.1217947983999984
   }
 }

@@ -1,5 +1,6 @@
 {
   "model_id": "distilbert/distilbert-base-uncased-distilled-squad",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\distilbert_distilbert-base-uncased-distilled-squad\\question-answering_fp16_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "npu",
   "ep": "vitisai",
@@ -18,10 +19,10 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\distilbert_distilbert-base-uncased-distilled-squad\\question-answering_fp16_eval_result.json",
   "metrics": {
-    "exact_match": 2.0,
-    "f1": 6.0898268398268405,
-    "total_time_in_seconds": 6.841733100009151,
-    "samples_per_second": 14.61617963434824,
-    "latency_in_seconds": 0.06841733100009151
+    "exact_match": 81.0,
+    "f1": 85.57126984126984,
+    "total_time_in_seconds": 138.2244795000006,
+    "samples_per_second": 0.7234608541246095,
+    "latency_in_seconds": 1.3822447950000059
   }
 }

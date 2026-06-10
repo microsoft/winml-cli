@@ -1,7 +1,9 @@
 {
   "model_id": "facebook/dinov2-base",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\facebook_dinov2-base\\image-feature-extraction_build_artifacts\\model.onnx",
   "task": "image-feature-extraction",
   "device": "gpu",
+  "ep": "nv_tensorrt_rtx",
   "dataset": {
     "split": "test",
     "samples": 1000,

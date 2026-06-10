@@ -1,5 +1,6 @@
 {
   "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_fp16_build_artifacts\\model.onnx",
   "task": "sentence-similarity",
   "device": "npu",
   "ep": "vitisai",
@@ -15,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\vitisai\\npu\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_fp16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 21.7974
+    "cosine_spearman": 81.2216
   }
 }

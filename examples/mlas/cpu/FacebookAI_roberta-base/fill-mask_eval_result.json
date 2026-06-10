@@ -1,5 +1,6 @@
 {
   "model_id": "FacebookAI/roberta-base",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\FacebookAI_roberta-base\\fill-mask_build_artifacts\\model.onnx",
   "task": "fill-mask",
   "device": "cpu",
   "ep": "cpu",

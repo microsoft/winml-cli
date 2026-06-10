@@ -1,7 +1,12 @@
 {
   "model_id": "openai/clip-vit-base-patch32",
+  "model_path": {
+    "image-encoder": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\openai_clip-vit-base-patch32\\zero-shot-image-classification_build_artifacts\\image-encoder\\model.onnx",
+    "text-encoder": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\openai_clip-vit-base-patch32\\zero-shot-image-classification_build_artifacts\\text-encoder\\model.onnx"
+  },
   "task": "zero-shot-image-classification",
   "device": "gpu",
+  "ep": "nv_tensorrt_rtx",
   "dataset": {
     "split": "test",
     "samples": 1000,

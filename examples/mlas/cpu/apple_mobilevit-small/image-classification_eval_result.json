@@ -6,16 +6,16 @@
   "ep": "cpu",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\apple_mobilevit-small\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.75,
-    "total_time_in_seconds": 5.097526800120249,
-    "samples_per_second": 19.61735640068455,
-    "latency_in_seconds": 0.050975268001202494
+    "accuracy": 0.776,
+    "total_time_in_seconds": 47.611724200000026,
+    "samples_per_second": 21.00323012456666,
+    "latency_in_seconds": 0.047611724200000025
   }
 }

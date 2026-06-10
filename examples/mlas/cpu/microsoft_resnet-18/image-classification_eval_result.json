@@ -14,8 +14,8 @@
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\microsoft_resnet-18\\image-classification_eval_result.json",
   "metrics": {
     "accuracy": 0.66,
-    "total_time_in_seconds": 2.686998500023037,
-    "samples_per_second": 37.216247050060744,
-    "latency_in_seconds": 0.02686998500023037
+    "total_time_in_seconds": 2.590578599993023,
+    "samples_per_second": 38.60141514342368,
+    "latency_in_seconds": 0.025905785999930233
   }
 }

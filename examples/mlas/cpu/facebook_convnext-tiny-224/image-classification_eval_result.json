@@ -6,16 +6,16 @@
   "ep": "cpu",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\facebook_convnext-tiny-224\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.77,
-    "total_time_in_seconds": 5.3431267000269145,
-    "samples_per_second": 18.71563330128336,
-    "latency_in_seconds": 0.05343126700026915
+    "accuracy": 0.812,
+    "total_time_in_seconds": 46.81220100000064,
+    "samples_per_second": 21.361952197034835,
+    "latency_in_seconds": 0.04681220100000064
   }
 }

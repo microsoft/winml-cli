@@ -345,8 +345,8 @@
     "overall_recall": 0.8338658146964856,
     "overall_f1": 0.7993874425727411,
     "overall_accuracy": 0.9406698564593301,
-    "total_time_in_seconds": 4.083927200001199,
-    "samples_per_second": 24.486234720337485,
-    "latency_in_seconds": 0.040839272000011986
+    "total_time_in_seconds": 3.4284982999961358,
+    "samples_per_second": 29.167288780663156,
+    "latency_in_seconds": 0.03428498299996136
   }
 }

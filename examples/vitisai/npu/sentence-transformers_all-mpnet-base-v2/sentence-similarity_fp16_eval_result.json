@@ -1,5 +1,6 @@
 {
   "model_id": "sentence-transformers/all-mpnet-base-v2",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\sentence-transformers_all-mpnet-base-v2\\sentence-similarity_fp16_build_artifacts\\model.onnx",
   "task": "sentence-similarity",
   "device": "npu",
   "ep": "vitisai",
@@ -17,6 +18,6 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\sentence-transformers_all-mpnet-base-v2\\sentence-similarity_fp16_eval_result.json",
   "metrics": {
-    "cosine_spearman": -5.7279
+    "cosine_spearman": 85.2454
   }
 }

@@ -1,0 +1,21 @@
+{
+  "model_id": "ProsusAI/finbert",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\ProsusAI_finbert\\text-classification_fp16_build_artifacts\\model.onnx",
+  "task": "text-classification",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "val",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "privet1mir/finbert_dataset"
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\ProsusAI_finbert\\text-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.71,
+    "total_time_in_seconds": 142.9479937000142,
+    "samples_per_second": 0.6995551137979356,
+    "latency_in_seconds": 1.4294799370001419
+  }
+}
