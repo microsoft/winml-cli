@@ -236,6 +236,12 @@ def clean_caches() -> None:
             shutil.rmtree(cache_dir, ignore_errors=True)
 
 
+def remove_build_artifacts(build_root: Path) -> None:
+    """Remove a group's *_build_artifacts directory to free disk space."""
+    if build_root.exists():
+        shutil.rmtree(build_root, ignore_errors=True)
+
+
 def _build_error_path(config_path: Path, stem: str) -> Path:
     return config_path.parent / f"{stem}_build_result.error.txt"
 
@@ -474,7 +480,11 @@ def main() -> None:
         "--clean-cache",
         action="store_true",
         default=False,
-        help="Clean ~/.cache/winml and ~/.cache/huggingface between different models (default: disabled)",
+        help=(
+            "Clean ~/.cache/winml and ~/.cache/huggingface between different models, and "
+            "remove each group's *_build_artifacts directory after its build+eval finishes "
+            "(default: disabled)"
+        ),
     )
     parser.add_argument(
         "--rebuild",
@@ -489,7 +499,11 @@ def main() -> None:
     parser.add_argument(
         "--rerun",
         action="store_true",
-        help="Bypass skip-on-existing-result so passing configs are re-evaluated and overwritten.",
+        help=(
+            "Delete existing target eval results (*_eval_result.json/.error.txt/.timeout) "
+            "for the selected configs, then re-run them. Scope is limited by --ep/--device/"
+            "--precision/--models, so only the targeted results are removed."
+        ),
     )
     parser.add_argument("--models", type=str, default=None, help="Comma-separated model slugs")
     parser.add_argument(
@@ -551,7 +565,15 @@ def main() -> None:
             if eval_tmo.exists():
                 eval_tmo.unlink()
 
-        if not args.rerun:
+        if args.rerun:
+            # Delete the targeted results up front so a fresh run fully replaces
+            # them (e.g. a previous PASS json is not left behind when the rerun
+            # now FAILs). Scope is already limited to the selected
+            # ep/device/precision/models via grouped_configs.
+            for stale in (eval_output, eval_err, eval_tmo):
+                if stale.exists():
+                    stale.unlink()
+        else:
             if eval_output.exists():
                 results["SKIP"] += 1
                 continue
@@ -569,73 +591,79 @@ def main() -> None:
         built_models: list[tuple[str | None, Path]] = []
         build_failed = None
 
-        for build_path, role in build_entries:
-            build_dir = group_build_root if role is None else group_build_root / role
-            label = role or build_path.name
-            print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} build {label} ...", end=" ", flush=True)
-            build_status = run_build(
-                hf_id,
-                build_path,
-                build_dir,
-                ep_for_winml,
-                args.timeout,
-                rebuild=(args.rebuild or (args.retry_failed and had_failed_marker)),
-            )
-            print(build_status)
-            if build_status != "PASS":
-                build_failed = build_status
-                break
-            built_models.append((role, build_dir))
-
-        if build_failed is not None:
-            results[build_failed] += 1
-            continue
-
-        if any(role for role, _build_dir in built_models):
-            model_args: list[str] = []
-            missing_role = None
-            for role, build_dir in built_models:
-                onnx_path = _find_single_onnx(build_dir)
-                if role is None:
-                    continue
-                if onnx_path is None:
-                    missing_role = role
+        try:
+            for build_path, role in build_entries:
+                build_dir = group_build_root if role is None else group_build_root / role
+                label = role or build_path.name
+                print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} build {label} ...", end=" ", flush=True)
+                build_status = run_build(
+                    hf_id,
+                    build_path,
+                    build_dir,
+                    ep_for_winml,
+                    args.timeout,
+                    rebuild=(args.rebuild or (args.retry_failed and had_failed_marker)),
+                )
+                print(build_status)
+                if build_status != "PASS":
+                    build_failed = build_status
                     break
-                model_args.extend(["-m", f"{role}={onnx_path}"])
-            if missing_role is not None:
+                built_models.append((role, build_dir))
+
+            if build_failed is not None:
+                results[build_failed] += 1
+                continue
+
+            if any(role for role, _build_dir in built_models):
+                model_args: list[str] = []
+                missing_role = None
+                for role, build_dir in built_models:
+                    onnx_path = _find_single_onnx(build_dir)
+                    if role is None:
+                        continue
+                    if onnx_path is None:
+                        missing_role = role
+                        break
+                    model_args.extend(["-m", f"{role}={onnx_path}"])
+                if missing_role is not None:
+                    eval_err.write_text(
+                        f"Could not resolve built ONNX artifact for role={missing_role!r} in {group_build_root}",
+                        encoding="utf-8",
+                    )
+                    results["FAIL"] += 1
+                    print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} eval ... FAIL")
+                    continue
+            else:
+                build_dir = built_models[0][1]
+                model_args = resolve_built_model_args(build_dir, task)
+            if not model_args:
                 eval_err.write_text(
-                    f"Could not resolve built ONNX artifact for role={missing_role!r} in {group_build_root}",
+                    f"Could not resolve built ONNX artifacts for task={task!r} in {group_build_root}",
                     encoding="utf-8",
                 )
                 results["FAIL"] += 1
                 print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} eval ... FAIL")
                 continue
-        else:
-            build_dir = built_models[0][1]
-            model_args = resolve_built_model_args(build_dir, task)
-        if not model_args:
-            eval_err.write_text(
-                f"Could not resolve built ONNX artifacts for task={task!r} in {group_build_root}",
-                encoding="utf-8",
-            )
-            results["FAIL"] += 1
-            print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} eval ... FAIL")
-            continue
 
-        print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} eval ...", end=" ", flush=True)
-        status = run_eval(
-            model_args,
-            hf_id,
-            meta_config,
-            eval_output,
-            ep_for_winml,
-            args.device,
-            args.timeout,
-            task,
-            trust,
-        )
-        results[status] += 1
-        print(status)
+            print(f"[{i}/{len(grouped_configs)}] {hf_id} / {group_stem} eval ...", end=" ", flush=True)
+            status = run_eval(
+                model_args,
+                hf_id,
+                meta_config,
+                eval_output,
+                ep_for_winml,
+                args.device,
+                args.timeout,
+                task,
+                trust,
+            )
+            results[status] += 1
+            print(status)
+        finally:
+            # Remove this group's build artifacts when cache cleaning is enabled,
+            # covering every exit path (build fail, eval skip/fail, success).
+            if args.clean_cache:
+                remove_build_artifacts(group_build_root)
 
     print(f"\nResults: {results}")
 

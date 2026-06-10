@@ -1,6 +1,6 @@
 {
   "model_id": "kredor/punctuate-all",
-  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\kredor_punctuate-all\\token-classification_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\kredor_punctuate-all\\token-classification_w8a16_build_artifacts\\model.onnx",
   "task": "token-classification",
   "device": "npu",
   "ep": "qnn",
@@ -14,7 +14,7 @@
       "label_column": "ner_tags"
     }
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\kredor_punctuate-all\\token-classification_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\kredor_punctuate-all\\token-classification_w8a16_eval_result.json",
   "metrics": {
     "LOC": {
       "precision": 0.0,
@@ -44,8 +44,8 @@
     "overall_recall": 0.0,
     "overall_f1": 0.0,
     "overall_accuracy": 0.0,
-    "total_time_in_seconds": 6.647006099999999,
-    "samples_per_second": 15.044367117400421,
-    "latency_in_seconds": 0.06647006099999998
+    "total_time_in_seconds": 3.3924523000023328,
+    "samples_per_second": 29.47720149224537,
+    "latency_in_seconds": 0.03392452300002333
   }
 }

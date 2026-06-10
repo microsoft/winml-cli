@@ -1,5 +1,6 @@
 {
   "model_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2\\sentence-similarity_fp16_build_artifacts\\model.onnx",
   "task": "sentence-similarity",
   "device": "npu",
   "ep": "qnn",
@@ -15,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2\\sentence-similarity_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2\\sentence-similarity_fp16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 84.1603
+    "cosine_spearman": 84.4583
   }
 }

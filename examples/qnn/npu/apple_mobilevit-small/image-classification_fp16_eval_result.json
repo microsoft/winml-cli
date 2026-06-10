@@ -1,6 +1,6 @@
 {
   "model_id": "apple/mobilevit-small",
-  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\apple_mobilevit-small\\image-classification_fp16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\apple_mobilevit-small\\image-classification_fp16_build_artifacts\\model.onnx",
   "task": "image-classification",
   "device": "npu",
   "ep": "qnn",
@@ -11,11 +11,11 @@
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\apple_mobilevit-small\\image-classification_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\apple_mobilevit-small\\image-classification_fp16_eval_result.json",
   "metrics": {
     "accuracy": 0.75,
-    "total_time_in_seconds": 12.3066250999982,
-    "samples_per_second": 8.125704584924312,
-    "latency_in_seconds": 0.123066250999982
+    "total_time_in_seconds": 5.29145709995646,
+    "samples_per_second": 18.898386231048313,
+    "latency_in_seconds": 0.0529145709995646
   }
 }

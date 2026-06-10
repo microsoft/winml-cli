@@ -1,6 +1,6 @@
 {
   "model_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
-  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\Isotonic_distilbert_finetuned_ai4privacy_v2\\token-classification_fp16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\Isotonic_distilbert_finetuned_ai4privacy_v2\\token-classification_fp16_build_artifacts\\model.onnx",
   "task": "token-classification",
   "device": "npu",
   "ep": "qnn",
@@ -15,7 +15,7 @@
     },
     "build_script": "scripts/e2e_eval/datasets/build_ai4privacy.py"
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\Isotonic_distilbert_finetuned_ai4privacy_v2\\token-classification_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\Isotonic_distilbert_finetuned_ai4privacy_v2\\token-classification_fp16_eval_result.json",
   "metrics": {
     "ACCOUNTNAME": {
       "precision": 0.75,
@@ -345,8 +345,8 @@
     "overall_recall": 0.8338658146964856,
     "overall_f1": 0.7993874425727411,
     "overall_accuracy": 0.9408612440191387,
-    "total_time_in_seconds": 4.024173300000257,
-    "samples_per_second": 24.849824434746292,
-    "latency_in_seconds": 0.04024173300000257
+    "total_time_in_seconds": 3.0833646000828594,
+    "samples_per_second": 32.43210355249999,
+    "latency_in_seconds": 0.03083364600082859
   }
 }

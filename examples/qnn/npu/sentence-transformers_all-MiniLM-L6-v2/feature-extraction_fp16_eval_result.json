@@ -1,5 +1,6 @@
 {
   "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_all-MiniLM-L6-v2\\feature-extraction_fp16_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "npu",
   "ep": "qnn",
@@ -15,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_all-MiniLM-L6-v2\\feature-extraction_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_all-MiniLM-L6-v2\\feature-extraction_fp16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 81.4319
+    "cosine_spearman": 81.3069
   }
 }

@@ -30,11 +30,13 @@ from pathlib import Path
 # Reuse parsing/grouping helpers from the test runner.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_example_tests import (
+    KNOWN_PRECISIONS,
     REPO_ROOT,
     build_grouped_configs,
     has_eval_section,
     infer_group_task,
     infer_hf_id,
+    split_task_precision,
 )
 
 
@@ -48,7 +50,8 @@ from utils.accuracy import (  # type: ignore[import-not-found]
 DEVICE_NAMES = {"cpu", "gpu", "npu"}
 
 # Higher rank = better verdict; used to pick the BEST across precisions.
-_VERDICT_RANK = {"PASS": 4, "REGRESSION": 3, "N/A": 2, "FAIL": 1, None: 0}
+# Order: PASS > REGRESSION > FAIL > N/A > no data.
+_VERDICT_RANK = {"PASS": 4, "REGRESSION": 3, "FAIL": 2, "N/A": 1, None: 0}
 _VERDICT_CHAR = {"PASS": "P", "REGRESSION": "R", "N/A": "N", "FAIL": "F", None: "-"}
 _ANSI = {"P": "\x1b[32m", "R": "\x1b[33m", "F": "\x1b[31m", "N": "\x1b[36m"}
 _RESET = "\x1b[0m"
@@ -102,18 +105,31 @@ def _grade_group(
     task: str,
     reg_map: dict[tuple[str, str], dict],
     cache: dict,
-) -> str:
-    """Return verdict ('PASS' | 'REGRESSION' | 'FAIL' | 'N/A').
+) -> str | None:
+    """Return verdict ('PASS' | 'REGRESSION' | 'FAIL' | 'N/A' | None).
 
-    FAIL       => the evaluation itself failed (no eval_result.json produced).
-    REGRESSION => eval_result.json exists but metric is missing/None, or fails
-                  the threshold vs baseline.
     PASS       => eval_result.json exists, metric present, passes threshold.
+    REGRESSION => eval_result.json exists, but metric missing/None OR fails
+                  the threshold vs baseline.
     N/A        => eval_result.json exists but no baseline is available.
+    FAIL       => no eval_result.json, but a build/eval error or timeout marker
+                  exists on disk (the attempt failed).
+    None       => no result and no error marker -> never evaluated (no data).
     """
     result_json = model_dir / f"{group_stem}_eval_result.json"
     if not result_json.exists():
-        return "FAIL"
+        # Distinguish an attempted-but-failed run (error/timeout marker present
+        # -> FAIL) from a pair that was simply never evaluated (no markers ->
+        # no data).
+        failure_markers = (
+            model_dir / f"{group_stem}_eval_result.error.txt",
+            model_dir / f"{group_stem}_eval_result.timeout",
+            model_dir / f"{group_stem}_build_result.error.txt",
+            model_dir / f"{group_stem}_build_result.timeout",
+        )
+        if any(marker.exists() for marker in failure_markers):
+            return "FAIL"
+        return None
 
     try:
         result = json.loads(result_json.read_text(encoding="utf-8"))
@@ -174,6 +190,7 @@ def print_summary_table(
     models_filter: str | None = None,
     eps_filter: str | None = None,
     devices_filter: str | None = None,
+    precision_filter: str | None = None,
 ) -> None:
     reg_map = _load_registry_map()
     cache = _load_baseline_cache()
@@ -202,16 +219,58 @@ def print_summary_table(
             model_dirs = sorted(d for d in device_dir.iterdir() if d.is_dir())
             if allowed:
                 model_dirs = [d for d in model_dirs if d.name in allowed]
-            for model_dir, group_stem, group_paths in build_grouped_configs(model_dirs):
-                if not any(has_eval_section(p) for p in group_paths):
-                    continue
-                hf_id = next((infer_hf_id(p) for p in group_paths if infer_hf_id(p)), None)
-                task = infer_group_task(group_stem, group_paths)
-                if not (hf_id and task):
-                    continue
-                verdict = _grade_group(model_dir, group_stem, hf_id, task, reg_map, cache)
-                row = matrix.setdefault((hf_id, task), {})
-                row[col] = _best_verdict(row.get(col), verdict)
+            for model_dir in model_dirs:
+                # Gather every group (all precisions, including ones without an
+                # eval section) so row membership reflects the full eval set
+                # while per-precision grading can still report N/A.
+                prec_map: dict[str, dict[str | None, tuple[str, list[Path]]]] = {}
+                for _md, group_stem, group_paths in build_grouped_configs([model_dir]):
+                    task_name, group_precision = split_task_precision(group_stem)
+                    prec_map.setdefault(task_name, {})[group_precision] = (
+                        group_stem,
+                        group_paths,
+                    )
+
+                for task_name, groups_by_prec in prec_map.items():
+                    eval_groups = {
+                        prec: (stem, paths)
+                        for prec, (stem, paths) in groups_by_prec.items()
+                        if any(has_eval_section(p) for p in paths)
+                    }
+                    if not eval_groups:
+                        # This (model, task) is not part of the eval set.
+                        continue
+                    if precision_filter is not None and precision_filter not in eval_groups:
+                        # When filtering by precision, only pairs that have an
+                        # eval-section config for that precision are rows.
+                        continue
+
+                    hf_id = task = None
+                    for stem, paths in eval_groups.values():
+                        hf_id = next((infer_hf_id(p) for p in paths if infer_hf_id(p)), None)
+                        task = infer_group_task(stem, paths)
+                        if hf_id and task:
+                            break
+                    if not (hf_id and task):
+                        continue
+
+                    row = matrix.setdefault((hf_id, task), {})
+                    # Best verdict across the precisions in range. --precision
+                    # only narrows the range to a single precision; the
+                    # best-verdict logic is identical either way. A precision
+                    # with no result and no error marker contributes no data.
+                    if precision_filter is None:
+                        range_groups = list(eval_groups.values())
+                    else:
+                        target = eval_groups.get(precision_filter)
+                        range_groups = [target] if target is not None else []
+                    verdict: str | None = None
+                    for stem, _paths in range_groups:
+                        verdict = _best_verdict(
+                            verdict,
+                            _grade_group(model_dir, stem, hf_id, task, reg_map, cache),
+                        )
+                    row[col] = _best_verdict(row.get(col), verdict)
 
     if not matrix:
         print("No example results found.")
@@ -246,7 +305,7 @@ def print_summary_table(
     )
     print(
         f"{legend}   |   P={tally['P']}  R={tally['R']}  F={tally['F']}  "
-        f"N={tally['N']}  -={tally['-']}"
+        f"N={tally['N']}  -={tally['-']}  total={sum(tally.values())}"
     )
 
 
@@ -276,8 +335,18 @@ def main() -> None:
         default=None,
         help="Comma-separated device names (cpu,gpu,npu) to restrict the columns.",
     )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default=None,
+        choices=KNOWN_PRECISIONS,
+        help=(
+            "Restrict each cell to a single precision (e.g. 'fp16'). "
+            "Without it, cells show the best verdict across precisions."
+        ),
+    )
     args = parser.parse_args()
-    print_summary_table(args.models, args.ep, args.device)
+    print_summary_table(args.models, args.ep, args.device, args.precision)
 
 
 if __name__ == "__main__":

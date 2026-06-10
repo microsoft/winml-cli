@@ -1,6 +1,6 @@
 {
   "model_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
-  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\feature-extraction_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\feature-extraction_w8a16_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "npu",
   "ep": "qnn",
@@ -17,7 +17,7 @@
     },
     "streaming": true
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\feature-extraction_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\feature-extraction_w8a16_eval_result.json",
   "metrics": {
     "cosine_spearman": 27.3538
   }

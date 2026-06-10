@@ -1,5 +1,6 @@
 {
   "model_id": "FacebookAI/xlm-roberta-base",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\FacebookAI_xlm-roberta-base\\fill-mask_w8a16_build_artifacts\\model.onnx",
   "task": "fill-mask",
   "device": "npu",
   "ep": "qnn",
@@ -14,9 +15,9 @@
       "input_column": "text"
     }
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\FacebookAI_xlm-roberta-base\\fill-mask_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\FacebookAI_xlm-roberta-base\\fill-mask_w8a16_eval_result.json",
   "metrics": {
-    "pseudo_perplexity": 3.9015,
-    "nll": 1.3614
+    "pseudo_perplexity": 3.9029,
+    "nll": 1.3617
   }
 }

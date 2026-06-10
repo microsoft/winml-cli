@@ -1,18 +1,19 @@
 {
   "model_id": "facebook/dinov2-small",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\facebook_dinov2-small\\image-feature-extraction_fp16_build_artifacts\\model.onnx",
   "task": "image-feature-extraction",
   "device": "npu",
   "ep": "qnn",
   "dataset": {
     "split": "test",
-    "samples": 1000,
+    "samples": 100,
     "shuffle": true,
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\facebook_dinov2-small\\image-feature-extraction_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\facebook_dinov2-small\\image-feature-extraction_fp16_eval_result.json",
   "metrics": {
-    "knn_top1_accuracy": 85.6,
-    "knn_top5_accuracy": 96.8
+    "knn_top1_accuracy": 37.0,
+    "knn_top5_accuracy": 53.0
   }
 }

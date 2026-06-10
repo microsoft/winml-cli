@@ -1,4 +1,0 @@
-WARNING: trust_remote_code is enabled - custom Python from the model repository
-will be downloaded and executed. Proceed only if you trust the publisher.
-[2026-06-03T13:26:26] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
-Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_ai4privacy' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_ai4privacy' (name=None, split='validation'): Couldn't find any data file at C:\Users\shzhen\.cache\winml\eval_datasets\build_ai4privacy.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.

@@ -1,0 +1,24 @@
+[WinML] Installing Execution Provider: QNNExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+QNNExecutionProvider EP installed successfully.
+- Version: 2.2450.47.0
+- Package Family Name: MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.2_8wekyb3d8bbwe
+
+Generating train split:   0%|          | 0/45623 [00:00<?, ? examples/s]
+Generating train split:  14%|█▍        | 6518/45623 [00:00<00:04, 8876.70 examples/s]
+Generating train split:  29%|██▊       | 13036/45623 [00:01<00:04, 8132.94 examples/s]
+Generating train split:  43%|████▎     | 19554/45623 [00:02<00:03, 7976.08 examples/s]
+Generating train split:  57%|█████▋    | 26072/45623 [00:03<00:02, 7931.17 examples/s]
+Generating train split:  71%|███████▏  | 32589/45623 [00:04<00:01, 7368.54 examples/s]
+Generating train split:  86%|████████▌ | 39106/45623 [00:05<00:00, 7087.33 examples/s]
+Generating train split: 100%|██████████| 45623/45623 [00:15<00:00, 1623.55 examples/s]
+Generating train split: 100%|██████████| 45623/45623 [00:15<00:00, 2896.49 examples/s]
+
+Generating val split:   0%|          | 0/1158 [00:00<?, ? examples/s]
+Generating val split: 100%|██████████| 1158/1158 [00:00<00:00, 6835.00 examples/s]
+Generating val split: 100%|██████████| 1158/1158 [00:00<00:00, 6563.82 examples/s]
+The `max_size` parameter is deprecated and will be removed in v4.26. Please specify in `size['longest_edge'] instead`.
+Error: Evaluation failed: Failed to compile for npu | Context: device=npu, onnx_path=C:\Users\zhenni\repos\wmk\examples\qnn\npu\valentinafeve_yolos-fashionpedia\object-detection_fp16_build_artifacts\model.onnx, error=[ONNXRuntimeError] : 11 : EP_FAIL : Failed to finalize QNN graph. | Suggestion: Verify NPU drivers and runtime are properly installed
