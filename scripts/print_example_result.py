@@ -8,8 +8,14 @@
 
 Rows: ``<model>  <task>``
 Cols: each ``examples/<ep>/<device>/`` folder.
-Cell: worst verdict across precisions for that (model, task, ep, device),
-colored P (green), R (yellow), F (red), - (plain).
+Cell: best verdict across precisions for that (model, task, ep, device),
+colored P (green), R (yellow), F (red), N (cyan, N/A), - (plain).
+
+Verdict semantics:
+  PASS       eval_result.json exists, metric value present, passes threshold vs baseline
+  REGRESSION eval_result.json exists, but metric missing/None OR fails threshold vs baseline
+  FAIL       eval_result.json does not exist (the evaluation itself failed)
+  N/A        eval_result.json exists but no baseline is available to compare against
 """
 
 from __future__ import annotations
@@ -20,9 +26,10 @@ import os
 import sys
 from pathlib import Path
 
+
 # Reuse parsing/grouping helpers from the test runner.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_example_tests import (  # noqa: E402
+from run_example_tests import (
     REPO_ROOT,
     build_grouped_configs,
     has_eval_section,
@@ -30,15 +37,20 @@ from run_example_tests import (  # noqa: E402
     infer_hf_id,
 )
 
+
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "e2e_eval"))
-from utils.accuracy import METRIC_COMPARE_STRATEGY, compute_delta  # type: ignore[import-not-found]  # noqa: E402
+from utils.accuracy import (  # type: ignore[import-not-found]
+    METRIC_COMPARE_STRATEGY,
+    compute_delta,
+)
 
 
 DEVICE_NAMES = {"cpu", "gpu", "npu"}
 
-_VERDICT_RANK = {"REGRESSION": 3, "FAIL": 2, "PASS": 1, None: 0}
-_VERDICT_CHAR = {"REGRESSION": "R", "FAIL": "F", "PASS": "P", None: "-"}
-_ANSI = {"P": "\x1b[32m", "R": "\x1b[33m", "F": "\x1b[31m"}
+# Higher rank = better verdict; used to pick the BEST across precisions.
+_VERDICT_RANK = {"PASS": 4, "REGRESSION": 3, "N/A": 2, "FAIL": 1, None: 0}
+_VERDICT_CHAR = {"PASS": "P", "REGRESSION": "R", "N/A": "N", "FAIL": "F", None: "-"}
+_ANSI = {"P": "\x1b[32m", "R": "\x1b[33m", "F": "\x1b[31m", "N": "\x1b[36m"}
 _RESET = "\x1b[0m"
 
 
@@ -53,7 +65,7 @@ def _color_enabled() -> bool:
     return True
 
 
-def _worst_verdict(a: str | None, b: str | None) -> str | None:
+def _best_verdict(a: str | None, b: str | None) -> str | None:
     return a if _VERDICT_RANK.get(a, 0) >= _VERDICT_RANK.get(b, 0) else b
 
 
@@ -90,27 +102,27 @@ def _grade_group(
     task: str,
     reg_map: dict[tuple[str, str], dict],
     cache: dict,
-) -> str | None:
-    """Return verdict ('PASS' | 'REGRESSION' | 'FAIL') or None when ungradable."""
-    result_json = model_dir / f"{group_stem}_eval_result.json"
-    if result_json.with_suffix(".error.txt").exists():
-        return "FAIL"
-    if result_json.with_suffix(".timeout").exists():
-        return "FAIL"
-    if not result_json.exists():
-        return None
+) -> str:
+    """Return verdict ('PASS' | 'REGRESSION' | 'FAIL' | 'N/A').
 
-    result = json.loads(result_json.read_text(encoding="utf-8"))
+    FAIL       => the evaluation itself failed (no eval_result.json produced).
+    REGRESSION => eval_result.json exists but metric is missing/None, or fails
+                  the threshold vs baseline.
+    PASS       => eval_result.json exists, metric present, passes threshold.
+    N/A        => eval_result.json exists but no baseline is available.
+    """
+    result_json = model_dir / f"{group_stem}_eval_result.json"
+    if not result_json.exists():
+        return "FAIL"
+
+    try:
+        result = json.loads(result_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "REGRESSION"
+
     reg_ds = reg_map.get((hf_id, task))
     if reg_ds is None:
-        return None
-
-    metric_name = reg_ds.get("metric")
-    winml_key = reg_ds.get("winml_metric_key") or metric_name
-    raw = (result.get("metrics") or {}).get(winml_key)
-    value = raw.get("value") if isinstance(raw, dict) else raw
-    if not isinstance(value, (int, float)):
-        return "FAIL"
+        return "N/A"
 
     ck = "|".join(
         [
@@ -124,8 +136,19 @@ def _grade_group(
     )
     cached = cache.get(ck)
     bv = (cached or {}).get("metric", {}).get("value") if isinstance(cached, dict) else None
-    if not (isinstance(cached, dict) and cached.get("status") == "PASS" and isinstance(bv, (int, float))):
-        return None
+    if not (
+        isinstance(cached, dict)
+        and cached.get("status") == "PASS"
+        and isinstance(bv, (int, float))
+    ):
+        return "N/A"
+
+    metric_name = reg_ds.get("metric")
+    winml_key = reg_ds.get("winml_metric_key") or metric_name
+    raw = (result.get("metrics") or {}).get(winml_key)
+    value = raw.get("value") if isinstance(raw, dict) else raw
+    if not isinstance(value, (int, float)):
+        return "REGRESSION"
 
     delta_abs, delta_rel = compute_delta({"value": float(value)}, {"value": float(bv)})
     delta_key, _thresh_pass, thresh_at_risk, higher = METRIC_COMPARE_STRATEGY.get(
@@ -133,8 +156,10 @@ def _grade_group(
     )
     chosen = delta_abs if delta_key == "delta_absolute" else delta_rel
     if chosen is None:
-        return "FAIL"
+        return "REGRESSION"
     signed = chosen if higher else -chosen
+    # No 'AT_RISK' verdict here: anything strictly inside the at-risk threshold
+    # counts as PASS; only deltas at/beyond it become REGRESSION.
     return "PASS" if signed >= 0 or abs(signed) < thresh_at_risk else "REGRESSION"
 
 
@@ -145,11 +170,19 @@ def _format_cell(ch: str, width: int, use_color: bool) -> str:
     return cell
 
 
-def print_summary_table(models_filter: str | None = None) -> None:
+def print_summary_table(
+    models_filter: str | None = None,
+    eps_filter: str | None = None,
+    devices_filter: str | None = None,
+) -> None:
     reg_map = _load_registry_map()
     cache = _load_baseline_cache()
     use_color = _color_enabled()
     allowed = set(models_filter.split(",")) if models_filter else None
+    allowed_eps = {e.strip().lower() for e in eps_filter.split(",")} if eps_filter else None
+    allowed_devices = (
+        {d.strip().lower() for d in devices_filter.split(",")} if devices_filter else None
+    )
 
     columns: list[str] = []
     matrix: dict[tuple[str, str], dict[str, str | None]] = {}
@@ -157,8 +190,12 @@ def print_summary_table(models_filter: str | None = None) -> None:
     for ep_dir in sorted((REPO_ROOT / "examples").iterdir()):
         if not ep_dir.is_dir():
             continue
+        if allowed_eps and ep_dir.name.lower() not in allowed_eps:
+            continue
         for device_dir in sorted(ep_dir.iterdir()):
             if not device_dir.is_dir() or device_dir.name not in DEVICE_NAMES:
+                continue
+            if allowed_devices and device_dir.name.lower() not in allowed_devices:
                 continue
             col = f"{ep_dir.name}/{device_dir.name}"
             columns.append(col)
@@ -174,7 +211,7 @@ def print_summary_table(models_filter: str | None = None) -> None:
                     continue
                 verdict = _grade_group(model_dir, group_stem, hf_id, task, reg_map, cache)
                 row = matrix.setdefault((hf_id, task), {})
-                row[col] = _worst_verdict(row.get(col), verdict)
+                row[col] = _best_verdict(row.get(col), verdict)
 
     if not matrix:
         print("No example results found.")
@@ -191,7 +228,7 @@ def print_summary_table(models_filter: str | None = None) -> None:
     sep = "-" * len(header)
     print(header)
     print(sep)
-    tally = {"P": 0, "R": 0, "F": 0, "-": 0}
+    tally = {"P": 0, "R": 0, "F": 0, "N": 0, "-": 0}
     for hf_id, task in rows:
         row = matrix[(hf_id, task)]
         cells = []
@@ -204,10 +241,12 @@ def print_summary_table(models_filter: str | None = None) -> None:
     legend = (
         f"Legend: {_format_cell('P', 1, use_color)}=PASS  "
         f"{_format_cell('R', 1, use_color)}=REGRESSION  "
-        f"{_format_cell('F', 1, use_color)}=FAIL  -=no data/no result"
+        f"{_format_cell('F', 1, use_color)}=FAIL  "
+        f"{_format_cell('N', 1, use_color)}=N/A (no baseline)  -=no data"
     )
     print(
-        f"{legend}   |   P={tally['P']}  R={tally['R']}  F={tally['F']}  -={tally['-']}"
+        f"{legend}   |   P={tally['P']}  R={tally['R']}  F={tally['F']}  "
+        f"N={tally['N']}  -={tally['-']}"
     )
 
 
@@ -221,8 +260,24 @@ def main() -> None:
         default=None,
         help="Comma-separated model slugs to restrict the rows.",
     )
+    parser.add_argument(
+        "--ep",
+        "--eps",
+        dest="ep",
+        type=str,
+        default=None,
+        help="Comma-separated EP folder names (e.g. 'qnn,openvino') to restrict the columns.",
+    )
+    parser.add_argument(
+        "--device",
+        "--devices",
+        dest="device",
+        type=str,
+        default=None,
+        help="Comma-separated device names (cpu,gpu,npu) to restrict the columns.",
+    )
     args = parser.parse_args()
-    print_summary_table(args.models)
+    print_summary_table(args.models, args.ep, args.device)
 
 
 if __name__ == "__main__":

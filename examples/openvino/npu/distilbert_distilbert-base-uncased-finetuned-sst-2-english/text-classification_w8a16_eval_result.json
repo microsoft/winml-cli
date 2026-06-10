@@ -1,12 +1,12 @@
 {
   "model_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_w8a16_build_artifacts\\model.onnx",
   "task": "text-classification",
   "device": "npu",
   "ep": "openvino",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "nyu-mll/glue",
@@ -15,11 +15,11 @@
       "input_column": "sentence"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_w8a16_eval_result.json",
   "metrics": {
-    "accuracy": 0.43,
-    "total_time_in_seconds": 11.382830200018361,
-    "samples_per_second": 8.785161356429501,
-    "latency_in_seconds": 0.11382830200018361
+    "accuracy": 0.4908256880733945,
+    "total_time_in_seconds": 22.336946099996567,
+    "samples_per_second": 39.03846103653955,
+    "latency_in_seconds": 0.02561576387614285
   }
 }

@@ -1,8 +1,8 @@
 {
   "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
   "model_path": {
-    "image-encoder": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\zero-shot-image-classification_w8a16_build_artifacts\\image-encoder\\model.onnx",
-    "text-encoder": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\zero-shot-image-classification_w8a16_build_artifacts\\text-encoder\\model.onnx"
+    "image-encoder": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\zero-shot-image-classification_w8a16_build_artifacts\\image-encoder\\model.onnx",
+    "text-encoder": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\zero-shot-image-classification_w8a16_build_artifacts\\text-encoder\\model.onnx"
   },
   "task": "zero-shot-image-classification",
   "device": "npu",
@@ -18,7 +18,7 @@
       "label_column": "fine_label"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\zero-shot-image-classification_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\zero-shot-image-classification_w8a16_eval_result.json",
   "metrics": {
     "top1_accuracy": 70.0,
     "top5_accuracy": 89.8

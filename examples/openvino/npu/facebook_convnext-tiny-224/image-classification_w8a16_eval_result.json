@@ -1,0 +1,21 @@
+{
+  "model_id": "facebook/convnext-tiny-224",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\facebook_convnext-tiny-224\\image-classification_w8a16_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\facebook_convnext-tiny-224\\image-classification_w8a16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.815,
+    "total_time_in_seconds": 20.592580000055023,
+    "samples_per_second": 48.56118077469302,
+    "latency_in_seconds": 0.020592580000055025
+  }
+}

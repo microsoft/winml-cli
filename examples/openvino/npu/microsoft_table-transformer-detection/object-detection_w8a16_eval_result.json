@@ -1,0 +1,41 @@
+{
+  "model_id": "microsoft/table-transformer-detection",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\microsoft_table-transformer-detection\\object-detection_w8a16_build_artifacts\\model.onnx",
+  "task": "object-detection",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_pubtables1m_detection",
+    "columns_mapping": {
+      "annotation_column": "objects",
+      "bbox_key": "bbox",
+      "category_key": "category",
+      "box_format": "xyxy"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_pubtables1m_detection.py"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\microsoft_table-transformer-detection\\object-detection_w8a16_eval_result.json",
+  "metrics": {
+    "map": 0.9821512699127197,
+    "map_50": 0.9950287938117981,
+    "map_75": 0.9947964549064636,
+    "num_predictions": 15000,
+    "num_ground_truths": 1213,
+    "num_images": 1000,
+    "map_small": -1.0,
+    "map_medium": 0.5504950284957886,
+    "map_large": 0.9823117852210999,
+    "mar_1": 0.9031017422676086,
+    "mar_10": 0.9892473220825195,
+    "mar_100": 0.9894127249717712,
+    "mar_small": -1.0,
+    "mar_medium": 0.6000000238418579,
+    "mar_large": 0.9897266030311584,
+    "map_per_class": -1.0,
+    "mar_100_per_class": -1.0
+  }
+}

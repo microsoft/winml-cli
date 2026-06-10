@@ -1,6 +1,6 @@
 {
   "model_id": "distilbert/distilbert-base-uncased",
-  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\distilbert_distilbert-base-uncased\\fill-mask_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\distilbert_distilbert-base-uncased\\fill-mask_w8a16_build_artifacts\\model.onnx",
   "task": "fill-mask",
   "device": "npu",
   "ep": "openvino",
@@ -15,7 +15,7 @@
       "input_column": "text"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\distilbert_distilbert-base-uncased\\fill-mask_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\distilbert_distilbert-base-uncased\\fill-mask_w8a16_eval_result.json",
   "metrics": {
     "pseudo_perplexity": 5896.3364,
     "nll": 8.6821

@@ -1,11 +1,12 @@
 {
   "model_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_w8a16_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "npu",
   "ep": "openvino",
   "dataset": {
     "split": "validation",
-    "samples": 10,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "rajpurkar/squad_v2",
@@ -16,23 +17,23 @@
       "label_column": "answers"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_w8a16_eval_result.json",
   "metrics": {
-    "exact": 90.0,
-    "f1": 98.00000000000001,
-    "total": 10,
-    "HasAns_exact": 66.66666666666667,
-    "HasAns_f1": 93.33333333333333,
-    "HasAns_total": 3,
-    "NoAns_exact": 100.0,
-    "NoAns_f1": 100.0,
-    "NoAns_total": 7,
-    "best_exact": 90.0,
-    "best_exact_thresh": 0.9741546511650085,
-    "best_f1": 98.00000000000001,
-    "best_f1_thresh": 0.9741546511650085,
-    "total_time_in_seconds": 1.3154919000226073,
-    "samples_per_second": 7.6017191742709675,
-    "latency_in_seconds": 0.13154919000226073
+    "exact": 82.0,
+    "f1": 84.45959717567149,
+    "total": 1000,
+    "HasAns_exact": 79.91886409736308,
+    "HasAns_f1": 84.907905021646,
+    "HasAns_total": 493,
+    "NoAns_exact": 84.02366863905326,
+    "NoAns_f1": 84.02366863905326,
+    "NoAns_total": 507,
+    "best_exact": 82.0,
+    "best_exact_thresh": 0.9981173872947693,
+    "best_f1": 84.45959717567145,
+    "best_f1_thresh": 0.9981173872947693,
+    "total_time_in_seconds": 161.1542582999682,
+    "samples_per_second": 6.205234726957242,
+    "latency_in_seconds": 0.1611542582999682
   }
 }

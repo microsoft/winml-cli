@@ -1,11 +1,12 @@
 {
   "model_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_w8a16_build_artifacts\\model.onnx",
   "task": "text-classification",
   "device": "npu",
   "ep": "openvino",
   "dataset": {
     "split": "validation",
-    "samples": 10,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "tweet_eval",
@@ -14,11 +15,11 @@
       "input_column": "text"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_w8a16_eval_result.json",
   "metrics": {
-    "accuracy": 1.0,
-    "total_time_in_seconds": 0.41912120004417375,
-    "samples_per_second": 23.859446859156822,
-    "latency_in_seconds": 0.04191212000441737
+    "accuracy": 0.767,
+    "total_time_in_seconds": 49.20461180002894,
+    "samples_per_second": 20.323298231963935,
+    "latency_in_seconds": 0.04920461180002894
   }
 }
