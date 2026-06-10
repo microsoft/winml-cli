@@ -666,14 +666,7 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
 
 
 @click.command()
-@click.option(
-    "--format",
-    "-f",
-    "output_format",
-    type=click.Choice(["text", "json", "compact"], case_sensitive=False),
-    default="text",
-    help="Output format: text (human-readable), json, or compact",
-)
+@cli_utils.format_option(choices=["text", "json", "compact"], default="text")
 @click.option(
     "--list-device",
     is_flag=True,
@@ -690,7 +683,7 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
 @click.pass_context
 def sysinfo(
     ctx: click.Context,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     list_device: bool,

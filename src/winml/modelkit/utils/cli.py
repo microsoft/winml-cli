@@ -127,19 +127,28 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     return click.option("--output", "-o", **kwargs)
 
 
-def format_option() -> Callable[[F], F]:
-    """Add ``-f/--format`` option (text | json) to a Click command.
+def format_option(
+    choices: list[str] | None = None,
+    default: str = "text",
+) -> Callable[[F], F]:
+    """Add ``-f/--format`` option to a Click command.
 
     The option is exposed as the ``output_format`` parameter in the
     decorated function (type: :data:`OutputFormat`).
+
+    Args:
+        choices: Allowed format values. Defaults to ``["text", "json"]``.
+        default: Default format value. Defaults to ``"text"``.
     """
+    if choices is None:
+        choices = ["text", "json"]
     return click.option(
         "-f",
         "--format",
         "output_format",
-        type=click.Choice(["text", "json"], case_sensitive=False),
-        default="text",
-        help="Output format (default: text). 'json' prints structured JSON to stdout.",
+        type=click.Choice(choices, case_sensitive=False),
+        default=default,
+        help=f"Output format (default: {default}). 'json' prints structured JSON to stdout.",
     )
 
 

@@ -89,14 +89,7 @@ def _looks_like_local_path(model_id: str) -> bool:
     default=None,
     help="HuggingFace model ID (e.g., microsoft/resnet-50)",
 )
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice(["table", "json"], case_sensitive=False),
-    default="table",
-    help="Output format (default: table)",
-)
+@cli_utils.format_option(choices=["table", "json"], default="table")
 @click.option(
     "-t",
     "--task",
@@ -135,7 +128,7 @@ def _looks_like_local_path(model_id: str) -> bool:
 def inspect(
     ctx: click.Context,
     model_id: str | None,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     task: str | None,
