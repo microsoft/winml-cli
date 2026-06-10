@@ -41,7 +41,7 @@ TASK_DATASET_MAPPING = {
     "object-detection": ObjectDetectionDataset,
     "text-classification": TextDataset,
     "text-feature-extraction": TextDataset,
-    "feature-extraction": {"input_ids": TextDataset, "pixel_values": ImageDataset},
+    "feature-extraction": TextDataset,
     "sentence-similarity": TextDataset,
     "next-sentence-prediction": TextDataset,
     "fill-mask": TextDataset,
@@ -53,21 +53,14 @@ TASK_DATASET_MAPPING = {
 }
 
 
-def _resolve_dataset_class(task: str, io_config: dict | None) -> tuple[type, str]:
-    """Resolve the dataset class for ``task``."""
-    dataset_class = TASK_DATASET_MAPPING[task]
-    if not isinstance(dataset_class, dict):
-        return dataset_class, task
+def _resolve_dataset_class(task: str) -> tuple[type, str]:
+    """Resolve the dataset class for ``task``.
 
-    hits = [name for name in (io_config or {}) if name in dataset_class]
-    if len(hits) == 1:
-        return dataset_class[hits[0]], task
-
-    logger.warning(
-        "Task '%s' is not supported for the model, falling back to RandomDataset",
-        task,
-    )
-    return RandomDataset, "random"
+    Every task now maps directly to one dataset class: detection yields modality-aware
+    tasks (e.g. ``image-feature-extraction`` rather than the lossy ``feature-extraction``),
+    so the previous io_config-based reverse reconstruction is no longer needed.
+    """
+    return TASK_DATASET_MAPPING[task], task
 
 
 def universal_calib_dataset(
@@ -117,7 +110,7 @@ def universal_calib_dataset(
 
     # Create dataset with error handling
     try:
-        dataset_class, task = _resolve_dataset_class(task, kwargs.get("io_config"))
+        dataset_class, task = _resolve_dataset_class(task)
 
         # Craft kwargs - only add optional parameters if provided
         dataset_kwargs = {

@@ -126,10 +126,11 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     help="Source library for TasksManager (default: transformers)",
 )
 @click.option(
-    "--no-quant",
-    is_flag=True,
-    default=False,
-    help="Exclude quantization from generated config (sets quant=None)",
+    "--quant/--no-quant",
+    "quant",
+    default=True,
+    show_default=True,
+    help="Include quantization in generated config (use --no-quant to exclude, sets quant=None)",
 )
 @click.option(
     "--no-compile/--compile",
@@ -156,7 +157,7 @@ def config(
     library_name: str,
     verbose: int,
     quiet: bool,
-    no_quant: bool,
+    quant: bool,
     no_compile: bool,
     trust_remote_code: bool,
 ) -> None:
@@ -289,7 +290,7 @@ def config(
             )
 
             # Apply --no-quant / --no-compile overrides
-            _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
+            _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
 
             output_data = config_obj.to_dict()
             _is_onnx_mode = True
@@ -319,7 +320,7 @@ def config(
                     precision=precision,
                     trust_remote_code=trust_remote_code,
                     ep=ep,
-                    no_quant=no_quant,
+                    no_quant=not quant,
                     no_compile=no_compile,
                     output=output,
                     console=console,
@@ -347,7 +348,7 @@ def config(
             if module:
                 configs = generate_hf_build_config(module=module, **_shared_kwargs)
                 for cfg in configs:
-                    _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
+                    _apply_stage_overrides(cfg, no_quant=not quant, no_compile=no_compile)
                 output_data = [cfg.to_dict() for cfg in configs]
                 _n_modules = len(configs)
                 # Use first config for display metadata
@@ -355,7 +356,7 @@ def config(
             else:
                 config_obj = generate_hf_build_config(**_shared_kwargs)
                 configs = []
-                _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
+                _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
                 output_data = config_obj.to_dict()
                 _n_modules = 0
 

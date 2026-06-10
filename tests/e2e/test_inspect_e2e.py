@@ -60,10 +60,15 @@ def _run_json(*args: str) -> dict:
     """Invoke inspect with *args + '-f json' and return parsed JSON.
 
     Asserts exit_code == 0 and that the output is valid JSON.
+
+    Parses ``result.stdout`` (not ``result.output``): under Click 8.4
+    ``result.output`` interleaves stderr into stdout, so ``-v`` log lines
+    emitted on stderr would corrupt the JSON. stdout carries only the
+    structured payload, matching how real JSON consumers read the command.
     """
     result = _run(*args, "-f", "json")
     assert result.exit_code == 0, f"inspect exited {result.exit_code}:\n{result.output}"
-    return json.loads(result.output)
+    return json.loads(result.stdout)
 
 
 def _run_network(model: str, task: str | None = None) -> dict:
@@ -77,7 +82,7 @@ def _run_network(model: str, task: str | None = None) -> dict:
         args.extend(["-t", task])
     result = CliRunner().invoke(inspect, args, obj={}, catch_exceptions=False)
     assert result.exit_code == 0, f"inspect failed (exit {result.exit_code}):\n{result.output}"
-    return json.loads(result.output)
+    return json.loads(result.stdout)
 
 
 def _assert_common_structure(data: dict, model_id: str, expected_task: str) -> None:
@@ -229,7 +234,7 @@ class TestInspectBert:
             obj={},
         )
         if result.exit_code == 0:
-            data = json.loads(result.output)
+            data = json.loads(result.stdout)
             assert "model_id" in data
         else:
             assert "Traceback (most recent call last)" not in result.output

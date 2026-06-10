@@ -98,7 +98,12 @@ class TestModelOption:
         with patch(_ENGINE_PATH, return_value=engine):
             runner.invoke(run, ["--model", "microsoft/resnet-50", "--text", "x"])
         engine.load.assert_called_once_with(
-            "microsoft/resnet-50", task=None, device="auto", ep=None
+            "microsoft/resnet-50",
+            task=None,
+            device="auto",
+            ep=None,
+            skip_build=True,
+            allow_unsupported_nodes=False,
         )
 
 
