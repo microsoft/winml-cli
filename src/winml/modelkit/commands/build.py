@@ -1040,8 +1040,15 @@ def _run_optimize_stage(
 
         try:
             _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
-        except ValueError:
-            if config.compile is not None:
+        except ValueError as exc:
+            # Only an EP-not-available failure is expected here (target EP not
+            # installed on this host); resolve_device phrases those with
+            # "...not available..." / "...no compatible EP is available...". A
+            # malformed device/EP name raises "Unknown ..." and is a real bug,
+            # so re-raise it. Also re-raise whenever the build will compile, so
+            # a missing EP fails fast instead of deep in the compile stage.
+            ep_unavailable = "available" in str(exc).lower()
+            if config.compile is not None or not ep_unavailable:
                 raise
             _resolved_device = device or ""
 

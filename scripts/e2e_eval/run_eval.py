@@ -707,16 +707,20 @@ _BUILD_ONLY_EP_MATRIX: tuple[tuple[str, str, str], ...] = (
 
 
 def _hash_files(paths: list[Path]) -> str:
-    """SHA-256 over a set of files (name + streamed content), order-independent."""
+    """SHA-256 over a set of files (name + streamed content), order-independent.
+
+    Raises:
+        OSError: if any file cannot be read. The caller must decide how to
+            handle this (e.g. skip dedup) instead of hashing two unreadable
+            files to the same value and deleting an artifact that was never
+            verified to be identical.
+    """
     h = hashlib.sha256()
     for p in sorted(paths, key=lambda x: x.name):
         h.update(p.name.encode("utf-8"))
-        try:
-            with p.open("rb") as fh:
-                for chunk in iter(lambda: fh.read(1 << 20), b""):
-                    h.update(chunk)
-        except OSError:
-            h.update(b"<unreadable>")
+        with p.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
     return h.hexdigest()
 
 
@@ -732,7 +736,13 @@ def _dedup_export(build_dir: Path, shared_dir: Path, canonical_hash: str | None,
     export_files = sorted(build_dir.glob("export.onnx*"))
     if not export_files:
         return canonical_hash  # composite/no top-level export — leave untouched
-    h = _hash_files(export_files)
+    try:
+        h = _hash_files(export_files)
+    except OSError as exc:
+        # Never dedup on an unverified hash: an export we cannot read is kept in
+        # place rather than risk deleting it as a false duplicate.
+        safe_print(f"  [dedup] WARNING {label}: cannot hash export ({exc}) — keeping in place")
+        return canonical_hash
     if canonical_hash is None:
         shared_dir.mkdir(parents=True, exist_ok=True)
         for f in export_files:
@@ -817,9 +827,25 @@ def _feed_version_for(entry: ModelEntry, run_stamp: str) -> str:
 
 
 def _is_publish_conflict(proc: dict) -> bool:
-    """True if a publish failed because the version already exists in the feed."""
+    """True if a publish failed because the version already exists in the feed.
+
+    Only specific version-exists / HTTP 409 markers are matched. A broad
+    substring like ``"conflict"`` or a bare ``"409"`` is avoided on purpose: a
+    false positive is treated as ``exists-skipped`` and deletes the local model
+    dir, so an unrelated message mentioning those words would be a data-loss
+    path.
+    """
     blob = (proc.get("stdout", "") + proc.get("stderr", "")).lower()
-    return any(s in blob for s in ("already exist", "conflict", "409"))
+    return any(
+        marker in blob
+        for marker in (
+            "already exist",
+            "packageversionexists",
+            "status code: 409",
+            "statuscode=409",
+            "httpstatuscode: 409",
+        )
+    )
 
 
 def _upload_model_dir(args: argparse.Namespace, model_dir: Path, version: str, timeout: int) -> dict:
@@ -963,8 +989,21 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
     output_dir.mkdir(parents=True, exist_ok=True)
     save_environment_info(output_dir / "environment.json")
 
+    # Resume in build-only mode is upload-driven (manifest + feed). Without
+    # --upload there is no local-disk resume, so --continue rebuilds everything;
+    # warn rather than silently no-op.
+    if args.continue_run and not args.upload:
+        safe_print(
+            "[warn] --continue has no effect in --build-only without --upload: "
+            "no local-disk resume exists, so all models will be rebuilt."
+        )
+
     use_matrix = args.ep is None and args.device == "auto"
     # Single combo uses an empty label (no subdir); matrix uses (label, ep, device).
+    # In the pinned single-combo path the device may be "auto": precision is then
+    # delegated to winml config's own auto-detection (the same omit-the-flag policy
+    # _resolve_precision applies to CPU/GPU), instead of forcing w8a16 the way the
+    # matrix does for its explicit *_npu combos.
     combos = list(_BUILD_ONLY_EP_MATRIX) if use_matrix else [("", args.ep, args.device)]
 
     # Verify feed prerequisites once, up front. --upload exists to keep disk
@@ -1751,8 +1790,10 @@ def parse_args() -> argparse.Namespace:
         dest="upload_skip_existing",
         action="store_true",
         help=(
-            "With --upload, skip building+uploading a model whose package version "
-            "already exists in the feed (resume support)."
+            "With --upload: treat a 'version already exists' publish conflict as "
+            "success (and delete the local copy) instead of a failure. This does "
+            "NOT skip the build. To skip rebuilding already-uploaded models "
+            "entirely, use --continue."
         ),
     )
     parser.add_argument(
