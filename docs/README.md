@@ -21,9 +21,8 @@ docs/
 ├── concepts/                         ← 12 conceptual pages in two sub-groups
 │   ├── how-it-works.md, graphs-and-ir.md, weight-and-activation.md,
 │   │     eps-and-devices.md, quantization.md         (Fundamentals)
-│   └── primitives-and-pipeline.md, load-and-export.md, analyze-and-optimize.md,
-│         compile-and-epcontext.md, perf-and-monitoring.md, eval-and-datasets.md,
-│         config-and-build.md                         (WinML CLI workflows)
+│   └── primitives-and-pipeline.md, config-and-build.md, load-and-export.md, analyze-and-optimize.md,
+│         compile-and-epcontext.md, perf-and-monitoring.md, eval-and-datasets.md                         (WinML CLI workflows)
 ├── commands/                         ← per-command reference (overview + 12 commands)
 ├── samples/                          ← reference-style walkthroughs
 ├── tutorials/                        ← classroom-style walkthroughs
