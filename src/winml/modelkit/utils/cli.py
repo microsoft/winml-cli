@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 import click
 from rich.console import Console
@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
 # TypeVar for signature-preserving Click decorators.
 F = TypeVar("F", bound="Callable[..., Any]")
+
+# Allowed values for ``--format`` / ``-f``.
+OutputFormat: TypeAlias = Literal["text", "json"]
 
 
 # Shared stderr console for security/diagnostic messages emitted from utils.
@@ -122,6 +125,22 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     else:
         kwargs["default"] = None
     return click.option("--output", "-o", **kwargs)
+
+
+def format_option() -> Callable[[F], F]:
+    """Add ``-f/--format`` option (text | json) to a Click command.
+
+    The option is exposed as the ``output_format`` parameter in the
+    decorated function (type: :data:`OutputFormat`).
+    """
+    return click.option(
+        "-f",
+        "--format",
+        "output_format",
+        type=click.Choice(["text", "json"], case_sensitive=False),
+        default="text",
+        help="Output format (default: text). 'json' prints structured JSON to stdout.",
+    )
 
 
 def ep_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:

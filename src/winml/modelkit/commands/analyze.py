@@ -670,14 +670,7 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     default=None,
     help="Path to HTP metadata JSON file for enhanced pattern extraction",
 )
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice(["text", "json"], case_sensitive=False),
-    default="text",
-    help="Output format (default: text). 'json' prints structured JSON to stdout.",
-)
+@cli_utils.format_option()
 @click.option(
     "--run-unknown-op/--no-run-unknown-op",
     default=False,
@@ -704,7 +697,7 @@ def analyze(
     device: str | None,
     output: Path | None,
     information: bool,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     config_file: Path | None,

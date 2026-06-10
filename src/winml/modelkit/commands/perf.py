@@ -1111,14 +1111,7 @@ def _run_simple_loop(
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
     hidden=True,  # Not ready, so hide from --help for now
 )
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice(["text", "json"], case_sensitive=False),
-    default="text",
-    help="Output format (default: text). 'json' prints structured JSON to stdout.",
-)
+@cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @click.pass_context
@@ -1142,7 +1135,7 @@ def perf(
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     config_file: Path | None,

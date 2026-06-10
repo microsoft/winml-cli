@@ -163,14 +163,7 @@ logger = logging.getLogger(__name__)
     ),
 )
 @cli_utils.skip_build_option()
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice(["text", "json"], case_sensitive=False),
-    default="text",
-    help="Output format (default: text). 'json' prints structured JSON to stdout.",
-)
+@cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @click.pass_context
@@ -192,7 +185,7 @@ def eval(
     column: tuple[str, ...],
     label_mapping_path: Path | None,
     output: Path | None,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     dataset_script: str | None,
