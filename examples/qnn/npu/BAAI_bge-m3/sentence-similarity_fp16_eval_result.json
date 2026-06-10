@@ -1,0 +1,24 @@
+{
+  "model_id": "BAAI/bge-m3",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\BAAI_bge-m3\\sentence-similarity_fp16_build_artifacts\\model.onnx",
+  "task": "sentence-similarity",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    },
+    "streaming": true
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\BAAI_bge-m3\\sentence-similarity_fp16_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 88.1071
+  }
+}
