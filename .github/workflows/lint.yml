@@ -47,7 +47,7 @@ jobs:
         run: |
           set -uo pipefail
           failed=0
-          for pkg in analyze build cache commands compiler config core data; do
+          for pkg in analyze build cache commands compiler config core data datasets eval export inference; do
             echo "::group::winml.modelkit.$pkg"
             if uv run mypy -p "winml.modelkit.$pkg"; then
               :

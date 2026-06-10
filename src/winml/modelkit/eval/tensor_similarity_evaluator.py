@@ -38,8 +38,13 @@ class TensorSimilarityEvaluator:
     ) -> None:
         from ..models.winml.composite_model import WinMLCompositeModel
 
-        if isinstance(model, WinMLCompositeModel):
-            sub_tasks = list(getattr(type(model), "_SUB_MODEL_CONFIG", {}).values())
+        # WinMLCompositeModel and WinMLPreTrainedModel are siblings under
+        # PreTrainedModel; mypy proves this branch unreachable but the
+        # runtime check still guards against composite models reaching here.
+        if isinstance(model, WinMLCompositeModel):  # type: ignore[unreachable]
+            sub_tasks = list(  # type: ignore[unreachable]
+                getattr(type(model), "_SUB_MODEL_CONFIG", {}).values()
+            )
             raise TypeError(
                 "--mode compare does not support composite models directly. "
                 f"Run compare per sub-component instead (sub-tasks: {sub_tasks}). "
@@ -71,7 +76,8 @@ class TensorSimilarityEvaluator:
         hf_config = AutoConfig.from_pretrained(self.config.model_id)
         _, cls = resolve_task_and_model_class(hf_config, task=self.config.task)
         logger.info("Loading HF reference %s on CPU/fp32", cls.__name__)
-        return cls.from_pretrained(
+        # cls is a HF model class which exposes from_pretrained; not in `type`.
+        return cls.from_pretrained(  # type: ignore[attr-defined]
             self.config.model_id, dtype=torch.float32
         ).eval()
 

@@ -11,6 +11,8 @@ This package provides:
 - export_pytorch / export_onnx for ONNX export
 """
 
+from typing import Any
+
 from .config import (
     InputTensorSpec,
     OutputTensorSpec,
@@ -47,7 +49,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load heavy exports to avoid importing optimum at package init."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]

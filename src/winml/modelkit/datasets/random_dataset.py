@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import numpy as np
 import torch
@@ -44,7 +44,7 @@ class RandomDataset:
         model_path: str,
         max_samples: int = 100,
         seed: int = 42,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         self.model_path = model_path
         self.max_samples = max_samples
@@ -91,7 +91,7 @@ class RandomDataset:
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         """Get a single preprocessed sample."""
-        return self.dataset[idx]
+        return cast("dict[str, Any]", self.dataset[idx])
 
     @property
     def label_col(self) -> str:
@@ -104,7 +104,7 @@ class RandomDataset:
         Uses cached InputTensorSpec list built from ONNX model I/O config.
         Each spec's to_tensor() handles value_range, dtype, and shape correctly.
         """
-        return {spec.name: spec.to_tensor() for spec in self._input_specs}
+        return {spec.name: spec.to_tensor() for spec in self._input_specs if spec.name}
 
     def _load_dataset(self) -> Dataset:
         """Generate synthetic dataset with random samples as tensors."""

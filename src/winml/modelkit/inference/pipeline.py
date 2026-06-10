@@ -24,6 +24,10 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+
+if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
 
 logger = logging.getLogger(__name__)
@@ -69,7 +73,9 @@ def create_pipeline(
         kwargs["processor"] = model_id
 
     hf_task = _HF_PIPELINE_TASK_MAP.get(task, task)
-    pipe = pipeline(hf_task, model=model, **kwargs)
+    # transformers.pipeline has 60+ Literal overloads — runtime task strings can't
+    # be statically matched. The string-task fallback handles unknown tasks safely.
+    pipe = pipeline(hf_task, model=model, **kwargs)  # type: ignore[call-overload]
 
     # Adapt pipeline to fixed ONNX input shapes
     _adapt_tokenizer_padding(pipe, task, model)
@@ -160,7 +166,9 @@ def _adapt_tokenizer_padding(pipe: Any, task: str, model: Any) -> None:
     pipe.tokenizer.model_max_length = max_length
 
 
-def _detect_tokenizer_dict_param(pipe: Any, sig_params: dict) -> str | None:
+def _detect_tokenizer_dict_param(
+    pipe: Any, sig_params: Mapping[str, inspect.Parameter]
+) -> str | None:
     """Detect if preprocess() consumes tokenizer settings via a nested dict.
 
     Returns the dict key name (e.g. "tokenizer_kwargs", "tokenizer_params"),

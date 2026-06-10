@@ -5,8 +5,15 @@
 """Simple timestamp formatting utility."""
 
 from datetime import datetime, timezone
+from typing import overload
 
 
+@overload
+def format_timestamp_iso(epoch_time: float) -> str: ...
+@overload
+def format_timestamp_iso(epoch_time: None) -> None: ...
+@overload
+def format_timestamp_iso(epoch_time: float | None) -> str | None: ...
 def format_timestamp_iso(epoch_time: float | None) -> str | None:
     """Format Unix epoch timestamp to ISO 8601 with Z suffix.
 

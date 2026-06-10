@@ -19,8 +19,7 @@ from dataclasses import dataclass, field
 
 # datetime imports removed - following ADR-006 to use float timestamps only
 from enum import Enum
-from functools import wraps
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeVar
 
 from .step_data import (
     HierarchyData,
@@ -92,17 +91,21 @@ class ExportData:
         return time.time() - self.start_time
 
 
-def step(export_step: ExportStep) -> Any:
-    """Decorator to mark step-specific handler methods."""
+F = TypeVar("F", bound="Callable[..., int]")
 
-    def decorator(func: Callable) -> Callable:
-        func._handles_step = export_step
 
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> int:
-            return func(*args, **kwargs)
+def step(export_step: ExportStep) -> Callable[[F], F]:
+    """Decorator to mark step-specific handler methods.
 
-        return wrapper
+    Attaches ``_handles_step`` on the function so ``StepAwareWriter``'s
+    discovery loop can map each handler to its declared step. The function is
+    returned unchanged, so the original signature is preserved for callers and
+    type checkers.
+    """
+
+    def decorator(func: F) -> F:
+        func._handles_step = export_step  # type: ignore[attr-defined]
+        return func
 
     return decorator
 
@@ -113,7 +116,7 @@ class StepAwareWriter(io.IOBase, ABC):
     def __init__(self) -> None:
         """Initialize the writer and discover step handlers."""
         super().__init__()
-        self._step_handlers: dict[ExportStep, Callable] = {}
+        self._step_handlers: dict[ExportStep, Callable[..., int]] = {}
         self._discover_handlers()
 
     def _discover_handlers(self) -> None:
