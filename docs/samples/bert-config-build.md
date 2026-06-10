@@ -7,7 +7,6 @@ This sample walks through the production-style workflow: generate a reusable `Wi
 ## Prerequisites
 
 - winml-cli installed and `winml` on your PATH.
-- A network connection to download `bert-base-uncased` weights from HuggingFace on first run.
 - A target device (NPU or GPU recommended; CPU also works).
 
 ## Step 1: Generate a build config
@@ -22,33 +21,28 @@ This writes a `WinMLBuildConfig` JSON file to `bert_config.json`. The file captu
 {
   "loader": {
     "task": "text-classification",
+    "model_class": "AutoModelForSequenceClassification",
     "model_type": "bert"
   },
   "export": {
     "opset_version": 17,
     "batch_size": 1
+    .. // truncated: input_tensors, output_tensors
   },
-  "optim": {
-    "gelu_fusion": true,
-    "layer_norm_fusion": true,
-    "matmul_add_fusion": true
+   "optim": {
+    "clamp_constant_values": true
   },
   "quant": {
     "mode": "qdq",
     "weight_type": "uint8",
-    "activation_type": "uint8",
+    "activation_type": "uint16",
     "samples": 10,
     "calibration_method": "minmax",
     "task": "text-classification",
     "model_name": "bert-base-uncased"
     ... // truncated: per_channel, symmetric, distribution, ...
   },
-  "compile": {
-    "execution_provider": "qnn",
-    "enable_ep_context": true,
-    "compiler": "ort"
-    ... // truncated: provider_options, embed_context, validate, ...
-  }
+  "compile": null
 }
 ```
 
@@ -116,10 +110,10 @@ winml config -m bert-base-uncased -t text-classification --precision fp16 -o ber
 
 Alternatively, edit `bert_config.json` directly: set `quant.weight_type` and `quant.activation_type` to `"int8"` or `"uint16"`, or set `quant` to `null` to skip quantization entirely.
 
-**Disable a stage at build time.** You can suppress a stage for a single run without touching the config file using the `--no-quant` or `--no-compile` flags:
+**Disable a stage at build time.** You can suppress a stage for a single run without touching the config file using the `--no-quant` flags:
 
 ```bash
-winml build -c bert_config.json -m bert-base-uncased --output-dir bert_out/ --no-quant
+winml build -c bert_config.json -m bert-base-uncased --output-dir bert_out/ --no-quant 
 ```
 
 This is useful for measuring the fp32 baseline before committing to a quantized build. The `quant` section in `bert_config.json` is unchanged; the flag only affects this invocation. See [Config and build](../concepts/config-and-build.md) for the full list of configurable fields.
@@ -129,8 +123,8 @@ This is useful for measuring the fp32 baseline before committing to a quantized 
 - `winml config` generates a complete, version-controllable `WinMLBuildConfig` JSON from a HuggingFace model ID in one command.
 - `winml build` orchestrates the full export → optimize → quantize → compile pipeline from a single config file and model ID.
 - The autoconf loop inside the optimize stage adjusts graph fusion flags automatically to maximize EP compatibility.
-- JSON fields (`quant`, `compile`) and CLI flags (`--no-quant`, `--no-compile`) are interchangeable ways to skip stages; CLI flags win for one-off experiments without modifying the file.
 - `winml perf` gives a latency and throughput baseline on the built artifact in seconds.
+
 
 ## See also
 
