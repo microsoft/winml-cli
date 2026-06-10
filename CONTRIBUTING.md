@@ -14,7 +14,9 @@ We're always looking for your help to improve the product (bug fixes, new featur
 See the [README](./README.md#getting-started) for prerequisites and installation instructions. Then set up your development environment:
 
 ```bash
-uv sync
+git clone https://github.com/microsoft/winml-cli.git
+cd winml-cli
+uv sync --extra dev
 uv run pre-commit install
 ```
 
@@ -23,6 +25,16 @@ This installs all dependencies and enables [pre-commit hooks](https://pre-commit
 ### Runtime check rules
 
 When running WinML CLI from a source tree (`uv run winml ...`), you need to populate the runtime check rule zips locally. See [`src/winml/modelkit/analyze/rules/runtime_check_rules/README.md`](./src/winml/modelkit/analyze/rules/runtime_check_rules/README.md) for setup options (GitHub release for external contributors, `gim-home` script for Microsoft internal, `WINMLCLI_RULES_DIR` override).
+
+For external contributors, download from a GitHub release:
+
+```bash
+gh release download <tag> --repo microsoft/winml-cli --pattern 'rules-v*.zip' --dir .
+# Windows:
+Expand-Archive -Path .\rules-v*.zip -DestinationPath src\winml\modelkit\analyze\rules\runtime_check_rules -Force
+# Linux/macOS:
+# unzip -o rules-v*.zip -d src/winml/modelkit/analyze/rules/runtime_check_rules
+```
 
 ## Coding conventions and standards
 
