@@ -938,43 +938,12 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
     # Memory section (only when --memory is enabled)
     if result.memory_profile:
-        console.print()
-        console.print("[bold]Memory[/bold]")
         mem = result.memory_profile
-
-        mem_table = Table(show_header=True, header_style="bold cyan")
-        mem_table.add_column("Phase", style="dim")
-        mem_table.add_column("Working Set", justify="right")
-        mem_table.add_column("Private Bytes", justify="right")
-        mem_table.add_column("Device Mem", justify="right")
-        mem_table.add_column("Δ Working Set", justify="right")
-
-        phases = [
-            ("Baseline", mem.baseline, None),
-            ("Post-Load", mem.post_load, mem.load_delta_mb),
-            ("Post-Compile", mem.post_compile, mem.compile_delta_mb),
-            ("Post-Inference", mem.post_inference, mem.inference_delta_mb),
-        ]
-        for name, snap, delta in phases:
-            dev_str = f"{snap.device_local_mb:.1f} MB" if snap.device_local_mb > 0 else "—"
-            delta_str = f"+{delta:.1f} MB" if delta is not None else "—"
-            mem_table.add_row(
-                name,
-                f"{snap.working_set_mb:.1f} MB",
-                f"{snap.private_bytes_mb:.1f} MB",
-                dev_str,
-                delta_str,
-            )
-
-        console.print(mem_table)
-
-        # Summary line
+        peak_ws = mem.peak_working_set_mb
         peak_dev = mem.peak_device_local_mb
-        dev_summary = f" + {peak_dev:.1f} MB (device)" if peak_dev > 0 else ""
-        console.print(
-            f"  [dim]Peak Working Set: {mem.peak_working_set_mb:.1f} MB  |  "
-            f"Total Δ: +{mem.total_delta_mb:.1f} MB (process){dev_summary}[/dim]"
-        )
+        dev_str = f" | {peak_dev:.1f} MB (device)" if peak_dev > 0 else ""
+        console.print()
+        console.print(f"[bold]Memory:[/bold]      {peak_ws:.1f} MB (process peak){dev_str}")
 
     console.print()
 
