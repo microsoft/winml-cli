@@ -87,10 +87,11 @@ class BatchedConstMatMulValidator(ModelValidator):
             return None
 
         # Known gap: constants expressed as `Constant` op nodes (rather than
-        # graph initializers) are not detected here. The `untie-constant-batched
-        # -matmul` surgery in surgery.py has the same limitation, so detection
-        # and surgery stay consistent. Most exporters and ORT preprocessing emit
-        # weights as initializers, so this covers the disentangled-attention case
+        # graph initializers) are not detected here. The batchedconstmatmul-untied
+        # rewrite's source pattern matches on initializer operands too, so
+        # detection and rewrite stay consistent. Most exporters and ORT
+        # preprocessing emit weights as initializers, so this covers the
+        # disentangled-attention case
         # in practice; `Constant`-node weights would need handling on both sides.
         initializers = {init.name for init in self.graph.initializer}
         rank_by_init = {init.name: len(init.dims) for init in self.graph.initializer}
@@ -133,7 +134,7 @@ class BatchedConstMatMulValidator(ModelValidator):
             f"operand, causing a '[GPU] Failed to select implementation ... gemm' "
             f"compile failure. The batchedconstmatmul-untied rewrite makes "
             f"the operand runtime-valued without changing numerics. "
-            f"It is fixed in openvino==2026.2.0, so no need to apply the surgery "
+            f"It is fixed in openvino==2026.2.0, so no need to apply the rewrite "
             f"if using that version or later."
         )
         return Information(
