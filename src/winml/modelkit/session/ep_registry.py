@@ -269,8 +269,12 @@ class WinMLEPRegistry:
         """Load EP catalog from WinML."""
         from windowsml import EpCatalog
 
+        checked_eps: set[EPName] = set()
         with EpCatalog() as catalog:
             for provider in catalog.find_all_providers():
+                if provider.name in checked_eps:
+                    continue
+                checked_eps.add(provider.name)
                 try:
                     _ensure_provider_ready(provider)
                 except OSError as e:
