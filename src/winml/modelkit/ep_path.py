@@ -1209,8 +1209,6 @@ def list_msix_eps(
 # ---------------------------------------------------------------------------
 # Default EP source list.
 # ---------------------------------------------------------------------------
-
-
 def _default_ep_sources() -> list[EPSource]:
     """Default EP source list for this project.
 
@@ -1324,8 +1322,6 @@ def _default_ep_sources() -> list[EPSource]:
 # ---------------------------------------------------------------------------
 # Override mechanisms.
 # ---------------------------------------------------------------------------
-
-
 def _parse_winmlcli_ep_path() -> list[EPSource]:
     """Parse the ``WINMLCLI_EP_PATH`` env var into ``DirectorySource`` entries.
 
@@ -1402,6 +1398,12 @@ def discover_all_eps(
 
     result: list[EPEntry] = []
     seen: set[str] = set()
+    # Track (ep_name, canonical_dll_path) tuples already emitted so two
+    # different sources resolving to the SAME on-disk DLL collapse to one
+    # row. This is the WinML-Catalog vs MSIX-PackageManager overlap: both
+    # legitimately surface the same Microsoft-published EP DLL, and we
+    # want the higher-precedence source's attribution to win.
+    seen_paths: set[tuple[str, str]] = set()
     for source in sources:
         try:
             it = source.resolve()
@@ -1422,14 +1424,23 @@ def discover_all_eps(
                         entry.dll_path,
                     )
                     continue
-                # Dedup: same (ep, dll_path, source) is silently dropped.
-                if any(
-                    existing.ep_name == entry.ep_name
-                    and existing.dll_path == entry.dll_path
-                    and existing.source is entry.source
-                    for existing in result
-                ):
+                # Dedup by (ep_name, canonical dll_path). os.path.normcase
+                # collapses Windows case-insensitivity (``C:\Foo`` vs
+                # ``c:\foo``); os.path.normpath collapses ``..`` and
+                # redundant separators. The first occurrence wins —
+                # precedence order is preserved so the higher-precedence
+                # source's attribution survives.
+                path_key = os.path.normcase(os.path.normpath(str(entry.dll_path)))
+                dedup_key = (entry.ep_name, path_key)
+                if dedup_key in seen_paths:
+                    logger.debug(
+                        "EP %s: dedup — %r already attributed; dropping source %r",
+                        entry.ep_name,
+                        entry.dll_path,
+                        source,
+                    )
                     continue
+                seen_paths.add(dedup_key)
                 if entry.ep_name in seen:
                     # Source ordering decides precedence; later sources
                     # land as shadowed.
