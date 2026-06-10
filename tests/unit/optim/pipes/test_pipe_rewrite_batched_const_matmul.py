@@ -21,7 +21,6 @@ from __future__ import annotations
 import numpy as np
 import onnx
 import onnxruntime as ort
-from onnx import TensorProto, helper, numpy_helper
 
 from winml.modelkit.optim.pipes.rewrite import RewritePipe
 
@@ -61,26 +60,28 @@ def _build_model(
         out_shape = [batch, 3, 5]
         mm_inputs = ["W", "dyn"]
 
-    initializers = [numpy_helper.from_array(w_arr, "W")]
-    graph_inputs = [helper.make_tensor_value_info("dyn", TensorProto.FLOAT, dyn_shape)]
+    initializers = [onnx.numpy_helper.from_array(w_arr, "W")]
+    graph_inputs = [
+        onnx.helper.make_tensor_value_info("dyn", onnx.TensorProto.FLOAT, dyn_shape)
+    ]
 
     if both_constant:
         # Replace the dynamic operand with a second constant of matching shape.
         dyn_concrete = [d if isinstance(d, int) else 2 for d in dyn_shape]
         initializers.append(
-            numpy_helper.from_array(rng.randn(*dyn_concrete).astype(np.float32), "dyn")
+            onnx.numpy_helper.from_array(rng.randn(*dyn_concrete).astype(np.float32), "dyn")
         )
         graph_inputs = []
 
-    matmul = helper.make_node("MatMul", mm_inputs, ["out"], name="batched_matmul")
-    graph = helper.make_graph(
+    matmul = onnx.helper.make_node("MatMul", mm_inputs, ["out"], name="batched_matmul")
+    graph = onnx.helper.make_graph(
         [matmul],
         "batched_const_matmul",
         graph_inputs,
-        [helper.make_tensor_value_info("out", TensorProto.FLOAT, out_shape)],
+        [onnx.helper.make_tensor_value_info("out", onnx.TensorProto.FLOAT, out_shape)],
         initializer=initializers,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    return onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
 
 
 def _run(model: onnx.ModelProto, feed: dict[str, np.ndarray]) -> np.ndarray:
