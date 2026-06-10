@@ -114,6 +114,9 @@ class TestSeq2SeqFillMaskCorrection:
         task, resolved_class = _detect_task_and_class_from_config(config)
 
         assert task == "text2text-generation"
+        # BartDecoderWrapper is WinML's encoder-decoder decoder sub-component class
+        # registered for (bart, text2text-generation) — i.e. the seq2seq route,
+        # not the AutoModelForMaskedLM that the fill-mask mislabel would produce.
         assert resolved_class.__name__ == "BartDecoderWrapper"
 
     def test_bert_masked_lm_stays_fill_mask(self):

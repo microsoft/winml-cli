@@ -498,6 +498,11 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
                 # default. If one ever exposes multiple, supported[0] is an
                 # arbitrary pick -- warn (listing the tasks) but still proceed;
                 # pass --task to choose a different one.
+                # No _upgrade_fill_mask_for_seq2seq here: this task comes from the
+                # wrapped library's ONNX export list (get_supported_tasks), not from
+                # class->task inference, so the optimum fill-mask mislabel cannot
+                # arise on this path; rewriting could also yield a task outside that
+                # list. The correction is intentionally scoped to the class->task paths.
                 task = supported[0]
                 if len(supported) > 1:
                     logger.warning(

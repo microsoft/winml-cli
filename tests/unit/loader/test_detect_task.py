@@ -69,6 +69,17 @@ def test_upgrade_fill_mask_for_seq2seq_only_touches_fill_mask() -> None:
     assert _upgrade_fill_mask_for_seq2seq("text-classification", cfg) == "text-classification"
 
 
+def test_upgrade_fill_mask_for_seq2seq_ignores_config_without_flag() -> None:
+    """A config that does not carry is_encoder_decoder at all is never upgraded
+    (getattr defaults to False), so a partial/duck-typed config is never silently
+    rewritten — as the docstring promises."""
+
+    class _NoFlagConfig:
+        pass
+
+    assert _upgrade_fill_mask_for_seq2seq("fill-mask", _NoFlagConfig()) == "fill-mask"
+
+
 def test_d2_upgrades_vision_feature_extraction_on_returned_task() -> None:
     """Top-level image_size/patch_size + feature-extraction -> image-feature-extraction."""
     cfg = _FakeConfig("faketype", image_size=518, patch_size=14)
