@@ -13,8 +13,11 @@ attention position terms) therefore fail to compile on OpenVINO GPU with:
     [GPU] Failed to select implementation for ... type: gemm
 
 This validator detects that structural pattern and recommends the
-``untie-constant-batched-matmul`` surgery, which makes the constant operand
-runtime-valued so gemm implementation selection succeeds.
+``batchedconstmatmul-untied`` rewrite, which routes the constant operand through
+``Add(const, runtime-zero)`` so it becomes runtime-valued and gemm
+implementation selection succeeds. The rewrite (source/target patterns) lives in
+``modelkit.pattern.batched_const_matmul_patterns``; this validator only supplies
+the EP/device gating and the autoconf trigger that enables it.
 """
 
 from __future__ import annotations
@@ -34,9 +37,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Surgery capability enabled when the pattern is detected (kebab-case to match
-# the capability registry / autoconf normalization).
-_SURGERY_FLAG = "untie-constant-batched-matmul"
+# Rewrite capability enabled when the pattern is detected. Kebab-case to match
+# the capability registry / autoconf normalization; derived from the JSON rule
+# (source flag "batchedconstmatmul" + target flag "untied") in
+# pattern/rules/default.json.
+_REWRITE_FLAG = "batchedconstmatmul-untied"
 
 
 class BatchedConstMatMulValidator(ModelValidator):
@@ -112,10 +117,10 @@ class BatchedConstMatMulValidator(ModelValidator):
             level=ActionLevel.REQUIRED,
             status=None,
             action_items=[
-                ActionItem(type="GraphOptimization", optimization_options={_SURGERY_FLAG: True})
+                ActionItem(type="GraphOptimization", optimization_options={_REWRITE_FLAG: True})
             ],
             details=(
-                "Enable untie-constant-batched-matmul surgery so the constant "
+                "Enable the batchedconstmatmul-untied rewrite so the constant "
                 "operand becomes runtime-valued and OpenVINO GPU can select a "
                 "gemm implementation."
             ),
@@ -126,7 +131,7 @@ class BatchedConstMatMulValidator(ModelValidator):
             f"operand (examples: {examples}). OpenVINO GPU's oneDNN gemm cannot "
             f"select an implementation for a batched MatMul with a constant "
             f"operand, causing a '[GPU] Failed to select implementation ... gemm' "
-            f"compile failure. The untie-constant-batched-matmul surgery makes "
+            f"compile failure. The batchedconstmatmul-untied rewrite makes "
             f"the operand runtime-valued without changing numerics. "
             f"It is fixed in openvino==2026.2.0, so no need to apply the surgery "
             f"if using that version or later."

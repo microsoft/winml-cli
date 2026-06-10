@@ -180,6 +180,24 @@
           "reason": "Merged axes reduce Transpose dimensionality for better hardware compatibility"
         }
       ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/BatchedConstMatMulPattern",
+      "pattern_class": "BatchedConstMatMulPattern",
+      "module": "winml.modelkit.pattern.batched_const_matmul_patterns",
+      "enabled": false,
+      "flag_name": "batchedconstmatmul",
+      "description": "Batched (rank >= 3) MatMul with one constant operand (OpenVINO GPU gemm impl-selection workaround)",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/UntiedBatchedConstMatMulPattern",
+          "pattern_class": "UntiedBatchedConstMatMulPattern",
+          "module": "winml.modelkit.pattern.batched_const_matmul_patterns",
+          "priority": 1,
+          "flag_name": "untied",
+          "reason": "Route the constant operand through Add(const, runtime-zero) so OpenVINO GPU can select a gemm implementation"
+        }
+      ]
     }
   ]
 }

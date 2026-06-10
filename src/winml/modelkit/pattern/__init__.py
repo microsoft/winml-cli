@@ -30,6 +30,10 @@ from .base import (
     opschema_to_pattern_schema,
     register_pattern_input_generator,
 )
+from .batched_const_matmul_patterns import (
+    BatchedConstMatMulPattern,
+    UntiedBatchedConstMatMulPattern,
+)
 from .conv2d_inplace_linear_patterns import (
     Conv2DInplaceLinear2DPattern,
     Conv2DInplaceLinear2DPatternInputGenerator,
@@ -85,6 +89,7 @@ from .transpose_patterns import (
 
 __all__ = [
     "MATMUL_ADD_SCHEMA",
+    "BatchedConstMatMulPattern",
     "Conv2DInplaceLinear2DPattern",
     "Conv2DInplaceLinear2DPatternInputGenerator",
     "Conv2DInplaceLinear3DPattern",
@@ -139,6 +144,7 @@ __all__ = [
     "TransposedSingleLayerNormalizationPatternInputGenerator",
     "TransposedSingleRMSNormalizationPattern",
     "TransposedSingleRMSNormalizationPatternInputGenerator",
+    "UntiedBatchedConstMatMulPattern",
     "get_pattern_input_generator",
     "get_registered_pattern_input_generators",
     "make_single_op_pattern",

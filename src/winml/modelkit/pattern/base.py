@@ -2035,14 +2035,19 @@ class PatternRewriter:
                         is_constant_map[input_name] = info.is_constant
                         if info.value is not None:
                             inputs[input_name] = info.value
-                        elif info.shape is not None:
+                        elif info.shape is not None and all(
+                            isinstance(dim, int) for dim in info.shape
+                        ):
                             # Create a dummy array with the shape for internal constant computation
                             dtype_str = match_result.type_param_to_type[input_param.type_str]
                             np_dtype = SupportedONNXType.from_onnx_type(dtype_str).np_type
                             # For shape computation, create a zero array
                             inputs[input_name] = np.zeros(info.shape, dtype=np_dtype)
                         else:
-                            # No shape info, skip this input
+                            # No value, or a symbolic/dynamic shape that cannot be
+                            # materialized into a dummy array: skip this input. A
+                            # target whose get_onnx_model needs concrete operand
+                            # shapes would already have been rejected at match time.
                             is_constant_map[input_name] = False
                     else:
                         is_constant_map[input_name] = False

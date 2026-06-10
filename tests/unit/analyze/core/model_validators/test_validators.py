@@ -409,13 +409,13 @@ class TestBatchedConstMatMulValidator:
         return BatchedConstMatMulValidator(model, ep=ep, device=device).validate()
 
     def test_detects_for_openvino_gpu(self):
-        """Emits a GraphOptimization action enabling the surgery for OV GPU."""
+        """Emits a GraphOptimization action enabling the untie rewrite for OV GPU."""
         info = self._validate(_make_batched_const_matmul_proto(), "openvino", "GPU")
         assert info is not None
         assert info.pattern_id == "MODEL/BatchedConstantMatMul"
         items = info.actions[0].action_items
         assert items[0].type == "GraphOptimization"
-        assert items[0].optimization_options == {"untie-constant-batched-matmul": True}
+        assert items[0].optimization_options == {"batchedconstmatmul-untied": True}
 
     def test_skipped_for_openvino_npu(self):
         """Device-gated: NPU is unaffected."""
