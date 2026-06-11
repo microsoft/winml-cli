@@ -12,20 +12,21 @@ At its core, `winml perf` runs a configurable number of inference iterations and
 $ winml perf -m bert-tiny.onnx --device cpu --iterations 50 --warmup 5
 
 Device:      cpu / CPUExecutionProvider
-Model Precision:   fp32
-Inputs:      input_ids            [1, 512]               int32
-             attention_mask       [1, 512]               int32
-             token_type_ids       [1, 512]               int32
+Precision:   fp32
+Inputs:      input_ids            [1, 512]    int32
+             attention_mask       [1, 512]    int32
+             token_type_ids       [1, 512]    int32
 Outputs:     last_hidden_state    [1, 512, 128]
+```
 
-Latency (ms)
-┏━━━━━━┳━━━━━━┳━━━━━━┳━━━━━━┳━━━━━━┳━━━━━━┳━━━━━━┳━━━━━━┓
-┃  Avg ┃  P50 ┃  P90 ┃  P95 ┃  P99 ┃  Min ┃  Max ┃  Std ┃
-┡━━━━━━╇━━━━━━╇━━━━━━╇━━━━━━╇━━━━━━╇━━━━━━╇━━━━━━╇━━━━━━┩
-│ 5.53 │ 5.40 │ 6.55 │ 6.87 │ 7.65 │ 4.89 │ 7.65 │ 0.58 │
-└──────┴──────┴──────┴──────┴──────┴──────┴──────┴──────┘
-  Warmup: 14.14 ms avg (first 5 iterations)
+Output latency table:
 
+| Avg | P50 | P90 | P95 | P99 | Min | Max | Std |
+|-----|-----|-----|-----|-----|-----|-----|-----|
+| 5.53 | 5.40 | 6.55 | 6.87 | 7.65 | 4.89 | 7.65 | 0.58 |
+
+```
+Warmup: 14.14 ms avg (first 5 iterations)
 Throughput: 180.72 samples/sec
 ```
 
