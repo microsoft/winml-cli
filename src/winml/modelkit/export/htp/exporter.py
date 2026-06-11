@@ -398,6 +398,9 @@ class HTPExporter:
         task: str | None = None,
     ) -> None:
         """Export to ONNX using WinMLExportConfig."""
+        # Resolve to absolute path so torch.onnx.export writes external data
+        # files (.data) next to the model, not in the current working directory.
+        output_path = str(Path(output_path).resolve())
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Input names from config, fallback to inputs dict keys

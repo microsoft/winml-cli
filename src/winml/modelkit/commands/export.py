@@ -71,24 +71,31 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
 )
 @cli_utils.output_option("Output ONNX file path (e.g., model.onnx)", required=True)
 @click.option(
-    "--with-report",
-    is_flag=True,
+    "--with-report/--no-with-report",
     default=False,
+    show_default=True,
     help="Generate full export reports (markdown, JSON, console tree)",
 )
 @click.option(
-    "--clean-onnx",
-    "--no-hierarchy",
-    "no_hierarchy",
-    is_flag=True,
-    default=False,
-    help="Skip embedding hierarchy_tag metadata in ONNX (clean ONNX output)",
+    "--hierarchy/--no-hierarchy",
+    "hierarchy",
+    default=True,
+    show_default=True,
+    help="Embed hierarchy_tag metadata in ONNX output",
 )
 @click.option(
-    "--dynamo",
-    "dynamo",
+    "--clean-onnx",
+    "clean_onnx",
     is_flag=True,
     default=False,
+    hidden=True,
+    help="Deprecated alias for --no-hierarchy.",
+)
+@click.option(
+    "--dynamo/--no-dynamo",
+    "dynamo",
+    default=False,
+    show_default=True,
     help="Enable PyTorch 2.9+ dynamo export for rich node metadata",
 )
 @click.option(
@@ -132,7 +139,8 @@ def export(
     verbose: int,
     quiet: bool,
     with_report: bool,
-    no_hierarchy: bool,
+    hierarchy: bool,
+    clean_onnx: bool,
     dynamo: bool,
     torch_module: str | None,
     task: str | None,
@@ -195,14 +203,26 @@ def export(
         _build_export_dict = ec
         if not cli_utils.is_cli_provided(ctx, "task") and "task" in lc:
             task = lc["task"]
-        if not cli_utils.is_cli_provided(ctx, "no_hierarchy") and "enable_hierarchy_tags" in ec:
-            no_hierarchy = not ec["enable_hierarchy_tags"]
+        if (
+            not cli_utils.is_cli_provided(ctx, "hierarchy")
+            and not cli_utils.is_cli_provided(ctx, "clean_onnx")
+            and "enable_hierarchy_tags" in ec
+        ):
+            hierarchy = ec["enable_hierarchy_tags"]
         if not cli_utils.is_cli_provided(ctx, "dynamo") and "dynamo" in ec:
             dynamo = ec["dynamo"]
 
     from ..export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
     from ..export import export_pytorch as export_onnx
     from ..loader import load_hf_model
+
+    if clean_onnx:
+        click.echo(
+            "warning: --clean-onnx is deprecated; use --no-hierarchy instead.",
+            err=True,
+        )
+        if not cli_utils.is_cli_provided(ctx, "hierarchy"):
+            hierarchy = False
 
     # Configure logging — stderr only, shared format with the rest of the CLI.
     configure_logging(verbosity=verbose, quiet=quiet)
@@ -332,8 +352,8 @@ def export(
     # Layer 2: --export-config file overrides
     config_kwargs.update(export_config_dict)
     # Layer 3: explicit CLI options (highest precedence)
-    if cli_utils.is_cli_provided(ctx, "no_hierarchy"):
-        config_kwargs["enable_hierarchy_tags"] = not no_hierarchy
+    if cli_utils.is_cli_provided(ctx, "hierarchy") or cli_utils.is_cli_provided(ctx, "clean_onnx"):
+        config_kwargs["enable_hierarchy_tags"] = hierarchy
     if cli_utils.is_cli_provided(ctx, "verbose"):
         config_kwargs["verbose"] = bool(verbose)
     if cli_utils.is_cli_provided(ctx, "dynamo"):

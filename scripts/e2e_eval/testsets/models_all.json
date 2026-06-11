@@ -550,7 +550,10 @@
     "downloads": 476558,
     "last_update_time": "2024-02-09T08:58:56+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 2,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "Intel/dpt-large",
@@ -561,7 +564,10 @@
     "downloads": 66162,
     "last_update_time": "2024-02-24T11:22:17+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 8,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "Intel/zoedepth-nyu-kitti",
@@ -572,7 +578,10 @@
     "downloads": 248162,
     "last_update_time": "2024-05-20T15:06:27+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 4,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
@@ -685,7 +694,10 @@
     "downloads": 64593,
     "last_update_time": "2024-01-25T08:13:34+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 9,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "LiheYoung/depth-anything-large-hf",
@@ -696,7 +708,10 @@
     "downloads": 356918,
     "last_update_time": "2024-01-25T08:13:11+00:00",
     "optimum_supported": false,
-    "order": 3
+    "order": 3,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "LiheYoung/depth-anything-small-hf",
@@ -707,7 +722,10 @@
     "downloads": 115724,
     "last_update_time": "2024-01-25T08:12:14+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 7,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "MCG-NJU/videomae-base",
@@ -895,6 +913,28 @@
     "downloads": 1770,
     "last_update_time": "2024-04-20T18:03:39+00:00",
     "optimum_supported": true,
+    "order": 9
+  },
+  {
+    "hf_id": "PaddlePaddle/PP-OCRv5_server_det",
+    "task": "image-to-text",
+    "model_type": "unknown",
+    "group": "ISV",
+    "priority": "P1",
+    "downloads": 623512,
+    "last_update_time": "2025-07-22T10:03:07+00:00",
+    "optimum_supported": false,
+    "order": 4
+  },
+  {
+    "hf_id": "PaddlePaddle/PP-OCRv5_server_rec",
+    "task": "image-to-text",
+    "model_type": "unknown",
+    "group": "ISV",
+    "priority": "P1",
+    "downloads": 196930,
+    "last_update_time": "2025-07-22T10:04:11+00:00",
+    "optimum_supported": false,
     "order": 9
   },
   {
@@ -1292,7 +1332,10 @@
     "downloads": 2142214,
     "last_update_time": "2025-02-03T06:45:16+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 1,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "Salesforce/blip-vqa-base",
@@ -1609,7 +1652,7 @@
     "downloads": 89372,
     "last_update_time": "2023-12-11T14:31:20+00:00",
     "optimum_supported": true,
-    "order": 11
+    "order": 13
   },
   {
     "hf_id": "alibaba-pai/Wan2.1-Fun-14B-Control",
@@ -1653,7 +1696,10 @@
     "downloads": 25173,
     "last_update_time": "2025-02-28T18:31:40+00:00",
     "optimum_supported": false,
-    "order": 11
+    "order": 11,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "apple/mobilevit-small",
@@ -2048,7 +2094,10 @@
     "downloads": 54287,
     "last_update_time": "2024-07-05T11:29:09+00:00",
     "optimum_supported": false,
-    "order": 10
+    "order": 10,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "depth-anything/Depth-Anything-V2-Large-hf",
@@ -2059,7 +2108,10 @@
     "downloads": 201936,
     "last_update_time": "2024-07-05T11:30:29+00:00",
     "optimum_supported": false,
-    "order": 5
+    "order": 5,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "depth-anything/Depth-Anything-V2-Small-hf",
@@ -2070,7 +2122,10 @@
     "downloads": 1921591,
     "last_update_time": "2024-07-05T11:38:31+00:00",
     "optimum_supported": false,
-    "order": 1
+    "order": 1,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "dima806/fairface_age_image_detection",
@@ -2420,7 +2475,7 @@
     "downloads": 324203,
     "last_update_time": "2023-11-20T09:26:49+00:00",
     "optimum_supported": true,
-    "order": 4
+    "order": 5
   },
   {
     "hf_id": "facebook/opt-125m",
@@ -3377,7 +3432,7 @@
     "downloads": 293788,
     "last_update_time": "2022-06-22T15:34:05+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 6
   },
   {
     "hf_id": "knkarthick/MEETING_SUMMARY",
@@ -3595,9 +3650,6 @@
     "downloads": 678552,
     "last_update_time": "2025-03-03T02:06:53+00:00",
     "optimum_supported": true,
-    "tags": [
-      "acc"
-    ],
     "order": 5
   },
   {
@@ -3905,7 +3957,10 @@
     "downloads": 155321,
     "last_update_time": "2025-02-11T04:26:58+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 11,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "microsoft/trocr-base-printed",
@@ -3916,7 +3971,10 @@
     "downloads": 719870,
     "last_update_time": "2024-05-27T20:11:53+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 2,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "microsoft/trocr-large-handwritten",
@@ -3927,7 +3985,10 @@
     "downloads": 204436,
     "last_update_time": "2024-05-27T20:10:58+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 8,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "microsoft/trocr-large-printed",
@@ -3938,7 +3999,10 @@
     "downloads": 169946,
     "last_update_time": "2024-05-27T20:09:18+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 10,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "microsoft/xclip-base-patch32",
@@ -4029,7 +4093,7 @@
     "downloads": 152510,
     "last_update_time": "2022-08-13T08:27:12+00:00",
     "optimum_supported": true,
-    "order": 10
+    "order": 12
   },
   {
     "hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
@@ -4040,7 +4104,7 @@
     "downloads": 19477,
     "last_update_time": "2022-08-13T08:28:13+00:00",
     "optimum_supported": true,
-    "order": 12
+    "order": 14
   },
   {
     "hf_id": "naver-clova-ix/donut-base-finetuned-docvqa",
@@ -4073,7 +4137,7 @@
     "downloads": 253548,
     "last_update_time": "2023-02-27T15:00:09+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 7
   },
   {
     "hf_id": "nomic-ai/nomic-embed-vision-v1.5",
@@ -4406,8 +4470,8 @@
     "hf_id": "openai/clip-vit-large-patch14-336",
     "task": "zero-shot-image-classification",
     "model_type": "clip",
-    "group": "Top200",
-    "priority": "P2",
+    "group": "ISV",
+    "priority": "P1",
     "downloads": 18919844,
     "last_update_time": "2022-10-04T09:41:39+00:00",
     "optimum_supported": true,
@@ -4847,8 +4911,8 @@
     "priority": "P1",
     "downloads": 0,
     "last_update_time": "2024-01-01T00:00:00+00:00",
-    "optimum_supported": true,
-    "order": 1
+    "optimum_supported": false,
+    "order": 15
   },
   {
     "hf_id": "timm/repghostnet_200.in1k",
@@ -4858,8 +4922,8 @@
     "priority": "P1",
     "downloads": 0,
     "last_update_time": "2024-01-01T00:00:00+00:00",
-    "optimum_supported": true,
-    "order": 2
+    "optimum_supported": false,
+    "order": 16
   },
   {
     "hf_id": "timpal0l/mdeberta-v3-base-squad2",
@@ -5099,7 +5163,10 @@
     "downloads": 187273,
     "last_update_time": "2025-03-26T11:47:43+00:00",
     "optimum_supported": false,
-    "order": 6
+    "order": 6,
+    "tags": [
+      "acc"
+    ]
   },
   {
     "hf_id": "zai-org/GLM-OCR",

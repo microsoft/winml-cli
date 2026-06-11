@@ -271,7 +271,24 @@ def _detect_task_from_config(config: PretrainedConfig) -> str:
     """
     model_class = _resolve_model_class_from_config(config)
     task = _detect_task_from_model_class(model_class)
+    task = _upgrade_fill_mask_for_seq2seq(task, config)
     logger.info("Detected task: %s (from %s)", task, model_class.__name__)
+    return task
+
+
+def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
+    """Correct Optimum's ``fill-mask`` mislabel for encoder-decoder generation heads.
+
+    ``TasksManager`` maps some encoder-decoder ``*ForConditionalGeneration`` classes
+    (e.g. ``BartForConditionalGeneration``) to ``fill-mask``. A real masked-LM is
+    encoder-only, so a config that is ``is_encoder_decoder`` yet reported as
+    ``fill-mask`` is actually a seq2seq generator -> ``text2text-generation``.
+    Architecture-agnostic: keyed on the ``is_encoder_decoder`` flag, not model names.
+    Requires the flag to be explicitly ``True`` (HF configs set a real bool) so a
+    partial/duck-typed config without the field is never silently upgraded.
+    """
+    if task == "fill-mask" and getattr(config, "is_encoder_decoder", False) is True:
+        return "text2text-generation"
     return task
 
 
@@ -337,11 +354,21 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
     task: str | None = None
     source = "none"
 
-    # 1. Explicit (model_type, task) mapping wins.
-    for mt, mapped_task in HF_MODEL_CLASS_MAPPING:
-        if mt == model_type_normalized:
-            task, source = mapped_task, "HF_MODEL_CLASS_MAPPING"
-            break
+    # 1. Explicit (model_type, task) mapping wins — but only when unambiguous.
+    #    The mapping is keyed by (model_type, task) and a model_type may appear
+    #    under several tasks: encoder-decoder types (bart/t5: feature-extraction +
+    #    text2text-generation) plus an optional (model_type, None) default-class
+    #    sentinel. Detection therefore short-circuits only when the model_type maps
+    #    to exactly one *real* (non-None) task. With multiple distinct tasks the
+    #    architecture head is what disambiguates, so fall through to step 3 instead
+    #    of guessing; the None sentinel alone never decides the task.
+    distinct_tasks: set[str] = {
+        mapped
+        for mt, mapped in HF_MODEL_CLASS_MAPPING
+        if mt == model_type_normalized and mapped is not None
+    }
+    if len(distinct_tasks) == 1:
+        task, source = next(iter(distinct_tasks)), "HF_MODEL_CLASS_MAPPING"
 
     # 2. Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
     #    `architectures`; resolve through their wrapped library instead of the
@@ -471,6 +498,11 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
                 # default. If one ever exposes multiple, supported[0] is an
                 # arbitrary pick -- warn (listing the tasks) but still proceed;
                 # pass --task to choose a different one.
+                # No _upgrade_fill_mask_for_seq2seq here: this task comes from the
+                # wrapped library's ONNX export list (get_supported_tasks), not from
+                # class->task inference, so the optimum fill-mask mislabel cannot
+                # arise on this path; rewriting could also yield a task outside that
+                # list. The correction is intentionally scoped to the class->task paths.
                 task = supported[0]
                 if len(supported) > 1:
                     logger.warning(
@@ -498,6 +530,7 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
 
     # [2] Infer task from model class
     task = _detect_task_from_model_class(arch_model_class)
+    task = _upgrade_fill_mask_for_seq2seq(task, config)
     logger.info("Detected task: %s (from %s)", task, arch_name)
 
     # [3] Get model_type - REQUIRED for specialization lookup

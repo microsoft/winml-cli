@@ -10,6 +10,7 @@ NO WinMLAutoModel involvement, NO actual inference.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -279,14 +280,22 @@ class TestPerfUnifiedPipeline:
         override = mock_from_pretrained.call_args.kwargs["config"]
         assert override is None
 
-    def test_cli_onnx_goes_through_onnx_benchmark(self, runner: CliRunner, tmp_path: Path) -> None:
-        """CLI with .onnx file should route through _run_onnx_benchmark."""
+    def test_cli_onnx_routes_through_perf_benchmark(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """CLI with .onnx file should route through the same PerfBenchmark as HF.
+
+        Both paths must share the build+benchmark pipeline so latency numbers
+        from `winml perf -m hf/id` and `winml perf -m <built.onnx>` are
+        comparable (issue #596).
+        """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
 
         with (
-            patch(
-                "winml.modelkit.commands.perf._run_onnx_benchmark",
+            patch.object(
+                PerfBenchmark,
+                "run",
                 return_value=MagicMock(),
             ) as mock_run,
             patch(
@@ -304,6 +313,55 @@ class TestPerfUnifiedPipeline:
 
         assert result.exit_code == 0, result.output
         mock_run.assert_called_once()
+
+    def test_cli_onnx_clears_shape_config_with_warning(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """ONNX input with --shape-config: warn + clear shape_config before PerfBenchmark.
+
+        Shapes are baked into a pre-exported ONNX, so --shape-config is silently
+        ignored; we want to be sure the CLI both surfaces the warning to the
+        user and actually drops the override before constructing PerfBenchmark.
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        shape_cfg_file = tmp_path / "shapes.json"
+        shape_cfg_file.write_text(json.dumps({"input_ids": [1, 128]}))
+
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--shape-config",
+                    str(shape_cfg_file),
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "shape-config is ignored" in result.output
+        assert "Benchmarking ONNX" in result.output
+        assert captured["config"].shape_config is None
 
     def test_cli_onnx_not_found_error(self, runner: CliRunner, tmp_path: Path) -> None:
         """CLI with non-existent .onnx file should raise FileNotFoundError."""
@@ -337,3 +395,118 @@ class TestPerfUnifiedPipeline:
             benchmark._load_model()
 
         assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
+
+
+# =============================================================================
+# --FORMAT JSON TESTS
+# =============================================================================
+
+
+class TestPerfFormatJson:
+    """Test --format json produces structured JSON to stdout."""
+
+    def test_help_shows_format_option(self, runner: CliRunner) -> None:
+        """--format flag must appear in --help output."""
+        result = runner.invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        assert "--format" in result.output
+        assert "json" in result.output
+
+    def test_invalid_format_rejected(self, runner: CliRunner) -> None:
+        """An invalid --format value must be rejected by Click."""
+        result = runner.invoke(perf, ["-m", "test", "--format", "xml"], obj={})
+        assert result.exit_code != 0
+
+    @patch("winml.modelkit.commands.perf.PerfBenchmark")
+    def test_format_json_emits_valid_json(
+        self, mock_benchmark_class: MagicMock, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--format json must produce parseable JSON on stdout.
+
+        Note: CliRunner mixes stderr into result.output; in production the
+        Console(stderr=True) keeps stdout clean. Extract JSON from mixed output.
+        """
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {
+            "benchmark_info": {
+                "model_id": "microsoft/resnet-50",
+                "task": "image-classification",
+                "device": "cpu",
+                "ep": None,
+            },
+            "latency_ms": {"mean": 18.3, "p50": 17.5, "p90": 21.7},
+            "throughput": {"samples_per_sec": 54.6},
+        }
+        mock_instance = MagicMock()
+        mock_instance.run.return_value = mock_result
+        mock_benchmark_class.return_value = mock_instance
+
+        output_file = tmp_path / "result.json"
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "microsoft/resnet-50",
+                "--format",
+                "json",
+                "--output",
+                str(output_file),
+            ],
+            obj={},
+        )
+
+        assert result.exit_code == 0
+        # Extract JSON object from mixed output (CliRunner mixes stderr)
+        output = result.output
+        json_start = output.index("{")
+        json_end = output.rindex("}") + 1
+        parsed = json.loads(output[json_start:json_end])
+        assert parsed["benchmark_info"]["model_id"] == "microsoft/resnet-50"
+        assert "latency_ms" in parsed
+
+    @patch("winml.modelkit.commands.perf.PerfBenchmark")
+    def test_format_text_shows_console_report(
+        self, mock_benchmark_class: MagicMock, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Default --format text must not emit raw JSON."""
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {"benchmark_info": {"model_id": "test"}}
+        mock_result.config = MagicMock()
+        mock_result.config.model_id = "test"
+        mock_result.actual_device = "cpu"
+        mock_result.actual_task = "cls"
+        mock_result.actual_ep = None
+        mock_result.mean_ms = 10.0
+        mock_result.min_ms = 9.0
+        mock_result.max_ms = 11.0
+        mock_result.p50_ms = 10.0
+        mock_result.p90_ms = 10.5
+        mock_result.p95_ms = 10.8
+        mock_result.p99_ms = 11.0
+        mock_result.std_ms = 0.5
+        mock_result.warmup_mean_ms = 12.0
+        mock_result.samples_per_sec = 100.0
+        mock_result.batches_per_sec = 100.0
+        mock_result.hw_monitor = None
+        mock_instance = MagicMock()
+        mock_instance.run.return_value = mock_result
+        mock_benchmark_class.return_value = mock_instance
+
+        output_file = tmp_path / "result.json"
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "test",
+                "--output",
+                str(output_file),
+            ],
+            obj={},
+        )
+
+        assert result.exit_code == 0
+        # Should NOT be parseable as JSON (it's console text)
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(result.output)

@@ -126,10 +126,11 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     help="Source library for TasksManager (default: transformers)",
 )
 @click.option(
-    "--no-quant",
-    is_flag=True,
-    default=False,
-    help="Exclude quantization from generated config (sets quant=None)",
+    "--quant/--no-quant",
+    "quant",
+    default=True,
+    show_default=True,
+    help="Include quantization in generated config (use --no-quant to exclude, sets quant=None)",
 )
 @click.option(
     "--no-compile/--compile",
@@ -156,7 +157,7 @@ def config(
     library_name: str,
     verbose: int,
     quiet: bool,
-    no_quant: bool,
+    quant: bool,
     no_compile: bool,
     trust_remote_code: bool,
 ) -> None:
@@ -289,7 +290,7 @@ def config(
             )
 
             # Apply --no-quant / --no-compile overrides
-            _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
+            _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
 
             output_data = config_obj.to_dict()
             _is_onnx_mode = True
@@ -319,7 +320,7 @@ def config(
                     precision=precision,
                     trust_remote_code=trust_remote_code,
                     ep=ep,
-                    no_quant=no_quant,
+                    no_quant=not quant,
                     no_compile=no_compile,
                     output=output,
                     console=console,
@@ -346,7 +347,7 @@ def config(
             if isinstance(result, list):
                 configs = result
                 for cfg in configs:
-                    _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
+                    _apply_stage_overrides(cfg, no_quant=not quant, no_compile=no_compile)
                 output_data = [cfg.to_dict() for cfg in configs]
                 _n_modules = len(configs)
                 # Use first config for display metadata
@@ -354,7 +355,7 @@ def config(
             else:
                 config_obj = result
                 configs = []
-                _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
+                _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
                 output_data = config_obj.to_dict()
                 _n_modules = 0
 
@@ -483,31 +484,104 @@ def _resolve_composite_model_components(
     task: str | None,
     trust_remote_code: bool = False,
 ) -> dict[str, str] | None:
-    """Check if (model_type, task) is a registered composite model.
+    """Resolve the composite sub-component config for a build.
 
-    Returns _SUB_MODEL_CONFIG dict if found, None otherwise.
+    Returns the composite ``_SUB_MODEL_CONFIG`` (one entry per sub-component) when
+    the model maps to a registered composite, else ``None``.
+
+    With an explicit *task* this is a direct ``(model_type, task)`` registry lookup
+    (covers every composite kind: encoder-decoder, decoder-only, dual-encoder).
+
+    Without a task (#850), an encoder-decoder model would otherwise auto-detect to a
+    *component* task (``text2text-generation``) and export the decoder alone -- a
+    non-runnable half whose ``encoder_hidden_states`` input has no producer. So the
+    no-task path detects the task with the *same* ``detect_task`` that ``inspect``
+    uses, then expands to the registered composite when the detected task is one that
+    composite serves -- so no-task routing matches explicit ``--task`` routing for the
+    same model (e.g. qwen3 -> its decoder prefill+gen composite). A checkpoint whose
+    detected task is not a composite task (a sequence-classification BART ->
+    ``text-classification``, a T5 encoder -> ``feature-extraction``) stays a single
+    model, consistent with ``inspect``.
     """
-    if task is None:
-        return None
-
     import winml.modelkit.models.hf  # noqa: F401  # trigger pipeline registrations
 
     from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-    # Resolve model_type from HF config if not provided
-    resolved_type = model_type
-    if resolved_type is None and hf_model is not None:
-        from transformers import AutoConfig
+    if task is not None:
+        resolved_type = model_type
+        if resolved_type is None and hf_model is not None:
+            from transformers import AutoConfig
 
-        resolved_type = AutoConfig.from_pretrained(
-            hf_model, trust_remote_code=trust_remote_code
-        ).model_type
+            resolved_type = AutoConfig.from_pretrained(
+                hf_model, trust_remote_code=trust_remote_code
+            ).model_type
+        if resolved_type is None:
+            return None
+        cls = COMPOSITE_MODEL_REGISTRY.get((resolved_type, task))
+        return cls._SUB_MODEL_CONFIG if cls is not None else None
 
+    # No --task: detect the task as `inspect` does, then expand seq2seq generators.
+    from transformers import AutoConfig
+
+    if hf_model is not None:
+        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+    elif model_type is not None:
+        config = AutoConfig.for_model(model_type)
+    else:
+        return None
+
+    resolved_type = model_type or getattr(config, "model_type", None)
     if resolved_type is None:
         return None
 
-    cls = COMPOSITE_MODEL_REGISTRY.get((resolved_type, task))
-    return cls._SUB_MODEL_CONFIG if cls is not None else None
+    from ..loader import detect_task
+
+    detected_task, _ = detect_task(config)
+    return _composite_components_for_task(resolved_type, detected_task)
+
+
+def _composite_components_for_task(model_type: str, task: str) -> dict[str, str] | None:
+    """Return the composite ``_SUB_MODEL_CONFIG`` serving ``(model_type, task)``, else ``None``.
+
+    A composite *serves* ``task`` when ``task`` is its registration task (e.g. qwen3's
+    ``text-generation``, blip's ``image-to-text``) or the canonical seq2seq-LM
+    generation task (``text2text-generation`` -- what ``detect_task`` yields for the
+    t5/bart/marian generators whose composites are registered under pipeline tasks
+    like translation/summarization). Eligible across every ``WinMLCompositeModel``
+    kind (encoder-decoder, decoder-only, dual-encoder), so no-task routing matches
+    explicit ``--task`` routing for the same model. A checkpoint whose detected task
+    is not a registered composite task -- a sequence-classification BART ->
+    ``text-classification``, a T5 encoder or CLIP -> ``feature-extraction`` -- stays a
+    single model, consistent with ``inspect``.
+
+    Multiple pipeline tasks for one model_type decorate the same class (identical
+    export), so candidates are deduped by export shape: one distinct shape -> use it;
+    more than one (none today) -> ambiguous, so require an explicit ``--task``.
+    """
+    from ..models.winml import WinMLCompositeModel
+    from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
+
+    # detect_task yields this export task for a seq2seq generator whose composite is
+    # registered under a pipeline task (translation/summarization), so bridge it here.
+    # Universal HF/Optimum task taxonomy, not a model name.
+    seq2seq_generation_task = "text2text-generation"
+
+    distinct: dict[tuple, type[WinMLCompositeModel]] = {}
+    for (m_type, reg_task), cls in COMPOSITE_MODEL_REGISTRY.items():
+        if m_type != model_type or not issubclass(cls, WinMLCompositeModel):
+            continue
+        if task in (reg_task, seq2seq_generation_task):
+            distinct[tuple(sorted(cls._SUB_MODEL_CONFIG.items()))] = cls
+
+    if not distinct:
+        return None
+    if len(distinct) == 1:
+        return next(iter(distinct.values()))._SUB_MODEL_CONFIG
+
+    tasks = sorted(t for (mt, t) in COMPOSITE_MODEL_REGISTRY if mt == model_type)
+    raise ValueError(
+        f"{model_type!r} has multiple composite exports; pass --task explicitly (one of: {tasks})."
+    )
 
 
 def _generate_pipeline_configs(
