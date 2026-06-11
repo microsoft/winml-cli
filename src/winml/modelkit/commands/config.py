@@ -497,11 +497,12 @@ def _resolve_composite_model_components(
     *component* task (``text2text-generation``) and export the decoder alone -- a
     non-runnable half whose ``encoder_hidden_states`` input has no producer. So the
     no-task path detects the task with the *same* ``detect_task`` that ``inspect``
-    uses, then expands to the encoder-decoder composite only when the detected task
-    is one a seq2seq composite serves. A non-generation checkpoint of a
-    seq2seq-capable architecture (a sequence-classification BART ->
-    ``text-classification``, a T5 encoder -> ``feature-extraction``) therefore stays
-    a single model, consistent with ``inspect``.
+    uses, then expands to the registered composite when the detected task is one that
+    composite serves -- so no-task routing matches explicit ``--task`` routing for the
+    same model (e.g. qwen3 -> its decoder prefill+gen composite). A checkpoint whose
+    detected task is not a composite task (a sequence-classification BART ->
+    ``text-classification``, a T5 encoder -> ``feature-extraction``) stays a single
+    model, consistent with ``inspect``.
     """
     import winml.modelkit.models.hf  # noqa: F401  # trigger pipeline registrations
 
@@ -537,38 +538,38 @@ def _resolve_composite_model_components(
     from ..loader import detect_task
 
     detected_task, _ = detect_task(config)
-    return _encoder_decoder_composite_components(resolved_type, detected_task)
+    return _composite_components_for_task(resolved_type, detected_task)
 
 
-def _encoder_decoder_composite_components(model_type: str, task: str) -> dict[str, str] | None:
-    """Return the encoder-decoder composite ``_SUB_MODEL_CONFIG`` serving ``(model_type, task)``.
+def _composite_components_for_task(model_type: str, task: str) -> dict[str, str] | None:
+    """Return the composite ``_SUB_MODEL_CONFIG`` serving ``(model_type, task)``, else ``None``.
 
-    A composite *serves* ``task`` when ``task`` is its registration task (e.g. blip's
-    ``image-to-text``) or the canonical seq2seq-LM generation task
-    (``text2text-generation`` -- what ``detect_task`` yields for the t5/bart/marian
-    generators whose composites are registered under pipeline tasks like
-    translation/summarization). Gated on the ``WinMLEncoderDecoderModel`` base class
-    (not the raw ``is_encoder_decoder`` flag, which BLIP reports ``False``), so
-    decoder-only (qwen3) and dual-encoder (clip/siglip) composites are excluded.
-    Returns ``None`` when no encoder-decoder composite serves the task -- e.g. an
-    encoder-only ``feature-extraction`` or a ``text-classification`` head, which then
-    stay single-model (consistent with ``inspect``).
+    A composite *serves* ``task`` when ``task`` is its registration task (e.g. qwen3's
+    ``text-generation``, blip's ``image-to-text``) or the canonical seq2seq-LM
+    generation task (``text2text-generation`` -- what ``detect_task`` yields for the
+    t5/bart/marian generators whose composites are registered under pipeline tasks
+    like translation/summarization). Eligible across every ``WinMLCompositeModel``
+    kind (encoder-decoder, decoder-only, dual-encoder), so no-task routing matches
+    explicit ``--task`` routing for the same model. A checkpoint whose detected task
+    is not a registered composite task -- a sequence-classification BART ->
+    ``text-classification``, a T5 encoder or CLIP -> ``feature-extraction`` -- stays a
+    single model, consistent with ``inspect``.
 
     Multiple pipeline tasks for one model_type decorate the same class (identical
     export), so candidates are deduped by export shape: one distinct shape -> use it;
     more than one (none today) -> ambiguous, so require an explicit ``--task``.
     """
-    from ..models.winml import WinMLEncoderDecoderModel
+    from ..models.winml import WinMLCompositeModel
     from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-    # The export-side generation task every encoder-decoder composite's decoder
-    # produces; detect_task yields this for a seq2seq generator. Universal HF/Optimum
-    # task taxonomy, not a model name.
+    # detect_task yields this export task for a seq2seq generator whose composite is
+    # registered under a pipeline task (translation/summarization), so bridge it here.
+    # Universal HF/Optimum task taxonomy, not a model name.
     seq2seq_generation_task = "text2text-generation"
 
-    distinct: dict[tuple, type[WinMLEncoderDecoderModel]] = {}
+    distinct: dict[tuple, type[WinMLCompositeModel]] = {}
     for (m_type, reg_task), cls in COMPOSITE_MODEL_REGISTRY.items():
-        if m_type != model_type or not issubclass(cls, WinMLEncoderDecoderModel):
+        if m_type != model_type or not issubclass(cls, WinMLCompositeModel):
             continue
         if task in (reg_task, seq2seq_generation_task):
             distinct[tuple(sorted(cls._SUB_MODEL_CONFIG.items()))] = cls

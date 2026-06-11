@@ -7,10 +7,11 @@
 An encoder-decoder model built without ``--task`` must export the full
 encoder+decoder composite, not a decoder-only half whose ``encoder_hidden_states``
 input has no producer. The no-task path detects the task with the *same*
-``detect_task`` that ``inspect`` uses, then expands to the composite only when the
-detected task is one a seq2seq composite serves -- so a non-generation checkpoint
-of a seq2seq-capable architecture (sequence-classification BART, a T5 encoder)
-stays a single model, consistent with ``inspect``.
+``detect_task`` that ``inspect`` uses, then expands to the registered composite when
+the detected task is one that composite serves (so no-task routing matches explicit
+``--task`` for the same model). A checkpoint whose detected task isn't a composite
+task (sequence-classification BART, a T5 encoder, a CLIP) stays a single model,
+consistent with ``inspect``.
 
 The routing logic is exercised as a pure ``(model_type, detected_task)`` helper
 (deterministic, offline); the full resolver is exercised with crafted real
@@ -22,10 +23,10 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from transformers import BartConfig, T5Config
+from transformers import BartConfig, Qwen3Config, T5Config
 
 from winml.modelkit.commands.config import (
-    _encoder_decoder_composite_components as _serve,
+    _composite_components_for_task as _serve,
 )
 from winml.modelkit.commands.config import (
     _resolve_composite_model_components as _resolve,
@@ -75,9 +76,18 @@ def test_bart_fill_mask_defers_until_detection_fix() -> None:
     assert _serve("bart", "fill-mask") is None
 
 
-def test_decoder_only_composite_excluded() -> None:
-    """qwen3 is a decoder-only composite; the encoder-decoder gate must exclude it."""
-    assert _serve("qwen3", "text-generation") is None
+def test_decoder_only_composite_expands() -> None:
+    """qwen3 (decoder-only) also has a registered composite; no-task must route to it,
+    matching explicit ``--task text-generation`` (the prefill + gen split)."""
+    components = _serve("qwen3", "text-generation")
+    assert components is not None
+    assert "decoder_prefill" in components and "decoder_gen" in components
+
+
+def test_dual_encoder_composite_task_mismatch_stays_single() -> None:
+    """CLIP has a zero-shot-image-classification composite, but a no-task CLIP detects
+    feature-extraction; that mismatch keeps it single (not the zero-shot composite)."""
+    assert _serve("clip", "feature-extraction") is None
 
 
 def test_non_composite_model_returns_none() -> None:
@@ -110,6 +120,16 @@ def test_resolver_keeps_classification_checkpoint_single() -> None:
     cfg = BartConfig(architectures=["BartForSequenceClassification"])
     with patch("transformers.AutoConfig.from_pretrained", return_value=cfg):
         assert _resolve("facebook/bart-large-mnli", None, None) is None
+
+
+def test_resolver_expands_decoder_only_checkpoint() -> None:
+    """A no-task decoder-only checkpoint (qwen3) routes to its prefill+gen composite,
+    matching explicit ``--task text-generation``."""
+    cfg = Qwen3Config(architectures=["Qwen3ForCausalLM"])
+    with patch("transformers.AutoConfig.from_pretrained", return_value=cfg):
+        components = _resolve("some/qwen3-checkpoint", None, None)
+    assert components is not None
+    assert "decoder_prefill" in components and "decoder_gen" in components
 
 
 def test_explicit_task_resolves_composite_without_detection() -> None:
