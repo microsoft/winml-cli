@@ -132,11 +132,9 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     show_default=True,
     help="Include quantization in generated config (use --no-quant to exclude, sets quant=None)",
 )
-@click.option(
-    "--no-compile/--compile",
-    "no_compile",
+@cli_utils.compile_option(
     default=True,
-    help="Exclude compilation from generated config (sets compile=None). Default: exclude.",
+    help_text="Exclude compilation from generated config (sets compile=None). Default: exclude.",
 )
 @cli_utils.trust_remote_code_option()
 @cli_utils.verbosity_options()
