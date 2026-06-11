@@ -104,6 +104,15 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         """Path to the ONNX model file."""
         return self._onnx_path
 
+    @property
+    def running_model_path(self) -> Path:
+        """Path to the ONNX model the session actually loads.
+
+        Differs from ``onnx_path`` when the session compiles or reuses an
+        EPContext model. Falls back to ``onnx_path`` before compilation.
+        """
+        return self._session.running_model_path
+
     def _format_inputs(
         self,
         data: torch.Tensor | np.ndarray | list | dict | None = None,

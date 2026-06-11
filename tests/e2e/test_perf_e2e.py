@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -39,10 +39,6 @@ from click.testing import CliRunner
 from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.perf import perf
 from winml.modelkit.utils.constants import EP_ALIASES
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 pytestmark = [pytest.mark.e2e]
@@ -213,6 +209,11 @@ class _PerfBenchmarkSuite:
         assert binfo["iterations"] == 3
         assert binfo["warmup"] == 1
         assert binfo["device"] == "cpu"
+
+        # The real ONNX model ORT loaded is recorded and points at a file
+        running_model = Path(binfo["running_model_path"])
+        assert running_model.suffix == ".onnx"
+        assert running_model.exists()
 
         # Verify latency stats are populated
         latency = data["latency_ms"]

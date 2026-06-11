@@ -126,6 +126,10 @@ class BenchmarkResult:
     actual_task: str = ""
     actual_ep: EPName | None = None
 
+    # ONNX model ORT actually loaded (may be an EPContext model, differing
+    # from the input model_id when compiled or a cached one is reused)
+    running_model_path: str = ""
+
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
 
@@ -134,6 +138,7 @@ class BenchmarkResult:
         result = {
             "benchmark_info": {
                 "model_id": self.config.model_id,
+                "running_model_path": self.running_model_path,
                 "task": self.actual_task,
                 "device": self.actual_device,
                 "ep": self.actual_ep,
@@ -515,6 +520,7 @@ class PerfBenchmark:
             actual_device=self._model.device,
             actual_task=self._model.task or self.config.task or "auto-detected",
             actual_ep=self._model.ep_name,
+            running_model_path=str(self._model.running_model_path),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
         )
@@ -707,6 +713,7 @@ def _perf_modules(
                 mod_stats = stats
                 result_entry: dict[str, Any] = {
                     "module_path": module_path,
+                    "running_model_path": str(session.running_model_path),
                     "mean_ms": round(mod_stats.mean_ms, 3),
                     "p50_ms": round(mod_stats.p50_ms, 3),
                     "p90_ms": round(mod_stats.p90_ms, 3),

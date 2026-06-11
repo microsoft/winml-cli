@@ -183,6 +183,10 @@ class WinMLSession:
         # Single session (one session = one EP)
         self._session: ort.InferenceSession | None = None
 
+        # ONNX model ORT actually loads (set during compile()). May differ from
+        # _onnx_path when an EPContext model is compiled or a cached one reused.
+        self._running_model_path: Path | None = None
+
         # Cached I/O metadata (lazy-loaded)
         self._io_config: dict | None = None
 
@@ -244,6 +248,9 @@ class WinMLSession:
                 except Exception as e:
                     # Some EPs don't support compilation - fall back to original
                     logger.warning("ModelCompiler failed, using original: %s", e)
+
+        # Record the model ORT actually loads (original or EPContext).
+        self._running_model_path = model_path
 
         try:
             # Create InferenceSession.
@@ -504,6 +511,16 @@ class WinMLSession:
     def is_compiled(self) -> bool:
         """Check if session is compiled."""
         return self._session is not None
+
+    @property
+    def running_model_path(self) -> Path:
+        """Path to the ONNX model ORT actually loads.
+
+        May differ from the input ``onnx_path`` when an EPContext model is
+        compiled or a cached one is reused. Falls back to the input path
+        before ``compile()`` runs.
+        """
+        return self._running_model_path or self._onnx_path
 
     @property
     def perf_stats(self) -> PerfStats | None:
