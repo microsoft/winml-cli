@@ -37,7 +37,8 @@ class EPConfig:
         provider_options: EP-specific options as key=value dict
         enable_ep_context: Generate EPContext model with pre-compiled graph
         embed_context: Embed context in ONNX (True) or external .bin file (False)
-        compiler: Compiler backend ("ort" or "qairt")
+        compiler: Compiler backend ("ort", "ort_inference_session", or "qairt").
+            "ort_inference_session" selects the ort.InferenceSession backend.
         qnn_sdk_root: Path to QAIRT SDK root (required when compiler is "qairt")
         device: Target device ("npu", "gpu", "cpu", "auto")
     """
@@ -68,8 +69,6 @@ class WinMLCompileConfig:
         ep_config: Execution provider settings
         validate: Validate compiled model
         verbose: Enable verbose logging
-        use_inference_session: Compile via ort.InferenceSession (ep.context_enable)
-            instead of the default ort.ModelCompiler backend
 
     Examples:
         # Default: QNN compilation
@@ -89,8 +88,6 @@ class WinMLCompileConfig:
     # Behavior
     validate: bool = True
     verbose: bool = False
-    # Compile backend: False -> ort.ModelCompiler (default), True -> ort.InferenceSession.
-    use_inference_session: bool = False
 
     @property
     def device(self) -> str:
@@ -250,7 +247,6 @@ class WinMLCompileConfig:
             ),
             "device": self.ep_config.device,
             "validate": self.validate,
-            "use_inference_session": self.use_inference_session,
         }
 
     @classmethod
@@ -270,5 +266,4 @@ class WinMLCompileConfig:
             ep_config=ep_config,
             validate=data.get("validate", True),
             verbose=data.get("verbose", False),
-            use_inference_session=data.get("use_inference_session", False),
         )

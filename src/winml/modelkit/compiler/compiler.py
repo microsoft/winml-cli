@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 
 # EP → available compilers. Keys are canonical EPName (or None for the default).
 EP_COMPILER_MAPPING: dict[EPName | None, list[str]] = {
-    "QNNExecutionProvider": ["ort", "qairt"],
-    None: ["ort"],
+    "QNNExecutionProvider": ["ort", "ort_inference_session", "qairt"],
+    None: ["ort", "ort_inference_session"],
 }
 
 
@@ -59,23 +59,19 @@ class Compiler:
     # Registered stages (in execution order)
     _stages: list[type[BaseStage]] | None = None
 
-    def __init__(
-        self,
-        n_total_models: int = 1,
-        use_inference_session: bool = False,
-    ) -> None:
+    def __init__(self, n_total_models: int = 1) -> None:
         """Create a compiler.
 
         Args:
             n_total_models: Total number of models compiled by this instance. When
                 >1, the models share a single EP context (weight sharing) and the
                 same shared ``SessionOptions`` is reused across every ``compile``.
-            use_inference_session: Select the ``ort.InferenceSession``
-                (``ep.context_enable``) backend instead of the default
-                ``ort.ModelCompiler``.
+
+        The compile backend (ort.ModelCompiler vs ort.InferenceSession) is taken from
+        the config's ``compiler`` setting ("ort_inference_session" selects the
+        InferenceSession backend), surfaced via ``CompileContext.use_inference_session``.
         """
         self.n_total_models = n_total_models
-        self.use_inference_session = use_inference_session
         # The shared SessionOptions: created by CompileStage on the first model and
         # reused for the rest (kept here so it survives between compile() calls).
         self.inference_session: object | None = None
@@ -141,7 +137,6 @@ class Compiler:
                 verbose=config.verbose,
                 n_compiled_models=self.n_compiled_models,
                 n_total_models=self.n_total_models,
-                use_inference_session=self.use_inference_session,
                 inference_session=self.inference_session,
             )
 
@@ -267,10 +262,9 @@ def compile_multiple_onnx(
     paths = [Path(mp) for mp in model_paths]
     out_dir = Path(output_dir) if output_dir is not None else None
 
-    compiler = Compiler(
-        n_total_models=len(paths),
-        use_inference_session=bool(config and config.use_inference_session),
-    )
+    # Backend is taken from config.ep_config.compiler ("ort_inference_session" selects
+    # the InferenceSession backend), surfaced via CompileContext.use_inference_session.
+    compiler = Compiler(n_total_models=len(paths))
     # Compiled in order so the shared context accumulates and the last model flushes it.
     # Outputs are keyed by filename stem in a single folder, so disambiguate same-named
     # inputs by suffixing the later one(s) instead of overwriting.

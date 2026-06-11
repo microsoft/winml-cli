@@ -76,9 +76,10 @@ console = Console()
 )
 @click.option(
     "--compiler",
-    type=click.Choice(["ort", "qairt"]),
+    type=click.Choice(["ort", "ort_inference_session", "qairt"]),
     default="ort",
-    help="Compiler backend (default: ort)",
+    help="Compiler backend (default: ort). 'ort_inference_session' compiles via "
+    "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model.",
 )
 @click.option(
     "--qnn-sdk-root",
@@ -91,13 +92,6 @@ console = Console()
     default=False,
     show_default=True,
     help="Embed EP context in ONNX file (default: external .bin file)",
-)
-@click.option(
-    "--use-inference-session",
-    is_flag=True,
-    default=False,
-    help="Compile via ort.InferenceSession (ep.context_enable) instead of the default "
-    "ort.ModelCompiler backend.",
 )
 @click.option(
     "--list",
@@ -122,7 +116,6 @@ def compile(
     compiler: str,
     qnn_sdk_root: Path | None,
     embed: bool,
-    use_inference_session: bool,
     list_compilers_flag: bool,
     config_file: Path | None,
 ) -> None:
@@ -163,11 +156,6 @@ def compile(
             compiler = cc["compiler"]
         if not cli_utils.is_cli_provided(ctx, "embed") and "embed_context" in cc:
             embed = cc["embed_context"]
-        if (
-            not cli_utils.is_cli_provided(ctx, "use_inference_session")
-            and "use_inference_session" in cc
-        ):
-            use_inference_session = cc["use_inference_session"]
         if not cli_utils.is_cli_provided(ctx, "validate") and "validate" in cc:
             validate = cc["validate"]
         # Config-file verbosity fallback. CLI flags always win: only honor the
@@ -232,11 +220,9 @@ def compile(
 
     config.validate = validate
     config.verbose = bool(verbose)
-    # CLI flag (merged with any config-file value above) overrides the config; the
-    # actual compilation reads use_inference_session from the config.
-    config.use_inference_session = use_inference_session
 
-    # Set compiler options
+    # Set compiler options. The compiler choice selects the backend:
+    # "ort_inference_session" -> ort.InferenceSession, else ort.ModelCompiler / qairt.
     config.ep_config.compiler = compiler
     config.ep_config.qnn_sdk_root = qnn_sdk_root
     config.ep_config.embed_context = embed
@@ -251,10 +237,6 @@ def compile(
         console.print(f"[bold blue]EP:[/bold blue] {ep}")
     console.print(f"[bold blue]Provider:[/bold blue] {provider}")
     console.print(f"[bold blue]Compiler:[/bold blue] {compiler}")
-    console.print(
-        f"[bold blue]Backend:[/bold blue] "
-        f"{'inference_session' if use_inference_session else 'model_compiler'}"
-    )
     if len(models) > 1:
         console.print(f"[bold blue]Shared EP context:[/bold blue] yes ({len(models)} models)")
     if qnn_sdk_root:
@@ -268,7 +250,7 @@ def compile(
 
     try:
         console.print("\n[bold]Compiling model(s)...[/bold]")
-        if len(models) == 1 and not use_inference_session:
+        if len(models) == 1 and compiler != "ort_inference_session":
             # Default path: single model via ort.ModelCompiler (staged pipeline).
             results = [compile_onnx(models[0], output_path=resolved_output, config=config)]
         else:

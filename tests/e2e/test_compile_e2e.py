@@ -253,7 +253,6 @@ class TestCliSurface:
             "--compiler",
             "--qnn-sdk-root",
             "--embed",
-            "--use-inference-session",
             "--list",
         ):
             assert opt in result.output, f"--help missing {opt}"
@@ -934,8 +933,8 @@ def _sample_for(model_path: Path) -> dict[str, np.ndarray]:
 def test_default_backend_uses_model_compiler(
     simple_matmul_onnx: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """By default (no ``--use-inference-session``), a single-model compile is driven
-    by ``ort.ModelCompiler``."""
+    """By default (``--compiler ort``), a single-model compile is driven by
+    ``ort.ModelCompiler``."""
     require_ep("qnn")
     import onnxruntime as ort
 
@@ -980,12 +979,15 @@ def test_multi_model_shared_weights(
 
     cmd = ["-m", str(m_seq4), "-m", str(m_seq1), "--ep", "qnn", "--output-dir", str(out_dir)]
     if use_inference_session:
-        cmd.append("--use-inference-session")
+        cmd += ["--compiler", "ort_inference_session"]
     result = _invoke(*cmd)
     assert result.exit_code == 0, result.output
     assert "Success! Model compiled" in result.output, result.output
-    expected_backend = "inference_session" if use_inference_session else "model_compiler"
-    assert expected_backend in result.output.lower(), result.output
+    # The InferenceSession backend is selected via --compiler ort_inference_session.
+    if use_inference_session:
+        assert "ort_inference_session" in result.output
+    else:
+        assert "ort_inference_session" not in result.output
 
     # Both compiled wrappers exist + exactly one shared weights bin (weight sharing).
     ctx4 = out_dir / f"{m_seq4.stem}_ctx.onnx"

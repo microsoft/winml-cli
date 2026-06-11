@@ -420,17 +420,17 @@ class TestCompileCommand:
         assert [str(m) for m in passed_models] == [str(m1), str(m2)]
         # Second positional arg is the output target — the --output-dir directory.
         assert call_args.args[1] == out_dir
-        # Backend is carried on the config; defaults to False (model_compiler).
-        assert call_args.args[2].use_inference_session is False
+        # Backend is carried on the config's compiler; defaults to "ort" (ModelCompiler).
+        assert call_args.args[2].ep_config.compiler == "ort"
 
     @patch("winml.modelkit.compiler.compile_multiple_onnx")
-    def test_use_inference_session_flag_overrides_config(
+    def test_inference_session_compiler_sets_config(
         self,
         mock_compile_multiple: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """--use-inference-session sets config.use_inference_session=True for the compile."""
+        """--compiler ort_inference_session is carried on the config used for compilation."""
         m1 = tmp_path / "m1.onnx"
         m2 = tmp_path / "m2.onnx"
         self._create_simple_onnx(m1)
@@ -458,13 +458,14 @@ class TestCompileCommand:
                 "qnn",
                 "--output-dir",
                 str(out_dir),
-                "--use-inference-session",
+                "--compiler",
+                "ort_inference_session",
             ],
         )
 
         assert result.exit_code == 0, result.output
-        # The CLI flag is applied onto the config that drives compilation.
-        assert mock_compile_multiple.call_args.args[2].use_inference_session is True
+        # The compiler choice is applied onto the config that drives compilation.
+        assert mock_compile_multiple.call_args.args[2].ep_config.compiler == "ort_inference_session"
 
     def _create_simple_onnx(self, path: Path) -> None:
         """Create a simple ONNX model for testing."""
