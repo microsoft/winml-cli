@@ -26,17 +26,61 @@ During export the HTP (Hierarchy-preserving Tags Protocol) exporter attaches two
 
 | Key | Value | Example |
 |-----|-------|---------|
-| `winml.hierarchy.tag` | Full module path the node originated from | `/BertModel/BertEncoder/BertLayer.3/BertAttention` |
+| `winml.hierarchy.tag` | Full module path the node originated from | `/BertModel/BertEncoder/BertLayer.0/BertAttention` |
 | `winml.hierarchy.depth` | Number of path segments (integer as string) | `4` |
 
-**How tags are built.** The exporter registers forward hooks on each module in the model. When a module executes, a pre-hook pushes its class name onto a tag stack; the post-hook pops it. This produces hierarchical paths that mirror the PyTorch module tree. Only modules that are actually executed during tracing receive tags — unused modules are excluded. For example, a typical BERT-tiny model has 48 registered modules but only 18 are reached during a forward pass.
+#### How tags are built
 
-**Node-to-module mapping.** After the ONNX graph is produced by `torch.onnx.export`, a 4-priority system assigns each ONNX node to the closest matching module:
+The exporter registers PyTorch forward hooks on each module. When a module executes, a pre-hook pushes its class name onto a tag stack; the post-hook pops it. This produces hierarchical paths that mirror the PyTorch module tree:
 
-1. **Direct match** — the node's scope name maps exactly to a traced module.
-2. **Parent match** — walk up the scope hierarchy until a traced module is found.
-3. **Operation fallback** (optional) — find the most similar scope by common prefix.
-4. **Root fallback** — unmatched nodes receive the model root tag (e.g. `/BertModel`).
+```mermaid
+flowchart LR
+    A[Register hooks] --> B[Run forward pass]
+    B --> C[Pre-hook pushes tag]
+    C --> D[Child modules execute]
+    D --> E[Post-hook pops tag]
+    E --> F[Tag stack → path]
+```
+
+Only modules that are actually executed during tracing receive tags — unused modules are excluded. For example, `prajjwal1/bert-tiny` has 48 registered modules but only 18 are reached during a forward pass.
+
+#### Concrete example: BERT-tiny
+
+Running `winml export -m prajjwal1/bert-tiny -o model.onnx -v` produces the following hierarchy tree (18 traced modules, 132 ONNX nodes, 100 % coverage):
+
+```
+BertModel (132 nodes)
+├── BertEmbeddings: embeddings (7 nodes)
+├── BertEncoder: encoder (106 nodes)
+│   ├── BertLayer: encoder.layer.0 (53 nodes)
+│   │   ├── BertAttention: encoder.layer.0.attention (39 nodes)
+│   │   │   ├── BertSelfOutput: encoder.layer.0.attention.output (4 nodes)
+│   │   │   └── BertSdpaSelfAttention: encoder.layer.0.attention.self (35 nodes)
+│   │   ├── BertIntermediate: encoder.layer.0.intermediate (10 nodes)
+│   │   │   └── GELUActivation: encoder.layer.0.intermediate.intermediate_act_fn (8 nodes)
+│   │   └── BertOutput: encoder.layer.0.output (4 nodes)
+│   └── BertLayer: encoder.layer.1 (53 nodes)
+│       └── ... (same structure)
+└── BertPooler: pooler (0 nodes)
+```
+
+Each ONNX node gets its tag from the module it belongs to. Here are a few examples from the actual exported model:
+
+| ONNX node name | Assigned tag |
+|---------------|--------------|
+| `/embeddings/word_embeddings/Gather` | `/BertModel/BertEmbeddings` |
+| `/encoder/layer.0/attention/self/query/MatMul` | `/BertModel/BertEncoder/BertLayer.0/BertAttention/BertSdpaSelfAttention` |
+| `/encoder/layer.0/intermediate/intermediate_act_fn/Mul` | `/BertModel/BertEncoder/BertLayer.0/BertIntermediate/GELUActivation` |
+| `/Unsqueeze` (no scope) | `/BertModel` (root fallback) |
+
+#### Node-to-module mapping
+
+After the ONNX graph is produced by `torch.onnx.export`, a 4-priority system assigns each ONNX node to the closest matching module:
+
+1. **Direct match** (61 %) — the node's scope name maps exactly to a traced module.
+2. **Parent match** (24 %) — walk up the scope hierarchy until a traced module is found.
+3. **Operation fallback** (optional, off by default) — find the most similar scope by common prefix.
+4. **Root fallback** (14 %) — unmatched nodes receive the model root tag (e.g. `/BertModel`).
 
 This guarantees 100 % tag coverage: every node in the graph carries a non-empty tag.
 
@@ -53,7 +97,14 @@ These I/O specs enable tools like `winml perf` to generate correct dummy inputs 
 
 ### Sidecar metadata file
 
-Alongside the `.onnx` file, the exporter writes a `*_htp_metadata.json` sidecar containing the full hierarchy mapping, tagging coverage statistics, tracing execution summary, and input/output specs in a single queryable JSON document.
+Alongside the `.onnx` file, the exporter writes a `*_htp_metadata.json` sidecar containing:
+
+- **`nodes`** — complete mapping of every ONNX node name → hierarchy tag
+- **`modules`** — traced module information (class name, tag, execution order)
+- **`statistics`** — export time, node counts, coverage percentage
+- **`outputs`** — I/O tensor specifications
+
+Use `--with-report` to additionally generate a human-readable markdown report (`*_htp_export_report.md`).
 
 ### Features that depend on tags
 
