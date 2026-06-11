@@ -19,10 +19,11 @@ $ winml compile [options]
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
 | `--model` | `-m` | path | *(required unless `--list`)* | Input ONNX model file. |
+| `--output` | `-o` | path | — | Output file path (e.g., `model_compiled.onnx`). Takes precedence over `--output-dir`. |
 | `--output-dir` | | path | same dir as input | Directory to write compiled output artifacts. |
 | `--device` | `-d` | choice | `auto` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
 | `--ep` | | choice | `None` | Force a specific execution provider, overriding device-to-provider mapping. Choices: `cpu`, `cuda`, `dml`, `migraphx`, `openvino`, `qnn`, `tensorrt`, `vitisai`. |
-| `--no-validate` | | flag | `false` | Skip validation of the compiled model after compilation. |
+| `--validate` / `--no-validate` | | flag | `--validate` | Run a post-compilation validation pass on the target hardware. Enabled by default; pass `--no-validate` to skip when the target hardware or driver is unavailable. |
 | `--compiler` | | choice | `ort` | Compiler backend: `ort` (ONNX Runtime) or `qairt` (Qualcomm AI Runtime Tools). |
 | `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |
 | `--embed/--no-embed` | | flag | `false` | Embed the EP context blob inside the ONNX file instead of writing a separate `.bin` file. |
@@ -73,8 +74,8 @@ winml compile -m bert-base-uncased_qdq.onnx --embed
 ```
 
 ```bash
-# Compile for GPU using the MIGraphX execution provider
-winml compile -m microsoft_resnet50.onnx --device gpu --ep migraphx
+# Compile for GPU using the OpenVINO execution provider
+winml compile -m microsoft_resnet50.onnx --device gpu --ep openvino
 ```
 
 ## Common pitfalls
