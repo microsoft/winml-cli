@@ -25,7 +25,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --all-extras --all-groups
 
       - name: Check license headers
         run: |
@@ -34,11 +34,23 @@ jobs:
       - name: Lint
         run: uv run ruff check src/ tests/
 
-      # Type-checking is currently advisory: src/ has many pre-existing
-      # mypy errors against the strict config in pyproject.toml. The job
-      # surfaces type issues in CI logs without blocking PRs while the
-      # backlog is worked down. Flip continue-on-error to false (or drop
-      # it) once src/ is clean.
-      - name: Type check (advisory)
+      # Required type check: these folders are clean against the strict
+      # config in pyproject.toml. Any new mypy error here blocks the PR.
+      # Expand the package list as more folders are cleaned up.
+      - name: Type check (required)
+        run: >-
+          uv run mypy
+          -p winml.modelkit.analyze
+          -p winml.modelkit.build
+          -p winml.modelkit.cache
+          -p winml.modelkit.commands
+          -p winml.modelkit.compiler
+          -p winml.modelkit.config
+          -p winml.modelkit.core
+          -p winml.modelkit.data
+
+      # Advisory type check for the rest of the tree: surfaces type issues
+      # in CI logs without blocking PRs while the backlog is worked down.
+      - name: Type check (advisory, full package)
         continue-on-error: true
         run: uv run mypy -p winml.modelkit

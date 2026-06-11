@@ -217,6 +217,32 @@
     }
   },
   {
+    "hf_id": "microsoft/resnet-18",
+    "task": "image-classification",
+    "model_type": "resnet",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "metric": "top1_accuracy",
+      "winml_metric_key": "accuracy"
+    }
+  },
+  {
+    "hf_id": "microsoft/swinv2-tiny-patch4-window16-256",
+    "task": "image-classification",
+    "model_type": "swinv2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "metric": "top1_accuracy",
+      "winml_metric_key": "accuracy"
+    }
+  },
+  {
     "hf_id": "Intel/bert-base-uncased-mrpc",
     "task": "text-classification",
     "model_type": "bert",
@@ -725,6 +751,78 @@
     "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
     "task": "sentence-similarity",
     "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/all-mpnet-base-v2",
+    "task": "feature-extraction",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    "task": "feature-extraction",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-m3",
+    "task": "feature-extraction",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-m3",
+    "task": "sentence-similarity",
+    "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P1",
     "dataset_config": {

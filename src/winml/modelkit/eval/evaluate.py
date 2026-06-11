@@ -208,7 +208,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
             task=config.task,
             device=config.device,
             ep=config.ep,
-            skip_build=True,
+            skip_build=config.skip_build,
             hf_config=hf_config,
         )
         model.config = hf_config
@@ -220,6 +220,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         device=config.device,
         precision=config.precision,
         ep=config.ep,
+        allow_unsupported_nodes=config.allow_unsupported_nodes,
     )
 
 

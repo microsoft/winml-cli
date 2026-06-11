@@ -253,7 +253,7 @@ def _colorize_log_text(text: str, color_code: str) -> str:
 
 def _log_parquet_cache_hit(parquet_path: Path, scope: str) -> None:
     """Emit a light-blue log entry for parquet cache hits."""
-    logger.info(
+    logger.debug(
         _colorize_log_text(
             f"[parquet-cache] {parquet_path.name} hit cache ({scope})",
             _LOG_COLOR_LIGHT_CYAN,
@@ -2498,7 +2498,7 @@ class RuntimeCheckerQuery:
     ) -> PatternRuntime:
         """Run runtime check for subgraph pattern via per-node checks."""
         pattern_name = pattern_match.pattern.__class__.__name__
-        logger.info(
+        logger.debug(
             "Pattern-level aggregated rules are removed; checking individual operators for '%s'",
             pattern_name,
         )

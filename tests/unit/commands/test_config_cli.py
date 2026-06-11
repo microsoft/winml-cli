@@ -64,10 +64,16 @@ def onnx_model_path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def mock_generate_config():
-    """Mock generate_hf_build_config to avoid actual config generation.
+    """Mock the config-generation boundary to avoid network/model loading.
 
     Returns a MagicMock whose to_dict() yields a valid JSON-serializable dict.
     The mock target is the lazy import inside modelkit.commands.config.
+
+    Also mocks ``AutoConfig.from_pretrained``: the command inspects the model's
+    HF config to route encoder-decoder models built without ``--task`` through
+    the full composite (#850). These CLI tests use a placeholder model id, so the
+    model-inspection boundary is mocked to a non-composite ``model_type`` (so the
+    composite probe returns ``None``) and stays network-free.
     """
     mock_cfg = MagicMock()
     mock_cfg.loader.task = "image-classification"
@@ -81,10 +87,19 @@ def mock_generate_config():
         "quant": None,
         "compile": None,
     }
-    with patch(
-        "winml.modelkit.config.generate_hf_build_config",
-        return_value=mock_cfg,
-    ) as mock:
+    from transformers import BertConfig
+
+    # A real (non-composite) config so the no-task composite probe's detect_task
+    # runs without erroring; bert has no encoder-decoder composite -> probe returns
+    # None and the command falls through to the mocked generate_hf_build_config.
+    mock_hf_config = BertConfig()
+    with (
+        patch("transformers.AutoConfig.from_pretrained", return_value=mock_hf_config),
+        patch(
+            "winml.modelkit.config.generate_hf_build_config",
+            return_value=mock_cfg,
+        ) as mock,
+    ):
         yield mock
 
 

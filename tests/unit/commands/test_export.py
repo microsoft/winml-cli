@@ -66,8 +66,11 @@ class TestExportCLIInterface:
         assert "--verbose" in result.output
         assert "-v" in result.output
         assert "--with-report" in result.output
-        assert "--clean-onnx" in result.output
+        assert "--no-with-report" in result.output
+        assert "--hierarchy" in result.output
+        assert "--no-hierarchy" in result.output
         assert "--dynamo" in result.output
+        assert "--no-dynamo" in result.output
         assert "--torch-module" in result.output
         assert "--input-specs" in result.output
         assert "--export-config" in result.output
@@ -80,9 +83,7 @@ class TestExportCLIInterface:
 
         doc = getdoc(export) or ""
         examples = [
-            line.strip()
-            for line in doc.splitlines()
-            if line.strip().startswith("winml export")
+            line.strip() for line in doc.splitlines() if line.strip().startswith("winml export")
         ]
         assert examples, "Expected at least one winml export example in help docstring"
 
@@ -276,13 +277,35 @@ class TestExportExportConfig:
         mock_load_hf_model: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Test --clean-onnx sets enable_hierarchy_tags=False."""
+        """Test --clean-onnx sets enable_hierarchy_tags=False and emits deprecation warning."""
+        from winml.modelkit.commands.export import export
+
+        output_path = tmp_path / "model.onnx"
+        result = runner.invoke(
+            export,
+            ["--model", "test-model", "--output", str(output_path), "--clean-onnx"],
+            obj={"debug": False},
+        )
+
+        call_kwargs = mock_export_onnx.call_args.kwargs
+        config = call_kwargs["export_config"]
+        assert config.enable_hierarchy_tags is False
+        assert "--clean-onnx is deprecated" in result.output
+
+    def test_export_no_hierarchy_disables_hierarchy_tags(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test --no-hierarchy sets enable_hierarchy_tags=False."""
         from winml.modelkit.commands.export import export
 
         output_path = tmp_path / "model.onnx"
         runner.invoke(
             export,
-            ["--model", "test-model", "--output", str(output_path), "--clean-onnx"],
+            ["--model", "test-model", "--output", str(output_path), "--no-hierarchy"],
             obj={"debug": False},
         )
 

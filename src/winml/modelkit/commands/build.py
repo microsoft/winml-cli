@@ -166,6 +166,7 @@ def _build_modules(
     rebuild: bool = False,
     ep: EPNameOrAlias | None = None,
     device: str | None = None,
+    allow_unsupported_nodes: bool = False,
 ) -> list[BuildResult]:
     """Build each module config using init-weight parent for submodule extraction.
 
@@ -182,6 +183,8 @@ def _build_modules(
         rebuild: If True, overwrite existing artifacts.
         ep: Target execution provider for analyzer.
         device: Target device for analyzer.
+        allow_unsupported_nodes: If True, warn instead of failing the build when
+            the analyzer reports unsupported nodes that persist.
 
     Returns:
         List of BuildResult in the same order as *configs*.
@@ -222,6 +225,7 @@ def _build_modules(
             rebuild=rebuild,
             ep=ep,
             device=device,
+            allow_unsupported_nodes=allow_unsupported_nodes,
         )
         results.append(result)
 
@@ -432,22 +436,23 @@ def _validate_loader_tasks_for_model(
     help="Output directory for all build artifacts",
 )
 @click.option(
-    "--use-cache",
-    is_flag=True,
+    "--use-cache/--no-use-cache",
     default=False,
+    show_default=True,
     help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
 )
 @click.option(
-    "--rebuild",
-    is_flag=True,
+    "--rebuild/--no-rebuild",
     default=False,
+    show_default=True,
     help="Overwrite existing artifacts and rebuild",
 )
 @click.option(
-    "--no-quant",
-    is_flag=True,
-    default=False,
-    help="Skip quantization (overrides config)",
+    "--quant/--no-quant",
+    "quant",
+    default=True,
+    show_default=True,
+    help="Enable quantization (use --no-quant to skip, overrides config)",
 )
 @click.option(
     "--no-compile/--compile",
@@ -468,16 +473,18 @@ def _validate_loader_tasks_for_model(
     optional_message="Default: auto-detect.",
 )
 @click.option(
-    "--no-analyze",
-    is_flag=True,
-    default=False,
-    help="Skip analyzer loop during build",
+    "--analyze/--no-analyze",
+    "analyze",
+    default=True,
+    show_default=True,
+    help="Run analyzer loop during build (use --no-analyze to skip)",
 )
 @click.option(
-    "--no-optimize",
-    is_flag=True,
-    default=False,
-    help="Skip optimization (for pre-quantized ONNX models)",
+    "--optimize/--no-optimize",
+    "optimize",
+    default=True,
+    show_default=True,
+    help="Run optimization (use --no-optimize to skip for pre-quantized ONNX models)",
 )
 @click.option(
     "--max-optim-iterations",
@@ -486,6 +493,7 @@ def _validate_loader_tasks_for_model(
     default=None,
     help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
 )
+@cli_utils.allow_unsupported_nodes_option()
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
@@ -498,13 +506,14 @@ def build(
     output_dir: str | None,
     use_cache: bool,
     rebuild: bool,
-    no_quant: bool,
+    quant: bool,
     no_compile: bool | None,
-    no_optimize: bool,
+    optimize: bool,
     ep: EPNameOrAlias | None,
     device: str,
-    no_analyze: bool,
+    analyze: bool,
     max_optim_iterations: int | None,
+    allow_unsupported_nodes: bool,
     trust_remote_code: bool,
     verbose: int,
     quiet: bool,
@@ -573,7 +582,7 @@ def build(
         if config_file is not None:
             config_or_configs = _load_config(
                 config_file,
-                no_quant=no_quant,
+                no_quant=not quant,
                 no_compile=no_compile,
             )
         else:
@@ -586,7 +595,7 @@ def build(
                 trust_remote_code=trust_remote_code,
                 device=device,
             )
-            if no_quant:
+            if not quant:
                 config_or_configs.quant = None
             # Auto-generated configs: compile disabled by default unless
             # --compile was explicitly passed (no_compile=False).
@@ -604,7 +613,7 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(device=device, ep=ep)
-                if no_quant or resolved_quant is None:
+                if not quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
@@ -637,9 +646,7 @@ def build(
         # scratch state when the user passes the wrong file or a
         # hand-edited config (#P1 UX).
         _configs_to_validate: list[WinMLBuildConfig] = (
-            config_or_configs
-            if isinstance(config_or_configs, list)
-            else [config_or_configs]
+            config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
         )
         try:
             for _cfg in _configs_to_validate:
@@ -655,14 +662,18 @@ def build(
 
         # Build extra kwargs for pipeline control
         extra_kwargs: dict[str, Any] = {}
-        if no_optimize:
+        if not optimize:
             extra_kwargs["skip_optimize"] = True
-        if no_analyze:
+        if not analyze:
             extra_kwargs["hack_max_optim_iterations"] = 0
         elif max_optim_iterations is not None:
             extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
+        # Always set (even when False) so downstream pipeline functions can rely
+        # on the key being present, matching the module-mode path which passes
+        # allow_unsupported_nodes explicitly regardless of its value.
+        extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
@@ -697,6 +708,7 @@ def build(
                 rebuild=rebuild,
                 ep=ep,
                 device=device,
+                allow_unsupported_nodes=allow_unsupported_nodes,
             )
 
             # Report per-module results
@@ -967,6 +979,7 @@ def _run_optimize_stage(
     stage_timings: list[tuple[str, float | None]],
     show_io_first: bool = False,
     analyze_output_path: Path | None = None,
+    allow_unsupported_nodes: bool = False,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -1075,6 +1088,7 @@ def _run_optimize_stage(
             ep=ep,
             device=device,
             max_optim_iterations=max_iters,
+            allow_unsupported_nodes=allow_unsupported_nodes,
             on_ep_start=_on_ep_start,
             on_node_result=_on_node_result,
             on_iteration_start=_on_iteration_start,
@@ -1296,6 +1310,7 @@ def _build_hf_pipeline(
     from ..utils.console import StageLive
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
     model_label = model_id or "random-init"
 
     # ── Validate + setup ─────────────────────────────────────────
@@ -1374,6 +1389,7 @@ def _build_hf_pipeline(
         stage_timings=stage_timings,
         show_io_first=False,
         analyze_output_path=analyze_result_path,
+        allow_unsupported_nodes=allow_unsupported_nodes,
     )
 
     # Persist config after autoconf
@@ -1420,6 +1436,7 @@ def _build_onnx_pipeline(
     from ..onnx import copy_onnx_model
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
 
     # ── Validate + setup ─────────────────────────────────────────
     if not onnx_path.exists():
@@ -1468,6 +1485,7 @@ def _build_onnx_pipeline(
         stage_timings=stage_timings,
         show_io_first=True,
         analyze_output_path=analyze_result_path,
+        allow_unsupported_nodes=allow_unsupported_nodes,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
