@@ -49,21 +49,21 @@ class CompileStage(BaseStage):
 
         Two compile paths, selected from the multi-model state on the context:
 
-        * Default (single model, ``ort.ModelCompiler``): the existing
-          ``WinMLSession``-driven path — unchanged.
-        * Plugged (``use_inference_session`` and/or ``n_total_models > 1``): a
-          backend chosen between ``ort.ModelCompiler`` and ``ort.InferenceSession``,
-          reusing one shared ``SessionOptions`` so multiple models share a single
-          EP context (weight sharing).
+        * ``_compile_model_compiler`` (single model, default): the existing
+          ``WinMLSession`` / ``ort.ModelCompiler`` path — unchanged.
+        * ``_compile_inference_session`` (``use_inference_session`` and/or
+          ``n_total_models > 1``): reuses one shared ``SessionOptions`` so multiple
+          models share a single EP context (weight sharing); the backend is
+          ``ort.InferenceSession`` when requested, else ``ort.ModelCompiler``.
         """
         context.log("Starting compile stage")
         start_time = time.time()
 
         try:
             if context.use_inference_session or context.n_total_models > 1:
-                self._compile_plugged(context)
+                self._compile_inference_session(context)
             else:
-                self._compile_default(context)
+                self._compile_model_compiler(context)
 
         except Exception as e:
             context.add_error(f"Compilation failed: {e}")
@@ -76,7 +76,7 @@ class CompileStage(BaseStage):
 
         return context
 
-    def _compile_default(self, context: CompileContext) -> None:
+    def _compile_model_compiler(self, context: CompileContext) -> None:
         """Single-model compile via ``WinMLSession`` (``ort.ModelCompiler``)."""
         # Resolve session class from compiler config
         compiler = context.config.get("compiler", "ort")
@@ -130,7 +130,7 @@ class CompileStage(BaseStage):
         if ep_config.enable_ep_context:
             self._finalize_output(context, model_path, output_dir, device=device)
 
-    def _compile_plugged(self, context: CompileContext) -> None:
+    def _compile_inference_session(self, context: CompileContext) -> None:
         """Multi-model / inference-session compile with a shared EP context.
 
         The shared ``SessionOptions`` (``context.inference_session``) is created on
@@ -153,7 +153,13 @@ class CompileStage(BaseStage):
         output_dir = self._get_output_dir(context)
         output_dir.mkdir(parents=True, exist_ok=True)
         model_path = self._ensure_model_file(context)
-        ctx_path = output_dir / f"{context.model_path.stem}_ctx.onnx"
+        # Honor an explicit output filename (e.g. the de-duplicated <stem>_ctx.onnx
+        # that compile_multiple_onnx assigns); otherwise derive it from the model stem.
+        user_output = context.config.get("output_path")
+        if user_output and Path(user_output).suffix == ".onnx":
+            ctx_path = Path(user_output)
+        else:
+            ctx_path = output_dir / f"{context.model_path.stem}_ctx.onnx"
         backend = "inference_session" if use_is else "model_compiler"
         context.log(
             f"[{backend}] compiling {model_path.name} "

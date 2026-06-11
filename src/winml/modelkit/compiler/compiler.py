@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import tempfile
 import time
 from pathlib import Path
@@ -15,7 +16,12 @@ from .context import CompileContext
 from .result import CompileResult
 
 
+logger = logging.getLogger(__name__)
+
+
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ..utils.constants import EPName
     from .configs import WinMLCompileConfig
     from .stages.base import BaseStage
@@ -235,8 +241,8 @@ def compile_onnx(
 
 
 def compile_multiple_onnx(
-    model_paths: list[str | Path],
-    output_path: str | Path | None = None,
+    model_paths: Sequence[str | Path],
+    output_dir: str | Path | None = None,
     config: WinMLCompileConfig | None = None,
     use_inference_session: bool = False,
 ) -> list[CompileResult]:
@@ -248,21 +254,40 @@ def compile_multiple_onnx(
     default, or ``ort.InferenceSession`` when ``use_inference_session`` is set.
 
     Args:
-        model_paths: Input ONNX model paths.
-        output_path: Output directory (or file) for the compiled models.
+        model_paths: Input ONNX model paths. Each compiles to ``<stem>_ctx.onnx`` in
+            ``output_dir``; inputs that share a filename stem are disambiguated by
+            appending an integer suffix to the later one(s) (with a warning), e.g.
+            ``model_ctx.onnx`` then ``model_1_ctx.onnx``.
+        output_dir: Output directory for the compiled models.
         config: Compilation configuration. ``None`` skips compilation (passthrough).
         use_inference_session: Use the InferenceSession backend.
 
     Returns:
         One :class:`CompileResult` per input model, in order.
     """
+    paths = [Path(mp) for mp in model_paths]
+    out_dir = Path(output_dir) if output_dir is not None else None
+
     compiler = Compiler(
-        n_total_models=len(model_paths),
+        n_total_models=len(paths),
         use_inference_session=use_inference_session,
     )
-    # Compiled in order (the comprehension evaluates left-to-right) so the shared
-    # context accumulates across models and the last one flushes it.
-    return [
-        compiler.compile(model_path=mp, output_path=output_path, config=config)
-        for mp in model_paths
-    ]
+    # Compiled in order so the shared context accumulates and the last model flushes it.
+    # Outputs are keyed by filename stem in a single folder, so disambiguate same-named
+    # inputs by suffixing the later one(s) instead of overwriting.
+    results: list[CompileResult] = []
+    seen_stems: dict[str, int] = {}
+    for p in paths:
+        count = seen_stems.get(p.stem, 0)
+        seen_stems[p.stem] = count + 1
+        out_stem = p.stem if count == 0 else f"{p.stem}_{count}"
+        if count > 0:
+            logger.warning(
+                "Input model name %r repeats; writing its compiled output as "
+                "'%s_ctx.onnx' to avoid overwriting the earlier one.",
+                p.name,
+                out_stem,
+            )
+        out_path = out_dir / f"{out_stem}_ctx.onnx" if out_dir is not None else None
+        results.append(compiler.compile(model_path=p, output_path=out_path, config=config))
+    return results
