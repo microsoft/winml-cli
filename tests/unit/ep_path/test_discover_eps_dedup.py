@@ -163,3 +163,32 @@ class TestDiscoverAllEpsDedupSamePath:
 
         assert len(_entries_for(result, "OpenVINOExecutionProvider")) == 1
         assert len(_entries_for(result, "QNNExecutionProvider")) == 1
+
+    def test_dedup_does_not_collapse_different_eps_same_path(
+        self, tmp_path: Path
+    ) -> None:
+        """Two DIFFERENT ep_names sharing one DLL must both survive dedup.
+
+        ``discover_all_eps`` dedups on ``(ep_name, canonical dll_path)``;
+        a single DLL exposing two distinct EPs (commit ``043aec01`` open
+        question — e.g., a hypothetical ``OpenVINOExecutionProvider`` vs
+        ``OpenVINOExecutionProvider.AUTO`` sharing one plugin DLL) must
+        produce two entries, not one.
+        """
+        _touch(tmp_path / "multi-ep.dll")
+        src_a = _filesystem_source_for(
+            tmp_path, "OpenVINOExecutionProvider", "multi-ep.dll"
+        )
+        src_b = _filesystem_source_for(
+            tmp_path, "OpenVINOExecutionProvider.AUTO", "multi-ep.dll"
+        )
+
+        result = discover_all_eps(extra_sources=[src_a, src_b])
+        # Both entries land in the flat result with the same dll_path.
+        ep_a = _entries_for(result, "OpenVINOExecutionProvider")
+        ep_b = _entries_for(result, "OpenVINOExecutionProvider.AUTO")
+
+        assert len(ep_a) == 1, f"Expected one OpenVINO entry; got {len(ep_a)}"
+        assert len(ep_b) == 1, f"Expected one OpenVINO.AUTO entry; got {len(ep_b)}"
+        # Both attribute to the same DLL — dedup must NOT collapse across ep_names.
+        assert ep_a[0].dll_path == ep_b[0].dll_path
