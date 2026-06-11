@@ -110,7 +110,6 @@ Use `--with-report` to additionally generate a human-readable markdown report (`
 
 - **`winml inspect --hierarchy`** — traces the model with random weights and displays the resulting module tree in the terminal. This is a lightweight preview of what tags will look like after a full export.
 - **`winml perf --module <ClassName>`** — isolates a submodule (e.g. `BertAttention`) and benchmarks it independently.
-- **Optimizer scoping** — the optimizer can target specific hierarchy subtrees.
 
 ### Disabling tags
 
