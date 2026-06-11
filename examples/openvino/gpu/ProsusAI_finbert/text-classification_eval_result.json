@@ -1,0 +1,22 @@
+{
+  "model_id": "ProsusAI/finbert",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\ProsusAI_finbert\\text-classification_build_artifacts\\model.onnx",
+  "task": "text-classification",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "val",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "privet1mir/finbert_dataset"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\ProsusAI_finbert\\text-classification_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "accuracy": 0.728,
+    "total_time_in_seconds": 11.629218899994157,
+    "samples_per_second": 42.9951490551314,
+    "latency_in_seconds": 0.023258437799988315
+  }
+}

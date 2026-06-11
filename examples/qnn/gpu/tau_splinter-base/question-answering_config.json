@@ -63,8 +63,5 @@
     "task": "question-answering",
     "model_class": "AutoModelForQuestionAnswering",
     "model_type": "splinter"
-  },
-  "eval": {
-    "task": "question-answering"
   }
 }

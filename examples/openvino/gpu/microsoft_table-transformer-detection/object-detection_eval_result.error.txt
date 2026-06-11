@@ -1,0 +1,25 @@
+WARNING: trust_remote_code is enabled - custom Python from the model repository
+will be downloaded and executed. Proceed only if you trust the publisher.
+Building dataset via build_pubtables1m_detection.py...
+[WinML] Installing Execution Provider: OpenVINOExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+OpenVINOExecutionProvider EP installed successfully.
+- Version: 1.8.80.0
+- Package Family Name: MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_8wekyb3d8bbwe
+The `max_size` parameter is deprecated and will be removed in v4.26. Please specify in `size['longest_edge'] instead`.
+Error: Evaluation failed: Failed to compile for gpu | Context: device=gpu, onnx_path=C:\Users\zhenni\repos\ModelKit\examples\openvino\gpu\microsoft_table-transformer-detection\object-detection_build_artifacts\model.onnx, error=[ONNXRuntimeError] : 11 : EP_FAIL : Exception from src\inference\src\cpp\core.cpp:121:
+Exception from src\inference\src\dev\plugin.cpp:54:
+Check 'false' failed at src\plugins\intel_gpu\src\plugin\program_builder.cpp:163:
+[GPU] ProgramBuilder build failed!
+Check 'shape_type == shape_types::dynamic_shape || node->selected_impl != nullptr' failed at src\plugins\intel_gpu\src\graph\graph_optimizer\compile_graph.cpp:59:
+[GPU] Failed to select implementation for
+name:gemm:MatMul_22840
+type: gemm
+original_type: Gemm could not create a primitive descriptor for the matmul primitive. Run workload with environment variable ONEDNN_VERBOSE=all to get additional diagnostic information.
+
+
+
+ | Suggestion: Verify GPU drivers and ONNX Runtime GPU package are installed

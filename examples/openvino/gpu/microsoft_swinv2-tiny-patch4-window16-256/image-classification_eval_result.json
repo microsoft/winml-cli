@@ -1,0 +1,22 @@
+{
+  "model_id": "microsoft/swinv2-tiny-patch4-window16-256",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\microsoft_swinv2-tiny-patch4-window16-256\\image-classification_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\microsoft_swinv2-tiny-patch4-window16-256\\image-classification_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "accuracy": 0.78,
+    "total_time_in_seconds": 11.975531799951568,
+    "samples_per_second": 8.350359856286667,
+    "latency_in_seconds": 0.11975531799951569
+  }
+}

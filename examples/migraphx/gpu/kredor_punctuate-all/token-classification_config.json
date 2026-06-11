@@ -50,8 +50,5 @@
     "task": "token-classification",
     "model_class": "AutoModelForTokenClassification",
     "model_type": "xlm-roberta"
-  },
-  "eval": {
-    "task": "token-classification"
   }
 }

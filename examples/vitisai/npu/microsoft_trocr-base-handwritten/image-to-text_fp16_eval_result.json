@@ -1,0 +1,28 @@
+{
+  "model_id": "microsoft/trocr-base-handwritten",
+  "model_path": {
+    "decoder": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\microsoft_trocr-base-handwritten\\image-to-text_fp16_build_artifacts\\decoder\\model.onnx",
+    "encoder": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\microsoft_trocr-base-handwritten\\image-to-text_fp16_build_artifacts\\encoder\\model.onnx"
+  },
+  "task": "image-to-text",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "test",
+    "samples": 500,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Teklia/IAM-line",
+    "columns_mapping": {
+      "input_column": "image",
+      "label_column": "text"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\microsoft_trocr-base-handwritten\\image-to-text_fp16_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "cer": 0.048,
+    "cider": 7.7494,
+    "n_samples": 500
+  }
+}
