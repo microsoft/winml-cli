@@ -21,7 +21,6 @@ from typing import Any
 import onnxruntime as ort
 from onnx.defs import SchemaError
 
-from ... import winml
 from ...onnx import ONNXDomain
 from ...pattern.op_input_gen import (
     OpInputGenerator,
@@ -34,11 +33,6 @@ from ...utils import constants
 from ..utils import CheckResultWriter
 from ..utils.model_utils import get_op_since_version
 from .ep_checker import EPChecker
-
-
-# Register WinML EPs at module level before any ORT session is created.
-# This must stay at the top of the file so EPs are available for all downstream usage.
-winml.register_execution_providers(ort=True)
 
 
 def check_ops(

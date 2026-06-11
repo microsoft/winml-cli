@@ -20,7 +20,6 @@ from typing import Any
 
 import onnxruntime as ort
 
-from ... import winml
 from ...onnx import ONNXDomain
 from ...pattern.base import (
     PatternInputGenerator,
@@ -31,9 +30,6 @@ from ...sysinfo import SysInfo
 from ...utils import constants
 from ..runtime_checker.ep_checker import EPChecker
 from ..utils import CheckResultWriter
-
-
-winml.register_execution_providers(ort=True)
 
 
 def check_patterns(

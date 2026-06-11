@@ -598,6 +598,16 @@ class WinMLDevice:
         """Plugin DLL path from ``ep_metadata['library_path']``, or ``None`` if unset."""
         return self._ort.ep_metadata.get("library_path") or None
 
+    @property
+    def ort_handle(self) -> ort.OrtEpDevice:
+        """Public read-only accessor for the underlying ORT handle.
+
+        For external callers (analyze/, future plugins) that need to pass
+        the raw OrtEpDevice to APIs like SessionOptions.add_provider_for_devices
+        or ort.ModelCompiler. Internal session/ code reads self._ort directly.
+        """
+        return self._ort
+
     # ---- vendor-specific properties - internal dispatch on ep_name ------
 
     @property
