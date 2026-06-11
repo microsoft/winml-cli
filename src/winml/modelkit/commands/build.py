@@ -471,6 +471,9 @@ def _validate_loader_tasks_for_model(
 @cli_utils.optimize_option()
 @cli_utils.max_optim_iterations_option()
 @cli_utils.allow_unsupported_nodes_option()
+@cli_utils.precision_option(
+    optional_message="When fp16, applies FP16 conversion during optimization."
+)
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
@@ -492,6 +495,7 @@ def build(
     analyze: bool,
     max_optim_iterations: int | None,
     allow_unsupported_nodes: bool,
+    precision: str | None,
     trust_remote_code: bool,
     verbose: int,
     quiet: bool,
@@ -660,6 +664,8 @@ def build(
         # on the key being present, matching the module-mode path which passes
         # allow_unsupported_nodes explicitly regardless of its value.
         extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
+        if precision == "fp16":
+            extra_kwargs["precision"] = "fp16"
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
@@ -1109,6 +1115,45 @@ def _run_optimize_stage(
     return current_path, opt_elapsed
 
 
+def _run_fp16_stage(
+    *,
+    model_path: Path,
+    stage_timings: list[tuple[str, float | None]],
+) -> Path:
+    """Run FP16 conversion stage on an ONNX model file.
+
+    Loads the model, applies FP16 conversion with keep_io_types=True,
+    and overwrites the file in-place.
+
+    Args:
+        model_path: Path to the ONNX model to convert.
+        stage_timings: List to append (stage_name, elapsed) tuple to.
+
+    Returns:
+        The same model_path (overwritten with FP16 model).
+    """
+    from ..onnx import load_onnx, save_onnx
+    from ..optim.fp16 import convert_to_fp16
+    from ..utils.console import StageLive
+
+    with StageLive("fp16", console) as sl:
+        sl.set_status("Converting to FP16...")
+        t0 = time.monotonic()
+
+        model = load_onnx(model_path)
+        model = convert_to_fp16(model, keep_io_types=True)
+        save_onnx(model, model_path)
+
+        elapsed = time.monotonic() - t0
+        sl.set_done(elapsed)
+        sl.detail("[dim]I/O types preserved as FP32[/dim]")
+        sl.artifact(str(model_path), _safe_size(model_path))
+        sl.blank()
+
+    stage_timings.append(("FP16", elapsed))
+    return model_path
+
+
 def _run_quantize_stage(
     *,
     config: WinMLBuildConfig,
@@ -1370,6 +1415,8 @@ def _build_hf_pipeline(
 
     stage_timings.append(("Export", _export_elapsed))
 
+    _precision = extra_kwargs.pop("precision", None)
+
     # ── Optimize stage ───────────────────────────────────────────
     current_path, _ = _run_optimize_stage(
         config=config,
@@ -1387,13 +1434,24 @@ def _build_hf_pipeline(
     # Persist config after autoconf
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── Quantize stage ───────────────────────────────────────────
-    current_path = _run_quantize_stage(
-        config=config,
-        current_path=current_path,
-        quantized_path=quantized_path,
-        stage_timings=stage_timings,
-    )
+    # ── FP16 conversion (when --precision fp16) ──────────────────
+    if _precision == "fp16":
+        current_path = _run_fp16_stage(
+            model_path=current_path,
+            stage_timings=stage_timings,
+        )
+
+    # ── Quantize stage (skipped when FP16 — incompatible) ────────
+    if _precision == "fp16" and config.quant is not None:
+        print_stage_skip(console, "quantize", "(incompatible with --precision fp16)")
+        stage_timings.append(("Quantize", None))
+    else:
+        current_path = _run_quantize_stage(
+            config=config,
+            current_path=current_path,
+            quantized_path=quantized_path,
+            stage_timings=stage_timings,
+        )
 
     # ── Compile stage ────────────────────────────────────────────
     current_path = _run_compile_stage(
@@ -1429,6 +1487,7 @@ def _build_onnx_pipeline(
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
     allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
+    _precision: str | None = extra_kwargs.pop("precision", None)
 
     # ── Validate + setup ─────────────────────────────────────────
     if not onnx_path.exists():
@@ -1482,13 +1541,24 @@ def _build_onnx_pipeline(
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── Quantize stage ───────────────────────────────────────────
-    current_path = _run_quantize_stage(
-        config=config,
-        current_path=current_path,
-        quantized_path=quantized_path,
-        stage_timings=stage_timings,
-    )
+    # ── FP16 conversion (when --precision fp16) ──────────────────
+    if _precision == "fp16":
+        current_path = _run_fp16_stage(
+            model_path=current_path,
+            stage_timings=stage_timings,
+        )
+
+    # ── Quantize stage (skipped when FP16 — incompatible) ────────
+    if _precision == "fp16" and config.quant is not None:
+        print_stage_skip(console, "quantize", "(incompatible with --precision fp16)")
+        stage_timings.append(("Quantize", None))
+    else:
+        current_path = _run_quantize_stage(
+            config=config,
+            current_path=current_path,
+            quantized_path=quantized_path,
+            stage_timings=stage_timings,
+        )
 
     # ── Compile stage ────────────────────────────────────────────
     current_path = _run_compile_stage(
