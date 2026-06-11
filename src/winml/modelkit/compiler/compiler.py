@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    import onnxruntime as ort
+
     from ..utils.constants import EPName
     from .configs import WinMLCompileConfig
     from .stages.base import BaseStage
@@ -74,7 +76,7 @@ class Compiler:
         self.n_total_models = n_total_models
         # The shared SessionOptions: created by CompileStage on the first model and
         # reused for the rest (kept here so it survives between compile() calls).
-        self.inference_session: object | None = None
+        self.shared_session_options: ort.SessionOptions | None = None
         self.n_compiled_models = 0
 
     @classmethod
@@ -137,7 +139,7 @@ class Compiler:
                 verbose=config.verbose,
                 n_compiled_models=self.n_compiled_models,
                 n_total_models=self.n_total_models,
-                inference_session=self.inference_session,
+                shared_session_options=self.shared_session_options,
             )
 
             if output_path is not None:
@@ -160,7 +162,7 @@ class Compiler:
 
             # Carry the shared SessionOptions (created/reused by CompileStage) forward
             # so the next model in a shared-context run reuses the same EP + group.
-            self.inference_session = context.inference_session
+            self.shared_session_options = context.shared_session_options
             self.n_compiled_models += 1
 
             # Build result
@@ -237,7 +239,7 @@ def compile_onnx(
 
 def compile_multiple_onnx(
     model_paths: Sequence[str | Path],
-    output_dir: str | Path | None = None,
+    output_path: str | Path | None = None,
     config: WinMLCompileConfig | None = None,
 ) -> list[CompileResult]:
     """Compile one or more ONNX models, sharing a single EP context when >1.
@@ -245,29 +247,43 @@ def compile_multiple_onnx(
     A single :class:`Compiler` (``n_total_models=len(model_paths)``) compiles every
     model in sequence, reusing one shared ``SessionOptions`` so the weights are shared
     across the compiled EPContext models. The backend is taken from
-    ``config.use_inference_session``: ``ort.ModelCompiler`` (default) or
-    ``ort.InferenceSession`` when set.
+    ``config.ep_config.compiler``: ``ort.ModelCompiler`` (default) or
+    ``ort.InferenceSession`` when it is ``"ort_inference_session"``.
 
     Args:
-        model_paths: Input ONNX model paths. Each compiles to ``<stem>_ctx.onnx`` in
-            ``output_dir``; inputs that share a filename stem are disambiguated by
-            appending an integer suffix to the later one(s) (with a warning), e.g.
-            ``model_ctx.onnx`` then ``model_1_ctx.onnx``.
-        output_dir: Output directory for the compiled models.
+        model_paths: Input ONNX model paths.
+        output_path: Where to write the compiled model(s).
+
+            * With a **single** model it may be a **file** path (the exact
+              ``*_ctx.onnx``) or a **directory** (``<stem>_ctx.onnx`` is written into
+              it); ``None`` writes next to the input.
+            * With **multiple** models it **must be a directory** — each model is
+              written as ``<stem>_ctx.onnx`` there, with same-named inputs disambiguated
+              by an integer suffix on the later one(s) (with a warning), e.g.
+              ``model_ctx.onnx`` then ``model_1_ctx.onnx``.
         config: Compilation configuration. ``None`` skips compilation (passthrough).
 
     Returns:
         One :class:`CompileResult` per input model, in order.
     """
     paths = [Path(mp) for mp in model_paths]
-    out_dir = Path(output_dir) if output_dir is not None else None
+    out = Path(output_path) if output_path is not None else None
+    # A path with a suffix (e.g. ".onnx") is a file; otherwise it's a directory.
+    out_is_file = out is not None and bool(out.suffix)
+
+    if len(paths) > 1:
+        out_is_dir = out is not None and not out_is_file
+        assert out_is_dir, (
+            "output_path must be a directory when compiling multiple models "
+            f"(shared EP context), got {output_path!r}"
+        )
 
     # Backend is taken from config.ep_config.compiler ("ort_inference_session" selects
     # the InferenceSession backend), surfaced via CompileContext.use_inference_session.
     compiler = Compiler(n_total_models=len(paths))
     # Compiled in order so the shared context accumulates and the last model flushes it.
-    # Outputs are keyed by filename stem in a single folder, so disambiguate same-named
-    # inputs by suffixing the later one(s) instead of overwriting.
+    # When writing into a directory, outputs are keyed by filename stem, so disambiguate
+    # same-named inputs by suffixing the later one(s) instead of overwriting.
     results: list[CompileResult] = []
     seen_stems: dict[str, int] = {}
     for p in paths:
@@ -281,6 +297,12 @@ def compile_multiple_onnx(
                 p.name,
                 out_stem,
             )
-        out_path = out_dir / f"{out_stem}_ctx.onnx" if out_dir is not None else None
-        results.append(compiler.compile(model_path=p, output_path=out_path, config=config))
+        if out is None:
+            resolved = None
+        elif out_is_file:
+            # Single-model file path: write exactly there.
+            resolved = out
+        else:
+            resolved = out / f"{out_stem}_ctx.onnx"
+        results.append(compiler.compile(model_path=p, output_path=resolved, config=config))
     return results

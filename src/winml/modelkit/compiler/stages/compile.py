@@ -139,7 +139,7 @@ class CompileStage(BaseStage):
     def _compile_multiple(self, context: CompileContext) -> None:
         """Multi-model / inference-session compile with a shared EP context.
 
-        The shared ``SessionOptions`` (``context.inference_session``) is created on
+        The shared ``SessionOptions`` (``context.shared_session_options``) is created on
         the first model — the EP is added once and, for a multi-model run, the
         ``ep.share_ep_contexts`` group is opened on it — then reused for every model.
         ``ep.stop_share_ep_contexts`` is added before the final model so the shared
@@ -173,7 +173,7 @@ class CompileStage(BaseStage):
         )
 
         # Build the shared SessionOptions once; reuse it for subsequent models.
-        sess_options = context.inference_session
+        sess_options = context.shared_session_options
         if sess_options is None:
             register_execution_providers(ort=True)
             resolved_device, _ = resolve_device(context.config.get("device", "auto"))
@@ -192,7 +192,7 @@ class CompileStage(BaseStage):
                 sess_options, ep, device_type, dict(ep_config.provider_options)
             ):
                 raise RuntimeError(f"Could not add {ep} for device type {device_type}")
-            context.inference_session = sess_options  # captured by Compiler for reuse
+            context.shared_session_options = sess_options  # captured by Compiler for reuse
 
         # Last model in a shared run flushes the shared context.
         if multi and is_last:

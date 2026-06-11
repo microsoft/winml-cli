@@ -255,9 +255,9 @@ def compile(
             results = [compile_onnx(models[0], output_path=resolved_output, config=config)]
         else:
             # Multi-model (shared EP context) and/or inference-session backend.
-            # compile_multiple_onnx writes each model as <stem>_ctx.onnx into a folder;
-            # multiple models require --output-dir (enforced above).
-            results = compile_multiple_onnx(models, output_dir, config)
+            # Multiple models require --output-dir (a directory, enforced above); a
+            # single inference_session model may use -o (a file) or --output-dir.
+            results = compile_multiple_onnx(models, resolved_output, config)
 
         # Report every model's result (not just the first failure).
         multi = len(results) > 1

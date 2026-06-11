@@ -12,14 +12,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from winml.modelkit.compiler import compile_multiple_onnx
-
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def _output_names(mock_compiler_cls: MagicMock) -> list[str]:
@@ -82,3 +79,51 @@ class TestCompileMultipleNaming:
 
         assert _output_names(mock_compiler_cls) == ["a_ctx.onnx", "b_ctx.onnx"]
         assert "repeats" not in caplog.text
+
+
+def _single_output(mock_compiler_cls: MagicMock) -> Path | None:
+    """The ``output_path`` passed to the single ``Compiler.compile`` call."""
+    out = mock_compiler_cls.return_value.compile.call_args.kwargs["output_path"]
+    return Path(out) if out is not None else None
+
+
+class TestCompileMultipleOutputPath:
+    @patch("winml.modelkit.compiler.compiler.Compiler")
+    def test_multiple_models_require_directory(
+        self, mock_compiler_cls: MagicMock, tmp_path: Path
+    ) -> None:
+        """Multiple models with a file output_path (has a suffix) is rejected."""
+        m1 = tmp_path / "a" / "m.onnx"
+        m2 = tmp_path / "b" / "m.onnx"
+        with pytest.raises(AssertionError, match="must be a directory"):
+            compile_multiple_onnx([m1, m2], tmp_path / "out.onnx")
+
+    @patch("winml.modelkit.compiler.compiler.Compiler")
+    def test_multiple_models_reject_none_output(
+        self, mock_compiler_cls: MagicMock, tmp_path: Path
+    ) -> None:
+        """Multiple models with no output_path is rejected (would break shared context)."""
+        m1 = tmp_path / "a" / "m.onnx"
+        m2 = tmp_path / "b" / "m.onnx"
+        with pytest.raises(AssertionError, match="must be a directory"):
+            compile_multiple_onnx([m1, m2], None)
+
+    @patch("winml.modelkit.compiler.compiler.Compiler")
+    def test_single_model_file_output_path(
+        self, mock_compiler_cls: MagicMock, tmp_path: Path
+    ) -> None:
+        """A single model accepts a file output_path and writes exactly there."""
+        mock_compiler_cls.return_value.compile.return_value = MagicMock(success=True)
+        out_file = tmp_path / "custom_name.onnx"
+        compile_multiple_onnx([tmp_path / "model.onnx"], out_file)
+        assert _single_output(mock_compiler_cls) == out_file
+
+    @patch("winml.modelkit.compiler.compiler.Compiler")
+    def test_single_model_dir_output_path(
+        self, mock_compiler_cls: MagicMock, tmp_path: Path
+    ) -> None:
+        """A single model with a directory output_path writes <stem>_ctx.onnx into it."""
+        mock_compiler_cls.return_value.compile.return_value = MagicMock(success=True)
+        out_dir = tmp_path / "out"
+        compile_multiple_onnx([tmp_path / "model.onnx"], out_dir)
+        assert _single_output(mock_compiler_cls) == out_dir / "model_ctx.onnx"
