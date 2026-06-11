@@ -80,22 +80,6 @@ winml perf -m model.onnx --device npu --monitor
 
 `--monitor` has no effect on the measured latency statistics — it is a passive observer.
 
-## Per-operator tracing
-
-When end-to-end latency is higher than expected, per-operator tracing lets you find the operators that are responsible. This capability is available via a hidden `--op-tracing` flag (not shown in `--help`) and requires `onnxruntime-qnn` to be installed.
-
-Two levels are available:
-
-- **`--op-tracing basic`** — collects cumulative time per operator type and reports a ranked list. Usually enough to identify whether a sequence of Attention nodes or a large MatMul is dominating the runtime.
-- **`--op-tracing detail`** — collects timing for every individual operator node in the graph. Useful when the same operator type appears in different parts of the model with very different costs.
-
-```
-winml perf -m model.onnx --op-tracing basic
-```
-
-!!! note
-    Op-tracing currently works only with the QNN execution provider. Running it on CPU or DML will produce an error indicating the requirement.
-
 ## Per-module benchmarking
 
 Large Transformer-family models contain many repeated module instances — attention blocks, feed-forward layers, encoder stages. When you want to understand the cost of one type of block rather than the full network, `--module <ClassName>` isolates and benchmarks matching modules from the HuggingFace model hierarchy.
