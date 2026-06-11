@@ -1,0 +1,29 @@
+{
+  "model_id": "monologg/koelectra-small-v2-distilled-korquad-384",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "KorQuAD/squad_kor_v1",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "exact_match": 32.1,
+    "f1": 46.36523809523814,
+    "total_time_in_seconds": 12.920692099956796,
+    "samples_per_second": 77.39523488864376,
+    "latency_in_seconds": 0.012920692099956796
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "model_id": "tau/splinter-base",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\tau_splinter-base\\question-answering_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\tau_splinter-base\\question-answering_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "exact_match": 0.0,
+    "f1": 4.310742851919322,
+    "total_time_in_seconds": 5.455111199989915,
+    "samples_per_second": 18.331431997240472,
+    "latency_in_seconds": 0.054551111999899156
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "model_id": "rizvandwiki/gender-classification",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\rizvandwiki_gender-classification\\image-classification_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_fairface",
+    "columns_mapping": {
+      "label_column": "gender"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_fairface.py"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\rizvandwiki_gender-classification\\image-classification_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "accuracy": 0.812,
+    "total_time_in_seconds": 12.419133000075817,
+    "samples_per_second": 80.52091881082964,
+    "latency_in_seconds": 0.012419133000075817
+  }
+}
