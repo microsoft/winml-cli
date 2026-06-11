@@ -19,10 +19,10 @@
     }
   },
   "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\microsoft_trocr-large-printed\\image-to-text_fp16_eval_result.json",
+  "skip_build": true,
   "metrics": {
-    "cer": null,
-    "cider": null,
-    "n_samples": 0,
-    "skipped": 200
+    "cer": 0.0032,
+    "cider": 4.5553,
+    "n_samples": 200
   }
 }

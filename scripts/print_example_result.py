@@ -140,6 +140,16 @@ def _grade_group(
     if reg_ds is None:
         return "N/A"
 
+    # Compare against the baseline entry for the sample count this example was
+    # actually evaluated at (recorded in the result's dataset block) rather than
+    # the registry default, so 100-sample runs grade against 100-sample
+    # baselines instead of 1000-sample ones.
+    result_ds = result.get("dataset")
+    if isinstance(result_ds, dict) and isinstance(result_ds.get("samples"), int):
+        num_samples = result_ds["samples"]
+    else:
+        num_samples = reg_ds.get("num_samples", 1000)
+
     ck = "|".join(
         [
             hf_id,
@@ -147,7 +157,7 @@ def _grade_group(
             reg_ds.get("dataset", ""),
             reg_ds.get("dataset_config", ""),
             reg_ds.get("split", ""),
-            str(reg_ds.get("num_samples", 1000)),
+            str(num_samples),
         ]
     )
     cached = cache.get(ck)

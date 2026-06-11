@@ -19,10 +19,10 @@
     }
   },
   "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\microsoft_trocr-base-handwritten\\image-to-text_fp16_eval_result.json",
+  "skip_build": true,
   "metrics": {
-    "cer": null,
-    "cider": null,
-    "n_samples": 0,
-    "skipped": 500
+    "cer": 0.0467,
+    "cider": 7.7784,
+    "n_samples": 500
   }
 }
