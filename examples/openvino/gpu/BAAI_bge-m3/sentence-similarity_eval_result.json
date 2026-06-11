@@ -1,0 +1,24 @@
+{
+  "model_id": "BAAI/bge-m3",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\BAAI_bge-m3\\sentence-similarity_build_artifacts\\model.onnx",
+  "task": "sentence-similarity",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    },
+    "streaming": true
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\BAAI_bge-m3\\sentence-similarity_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 88.1365
+  }
+}

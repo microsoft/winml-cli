@@ -14,6 +14,6 @@
   "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\facebook_dino-vits16\\image-feature-extraction_eval_result.json",
   "metrics": {
     "knn_top1_accuracy": 79.7,
-    "knn_top5_accuracy": 94.5
+    "knn_top5_accuracy": 94.6
   }
 }
