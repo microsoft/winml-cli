@@ -27,8 +27,11 @@ import json
 import logging
 import platform
 import sys
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 import click
 from rich.console import Console
@@ -461,71 +464,53 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
 # --- EP listing ---
 
 
-def _ep_vendor_prefix(ep_name: str) -> str:
-    """Return a short vendor qualifier (e.g. ``"Qualcomm "``) for display.
-
-    Empty string when the EP has no vendor requirement (CPU, DML, Azure)
-    or is unknown to the catalog.
-    """
-    from ..ep_path import EP_CATALOG
-
-    vendors = EP_CATALOG.vendor_requirements_for(ep_name)
-    if not vendors:
-        return ""
-    # Pick the first short alias when multiple are listed (e.g., AMD).
-    short = sorted(vendors, key=len)[0]
-    return f"{short} "
-
-
 def _format_device_types(ep_name: str) -> str:
     """Return ``"<vendor> <DEV1>/<DEV2>"`` device-type string for an EP.
 
     Enumerates every :data:`EP_DEVICE_SPECS` entry whose ``ep`` matches in
     catalog order, so multi-target EPs (e.g. OpenVINO targets NPU/GPU/CPU)
-    surface all of their supported devices.  EPs absent from the catalog
+    surface all of their supported devices. EPs absent from the catalog
     (custom/unknown plugins, or ORT built-ins like Azure) render as
-    ``"unknown"`` — caller's vendor prefix still applies.
+    ``"unknown"``. A short vendor qualifier ("Intel ", "Qualcomm ", …) is
+    prepended when the catalog has a vendor requirement for ``ep_name``;
+    EPs with no vendor requirement (CPU, DML, Azure) render bare.
     """
+    from ..ep_path import EP_CATALOG
+
     devices = [spec.device.upper() for spec in EP_DEVICE_SPECS if spec.ep == ep_name]
     # De-duplicate while preserving catalog order in case a future catalog
     # entry pairs the same EP with the same device twice (defensive).
     seen: set[str] = set()
     unique = [d for d in devices if not (d in seen or seen.add(d))]
     raw = "/".join(unique) if unique else "unknown"
-    return f"{_ep_vendor_prefix(ep_name)}{raw}"
+
+    # Vendor prefix: pick the shortest alias when multiple are listed
+    # (e.g. AMD); empty string when the EP has no vendor requirement.
+    vendors = EP_CATALOG.vendor_requirements_for(ep_name)
+    prefix = f"{sorted(vendors, key=len)[0]} " if vendors else ""
+    return f"{prefix}{raw}"
 
 
-def _describe_source(source: Any) -> dict[str, Any]:
+def _describe_source(entry: EPEntry) -> dict[str, Any]:
     """Build a JSON-friendly per-source descriptor for ``--list-ep``.
 
-    Dispatches on concrete EPSource subclass via ``isinstance`` so a
-    future field-name collision (e.g. a new source class adding its
-    own ``distribution`` attribute) cannot misclassify rows.
+    Reads ``entry.version`` as the single source-of-truth for version
+    metadata — each EPSource subclass populates it at ``.resolve()`` time
+    from its own canonical source (importlib.metadata for PyPI, cache
+    subdir name for NuGet, ``Package.Id.Version`` for MSIX). Subclass
+    dispatch here only adds source-kind-specific identifying fields
+    (distribution, family prefix, catalog name, etc.) — no version
+    recovery.
     """
+    source = entry.source
     desc: dict[str, Any] = {"source_kind": type(source).__name__}
+    if entry.version is not None:
+        desc["version"] = entry.version
     if isinstance(source, PyPISource):
-        from importlib import metadata
-
         desc["distribution"] = source.distribution
-        try:
-            desc["distribution_version"] = metadata.version(source.distribution)
-        except metadata.PackageNotFoundError as e:
-            # Distribution declared by the source isn't actually installed —
-            # caller will see "?" in the rendered output. DEBUG log so a
-            # verbose run reveals the cause; never silent.
-            logger.debug(
-                "metadata.version(%r) not found: %s",
-                source.distribution,
-                e,
-            )
-            desc["distribution_version"] = None
     elif isinstance(source, MSIXPackageSource):
         desc["family_name_prefix"] = source.family_name_prefix
-        desc["version"] = source.version
     elif isinstance(source, NuGetSource):
-        # The cache may contain multiple installed versions; we don't pre-
-        # compute the chosen one here (resolve() picks at iteration time).
-        # Surface the package ID so the CLI can show "NuGet <id>".
         desc["nuget_id"] = source.distribution
     elif isinstance(source, WinMLCatalogSource):
         desc["catalog_name"] = source.catalog_name
@@ -586,17 +571,17 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
 
     # --- Group by ep_name; derive status fresh per §7.1 (ignore
     # EPEntry.status — that's discovery-time, not registration outcome).
-    rows_by_ep: dict[str, list[tuple[EPEntry, WinMLEP | None, Exception | None, str]]] = {}
+    ep_records: dict[str, list[tuple[EPEntry, WinMLEP | None, Exception | None, str]]] = {}
     primary_seen: set[str] = set()
     for winml_ep in results:
         entry = winml_ep.source
         status = "shadowed" if entry.ep_name in primary_seen else "primary"
         primary_seen.add(entry.ep_name)
-        rows_by_ep.setdefault(entry.ep_name, []).append(
+        ep_records.setdefault(entry.ep_name, []).append(
             (entry, winml_ep, None, status)
         )
     for entry, err in failures:
-        rows_by_ep.setdefault(entry.ep_name, []).append(
+        ep_records.setdefault(entry.ep_name, []).append(
             (entry, None, err, "incompatible")
         )
 
@@ -604,14 +589,14 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
     # "(catalog default)" annotation in the renderer).
     catalog_default_paths: set[Path] = {
         entry.dll_path
-        for rows in rows_by_ep.values()
+        for rows in ep_records.values()
         for entry, _, _, _ in rows
         if isinstance(entry.source, WinMLCatalogSource)
     }
 
-    # --- Build per-EP records.
+    # --- Build per-EP output dicts.
     record_by_ep: dict[str, dict[str, Any]] = {}
-    for ep_name, rows in rows_by_ep.items():
+    for ep_name, rows in ep_records.items():
         first_entry = rows[0][0]
         try:
             compatible = first_entry.source.is_compatible()
@@ -624,7 +609,7 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
 
         entries_out: list[dict[str, Any]] = []
         for entry, winml_ep, err, derived_status in rows:
-            desc = _describe_source(entry.source)
+            desc = _describe_source(entry)
             if err is not None:
                 desc["status"] = "incompatible"
                 desc["compatible"] = False
@@ -685,39 +670,6 @@ _SOURCE_KIND_LABEL = {
 }
 
 
-def _short_msix_family(family_name_prefix: str) -> str:
-    """Drop the trailing ``_<publisherId>`` for compact CLI display.
-
-    Microsoft's WinML EP packages all share publisher id ``8wekyb3d8bbwe``;
-    showing it on every line is noise. Returns the prefix unchanged when
-    no underscore is present.
-    """
-    head, sep, _ = family_name_prefix.rpartition("_")
-    return head if sep else family_name_prefix
-
-
-def _extract_nuget_version(dll_path: str) -> str | None:
-    """Recover the NuGet version from a cache-relative DLL path.
-
-    Given e.g.
-    ``C:/Users/x/.nuget/packages/intel.ml.onnxruntime.ep.openvino/1.4.0/runtimes/win-x64/native/foo.dll``,
-    return ``"1.4.0"``. Looks for the segment immediately following
-    ``packages/<id>/`` (or just ``packages/<id>``). Returns ``None`` if
-    the path does not contain a recognizable cache layout (e.g., a
-    user-supplied symlink) — caller falls back to ``"?"``.
-    """
-    if not dll_path:
-        return None
-    try:
-        parts = Path(dll_path).parts
-    except Exception:
-        return None
-    for i, part in enumerate(parts):
-        if part.lower() == "packages" and i + 2 < len(parts):
-            return parts[i + 2]
-    return None
-
-
 def _format_devices_from_handles(devices: list[dict[str, Any]]) -> list[str]:
     """Render device-level lines from the WinMLDevice metadata in an entry.
 
@@ -768,18 +720,22 @@ def _output_ep_text(eps: dict[str, dict[str, Any]]) -> None:
             tag = f"[{status_color}]\\[{status}][/{status_color}]"
 
             extras: list[str] = []
+            # ``entry["version"]`` is the single source of truth for any
+            # version string (populated per-EPSource-subclass at
+            # ``.resolve()`` time and copied verbatim by
+            # :func:`_describe_source`); render "?" when absent.
+            ver = entry.get("version") or "?"
             if "distribution" in entry:
-                ver = entry.get("distribution_version") or "?"
                 extras.append(f"{entry['distribution']} {ver}")
             if "nuget_id" in entry:
-                # Render "<id> <version>" where version comes from the
-                # cache subdir name in the resolved dll_path. The text
-                # formatter avoids re-running resolve() so the version
-                # is recovered from the path the resolver picked.
-                ver = _extract_nuget_version(entry.get("dll_path") or "") or "?"
                 extras.append(f"{entry['nuget_id']} {ver}")
             if "family_name_prefix" in entry:
-                short_family = _short_msix_family(entry["family_name_prefix"])
+                # Drop the trailing ``_<publisherId>`` (e.g. ``8wekyb3d8bbwe``)
+                # for compact CLI display; show the prefix verbatim if no
+                # underscore is present.
+                family = entry["family_name_prefix"]
+                head, sep, _publisher = family.rpartition("_")
+                short_family = head if sep else family
                 ver = entry.get("version") or "?"
                 extras.append(f"{short_family} v{ver}")
                 if entry.get("is_catalog_default"):
