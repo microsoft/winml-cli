@@ -61,6 +61,13 @@ Add `-f json` to emit structured JSON to stdout, suitable for CI pipelines or au
     "batch_size": 1,
     "timestamp": "2026-06-11T03:27:24+00:00"
   },
+  "model_info": {
+    "input_names": ["input_ids", "attention_mask", "token_type_ids"],
+    "input_shapes": [[1, 512], [1, 512], [1, 512]],
+    "input_types": ["int32", "int32", "int32"],
+    "output_names": ["last_hidden_state"],
+    "output_shapes": [[1, 512, 128]]
+  },
   "latency_ms": {
     "mean": 5.53, "p50": 5.40, "p90": 6.55,
     "p95": 6.87, "p99": 7.65, "min": 4.89, "max": 7.65,
@@ -77,13 +84,13 @@ Results are also saved automatically to `~/.cache/winml/perf/<model_slug>/<times
 
 Latency numbers alone do not tell you whether the hardware is actually being used. A slow NPU inference could mean the model is running on the NPU and hitting a memory bottleneck, or it could mean the EP silently fell back to CPU and is not using the NPU at all.
 
-The `--monitor` flag adds a live terminal chart (powered by plotext + Rich Live) that streams hardware utilisation for whichever device is being benchmarked. The chart auto-refreshes in a background thread so you can see whether utilisation is sustained, bursty, or absent. This is particularly useful when commissioning a new model on QNN or DirectML hardware, where EP fallback can be hard to detect from latency numbers alone. If the chart stays near zero while the benchmark runs, the model is not executing on the expected device.
+The `--monitor` flag adds a live terminal chart (powered by plotext + Rich Live) that streams hardware utilisation for whichever device is being benchmarked. The chart updates once per iteration so you can see whether utilisation is sustained, bursty, or absent. This is particularly useful when commissioning a new model on QNN or DirectML hardware, where EP fallback can be hard to detect from latency numbers alone. If the chart stays near zero while the benchmark runs, it is a strong signal that the model may not be executing on the expected device — investigate further with EP-specific tools.
 
 ```
 winml perf -m model.onnx --device npu --monitor
 ```
 
-`--monitor` has no effect on the measured latency statistics — it is a passive observer.
+Display updates are not included in the timed inference call, but monitoring may introduce small system overhead from background PDH polling.
 
 ## Memory and resource metrics
 
@@ -100,9 +107,9 @@ The metrics collected depend on the target device:
 | Device memory shared (peak MB) | — | ✓ | ✓ |
 | Engine running time (ns) | — | ✓ | ✓ |
 
-- **CPU**: Only system-level metrics (CPU %, RAM) are reported since there is no separate device memory.
+- **CPU**: Only system-level metrics (CPU %, RAM) are shown in terminal output. In JSON, `device_memory` and `running_time_ns` are still present but will be zero.
 - **GPU**: Reports GPU engine utilisation plus dedicated VRAM (`local_peak_mb`) and shared system memory (`shared_peak_mb`) allocated by the GPU driver.
-- **NPU**: Same structure as GPU. NPU adapters register as Windows GPU Engine devices, so utilisation and memory are read via the same PDH counters. `local_peak_mb` represents on-chip memory; `shared_peak_mb` is system memory shared with the NPU.
+- **NPU**: Same structure as GPU. NPU adapters register as Windows GPU Engine devices, so utilisation and memory are read via the same PDH counters. `local_peak_mb` represents dedicated adapter memory; `shared_peak_mb` is system memory shared with the NPU.
 
 ### Terminal output
 
@@ -141,6 +148,7 @@ When a hardware accelerator is active, `device_kind` will be `"npu"` or `"gpu"`,
 
 ```json
 "hw_monitor": {
+  "monitor": "HWMonitor",
   "device_kind": "npu",
   "adapter_luid": "0x0000abcd12340000",
   "cpu": { "mean_pct": 12.1, "peak_pct": 34.5, "sample_count": 50 },
