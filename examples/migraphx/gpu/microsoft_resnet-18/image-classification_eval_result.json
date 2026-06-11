@@ -14,8 +14,8 @@
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\microsoft_resnet-18\\image-classification_eval_result.json",
   "metrics": {
     "accuracy": 0.66,
-    "total_time_in_seconds": 49.286670800007414,
-    "samples_per_second": 2.0289461304005334,
-    "latency_in_seconds": 0.4928667080000741
+    "total_time_in_seconds": 44.80867660000513,
+    "samples_per_second": 2.231710632578436,
+    "latency_in_seconds": 0.44808676600005126
   }
 }

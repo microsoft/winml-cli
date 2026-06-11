@@ -1,0 +1,26 @@
+{
+  "model_id": "Intel/bert-base-uncased-mrpc",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\Intel_bert-base-uncased-mrpc\\text-classification_build_artifacts\\model.onnx",
+  "task": "text-classification",
+  "device": "gpu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "mrpc",
+    "columns_mapping": {
+      "input_column": "sentence1",
+      "second_input_column": "sentence2"
+    }
+  },
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\Intel_bert-base-uncased-mrpc\\text-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.82,
+    "total_time_in_seconds": 28.195141799995326,
+    "samples_per_second": 3.546710305958333,
+    "latency_in_seconds": 0.28195141799995327
+  }
+}

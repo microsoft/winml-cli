@@ -1,19 +1,21 @@
 {
   "model_id": "google/vit-base-patch16-224",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\google_vit-base-patch16-224\\image-classification_build_artifacts\\model.onnx",
   "task": "image-classification",
   "device": "gpu",
+  "ep": "qnn",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
-  "output_path": "D:\\ModelKit_Public\\worker3\\WinML-ModelKit\\examples\\qnn\\gpu\\google_vit-base-patch16-224\\image-classification_eval_result.json",
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\google_vit-base-patch16-224\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.7,
-    "total_time_in_seconds": 7.2203723000129685,
-    "samples_per_second": 13.849701351247552,
-    "latency_in_seconds": 0.07220372300012969
+    "accuracy": 0.784,
+    "total_time_in_seconds": 72.5966608000017,
+    "samples_per_second": 13.774738245260677,
+    "latency_in_seconds": 0.0725966608000017
   }
 }

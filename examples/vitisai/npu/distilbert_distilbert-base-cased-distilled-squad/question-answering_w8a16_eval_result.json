@@ -1,11 +1,12 @@
 {
   "model_id": "distilbert/distilbert-base-cased-distilled-squad",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\distilbert_distilbert-base-cased-distilled-squad\\question-answering_w8a16_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "npu",
   "ep": "vitisai",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "rajpurkar/squad",
@@ -16,12 +17,12 @@
       "label_column": "answers"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\vitisai\\npu\\distilbert_distilbert-base-cased-distilled-squad\\question-answering_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\distilbert_distilbert-base-cased-distilled-squad\\question-answering_w8a16_eval_result.json",
   "metrics": {
-    "exact_match": 2.0,
-    "f1": 10.419384319384319,
-    "total_time_in_seconds": 6.943847300000925,
-    "samples_per_second": 14.401238345201898,
-    "latency_in_seconds": 0.06943847300000926
+    "exact_match": 1.1,
+    "f1": 7.599071977488322,
+    "total_time_in_seconds": 89.7670500000022,
+    "samples_per_second": 11.139945002091252,
+    "latency_in_seconds": 0.0897670500000022
   }
 }

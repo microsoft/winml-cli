@@ -1,5 +1,6 @@
 {
   "model_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_fp16_build_artifacts\\model.onnx",
   "task": "text-classification",
   "device": "npu",
   "ep": "vitisai",
@@ -16,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_fp16_eval_result.json",
   "metrics": {
-    "accuracy": 0.54,
-    "total_time_in_seconds": 6.5347107000416145,
-    "samples_per_second": 15.302896270429107,
-    "latency_in_seconds": 0.06534710700041614
+    "accuracy": 0.92,
+    "total_time_in_seconds": 128.75857829999586,
+    "samples_per_second": 0.7766472830028383,
+    "latency_in_seconds": 1.2875857829999586
   }
 }

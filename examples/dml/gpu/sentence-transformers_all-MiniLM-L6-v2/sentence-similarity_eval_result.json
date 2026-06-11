@@ -1,10 +1,12 @@
 {
   "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_build_artifacts\\model.onnx",
   "task": "sentence-similarity",
   "device": "gpu",
+  "ep": "dml",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -16,6 +18,6 @@
   },
   "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_eval_result.json",
   "metrics": {
-    "cosine_spearman": 81.3502
+    "cosine_spearman": 81.9722
   }
 }

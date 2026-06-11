@@ -1,10 +1,12 @@
 {
   "model_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_build_artifacts\\model.onnx",
   "task": "text-classification",
   "device": "gpu",
+  "ep": "qnn",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "tweet_eval",
@@ -13,11 +15,11 @@
       "input_column": "text"
     }
   },
-  "output_path": "D:\\ModelKit_Public\\worker3\\WinML-ModelKit\\examples\\qnn\\gpu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_eval_result.json",
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.81,
-    "total_time_in_seconds": 13.520818400022108,
-    "samples_per_second": 7.396002005310306,
-    "latency_in_seconds": 0.13520818400022108
+    "accuracy": 0.769,
+    "total_time_in_seconds": 132.33210639999743,
+    "samples_per_second": 7.556745125610873,
+    "latency_in_seconds": 0.13233210639999743
   }
 }

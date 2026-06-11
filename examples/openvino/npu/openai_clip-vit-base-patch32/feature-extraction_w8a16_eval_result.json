@@ -1,11 +1,12 @@
 {
   "model_id": "openai/clip-vit-base-patch32",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\openai_clip-vit-base-patch32\\feature-extraction_w8a16_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "npu",
   "ep": "openvino",
   "dataset": {
     "split": "test",
-    "samples": 10,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -15,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\openai_clip-vit-base-patch32\\feature-extraction_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\openai_clip-vit-base-patch32\\feature-extraction_w8a16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 82.9284
+    "cosine_spearman": 61.4138
   }
 }

@@ -1,11 +1,12 @@
 {
   "model_id": "BAAI/bge-small-en-v1.5",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\BAAI_bge-small-en-v1.5\\sentence-similarity_w8a16_build_artifacts\\model.onnx",
   "task": "sentence-similarity",
   "device": "npu",
   "ep": "openvino",
   "dataset": {
     "split": "test",
-    "samples": 10,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -15,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\BAAI_bge-small-en-v1.5\\sentence-similarity_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\BAAI_bge-small-en-v1.5\\sentence-similarity_w8a16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 79.2698
+    "cosine_spearman": 86.6796
   }
 }

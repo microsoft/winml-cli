@@ -1,12 +1,12 @@
 {
   "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
-  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_w8a16_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "npu",
   "ep": "qnn",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -16,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_w8a16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 77.074
+    "cosine_spearman": 70.8156
   }
 }

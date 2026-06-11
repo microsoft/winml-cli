@@ -14,8 +14,8 @@
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\microsoft_swinv2-tiny-patch4-window16-256\\image-classification_eval_result.json",
   "metrics": {
     "accuracy": 0.61,
-    "total_time_in_seconds": 89.64805989997694,
-    "samples_per_second": 1.1154731079687952,
-    "latency_in_seconds": 0.8964805989997694
+    "total_time_in_seconds": 101.94546649999393,
+    "samples_per_second": 0.980916596227513,
+    "latency_in_seconds": 1.0194546649999392
   }
 }

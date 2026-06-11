@@ -1,0 +1,41 @@
+{
+  "model_id": "microsoft/table-transformer-detection",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\microsoft_table-transformer-detection\\object-detection_build_artifacts\\model.onnx",
+  "task": "object-detection",
+  "device": "gpu",
+  "ep": "migraphx",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_pubtables1m_detection",
+    "columns_mapping": {
+      "annotation_column": "objects",
+      "bbox_key": "bbox",
+      "category_key": "category",
+      "box_format": "xyxy"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_pubtables1m_detection.py"
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\microsoft_table-transformer-detection\\object-detection_eval_result.json",
+  "metrics": {
+    "map": 0.9813641309738159,
+    "map_50": 0.9950287938117981,
+    "map_75": 0.9949182271957397,
+    "num_predictions": 15000,
+    "num_ground_truths": 1213,
+    "num_images": 1000,
+    "map_small": -1.0,
+    "map_medium": 0.6504950523376465,
+    "map_large": 0.9815306067466736,
+    "mar_1": 0.9035152792930603,
+    "mar_10": 0.9891232252120972,
+    "mar_100": 0.9892059564590454,
+    "mar_small": -1.0,
+    "mar_medium": 0.699999988079071,
+    "mar_large": 0.9894366264343262,
+    "map_per_class": -1.0,
+    "mar_100_per_class": -1.0
+  }
+}

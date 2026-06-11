@@ -1,5 +1,6 @@
 {
   "model_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\sentence-similarity_fp16_build_artifacts\\model.onnx",
   "task": "sentence-similarity",
   "device": "npu",
   "ep": "qnn",
@@ -15,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\sentence-similarity_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\sentence-similarity_fp16_eval_result.json",
   "metrics": {
-    "cosine_spearman": 10.4162
+    "cosine_spearman": 70.0957
   }
 }

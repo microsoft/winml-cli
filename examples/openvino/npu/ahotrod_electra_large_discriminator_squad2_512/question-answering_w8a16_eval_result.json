@@ -1,12 +1,12 @@
 {
   "model_id": "ahotrod/electra_large_discriminator_squad2_512",
-  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_w8a16_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "npu",
   "ep": "openvino",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "rajpurkar/squad_v2",
@@ -17,23 +17,23 @@
       "label_column": "answers"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_w8a16_eval_result.json",
   "metrics": {
-    "exact": 52.0,
-    "f1": 52.0,
-    "total": 100,
+    "exact": 50.7,
+    "f1": 50.7,
+    "total": 1000,
     "HasAns_exact": 0.0,
     "HasAns_f1": 0.0,
-    "HasAns_total": 48,
+    "HasAns_total": 493,
     "NoAns_exact": 100.0,
     "NoAns_f1": 100.0,
-    "NoAns_total": 52,
-    "best_exact": 52.0,
+    "NoAns_total": 507,
+    "best_exact": 50.7,
     "best_exact_thresh": 0.0,
-    "best_f1": 52.0,
+    "best_f1": 50.7,
     "best_f1_thresh": 0.0,
-    "total_time_in_seconds": 114.41340530000161,
-    "samples_per_second": 0.8740234567600846,
-    "latency_in_seconds": 1.1441340530000161
+    "total_time_in_seconds": 686.2222709000343,
+    "samples_per_second": 1.457253782638709,
+    "latency_in_seconds": 0.6862222709000344
   }
 }

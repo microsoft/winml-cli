@@ -1,0 +1,42 @@
+{
+  "model_id": "mattmdjaga/segformer_b2_clothes",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_build_artifacts\\model.onnx",
+  "task": "image-segmentation",
+  "device": "gpu",
+  "ep": "migraphx",
+  "dataset": {
+    "split": "train",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mattmdjaga/human_parsing_dataset",
+    "columns_mapping": {
+      "annotation_column": "mask"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_eval_result.json",
+  "metrics": {
+    "mean_iou": 0.7797896265983582,
+    "overall_accuracy": 0.9759961366653442,
+    "per_category_iou": [
+      0.9869382381439209,
+      0.8134348392486572,
+      0.8259499669075012,
+      0.6331858038902283,
+      0.8912687301635742,
+      0.8758230805397034,
+      0.9016565084457397,
+      0.8597261905670166,
+      0.36707061529159546,
+      0.6366704106330872,
+      0.6457716822624207,
+      0.8536087870597839,
+      0.8160427808761597,
+      0.8069055676460266,
+      0.792131781578064,
+      0.7961888909339905,
+      0.826820969581604,
+      0.707017719745636
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 {
   "model_id": "kredor/punctuate-all",
-  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\kredor_punctuate-all\\token-classification_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\kredor_punctuate-all\\token-classification_w8a16_build_artifacts\\model.onnx",
   "task": "token-classification",
   "device": "npu",
   "ep": "openvino",
@@ -14,7 +14,7 @@
       "label_column": "ner_tags"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\kredor_punctuate-all\\token-classification_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\kredor_punctuate-all\\token-classification_w8a16_eval_result.json",
   "metrics": {
     "LOC": {
       "precision": 0.0,
@@ -44,8 +44,8 @@
     "overall_recall": 0.0,
     "overall_f1": 0.0,
     "overall_accuracy": 0.0,
-    "total_time_in_seconds": 4.308886800019536,
-    "samples_per_second": 23.207850343050694,
-    "latency_in_seconds": 0.04308886800019536
+    "total_time_in_seconds": 3.195641400059685,
+    "samples_per_second": 31.292622507059864,
+    "latency_in_seconds": 0.03195641400059685
   }
 }

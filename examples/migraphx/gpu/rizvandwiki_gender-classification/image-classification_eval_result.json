@@ -6,7 +6,7 @@
   "ep": "migraphx",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "~/.cache/winml/eval_datasets/build_fairface",
@@ -17,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\rizvandwiki_gender-classification\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.85,
-    "total_time_in_seconds": 80.76094469998498,
-    "samples_per_second": 1.2382222666102445,
-    "latency_in_seconds": 0.8076094469998497
+    "accuracy": 0.812,
+    "total_time_in_seconds": 94.42604459999711,
+    "samples_per_second": 10.59029851600954,
+    "latency_in_seconds": 0.09442604459999711
   }
 }

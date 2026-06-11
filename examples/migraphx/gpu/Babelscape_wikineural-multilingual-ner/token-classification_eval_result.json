@@ -6,7 +6,7 @@
   "ep": "migraphx",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "BramVanroy/conll2003",
@@ -17,35 +17,35 @@
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\Babelscape_wikineural-multilingual-ner\\token-classification_eval_result.json",
   "metrics": {
     "LOC": {
-      "precision": 0.85,
-      "recall": 0.8225806451612904,
-      "f1": 0.8360655737704918,
-      "number": 62
+      "precision": 0.8003442340791739,
+      "recall": 0.8072916666666666,
+      "f1": 0.8038029386343993,
+      "number": 576
     },
     "MISC": {
-      "precision": 0.48148148148148145,
-      "recall": 0.5416666666666666,
-      "f1": 0.5098039215686274,
-      "number": 24
+      "precision": 0.4631578947368421,
+      "recall": 0.624113475177305,
+      "f1": 0.5317220543806647,
+      "number": 282
     },
     "ORG": {
-      "precision": 0.8214285714285714,
-      "recall": 0.6388888888888888,
-      "f1": 0.7187499999999999,
-      "number": 36
+      "precision": 0.7933579335793358,
+      "recall": 0.5672823218997362,
+      "f1": 0.6615384615384615,
+      "number": 379
     },
     "PER": {
-      "precision": 1.0,
-      "recall": 0.9818181818181818,
-      "f1": 0.9908256880733944,
-      "number": 55
+      "precision": 0.9776119402985075,
+      "recall": 0.940754039497307,
+      "f1": 0.9588289112534311,
+      "number": 557
     },
-    "overall_precision": 0.834319526627219,
-    "overall_recall": 0.7966101694915254,
-    "overall_f1": 0.815028901734104,
-    "overall_accuracy": 0.9673416067929458,
-    "total_time_in_seconds": 5.570263399975374,
-    "samples_per_second": 17.952472409193806,
-    "latency_in_seconds": 0.055702633999753746
+    "overall_precision": 0.7805429864253394,
+    "overall_recall": 0.7692307692307693,
+    "overall_f1": 0.7748455923638405,
+    "overall_accuracy": 0.9567010309278351,
+    "total_time_in_seconds": 83.6470156000014,
+    "samples_per_second": 11.954999145241272,
+    "latency_in_seconds": 0.08364701560000139
   }
 }

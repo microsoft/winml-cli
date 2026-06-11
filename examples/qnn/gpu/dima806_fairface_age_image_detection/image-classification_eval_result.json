@@ -1,0 +1,25 @@
+{
+  "model_id": "dima806/fairface_age_image_detection",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\dima806_fairface_age_image_detection\\image-classification_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "gpu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_fairface",
+    "columns_mapping": {
+      "label_column": "age"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_fairface.py"
+  },
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\dima806_fairface_age_image_detection\\image-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.594,
+    "total_time_in_seconds": 54.675938899992616,
+    "samples_per_second": 18.28958075743506,
+    "latency_in_seconds": 0.05467593889999261
+  }
+}

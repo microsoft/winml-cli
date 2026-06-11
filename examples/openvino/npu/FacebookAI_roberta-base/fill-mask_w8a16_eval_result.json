@@ -1,5 +1,6 @@
 {
   "model_id": "FacebookAI/roberta-base",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\FacebookAI_roberta-base\\fill-mask_w8a16_build_artifacts\\model.onnx",
   "task": "fill-mask",
   "device": "npu",
   "ep": "openvino",
@@ -14,7 +15,7 @@
       "input_column": "text"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\FacebookAI_roberta-base\\fill-mask_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\FacebookAI_roberta-base\\fill-mask_w8a16_eval_result.json",
   "metrics": {
     "pseudo_perplexity": 5.3275,
     "nll": 1.6729

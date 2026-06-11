@@ -44,8 +44,8 @@
     "overall_recall": 0.0,
     "overall_f1": 0.0,
     "overall_accuracy": 0.0,
-    "total_time_in_seconds": 5.432727999985218,
-    "samples_per_second": 18.406958713977968,
-    "latency_in_seconds": 0.05432727999985218
+    "total_time_in_seconds": 7.963044800002535,
+    "samples_per_second": 12.558010473577665,
+    "latency_in_seconds": 0.07963044800002535
   }
 }

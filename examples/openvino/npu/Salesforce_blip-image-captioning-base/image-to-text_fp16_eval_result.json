@@ -1,0 +1,28 @@
+{
+  "model_id": "Salesforce/blip-image-captioning-base",
+  "model_path": {
+    "decoder": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\Salesforce_blip-image-captioning-base\\image-to-text_fp16_build_artifacts\\decoder\\model.onnx",
+    "encoder": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\Salesforce_blip-image-captioning-base\\image-to-text_fp16_build_artifacts\\encoder\\model.onnx"
+  },
+  "task": "image-to-text",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 500,
+    "shuffle": true,
+    "seed": 42,
+    "path": "lmms-lab/flickr30k",
+    "columns_mapping": {
+      "input_column": "image",
+      "label_column": "caption"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\Salesforce_blip-image-captioning-base\\image-to-text_fp16_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "cer": 0.6908,
+    "cider": 0.3972,
+    "n_samples": 500
+  }
+}

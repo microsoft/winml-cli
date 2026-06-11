@@ -6,7 +6,7 @@
   "ep": "cpu",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "rajpurkar/squad",
@@ -19,10 +19,10 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\distilbert_distilbert-base-uncased-distilled-squad\\question-answering_eval_result.json",
   "metrics": {
-    "exact_match": 81.0,
-    "f1": 85.51571428571428,
-    "total_time_in_seconds": 12.830751199973747,
-    "samples_per_second": 7.793775940430098,
-    "latency_in_seconds": 0.12830751199973747
+    "exact_match": 78.2,
+    "f1": 86.50109186238595,
+    "total_time_in_seconds": 122.83397289999994,
+    "samples_per_second": 8.141070229928227,
+    "latency_in_seconds": 0.12283397289999994
   }
 }

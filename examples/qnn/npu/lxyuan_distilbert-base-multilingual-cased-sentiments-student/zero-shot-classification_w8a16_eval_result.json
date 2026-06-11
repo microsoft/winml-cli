@@ -1,6 +1,6 @@
 {
   "model_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
-  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_w8a16_build_artifacts\\model.onnx",
   "task": "zero-shot-classification",
   "device": "npu",
   "ep": "qnn",
@@ -17,7 +17,7 @@
       "hypothesis_template": "This text is about {}."
     }
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\lxyuan_distilbert-base-multilingual-cased-sentiments-student\\zero-shot-classification_w8a16_eval_result.json",
   "metrics": {
     "accuracy": 0.21,
     "f1": 0.13842688842688844

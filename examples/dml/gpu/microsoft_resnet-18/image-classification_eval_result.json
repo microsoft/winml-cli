@@ -1,0 +1,21 @@
+{
+  "model_id": "microsoft/resnet-18",
+  "model_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\microsoft_resnet-18\\image-classification_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\microsoft_resnet-18\\image-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.66,
+    "total_time_in_seconds": 2.6242297999560833,
+    "samples_per_second": 38.106418882093905,
+    "latency_in_seconds": 0.02624229799956083
+  }
+}

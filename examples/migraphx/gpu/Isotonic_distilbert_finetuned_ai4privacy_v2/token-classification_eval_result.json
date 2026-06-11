@@ -6,7 +6,7 @@
   "ep": "migraphx",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "~/.cache/winml/eval_datasets/build_ai4privacy",
@@ -18,335 +18,347 @@
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\Isotonic_distilbert_finetuned_ai4privacy_v2\\token-classification_eval_result.json",
   "metrics": {
     "ACCOUNTNAME": {
-      "precision": 0.75,
-      "recall": 0.75,
-      "f1": 0.75,
-      "number": 8
+      "precision": 0.8472222222222222,
+      "recall": 0.8133333333333334,
+      "f1": 0.8299319727891157,
+      "number": 75
     },
     "ACCOUNTNUMBER": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 5
+      "precision": 0.9078947368421053,
+      "recall": 0.92,
+      "f1": 0.913907284768212,
+      "number": 75
     },
     "AGE": {
-      "precision": 0.6666666666666666,
-      "recall": 0.6666666666666666,
-      "f1": 0.6666666666666666,
-      "number": 9
+      "precision": 0.875,
+      "recall": 0.8596491228070176,
+      "f1": 0.8672566371681416,
+      "number": 57
     },
     "AMOUNT": {
-      "precision": 0.5714285714285714,
-      "recall": 0.5714285714285714,
-      "f1": 0.5714285714285714,
-      "number": 7
+      "precision": 0.32,
+      "recall": 0.3157894736842105,
+      "f1": 0.31788079470198677,
+      "number": 76
     },
     "BIC": {
-      "precision": 1.0,
-      "recall": 0.5,
-      "f1": 0.6666666666666666,
-      "number": 2
+      "precision": 0.6111111111111112,
+      "recall": 0.7857142857142857,
+      "f1": 0.6875000000000001,
+      "number": 14
     },
     "BITCOINADDRESS": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 13
+      "precision": 0.8533333333333334,
+      "recall": 0.9552238805970149,
+      "f1": 0.9014084507042254,
+      "number": 67
     },
     "BUILDINGNUMBER": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 5
+      "precision": 0.8059701492537313,
+      "recall": 0.8571428571428571,
+      "f1": 0.8307692307692308,
+      "number": 63
     },
     "CITY": {
-      "precision": 0.8333333333333334,
-      "recall": 0.7142857142857143,
-      "f1": 0.7692307692307692,
-      "number": 7
+      "precision": 0.7361111111111112,
+      "recall": 0.8833333333333333,
+      "f1": 0.803030303030303,
+      "number": 60
     },
     "COMPANYNAME": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 8
+      "precision": 0.875,
+      "recall": 0.8909090909090909,
+      "f1": 0.8828828828828829,
+      "number": 55
     },
     "COUNTY": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 4
+      "precision": 0.8333333333333334,
+      "recall": 0.8461538461538461,
+      "f1": 0.8396946564885497,
+      "number": 65
     },
     "CREDITCARDCVV": {
-      "precision": 0.6666666666666666,
+      "precision": 0.8333333333333334,
       "recall": 1.0,
-      "f1": 0.8,
-      "number": 2
+      "f1": 0.9090909090909091,
+      "number": 20
     },
     "CREDITCARDISSUER": {
       "precision": 1.0,
-      "recall": 0.6666666666666666,
-      "f1": 0.8,
-      "number": 3
+      "recall": 0.7058823529411765,
+      "f1": 0.8275862068965517,
+      "number": 34
     },
     "CREDITCARDNUMBER": {
-      "precision": 0.2857142857142857,
-      "recall": 0.6666666666666666,
-      "f1": 0.4,
-      "number": 3
+      "precision": 0.7213114754098361,
+      "recall": 0.8,
+      "f1": 0.7586206896551724,
+      "number": 55
     },
     "CURRENCY": {
-      "precision": 0.375,
-      "recall": 0.6,
-      "f1": 0.4615384615384615,
-      "number": 5
+      "precision": 0.47761194029850745,
+      "recall": 0.5925925925925926,
+      "f1": 0.5289256198347108,
+      "number": 54
     },
     "CURRENCYCODE": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 1
+      "precision": 0.2,
+      "recall": 0.6666666666666666,
+      "f1": 0.30769230769230765,
+      "number": 12
     },
     "CURRENCYNAME": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 3
+      "precision": 0.04,
+      "recall": 0.05,
+      "f1": 0.044444444444444446,
+      "number": 20
     },
     "CURRENCYSYMBOL": {
-      "precision": 0.3333333333333333,
-      "recall": 1.0,
-      "f1": 0.5,
-      "number": 3
+      "precision": 0.6831683168316832,
+      "recall": 0.8734177215189873,
+      "f1": 0.7666666666666667,
+      "number": 79
     },
     "DATE": {
-      "precision": 0.875,
+      "precision": 0.7623762376237624,
       "recall": 0.875,
-      "f1": 0.875,
-      "number": 16
+      "f1": 0.8148148148148149,
+      "number": 88
     },
     "DOB": {
-      "precision": 0.75,
-      "recall": 0.75,
-      "f1": 0.75,
-      "number": 8
+      "precision": 0.625,
+      "recall": 0.6,
+      "f1": 0.6122448979591836,
+      "number": 50
     },
     "EMAIL": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 9
+      "precision": 0.9879518072289156,
+      "recall": 0.9879518072289156,
+      "f1": 0.9879518072289156,
+      "number": 83
     },
     "ETHEREUMADDRESS": {
-      "precision": 0.7142857142857143,
-      "recall": 0.8333333333333334,
-      "f1": 0.7692307692307692,
-      "number": 6
+      "precision": 0.9302325581395349,
+      "recall": 0.975609756097561,
+      "f1": 0.9523809523809524,
+      "number": 41
+    },
+    "EYECOLOR": {
+      "precision": 0.9166666666666666,
+      "recall": 0.9166666666666666,
+      "f1": 0.9166666666666666,
+      "number": 12
     },
     "FIRSTNAME": {
-      "precision": 0.75,
-      "recall": 0.9375,
-      "f1": 0.8333333333333334,
-      "number": 32
+      "precision": 0.6766169154228856,
+      "recall": 0.9096989966555183,
+      "f1": 0.776034236804565,
+      "number": 299
     },
     "GENDER": {
-      "precision": 0.8,
-      "recall": 1.0,
-      "f1": 0.888888888888889,
-      "number": 4
+      "precision": 0.75,
+      "recall": 0.7627118644067796,
+      "f1": 0.7563025210084034,
+      "number": 59
     },
     "HEIGHT": {
       "precision": 1.0,
       "recall": 1.0,
       "f1": 1.0,
-      "number": 1
+      "number": 17
     },
     "IBAN": {
+      "precision": 0.925,
+      "recall": 1.0,
+      "f1": 0.961038961038961,
+      "number": 37
+    },
+    "IP": {
+      "precision": 0.3392857142857143,
+      "recall": 0.3333333333333333,
+      "f1": 0.33628318584070793,
+      "number": 57
+    },
+    "IPV4": {
+      "precision": 0.6666666666666666,
+      "recall": 0.9491525423728814,
+      "f1": 0.7832167832167831,
+      "number": 59
+    },
+    "IPV6": {
+      "precision": 0.5609756097560976,
+      "recall": 0.7301587301587301,
+      "f1": 0.6344827586206897,
+      "number": 63
+    },
+    "JOBAREA": {
+      "precision": 0.6756756756756757,
+      "recall": 0.3333333333333333,
+      "f1": 0.4464285714285714,
+      "number": 75
+    },
+    "JOBTITLE": {
+      "precision": 0.5892857142857143,
+      "recall": 0.5076923076923077,
+      "f1": 0.5454545454545454,
+      "number": 65
+    },
+    "JOBTYPE": {
+      "precision": 0.8571428571428571,
+      "recall": 0.5538461538461539,
+      "f1": 0.6728971962616823,
+      "number": 65
+    },
+    "LASTNAME": {
+      "precision": 0.780952380952381,
+      "recall": 0.9425287356321839,
+      "f1": 0.8541666666666667,
+      "number": 87
+    },
+    "LITECOINADDRESS": {
+      "precision": 0.76,
+      "recall": 0.7916666666666666,
+      "f1": 0.7755102040816326,
+      "number": 24
+    },
+    "MAC": {
       "precision": 1.0,
       "recall": 1.0,
       "f1": 1.0,
-      "number": 1
-    },
-    "IP": {
-      "precision": 0.25,
-      "recall": 0.14285714285714285,
-      "f1": 0.18181818181818182,
-      "number": 7
-    },
-    "IPV4": {
-      "precision": 0.7,
-      "recall": 1.0,
-      "f1": 0.8235294117647058,
-      "number": 7
-    },
-    "IPV6": {
-      "precision": 0.25,
-      "recall": 0.6666666666666666,
-      "f1": 0.36363636363636365,
-      "number": 3
-    },
-    "JOBAREA": {
-      "precision": 1.0,
-      "recall": 0.8571428571428571,
-      "f1": 0.923076923076923,
-      "number": 7
-    },
-    "JOBTITLE": {
-      "precision": 0.875,
-      "recall": 0.7777777777777778,
-      "f1": 0.823529411764706,
-      "number": 9
-    },
-    "JOBTYPE": {
-      "precision": 1.0,
-      "recall": 0.5,
-      "f1": 0.6666666666666666,
-      "number": 2
-    },
-    "LASTNAME": {
-      "precision": 0.875,
-      "recall": 0.7777777777777778,
-      "f1": 0.823529411764706,
-      "number": 9
-    },
-    "LITECOINADDRESS": {
-      "precision": 0.6666666666666666,
-      "recall": 1.0,
-      "f1": 0.8,
-      "number": 2
+      "number": 21
     },
     "MASKEDNUMBER": {
-      "precision": 1.0,
-      "recall": 0.5,
-      "f1": 0.6666666666666666,
-      "number": 6
+      "precision": 0.5869565217391305,
+      "recall": 0.6,
+      "f1": 0.5934065934065934,
+      "number": 45
     },
     "MIDDLENAME": {
-      "precision": 0.7142857142857143,
-      "recall": 0.8333333333333334,
-      "f1": 0.7692307692307692,
-      "number": 6
+      "precision": 0.8309859154929577,
+      "recall": 0.8805970149253731,
+      "f1": 0.8550724637681161,
+      "number": 67
     },
     "NEARBYGPSCOORDINATE": {
       "precision": 1.0,
       "recall": 1.0,
       "f1": 1.0,
-      "number": 2
+      "number": 40
     },
     "ORDINALDIRECTION": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 1
+      "precision": 0.967741935483871,
+      "recall": 0.967741935483871,
+      "f1": 0.967741935483871,
+      "number": 31
     },
     "PASSWORD": {
-      "precision": 0.8333333333333334,
-      "recall": 1.0,
-      "f1": 0.9090909090909091,
-      "number": 10
+      "precision": 0.835820895522388,
+      "recall": 0.9333333333333333,
+      "f1": 0.8818897637795275,
+      "number": 60
     },
     "PHONEIMEI": {
       "precision": 1.0,
       "recall": 1.0,
       "f1": 1.0,
-      "number": 3
+      "number": 50
     },
     "PHONENUMBER": {
-      "precision": 0.8333333333333334,
-      "recall": 1.0,
-      "f1": 0.9090909090909091,
-      "number": 5
+      "precision": 0.9245283018867925,
+      "recall": 0.9607843137254902,
+      "f1": 0.9423076923076923,
+      "number": 51
     },
     "PIN": {
-      "precision": 1.0,
-      "recall": 0.5,
-      "f1": 0.6666666666666666,
-      "number": 4
+      "precision": 0.75,
+      "recall": 0.5294117647058824,
+      "f1": 0.6206896551724139,
+      "number": 17
     },
     "PREFIX": {
-      "precision": 0.8333333333333334,
+      "precision": 0.8615384615384616,
       "recall": 1.0,
-      "f1": 0.9090909090909091,
-      "number": 5
+      "f1": 0.9256198347107438,
+      "number": 56
     },
     "SECONDARYADDRESS": {
-      "precision": 0.3333333333333333,
-      "recall": 0.3333333333333333,
-      "f1": 0.3333333333333333,
-      "number": 3
+      "precision": 0.5964912280701754,
+      "recall": 0.6071428571428571,
+      "f1": 0.6017699115044247,
+      "number": 56
     },
     "SEX": {
-      "precision": 1.0,
+      "precision": 0.9259259259259259,
       "recall": 1.0,
-      "f1": 1.0,
-      "number": 5
+      "f1": 0.9615384615384615,
+      "number": 50
     },
     "SSN": {
-      "precision": 1.0,
+      "precision": 0.9245283018867925,
       "recall": 1.0,
-      "f1": 1.0,
-      "number": 5
+      "f1": 0.9607843137254902,
+      "number": 49
     },
     "STATE": {
-      "precision": 0.6666666666666666,
-      "recall": 0.8888888888888888,
-      "f1": 0.761904761904762,
-      "number": 9
+      "precision": 0.7127659574468085,
+      "recall": 0.9571428571428572,
+      "f1": 0.8170731707317074,
+      "number": 70
     },
     "STREET": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 4
+      "precision": 0.7183098591549296,
+      "recall": 0.85,
+      "f1": 0.7786259541984734,
+      "number": 60
     },
     "TIME": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 7
+      "precision": 0.9508196721311475,
+      "recall": 0.9830508474576272,
+      "f1": 0.9666666666666667,
+      "number": 59
     },
     "URL": {
-      "precision": 0.8333333333333334,
-      "recall": 0.8333333333333334,
-      "f1": 0.8333333333333334,
-      "number": 6
+      "precision": 0.9622641509433962,
+      "recall": 0.9622641509433962,
+      "f1": 0.9622641509433962,
+      "number": 53
     },
     "USERAGENT": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "number": 5
+      "precision": 0.9107142857142857,
+      "recall": 0.9622641509433962,
+      "f1": 0.9357798165137615,
+      "number": 53
     },
     "USERNAME": {
-      "precision": 0.875,
-      "recall": 0.875,
-      "f1": 0.875,
-      "number": 8
+      "precision": 0.7567567567567568,
+      "recall": 0.9491525423728814,
+      "f1": 0.8421052631578948,
+      "number": 59
     },
     "VEHICLEVIN": {
       "precision": 1.0,
       "recall": 1.0,
       "f1": 1.0,
-      "number": 1
+      "number": 16
     },
     "VEHICLEVRM": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "number": 1
+      "precision": 0.8636363636363636,
+      "recall": 0.9047619047619048,
+      "f1": 0.8837209302325582,
+      "number": 21
     },
     "ZIPCODE": {
-      "precision": 1.0,
-      "recall": 0.8333333333333334,
-      "f1": 0.9090909090909091,
-      "number": 6
+      "precision": 0.8846153846153846,
+      "recall": 0.8679245283018868,
+      "f1": 0.8761904761904762,
+      "number": 53
     },
-    "overall_precision": 0.7699115044247787,
-    "overall_recall": 0.8338658146964856,
-    "overall_f1": 0.8006134969325153,
-    "overall_accuracy": 0.9408612440191387,
-    "total_time_in_seconds": 4.12494730000617,
-    "samples_per_second": 24.24273396168005,
-    "latency_in_seconds": 0.0412494730000617
+    "overall_precision": 0.7555358724534986,
+    "overall_recall": 0.8257502420135527,
+    "overall_f1": 0.7890841813135985,
+    "overall_accuracy": 0.9398854579678801,
+    "total_time_in_seconds": 45.688383100001374,
+    "samples_per_second": 21.887401832786022,
+    "latency_in_seconds": 0.045688383100001374
   }
 }

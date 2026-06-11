@@ -6,16 +6,16 @@
   "ep": "migraphx",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\google_vit-base-patch16-224\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.7,
-    "total_time_in_seconds": 64.80560359999072,
-    "samples_per_second": 1.5430764385321507,
-    "latency_in_seconds": 0.6480560359999071
+    "accuracy": 0.784,
+    "total_time_in_seconds": 99.0986645999983,
+    "samples_per_second": 10.090953334602423,
+    "latency_in_seconds": 0.0990986645999983
   }
 }

@@ -1,0 +1,21 @@
+{
+  "model_id": "microsoft/swin-large-patch4-window7-224",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\microsoft_swin-large-patch4-window7-224\\image-classification_fp16_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\microsoft_swin-large-patch4-window7-224\\image-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.79,
+    "total_time_in_seconds": 19.614066499983892,
+    "samples_per_second": 5.098381816951734,
+    "latency_in_seconds": 0.1961406649998389
+  }
+}

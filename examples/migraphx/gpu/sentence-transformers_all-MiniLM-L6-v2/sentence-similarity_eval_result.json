@@ -6,7 +6,7 @@
   "ep": "migraphx",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -18,6 +18,6 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_eval_result.json",
   "metrics": {
-    "cosine_spearman": 81.3502
+    "cosine_spearman": 81.9722
   }
 }

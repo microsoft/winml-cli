@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Map task -> "module_path:ClassName"; modules are imported lazily by
 # get_evaluator_class() to improve command latency.
+# Keep the key/value-per-line layout: collapsing each entry onto one line (the
+# default formatter layout) yields >100-char lines that trip E501.
+# fmt: off
 _EVALUATOR_REGISTRY: dict[str, str] = {
     "image-classification":
         "winml.modelkit.eval.base_evaluator:WinMLEvaluator",
@@ -62,6 +65,7 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
     "compare-tensor":
         "winml.modelkit.eval.tensor_similarity_evaluator:TensorSimilarityEvaluator",
 }
+# fmt: on
 
 
 def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
@@ -71,12 +75,12 @@ def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
     if spec is None:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
         raise ValueError(
-            f"Task '{key}' is not supported by `winml eval`. "
-            f"Supported tasks: {supported}."
+            f"Task '{key}' is not supported by `winml eval`. Supported tasks: {supported}."
         )
     module_path, class_name = spec.rsplit(":", 1)
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
+
 
 _FE_DEFAULT = {
     "path": "mteb/stsbenchmark-sts",
@@ -204,7 +208,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
             task=config.task,
             device=config.device,
             ep=config.ep,
-            skip_build=True,
+            skip_build=config.skip_build,
             hf_config=hf_config,
         )
         model.config = hf_config
@@ -216,46 +220,19 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         device=config.device,
         precision=config.precision,
         ep=config.ep,
+        allow_unsupported_nodes=config.allow_unsupported_nodes,
     )
 
 
-# Evaluator uses HF pipeline and evaluate library,
-# which have their own task naming conventions.
-# Inner dict maps an ONNX input name (from the model's IO config) to the
-# corresponding HF task name, so we can resolve ambiguous tasks by modality.
-HF_TASK_NAME_MAPPING: dict[str, dict[str, str]] = {
-    "feature-extraction": {
-        "input_ids": "feature-extraction",
-        "pixel_values": "image-feature-extraction",
-    },
-}
-
-
-def to_hf_pipeline_task(task: str, model_id: str | None) -> str:
-    """Convert task name to an HF-pipeline-recognizable name."""
-    mapping = HF_TASK_NAME_MAPPING.get(task)
-    if mapping is None or model_id is None:
-        return task
-
-    try:
-        from transformers import AutoConfig
-
-        from ..export.io import _get_onnx_config
-
-        hf_config = AutoConfig.from_pretrained(model_id)
-        io_config = _get_onnx_config(hf_config.model_type, task, hf_config).inputs
-    except Exception as e:
-        logger.debug("Static OnnxConfig probe failed for task %r: %s", task, e)
-        return task
-
-    hits = [mapping[n] for n in mapping if n in io_config]
-    if len(hits) != 1:
-        return task
-    return hits[0]
-
-
 def _resolve_task(config: WinMLEvaluationConfig) -> str:
-    """Resolve task from config or model's HF config, and validate it is supported."""
+    """Resolve the eval task and validate it is supported.
+
+    An explicit ``config.task`` is surfaced verbatim (explicit means explicit).
+    When omitted, the modality-aware :func:`detect_task` infers it from the model's
+    HF config — an image-embedding model resolves to ``image-feature-extraction``
+    (not the lossy ``feature-extraction``), so the evaluator-registry lookup picks
+    the image evaluator without any reverse io_config reconstruction.
+    """
     console = Console()
     console.print("[bold]Resolving task...[/bold]")
 
@@ -267,13 +244,11 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
 
         from transformers import AutoConfig
 
-        from ..loader.task import _detect_task_from_config
+        from ..loader import detect_task
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
-        task = _detect_task_from_config(hf_config)
+        task, _ = detect_task(hf_config)
 
-    # Convert to an HF-pipeline-recognizable task before evaluator lookup.
-    task = to_hf_pipeline_task(task, config.model_id)
     console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
 
     if task not in _EVALUATOR_REGISTRY:
@@ -293,9 +268,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
 
     mode = config.mode if config.mode is not None else "onnx"
     if mode not in EVAL_MODES:
-        raise ValueError(
-            f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None."
-        )
+        raise ValueError(f"Invalid mode {mode!r}; expected one of {EVAL_MODES} or None.")
     config = replace(
         config, mode=mode, task=_resolve_task(config), dataset=deepcopy(config.dataset)
     )

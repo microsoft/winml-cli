@@ -6,7 +6,7 @@
   "ep": "migraphx",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "rajpurkar/squad",
@@ -19,10 +19,10 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\distilbert_distilbert-base-uncased-distilled-squad\\question-answering_eval_result.json",
   "metrics": {
-    "exact_match": 81.0,
-    "f1": 85.51571428571428,
-    "total_time_in_seconds": 35.75436160003301,
-    "samples_per_second": 2.7968615722650094,
-    "latency_in_seconds": 0.3575436160003301
+    "exact_match": 78.2,
+    "f1": 86.50109186238595,
+    "total_time_in_seconds": 93.77982699999848,
+    "samples_per_second": 10.663274096251172,
+    "latency_in_seconds": 0.09377982699999848
   }
 }

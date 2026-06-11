@@ -1,0 +1,21 @@
+{
+  "model_id": "apple/mobilevit-small",
+  "model_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\apple_mobilevit-small\\image-classification_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "gpu",
+  "ep": "dml",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\apple_mobilevit-small\\image-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.75,
+    "total_time_in_seconds": 10.83764800010249,
+    "samples_per_second": 9.227094291958394,
+    "latency_in_seconds": 0.1083764800010249
+  }
+}

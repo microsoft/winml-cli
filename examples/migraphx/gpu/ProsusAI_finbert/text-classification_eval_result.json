@@ -6,16 +6,16 @@
   "ep": "migraphx",
   "dataset": {
     "split": "val",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "privet1mir/finbert_dataset"
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\ProsusAI_finbert\\text-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.71,
-    "total_time_in_seconds": 58.25350270001218,
-    "samples_per_second": 1.7166349724062018,
-    "latency_in_seconds": 0.5825350270001217
+    "accuracy": 0.728,
+    "total_time_in_seconds": 91.9776428000041,
+    "samples_per_second": 5.436103652788737,
+    "latency_in_seconds": 0.1839552856000082
   }
 }

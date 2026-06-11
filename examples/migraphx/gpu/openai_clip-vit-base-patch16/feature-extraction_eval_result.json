@@ -6,7 +6,7 @@
   "ep": "migraphx",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -18,6 +18,6 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\openai_clip-vit-base-patch16\\feature-extraction_eval_result.json",
   "metrics": {
-    "cosine_spearman": 68.3323
+    "cosine_spearman": 64.5723
   }
 }

@@ -298,6 +298,8 @@ class InferenceEngine:
         task: str | None = None,
         device: str = "auto",
         ep: EPNameOrAlias | None = None,
+        skip_build: bool = True,
+        allow_unsupported_nodes: bool = False,
     ) -> None:
         """Load model from model_path.
 
@@ -306,10 +308,22 @@ class InferenceEngine:
             task: Required when model_path is a raw .onnx file.
             device: "auto" | "cpu" | "gpu" | "npu".
             ep: Explicit EP short name (e.g. "dml", "qnn").  Overrides device.
+            skip_build: When True (default), use a raw .onnx file as-is.
+                When False, run the build pipeline
+                (optimize/quantize/compile) before inference. Honored only
+                for raw .onnx paths; ignored for HF model IDs and pre-built
+                build directories. A build directory always loads its
+                cached ONNX as-is — to re-run the build pipeline on a
+                model already in a build dir, point ``model_path`` at the
+                explicit .onnx file inside it.
+            allow_unsupported_nodes: If True, warn instead of raising when the
+                analyzer reports unsupported nodes during an HF build. Note: has
+                no effect on raw .onnx files or pre-built build directories
+                (no build/analyze step runs in those paths).
         """
         self._model_path = str(model_path)
-        self._device = device
         self._ep = ep
+        self._device = device
         self._load_start = time.time()
 
         path = Path(model_path)
@@ -330,13 +344,25 @@ class InferenceEngine:
                         path,
                         model_id,
                     )
-                    self._load_from_hf(model_id, task=task, device=device, ep=ep)
+                    self._load_from_hf(
+                        model_id,
+                        task=task,
+                        device=device,
+                        ep=ep,
+                        allow_unsupported_nodes=allow_unsupported_nodes,
+                    )
                 else:
                     raise
         elif path.suffix == ".onnx" and path.exists():
-            self._load_from_onnx(path, task=task, device=device, ep=ep)
+            self._load_from_onnx(path, task=task, device=device, ep=ep, skip_build=skip_build)
         else:
-            self._load_from_hf(str(model_path), task=task, device=device, ep=ep)
+            self._load_from_hf(
+                str(model_path),
+                task=task,
+                device=device,
+                ep=ep,
+                allow_unsupported_nodes=allow_unsupported_nodes,
+            )
 
         # Create HF pipeline for preprocess + postprocess
         self._pipeline = self._create_pipeline()
@@ -948,15 +974,16 @@ class InferenceEngine:
         task: str | None,
         device: str,
         ep: EPNameOrAlias | None,
+        skip_build: bool = True,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 
         self._task = task
         self._model_id = None
         self._model = WinMLAutoModel.from_onnx(
-            onnx_path, task=task, device=device, ep=ep, skip_build=True
+            onnx_path, task=task, device=device, ep=ep, skip_build=skip_build
         )
-        logger.info("Loaded from ONNX: %s task=%s", onnx_path, task)
+        logger.info("Loaded from ONNX: %s task=%s skip_build=%s", onnx_path, task, skip_build)
 
     def _load_from_hf(
         self,
@@ -965,11 +992,18 @@ class InferenceEngine:
         task: str | None,
         device: str,
         ep: EPNameOrAlias | None,
+        allow_unsupported_nodes: bool = False,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 
         self._model_id = model_id
-        self._model = WinMLAutoModel.from_pretrained(model_id, task=task, device=device, ep=ep)
+        self._model = WinMLAutoModel.from_pretrained(
+            model_id,
+            task=task,
+            device=device,
+            ep=ep,
+            allow_unsupported_nodes=allow_unsupported_nodes,
+        )
         self._task = (
             task
             or getattr(self._model, "task", None)

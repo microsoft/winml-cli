@@ -18,7 +18,7 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\fill-mask_eval_result.json",
   "metrics": {
-    "pseudo_perplexity": 389402.5569,
-    "nll": 12.8724
+    "pseudo_perplexity": 403147.7492,
+    "nll": 12.9071
   }
 }

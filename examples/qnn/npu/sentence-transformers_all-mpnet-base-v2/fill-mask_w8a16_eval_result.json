@@ -1,6 +1,6 @@
 {
   "model_id": "sentence-transformers/all-mpnet-base-v2",
-  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_build_artifacts\\model.onnx",
   "task": "fill-mask",
   "device": "npu",
   "ep": "qnn",
@@ -16,9 +16,9 @@
     },
     "streaming": true
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_eval_result.json",
   "metrics": {
-    "pseudo_perplexity": 1512905.0734,
-    "nll": 14.2295
+    "pseudo_perplexity": 2096971.7312,
+    "nll": 14.556
   }
 }

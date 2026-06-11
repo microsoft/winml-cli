@@ -1,6 +1,6 @@
 {
   "model_id": "sentence-transformers/all-mpnet-base-v2",
-  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_build_artifacts\\model.onnx",
   "task": "fill-mask",
   "device": "npu",
   "ep": "openvino",
@@ -16,7 +16,7 @@
     },
     "streaming": true
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\sentence-transformers_all-mpnet-base-v2\\fill-mask_w8a16_eval_result.json",
   "metrics": {
     "pseudo_perplexity": NaN,
     "nll": NaN

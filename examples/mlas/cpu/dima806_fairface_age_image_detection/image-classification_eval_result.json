@@ -6,7 +6,7 @@
   "ep": "cpu",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "~/.cache/winml/eval_datasets/build_fairface",
@@ -17,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\dima806_fairface_age_image_detection\\image-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.61,
-    "total_time_in_seconds": 9.56664069998078,
-    "samples_per_second": 10.452990044896419,
-    "latency_in_seconds": 0.0956664069998078
+    "accuracy": 0.594,
+    "total_time_in_seconds": 94.23664499999722,
+    "samples_per_second": 10.611583211605522,
+    "latency_in_seconds": 0.09423664499999722
   }
 }

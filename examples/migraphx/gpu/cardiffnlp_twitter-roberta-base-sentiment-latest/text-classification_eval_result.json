@@ -6,7 +6,7 @@
   "ep": "migraphx",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "tweet_eval",
@@ -17,9 +17,9 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.81,
-    "total_time_in_seconds": 51.48260069999378,
-    "samples_per_second": 1.9424038148875427,
-    "latency_in_seconds": 0.5148260069999379
+    "accuracy": 0.769,
+    "total_time_in_seconds": 141.0849132000003,
+    "samples_per_second": 7.0879300792595155,
+    "latency_in_seconds": 0.1410849132000003
   }
 }

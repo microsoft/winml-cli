@@ -1,11 +1,12 @@
 {
   "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_w8a8_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "npu",
   "ep": "vitisai",
   "dataset": {
     "split": "test",
-    "samples": 10,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -17,6 +18,6 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_w8a8_eval_result.json",
   "metrics": {
-    "cosine_spearman": -19.5126
+    "cosine_spearman": 2.5171
   }
 }

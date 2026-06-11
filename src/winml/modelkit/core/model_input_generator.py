@@ -84,6 +84,7 @@ def generate_dummy_inputs_from_specs(
 
         # Parse dtype
         dtype_str = spec["dtype"].lower()
+        dtype: type[np.generic]
         if dtype_str in ["int", "long", "int64"]:
             dtype = np.int64
         elif dtype_str in ["float", "float32"]:

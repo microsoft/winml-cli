@@ -1,6 +1,6 @@
 {
   "model_id": "valentinafeve/yolos-fashionpedia",
-  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\valentinafeve_yolos-fashionpedia\\object-detection_fp16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\valentinafeve_yolos-fashionpedia\\object-detection_fp16_build_artifacts\\model.onnx",
   "task": "object-detection",
   "device": "npu",
   "ep": "openvino",
@@ -17,7 +17,7 @@
       "box_format": "xyxy"
     }
   },
-  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\valentinafeve_yolos-fashionpedia\\object-detection_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\valentinafeve_yolos-fashionpedia\\object-detection_fp16_eval_result.json",
   "metrics": {
     "map": 0.15453261137008667,
     "map_50": 0.3189443051815033,

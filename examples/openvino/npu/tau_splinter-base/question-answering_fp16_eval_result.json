@@ -1,0 +1,28 @@
+{
+  "model_id": "tau/splinter-base",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\tau_splinter-base\\question-answering_fp16_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\tau_splinter-base\\question-answering_fp16_eval_result.json",
+  "metrics": {
+    "exact_match": 1.0,
+    "f1": 6.992849813058542,
+    "total_time_in_seconds": 13.354343199986033,
+    "samples_per_second": 7.4882005428844,
+    "latency_in_seconds": 0.13354343199986032
+  }
+}

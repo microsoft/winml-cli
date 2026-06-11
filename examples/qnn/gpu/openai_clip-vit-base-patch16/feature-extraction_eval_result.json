@@ -1,11 +1,12 @@
 {
   "model_id": "openai/clip-vit-base-patch16",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\openai_clip-vit-base-patch16\\feature-extraction_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "gpu",
   "ep": "qnn",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -15,8 +16,8 @@
       "score_column": "score"
     }
   },
-  "output_path": "D:\\ModelKit_Public\\worker3\\WinML-ModelKit\\examples\\qnn\\gpu\\openai_clip-vit-base-patch16\\feature-extraction_eval_result.json",
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\openai_clip-vit-base-patch16\\feature-extraction_eval_result.json",
   "metrics": {
-    "cosine_spearman": 68.3323
+    "cosine_spearman": 64.5723
   }
 }

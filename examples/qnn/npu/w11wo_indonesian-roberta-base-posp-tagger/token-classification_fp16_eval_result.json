@@ -1,6 +1,6 @@
 {
   "model_id": "w11wo/indonesian-roberta-base-posp-tagger",
-  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\w11wo_indonesian-roberta-base-posp-tagger\\token-classification_fp16_build_artifacts\\model.onnx",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\w11wo_indonesian-roberta-base-posp-tagger\\token-classification_fp16_build_artifacts\\model.onnx",
   "task": "token-classification",
   "device": "npu",
   "ep": "qnn",
@@ -15,7 +15,7 @@
     },
     "build_script": "scripts/e2e_eval/datasets/build_indonlu_posp.py"
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\w11wo_indonesian-roberta-base-posp-tagger\\token-classification_fp16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\w11wo_indonesian-roberta-base-posp-tagger\\token-classification_fp16_eval_result.json",
   "metrics": {
     "ADJ": {
       "precision": 0.8831168831168831,
@@ -165,8 +165,8 @@
     "overall_recall": 0.9676182360460162,
     "overall_f1": 0.9676182360460162,
     "overall_accuracy": 0.9676182360460162,
-    "total_time_in_seconds": 4.672856500008493,
-    "samples_per_second": 21.40018637418424,
-    "latency_in_seconds": 0.046728565000084925
+    "total_time_in_seconds": 4.437025099992752,
+    "samples_per_second": 22.53762323773272,
+    "latency_in_seconds": 0.04437025099992752
   }
 }

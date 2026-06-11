@@ -6,7 +6,7 @@
   "ep": "vitisai",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -18,6 +18,6 @@
   },
   "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\sentence-transformers_all-mpnet-base-v2\\sentence-similarity_w8a16_eval_result.json",
   "metrics": {
-    "cosine_spearman": -5.7279
+    "cosine_spearman": 0.9683
   }
 }

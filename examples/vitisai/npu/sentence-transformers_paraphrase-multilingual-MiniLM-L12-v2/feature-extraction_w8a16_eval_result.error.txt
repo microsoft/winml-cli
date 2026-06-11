@@ -1,55 +1,17 @@
-d version: 2.19.0
-Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
-Git branch: HEAD
-PID: 7784
-UID: 0
-[Fri May 22 14:41:02 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+[WinML] Installing Execution Provider: MIGraphXExecutionProvider
 
-XRT build version: 2.19.0
-Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
-Git branch: HEAD
-PID: 7784
-UID: 0
-[Fri May 22 14:41:02 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+MIGraphXExecutionProvider EP installed successfully.
+- Version: 1.8.57.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.GPU.EP.1.8_8wekyb3d8bbwe
+[WinML] Installing Execution Provider: VitisAIExecutionProvider
 
-XRT build version: 2.19.0
-Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
-Git branch: HEAD
-PID: 7784
-UID: 0
-[Fri May 22 14:41:02 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
-
-XRT build version: 2.19.0
-Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
-Git branch: HEAD
-PID: 7784
-UID: 0
-[Fri May 22 14:41:02 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
-
-XRT build version: 2.19.0
-Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
-Git branch: HEAD
-PID: 7784
-UID: 0
-[Fri May 22 14:41:02 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
-
-XRT build version: 2.19.0
-Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
-Build date: 2025-12-04 16:52:22
-Git branch: HEAD
-PID: 7784
-UID: 0
-[Fri May 22 14:41:02 2026 GMT]
-HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
-
-Error: Evaluation failed: Failed to load model 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task feature-extraction' to see supported role=path model options.
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+VitisAIExecutionProvider EP installed successfully.
+- Version: 1.8.63.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.NPU.EP.1.8_8wekyb3d8bbwe
+Error: Evaluation failed: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_10138240008908260437_3 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_10138240008908260437_3_3' Status Message: No such query request (73)

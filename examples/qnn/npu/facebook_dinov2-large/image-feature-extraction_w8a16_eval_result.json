@@ -1,5 +1,6 @@
 {
   "model_id": "facebook/dinov2-large",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\facebook_dinov2-large\\image-feature-extraction_w8a16_build_artifacts\\model.onnx",
   "task": "image-feature-extraction",
   "device": "npu",
   "ep": "qnn",
@@ -10,9 +11,9 @@
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
-  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\facebook_dinov2-large\\image-feature-extraction_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\facebook_dinov2-large\\image-feature-extraction_w8a16_eval_result.json",
   "metrics": {
-    "knn_top1_accuracy": 90.8,
+    "knn_top1_accuracy": 90.9,
     "knn_top5_accuracy": 97.8
   }
 }

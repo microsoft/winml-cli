@@ -1,11 +1,12 @@
 {
   "model_id": "deepset/roberta-base-squad2",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\deepset_roberta-base-squad2\\question-answering_w8a16_build_artifacts\\model.onnx",
   "task": "question-answering",
   "device": "npu",
   "ep": "vitisai",
   "dataset": {
     "split": "validation",
-    "samples": 10,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "rajpurkar/squad_v2",
@@ -16,23 +17,23 @@
       "label_column": "answers"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\vitisai\\npu\\deepset_roberta-base-squad2\\question-answering_w8a16_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\deepset_roberta-base-squad2\\question-answering_w8a16_eval_result.json",
   "metrics": {
-    "exact": 10.0,
-    "f1": 10.0,
-    "total": 10,
-    "HasAns_exact": 0.0,
-    "HasAns_f1": 0.0,
-    "HasAns_total": 3,
-    "NoAns_exact": 14.285714285714286,
-    "NoAns_f1": 14.285714285714286,
-    "NoAns_total": 7,
-    "best_exact": 70.0,
+    "exact": 15.1,
+    "f1": 16.772906080847257,
+    "total": 1000,
+    "HasAns_exact": 1.2170385395537526,
+    "HasAns_f1": 4.610357161961982,
+    "HasAns_total": 493,
+    "NoAns_exact": 28.599605522682445,
+    "NoAns_f1": 28.599605522682445,
+    "NoAns_total": 507,
+    "best_exact": 50.7,
     "best_exact_thresh": 0.0,
-    "best_f1": 70.0,
+    "best_f1": 50.7,
     "best_f1_thresh": 0.0,
-    "total_time_in_seconds": 2.3982901999988826,
-    "samples_per_second": 4.16963718569365,
-    "latency_in_seconds": 0.23982901999988823
+    "total_time_in_seconds": 184.05477709999832,
+    "samples_per_second": 5.433165146573145,
+    "latency_in_seconds": 0.18405477709999832
   }
 }
