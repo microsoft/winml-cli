@@ -18,8 +18,7 @@
 # Trigger model:
 #   * Manual queue-time runs (with selectable parameters) for ad-hoc
 #     validation.
-#   * Daily scheduled run at 00:00 Beijing time (16:00 UTC the prior
-#     day) on `main`, staggered 8 h away from the weekly Eval Report cron.
+#   * Daily scheduled run at 08:00 Beijing time (00:00 UTC) on `main`.
 #   * CI trigger on `release/*` branches — fires on the initial push
 #     that creates a new release branch so each new release branch gets
 #     an automatic E2E run. (Subsequent pushes to a release branch will
@@ -38,8 +37,8 @@ trigger:
       - release/*
 
 schedules:
-  - cron: '0 16 * * *'
-    displayName: 'Daily run — 00:00 (UTC+8) every day'
+  - cron: '0 0 * * *'
+    displayName: 'Daily run — 08:00 (UTC+8) every day'
     branches:
       include:
         - main
