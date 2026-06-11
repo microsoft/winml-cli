@@ -76,9 +76,9 @@ console = Console()
 )
 @click.option(
     "--compiler",
-    type=click.Choice(["ort", "ort_inference_session", "qairt"]),
+    type=click.Choice(["ort", "ort_jit", "qairt"]),
     default="ort",
-    help="Compiler backend (default: ort). 'ort_inference_session' compiles via "
+    help="Compiler backend (default: ort). 'ort_jit' compiles via "
     "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model.",
 )
 @click.option(
@@ -222,7 +222,7 @@ def compile(
     config.verbose = bool(verbose)
 
     # Set compiler options. The compiler choice selects the backend:
-    # "ort_inference_session" -> ort.InferenceSession, else ort.ModelCompiler / qairt.
+    # "ort_jit" -> ort.InferenceSession, else ort.ModelCompiler / qairt.
     config.ep_config.compiler = compiler
     config.ep_config.qnn_sdk_root = qnn_sdk_root
     config.ep_config.embed_context = embed
@@ -250,7 +250,7 @@ def compile(
 
     try:
         console.print("\n[bold]Compiling model(s)...[/bold]")
-        if len(models) == 1 and compiler != "ort_inference_session":
+        if len(models) == 1 and compiler != "ort_jit":
             # Default path: single model via ort.ModelCompiler (staged pipeline).
             results = [compile_onnx(models[0], output_path=resolved_output, config=config)]
         else:

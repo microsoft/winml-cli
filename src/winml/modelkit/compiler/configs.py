@@ -37,8 +37,8 @@ class EPConfig:
         provider_options: EP-specific options as key=value dict
         enable_ep_context: Generate EPContext model with pre-compiled graph
         embed_context: Embed context in ONNX (True) or external .bin file (False)
-        compiler: Compiler backend ("ort", "ort_inference_session", or "qairt").
-            "ort_inference_session" selects the ort.InferenceSession backend.
+        compiler: Compiler backend ("ort", "ort_jit", or "qairt").
+            "ort_jit" selects the ort.InferenceSession backend.
         qnn_sdk_root: Path to QAIRT SDK root (required when compiler is "qairt")
         device: Target device ("npu", "gpu", "cpu", "auto")
     """

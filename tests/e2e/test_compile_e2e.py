@@ -979,15 +979,15 @@ def test_multi_model_shared_weights(
 
     cmd = ["-m", str(m_seq4), "-m", str(m_seq1), "--ep", "qnn", "--output-dir", str(out_dir)]
     if use_inference_session:
-        cmd += ["--compiler", "ort_inference_session"]
+        cmd += ["--compiler", "ort_jit"]
     result = _invoke(*cmd)
     assert result.exit_code == 0, result.output
     assert "Success! Model compiled" in result.output, result.output
-    # The InferenceSession backend is selected via --compiler ort_inference_session.
+    # The InferenceSession backend is selected via --compiler ort_jit.
     if use_inference_session:
-        assert "ort_inference_session" in result.output
+        assert "ort_jit" in result.output
     else:
-        assert "ort_inference_session" not in result.output
+        assert "ort_jit" not in result.output
 
     # Both compiled wrappers exist + exactly one shared weights bin (weight sharing).
     ctx4 = out_dir / f"{m_seq4.stem}_ctx.onnx"

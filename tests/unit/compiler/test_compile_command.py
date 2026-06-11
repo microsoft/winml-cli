@@ -424,13 +424,13 @@ class TestCompileCommand:
         assert call_args.args[2].ep_config.compiler == "ort"
 
     @patch("winml.modelkit.compiler.compile_multiple_onnx")
-    def test_inference_session_compiler_sets_config(
+    def test_ort_jit_compiler_sets_config(
         self,
         mock_compile_multiple: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """--compiler ort_inference_session is carried on the config used for compilation."""
+        """--compiler ort_jit is carried on the config used for compilation."""
         m1 = tmp_path / "m1.onnx"
         m2 = tmp_path / "m2.onnx"
         self._create_simple_onnx(m1)
@@ -459,13 +459,13 @@ class TestCompileCommand:
                 "--output-dir",
                 str(out_dir),
                 "--compiler",
-                "ort_inference_session",
+                "ort_jit",
             ],
         )
 
         assert result.exit_code == 0, result.output
         # The compiler choice is applied onto the config that drives compilation.
-        assert mock_compile_multiple.call_args.args[2].ep_config.compiler == "ort_inference_session"
+        assert mock_compile_multiple.call_args.args[2].ep_config.compiler == "ort_jit"
 
     def _create_simple_onnx(self, path: Path) -> None:
         """Create a simple ONNX model for testing."""

@@ -105,9 +105,9 @@ class CompileContext:
     def use_inference_session(self) -> bool:
         """Whether to use the ort.InferenceSession backend (vs ort.ModelCompiler).
 
-        True iff the configured compiler is ``"ort_inference_session"``.
+        True iff the configured compiler is ``"ort_jit"``.
         """
-        return self.config.get("compiler") == "ort_inference_session"
+        return self.config.get("compiler") == "ort_jit"
 
     @property
     def enable_ep_context(self) -> bool:

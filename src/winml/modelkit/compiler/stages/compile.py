@@ -78,12 +78,12 @@ class CompileStage(BaseStage):
 
     def _compile_single_model_compiler(self, context: CompileContext) -> None:
         """Single-model compile via ``WinMLSession`` (``ort.ModelCompiler``)."""
-        # Resolve session class from compiler config. "ort_inference_session" must not
+        # Resolve session class from compiler config. "ort_jit" must not
         # reach here — it routes to _compile_multiple via context.use_inference_session.
         compiler = context.config.get("compiler", "ort")
-        if compiler == "ort_inference_session":
+        if compiler == "ort_jit":
             raise ValueError(
-                "'ort_inference_session' is handled by the inference-session path, "
+                "'ort_jit' is handled by the inference-session path, "
                 "not the single-model ModelCompiler path."
             )
         session_cls = COMPILER_SESSION_MAPPING[compiler]
