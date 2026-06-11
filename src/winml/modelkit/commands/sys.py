@@ -38,12 +38,13 @@ from rich.table import Table
 
 from ..ep_path import (
     DirectorySource,
+    EPEntry,
     MSIXPackageSource,
     NuGetSource,
     PyPISource,
     WinMLCatalogSource,
 )
-from ..session import EP_DEVICE_SPECS
+from ..session import EP_DEVICE_SPECS, WinMLEP, WinMLEPRegistry
 from ..sysinfo import OS
 
 
@@ -538,108 +539,103 @@ def _describe_source(source: Any) -> dict[str, Any]:
 def _gather_ep_info() -> dict[str, dict[str, Any]]:
     """Gather comprehensive EP inventory across every source.
 
-    Walks the default EP source list plus :func:`list_msix_eps` (to surface
-    non-current MSIX versions the catalog hides) plus the ``WINMLCLI_EP_PATH``
-    env-var override.  Each discovered :class:`EPEntry` is fed through
+    Walks :func:`discover_all_eps` (PyPI / NuGet / WinMLCatalog /
+    DirectorySource / live MSIX enumeration via :func:`list_msix_eps` in
+    the default source list) plus any ``WINMLCLI_EP_PATH`` env-var
+    override. Each discovered :class:`EPEntry` is fed through
     :meth:`WinMLEPRegistry.register_ep` (Path B — broad enumeration); the
     DLL is loaded so we can surface per-device facts from the resulting
-    :class:`WinMLEP`.  Registration failures (incompatible hardware, missing
-    runtime, etc.) are captured and rendered as ``status="incompatible"``.
+    :class:`WinMLEP`. Registration failures (incompatible hardware,
+    missing runtime, etc.) are captured as ``status="incompatible"``
+    rows.
 
-    Built-in EPs (CPU, Azure, DML) reported by
-    ``onnxruntime.get_available_providers`` are appended as
-    ``source_kind="built-in"`` via the existing bundled-EP pathway.
+    Built-in EPs (CPU, Azure, DML) are appended from
+    :meth:`WinMLEPRegistry.builtin_eps` — snapshotted at registry init.
+    This command does not import onnxruntime directly. Compatibility is
+    queried straight from :data:`EP_CATALOG`.
+
+    Status derivation follows ``2_coreloop.md`` §7.1: first successful
+    registration per ep_name is ``"primary"``, subsequent successes are
+    ``"shadowed"``, registration failures are ``"incompatible"``. The
+    discovery-time ``EPEntry.status`` field is intentionally ignored —
+    it reflects precedence-position in the source list, not whether the
+    DLL actually loaded.
 
     Returns:
         Dict ``ep_name -> {compatible, device_types, entries: [...]}``.
     """
-    from ..ep_path import discover_all_eps, list_msix_eps
-    from ..session import WinMLEP, WinMLEPRegistrationFailed, WinMLEPRegistry
+    from ..ep_path import EP_CATALOG, discover_all_eps
+    from ..session import WinMLEPRegistrationFailed
 
-    # MSIX entries inject AFTER the default EP source list so they appear
-    # as shadowed alternatives — not as artificial primaries that would
-    # mislead the user about what would actually load.
-    msix = list_msix_eps()
-    all_entries = discover_all_eps(extra_sources_after=msix)
-
-    # Path B: broad enumeration. For each EPEntry, attempt register_ep so
-    # we can surface real device facts. Failures are captured and rendered
-    # downstream as "incompatible" — they don't bubble out of --list-ep.
+    # --- Tier 2: register every discovered entry; capture failures as data.
     registry = WinMLEPRegistry.instance()
     results: list[WinMLEP] = []
-    failures: list[tuple[Any, Exception]] = []
-    for entry in all_entries:
+    failures: list[tuple[EPEntry, Exception]] = []
+    for entry in discover_all_eps():
         try:
             results.append(registry.register_ep(entry))
         except WinMLEPRegistrationFailed as e:
             failures.append((entry, e))
         except Exception as e:
-            # Defensive: a broken plugin must not abort the whole
-            # inventory walk — capture and continue.
+            # A broken plugin must not abort the whole inventory walk.
             logger.warning(
                 "register_ep raised non-WinMLEPRegistrationFailed for %s: %s",
-                entry.ep_name,
-                e,
+                entry.ep_name, e,
             )
             failures.append((entry, e))
 
-    # Group by ep_name, preserving discover_all_eps walk order so the
-    # primary entry stays at index 0 and shadowed entries trail it.
-    grouped: dict[str, list[tuple[Any, WinMLEP | None, Exception | None]]] = {}
+    # --- Group by ep_name; derive status fresh per §7.1 (ignore
+    # EPEntry.status — that's discovery-time, not registration outcome).
+    rows_by_ep: dict[str, list[tuple[EPEntry, WinMLEP | None, Exception | None, str]]] = {}
+    primary_seen: set[str] = set()
     for winml_ep in results:
         entry = winml_ep.source
-        grouped.setdefault(entry.ep_name, []).append((entry, winml_ep, None))
+        status = "shadowed" if entry.ep_name in primary_seen else "primary"
+        primary_seen.add(entry.ep_name)
+        rows_by_ep.setdefault(entry.ep_name, []).append(
+            (entry, winml_ep, None, status)
+        )
     for entry, err in failures:
-        grouped.setdefault(entry.ep_name, []).append((entry, None, err))
+        rows_by_ep.setdefault(entry.ep_name, []).append(
+            (entry, None, err, "incompatible")
+        )
 
-    catalog_default_paths: set[Path] = set()
-    # Cross-reference WinMLCatalogSource's pick to tag (catalog default).
-    for rows in grouped.values():
-        for entry, _, _ in rows:
-            if isinstance(entry.source, WinMLCatalogSource):
-                catalog_default_paths.add(entry.dll_path)
+    # --- Tag DLL paths that came via WinMLCatalogSource (for the
+    # "(catalog default)" annotation in the renderer).
+    catalog_default_paths: set[Path] = {
+        entry.dll_path
+        for rows in rows_by_ep.values()
+        for entry, _, _, _ in rows
+        if isinstance(entry.source, WinMLCatalogSource)
+    }
 
-    result: dict[str, dict[str, Any]] = {}
-    for ep_name, rows in grouped.items():
-        # EP-level compatibility derives from the first row's source.
-        # Guard against WMI/COM hiccups in is_compatible() so a single
-        # bad EP can't take down the whole --list-ep output. Default
-        # True (treat as compatible) so the EP at least appears.
+    # --- Build per-EP records.
+    record_by_ep: dict[str, dict[str, Any]] = {}
+    for ep_name, rows in rows_by_ep.items():
         first_entry = rows[0][0]
         try:
             compatible = first_entry.source.is_compatible()
         except Exception as e:
             logger.warning(
                 "is_compatible() raised for EP %s; treating as compatible: %s",
-                ep_name,
-                e,
+                ep_name, e,
             )
             compatible = True
-        ep_record: dict[str, Any] = {
-            "compatible": compatible,
-            "device_types": _format_device_types(ep_name),
-            "entries": [],
-        }
-        for entry, winml_ep, err in rows:
+
+        entries_out: list[dict[str, Any]] = []
+        for entry, winml_ep, err, derived_status in rows:
             desc = _describe_source(entry.source)
-            # When the EP is incompatible with the machine OR register_ep
-            # failed, the entry's resolution status is moot — surface that
-            # directly to avoid the misleading "[primary]" tag on a source
-            # that cannot actually load.
             if err is not None:
                 desc["status"] = "incompatible"
                 desc["compatible"] = False
                 desc["error"] = f"{type(err).__name__}: {err}"
             else:
-                desc["status"] = "incompatible" if not compatible else entry.status
+                desc["status"] = "incompatible" if not compatible else derived_status
                 desc["compatible"] = compatible
             desc["dll_path"] = str(entry.dll_path)
             if entry.dll_path in catalog_default_paths:
                 desc["is_catalog_default"] = True
             if winml_ep is not None:
-                # Surface per-device facts pulled from the live WinMLDevices
-                # ORT exposed after the register_execution_provider_library
-                # call. The renderer joins each tuple with '  |  '.
                 desc["devices"] = [
                     {
                         "device_type": d.device_type,
@@ -649,21 +645,23 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
                     }
                     for d in winml_ep.devices
                 ]
-            ep_record["entries"].append(desc)
-        result[ep_name] = ep_record
+            entries_out.append(desc)
 
-    # Append ORT built-ins that no EPSource provides (CPU, Azure, DML).
-    # These come from WinMLEPRegistry._builtin_eps, snapshotted at
-    # registry __init__ from ort.get_available_providers(). The registry
-    # is the canonical ORT wrapper — this command does not import ORT
-    # directly.
-    from ..ep_path import _ep_is_compatible
+        record_by_ep[ep_name] = {
+            "compatible": compatible,
+            "device_types": _format_device_types(ep_name),
+            "entries": entries_out,
+        }
 
-    for ep_name in registry._builtin_eps:
-        if ep_name in result:
+    # --- Append ORT built-ins (CPU, Azure, DML) — the registry wraps
+    # ORT, so we ask it for the built-in set rather than importing
+    # onnxruntime directly. If a plugin already provided this ep_name,
+    # the plugin record wins.
+    for ep_name in registry.builtin_eps():
+        if ep_name in record_by_ep:
             continue
-        result[ep_name] = {
-            "compatible": _ep_is_compatible(ep_name),
+        record_by_ep[ep_name] = {
+            "compatible": EP_CATALOG.is_compatible(ep_name),
             "device_types": _format_device_types(ep_name),
             "entries": [
                 {
@@ -674,7 +672,7 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
             ],
         }
 
-    return result
+    return record_by_ep
 
 
 _SOURCE_KIND_LABEL = {

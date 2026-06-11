@@ -26,6 +26,7 @@ from winml.modelkit.ep_path import (
     DirectorySource,
     EPEntry,
     EPSource,
+    MSIXPackageSource,
     NuGetSource,
     PyPISource,
     WinMLCatalogSource,
@@ -98,7 +99,13 @@ class TestPublicAPI:
         for entry in sources:
             assert isinstance(
                 entry,
-                (PyPISource, NuGetSource, DirectorySource, WinMLCatalogSource),
+                (
+                    PyPISource,
+                    NuGetSource,
+                    DirectorySource,
+                    WinMLCatalogSource,
+                    MSIXPackageSource,
+                ),
             )
 
     def test_ep_source_subclasses_inherit_from_abc(self) -> None:

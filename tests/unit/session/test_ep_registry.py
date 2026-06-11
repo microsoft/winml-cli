@@ -141,3 +141,66 @@ def test_register_ep_yields_zero_devices_raises(fresh_registry: WinMLEPRegistry)
         mock_ort.register_execution_provider_library = MagicMock()
         with pytest.raises(WinMLEPRegistrationFailed, match="no OrtEpDevices"):
             fresh_registry.register_ep(entry)
+
+
+def test_register_ep_appends_to_entries_when_not_present(
+    fresh_registry: WinMLEPRegistry,
+) -> None:
+    """register_ep appends an EPEntry to _entries when not already cached.
+
+    Pins the Path A / Path B inconsistency fix: --list-ep injects MSIX
+    entries the registry's default discovery never saw, so a later
+    auto_device call must still find them via _entries_for.
+    """
+    # Start with a registry whose _entries is empty so we can verify the
+    # append unambiguously.
+    fresh_registry._entries = []
+    # Construct a distinct entry not in _entries.
+    entry = _ep_entry("OpenVINOExecutionProvider", dll="C:/fake/openvino.dll")
+    fake_dev = _fake_ort_device("OpenVINOExecutionProvider", "NPU")
+    with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
+        mock_ort.get_ep_devices.side_effect = [[], [fake_dev]]
+        mock_ort.register_execution_provider_library = MagicMock()
+        fresh_registry.register_ep(entry)
+
+    assert entry in fresh_registry._entries
+    # _entries_for must now surface the newly-registered entry, so a
+    # downstream auto_device call won't raise WinMLEPNotDiscovered.
+    assert fresh_registry._entries_for("OpenVINOExecutionProvider") == [entry]
+
+
+def test_register_ep_does_not_double_append(
+    fresh_registry: WinMLEPRegistry,
+) -> None:
+    """register_ep does not append when the EPEntry is already in _entries.
+
+    Idempotency guard: EPEntry is a frozen dataclass with structural
+    equality, so re-registering the same entry must not duplicate it.
+    """
+    entry = _ep_entry("QNNExecutionProvider")
+    # fresh_registry fixture already places this entry in _entries.
+    assert entry in fresh_registry._entries
+    initial_len = len(fresh_registry._entries)
+
+    fake_dev = _fake_ort_device("QNNExecutionProvider", "NPU")
+    with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
+        mock_ort.get_ep_devices.side_effect = [[], [fake_dev]]
+        mock_ort.register_execution_provider_library = MagicMock()
+        fresh_registry.register_ep(entry)
+
+    assert len(fresh_registry._entries) == initial_len
+
+
+def test_builtin_eps_public_method_returns_frozenset(
+    fresh_registry: WinMLEPRegistry,
+) -> None:
+    """builtin_eps() exposes the frozenset snapshotted at __init__.
+
+    Pins the new public surface (Finding #3 fix): callers must query
+    this method instead of reaching into the private _builtin_eps attr.
+    """
+    sentinel = frozenset({"CPUExecutionProvider", "DmlExecutionProvider"})
+    fresh_registry._builtin_eps = sentinel
+    result = fresh_registry.builtin_eps()
+    assert isinstance(result, frozenset)
+    assert result == sentinel

@@ -200,6 +200,15 @@ class WinMLEPRegistry:
         """
         return [e for e in self._entries if e.ep_name == ep_full_name]
 
+    def builtin_eps(self) -> frozenset[str]:
+        """ORT's built-in EPs (CPU, DML, bundled Azure) snapshotted at __init__.
+
+        These EPs are baked into ORT itself — not discovered via EP_PATH.
+        The registry is the canonical ORT wrapper; external callers query
+        this surface instead of importing onnxruntime directly.
+        """
+        return self._builtin_eps
+
     def register_ep(self, entry: EPEntry) -> WinMLEP:
         """Atomic registration: load entry.dll_path, enumerate OrtEpDevices, wrap.
 
@@ -252,6 +261,19 @@ class WinMLEPRegistry:
         devices = tuple(wrap_ort_device(h) for h in deduped)
         winml_ep = WinMLEP(source=entry, devices=devices)
         self._registered[entry.dll_path] = winml_ep
+
+        # Keep _entries consistent with what we just registered, so a later
+        # auto_device call for this EP can find this entry via _entries_for.
+        # Closes the inconsistency where Path B (--list-ep) used wider extras
+        # (e.g. list_msix_eps()) than the registry's default discovery scan
+        # saw, causing auto_device to raise WinMLEPNotDiscovered for an EP
+        # the registry just registered.
+        #
+        # EPEntry is a frozen dataclass — structural equality, so `not in`
+        # is the natural idempotency check (no path-keyed lookup needed).
+        if entry not in self._entries:
+            self._entries.append(entry)
+
         return winml_ep
 
     def auto_device(self, target: EPDeviceTarget) -> WinMLEPDevice:
@@ -341,7 +363,7 @@ def available_eps() -> frozenset[str]:
     try:
         registry = WinMLEPRegistry.instance()
         plugin = frozenset(e.ep_name for e in registry._entries)
-        return plugin | registry._builtin_eps
+        return plugin | registry.builtin_eps()
     except (ImportError, RuntimeError):
         return frozenset()  # WinML not available
     except Exception:

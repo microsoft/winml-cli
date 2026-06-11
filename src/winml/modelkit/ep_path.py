@@ -1218,7 +1218,12 @@ def _default_ep_sources() -> list[EPSource]:
     project), then ``WinMLCatalogSource`` entries (opportunistic MSIX
     pickup for EPs we don't already have via PyPI / NuGet), then
     ``DirectorySource`` entries gated by env vars (Ryzen AI for
-    VitisAI; user-specified for NvTRT-RTX).
+    VitisAI; user-specified for NvTRT-RTX), then ``list_msix_eps()``
+    enumeration of every installed MSIX EP package — catches the OEM
+    ``WindowsWorkload.EP.*`` channel (Lunar Lake et al.) and historical
+    MSIX versions the catalog hides. Dedup by ``(ep_name, canonical
+    dll_path)`` collapses any catalog/MSIX overlap; catalog precedence
+    wins.
 
     The ``WinMLCatalogSource`` rows are live: they yield nothing
     silently when the optional ``winml-catalog`` extra is not installed
@@ -1315,6 +1320,12 @@ def _default_ep_sources() -> list[EPSource]:
                 ),
             },
         ),
+        # 6. Live MSIX enumeration — catches the OEM
+        #    ``WindowsWorkload.EP.*`` channel and historical MSIX
+        #    versions the WinML catalog hides. Appended after
+        #    WinMLCatalogSource so catalog precedence wins on overlap;
+        #    dedup in discover_all_eps collapses identical-DLL dups.
+        *list_msix_eps(),
     ]
 
 
