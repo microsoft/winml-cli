@@ -84,28 +84,39 @@ winml perf -m model.onnx --device npu --monitor
 
 When `--monitor` is active, hardware metrics are sampled throughout the benchmark and reported at the end. These metrics help answer questions like "how much device memory does this model need?" and "is the model memory-bound?".
 
-| Category | Metrics | Description |
-|----------|---------|-------------|
-| **Device memory (local)** | `local_peak_mb` | VRAM or on-device memory exclusively allocated to the inference workload |
-| **Device memory (shared)** | `shared_peak_mb` | System memory shared with the device (common on integrated GPUs and NPUs) |
-| **RAM** | `used_mb`, `peak_mb` | Process-level system memory consumption |
-| **CPU** | `mean_pct`, `peak_pct` | CPU utilisation during the benchmark window |
-| **Device utilisation** | `mean_pct`, `peak_pct` | NPU or GPU engine utilisation (only present when `device_kind` is `npu` or `gpu`) |
+The metrics collected depend on the target device:
 
-Example terminal output (CPU device):
+| Metric | CPU | GPU | NPU |
+|--------|:---:|:---:|:---:|
+| CPU utilisation (mean/peak %) | ✓ | ✓ | ✓ |
+| RAM (used MB, peak MB) | ✓ | ✓ | ✓ |
+| Device utilisation (mean/peak %) | — | ✓ | ✓ |
+| Device memory local (peak MB) | — | ✓ | ✓ |
+| Device memory shared (peak MB) | — | ✓ | ✓ |
+| Engine running time (ns) | — | ✓ | ✓ |
+
+- **CPU**: Only system-level metrics (CPU %, RAM) are reported since there is no separate device memory.
+- **GPU**: Reports GPU engine utilisation plus dedicated VRAM (`local_peak_mb`) and shared system memory (`shared_peak_mb`) allocated by the GPU driver.
+- **NPU**: Same structure as GPU. NPU adapters register as Windows GPU Engine devices, so utilisation and memory are read via the same PDH counters. `local_peak_mb` represents on-chip memory; `shared_peak_mb` is system memory shared with the NPU.
+
+### Terminal output
+
+CPU device:
 
 ```
 Hardware (during benchmark)
   CPU: 8.3% avg  |  Mem: 644 MB
 ```
 
-When running on NPU or GPU, device utilisation and device memory are also shown:
+NPU or GPU device:
 
 ```
 Hardware (during benchmark)
   NPU: 87.3% avg, 100.0% peak  |  CPU: 12.1% avg  |  Mem: 1842 MB
   Device Mem: 245/0 MB (local/shared)
 ```
+
+### JSON structure
 
 In JSON output (`-f json`), these metrics appear under the `hw_monitor` key:
 
@@ -121,7 +132,19 @@ In JSON output (`-f json`), these metrics appear under the `hw_monitor` key:
 }
 ```
 
-When a hardware accelerator is active, `device_kind` will be `"npu"` or `"gpu"`, and an additional key (e.g. `"npu"`) appears with the device utilisation percentages. The `running_time_ns` field reports the GPU/NPU engine running time as reported by the driver.
+When a hardware accelerator is active, `device_kind` will be `"npu"` or `"gpu"`, and an additional key (e.g. `"npu"`) appears with device utilisation:
+
+```json
+"hw_monitor": {
+  "device_kind": "npu",
+  "adapter_luid": "0x0000abcd12340000",
+  "cpu": { "mean_pct": 12.1, "peak_pct": 34.5, "sample_count": 50 },
+  "ram": { "used_mb": 1842.0, "peak_mb": 1910.0 },
+  "device_memory": { "local_peak_mb": 245.0, "shared_peak_mb": 0.0 },
+  "npu": { "mean_pct": 87.3, "peak_pct": 100.0, "sample_count": 50 },
+  "running_time_ns": 4820000000
+}
+```
 
 This makes it straightforward to track memory consumption across model revisions or compare devices programmatically.
 
