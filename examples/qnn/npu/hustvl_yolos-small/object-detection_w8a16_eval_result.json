@@ -1,0 +1,40 @@
+{
+  "model_id": "hustvl/yolos-small",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\hustvl_yolos-small\\object-detection_w8a16_build_artifacts\\model.onnx",
+  "task": "object-detection",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "val",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "detection-datasets/coco",
+    "columns_mapping": {
+      "annotation_column": "objects",
+      "bbox_key": "bbox",
+      "category_key": "category",
+      "box_format": "xyxy"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\hustvl_yolos-small\\object-detection_w8a16_eval_result.json",
+  "metrics": {
+    "map": 0.3192025423049927,
+    "map_50": 0.5011494755744934,
+    "map_75": 0.3273647725582123,
+    "num_predictions": 100000,
+    "num_ground_truths": 7431,
+    "num_images": 1000,
+    "map_small": 0.07345499098300934,
+    "map_medium": 0.26475027203559875,
+    "map_large": 0.5163607001304626,
+    "mar_1": 0.2886188328266144,
+    "mar_10": 0.44237831234931946,
+    "mar_100": 0.4758250415325165,
+    "mar_small": 0.12632115185260773,
+    "mar_medium": 0.43199440836906433,
+    "mar_large": 0.6923097968101501,
+    "map_per_class": -1.0,
+    "mar_100_per_class": -1.0
+  }
+}

@@ -36,6 +36,7 @@ def run_optimize_analyze_loop(
     ep: EPNameOrAlias | None = None,
     device: str | None = None,
     max_optim_iterations: int = 0,
+    allow_unsupported_nodes: bool = False,
     on_ep_start: Any = None,
     on_node_result: Any = None,
     on_iteration_start: Any = None,
@@ -62,6 +63,9 @@ def run_optimize_analyze_loop(
         device: Target device for the analyzer.
         max_optim_iterations: Maximum autoconf re-optimization rounds.
             0 means optimize+analyze only (no autoconf re-optimization).
+        allow_unsupported_nodes: If True, log a warning instead of raising when
+            unsupported nodes persist after analysis, letting the build proceed
+            (the EP may still run them, e.g. via CPU fallback).
         analyze_output_path: Optional path to write the full analysis result as
             JSON. Written after every analyze pass; each pass overwrites the
             previous one so the file always reflects the most recent analysis.
@@ -95,6 +99,7 @@ def run_optimize_analyze_loop(
             ep=ep,
             device=device,
             max_optim_iterations=max_optim_iterations,
+            allow_unsupported_nodes=allow_unsupported_nodes,
             config=config,
             on_ep_start=on_ep_start,
             on_node_result=on_node_result,
@@ -119,6 +124,7 @@ def _run_analyze_loop(
     device: str | None,
     max_optim_iterations: int,
     config: WinMLBuildConfig,
+    allow_unsupported_nodes: bool = False,
     on_ep_start: Any = None,
     on_node_result: Any = None,
     on_iteration_start: Any = None,
@@ -225,10 +231,18 @@ def _run_analyze_loop(
         )
 
     if analysis is not None and analysis.has_errors:
-        raise RuntimeError(
+        message = (
             f"Unsupported nodes persist after {analyze_iterations} analyze "
             f"pass(es): {analysis.lint.error_patterns}"
         )
+        if allow_unsupported_nodes:
+            logger.warning(
+                "%s. Continuing anyway (allow_unsupported_nodes=True); the EP may "
+                "fall back to another device for these nodes.",
+                message,
+            )
+        else:
+            raise RuntimeError(message)
 
     analyze_black_nodes = analysis.lint.errors if analysis else 0
 

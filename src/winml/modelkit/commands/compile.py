@@ -28,7 +28,7 @@ from rich.console import Console
 from ..onnx import is_compiled_onnx
 from ..sysinfo import resolve_device, resolve_eps
 from ..utils import cli as cli_utils
-from ..utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
+from ..utils.constants import normalize_ep_name
 
 
 if TYPE_CHECKING:
@@ -85,9 +85,9 @@ console = Console()
     help="Path to QAIRT SDK root",
 )
 @click.option(
-    "--embed",
-    is_flag=True,
+    "--embed/--no-embed",
     default=False,
+    show_default=True,
     help="Embed EP context in ONNX file (default: external .bin file)",
 )
 @click.option(
@@ -264,22 +264,12 @@ def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) ->
 
     ``ep`` overrides the device mapping. Returns
     the canonical EP name (e.g., ``"QNNExecutionProvider"``).
-    """
-    if ep:
-        canonical = normalize_ep_name(ep)
-        if canonical is None:
-            raise click.UsageError(f"Unknown EP: {ep}")
-        supported = EP_SUPPORTED_DEVICES[canonical]
-        if resolved_device.lower() not in supported:
-            raise click.UsageError(
-                f"--ep {ep} cannot run on --device {resolved_device}. "
-                f"{canonical} supports: {', '.join(supported)}."
-            )
-        # EP host-availability is enforced by ``resolve_device`` upstream,
-        # no need for an extra check here
-        return canonical
 
-    eps = resolve_eps(resolved_device)
-    if not eps:
-        return "CPUExecutionProvider"
-    return eps[0]
+    Device/EP policy compatibility is enforced upstream by ``resolve_device``;
+    this helper trusts its inputs and only normalizes.
+    """
+    if ep is not None:
+        normalized = normalize_ep_name(ep)
+        if normalized is not None:
+            return normalized
+    return resolve_eps(resolved_device)[0]

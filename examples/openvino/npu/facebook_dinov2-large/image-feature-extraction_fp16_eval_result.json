@@ -1,0 +1,19 @@
+{
+  "model_id": "facebook/dinov2-large",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\facebook_dinov2-large\\image-feature-extraction_fp16_build_artifacts\\model.onnx",
+  "task": "image-feature-extraction",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\facebook_dinov2-large\\image-feature-extraction_fp16_eval_result.json",
+  "metrics": {
+    "knn_top1_accuracy": 39.0,
+    "knn_top5_accuracy": 52.0
+  }
+}

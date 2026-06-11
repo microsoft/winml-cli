@@ -206,6 +206,9 @@ tmp/
 *.tmp
 *.temp
 
+# Build artifacts (intermediate outputs from `winml build`)
+*_build_artifacts/
+
 # Model files (large binaries)
 *.onnx
 *.onnx.data

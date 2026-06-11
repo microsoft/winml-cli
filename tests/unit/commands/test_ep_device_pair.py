@@ -15,7 +15,6 @@ ordered tuple per EP whose first element is the canonical default device.
 
 from __future__ import annotations
 
-import click
 import pytest
 
 
@@ -72,8 +71,9 @@ class TestEpSupportedDevices:
 
 
 class TestCompileIncompatiblePair:
-    """``_resolve_compile_provider`` must reject (device, ep) combos that the
-    policy table marks as unsupported."""
+    """``winml compile`` must reject (device, ep) combos that the policy table
+    marks as unsupported. Enforcement lives in ``resolve_device`` (sysinfo);
+    these tests pin the CLI-surface behavior (regression for #521)."""
 
     @pytest.mark.parametrize(
         ("device", "ep"),
@@ -88,11 +88,18 @@ class TestCompileIncompatiblePair:
             ("npu", "migraphx"),
         ],
     )
-    def test_incompatible_pair_rejected(self, device: str, ep: str) -> None:
-        from winml.modelkit.commands.compile import _resolve_compile_provider
+    def test_incompatible_pair_rejected(self, device: str, ep: str, tmp_path) -> None:
+        from click.testing import CliRunner
 
-        with pytest.raises((click.UsageError, click.ClickException)):
-            _resolve_compile_provider(device, ep)
+        from winml.modelkit.commands.compile import compile
+
+        model_file = tmp_path / "model.onnx"
+        model_file.write_bytes(b"fake")
+
+        result = CliRunner().invoke(compile, ["-m", str(model_file), "-d", device, "--ep", ep])
+
+        assert result.exit_code != 0
+        assert "does not support device" in result.output
 
     @pytest.mark.parametrize(
         ("device", "ep", "expected"),

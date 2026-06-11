@@ -1,0 +1,42 @@
+{
+  "model_id": "mattmdjaga/segformer_b2_clothes",
+  "model_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_build_artifacts\\model.onnx",
+  "task": "image-segmentation",
+  "device": "gpu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "train",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mattmdjaga/human_parsing_dataset",
+    "columns_mapping": {
+      "annotation_column": "mask"
+    }
+  },
+  "output_path": "C:\\Users\\qiowu\\source\\repos\\copilot-worktrees\\winml-cli\\dingmaomaobjtu-expert-system\\examples\\qnn\\gpu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_eval_result.json",
+  "metrics": {
+    "mean_iou": 0.7797895073890686,
+    "overall_accuracy": 0.9759960770606995,
+    "per_category_iou": [
+      0.9869382381439209,
+      0.8134348392486572,
+      0.8259497880935669,
+      0.6331858038902283,
+      0.8912686705589294,
+      0.8758232593536377,
+      0.9016563296318054,
+      0.859726071357727,
+      0.36707061529159546,
+      0.636669933795929,
+      0.6457721590995789,
+      0.8536091446876526,
+      0.8160427808761597,
+      0.8069055676460266,
+      0.792131781578064,
+      0.7961878776550293,
+      0.8268203735351562,
+      0.707017719745636
+    ]
+  }
+}

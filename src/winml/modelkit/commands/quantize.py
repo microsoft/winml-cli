@@ -81,15 +81,15 @@ console = Console()
     help="Activation quantization type. Overrides --precision.",
 )
 @click.option(
-    "--per-channel",
-    is_flag=True,
+    "--per-channel/--no-per-channel",
     default=False,
+    show_default=True,
     help="Use per-channel quantization",
 )
 @click.option(
-    "--symmetric",
-    is_flag=True,
+    "--symmetric/--no-symmetric",
     default=False,
+    show_default=True,
     help="Use symmetric quantization",
 )
 @click.option(

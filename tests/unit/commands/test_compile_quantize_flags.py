@@ -168,13 +168,25 @@ class TestCompileAutoDeviceEndToEnd:
             ("gpu", "vitisai"),
         ],
     )
-    def test_incompatible_pair_rejected(self, device, ep):
-        """Incompatible (device, ep) pairs raise ``click.UsageError`` instead
-        of silently overriding the user's intent (regression for #521)."""
-        import click
+    def test_incompatible_pair_rejected(self, device, ep, tmp_path):
+        """Incompatible (device, ep) pairs surface as ``click.UsageError`` from
+        the compile CLI (regression for #521).
 
-        with pytest.raises(click.UsageError):
-            _resolve_compile_provider(device, ep)
+        Policy enforcement lives in ``resolve_device`` (see
+        ``tests/unit/sysinfo/test_device.py::test_explicit_device_ep_policy_mismatch_raises``);
+        this test pins the CLI wrapping (``ValueError`` -> ``UsageError``).
+        """
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.compile import compile
+
+        model_file = tmp_path / "model.onnx"
+        model_file.write_bytes(b"fake")
+
+        result = CliRunner().invoke(compile, ["-m", str(model_file), "-d", device, "--ep", ep])
+
+        assert result.exit_code != 0
+        assert "does not support device" in result.output
 
 
 # Note: unknown / out-of-set devices are validated upstream by

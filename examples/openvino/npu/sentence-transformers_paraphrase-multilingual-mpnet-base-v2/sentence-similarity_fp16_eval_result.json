@@ -1,0 +1,23 @@
+{
+  "model_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\sentence-transformers_paraphrase-multilingual-mpnet-base-v2\\sentence-similarity_fp16_build_artifacts\\model.onnx",
+  "task": "sentence-similarity",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\sentence-transformers_paraphrase-multilingual-mpnet-base-v2\\sentence-similarity_fp16_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 86.0458
+  }
+}

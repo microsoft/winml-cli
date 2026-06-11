@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 import click
 from rich.console import Console
@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
 # TypeVar for signature-preserving Click decorators.
 F = TypeVar("F", bound="Callable[..., Any]")
+
+# Allowed values for ``--format`` / ``-f``.
+OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
 
 
 # Shared stderr console for security/diagnostic messages emitted from utils.
@@ -124,6 +127,34 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     return click.option("--output", "-o", **kwargs)
 
 
+def format_option(
+    choices: list[OutputFormat] | None = None,
+    default: OutputFormat = "text",
+    short_flag: bool = True,
+) -> Callable[[F], F]:
+    """Add ``--format`` option to a Click command.
+
+    The option is exposed as the ``output_format`` parameter in the
+    decorated function (type: :data:`OutputFormat`).
+
+    Args:
+        choices: Allowed format values. Defaults to ``["text", "json"]``.
+        default: Default format value. Defaults to ``"text"``.
+        short_flag: Whether to include ``-f`` short alias. Set to False
+            when another option already uses ``-f``.
+    """
+    if choices is None:
+        choices = ["text", "json"]
+    args = ["-f", "--format"] if short_flag else ["--format"]
+    return click.option(
+        *args,
+        "output_format",
+        type=click.Choice(choices, case_sensitive=False),
+        default=default,
+        help=f"Output format (default: {default}). 'json' prints structured JSON to stdout.",
+    )
+
+
 def ep_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
     """Add --ep (execution provider) option to a Click command.
 
@@ -193,7 +224,7 @@ def device_option(
     )
 
 
-def verbosity_options():
+def verbosity_options() -> Callable[[F], F]:
     """Add verbose and quiet logging options to a Click command.
 
     Adds --verbose/-v (stackable: -v, -vv, -vvv) and --quiet/-q flags.
@@ -206,7 +237,7 @@ def verbosity_options():
         Decorator function adding verbose and quiet options.
     """
 
-    def decorator(f):
+    def decorator(f: F) -> F:
         f = click.option(
             "--quiet",
             "-q",
@@ -274,6 +305,39 @@ def build_config_option(help: str | None = None) -> Callable[[F], F]:
     )
 
 
+def skip_build_option(
+    default: bool = True,
+    optional_message: str | None = None,
+) -> Callable[[F], F]:
+    """Add --skip-build/--no-skip-build toggle for commands that accept ONNX inputs.
+
+    When skip-build is on, the build pipeline (optimize -> [quantize] -> [compile])
+    is bypassed and the ONNX file is used as-is. Applies only to ONNX inputs.
+
+    Args:
+        default: Default value (True = skip build by default, use --no-skip-build
+            to run the full build pipeline on the ONNX file).
+        optional_message: Extra command-specific guidance appended to help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = (
+        "Skip the build pipeline (optimize/quantize/compile) and use the ONNX "
+        "file as-is. Use --no-skip-build to run the full build pipeline. "
+        "Applies only to ONNX inputs."
+    )
+    if optional_message:
+        help_text = f"{help_text} {optional_message}"
+
+    return click.option(
+        "--skip-build/--no-skip-build",
+        default=default,
+        show_default=True,
+        help=help_text,
+    )
+
+
 def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add shared --trust-remote-code option to a Click command.
 
@@ -296,11 +360,39 @@ def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F
         return value
 
     return click.option(
-        "--trust-remote-code",
-        is_flag=True,
+        "--trust-remote-code/--no-trust-remote-code",
         default=False,
+        show_default=True,
         help=help_text,
         callback=_warn_callback,
+    )
+
+
+def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add shared --allow-unsupported-nodes option to a Click command.
+
+    When set, the build's optimize/analyze loop logs a warning instead of
+    raising when unsupported nodes persist after analysis, so the build
+    proceeds (the EP may fall back to another device for those nodes).
+
+    Args:
+        optional_message: Extra command-specific guidance appended to help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = (
+        "Continue the build instead of failing when the analyzer reports "
+        "unsupported nodes (the EP may fall back to another device for them)."
+    )
+    if optional_message:
+        help_text = f"{help_text} {optional_message}"
+
+    return click.option(
+        "--allow-unsupported-nodes/--no-allow-unsupported-nodes",
+        default=False,
+        show_default=True,
+        help=help_text,
     )
 
 

@@ -1,0 +1,28 @@
+{
+  "model_id": "tau/splinter-base",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\tau_splinter-base\\question-answering_w8a16_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\tau_splinter-base\\question-answering_w8a16_eval_result.json",
+  "metrics": {
+    "exact_match": 2.0,
+    "f1": 10.805303030303032,
+    "total_time_in_seconds": 18.026150300051086,
+    "samples_per_second": 5.5474961839032595,
+    "latency_in_seconds": 0.18026150300051086
+  }
+}
