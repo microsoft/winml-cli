@@ -86,13 +86,20 @@ When `--monitor` is active, hardware metrics are sampled throughout the benchmar
 
 | Category | Metrics | Description |
 |----------|---------|-------------|
-| **Device memory (local)** | Peak dedicated MB | VRAM or on-device memory exclusively allocated to the inference workload |
-| **Device memory (shared)** | Peak shared MB | System memory shared with the device (common on integrated GPUs and NPUs) |
-| **RAM** | Used MB, peak used MB | Process-level system memory consumption |
-| **CPU** | Mean %, peak % | CPU utilisation during the benchmark window |
-| **Device utilisation** | Mean %, peak % | NPU or GPU engine utilisation (hardware-reported) |
+| **Device memory (local)** | `local_peak_mb` | VRAM or on-device memory exclusively allocated to the inference workload |
+| **Device memory (shared)** | `shared_peak_mb` | System memory shared with the device (common on integrated GPUs and NPUs) |
+| **RAM** | `used_mb`, `peak_mb` | Process-level system memory consumption |
+| **CPU** | `mean_pct`, `peak_pct` | CPU utilisation during the benchmark window |
+| **Device utilisation** | `mean_pct`, `peak_pct` | NPU or GPU engine utilisation (only present when `device_kind` is `npu` or `gpu`) |
 
-Example output (NPU device):
+Example terminal output (CPU device):
+
+```
+Hardware (during benchmark)
+  CPU: 8.3% avg  |  Mem: 644 MB
+```
+
+When running on NPU or GPU, device utilisation and device memory are also shown:
 
 ```
 Hardware (during benchmark)
@@ -104,13 +111,17 @@ In JSON output (`-f json`), these metrics appear under the `hw_monitor` key:
 
 ```json
 "hw_monitor": {
-  "device_kind": "npu",
-  "device_memory": { "local_peak_mb": 245, "shared_peak_mb": 0 },
-  "cpu": { "mean_pct": 12.1, "peak_pct": 34.5 },
-  "ram": { "used_mb": 1842, "peak_used_mb": 1910 },
-  "npu": { "mean_pct": 87.3, "peak_pct": 100.0 }
+  "monitor": "HWMonitor",
+  "device_kind": null,
+  "adapter_luid": null,
+  "cpu": { "mean_pct": 15.8, "peak_pct": 16.71, "sample_count": 2 },
+  "ram": { "used_mb": 640.21, "peak_mb": 640.21 },
+  "device_memory": { "local_peak_mb": 0.0, "shared_peak_mb": 0.0 },
+  "running_time_ns": 0
 }
 ```
+
+When a hardware accelerator is active, `device_kind` will be `"npu"` or `"gpu"`, and an additional key (e.g. `"npu"`) appears with the device utilisation percentages. The `running_time_ns` field reports the GPU/NPU engine running time as reported by the driver.
 
 This makes it straightforward to track memory consumption across model revisions or compare devices programmatically.
 
