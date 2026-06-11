@@ -13,6 +13,7 @@ Verifies:
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING, ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -240,10 +241,10 @@ class TestFromPretrainedDelegatesToFromOnnx:
 
 
 class TestFromOnnxCacheDirAndKey:
-    """Verify from_onnx uses resolved path (not stem) and passes cache_key."""
+    """Verify from_onnx uses content-addressed model dirs and passes cache_key."""
 
-    def test_uses_resolved_path_not_stem_for_model_dir(self, fake_onnx: Path, tmp_path: Path):
-        """from_onnx uses str(onnx_path.resolve()) — not stem — as model_id for get_model_dir."""
+    def test_uses_content_hash_for_model_dir(self, fake_onnx: Path, tmp_path: Path):
+        """from_onnx uses the ONNX content hash as model_id for get_model_dir."""
         with (
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
@@ -271,29 +272,58 @@ class TestFromOnnxCacheDirAndKey:
 
         mock_get_model_dir.assert_called_once()
         model_id_arg = mock_get_model_dir.call_args.args[0]
-        # Must be the full resolved path string, not just the stem
-        assert model_id_arg == str(fake_onnx.resolve())
-        assert model_id_arg != fake_onnx.stem
+        expected_hash = hashlib.sha256(fake_onnx.read_bytes()).hexdigest()[:16]
+        assert model_id_arg == f"onnx-{expected_hash}"
+        assert model_id_arg != str(fake_onnx.resolve())
 
-    def test_different_paths_same_stem_get_different_model_dirs(self, tmp_path: Path):
-        """Two ONNX files with the same filename but different dirs get different model dirs."""
+    def test_replacing_same_path_content_gets_different_model_dir(self, tmp_path: Path):
+        """Replacing an ONNX file at the same path changes its cache model dir."""
         from winml.modelkit.cache import get_cache_dir, get_model_dir
+        from winml.modelkit.onnx import get_onnx_model_hash
 
-        dir_a = tmp_path / "a"
-        dir_b = tmp_path / "b"
-        dir_a.mkdir()
-        dir_b.mkdir()
-
-        onnx_a = dir_a / "model.onnx"
-        onnx_b = dir_b / "model.onnx"
-        onnx_a.write_bytes(b"fake")
-        onnx_b.write_bytes(b"fake")
-
+        onnx_path = tmp_path / "model.onnx"
         cache = get_cache_dir()
-        model_dir_a = get_model_dir(str(onnx_a.resolve()), cache_dir=cache)
-        model_dir_b = get_model_dir(str(onnx_b.resolve()), cache_dir=cache)
+
+        onnx_path.write_bytes(b"first-content")
+        model_dir_a = get_model_dir(f"onnx-{get_onnx_model_hash(onnx_path)}", cache_dir=cache)
+
+        onnx_path.write_bytes(b"second-content")
+        model_dir_b = get_model_dir(f"onnx-{get_onnx_model_hash(onnx_path)}", cache_dir=cache)
 
         assert model_dir_a != model_dir_b
+
+    def test_onnx_model_hash_includes_external_data(self, tmp_path: Path):
+        """Changing external data changes the ONNX model content hash."""
+        import numpy as np
+        import onnx
+        from onnx import TensorProto, helper
+
+        from winml.modelkit.onnx import get_onnx_model_hash
+
+        onnx_path = tmp_path / "external.onnx"
+        data_path = tmp_path / "external.onnx.data"
+        tensor = helper.make_tensor(
+            "weight",
+            TensorProto.FLOAT,
+            [4],
+            np.arange(4, dtype=np.float32).tobytes(),
+            raw=True,
+        )
+        graph = helper.make_graph([], "external-data-test", [], [], [tensor])
+        model = helper.make_model(graph)
+        onnx.save_model(
+            model,
+            str(onnx_path),
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location=data_path.name,
+            size_threshold=0,
+        )
+
+        original_hash = get_onnx_model_hash(onnx_path)
+        data_path.write_bytes(data_path.read_bytes() + b"changed")
+
+        assert get_onnx_model_hash(onnx_path) != original_hash
 
     def test_passes_cache_key_to_build_onnx_model(self, fake_onnx: Path, tmp_path: Path):
         """from_onnx computes and passes a cache_key to build_onnx_model."""

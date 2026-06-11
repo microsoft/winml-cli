@@ -185,7 +185,7 @@ class WinMLAutoModel:
         # Skip build for compiled models or explicit skip.
         # Check is_compiled_onnx directly — don't rely on config shape alone
         # because auto+auto also produces quant=None, compile=None for raw models.
-        from ..onnx import is_compiled_onnx
+        from ..onnx import get_onnx_model_hash, is_compiled_onnx
 
         if skip_build or is_compiled_onnx(onnx_path):
             logger.info("Skipping build (compiled model or explicit skip). Using original ONNX.")
@@ -204,7 +204,10 @@ class WinMLAutoModel:
         cache_key = get_cache_key(task_abbrev, config.generate_cache_key())
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
-            output_dir = get_model_dir(str(onnx_path.resolve()), cache_dir=cache_dir_path)
+            output_dir = get_model_dir(
+                f"onnx-{get_onnx_model_hash(onnx_path)}",
+                cache_dir=cache_dir_path,
+            )
         else:
             import tempfile
 
