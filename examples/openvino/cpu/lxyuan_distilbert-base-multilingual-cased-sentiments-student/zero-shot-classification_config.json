@@ -48,8 +48,5 @@
     "task": "zero-shot-classification",
     "model_class": "AutoModelForSequenceClassification",
     "model_type": "distilbert"
-  },
-  "eval": {
-    "task": "zero-shot-classification"
   }
 }

@@ -1,0 +1,24 @@
+{
+  "model_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2\\feature-extraction_build_artifacts\\model.onnx",
+  "task": "feature-extraction",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\gpu\\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2\\feature-extraction_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "cosine_spearman": 84.2775
+  }
+}
