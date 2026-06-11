@@ -1,0 +1,26 @@
+{
+  "model_id": "Intel/bert-base-uncased-mrpc",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\Intel_bert-base-uncased-mrpc\\text-classification_build_artifacts\\model.onnx",
+  "task": "text-classification",
+  "device": "gpu",
+  "ep": "migraphx",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "mrpc",
+    "columns_mapping": {
+      "input_column": "sentence1",
+      "second_input_column": "sentence2"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\Intel_bert-base-uncased-mrpc\\text-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.8602941176470589,
+    "total_time_in_seconds": 87.23209869999846,
+    "samples_per_second": 4.677177393188262,
+    "latency_in_seconds": 0.21380416348038842
+  }
+}

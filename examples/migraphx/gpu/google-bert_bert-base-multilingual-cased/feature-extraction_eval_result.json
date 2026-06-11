@@ -1,0 +1,23 @@
+{
+  "model_id": "google-bert/bert-base-multilingual-cased",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\google-bert_bert-base-multilingual-cased\\feature-extraction_build_artifacts\\model.onnx",
+  "task": "feature-extraction",
+  "device": "gpu",
+  "ep": "migraphx",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\google-bert_bert-base-multilingual-cased\\feature-extraction_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 50.7071
+  }
+}

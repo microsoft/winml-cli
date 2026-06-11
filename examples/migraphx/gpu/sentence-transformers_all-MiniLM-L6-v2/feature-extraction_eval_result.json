@@ -1,0 +1,23 @@
+{
+  "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\sentence-transformers_all-MiniLM-L6-v2\\feature-extraction_build_artifacts\\model.onnx",
+  "task": "feature-extraction",
+  "device": "gpu",
+  "ep": "migraphx",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\migraphx\\gpu\\sentence-transformers_all-MiniLM-L6-v2\\feature-extraction_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 81.9722
+  }
+}
