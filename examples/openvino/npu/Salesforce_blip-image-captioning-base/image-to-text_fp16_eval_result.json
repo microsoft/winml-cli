@@ -19,10 +19,10 @@
     }
   },
   "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\npu\\Salesforce_blip-image-captioning-base\\image-to-text_fp16_eval_result.json",
+  "skip_build": true,
   "metrics": {
-    "cer": null,
-    "cider": null,
-    "n_samples": 0,
-    "skipped": 500
+    "cer": 0.6908,
+    "cider": 0.3972,
+    "n_samples": 500
   }
 }
