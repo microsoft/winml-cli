@@ -49,9 +49,9 @@ class CompileStage(BaseStage):
 
         Two compile paths, selected from the multi-model state on the context:
 
-        * ``_compile_model_compiler`` (single model, default): the existing
+        * ``_compile_single_model_compiler`` (single model, default): the existing
           ``WinMLSession`` / ``ort.ModelCompiler`` path — unchanged.
-        * ``_compile_inference_session`` (``use_inference_session`` and/or
+        * ``_compile_multiple`` (``use_inference_session`` and/or
           ``n_total_models > 1``): reuses one shared ``SessionOptions`` so multiple
           models share a single EP context (weight sharing); the backend is
           ``ort.InferenceSession`` when requested, else ``ort.ModelCompiler``.
@@ -61,9 +61,9 @@ class CompileStage(BaseStage):
 
         try:
             if context.use_inference_session or context.n_total_models > 1:
-                self._compile_inference_session(context)
+                self._compile_multiple(context)
             else:
-                self._compile_model_compiler(context)
+                self._compile_single_model_compiler(context)
 
         except Exception as e:
             context.add_error(f"Compilation failed: {e}")
@@ -76,7 +76,7 @@ class CompileStage(BaseStage):
 
         return context
 
-    def _compile_model_compiler(self, context: CompileContext) -> None:
+    def _compile_single_model_compiler(self, context: CompileContext) -> None:
         """Single-model compile via ``WinMLSession`` (``ort.ModelCompiler``)."""
         # Resolve session class from compiler config
         compiler = context.config.get("compiler", "ort")
@@ -130,7 +130,7 @@ class CompileStage(BaseStage):
         if ep_config.enable_ep_context:
             self._finalize_output(context, model_path, output_dir, device=device)
 
-    def _compile_inference_session(self, context: CompileContext) -> None:
+    def _compile_multiple(self, context: CompileContext) -> None:
         """Multi-model / inference-session compile with a shared EP context.
 
         The shared ``SessionOptions`` (``context.inference_session``) is created on
@@ -203,7 +203,8 @@ class CompileStage(BaseStage):
             # Models compiled this way are loadable; validate (run) when requested.
             if context.validate:
                 self._validate_model(session, context)
-                self._collect_model_info(session, context)
+            # Collect I/O info regardless of validation.
+            self._collect_model_info(session, context)
         else:
             # ModelCompiler backend: compile straight to the EPContext file. No
             # session is created here (smoke path — outputs are checked, not loaded).
