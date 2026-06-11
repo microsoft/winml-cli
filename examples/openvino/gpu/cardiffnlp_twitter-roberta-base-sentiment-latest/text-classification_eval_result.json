@@ -6,7 +6,7 @@
   "ep": "openvino",
   "dataset": {
     "split": "validation",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "tweet_eval",
@@ -17,9 +17,9 @@
   },
   "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_eval_result.json",
   "metrics": {
-    "accuracy": 0.81,
-    "total_time_in_seconds": 3.5031352000005427,
-    "samples_per_second": 28.545858007417046,
-    "latency_in_seconds": 0.03503135200000543
+    "accuracy": 0.769,
+    "total_time_in_seconds": 12.19837710000138,
+    "samples_per_second": 81.9781182203235,
+    "latency_in_seconds": 0.01219837710000138
   }
 }

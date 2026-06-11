@@ -1,0 +1,21 @@
+{
+  "model_id": "apple/mobilevit-small",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\apple_mobilevit-small\\image-classification_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\apple_mobilevit-small\\image-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.774,
+    "total_time_in_seconds": 11.368308099998103,
+    "samples_per_second": 87.96383694071125,
+    "latency_in_seconds": 0.011368308099998102
+  }
+}

@@ -6,7 +6,7 @@
   "ep": "openvino",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -18,6 +18,6 @@
   },
   "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_eval_result.json",
   "metrics": {
-    "cosine_spearman": 75.4619
+    "cosine_spearman": 70.2916
   }
 }

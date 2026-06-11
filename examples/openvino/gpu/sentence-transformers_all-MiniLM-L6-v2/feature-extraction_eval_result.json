@@ -6,7 +6,7 @@
   "ep": "openvino",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -18,6 +18,6 @@
   },
   "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\sentence-transformers_all-MiniLM-L6-v2\\feature-extraction_eval_result.json",
   "metrics": {
-    "cosine_spearman": 81.2943
+    "cosine_spearman": 81.9754
   }
 }

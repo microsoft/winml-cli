@@ -1,0 +1,51 @@
+{
+  "model_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\dbmdz_bert-large-cased-finetuned-conll03-english\\token-classification_build_artifacts\\model.onnx",
+  "task": "token-classification",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "BramVanroy/conll2003",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    }
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\dbmdz_bert-large-cased-finetuned-conll03-english\\token-classification_eval_result.json",
+  "metrics": {
+    "LOC": {
+      "precision": 0.9721739130434782,
+      "recall": 0.9704861111111112,
+      "f1": 0.9713292788879235,
+      "number": 576
+    },
+    "MISC": {
+      "precision": 0.9087719298245615,
+      "recall": 0.9184397163120568,
+      "f1": 0.9135802469135803,
+      "number": 282
+    },
+    "ORG": {
+      "precision": 0.9285714285714286,
+      "recall": 0.9604221635883905,
+      "f1": 0.9442282749675746,
+      "number": 379
+    },
+    "PER": {
+      "precision": 0.9892086330935251,
+      "recall": 0.9874326750448833,
+      "f1": 0.9883198562443845,
+      "number": 557
+    },
+    "overall_precision": 0.9579646017699115,
+    "overall_recall": 0.9654403567447045,
+    "overall_f1": 0.9616879511382564,
+    "overall_accuracy": 0.8813788659793814,
+    "total_time_in_seconds": 30.745967499999097,
+    "samples_per_second": 32.524590419866584,
+    "latency_in_seconds": 0.030745967499999097
+  }
+}

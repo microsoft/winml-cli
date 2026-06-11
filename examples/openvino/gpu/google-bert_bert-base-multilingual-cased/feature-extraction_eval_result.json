@@ -1,10 +1,12 @@
 {
   "model_id": "google-bert/bert-base-multilingual-cased",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\google-bert_bert-base-multilingual-cased\\feature-extraction_build_artifacts\\model.onnx",
   "task": "feature-extraction",
   "device": "gpu",
+  "ep": "openvino",
   "dataset": {
     "split": "test",
-    "samples": 100,
+    "samples": 1000,
     "shuffle": true,
     "seed": 42,
     "path": "mteb/stsbenchmark-sts",
@@ -16,6 +18,6 @@
   },
   "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\google-bert_bert-base-multilingual-cased\\feature-extraction_eval_result.json",
   "metrics": {
-    "cosine_spearman": 41.0034
+    "cosine_spearman": 50.7088
   }
 }

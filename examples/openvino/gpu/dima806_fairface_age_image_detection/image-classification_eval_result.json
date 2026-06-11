@@ -1,0 +1,25 @@
+{
+  "model_id": "dima806/fairface_age_image_detection",
+  "model_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\dima806_fairface_age_image_detection\\image-classification_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_fairface",
+    "columns_mapping": {
+      "label_column": "age"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_fairface.py"
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\dima806_fairface_age_image_detection\\image-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.593,
+    "total_time_in_seconds": 12.103627500000584,
+    "samples_per_second": 82.61985921162493,
+    "latency_in_seconds": 0.012103627500000583
+  }
+}
