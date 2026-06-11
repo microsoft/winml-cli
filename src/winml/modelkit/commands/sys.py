@@ -653,34 +653,26 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
         result[ep_name] = ep_record
 
     # Append ORT built-ins that no EPSource provides (CPU, Azure, DML).
-    # OQ-A resolution: bundled EPs continue to flow through this existing
-    # pathway. Synthetic bundled-EP EPEntry production in discover_all_eps
-    # is out of scope for Batch D — deferred to a future cleanup PR.
-    try:
-        import onnxruntime as ort
+    # These come from WinMLEPRegistry._builtin_eps, snapshotted at
+    # registry __init__ from ort.get_available_providers(). The registry
+    # is the canonical ORT wrapper — this command does not import ORT
+    # directly.
+    from ..ep_path import _ep_is_compatible
 
-        for ep_name in ort.get_available_providers():
-            if ep_name in result:
-                continue
-            from ..ep_path import _ep_is_compatible
-
-            result[ep_name] = {
-                "compatible": _ep_is_compatible(ep_name),
-                "device_types": _format_device_types(ep_name),
-                "entries": [
-                    {
-                        "status": "primary",
-                        "source_kind": "built-in",
-                        "dll_path": None,
-                    }
-                ],
-            }
-    except Exception as e:
-        logger.warning(
-            "onnxruntime import failed during --list-ep; built-in EPs "
-            "(CPU/Azure/Dml) will not be listed: %s",
-            e,
-        )
+    for ep_name in registry._builtin_eps:
+        if ep_name in result:
+            continue
+        result[ep_name] = {
+            "compatible": _ep_is_compatible(ep_name),
+            "device_types": _format_device_types(ep_name),
+            "entries": [
+                {
+                    "status": "primary",
+                    "source_kind": "built-in",
+                    "dll_path": None,
+                }
+            ],
+        }
 
     return result
 
