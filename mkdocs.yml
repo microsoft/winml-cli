@@ -95,8 +95,8 @@ nav:
           - Datatype and Quantization: concepts/quantization.md
           - EP and Device: concepts/eps-and-devices.md
       - WinML CLI:
-          - Primitives and pipeline: concepts/primitives-and-pipeline.md
           - Load and export: concepts/load-and-export.md
+          - Primitives and pipeline: concepts/primitives-and-pipeline.md
           - Analyze and optimize: concepts/analyze-and-optimize.md
           - Compile and EPContext: concepts/compile-and-epcontext.md
           - Perf and monitoring: concepts/perf-and-monitoring.md
