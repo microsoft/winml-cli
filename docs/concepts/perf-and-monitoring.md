@@ -68,7 +68,7 @@ Add `-f json` to emit structured JSON to stdout, suitable for CI pipelines or au
 
 Results are also saved automatically to `~/.cache/winml/perf/<model_slug>/<timestamp>.json` for later comparison. Override the path with `--output`.
 
-## Live monitoring and memory measurement
+## Live monitoring
 
 Latency numbers alone do not tell you whether the hardware is actually being used. A slow NPU inference could mean the model is running on the NPU and hitting a memory bottleneck, or it could mean the EP silently fell back to CPU and is not using the NPU at all.
 
@@ -78,16 +78,19 @@ The `--monitor` flag adds a live terminal chart (powered by plotext + Rich Live)
 winml perf -m model.onnx --device npu --monitor
 ```
 
-### Collected metrics
+`--monitor` has no effect on the measured latency statistics — it is a passive observer.
 
-When `--monitor` is active, the following metrics are sampled throughout the benchmark run and reported at the end:
+## Memory and resource metrics
 
-| Category | Metrics |
-|----------|---------|
-| **Device (NPU/GPU)** | Mean and peak utilization %, running time |
-| **Device memory** | Peak dedicated (local) MB, peak shared MB |
-| **CPU** | Mean and peak utilization % |
-| **RAM** | Current used MB, peak used MB |
+When `--monitor` is active, hardware metrics are sampled throughout the benchmark and reported at the end. These metrics help answer questions like "how much device memory does this model need?" and "is the model memory-bound?".
+
+| Category | Metrics | Description |
+|----------|---------|-------------|
+| **Device memory (local)** | Peak dedicated MB | VRAM or on-device memory exclusively allocated to the inference workload |
+| **Device memory (shared)** | Peak shared MB | System memory shared with the device (common on integrated GPUs and NPUs) |
+| **RAM** | Used MB, peak used MB | Process-level system memory consumption |
+| **CPU** | Mean %, peak % | CPU utilisation during the benchmark window |
+| **Device utilisation** | Mean %, peak % | NPU or GPU engine utilisation (hardware-reported) |
 
 Example output (NPU device):
 
@@ -97,9 +100,19 @@ Hardware (during benchmark)
   Device Mem: 245/0 MB (local/shared)
 ```
 
-These metrics are also included in the JSON results file under `hw_monitor`, enabling automated tracking of memory usage across model revisions.
+In JSON output (`-f json`), these metrics appear under the `hw_monitor` key:
 
-`--monitor` has no effect on the measured latency statistics — it is a passive observer.
+```json
+"hw_monitor": {
+  "device_kind": "npu",
+  "device_memory": { "local_peak_mb": 245, "shared_peak_mb": 0 },
+  "cpu": { "mean_pct": 12.1, "peak_pct": 34.5 },
+  "ram": { "used_mb": 1842, "peak_used_mb": 1910 },
+  "npu": { "mean_pct": 87.3, "peak_pct": 100.0 }
+}
+```
+
+This makes it straightforward to track memory consumption across model revisions or compare devices programmatically.
 
 ## Per-module benchmarking
 
