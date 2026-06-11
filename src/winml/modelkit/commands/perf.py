@@ -101,6 +101,10 @@ class BenchmarkResult:
     output_names: list[str] = field(default_factory=list)
     output_shapes: list[list[int]] = field(default_factory=list)
 
+    # Resolved model precision from io_config (None if the model does not
+    # expose one). Distinct from the requested config.precision policy.
+    model_precision: str | None = None
+
     # Latency stats (milliseconds)
     mean_ms: float = 0.0
     min_ms: float = 0.0
@@ -172,6 +176,8 @@ class BenchmarkResult:
             },
             "raw_samples_ms": [round(s, 3) for s in self.raw_samples_ms],
         }
+        if self.model_precision:
+            result["model_info"]["precision"] = self.model_precision
         if self.hw_monitor:
             result["hw_monitor"] = self.hw_monitor
         return result
@@ -502,6 +508,7 @@ class PerfBenchmark:
             input_types=[str(t) for t in io_config["input_types"]],
             output_names=io_config["output_names"],
             output_shapes=[list(s) if s else [] for s in io_config["output_shapes"]],
+            model_precision=io_config.get("precision"),
             # Latency stats
             mean_ms=stats.mean_ms,
             min_ms=stats.min_ms,

@@ -228,6 +228,12 @@ class _PerfBenchmarkSuite:
         assert isinstance(minfo["output_names"], list)
         assert len(minfo["output_names"]) >= 1
 
+        # Precision is best-effort: emitted only when derivable from the graph,
+        # and a non-empty string when present.
+        if "precision" in minfo:
+            assert isinstance(minfo["precision"], str)
+            assert minfo["precision"]
+
         # Verify raw samples count matches iterations
         assert len(data["raw_samples_ms"]) == 3
 
