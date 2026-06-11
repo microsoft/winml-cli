@@ -495,17 +495,5 @@
     "task": "text2text-generation",
     "model_class": "VisionDecoderWrapper",
     "model_type": "vision-encoder-decoder"
-  },
-  "eval": {
-    "task": "image-to-text",
-    "dataset": {
-      "path": "priyank-m/SROIE_2019_text_recognition",
-      "split": "test",
-      "samples": 500,
-      "columns_mapping": {
-        "input_column": "image",
-        "label_column": "text"
-      }
-    }
   }
 }

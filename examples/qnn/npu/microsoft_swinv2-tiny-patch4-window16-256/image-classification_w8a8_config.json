@@ -57,6 +57,11 @@
     "model_type": "swinv2"
   },
   "eval": {
-    "task": "image-classification"
+    "task": "image-classification",
+    "dataset": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 100
+    }
   }
 }

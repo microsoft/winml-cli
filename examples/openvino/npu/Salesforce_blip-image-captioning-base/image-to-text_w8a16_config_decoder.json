@@ -493,17 +493,5 @@
     "task": "text2text-generation",
     "model_class": "BlipDecoderWrapper",
     "model_type": "blip"
-  },
-  "eval": {
-    "task": "image-to-text",
-    "dataset": {
-      "path": "lmms-lab/flickr30k",
-      "split": "test",
-      "samples": 500,
-      "columns_mapping": {
-        "input_column": "image",
-        "label_column": "caption"
-      }
-    }
   }
 }

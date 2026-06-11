@@ -61,17 +61,5 @@
     "task": "image-feature-extraction",
     "model_class": "VisionEncoderWrapper",
     "model_type": "vision-encoder-decoder"
-  },
-  "eval": {
-    "task": "image-to-text",
-    "dataset": {
-      "path": "Teklia/IAM-line",
-      "split": "test",
-      "samples": 500,
-      "columns_mapping": {
-        "input_column": "image",
-        "label_column": "text"
-      }
-    }
   }
 }

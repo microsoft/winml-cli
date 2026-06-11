@@ -40,6 +40,11 @@
     "model_type": "resnet"
   },
   "eval": {
-    "task": "image-classification"
+    "task": "image-classification",
+    "dataset": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 100
+    }
   }
 }
