@@ -65,8 +65,5 @@
     "task": "fill-mask",
     "model_class": "AutoModelForMaskedLM",
     "model_type": "mpnet"
-  },
-  "eval": {
-    "task": "fill-mask"
   }
 }
