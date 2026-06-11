@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 import click
 from rich.console import Console
@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
 # TypeVar for signature-preserving Click decorators.
 F = TypeVar("F", bound="Callable[..., Any]")
+
+# Allowed values for ``--format`` / ``-f``.
+OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
 
 
 # Shared stderr console for security/diagnostic messages emitted from utils.
@@ -122,6 +125,34 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     else:
         kwargs["default"] = None
     return click.option("--output", "-o", **kwargs)
+
+
+def format_option(
+    choices: list[OutputFormat] | None = None,
+    default: OutputFormat = "text",
+    short_flag: bool = True,
+) -> Callable[[F], F]:
+    """Add ``--format`` option to a Click command.
+
+    The option is exposed as the ``output_format`` parameter in the
+    decorated function (type: :data:`OutputFormat`).
+
+    Args:
+        choices: Allowed format values. Defaults to ``["text", "json"]``.
+        default: Default format value. Defaults to ``"text"``.
+        short_flag: Whether to include ``-f`` short alias. Set to False
+            when another option already uses ``-f``.
+    """
+    if choices is None:
+        choices = ["text", "json"]
+    args = ["-f", "--format"] if short_flag else ["--format"]
+    return click.option(
+        *args,
+        "output_format",
+        type=click.Choice(choices, case_sensitive=False),
+        default=default,
+        help=f"Output format (default: {default}). 'json' prints structured JSON to stdout.",
+    )
 
 
 def ep_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
