@@ -53,6 +53,28 @@ class Compiler:
     # Registered stages (in execution order)
     _stages: list[type[BaseStage]] | None = None
 
+    def __init__(
+        self,
+        n_total_models: int = 1,
+        use_inference_session: bool = False,
+    ) -> None:
+        """Create a compiler.
+
+        Args:
+            n_total_models: Total number of models compiled by this instance. When
+                >1, the models share a single EP context (weight sharing) and the
+                same shared ``SessionOptions`` is reused across every ``compile``.
+            use_inference_session: Select the ``ort.InferenceSession``
+                (``ep.context_enable``) backend instead of the default
+                ``ort.ModelCompiler``.
+        """
+        self.n_total_models = n_total_models
+        self.use_inference_session = use_inference_session
+        # The shared SessionOptions: created by CompileStage on the first model and
+        # reused for the rest (kept here so it survives between compile() calls).
+        self.inference_session: object | None = None
+        self.n_compiled_models = 0
+
     @classmethod
     def _get_stages(cls) -> list[type[BaseStage]]:
         """Lazy initialization of stages."""
@@ -103,12 +125,18 @@ class Compiler:
         work_dir = Path(temp_dir.name)
 
         try:
-            # Create context from config
+            # Create context from config. Multi-model / weight-sharing state is
+            # threaded through so CompileStage can pick the backend, reuse the shared
+            # SessionOptions, and detect the last (stop_share) model.
             context = CompileContext(
                 model_path=model_path,
                 config=config.to_dict(),
                 work_dir=work_dir,
                 verbose=config.verbose,
+                n_compiled_models=self.n_compiled_models,
+                n_total_models=self.n_total_models,
+                use_inference_session=self.use_inference_session,
+                inference_session=self.inference_session,
             )
 
             if output_path is not None:
@@ -128,6 +156,11 @@ class Compiler:
                     context = stage.process(context)
                 else:
                     context.log(f"Skipping stage: {stage_cls.name}")
+
+            # Carry the shared SessionOptions (created/reused by CompileStage) forward
+            # so the next model in a shared-context run reuses the same EP + group.
+            self.inference_session = context.inference_session
+            self.n_compiled_models += 1
 
             # Build result
             total_time = time.time() - start_time
@@ -199,3 +232,37 @@ def compile_onnx(
     """
     compiler = Compiler()
     return compiler.compile(model_path=model_path, output_path=output_path, config=config)
+
+
+def compile_multiple_onnx(
+    model_paths: list[str | Path],
+    output_path: str | Path | None = None,
+    config: WinMLCompileConfig | None = None,
+    use_inference_session: bool = False,
+) -> list[CompileResult]:
+    """Compile one or more ONNX models, sharing a single EP context when >1.
+
+    A single :class:`Compiler` (``n_total_models=len(model_paths)``) compiles every
+    model in sequence, reusing one shared ``SessionOptions`` so the weights are shared
+    across the compiled EPContext models. The backend is ``ort.ModelCompiler`` by
+    default, or ``ort.InferenceSession`` when ``use_inference_session`` is set.
+
+    Args:
+        model_paths: Input ONNX model paths.
+        output_path: Output directory (or file) for the compiled models.
+        config: Compilation configuration. ``None`` skips compilation (passthrough).
+        use_inference_session: Use the InferenceSession backend.
+
+    Returns:
+        One :class:`CompileResult` per input model, in order.
+    """
+    compiler = Compiler(
+        n_total_models=len(model_paths),
+        use_inference_session=use_inference_session,
+    )
+    # Compiled in order (the comprehension evaluates left-to-right) so the shared
+    # context accumulates across models and the last one flushes it.
+    return [
+        compiler.compile(model_path=mp, output_path=output_path, config=config)
+        for mp in model_paths
+    ]

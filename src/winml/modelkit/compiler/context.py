@@ -44,6 +44,18 @@ class CompileContext:
     # Session (set during compile)
     session: ort.InferenceSession | None = None
 
+    # Multi-model / shared-EP-context compilation state (driven by Compiler).
+    # n_compiled_models: how many models the Compiler has already compiled (0-based
+    #   index of the current model).
+    # n_total_models: total models in this compile run (>1 enables weight sharing).
+    # use_inference_session: pick the InferenceSession backend over ort.ModelCompiler.
+    # inference_session: the shared ort.SessionOptions created on the first model and
+    #   reused for the rest (the EP is added once and the share group lives on it).
+    n_compiled_models: int = 0
+    n_total_models: int = 1
+    use_inference_session: bool = False
+    inference_session: ort.SessionOptions | None = None
+
     # Output paths
     output_path: Path | None = None
     context_binary_path: Path | None = None

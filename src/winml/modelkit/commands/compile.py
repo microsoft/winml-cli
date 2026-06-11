@@ -45,8 +45,10 @@ console = Console()
     "--model",
     "-m",
     required=False,
+    multiple=True,
     type=click.Path(exists=True, path_type=Path),
-    help="Input ONNX model file (required unless --list)",
+    help="Input ONNX model file. Repeat -m to compile multiple models with a shared "
+    "EP context (weight sharing). Required unless --list.",
 )
 @cli_utils.output_option("Output file path (e.g., model_compiled.onnx)")
 @click.option(
@@ -91,6 +93,13 @@ console = Console()
     help="Embed EP context in ONNX file (default: external .bin file)",
 )
 @click.option(
+    "--use-inference-session",
+    is_flag=True,
+    default=False,
+    help="Compile via ort.InferenceSession (ep.context_enable) instead of the default "
+    "ort.ModelCompiler backend.",
+)
+@click.option(
     "--list",
     "list_compilers_flag",
     is_flag=True,
@@ -102,7 +111,7 @@ console = Console()
 @click.pass_context
 def compile(
     ctx: click.Context,
-    model: Path | None,
+    model: tuple[Path, ...],
     output: Path | None,
     output_dir: Path | None,
     device: str,
@@ -113,6 +122,7 @@ def compile(
     compiler: str,
     qnn_sdk_root: Path | None,
     embed: bool,
+    use_inference_session: bool,
     list_compilers_flag: bool,
     config_file: Path | None,
 ) -> None:
@@ -140,15 +150,24 @@ def compile(
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
+    config_provider_options: dict[str, str] = {}
     if config_file is not None:
         _, raw_cfg = cli_utils.load_build_config(config_file)
         cc = raw_cfg.get("compile") or {}
+        # EP provider options (e.g. QNN htp_arch/soc_model/vtcm_mb) for the compile session.
+        if "provider_options" in cc:
+            config_provider_options = dict(cc["provider_options"])
         if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
             ep = cc["execution_provider"]
         if not cli_utils.is_cli_provided(ctx, "compiler") and "compiler" in cc:
             compiler = cc["compiler"]
         if not cli_utils.is_cli_provided(ctx, "embed") and "embed_context" in cc:
             embed = cc["embed_context"]
+        if (
+            not cli_utils.is_cli_provided(ctx, "use_inference_session")
+            and "use_inference_session" in cc
+        ):
+            use_inference_session = cc["use_inference_session"]
         if not cli_utils.is_cli_provided(ctx, "validate") and "validate" in cc:
             validate = cc["validate"]
         # Config-file verbosity fallback. CLI flags always win: only honor the
@@ -176,18 +195,29 @@ def compile(
         click.echo(list_compilers(provider))
         return
 
-    # Validate model is provided when not listing
-    if model is None:
+    # Validate model(s) provided when not listing
+    if not model:
         raise click.UsageError("Missing option '--model' / '-m'.")
+    models = list(model)
 
-    if is_compiled_onnx(model):
-        raise click.ClickException(
-            f"{model} is already a compiled EPContext model and cannot be re-compiled. "
-            "Run 'winml compile' on the original ONNX model."
+    for m in models:
+        if is_compiled_onnx(m):
+            raise click.ClickException(
+                f"{m} is already a compiled EPContext model and cannot be re-compiled. "
+                "Run 'winml compile' on the original ONNX model."
+            )
+
+    # Multiple models share one EP context and are written by filename into a
+    # directory, so a single -o/--output file path is ambiguous: require --output-dir
+    # (and forbid -o/--output).
+    if len(models) > 1 and (output is not None or output_dir is None):
+        raise click.UsageError(
+            "Multiple --model inputs are written by filename into a directory; "
+            "pass --output-dir (and not -o/--output)."
         )
 
     # Import compiler (late import to speed up CLI)
-    from ..compiler import WinMLCompileConfig, compile_onnx
+    from ..compiler import WinMLCompileConfig, compile_multiple_onnx, compile_onnx
 
     # Resolve EP from device + ep flags
     provider = _resolve_compile_provider(resolved_device, ep)
@@ -207,14 +237,23 @@ def compile(
     config.ep_config.compiler = compiler
     config.ep_config.qnn_sdk_root = qnn_sdk_root
     config.ep_config.embed_context = embed
+    # EP provider options supplied via --config (compile.provider_options).
+    if config_provider_options:
+        config.ep_config.provider_options.update(config_provider_options)
 
     # Show info
-    console.print(f"[bold blue]Input:[/bold blue] {model}")
+    console.print(f"[bold blue]Input:[/bold blue] {', '.join(str(m) for m in models)}")
     console.print(f"[bold blue]Device:[/bold blue] {resolved_device}")
     if ep:
         console.print(f"[bold blue]EP:[/bold blue] {ep}")
     console.print(f"[bold blue]Provider:[/bold blue] {provider}")
     console.print(f"[bold blue]Compiler:[/bold blue] {compiler}")
+    console.print(
+        f"[bold blue]Backend:[/bold blue] "
+        f"{'inference_session' if use_inference_session else 'model_compiler'}"
+    )
+    if len(models) > 1:
+        console.print(f"[bold blue]Shared EP context:[/bold blue] yes ({len(models)} models)")
     if qnn_sdk_root:
         console.print(f"[bold blue]SDK root:[/bold blue] {qnn_sdk_root}")
     # Resolve output path: -o (file) takes precedence over --output-dir
@@ -225,31 +264,51 @@ def compile(
         console.print(f"[bold blue]Output dir:[/bold blue] {output_dir}")
 
     try:
-        console.print("\n[bold]Compiling model...[/bold]")
-        result = compile_onnx(model, output_path=resolved_output, config=config)
-
-        if result.success:
-            if config.ep_config.enable_ep_context and not result.output_path:
-                console.print(
-                    "\n[bold yellow]Warning:[/bold yellow] Compilation finished "
-                    "but no output file was written to the output directory."
-                )
-                raise click.ClickException(
-                    "No output file produced. Check EP context support for "
-                    f"provider '{config.ep_config.provider}'."
-                )
-            console.print("\n[bold green]Success![/bold green] Model compiled")
-            if result.output_path:
-                console.print(f"[dim]Output: {result.output_path}[/dim]")
-            if result.compile_time:
-                console.print(f"[dim]Compile time: {result.compile_time:.2f}s[/dim]")
-            if result.total_time:
-                console.print(f"[dim]Total time: {result.total_time:.2f}s[/dim]")
+        console.print("\n[bold]Compiling model(s)...[/bold]")
+        if len(models) == 1 and not use_inference_session:
+            # Default path: single model via ort.ModelCompiler (staged pipeline).
+            results = [compile_onnx(models[0], output_path=resolved_output, config=config)]
         else:
-            console.print("\n[bold red]Compilation failed:[/bold red]")
-            for error in result.errors:
-                console.print(f"  {error}")
-            raise click.ClickException("Compilation failed")
+            # Multi-model (shared EP context) and/or inference-session backend.
+            # Multiple models require --output-dir (enforced above), so resolved_output
+            # is that directory; a single inference_session model may instead use -o,
+            # whose parent directory the compile stage resolves.
+            results = compile_multiple_onnx(
+                models, resolved_output, config, use_inference_session=use_inference_session
+            )
+
+        # Report every model's result (not just the first failure).
+        multi = len(results) > 1
+        failures = 0
+        for model_path, result in zip(models, results, strict=True):
+            label = f" — {model_path.name}" if multi else ""
+            if result.success:
+                if config.ep_config.enable_ep_context and not result.output_path:
+                    # Compiled but no artifact landed: a warning, not a failure.
+                    console.print(
+                        "\n[bold yellow]Warning:[/bold yellow] Compilation finished but "
+                        f"no output file was written to the output directory.{label}"
+                    )
+                    continue
+                console.print(f"\n[bold green]Success![/bold green] Model compiled{label}")
+                if result.output_path:
+                    console.print(f"[dim]Output: {result.output_path}[/dim]")
+                if result.compile_time:
+                    console.print(f"[dim]Compile time: {result.compile_time:.2f}s[/dim]")
+                if result.total_time:
+                    console.print(f"[dim]Total time: {result.total_time:.2f}s[/dim]")
+            else:
+                failures += 1
+                console.print(f"\n[bold red]Compilation failed:[/bold red]{label}")
+                for error in result.errors:
+                    console.print(f"  {error}")
+
+        if failures:
+            raise click.ClickException(
+                f"Compilation failed for {failures} of {len(results)} model(s)."
+                if multi
+                else "Compilation failed"
+            )
 
     except click.ClickException:
         raise
