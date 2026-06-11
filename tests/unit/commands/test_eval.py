@@ -76,20 +76,23 @@ class TestSinglePlain:
         """Passing both -m <hf_id> and --model-id is rejected as a conflict."""
         with pytest.raises(click.UsageError, match="Cannot pass both"):
             _resolve_model_path(
-                model=("microsoft/resnet-50",), model_id="Intel/bert-base-uncased-mrpc",
+                model=("microsoft/resnet-50",),
+                model_id="Intel/bert-base-uncased-mrpc",
             )
 
     def test_plain_hf_id_with_matching_model_id_ok(self):
         """Passing --model-id equal to -m <hf_id> is allowed (no-op duplicate)."""
         path, mid = _resolve_model_path(
-            model=("microsoft/resnet-50",), model_id="microsoft/resnet-50",
+            model=("microsoft/resnet-50",),
+            model_id="microsoft/resnet-50",
         )
         assert path is None
         assert mid == "microsoft/resnet-50"
 
     def test_plain_onnx_with_model_id(self, onnx_file):
         path, mid = _resolve_model_path(
-            model=(str(onnx_file),), model_id="microsoft/resnet-50",
+            model=(str(onnx_file),),
+            model_id="microsoft/resnet-50",
         )
         assert path == str(onnx_file)
         assert mid == "microsoft/resnet-50"
@@ -107,7 +110,8 @@ class TestSinglePlain:
         """Multiple plain -m values without role=path are ambiguous."""
         with pytest.raises(click.UsageError, match="role=path"):
             _resolve_model_path(
-                model=(str(onnx_file), str(onnx_file)), model_id="some/id",
+                model=(str(onnx_file), str(onnx_file)),
+                model_id="some/id",
             )
 
 
@@ -165,13 +169,15 @@ class TestComposite:
     def test_empty_role_raises(self, onnx_vision):
         with pytest.raises(click.BadParameter, match="role and path"):
             _resolve_model_path(
-                model=(f"={onnx_vision}",), model_id="some/id",
+                model=(f"={onnx_vision}",),
+                model_id="some/id",
             )
 
     def test_empty_path_raises(self):
         with pytest.raises(click.BadParameter, match="role and path"):
             _resolve_model_path(
-                model=("image-encoder=",), model_id="some/id",
+                model=("image-encoder=",),
+                model_id="some/id",
             )
 
     def test_whitespace_stripped(self, onnx_vision):
@@ -545,7 +551,9 @@ class TestPerTaskDefaultDataset:
         with (
             patch.object(evaluate_mod, "_load_model", return_value=object()),
             patch.object(
-                evaluate_mod, "get_evaluator_class", return_value=_FakeEvaluator,
+                evaluate_mod,
+                "get_evaluator_class",
+                return_value=_FakeEvaluator,
             ),
             patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
             patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
@@ -572,7 +580,8 @@ class TestPerTaskDefaultDataset:
         expected_split: str,
     ):
         cfg = self._run_and_capture(
-            runner, ["-m", "some/model", "--task", task],
+            runner,
+            ["-m", "some/model", "--task", task],
         )
         assert cfg.dataset.path == expected_path
         assert cfg.dataset.split == expected_split
@@ -587,9 +596,12 @@ class TestPerTaskDefaultDataset:
         cfg = self._run_and_capture(
             runner,
             [
-                "-m", "some/model",
-                "--task", "image-classification",
-                "--samples", "4",
+                "-m",
+                "some/model",
+                "--task",
+                "image-classification",
+                "--samples",
+                "4",
             ],
         )
         # Per-task default path filled in:
@@ -609,9 +621,12 @@ class TestPerTaskDefaultDataset:
         cfg = self._run_and_capture(
             runner,
             [
-                "-m", "some/model",
-                "--task", "image-classification",
-                "--split", "train",
+                "-m",
+                "some/model",
+                "--task",
+                "image-classification",
+                "--split",
+                "train",
             ],
         )
         assert cfg.dataset.split == "test"  # the default's split wins
@@ -627,9 +642,12 @@ class TestPerTaskDefaultDataset:
         cfg = self._run_and_capture(
             runner,
             [
-                "-m", "some/model",
-                "--task", "text-classification",
-                "--column", "input_column=my_text",
+                "-m",
+                "some/model",
+                "--task",
+                "text-classification",
+                "--column",
+                "input_column=my_text",
             ],
         )
         # Default's columns_mapping wins wholesale; user's --column dropped.
@@ -663,9 +681,12 @@ class TestPerTaskDefaultDataset:
         cfg = self._run_and_capture(
             runner,
             [
-                "-m", "some/model",
-                "--task", "text-classification",
-                "--dataset-name", "sst2",
+                "-m",
+                "some/model",
+                "--task",
+                "text-classification",
+                "--dataset-name",
+                "sst2",
             ],
         )
         # Default's name ("mrpc") wins; user's --dataset-name dropped.
@@ -693,3 +714,109 @@ class TestPerTaskDefaultDataset:
             and "timm/mini-imagenet" in m
             for m in msgs
         ), f"expected warning not found in {msgs!r}"
+
+
+# ---------------------------------------------------------------------------
+# --format json
+# ---------------------------------------------------------------------------
+
+
+class TestEvalFormatJson:
+    """Test --format json produces structured JSON to stdout."""
+
+    def test_format_json_produces_valid_json(self):
+        """_write_and_display with json_mode=True emits parseable JSON."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.commands.eval import _write_and_display
+
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {
+            "mode": "onnx",
+            "model_id": "microsoft/resnet-50",
+            "metrics": {"top1_accuracy": 0.741},
+        }
+
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            import io
+
+            buf = io.StringIO()
+            with patch(
+                "winml.modelkit.commands.eval.click.echo",
+                side_effect=lambda x: buf.write(x),
+            ):
+                _write_and_display(mock_result, None, json_mode=True)
+
+            output = buf.getvalue()
+            parsed = json.loads(output)
+            assert parsed["model_id"] == "microsoft/resnet-50"
+            assert parsed["metrics"]["top1_accuracy"] == 0.741
+
+    def test_format_json_with_output_file(self, tmp_path):
+        """--format json + --output should emit JSON to stdout AND save file."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.commands.eval import _write_and_display
+
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {
+            "mode": "onnx",
+            "model_id": "test/model",
+            "metrics": {"accuracy": 0.9},
+        }
+
+        output_file = tmp_path / "result.json"
+
+        import io
+
+        buf = io.StringIO()
+        with patch("winml.modelkit.commands.eval.click.echo", side_effect=lambda x: buf.write(x)):
+            _write_and_display(mock_result, output_file, json_mode=True)
+
+        # stdout has JSON
+        parsed = json.loads(buf.getvalue())
+        assert parsed["model_id"] == "test/model"
+
+        # File also has JSON
+        assert output_file.exists()
+        file_data = json.loads(output_file.read_text())
+        assert file_data["model_id"] == "test/model"
+
+    def test_format_text_shows_report(self):
+        """json_mode=False should call display_eval_report (default behavior)."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.commands.eval import _write_and_display
+
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {"metrics": {}}
+        mock_result.config.model_id = "test"
+        mock_result.config.task = "cls"
+        mock_result.config.device = "cpu"
+        mock_result.config.dataset.path = None
+        mock_result.config.dataset.samples = 100
+        mock_result.config.model_path = None
+        mock_result.metrics = {}
+
+        with patch("winml.modelkit.commands.eval.display_eval_report") as mock_display:
+            _write_and_display(mock_result, None, json_mode=False)
+            mock_display.assert_called_once()
+
+    def test_help_shows_format_option(self, runner: CliRunner):
+        """--format flag must appear in --help output."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+        assert result.exit_code == 0
+        assert "--format" in result.output
+        assert "json" in result.output
+
+    def test_invalid_format_rejected(self, runner: CliRunner):
+        """An invalid --format value must be rejected by Click."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["-m", "test", "--format", "xml"])
+        assert result.exit_code != 0

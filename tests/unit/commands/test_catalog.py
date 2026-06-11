@@ -610,3 +610,48 @@ def test_cli_device_npu_narrows_results(runner, patched_catalog, tmp_path):
     assert result.exit_code == 0
     data = json.loads(out.read_text())
     assert len(data) == 4
+
+
+# ---------------------------------------------------------------------------
+# --format json tests
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogFormatJson:
+    """Tests for --format json output."""
+
+    def test_format_json_outputs_valid_json(self, runner, patched_catalog):
+        result = runner.invoke(catalog, ["--format", "json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        assert isinstance(data, list)
+        assert len(data) == 4
+
+    def test_format_json_with_task_filter(self, runner, patched_catalog):
+        result = runner.invoke(catalog, ["--format", "json", "--task", "fill-mask"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        assert len(data) == 1
+        assert data[0]["model_id"] == "google-bert/bert-base-uncased"
+
+    def test_format_json_with_ep_filter(self, runner, patched_catalog):
+        result = runner.invoke(catalog, ["--format", "json", "--ep", "qnn"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        # Only models with QNN EP: bert-base-uncased, bert-base-NER
+        assert len(data) == 2
+
+    def test_format_json_with_device_filter(self, runner, patched_catalog):
+        result = runner.invoke(catalog, ["--format", "json", "--device", "NPU"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        assert len(data) == 4
+
+    def test_format_json_contains_expected_keys(self, runner, patched_catalog):
+        result = runner.invoke(catalog, ["--format", "json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        for model in data:
+            assert "model_id" in model
+            assert "model_type" in model
+            assert "supported_eps" in model

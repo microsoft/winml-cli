@@ -1305,6 +1305,7 @@ def _run_simple_loop(
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
     hidden=True,  # Not ready, so hide from --help for now
 )
+@cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @click.pass_context
@@ -1328,6 +1329,7 @@ def perf(
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     config_file: Path | None,
@@ -1382,7 +1384,8 @@ def perf(
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
-    console = Console()
+    json_mode = output_format == "json"
+    console = Console(stderr=True) if json_mode else Console()
 
     # =========================================================================
     # MODULE MODE: per-module build + benchmark
@@ -1492,8 +1495,11 @@ def perf(
         benchmark = PerfBenchmark(config)
         result = benchmark.run()
 
-        # Display console report
-        display_console_report(result, console)
+        # Display results
+        if json_mode:
+            click.echo(json.dumps(result.to_dict(), indent=2))
+        else:
+            display_console_report(result, console)
 
         # Write JSON report
         write_json_report(result, output)

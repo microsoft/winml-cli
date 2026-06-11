@@ -1370,3 +1370,144 @@ class TestAnalyzeSummaryRendering:
         assert "DmlExecutionProvider (GPU)" in output
         assert "2/0/0" in output
         assert "Op check skipped" not in output
+
+
+# ---------------------------------------------------------------------------
+# --format json
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyzeFormatJson:
+    """Test --format json produces structured JSON to stdout."""
+
+    def test_help_shows_format_option(self, runner: CliRunner) -> None:
+        """--format flag must appear in --help output."""
+        result = runner.invoke(analyze, ["--help"])
+        assert result.exit_code == 0
+        assert "--format" in result.output
+        assert "json" in result.output
+
+    def test_invalid_format_rejected(self, runner: CliRunner, tmp_path: Path) -> None:
+        """An invalid --format value must be rejected by Click."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--format", "xml"],
+        )
+        assert result.exit_code != 0
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_format_json_emits_valid_json(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """--format json output must contain parseable JSON."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+                "--format",
+                "json",
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert "metadata" in parsed
+        assert parsed["metadata"]["model_path"] == "test.onnx"
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_format_json_emits_on_partial_support(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_partial_support: Mock,
+    ) -> None:
+        """--format json must still emit JSON when exit code is 1 (partial support)."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_partial_support
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+                "--format",
+                "json",
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 1
+        parsed = json.loads(result.output)
+        assert "metadata" in parsed
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_format_json_with_output_file(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """--format json + --output should emit JSON to stdout AND save file."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+        output_file = tmp_path / "result.json"
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+                "--format",
+                "json",
+                "--output",
+                str(output_file),
+                "--quiet",
+            ],
+        )
+
+        assert result.exit_code == 0
+        # stdout has JSON
+        parsed = json.loads(result.output)
+        assert "metadata" in parsed
+        # File also has JSON
+        assert output_file.exists()
+        file_data = json.loads(output_file.read_text())
+        assert "metadata" in file_data

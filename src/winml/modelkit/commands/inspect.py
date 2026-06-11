@@ -89,14 +89,7 @@ def _looks_like_local_path(model_id: str) -> bool:
     default=None,
     help="HuggingFace model ID (e.g., microsoft/resnet-50)",
 )
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice(["table", "json"], case_sensitive=False),
-    default="table",
-    help="Output format (default: table)",
-)
+@cli_utils.format_option(choices=["table", "json"], default="table")
 @click.option(
     "-t",
     "--task",
@@ -135,7 +128,7 @@ def _looks_like_local_path(model_id: str) -> bool:
 def inspect(
     ctx: click.Context,
     model_id: str | None,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     task: str | None,
@@ -213,7 +206,7 @@ def inspect(
     # json` consumers still get clean stdout. Suppressed in --quiet mode
     # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
     # and JSON consumers expect clean stdout regardless).
-    json_mode = output_format.lower() == "json"
+    json_mode = output_format == "json"
     target = model_id or model_type or model_class
     if not quiet and not json_mode:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
@@ -245,7 +238,7 @@ def inspect(
                     include_hierarchy=hierarchy,
                 )
 
-        if output_format.lower() == "json":
+        if output_format == "json":
             click.echo(output_json(result, verbose=bool(verbose)))
         else:
             output_table(console, result, verbose=bool(verbose))
