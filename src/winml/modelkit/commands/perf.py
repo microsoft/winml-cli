@@ -20,7 +20,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 import numpy as np
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..models.winml.composite_model import WinMLCompositeModel
     from ..session.stats import PerfStats
 
 logger = logging.getLogger(__name__)
@@ -366,12 +367,16 @@ class PerfBenchmark:
         """Composite models orchestrate multiple sub-sessions (e.g. CLIP/SigLIP)."""
         return hasattr(self._model, "sub_models")
 
+    def _sub_models(self) -> dict[str, WinMLPreTrainedModel]:
+        """Sub-models of a composite model (only valid when ``_is_composite``)."""
+        return cast("WinMLCompositeModel", self._model).sub_models
+
     def _resolved_io_config(self) -> dict[str, Any]:
         """Unified io_config (aggregated across sub-models for composites)."""
         if self._io_config is None:
             assert self._model is not None
             if self._is_composite:
-                self._io_config = _aggregate_io_config(self._model.sub_models.values())
+                self._io_config = _aggregate_io_config(self._sub_models().values())
             else:
                 self._io_config = self._model.io_config
         return self._io_config
@@ -380,7 +385,7 @@ class PerfBenchmark:
         """Compile the underlying ORT session(s) so device/EP are resolved."""
         assert self._model is not None
         if self._is_composite:
-            for sub in self._model.sub_models.values():
+            for sub in self._sub_models().values():
                 sub._session.compile()
         else:
             self._model._session.compile()
@@ -389,14 +394,14 @@ class PerfBenchmark:
         """Actual device bound after compile (representative sub-model for composites)."""
         assert self._model is not None
         if self._is_composite:
-            return next(iter(self._model.sub_models.values())).device
+            return next(iter(self._sub_models().values())).device
         return self._model.device
 
     def _resolved_ep(self) -> EPName | None:
         """Primary EP bound after compile (representative sub-model for composites)."""
         assert self._model is not None
         if self._is_composite:
-            return next(iter(self._model.sub_models.values())).ep_name
+            return next(iter(self._sub_models().values())).ep_name
         return self._model.ep_name
 
     def _resolved_task(self) -> str | None:
@@ -542,7 +547,9 @@ class PerfBenchmark:
         """Time one full composite forward() pass (orchestrates all sub-sessions)."""
         assert self._model is not None
         assert self._inputs is not None
-        stats.record(lambda: self._model(**self._inputs))
+        model = self._model
+        inputs = self._inputs
+        stats.record(lambda: model(**inputs))
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing."""
@@ -639,9 +646,10 @@ class PerfBenchmark:
                     self._composite_run_iteration(stats)
             else:
                 session = self._model._session
+                inputs = self._inputs
 
                 def run_iteration() -> None:
-                    session.run(self._inputs)
+                    session.run(inputs)
 
             _run_monitored_loop(
                 run_iteration,
@@ -659,7 +667,7 @@ class PerfBenchmark:
             if ep_dict:  # NullEPMonitor returns {}, real monitors return data
                 self._hw_metrics["ep_proof"] = ep_dict
 
-        return stats
+        return cast("PerfStats", stats)
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
