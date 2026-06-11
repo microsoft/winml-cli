@@ -68,7 +68,7 @@ Add `-f json` to emit structured JSON to stdout, suitable for CI pipelines or au
 
 Results are also saved automatically to `~/.cache/winml/perf/<model_slug>/<timestamp>.json` for later comparison. Override the path with `--output`.
 
-## Live monitoring
+## Live monitoring and memory measurement
 
 Latency numbers alone do not tell you whether the hardware is actually being used. A slow NPU inference could mean the model is running on the NPU and hitting a memory bottleneck, or it could mean the EP silently fell back to CPU and is not using the NPU at all.
 
@@ -77,6 +77,27 @@ The `--monitor` flag adds a live terminal chart (powered by plotext + Rich Live)
 ```
 winml perf -m model.onnx --device npu --monitor
 ```
+
+### Collected metrics
+
+When `--monitor` is active, the following metrics are sampled throughout the benchmark run and reported at the end:
+
+| Category | Metrics |
+|----------|---------|
+| **Device (NPU/GPU)** | Mean and peak utilization %, running time |
+| **Device memory** | Peak dedicated (local) MB, peak shared MB |
+| **CPU** | Mean and peak utilization % |
+| **RAM** | Current used MB, peak used MB |
+
+Example output (NPU device):
+
+```
+Hardware (during benchmark)
+  NPU: 87.3% avg, 100.0% peak  |  CPU: 12.1% avg  |  Mem: 1842 MB
+  Device Mem: 245/0 MB (local/shared)
+```
+
+These metrics are also included in the JSON results file under `hw_monitor`, enabling automated tracking of memory usage across model revisions.
 
 `--monitor` has no effect on the measured latency statistics — it is a passive observer.
 
