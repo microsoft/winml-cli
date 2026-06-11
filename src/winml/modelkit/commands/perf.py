@@ -139,7 +139,7 @@ class BenchmarkResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        result = {
+        result: dict[str, Any] = {
             "benchmark_info": {
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
