@@ -183,32 +183,16 @@ def test_resolve_device_qnn_npu() -> None:
     assert result.source is None
 
 
-def test_resolve_device_threads_source_through() -> None:
-    """resolve_device passes source through to EPDeviceTarget."""
-    # source validation needs discover_all_eps to return a matching EPEntry —
-    # patch it so this stays a pure pass-through test.
-    with patch(
-        "winml.modelkit.ep_path.discover_all_eps",
-        return_value=[],
-    ), patch(
-        "winml.modelkit.session.ep_registry._entry_source_tag",
-        return_value="pypi",
-    ):
-        # discover returns empty so the source validation block raises.
-        # Use a stub that satisfies both conditions.
-        pass
+def test_resolve_device_passes_source_through_unchanged() -> None:
+    """resolve_device is pure deduction — source passes through verbatim.
 
-    # Better: stub discover to return an EPEntry-like that matches.
-    fake_entry = MagicMock()
-    fake_entry.ep_name = "QNNExecutionProvider"
-    with patch(
-        "winml.modelkit.ep_path.discover_all_eps",
-        return_value=[fake_entry],
-    ), patch(
-        "winml.modelkit.session.ep_registry._entry_source_tag",
-        return_value="pypi",
-    ):
-        result = resolve_device(EPDeviceTarget(ep="qnn", device="npu", source="pypi"))
+    Source-tag validation lives in WinMLEPRegistry.auto_device (Path A
+    registration step), not here. resolve_device must do no filesystem
+    scan, no DLL load, and no registry I/O on the source axis.
+    """
+    result = resolve_device(EPDeviceTarget(ep="qnn", device="npu", source="pypi"))
+    assert result.ep == "QNNExecutionProvider"
+    assert result.device == "npu"
     assert result.source == "pypi"
 
 

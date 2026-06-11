@@ -37,7 +37,7 @@ def mock_resolve_device():
 
     mock_registry = MagicMock()
     mock_registry._entries = []
-    mock_registry.entries_for.return_value = []
+    mock_registry._entries_for.return_value = []
 
     fake_cpu_ep_device = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
 

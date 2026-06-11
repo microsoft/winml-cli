@@ -156,9 +156,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         available_providers = {d.ep_name for d in ort.get_ep_devices()}
     except Exception:
         available_providers = set()
-    # Only add CPUExecutionProvider as guaranteed fallback.
-    # Do NOT add all ORT providers here — get_ort_available_providers() returns
-    # library-present EPs (e.g., DmlExecutionProvider) even without hardware.
+    # Only add CPUExecutionProvider as guaranteed fallback. Avoid adding every
+    # provider ORT reports as available — library-present EPs (e.g. DmlEP) can
+    # be visible to ORT without the hardware actually being usable.
     available_providers.add("CPUExecutionProvider")
 
     for item in items_with_ep_markers:

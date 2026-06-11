@@ -458,7 +458,7 @@ def auto_detect_device() -> str:
     entry whose catalog EPs are actually registered. Falls back to "cpu"
     when no plugin EPs are discovered.
     """
-    from ..sysinfo.hardware import get_available_devices
+    from ..sysinfo import get_available_devices
     from .ep_registry import available_eps as _available_eps
 
     available_devices = get_available_devices()
@@ -483,24 +483,23 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
     """Pure-deduction resolver: EPDeviceTarget -> EPDeviceTarget.
 
     Takes a typed :class:`EPDeviceTarget` intent (possibly carrying
-    ``"auto"`` on either axis and ``source=None``) and returns a
-    self-describing :class:`EPDeviceTarget` whose ``ep`` and ``device``
-    are concrete. ``source`` is passed through unchanged in Scenario A
-    (``target.source is None``); in Scenario B (``target.source is not
-    None``) it is validated against the discovered EPEntry set.
+    ``"auto"`` on either axis) and returns a self-describing
+    :class:`EPDeviceTarget` whose ``ep`` and ``device`` are concrete.
+    ``source`` passes through unchanged; source-tag validation against
+    discovered entries lives in :meth:`WinMLEPRegistry.auto_device`
+    (Path A's registration step) — this function does no filesystem
+    scan, no DLL load, and no registry I/O.
 
-    Validation against ``available_eps()`` is cheap (no DLL load); the
-    DLL-load + runtime-handle binding lives in
-    :meth:`WinMLEPRegistry.auto_device` — see
-    ``docs/design/session/2_coreloop.md`` §4.3.
+    Resolution order (resolve device first, then ep — device-only path
+    consults ``default_ep_for_device`` which already filters by
+    ``available_eps()``):
 
-    Deduction matrix (matches the prior loose-string ``resolve_device``):
-        both concrete -> validate + return
-        ep only       -> ``default_device_for_ep(ep)`` gives device
-        device only   -> ``default_ep_for_device(device)`` gives ep
-                         (filtered by ``available_eps()``)
-        neither       -> ``auto_detect_device()`` picks device,
-                         then fall through to the device-only branch
+    - ``device == "auto"`` and ``ep == "auto"`` → ``auto_detect_device()``
+      picks the device, then fall through to the device-only branch
+    - ``device == "auto"`` and ``ep`` given → ``default_device_for_ep(ep)``
+    - ``ep == "auto"`` and ``device`` given → ``default_ep_for_device(device)``
+      (registration-aware filter)
+    - both given → validate and return
 
     Args:
         target: User intent. ``target.ep`` and ``target.device`` may be
@@ -508,74 +507,50 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
             a canonical source tag.
 
     Returns:
-        Resolved :class:`EPDeviceTarget` with no ``"auto"`` values and a
-        validated ``source`` (when set by the caller).
+        Resolved :class:`EPDeviceTarget` with no ``"auto"`` values.
+        ``source`` is passed through unchanged (validation deferred to
+        ``auto_device``).
 
     Raises:
         ValueError: Unknown EP or device after deduction, or no
             registered EP backs the requested device.
-        UnknownListingPick: ``target.source`` is set but no discovered
-            EPEntry for ``target.ep`` matches that source tag (Scenario B).
     """
-    # --- Step 1: normalize "auto" sentinels into None for the matrix ----
-    ep: str | None = None if target.ep == "auto" else target.ep
-    device: str | None = (
-        None if target.device == "auto" or target.device is None else target.device.lower()
-    )
-    source = target.source  # passthrough; validated in Step 4
+    ep = target.ep
+    device = target.device
 
-    # --- Step 2: deduction matrix (same body as the prior signature) ----
-    if ep is None and device is None:
-        # Auto-detect: pick strongest available device on this host.
-        device = auto_detect_device()
+    # --- Resolve device axis first --------------------------------------
+    if device == "auto":
+        if ep == "auto":
+            device = auto_detect_device()
+        else:
+            deduced = default_device_for_ep(expand_ep_name(ep))
+            if deduced is None:
+                raise ValueError(
+                    f"Cannot deduce device for EP '{ep}'. Known EPs: {sorted(VALID_EPS)}"
+                )
+            device = deduced
+            logger.debug("Deduced device=%r from ep=%r", device, ep)
+    else:
+        device = device.lower()
+        if device not in VALID_DEVICES:
+            raise ValueError(
+                f"Unknown device '{device}'. Expected one of: {sorted(VALID_DEVICES)}"
+            )
 
-    if ep is not None and device is None:
-        # ep given, device missing — infer from catalog.
-        ep_full = expand_ep_name(ep)
-        deduced = default_device_for_ep(ep_full)
-        if deduced is None:
-            raise ValueError(f"Cannot deduce device for EP '{ep}'. Known EPs: {sorted(VALID_EPS)}")
-        device = deduced
-        logger.debug("Deduced device=%r from ep=%r", device, ep)
-
-    if device is not None and ep is None:
-        # device given, ep missing — infer default EP from catalog.
-        device_lower = device.lower()
-        if device_lower not in VALID_DEVICES:
-            raise ValueError(f"Unknown device '{device}'. Expected one of: {sorted(VALID_DEVICES)}")
-        default_ep_full = default_ep_for_device(device_lower)
+    # --- Resolve ep axis (device is concrete by this point) -------------
+    if ep == "auto":
+        default_ep_full = default_ep_for_device(device)
         if default_ep_full is None:
             raise ValueError(
-                f"No registered EP for device {device_lower!r}. "
+                f"No registered EP for device {device!r}. "
                 f"Install a plugin EP that targets this device, or pass --ep explicitly."
             )
         ep = short_ep_name(default_ep_full)
-        logger.debug("Deduced ep=%r from device=%r", ep, device_lower)
+        logger.debug("Deduced ep=%r from device=%r", ep, device)
 
-    # At this point both ep and device are non-None strings (type-checker aid).
-    assert ep is not None
-    assert device is not None
-
+    # --- Final validation + return --------------------------------------
     ep_full = expand_ep_name(ep)
-    device_lower = device.lower()
-
-    # --- Step 3: source validation (Scenario B only) --------------------
-    # When the caller pinned a source tag, validate it against the
-    # discovery layer. Defer IncompatibleListingPick to a later batch.
-    if source is not None:
-        from .ep_registry import WinMLEPRegistry, _entry_source_tag
-
-        registry = WinMLEPRegistry.instance()
-        matches = [
-            e
-            for e in registry.entries_for(ep_full)
-            if _entry_source_tag(e) == source
-        ]
-        if not matches:
-            raise UnknownListingPick(ep_full, source)
-
-    # --- Step 4: return self-describing resolved target -----------------
-    return EPDeviceTarget(ep=ep_full, device=device_lower, source=source)
+    return EPDeviceTarget(ep=ep_full, device=device, source=target.source)
 
 
 # --- runtime adapter: WinMLDevice -----------------------------------------

@@ -14,7 +14,7 @@ from __future__ import annotations
 import functools
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import onnxruntime as ort
 
@@ -36,9 +36,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-# Singleton instance
-_winml_ep_registry: WinMLEPRegistry | None = None
 
 
 def _dedup_ort_devices(devices: list[ort.OrtEpDevice]) -> list[ort.OrtEpDevice]:
@@ -162,14 +159,15 @@ class WinMLEPRegistry:
         ep_device = registry.auto_device(target)
     """
 
+    _instance: ClassVar[WinMLEPRegistry | None] = None
+
     def __new__(cls) -> WinMLEPRegistry:
-        """Singleton pattern."""
-        global _winml_ep_registry
-        if _winml_ep_registry is None:
+        """Singleton pattern. Tests may reset via ``WinMLEPRegistry._instance = None``."""
+        if cls._instance is None:
             instance = super().__new__(cls)
             instance._initialized = False
-            _winml_ep_registry = instance
-        return _winml_ep_registry
+            cls._instance = instance
+        return cls._instance
 
     def __init__(self) -> None:
         """Discover plugin EPs from the default EP source list."""
@@ -182,9 +180,24 @@ class WinMLEPRegistry:
         # Cache of successful registrations keyed by EPEntry.dll_path so
         # repeated requests for the same plugin DLL short-circuit.
         self._registered: dict[Path, WinMLEP] = {}
+        # ORT's built-in EPs (CPUExecutionProvider, DmlExecutionProvider,
+        # bundled Azure, etc.) aren't discovered via EP_PATH — they're
+        # baked into ORT itself. Snapshot them here so callers can ask
+        # "is X available" through one canonical surface without reaching
+        # past the registry to touch ORT directly.
+        try:
+            self._builtin_eps: frozenset[str] = frozenset(ort.get_available_providers())
+        except Exception:
+            logger.warning("Unexpected error querying ORT built-in EPs", exc_info=True)
+            self._builtin_eps = frozenset()
 
-    def entries_for(self, ep_full_name: str) -> list[EPEntry]:
-        """Return cached EPEntries for the given EP name (no fresh scan)."""
+    def _entries_for(self, ep_full_name: str) -> list[EPEntry]:
+        """Return cached EPEntries for the given EP name (no fresh scan).
+
+        Registry-internal. Public callers should not depend on cached
+        discovery state; live filesystem walks go through
+        :func:`discover_all_eps` directly.
+        """
         return [e for e in self._entries if e.ep_name == ep_full_name]
 
     def register_ep(self, entry: EPEntry) -> WinMLEP:
@@ -267,7 +280,7 @@ class WinMLEPRegistry:
             )
 
         ep_full = expand_ep_name(target.ep)
-        candidates = self.entries_for(ep_full)
+        candidates = self._entries_for(ep_full)
 
         if not candidates:
             raise WinMLEPNotDiscovered(
@@ -312,7 +325,12 @@ class WinMLEPRegistry:
 
 @functools.lru_cache(maxsize=1)
 def available_eps() -> frozenset[str]:
-    """Collect available EP names from WinML and ORT (cached).
+    """Collect available EP names from the WinMLEPRegistry (cached).
+
+    Includes both plugin EPs discovered via :func:`discover_all_eps` and
+    ORT's built-in EPs (CPU, DML, bundled Azure) snapshotted at registry
+    init. The registry is the canonical wrapper over ONNX Runtime — callers
+    should not query ORT directly for available EPs.
 
     Hardware and EPs do not change during a process lifetime,
     so this result is cached via lru_cache.
@@ -320,68 +338,14 @@ def available_eps() -> frozenset[str]:
     Returns:
         Frozenset of available EP name strings.
     """
-    eps: set[str] = set()
-
     try:
         registry = WinMLEPRegistry.instance()
-        eps.update(e.ep_name for e in registry._entries)
+        plugin = frozenset(e.ep_name for e in registry._entries)
+        return plugin | registry._builtin_eps
     except (ImportError, RuntimeError):
-        pass  # WinML not available
+        return frozenset()  # WinML not available
     except Exception:
         logger.warning("Unexpected error during WinML EP discovery", exc_info=True)
-
-    try:
-        import onnxruntime as ort
-
-        eps.update(ort.get_available_providers())
-    except (ImportError, RuntimeError):
-        pass  # ORT not installed
-    except Exception:
-        logger.warning("Unexpected error during ORT EP discovery", exc_info=True)
-
-    return frozenset(eps)
-
-
-def get_ort_available_providers(use_winml: bool = True) -> list[str]:
-    """Get available execution providers from ONNX Runtime.
-
-    First registers any discovered plugin EPs (if ``use_winml=True``), then
-    returns the full list of available providers from ORT.
-
-    Note:
-        This function is for informational/debugging purposes only.
-        WinMLSession uses policy-based device selection (PREFER_NPU, etc.)
-        and does NOT use explicit EP provider names.
-
-    Args:
-        use_winml: Try plugin EP discovery first to register providers.
-
-    Returns:
-        List of available provider names from ORT.
-    """
-    import onnxruntime as ort
-
-    if use_winml:
-        try:
-            registry = WinMLEPRegistry.instance()
-            # Best-effort: drive the same inline-loop pattern as commands/sys.py.
-            # Per-entry failures are logged at WARN and don't abort the walk.
-            for entry in registry._entries:
-                try:
-                    registry.register_ep(entry)
-                except WinMLEPRegistrationFailed as e:
-                    logger.warning(
-                        "Failed to register EP %s (%s: %s)",
-                        entry.ep_name,
-                        type(e).__name__,
-                        e,
-                    )
-        except Exception as e:
-            # NFR-2: surface real failures at WARNING so users can diagnose.
-            logger.warning(
-                "Plugin EP discovery skipped (%s: %s)", type(e).__name__, e
-            )
-
-    return ort.get_available_providers()
+        return frozenset()
 
 
