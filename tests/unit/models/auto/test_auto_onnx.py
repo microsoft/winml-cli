@@ -296,21 +296,20 @@ class TestFromOnnxCacheDirAndKey:
         """Changing external data changes the ONNX model content hash."""
         import numpy as np
         import onnx
-        from onnx import TensorProto, helper
 
         from winml.modelkit.onnx import get_onnx_model_hash
 
         onnx_path = tmp_path / "external.onnx"
         data_path = tmp_path / "external.onnx.data"
-        tensor = helper.make_tensor(
+        tensor = onnx.helper.make_tensor(
             "weight",
-            TensorProto.FLOAT,
+            onnx.TensorProto.FLOAT,
             [4],
             np.arange(4, dtype=np.float32).tobytes(),
             raw=True,
         )
-        graph = helper.make_graph([], "external-data-test", [], [], [tensor])
-        model = helper.make_model(graph)
+        graph = onnx.helper.make_graph([], "external-data-test", [], [], [tensor])
+        model = onnx.helper.make_model(graph)
         onnx.save_model(
             model,
             str(onnx_path),
