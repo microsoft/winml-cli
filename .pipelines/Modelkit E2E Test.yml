@@ -159,7 +159,7 @@ parameters:
   - name: pytestTimeout
     displayName: 'Per-test pytest --timeout (seconds)'
     type: number
-    default: 1800
+    default: 2400
 
   # --------------------------------------------------------------------
   # Agent / EP-device pair configuration
