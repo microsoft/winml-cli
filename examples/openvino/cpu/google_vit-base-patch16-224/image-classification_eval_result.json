@@ -1,0 +1,21 @@
+{
+  "model_id": "google/vit-base-patch16-224",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\google_vit-base-patch16-224\\image-classification_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\google_vit-base-patch16-224\\image-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.784,
+    "total_time_in_seconds": 200.8734351000021,
+    "samples_per_second": 4.978259068961327,
+    "latency_in_seconds": 0.2008734351000021
+  }
+}

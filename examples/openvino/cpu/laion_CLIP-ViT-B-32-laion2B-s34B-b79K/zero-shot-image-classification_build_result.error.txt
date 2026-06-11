@@ -1,0 +1,13 @@
+[WinML] Installing Execution Provider: OpenVINOExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+OpenVINOExecutionProvider EP installed successfully.
+- Version: 1.8.79.0
+- Package Family Name: MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_8wekyb3d8bbwe
+Usage: python -m winml.modelkit build [OPTIONS]
+Try 'python -m winml.modelkit build --help' for help.
+
+Error: Config validation failed: Invalid WinMLBuildConfig:
+  - loader.task is required for full model builds

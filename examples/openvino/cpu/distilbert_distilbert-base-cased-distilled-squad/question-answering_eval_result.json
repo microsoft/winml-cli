@@ -1,0 +1,28 @@
+{
+  "model_id": "distilbert/distilbert-base-cased-distilled-squad",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\distilbert_distilbert-base-cased-distilled-squad\\question-answering_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\distilbert_distilbert-base-cased-distilled-squad\\question-answering_eval_result.json",
+  "metrics": {
+    "exact_match": 79.2,
+    "f1": 86.69961655630236,
+    "total_time_in_seconds": 208.78546250000363,
+    "samples_per_second": 4.789605502346614,
+    "latency_in_seconds": 0.20878546250000363
+  }
+}

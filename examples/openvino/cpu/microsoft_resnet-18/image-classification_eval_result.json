@@ -1,0 +1,21 @@
+{
+  "model_id": "microsoft/resnet-18",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\microsoft_resnet-18\\image-classification_build_artifacts\\model.onnx",
+  "task": "image-classification",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\microsoft_resnet-18\\image-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.66,
+    "total_time_in_seconds": 2.7617164999974193,
+    "samples_per_second": 36.20936471940311,
+    "latency_in_seconds": 0.027617164999974193
+  }
+}
