@@ -91,6 +91,10 @@ class ExportData:
         return time.time() - self.start_time
 
 
+# Bound to `Callable[..., int]` to match StepAwareWriter.write()'s IOBase
+# contract (returns "bytes written"). All @step handlers must return int —
+# a handler typed `-> None` will fail mypy here rather than silently
+# breaking the writer's return value.
 F = TypeVar("F", bound="Callable[..., int]")
 
 

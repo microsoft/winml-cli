@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..models.winml.composite_model import WinMLCompositeModel
     from .config import WinMLEvaluationConfig
 
 
@@ -34,17 +35,15 @@ class TensorSimilarityEvaluator:
     def __init__(
         self,
         config: WinMLEvaluationConfig,
-        model: WinMLPreTrainedModel,
+        model: WinMLPreTrainedModel | WinMLCompositeModel,
     ) -> None:
         from ..models.winml.composite_model import WinMLCompositeModel
 
-        # WinMLCompositeModel and WinMLPreTrainedModel are siblings under
-        # PreTrainedModel; mypy proves this branch unreachable but the
-        # runtime check still guards against composite models reaching here.
-        if isinstance(model, WinMLCompositeModel):  # type: ignore[unreachable]
-            sub_tasks = list(  # type: ignore[unreachable]
-                getattr(type(model), "_SUB_MODEL_CONFIG", {}).values()
-            )
+        # Composite models must be split into their sub-components before
+        # tensor-similarity comparison — the union param keeps this runtime
+        # guard live for type checkers.
+        if isinstance(model, WinMLCompositeModel):
+            sub_tasks = list(getattr(type(model), "_SUB_MODEL_CONFIG", {}).values())
             raise TypeError(
                 "--mode compare does not support composite models directly. "
                 f"Run compare per sub-component instead (sub-tasks: {sub_tasks}). "

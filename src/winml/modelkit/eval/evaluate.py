@@ -13,10 +13,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
 
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
 from rich.console import Console
 
 from .config import WinMLEvaluationConfig
@@ -208,8 +204,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
         model = WinMLAutoModel.from_onnx(
-            # dict[str,str] is a subtype-incompatible-but-runtime-compatible alias.
-            onnx_path=cast("str | dict[str, str | Path]", config.model_path),
+            onnx_path=config.model_path,
             task=config.task,
             device=config.device,
             ep=config.ep,
