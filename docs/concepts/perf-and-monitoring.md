@@ -1,6 +1,6 @@
 # Perf and monitoring
 
-Knowing that a model produces correct outputs is necessary but not sufficient for a production deployment. You also need to know how fast it runs, how consistently it runs, and where the time goes when it does not run fast enough. `winml perf` is the primary tool in `winml-cli` for answering those questions. It synthesises end-to-end latency numbers, per-operator timings, and live hardware utilisation into a single benchmarking workflow.
+Knowing that a model produces correct outputs is necessary but not sufficient for a production deployment. You also need to know how fast it runs, how consistently it runs, and where the time goes when it does not run fast enough. `winml perf` is the primary tool in `winml-cli` for answering those questions. It synthesises end-to-end latency numbers and live hardware utilisation into a single benchmarking workflow.
 
 Because `winml perf` accepts both HuggingFace model IDs and local `.onnx` files, you can benchmark at any stage of the development cycle — from a freshly exported float model through to a compiled, quantized production artifact.
 
@@ -12,7 +12,8 @@ At its core, `winml perf` runs a configurable number of inference iterations and
 $ winml perf -m bert-tiny.onnx --device cpu --iterations 50 --warmup 5
 
 Device:      cpu / CPUExecutionProvider
-Precision:   fp32
+Task:        auto (auto-detected)
+Model Precision:   fp32
 Inputs:      input_ids            [1, 512]    int32
              attention_mask       [1, 512]    int32
              token_type_ids       [1, 512]    int32
@@ -51,17 +52,21 @@ Add `-f json` to emit structured JSON to stdout, suitable for CI pipelines or au
 {
   "benchmark_info": {
     "model_id": "bert-tiny.onnx",
+    "task": "auto-detected",
     "device": "cpu",
     "ep": "CPUExecutionProvider",
+    "precision": "auto",
     "iterations": 50,
     "warmup": 5,
-    "batch_size": 1
+    "batch_size": 1,
+    "timestamp": "2026-06-11T03:27:24+00:00"
   },
   "latency_ms": {
-    "avg": 5.53, "p50": 5.40, "p90": 6.55,
-    "p95": 6.87, "p99": 7.65, "min": 4.89, "max": 7.65
+    "mean": 5.53, "p50": 5.40, "p90": 6.55,
+    "p95": 6.87, "p99": 7.65, "min": 4.89, "max": 7.65,
+    "std": 0.58, "warmup_mean": 14.14
   },
-  "throughput": { "samples_per_sec": 180.72 },
+  "throughput": { "samples_per_sec": 180.72, "batches_per_sec": 180.72 },
   "raw_samples_ms": [5.12, 5.40, ...]
 }
 ```
@@ -158,7 +163,7 @@ winml perf -m bert-base-uncased --module BertAttention
 
 This builds and benchmarks each `BertAttention` instance separately and reports per-instance statistics. The `--module` argument must be a **class name** (e.g. `BertAttention`), not a dotted module path (e.g. not `encoder.layer.0.attention`).
 
-The module hierarchy that `--module` navigates is built at export time: every ONNX node carries a `winml.hierarchy.tag` metadata entry recording the PyTorch module path it came from. `winml perf --module` matches against those tags, builds a separate ONNX for each match, and benchmarks them in isolation. See [Load and export](load-and-export.md) for how the metadata is written.
+Internally, `--module` uses `torchinfo` to discover all submodule instances matching the given class name in the HuggingFace model. For each match it generates a separate build config, exports an isolated ONNX file, and benchmarks it independently. This requires a HuggingFace model ID (not a local `.onnx` file) because it needs access to the PyTorch module tree.
 
 ## See also
 
