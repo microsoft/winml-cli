@@ -232,6 +232,9 @@ def compile(
 
     config.validate = validate
     config.verbose = bool(verbose)
+    # CLI flag (merged with any config-file value above) overrides the config; the
+    # actual compilation reads use_inference_session from the config.
+    config.use_inference_session = use_inference_session
 
     # Set compiler options
     config.ep_config.compiler = compiler
@@ -272,9 +275,7 @@ def compile(
             # Multi-model (shared EP context) and/or inference-session backend.
             # compile_multiple_onnx writes each model as <stem>_ctx.onnx into a folder;
             # multiple models require --output-dir (enforced above).
-            results = compile_multiple_onnx(
-                models, output_dir, config, use_inference_session=use_inference_session
-            )
+            results = compile_multiple_onnx(models, output_dir, config)
 
         # Report every model's result (not just the first failure).
         multi = len(results) > 1

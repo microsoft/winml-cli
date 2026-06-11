@@ -244,14 +244,14 @@ def compile_multiple_onnx(
     model_paths: Sequence[str | Path],
     output_dir: str | Path | None = None,
     config: WinMLCompileConfig | None = None,
-    use_inference_session: bool = False,
 ) -> list[CompileResult]:
     """Compile one or more ONNX models, sharing a single EP context when >1.
 
     A single :class:`Compiler` (``n_total_models=len(model_paths)``) compiles every
     model in sequence, reusing one shared ``SessionOptions`` so the weights are shared
-    across the compiled EPContext models. The backend is ``ort.ModelCompiler`` by
-    default, or ``ort.InferenceSession`` when ``use_inference_session`` is set.
+    across the compiled EPContext models. The backend is taken from
+    ``config.use_inference_session``: ``ort.ModelCompiler`` (default) or
+    ``ort.InferenceSession`` when set.
 
     Args:
         model_paths: Input ONNX model paths. Each compiles to ``<stem>_ctx.onnx`` in
@@ -260,7 +260,6 @@ def compile_multiple_onnx(
             ``model_ctx.onnx`` then ``model_1_ctx.onnx``.
         output_dir: Output directory for the compiled models.
         config: Compilation configuration. ``None`` skips compilation (passthrough).
-        use_inference_session: Use the InferenceSession backend.
 
     Returns:
         One :class:`CompileResult` per input model, in order.
@@ -270,7 +269,7 @@ def compile_multiple_onnx(
 
     compiler = Compiler(
         n_total_models=len(paths),
-        use_inference_session=use_inference_session,
+        use_inference_session=bool(config and config.use_inference_session),
     )
     # Compiled in order so the shared context accumulates and the last model flushes it.
     # Outputs are keyed by filename stem in a single folder, so disambiguate same-named

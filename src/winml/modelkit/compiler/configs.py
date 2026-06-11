@@ -68,6 +68,8 @@ class WinMLCompileConfig:
         ep_config: Execution provider settings
         validate: Validate compiled model
         verbose: Enable verbose logging
+        use_inference_session: Compile via ort.InferenceSession (ep.context_enable)
+            instead of the default ort.ModelCompiler backend
 
     Examples:
         # Default: QNN compilation
@@ -87,6 +89,8 @@ class WinMLCompileConfig:
     # Behavior
     validate: bool = True
     verbose: bool = False
+    # Compile backend: False -> ort.ModelCompiler (default), True -> ort.InferenceSession.
+    use_inference_session: bool = False
 
     @property
     def device(self) -> str:
@@ -246,6 +250,7 @@ class WinMLCompileConfig:
             ),
             "device": self.ep_config.device,
             "validate": self.validate,
+            "use_inference_session": self.use_inference_session,
         }
 
     @classmethod
@@ -265,4 +270,5 @@ class WinMLCompileConfig:
             ep_config=ep_config,
             validate=data.get("validate", True),
             verbose=data.get("verbose", False),
+            use_inference_session=data.get("use_inference_session", False),
         )
