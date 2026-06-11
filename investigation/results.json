@@ -1,0 +1,268 @@
+{
+  "env": {
+    "ort": "1.24.5",
+    "qnn_registration": "WinML EpCatalog + register_execution_provider_library + SessionOptions.add_provider_for_devices (NOT backend_path)",
+    "qnn_ep_library": "C:\\Program Files\\WindowsApps\\MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.2_2.2450.47.0_arm64__8wekyb3d8bbwe\\ExecutionProvider\\onnxruntime_providers_qnn.dll",
+    "qnn_devices": [
+      "OrtHardwareDeviceType.CPU",
+      "OrtHardwareDeviceType.GPU",
+      "OrtHardwareDeviceType.NPU"
+    ],
+    "target_device": "NPU (QnnHtp; fp32 executed at fp16 precision)",
+    "atol_cpu": 1e-05,
+    "atol_qnn_npu": 0.01
+  },
+  "cpu_refs": {
+    "y_cpu_base": [
+      [
+        0.9755980968475342,
+        2.609992265701294,
+        -0.07338009774684906,
+        -0.8990756869316101,
+        -1.0412607192993164,
+        -0.39538905024528503,
+        1.1582820415496826,
+        1.7522000074386597
+      ]
+    ],
+    "y_cpu_baked": [
+      [
+        1.5968751907348633,
+        2.9864020347595215,
+        -1.2246487140655518,
+        3.069545030593872,
+        -1.750876784324646,
+        -0.5002498030662537,
+        1.431429386138916,
+        1.1674742698669434
+      ]
+    ],
+    "y_cpu_baked2": [
+      [
+        2.6761152744293213,
+        -0.687469482421875,
+        -1.6200498342514038,
+        -2.463717222213745,
+        -1.0136581659317017,
+        3.5913004875183105,
+        3.3981409072875977,
+        1.6431645154953003
+      ]
+    ],
+    "y_cpu_switch": [
+      [
+        1.5968751907348633,
+        2.9864020347595215,
+        -1.2246487140655518,
+        3.069545030593872,
+        -1.7508766651153564,
+        -0.5002497434616089,
+        1.431429386138916,
+        1.1674742698669434
+      ]
+    ]
+  },
+  "q1__precompiled_plus_adapter_is_noop": {
+    "adapter_api_used": "ort.AdapterFormat().set_parameters({name: ort.OrtValue}); .export_adapter(path); ort.LoraAdapter().Load(path); ort.RunOptions().add_active_adapter(adapter)",
+    "max_abs_err__adapter_vs_plain": 0.0,
+    "adapter_changed_output": false,
+    "mechanism_note": "add_active_adapter/run raised: InvalidArgument: [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Invalid input name: A",
+    "q1b_outside_epcontext": "informational only (not implemented): the only post-hoc route is to wrap MatMul/MatMul/Add AROUND the EPContext node; those ops fall back to CPU EP and are not inside the QNN binary."
+  },
+  "q2_a__jit_bake_works": {
+    "node_counts": {
+      "base_ctx": {
+        "EPContext": 1,
+        "MatMul": 0,
+        "ctx_inputs": [
+          [
+            "x"
+          ]
+        ],
+        "initializers": [],
+        "op_counts": {
+          "EPContext": 1
+        }
+      },
+      "baked_ctx": {
+        "EPContext": 1,
+        "MatMul": 0,
+        "ctx_inputs": [
+          [
+            "x"
+          ]
+        ],
+        "initializers": [],
+        "op_counts": {
+          "EPContext": 1
+        }
+      },
+      "baked2_ctx": {
+        "EPContext": 1,
+        "MatMul": 0,
+        "ctx_inputs": [
+          [
+            "x"
+          ]
+        ],
+        "initializers": [],
+        "op_counts": {
+          "EPContext": 1
+        }
+      }
+    },
+    "compile_times_s": {
+      "base": 0.6400834000087343,
+      "baked": 0.5139716000412591,
+      "baked2": 0.5518155000172555
+    },
+    "max_abs_err": {
+      "qnn_base_vs_cpu_base": 0.0006170272827148438,
+      "qnn_baked_vs_cpu_baked": 0.0027208328247070312,
+      "qnn_baked2_vs_cpu_baked2": 0.0034096240997314453,
+      "qnn_baked_vs_qnn_baked2": 5.535156726837158
+    }
+  },
+  "q2_b__swap_requires_recompile": {
+    "compile_times_ms": [
+      587.8,
+      562.3,
+      587.8
+    ],
+    "median_build_s": {
+      "baked.onnx": 0.5877644499996677,
+      "baked2.onnx": 0.5622670999728143
+    },
+    "sequence": [
+      "baked.onnx",
+      "baked2.onnx",
+      "baked.onnx"
+    ],
+    "sequence_log": [
+      {
+        "trial": 0,
+        "src": "baked.onnx",
+        "build_s": 0.5982568999752402
+      },
+      {
+        "trial": 0,
+        "src": "baked2.onnx",
+        "build_s": 0.5622670999728143
+      },
+      {
+        "trial": 0,
+        "src": "baked.onnx",
+        "build_s": 0.5448069000267424
+      },
+      {
+        "trial": 1,
+        "src": "baked.onnx",
+        "build_s": 0.5991460999939591
+      },
+      {
+        "trial": 1,
+        "src": "baked2.onnx",
+        "build_s": 0.5033750999718904
+      },
+      {
+        "trial": 1,
+        "src": "baked.onnx",
+        "build_s": 0.5894319000071846
+      },
+      {
+        "trial": 2,
+        "src": "baked.onnx",
+        "build_s": 0.5433340999879874
+      },
+      {
+        "trial": 2,
+        "src": "baked2.onnx",
+        "build_s": 0.5990799000137486
+      },
+      {
+        "trial": 2,
+        "src": "baked.onnx",
+        "build_s": 0.5860969999921508
+      }
+    ]
+  },
+  "q3__graph_input_user_script": {
+    "lora_inputs": [
+      "layer0.weight_lora_A",
+      "layer0.weight_lora_B"
+    ],
+    "node_counts": {
+      "switchable_ctx": {
+        "EPContext": 1,
+        "MatMul": 0,
+        "ctx_inputs": [
+          [
+            "x",
+            "layer0.weight_lora_A",
+            "layer0.weight_lora_B"
+          ]
+        ],
+        "initializers": []
+      }
+    },
+    "max_abs_err": {
+      "cpu_adapter1_vs_cpu_baked": 1.1920928955078125e-07,
+      "cpu_adapter2_vs_cpu_baked2": 2.384185791015625e-07,
+      "qnn_jit_adapter1_vs_cpu_baked": 0.0017033815383911133,
+      "qnn_jit_adapter2_vs_cpu_baked2": 0.0034096240997314453,
+      "qnn_aot_adapter1_vs_cpu_baked": 0.0017033815383911133,
+      "qnn_aot_adapter2_vs_cpu_baked2": 0.0034096240997314453
+    },
+    "timings_ms": {
+      "jit": {
+        "session_build": 619.657700008247,
+        "run_adapter1": 16.85630000429228,
+        "run_adapter2": 13.528999988920987,
+        "run_adapter1_again": 47.29589994531125,
+        "run_adapter1_trials": [
+          18.546000006608665,
+          16.85630000429228,
+          13.51669995347038
+        ],
+        "run_adapter2_trials": [
+          7.965400000102818,
+          13.528999988920987,
+          44.33890001382679
+        ],
+        "run_adapter1_again_trials": [
+          47.29589994531125,
+          48.315900028683245,
+          35.67109996220097
+        ]
+      },
+      "aot": {
+        "session_build": 680.2809000364505,
+        "run_adapter1": 14.577800000552088,
+        "run_adapter2": 21.654499985743314,
+        "run_adapter1_again": 45.644500001799315,
+        "run_adapter1_trials": [
+          14.770699955988675,
+          14.577800000552088,
+          7.529399998020381
+        ],
+        "run_adapter2_trials": [
+          21.654499985743314,
+          17.015399993397295,
+          45.523000007960945
+        ],
+        "run_adapter1_again_trials": [
+          47.11640003370121,
+          45.644500001799315,
+          15.570399991702288
+        ]
+      }
+    },
+    "no_recompile_on_swap": true
+  },
+  "verdict": {
+    "Q1_precompiled_plus_adapter": "CONFIRMED no-op",
+    "Q2a_jit_bake": "CONFIRMED",
+    "Q2b_swap_requires_recompile": "CONFIRMED",
+    "Q3_graph_input_user_script": "CONFIRMED"
+  }
+}
