@@ -11,7 +11,7 @@ This package provides:
 - export_pytorch / export_onnx for ONNX export
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .config import (
     InputTensorSpec,
@@ -19,6 +19,22 @@ from .config import (
     WinMLExportConfig,
     resolve_export_config,
 )
+
+
+# Static type re-exports for the names exposed by ``__getattr__`` below.
+# At runtime these are loaded lazily (see _LAZY_IMPORTS); at type-check time
+# we want mypy to see real types so callers like ``build.hf.export_onnx(...)``
+# get checked instead of resolving to ``Any``.
+if TYPE_CHECKING:
+    from .io import (
+        MaxLengthTextInputGenerator,
+        ONNXConfigNotFoundError,
+        generate_dummy_inputs,
+        register_onnx_overwrite,
+        resolve_io_specs,
+    )
+    from .pytorch import export_pytorch
+    from .pytorch import export_pytorch as export_onnx
 
 
 __version__ = "2.1.0"

@@ -13,7 +13,9 @@ concurrency:
 jobs:
   lint:
     runs-on: windows-latest
-    timeout-minutes: 5
+    # Bumped from 5: combined mypy on 12 packages cold-starts at ~3-4 min on
+    # Windows runners; the original 5-min ceiling cancelled mid-run.
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -34,26 +36,27 @@ jobs:
       - name: Lint
         run: uv run ruff check src/ tests/
 
-      # Required type check: these folders are clean against the strict
+      # Required type check: these packages are clean against the strict
       # config in pyproject.toml. Any new mypy error here blocks the PR.
       # Expand the package list as more folders are cleaned up.
       #
-      # Run per-package so each one prints its own "checked N source files"
-      # summary into a collapsible CI log group. Makes it obvious which
-      # package contributes which files and which one is failing, instead
-      # of one mega-run where the total is opaque.
+      # Single mypy invocation across all packages — a per-package loop pays
+      # cold typeshed/plugin startup per package and tipped the job past the
+      # 5-minute timeout once the list grew to 12. The combined summary still
+      # reports total error/file counts; error lines include file paths so
+      # the failing package is identifiable without per-package groups.
       - name: Type check (required)
-        shell: bash
-        run: |
-          set -uo pipefail
-          failed=0
-          for pkg in analyze build cache commands compiler config core data datasets eval export inference; do
-            echo "::group::winml.modelkit.$pkg"
-            if uv run mypy -p "winml.modelkit.$pkg"; then
-              :
-            else
-              failed=1
-            fi
-            echo "::endgroup::"
-          done
-          exit $failed
+        run: >-
+          uv run mypy
+          -p winml.modelkit.analyze
+          -p winml.modelkit.build
+          -p winml.modelkit.cache
+          -p winml.modelkit.commands
+          -p winml.modelkit.compiler
+          -p winml.modelkit.config
+          -p winml.modelkit.core
+          -p winml.modelkit.data
+          -p winml.modelkit.datasets
+          -p winml.modelkit.eval
+          -p winml.modelkit.export
+          -p winml.modelkit.inference
