@@ -16,6 +16,7 @@ Example:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import shutil
 from pathlib import Path
@@ -152,6 +153,37 @@ def get_external_data_files(model_path: str | Path) -> list[str]:
 def has_external_data(model_path: str | Path) -> bool:
     """Check if an ONNX model uses external data files."""
     return len(get_external_data_files(model_path)) > 0
+
+
+def _update_hash_from_file(hash_obj: Any, path: Path) -> None:
+    """Stream *path* into an existing hash object."""
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            hash_obj.update(chunk)
+
+
+def get_onnx_model_hash(model_path: str | Path) -> str:
+    """Compute a content hash for an ONNX model and referenced external data."""
+    model_path = Path(model_path).resolve()
+    hash_obj = hashlib.sha256()
+    _update_hash_from_file(hash_obj, model_path)
+
+    try:
+        external_files = get_external_data_files(model_path)
+    except Exception:
+        logger.debug("Could not inspect ONNX external data for hashing: %s", model_path)
+        external_files = []
+
+    for location in external_files:
+        data_path = Path(location)
+        if not data_path.is_absolute():
+            data_path = model_path.parent / data_path
+        hash_obj.update(b"\0external-data\0")
+        hash_obj.update(location.replace("\\", "/").encode("utf-8"))
+        hash_obj.update(b"\0")
+        _update_hash_from_file(hash_obj, data_path)
+
+    return hash_obj.hexdigest()[:16]
 
 
 def copy_onnx_model(

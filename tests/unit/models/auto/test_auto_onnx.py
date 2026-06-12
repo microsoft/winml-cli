@@ -13,6 +13,7 @@ Verifies:
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING, ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -235,8 +236,124 @@ class TestFromPretrainedDelegatesToFromOnnx:
 
 
 # =============================================================================
-# from_onnx dict dispatch → WinMLCompositeModel.from_onnx
+# from_onnx cache dir and cache_key tests
 # =============================================================================
+
+
+class TestFromOnnxCacheDirAndKey:
+    """Verify from_onnx uses content-addressed model dirs and passes cache_key."""
+
+    def test_uses_content_hash_for_model_dir(self, fake_onnx: Path, tmp_path: Path):
+        """from_onnx uses the ONNX content hash as model_id for get_model_dir."""
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_eps",
+                return_value=["CPUExecutionProvider"],
+            ),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+            patch("winml.modelkit.models.auto.get_model_dir") as mock_get_model_dir,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+            mock_get_model_dir.return_value = tmp_path / "model_dir"
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+            )
+
+        mock_get_model_dir.assert_called_once()
+        model_id_arg = mock_get_model_dir.call_args.args[0]
+        expected_hash = hashlib.sha256(fake_onnx.read_bytes()).hexdigest()[:16]
+        assert model_id_arg == f"onnx-{expected_hash}"
+        assert model_id_arg != str(fake_onnx.resolve())
+
+    def test_replacing_same_path_content_gets_different_model_dir(self, tmp_path: Path):
+        """Replacing an ONNX file at the same path changes its cache model dir."""
+        from winml.modelkit.cache import get_cache_dir, get_model_dir
+        from winml.modelkit.onnx import get_onnx_model_hash
+
+        onnx_path = tmp_path / "model.onnx"
+        cache = get_cache_dir()
+
+        onnx_path.write_bytes(b"first-content")
+        model_dir_a = get_model_dir(f"onnx-{get_onnx_model_hash(onnx_path)}", cache_dir=cache)
+
+        onnx_path.write_bytes(b"second-content")
+        model_dir_b = get_model_dir(f"onnx-{get_onnx_model_hash(onnx_path)}", cache_dir=cache)
+
+        assert model_dir_a != model_dir_b
+
+    def test_onnx_model_hash_includes_external_data(self, tmp_path: Path):
+        """Changing external data changes the ONNX model content hash."""
+        import numpy as np
+        import onnx
+
+        from winml.modelkit.onnx import get_onnx_model_hash
+
+        onnx_path = tmp_path / "external.onnx"
+        data_path = tmp_path / "external.onnx.data"
+        tensor = onnx.helper.make_tensor(
+            "weight",
+            onnx.TensorProto.FLOAT,
+            [4],
+            np.arange(4, dtype=np.float32).tobytes(),
+            raw=True,
+        )
+        graph = onnx.helper.make_graph([], "external-data-test", [], [], [tensor])
+        model = onnx.helper.make_model(graph)
+        onnx.save_model(
+            model,
+            str(onnx_path),
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location=data_path.name,
+            size_threshold=0,
+        )
+
+        original_hash = get_onnx_model_hash(onnx_path)
+        data_path.write_bytes(data_path.read_bytes() + b"changed")
+
+        assert get_onnx_model_hash(onnx_path) != original_hash
+
+    def test_passes_cache_key_to_build_onnx_model(self, fake_onnx: Path, tmp_path: Path):
+        """from_onnx computes and passes a cache_key to build_onnx_model."""
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_eps",
+                return_value=["CPUExecutionProvider"],
+            ),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+            )
+
+        call_kwargs = mock_build.call_args.kwargs
+        assert "cache_key" in call_kwargs
+        # cache_key must be non-empty and contain the task abbreviation
+        assert call_kwargs["cache_key"]
+        assert "imgcls" in call_kwargs["cache_key"]
 
 
 class TestFromOnnxDictDispatch:
