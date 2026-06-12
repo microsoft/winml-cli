@@ -629,6 +629,7 @@ def _perf_modules(
     warmup: int,
     batch_size: int,
     no_quantize: bool,
+    no_compile: bool,
     output: Path | None,
     verbose: bool,
     console: Console,
@@ -651,7 +652,8 @@ def _perf_modules(
         iterations: Number of benchmark iterations.
         warmup: Number of warmup iterations.
         batch_size: Batch size for input generation.
-        no_quantize: If True, skip quantization and compilation.
+        no_quantize: If True, skip quantization during the per-module build.
+        no_compile: If True, skip the build's compile stage for each module.
         output: Output JSON path, or None for auto-generated path.
         verbose: If True, log exceptions at DEBUG level.
         console: Rich console for output.
@@ -745,9 +747,11 @@ def _perf_modules(
 
         submodule = parent_model.get_submodule(module_path)
 
-        # Skip quant/compile for faster iteration when requested
+        # Skip quant/compile for faster iteration when requested. Quantization
+        # and compilation are independent toggles (mirrors the single-model path).
         if no_quantize:
             cfg.quant = None
+        if no_compile:
             cfg.compile = None
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
@@ -1394,6 +1398,7 @@ def perf(
             warmup=warmup,
             batch_size=batch_size,
             no_quantize=not quantize,
+            no_compile=no_compile,
             output=output,
             verbose=bool(verbose),
             console=console,

@@ -218,3 +218,93 @@ class TestPerfModuleParameterForwarding:
         session_kwargs = mock_session_cls.call_args.kwargs
         assert session_kwargs["device"] == "npu"
         assert session_kwargs["ep"] == "qnn"
+
+
+class TestPerfModuleQuantCompileToggles:
+    """--no-quantize and --compile/--no-compile clear cfg.quant / cfg.compile
+    independently in the per-module build (mirrors the single-model path)."""
+
+    @staticmethod
+    def _run(tmp_path: Path, extra_args: list[str]) -> MagicMock:
+        """Invoke ``perf --module`` with mocked build and return the module cfg.
+
+        The cfg is mutated (quant/compile cleared) before ``build_hf_model``,
+        so short-circuiting the benchmark via a failing ``session.perf()``
+        still lets us inspect the mutation.
+        """
+        fake_cfg = MagicMock()
+        fake_cfg.loader.model_type = "bert"
+        fake_cfg.loader.module_path = "encoder.layer.0"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        fake_session = MagicMock()
+        fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
+
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[fake_cfg],
+            ),
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ),
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                    *extra_args,
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        return fake_cfg
+
+    def test_default_skips_compile_keeps_quant(self, tmp_path: Path) -> None:
+        # perf defaults to --no-compile and --quantize.
+        cfg = self._run(tmp_path, [])
+        assert cfg.compile is None
+        assert cfg.quant is not None
+
+    def test_compile_flag_preserves_compile(self, tmp_path: Path) -> None:
+        cfg = self._run(tmp_path, ["--compile"])
+        assert cfg.compile is not None
+        assert cfg.quant is not None
+
+    def test_no_quantize_clears_only_quant(self, tmp_path: Path) -> None:
+        # --no-quantize must not also clear compile when --compile is set.
+        cfg = self._run(tmp_path, ["--no-quantize", "--compile"])
+        assert cfg.quant is None
+        assert cfg.compile is not None
