@@ -16,7 +16,7 @@ import numpy as np
 
 from ...onnx import load_onnx, save_onnx
 from ...session import WinMLQairtSession, WinMLSession
-from ...utils.constants import normalize_ep_name
+from ...utils.constants import ORT_SESSION_COMPILER, normalize_ep_name
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -45,62 +45,25 @@ class CompileStage(BaseStage):
         return True
 
     def process(self, context: CompileContext) -> CompileContext:
-        """Execute compilation."""
+        """Execute compilation.
+
+        Two compile paths, selected from the multi-model state on the context:
+
+        * ``_compile_single_model_compiler`` (single model, default): the existing
+          ``WinMLSession`` / ``ort.ModelCompiler`` path — unchanged.
+        * ``_compile_multiple`` (``use_inference_session`` and/or
+          ``n_total_models > 1``): reuses one shared ``SessionOptions`` so multiple
+          models share a single EP context (weight sharing); the backend is
+          ``ort.InferenceSession`` when requested, else ``ort.ModelCompiler``.
+        """
         context.log("Starting compile stage")
         start_time = time.time()
 
         try:
-            # Resolve session class from compiler config
-            compiler = context.config.get("compiler", "ort")
-            session_cls = COMPILER_SESSION_MAPPING[compiler]
-
-            # Determine final output directory (default: same as input model)
-            output_dir = self._get_output_dir(context)
-            context.log(f"Output directory: {output_dir}")
-
-            # Ensure model is saved to disk (may be in work_dir if modified)
-            model_path = self._ensure_model_file(context)
-            context.log(f"Model path: {model_path}")
-
-            ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
-            # Derive the target device from the runtime session so the compile
-            # stage stays aligned with the actual EPContext filename produced by
-            # WinMLSession instead of carrying device metadata in provider_options.
-            device = context.config.get("device", "auto")
-            explicit_ep = normalize_ep_name(ep_config.provider)
-            session_cls_name = getattr(session_cls, "__name__", session_cls.__class__.__name__)
-            context.log(f"Creating {session_cls_name} for device: {device}")
-            winml_session = session_cls(
-                onnx_path=model_path,
-                device=device,
-                ep_config=ep_config,
-                ep=explicit_ep,
-            )
-            winml_session.compile()
-
-            # Get the underlying session for validation and info collection
-            session = winml_session._session
-            context.session = session
-
-            resolved_device = getattr(winml_session, "_device", device)
-            if isinstance(resolved_device, str) and resolved_device:
-                device = resolved_device.lower()
-
-            # Log actual providers used
-            if session is not None:
-                actual_providers = session.get_providers()
-                context.log(f"Actual providers: {actual_providers}")
-
-                # Validate if requested
-                if context.validate:
-                    self._validate_model(session, context)
-
-                # Collect model info
-                self._collect_model_info(session, context)
-
-            # Find and relocate EPContext files to output directory
-            if ep_config.enable_ep_context:
-                self._finalize_output(context, model_path, output_dir, device=device)
+            if context.use_inference_session or context.n_total_models > 1:
+                self._compile_multiple(context)
+            else:
+                self._compile_single_model_compiler(context)
 
         except Exception as e:
             context.add_error(f"Compilation failed: {e}")
@@ -112,6 +75,162 @@ class CompileStage(BaseStage):
             context.log(f"Compilation completed in {elapsed:.2f}s")
 
         return context
+
+    def _compile_single_model_compiler(self, context: CompileContext) -> None:
+        """Single-model compile via ``WinMLSession`` (``ort.ModelCompiler``)."""
+        # Resolve session class from compiler config. "ort_session" must not
+        # reach here — it routes to _compile_multiple via context.use_inference_session.
+        compiler = context.config.get("compiler", "ort")
+        if compiler == ORT_SESSION_COMPILER:
+            raise ValueError(
+                f"{ORT_SESSION_COMPILER!r} is handled by the inference-session path, "
+                "not the single-model ModelCompiler path."
+            )
+        session_cls = COMPILER_SESSION_MAPPING[compiler]
+
+        # Determine final output directory (default: same as input model)
+        output_dir = self._get_output_dir(context)
+        context.log(f"Output directory: {output_dir}")
+
+        # Ensure model is saved to disk (may be in work_dir if modified)
+        model_path = self._ensure_model_file(context)
+        context.log(f"Model path: {model_path}")
+
+        ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
+        # Derive the target device from the runtime session so the compile
+        # stage stays aligned with the actual EPContext filename produced by
+        # WinMLSession instead of carrying device metadata in provider_options.
+        device = context.config.get("device", "auto")
+        explicit_ep = normalize_ep_name(ep_config.provider)
+        session_cls_name = getattr(session_cls, "__name__", session_cls.__class__.__name__)
+        context.log(f"Creating {session_cls_name} for device: {device}")
+        winml_session = session_cls(
+            onnx_path=model_path,
+            device=device,
+            ep_config=ep_config,
+            ep=explicit_ep,
+        )
+        winml_session.compile()
+
+        # Get the underlying session for validation and info collection
+        session = winml_session._session
+        context.session = session
+
+        resolved_device = getattr(winml_session, "_device", device)
+        if isinstance(resolved_device, str) and resolved_device:
+            device = resolved_device.lower()
+
+        # Log actual providers used
+        if session is not None:
+            actual_providers = session.get_providers()
+            context.log(f"Actual providers: {actual_providers}")
+
+            # Validate if requested
+            if context.validate:
+                self._validate_model(session, context)
+
+            # Collect model info
+            self._collect_model_info(session, context)
+
+        # Find and relocate EPContext files to output directory
+        if ep_config.enable_ep_context:
+            self._finalize_output(context, model_path, output_dir, device=device)
+
+    def _compile_multiple(self, context: CompileContext) -> None:
+        """Multi-model / inference-session compile with a shared EP context.
+
+        The shared ``SessionOptions`` (``context.shared_session_options``) is created on
+        the first model — the EP is added once and, for a multi-model run, the
+        ``ep.share_ep_contexts`` group is opened on it — then reused for every model.
+        ``ep.stop_share_ep_contexts`` is added before the final model so the shared
+        weights binary is flushed.
+        """
+        import onnxruntime as ort
+
+        from ...sysinfo.device import resolve_device, resolve_eps
+        from ...utils.constants import DEVICE_TO_DEVICE_TYPE
+        from ...winml import add_ep_for_device, register_execution_providers
+
+        ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
+        multi = context.n_total_models > 1
+        is_last = context.n_compiled_models >= context.n_total_models - 1
+        use_is = context.use_inference_session
+
+        output_dir = self._get_output_dir(context)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        model_path = self._ensure_model_file(context)
+        # Honor an explicit output filename (e.g. the de-duplicated <stem>_ctx.onnx
+        # that compile_multiple_onnx assigns); otherwise derive it from the model stem.
+        user_output = context.config.get("output_path")
+        if user_output and Path(user_output).suffix == ".onnx":
+            ctx_path = Path(user_output)
+        else:
+            ctx_path = output_dir / f"{context.model_path.stem}_ctx.onnx"
+        backend = "inference_session" if use_is else "model_compiler"
+        context.log(
+            f"[{backend}] compiling {model_path.name} "
+            f"({context.n_compiled_models + 1}/{context.n_total_models}) -> {ctx_path.name}"
+        )
+
+        # Build the shared SessionOptions once; reuse it for subsequent models.
+        sess_options = context.shared_session_options
+        if sess_options is None:
+            register_execution_providers(ort=True)
+            resolved_device, _ = resolve_device(context.config.get("device", "auto"))
+            ep = normalize_ep_name(ep_config.provider) or resolve_eps(resolved_device)[0]
+            device_type = DEVICE_TO_DEVICE_TYPE.get(resolved_device.upper())
+
+            sess_options = ort.SessionOptions()
+            if use_is:
+                sess_options.add_session_config_entry("ep.context_enable", "1")
+                sess_options.add_session_config_entry(
+                    "ep.context_embed_mode", "1" if ep_config.embed_context else "0"
+                )
+            if multi:
+                sess_options.add_session_config_entry("ep.share_ep_contexts", "1")
+            if not add_ep_for_device(
+                sess_options, ep, device_type, dict(ep_config.provider_options)
+            ):
+                raise RuntimeError(f"Could not add {ep} for device type {device_type}")
+            context.shared_session_options = sess_options  # captured by Compiler for reuse
+
+        # Last model in a shared run flushes the shared context.
+        if multi and is_last:
+            sess_options.add_session_config_entry("ep.stop_share_ep_contexts", "1")
+
+        if use_is:
+            # InferenceSession backend: ep.context_file_path writes the EPContext
+            # wrapper; constructing the session performs the compile.
+            sess_options.add_session_config_entry("ep.context_file_path", str(ctx_path))
+            session = ort.InferenceSession(str(model_path), sess_options=sess_options)
+            context.session = session
+            if session.get_providers():
+                context.log(f"Actual providers: {session.get_providers()}")
+            # Models compiled this way are loadable; validate (run) when requested.
+            if context.validate:
+                self._validate_model(session, context)
+            # Collect I/O info regardless of validation.
+            self._collect_model_info(session, context)
+        else:
+            # ModelCompiler backend: compile straight to the EPContext file. No
+            # session is created here (smoke path — outputs are checked, not loaded).
+            ort.ModelCompiler(
+                sess_options,
+                str(model_path),
+                embed_compiled_data_into_model=ep_config.embed_context,
+            ).compile_to_file(str(ctx_path))
+
+        if ctx_path.exists():
+            context.output_path = ctx_path
+            bins = [
+                f
+                for f in output_dir.glob(f"{ctx_path.stem}*.bin")
+                if not f.name.endswith("_schematic.bin")
+            ]
+            if bins:
+                context.context_binary_path = bins[0]
+        else:
+            context.add_warning(f"No EPContext produced for {model_path.name}")
 
     def _get_output_dir(self, context: CompileContext) -> Path:
         """Determine the output directory for compiled model.

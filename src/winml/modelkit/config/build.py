@@ -373,6 +373,7 @@ def generate_onnx_build_config(
     precision: str = "auto",
     ep: EPNameOrAlias | None = None,
     override: WinMLBuildConfig | None = None,
+    no_compile: bool = False,
 ) -> WinMLBuildConfig:
     """Generate build config for a pre-exported ONNX model (Scenario D).
 
@@ -388,6 +389,8 @@ def generate_onnx_build_config(
             "int16", or "w{x}a{y}" e.g. "w8a16").
         ep: Explicit execution provider override.
         override: Partial WinMLBuildConfig to merge on top of auto-detected.
+        no_compile: If True, drop the compile stage (compile=None) regardless
+            of device/precision policy or override. Applied last so it always wins.
 
     Returns:
         WinMLBuildConfig with export=None and device/precision applied.
@@ -443,6 +446,10 @@ def generate_onnx_build_config(
         # "already exported, skip export stage".
         config.export = None
 
+    # no_compile overrides policy and override — applied last so it always wins
+    if no_compile:
+        config.compile = None
+
     return config
 
 
@@ -487,6 +494,29 @@ def generate_hf_build_config(
     ep: EPNameOrAlias | None = None,
     no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
+
+
+@overload
+def generate_hf_build_config(
+    model_id: str | None = None,
+    *,
+    task: str | None = None,
+    model_class: str | None = None,
+    model_type: str | None = None,
+    # Catch-all for callers that hold ``module`` as ``str | None`` (e.g. the
+    # ``generate_build_config`` dispatcher). Without this overload, mypy can't
+    # resolve the call against the two narrower overloads above and fails with
+    # "too many union combinations".
+    module: str | None,
+    override: WinMLBuildConfig | None = None,
+    shape_config: dict | None = None,
+    library_name: str = "transformers",
+    device: str = "auto",
+    precision: str = "auto",
+    trust_remote_code: bool = False,
+    ep: EPNameOrAlias | None = None,
+    no_compile: bool = False,
+) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
 
 
 def generate_hf_build_config(
@@ -804,24 +834,24 @@ def generate_build_config(
             ep=ep,
             override=override,
         )
-    # Split branches so mypy can pick the matching overload of generate_hf_build_config.
-    # Typed as dict[str, Any] so per-kwarg type checks happen at the callee, not on the
-    # widened Union mypy would otherwise infer from this heterogeneous literal.
-    common_kwargs: dict[str, Any] = {
-        "task": task,
-        "model_class": model_class,
-        "model_type": model_type,
-        "override": override,
-        "shape_config": shape_config,
-        "library_name": library_name,
-        "device": device,
-        "precision": precision,
-        "trust_remote_code": trust_remote_code,
-        "ep": ep,
-    }
-    if module is None:
-        return generate_hf_build_config(model_id, module=None, **common_kwargs)
-    return generate_hf_build_config(model_id, module=module, **common_kwargs)
+    # Single call resolves against generate_hf_build_config's `module: str | None`
+    # overload, which returns WinMLBuildConfig | list[WinMLBuildConfig] — matching
+    # this dispatcher's implementation return type. The dispatcher's own
+    # narrowing overloads above still tighten the return type for its callers.
+    return generate_hf_build_config(
+        model_id,
+        task=task,
+        model_class=model_class,
+        model_type=model_type,
+        module=module,
+        override=override,
+        shape_config=shape_config,
+        library_name=library_name,
+        device=device,
+        precision=precision,
+        trust_remote_code=trust_remote_code,
+        ep=ep,
+    )
 
 
 # =============================================================================

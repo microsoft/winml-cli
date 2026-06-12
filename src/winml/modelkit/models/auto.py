@@ -35,6 +35,8 @@ from .winml import get_supported_tasks, get_winml_class
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from transformers import PretrainedConfig
 
     from ..config import WinMLBuildConfig
@@ -98,7 +100,9 @@ class WinMLAutoModel:
     @classmethod
     def from_onnx(
         cls,
-        onnx_path: str | Path | dict[str, str | Path],
+        # Mapping (not dict) so dict[str, str] from configs is accepted
+        # without a cast — dict is invariant on value type, Mapping is covariant.
+        onnx_path: str | Path | Mapping[str, str | Path],
         *,
         task: str | None = None,
         config: WinMLBuildConfig | None = None,
@@ -109,6 +113,7 @@ class WinMLAutoModel:
         use_cache: bool = True,
         force_rebuild: bool = False,
         skip_build: bool = False,
+        no_compile: bool = False,
         allow_unsupported_nodes: bool = False,
         session_options: Any | None = None,
         hf_config: PretrainedConfig | None = None,
@@ -177,6 +182,7 @@ class WinMLAutoModel:
             precision=precision,
             ep=ep,
             override=config,
+            no_compile=no_compile,
         )
 
         # Resolve task from explicit arg or generated config

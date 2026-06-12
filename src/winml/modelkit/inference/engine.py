@@ -34,7 +34,7 @@ from collections import deque
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .tasks import BINARY_TYPES, TASK_REGISTRY, InputField, PipelineMapping
 from .types import Prediction, PredictionResult
@@ -234,7 +234,7 @@ def _discover_pipeline_params_from_task(task: str | None) -> list[dict]:
     try:
         from transformers.pipelines import SUPPORTED_TASKS
 
-        task_info = SUPPORTED_TASKS.get(task)
+        task_info = cast("dict[str, Any] | None", SUPPORTED_TASKS.get(task))
         if not task_info:
             return []
         pipeline_class = task_info.get("impl")
@@ -870,7 +870,10 @@ class InferenceEngine:
         # output transformation without any if/else branching here.
         spec = TASK_REGISTRY.get(task or "")
         if spec and spec.postprocess is not None:
-            return spec.postprocess(raw, pipeline=self._pipeline, inputs=inputs)
+            return cast(
+                "list[Prediction] | dict[str, Any]",
+                spec.postprocess(raw, pipeline=self._pipeline, inputs=inputs),
+            )
 
         if isinstance(raw, list) and raw and isinstance(raw[0], dict):
             # Classification / detection: list of {"label": ..., "score": ...}
@@ -886,10 +889,10 @@ class InferenceEngine:
             # Sanitize numpy scalars so pydantic/JSON serialization works
             # (NER pipelines return np.float32 scores).
             result = raw[0] if len(raw) == 1 else {"results": raw}
-            return _sanitize_numpy(result)
+            return cast("dict[str, Any]", _sanitize_numpy(result))
         # Other tasks: return as-is dict
         if isinstance(raw, dict):
-            return _sanitize_numpy(raw)
+            return cast("dict[str, Any]", _sanitize_numpy(raw))
         # Fallback
         return {"raw": str(raw)}
 
@@ -902,6 +905,7 @@ class InferenceEngine:
         import numpy as np
         import torch
 
+        assert self._model is not None, "_predict_raw_tensors called before model loaded"
         inputs_torch = {
             k: torch.from_numpy(np.array(v)) if not isinstance(v, torch.Tensor) else v
             for k, v in tensor_inputs.items()
@@ -961,10 +965,10 @@ class InferenceEngine:
     def _resolve_model_id_from_dir(build_dir: Path) -> str | None:
         """Extract model_id from any manifest in the directory (task-agnostic)."""
         for manifest_path in build_dir.glob("*build_manifest.json"):
-            manifest = json.loads(manifest_path.read_text())
+            manifest: dict[str, Any] = json.loads(manifest_path.read_text())
             model_id = manifest.get("model_id")
             if model_id:
-                return model_id
+                return str(model_id)
         return None
 
     def _load_from_onnx(

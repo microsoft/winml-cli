@@ -19,7 +19,11 @@ Two metrics, computed once at the end of an eval pass:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from collections.abc import Hashable
 
 
 logger = logging.getLogger(__name__)
@@ -91,8 +95,12 @@ class TextSimilarityMetric:
         from .cider import Cider
 
         try:
-            refs_dict = {str(i): refs for i, refs in enumerate(self._references)}
-            preds_dict = {str(i): [pred] for i, pred in enumerate(self._predictions)}
+            refs_dict: dict[Hashable, list[str]] = {
+                str(i): refs for i, refs in enumerate(self._references)
+            }
+            preds_dict: dict[Hashable, list[str]] = {
+                str(i): [pred] for i, pred in enumerate(self._predictions)
+            }
             score, _ = Cider().compute_score(refs_dict, preds_dict)
             return float(score)
         except Exception as e:

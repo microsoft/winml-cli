@@ -11,7 +11,7 @@ import importlib
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from rich.console import Console
 
@@ -71,7 +71,7 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
 def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
     """Return the evaluator class for *task*, or raise ValueError if unsupported."""
     key = "compare-tensor" if config.mode == "compare" else config.task
-    spec = _EVALUATOR_REGISTRY.get(key)
+    spec = _EVALUATOR_REGISTRY.get(key) if key is not None else None
     if spec is None:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
         raise ValueError(
@@ -79,7 +79,7 @@ def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
         )
     module_path, class_name = spec.rsplit(":", 1)
     module = importlib.import_module(module_path)
-    return getattr(module, class_name)
+    return cast("type[WinMLEvaluator]", getattr(module, class_name))
 
 
 _FE_DEFAULT = {
@@ -273,7 +273,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
         config, mode=mode, task=_resolve_task(config), dataset=deepcopy(config.dataset)
     )
     if config.mode != "compare" and config.dataset.path is None:
-        default = _DEFAULT_DATASETS.get(config.task)
+        default = _DEFAULT_DATASETS.get(config.task) if config.task is not None else None
         if default is None:
             raise ValueError(
                 f"No dataset provided and no default for task '{config.task}'. Use --dataset."

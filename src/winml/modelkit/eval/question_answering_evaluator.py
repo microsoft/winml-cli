@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .base_evaluator import WinMLEvaluator
 
@@ -102,4 +102,4 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
             **self.config.dataset.columns_mapping,
         }
 
-        return task_evaluator.compute(**kwargs)
+        return cast("dict[str, Any]", task_evaluator.compute(**kwargs))

@@ -287,7 +287,9 @@ class TestModelValidatorManager:
             )
         ]
 
-        manager = ModelValidatorManager(model, op_runtime_results=op_runtime_results)
+        manager = ModelValidatorManager(
+            model, op_runtime_results=op_runtime_results, device="NPU", ep="QNNExecutionProvider"
+        )
         information = manager.run_all_validators()
 
         # Should find at least constant folding issue
@@ -329,7 +331,11 @@ class TestModelValidatorManager:
 
         # Enable only constant folding
         manager = ModelValidatorManager(
-            model, enabled_validators=["constant_folding"], op_runtime_results=op_runtime_results
+            model,
+            enabled_validators=["constant_folding"],
+            op_runtime_results=op_runtime_results,
+            device="NPU",
+            ep="QNNExecutionProvider",
         )
 
         # Should have exactly one validator
@@ -344,11 +350,11 @@ class TestModelValidatorManager:
         """Test that invalid model raises AttributeError when trying to get model."""
         # Passing None should fail when trying to call get_model()
         with pytest.raises(AttributeError):
-            ModelValidatorManager(None)  # type: ignore
+            ModelValidatorManager(None, device="NPU", ep="QNNExecutionProvider")  # type: ignore
 
         # Passing a string should fail when trying to call get_model()
         with pytest.raises(AttributeError):
-            ModelValidatorManager("not a model")  # type: ignore
+            ModelValidatorManager("not a model", device="NPU", ep="QNNExecutionProvider")  # type: ignore
 
     def test_unknown_validator_logs_warning(self, caplog):
         """Test that unknown validator names are handled gracefully."""
@@ -373,9 +379,71 @@ class TestModelValidatorManager:
                 model,
                 enabled_validators=["unknown_validator", "constant_folding"],
                 op_runtime_results=op_runtime_results,
+                device="NPU",
+                ep="QNNExecutionProvider",
             )
 
         # Should only have constant_folding validator (unknown ones are skipped)
         assert len(manager.validators) == 1
         assert manager.validators[0].validator_name == "ConstantFoldingValidator"
         assert "Unknown validator" in caplog.text
+
+
+def _make_batched_const_matmul_proto(const_rank: int = 3):
+    """Model: data [2,3,4] @ W(const) [2,4,5] -> out [2,3,5]."""
+    import numpy as np
+    from onnx import numpy_helper
+
+    w_shape = [2, 4, 5] if const_rank == 3 else [4, 5]
+    w = numpy_helper.from_array(np.zeros(w_shape, dtype=np.float32), "W")
+    matmul = helper.make_node("MatMul", ["data", "W"], ["out"], name="batched_matmul")
+    graph = helper.make_graph(
+        [matmul],
+        "batched_const_matmul",
+        [helper.make_tensor_value_info("data", TensorProto.FLOAT, [2, 3, 4])],
+        [helper.make_tensor_value_info("out", TensorProto.FLOAT, [2, 3, 5])],
+        initializer=[w],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+class TestBatchedConstMatMulValidator:
+    """OpenVINO-GPU batched constant MatMul detector."""
+
+    def _validate(self, proto, ep, device):
+        from winml.modelkit.analyze.core.model_validators import BatchedConstMatMulValidator
+
+        model = create_onnx_model_wrapper(proto)
+        return BatchedConstMatMulValidator(model, ep=ep, device=device).validate()
+
+    def test_detects_for_openvino_gpu(self):
+        """Emits a GraphOptimization action enabling the surgery for OV GPU."""
+        info = self._validate(_make_batched_const_matmul_proto(), "openvino", "GPU")
+        assert info is not None
+        assert info.pattern_id == "MODEL/BatchedConstantMatMul"
+        items = info.actions[0].action_items
+        assert items[0].type == "GraphOptimization"
+        assert items[0].optimization_options == {"untie-constant-batched-matmul": True}
+
+    def test_skipped_for_openvino_npu(self):
+        """Device-gated: NPU is unaffected."""
+        assert self._validate(_make_batched_const_matmul_proto(), "openvino", "NPU") is None
+
+    def test_skipped_for_non_intel_gpu(self):
+        """IHV-gated: a non-Intel GPU EP is unaffected."""
+        info = self._validate(_make_batched_const_matmul_proto(), "DmlExecutionProvider", "GPU")
+        assert info is None
+
+    def test_skipped_for_two_dim_constant(self):
+        """Rank-2 constant gemm compiles on OV GPU; not flagged."""
+        info = self._validate(_make_batched_const_matmul_proto(const_rank=2), "openvino", "GPU")
+        assert info is None
+
+    def test_manager_wires_validator_for_openvino_gpu(self):
+        """Manager constructs the validator and surfaces the action for OV GPU."""
+        model = create_onnx_model_wrapper(_make_batched_const_matmul_proto())
+        manager = ModelValidatorManager(model, device="GPU", ep="OpenVINOExecutionProvider")
+        names = [v.validator_name for v in manager.validators]
+        assert "BatchedConstMatMulValidator" in names
+        infos = manager.run_all_validators()
+        assert any(i.pattern_id == "MODEL/BatchedConstantMatMul" for i in infos)

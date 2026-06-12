@@ -371,7 +371,7 @@ class HTPMetadataBuilder:
             # version will use the default htp_version from the dataclass
         )
 
-        result = {"export_context": asdict(minimal_context)}
+        result: dict[str, Any] = {"export_context": asdict(minimal_context)}
 
         if error:
             result["error"] = error
