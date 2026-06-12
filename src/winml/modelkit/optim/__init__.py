@@ -27,6 +27,7 @@ from __future__ import annotations
 from .api import optimize_onnx
 from .config import WinMLOptimizationConfig
 from .errors import ConfigurationError, ModelValidationError, OptimizationError
+from .fp16 import convert_to_fp16
 from .optimizer import Optimizer
 from .registry import (
     BoolCapability,
@@ -48,6 +49,7 @@ __all__ = [
     "Optimizer",
     "WinMLOptimizationConfig",
     "auto_enable_dependencies",
+    "convert_to_fp16",
     "optimize_onnx",
     "validate",
     "validate_dependencies",

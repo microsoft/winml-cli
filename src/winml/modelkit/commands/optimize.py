@@ -180,6 +180,21 @@ def capability_options(func: F) -> F:
     default=None,
     help="Configuration file (YAML/JSON)",
 )
+@cli_utils.precision_option(optional_message="Applies FP16 conversion after graph optimization.")
+@click.option(
+    "--fp16-keep-io-types/--no-fp16-keep-io-types",
+    "fp16_keep_io_types",
+    default=True,
+    show_default=True,
+    help="Keep model I/O as FP32 when --precision fp16 (insert Cast at boundary)",
+)
+@click.option(
+    "--fp16-op-block-list",
+    "fp16_op_block_list",
+    type=str,
+    default=None,
+    help="Comma-separated list of op types to keep in FP32 (e.g., LayerNorm,Softmax)",
+)
 @cli_utils.verbosity_options()
 @capability_options
 @click.pass_context  # type: ignore[arg-type]  # capability_options widens the signature; click stubs want positional-only ctx but we keep it keyword-callable for back-compat
@@ -190,6 +205,9 @@ def optimize(
     model: Path | None,
     output: Path | None,
     config: Path | None,
+    precision: str | None,
+    fp16_keep_io_types: bool,
+    fp16_op_block_list: str | None,
     verbose: int,
     quiet: bool,
     **kwargs: Any,
@@ -223,6 +241,17 @@ def optimize(
 
         # Basic optimization with GELU fusion
         winml optimize -m model.onnx -o model_opt.onnx --enable-gelu-fusion
+
+        # Convert model to FP16 (after graph optimization)
+        winml optimize -m model.onnx -o fp16.onnx --precision fp16
+
+        # FP16 without preserving I/O types
+        winml optimize -m model.onnx -o fp16.onnx --precision fp16 \
+            --no-fp16-keep-io-types
+
+        # FP16 with specific ops kept in FP32
+        winml optimize -m model.onnx -o fp16.onnx --precision fp16 \
+            --fp16-op-block-list LayerNorm,Softmax
 
         # Use config file
         winml optimize -m model.onnx -c config.toml
@@ -405,6 +434,22 @@ def optimize(
         console.print("[bold]Running optimizer...[/bold]")
         optimizer = Optimizer()
         optimized_model = optimizer.optimize(onnx_model, **optimizer_kwargs)
+
+        # Post-optimization FP16 conversion (command-layer, not a pipe)
+        if precision == "fp16":
+            from ..optim.fp16 import convert_to_fp16
+
+            console.print("[bold]Converting to FP16...[/bold]")
+            op_block = (
+                [s.strip() for s in fp16_op_block_list.split(",") if s.strip()]
+                if fp16_op_block_list
+                else None
+            )
+            optimized_model = convert_to_fp16(
+                optimized_model,
+                keep_io_types=fp16_keep_io_types,
+                op_block_list=op_block,
+            )
 
         console.print("[bold]Saving optimized model...[/bold]")
         save_onnx(optimized_model, output)
