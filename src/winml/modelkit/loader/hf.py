@@ -31,12 +31,6 @@ from typing import TYPE_CHECKING
 
 from transformers import AutoConfig
 
-from .task import (
-    _detect_task_from_config,
-    normalize_task,
-    resolve_task_and_model_class,
-)
-
 
 if TYPE_CHECKING:
     import torch.nn as nn
@@ -225,21 +219,17 @@ def load_hf_model(
         )
 
     # [2] Task & Model Class Resolution
+    from .resolution import resolve_task
+
     if user_script is not None:
         resolved_class = _load_class_from_script(user_script, model_class)
         logger.info("Using custom model class from script: %s", model_class)
-
-        # Detect task if not provided
-        task = _detect_task_from_config(hf_config) if task is None else normalize_task(task)
+        # Surfaced modality-aware task (consistent with the non-script branch).
+        task = resolve_task(hf_config, task=task).task
     else:
-        # Standard resolution via resolve_task_and_model_class()
-        # (model-id task overrides are handled inside _detect_task_from_config)
         try:
-            task, resolved_class = resolve_task_and_model_class(
-                hf_config,
-                task=task,
-                model_class=model_class,
-            )
+            resolution = resolve_task(hf_config, task=task, model_class=model_class)
+            task, resolved_class = resolution.task, resolution.model_class
         except ValueError as e:
             raise ValueError(
                 f"Cannot resolve task/model for {model_name_or_path}. Original error: {e}"

@@ -108,29 +108,31 @@ class TestModelArchitectureOverrideFast:
     """Fast tests for model_class behavior that don't download models."""
 
     def test_model_class_without_user_script_uses_tasks_manager(self, monkeypatch):
-        """Test that model_class uses resolve_task_and_model_class."""
+        """Test that model_class uses resolve_task."""
         from unittest.mock import MagicMock
 
-        import winml.modelkit.loader.hf as hf_module
+        import winml.modelkit.loader.resolution as resolution_module
 
-        # Track calls to resolve_task_and_model_class
+        # Track calls to resolve_task
         resolve_calls = []
 
-        def mock_resolve(config, task=None, model_class=None):
+        def mock_resolve(config, *, task=None, model_class=None):
             resolve_calls.append({"task": task, "model_class": model_class})
             mock_class = MagicMock()
             mock_class.__name__ = "MockModel"
-            return "image-classification", mock_class
+            result = MagicMock()
+            result.task = "image-classification"
+            result.model_class = mock_class
+            return result
 
-        # Mock load_hf_config
+        # Mock AutoConfig
         mock_config = MagicMock()
 
-        def mock_load_hf_config(*args, **kwargs):
-            return mock_config
+        import winml.modelkit.loader.hf as hf_module
 
-        # Apply mocks - resolve_task_and_model_class is now the key function
-        monkeypatch.setattr(hf_module, "resolve_task_and_model_class", mock_resolve)
-        monkeypatch.setattr(hf_module, "AutoConfig", MagicMock(from_pretrained=mock_load_hf_config))
+        monkeypatch.setattr(resolution_module, "resolve_task", mock_resolve)
+        mock_auto_config = MagicMock(from_pretrained=lambda *a, **kw: mock_config)
+        monkeypatch.setattr(hf_module, "AutoConfig", mock_auto_config)
 
         try:
             load_hf_model(
@@ -141,7 +143,7 @@ class TestModelArchitectureOverrideFast:
         except Exception:
             pass  # May fail on model instantiation, but we check the call
 
-        # Verify resolve_task_and_model_class was called with model_class
+        # Verify resolve_task was called with model_class
         assert len(resolve_calls) > 0
         call = resolve_calls[-1]
         assert call["task"] == "image-classification"
@@ -151,33 +153,35 @@ class TestModelArchitectureOverrideFast:
         """Test auto-detection when model_class is not specified."""
         from unittest.mock import MagicMock
 
-        import winml.modelkit.loader.hf as hf_module
+        import winml.modelkit.loader.resolution as resolution_module
 
-        # Track calls to resolve_task_and_model_class
+        # Track calls to resolve_task
         resolve_calls = []
 
-        def mock_resolve(config, task=None, model_class=None):
+        def mock_resolve(config, *, task=None, model_class=None):
             resolve_calls.append({"task": task, "model_class": model_class})
             mock_class = MagicMock()
             mock_class.__name__ = "AutoDetectedModel"
-            return "image-classification", mock_class
+            result = MagicMock()
+            result.task = "image-classification"
+            result.model_class = mock_class
+            return result
 
-        # Mock load_hf_config
+        # Mock AutoConfig
         mock_config = MagicMock()
 
-        def mock_load_hf_config(*args, **kwargs):
-            return mock_config
+        import winml.modelkit.loader.hf as hf_module
 
-        # Apply mocks - resolve_task_and_model_class is now the key function
-        monkeypatch.setattr(hf_module, "resolve_task_and_model_class", mock_resolve)
-        monkeypatch.setattr(hf_module, "AutoConfig", MagicMock(from_pretrained=mock_load_hf_config))
+        monkeypatch.setattr(resolution_module, "resolve_task", mock_resolve)
+        mock_auto_config = MagicMock(from_pretrained=lambda *a, **kw: mock_config)
+        monkeypatch.setattr(hf_module, "AutoConfig", mock_auto_config)
 
         try:
             load_hf_model("test-model")  # No task, no model_class
         except Exception:
             pass
 
-        # Verify resolve_task_and_model_class was called without model_class
+        # Verify resolve_task was called without model_class
         assert len(resolve_calls) > 0
         call = resolve_calls[-1]
         assert call["task"] is None  # Auto-detect
@@ -187,24 +191,27 @@ class TestModelArchitectureOverrideFast:
         """bert-tiny should use model-specific default task when task is omitted."""
         from unittest.mock import MagicMock
 
-        import winml.modelkit.loader.hf as hf_module
+        import winml.modelkit.loader.resolution as resolution_module
 
         resolve_calls = []
 
-        def mock_resolve(config, task=None, model_class=None):
-            task = task or "feature-extraction"
-            resolve_calls.append({"task": task, "model_class": model_class})
+        def mock_resolve(config, *, task=None, model_class=None):
+            resolved_task = task or "feature-extraction"
+            resolve_calls.append({"task": resolved_task, "model_class": model_class})
             mock_class = MagicMock()
             mock_class.__name__ = "AutoDetectedModel"
-            return task, mock_class
+            result = MagicMock()
+            result.task = resolved_task
+            result.model_class = mock_class
+            return result
 
         mock_config = MagicMock()
 
-        def mock_load_hf_config(*args, **kwargs):
-            return mock_config
+        import winml.modelkit.loader.hf as hf_module
 
-        monkeypatch.setattr(hf_module, "resolve_task_and_model_class", mock_resolve)
-        monkeypatch.setattr(hf_module, "AutoConfig", MagicMock(from_pretrained=mock_load_hf_config))
+        monkeypatch.setattr(resolution_module, "resolve_task", mock_resolve)
+        mock_auto_config = MagicMock(from_pretrained=lambda *a, **kw: mock_config)
+        monkeypatch.setattr(hf_module, "AutoConfig", mock_auto_config)
 
         load_hf_model("  PRAJJWAL1/BERT-TINY  ")
 
@@ -341,3 +348,14 @@ class TestCreateHfConfigFromModelClass:
         hf_config = create_hf_config_from_model_class(BertForMaskedLM)
         assert hf_config is not None
         assert hf_config.model_type == "bert"
+
+
+def test_user_script_branch_returns_modality_aware_task():
+    """user_script path must return the surfaced modality-aware task (bugfix)."""
+    from transformers import AutoConfig
+
+    from winml.modelkit.loader.resolution import resolve_task
+
+    cfg = AutoConfig.for_model("vit")
+    cfg.architectures = ["ViTModel"]
+    assert resolve_task(cfg).task == "image-feature-extraction"
