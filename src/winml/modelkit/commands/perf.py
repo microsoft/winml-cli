@@ -296,14 +296,17 @@ class PerfBenchmark:
         Returns:
             BenchmarkResult with timing statistics
         """
+        import gc
+
         # Initialize memory tracker if enabled.
         # Warm up EP registry first so one-time DLL loading costs (~190 MB
-        # for OV plugin) are excluded from model memory measurements.
+        # for OV plugin) are excluded from model measurements.
         if self.config.memory:
             from ..session.monitor.memory_tracker import MemoryTracker
             from ..session.session import WinMLSession
 
             WinMLSession._init_winml_eps_once()
+            gc.collect()
             self._memory_tracker = MemoryTracker()
             self._memory_tracker.snapshot_baseline()
 
@@ -312,14 +315,13 @@ class PerfBenchmark:
         self._load_model()
         assert self._model is not None
 
-        # [2] Generate inputs
-        logger.info("Generating benchmark inputs")
-        self._generate_inputs()
-
-        # Compile session early so model.device is resolved for display
+        # [2] Compile session so model.device is resolved for display.
+        # Snapshot is taken RIGHT after compile (before input generation)
+        # to match reference: model_load_delta = load + compile only.
         self._model._session.compile()
 
         if self._memory_tracker:
+            gc.collect()
             adapter_luid = self._resolve_adapter_luid()
             self._memory_tracker.snapshot_post_compile(adapter_luid=adapter_luid)
 
@@ -332,7 +334,11 @@ class PerfBenchmark:
             ep_name=self._model.ep_name,
         )
 
-        # [3] Run benchmark
+        # [3] Generate inputs (after compile so its memory is in inference delta)
+        logger.info("Generating benchmark inputs")
+        self._generate_inputs()
+
+        # [4] Run benchmark
         logger.info(
             "Running benchmark: %d iterations + %d warmup",
             self.config.iterations,
@@ -344,7 +350,7 @@ class PerfBenchmark:
             adapter_luid = self._resolve_adapter_luid()
             self._memory_tracker.snapshot_post_inference(adapter_luid=adapter_luid)
 
-        # [4] Collect results
+        # [5] Collect results
         logger.info("Collecting results")
         return self._collect_results(stats)
 
@@ -947,9 +953,9 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         console.print()
         console.print(f"[bold]Memory:[/bold]      {rss:.1f} MB (process){dev_str}")
         console.print(
-            f"  [dim]model load: +{mem.model_load_delta_mb:.1f} MB  |  "
-            f"inference: +{mem.inference_alloc_delta_mb:.1f} MB  |  "
-            f"total: +{mem.total_delta_mb:.1f} MB[/dim]"
+            f"  [dim]model load: {mem.model_load_delta_mb:+.1f} MB  |  "
+            f"inference: {mem.inference_alloc_delta_mb:+.1f} MB  |  "
+            f"total: {mem.total_delta_mb:+.1f} MB[/dim]"
         )
 
     console.print()
