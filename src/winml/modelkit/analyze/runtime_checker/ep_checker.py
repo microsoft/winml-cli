@@ -44,7 +44,6 @@ class EPChecker:
         dict[EPName, set[ort.OrtHardwareDeviceType]]
     ] = {
         "OpenVINOExecutionProvider": {ort.OrtHardwareDeviceType.NPU},
-        "QNNExecutionProvider": {ort.OrtHardwareDeviceType.GPU},
     }
 
     def __init__(
