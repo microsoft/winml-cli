@@ -13,10 +13,7 @@ uv run pre-commit install
 
 # Download runtime check rules (required for `winml analyze`)
 gh release download <tag> --repo microsoft/winml-cli --pattern 'rules-v*.zip' --dir .
-# Windows:
 Expand-Archive -Path .\rules-v*.zip -DestinationPath src\winml\modelkit\analyze\rules\runtime_check_rules -Force
-# Linux/macOS:
-# unzip -o rules-v*.zip -d src/winml/modelkit/analyze/rules/runtime_check_rules
 
 # Run tests
 uv run pytest tests/ -m "not e2e and not npu and not gpu"

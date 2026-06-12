@@ -69,7 +69,7 @@ Available Devices (priority order)
   #3  CPU   Snapdragon(R) X Elite
 
 Available Execution Providers
-  QNNExecutionProvider           -> NPU
+  QNNExecutionProvider           -> NPU/GPU
   DmlExecutionProvider           -> GPU
   CPUExecutionProvider           -> CPU
 ```

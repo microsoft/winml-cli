@@ -30,10 +30,7 @@ For external contributors, download from a GitHub release:
 
 ```bash
 gh release download <tag> --repo microsoft/winml-cli --pattern 'rules-v*.zip' --dir .
-# Windows:
 Expand-Archive -Path .\rules-v*.zip -DestinationPath src\winml\modelkit\analyze\rules\runtime_check_rules -Force
-# Linux/macOS:
-# unzip -o rules-v*.zip -d src/winml/modelkit/analyze/rules/runtime_check_rules
 ```
 
 ## Coding conventions and standards
