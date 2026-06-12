@@ -109,6 +109,7 @@ class WinMLAutoModel:
         use_cache: bool = True,
         force_rebuild: bool = False,
         skip_build: bool = False,
+        no_compile: bool = False,
         allow_unsupported_nodes: bool = False,
         session_options: Any | None = None,
         hf_config: PretrainedConfig | None = None,
@@ -177,6 +178,7 @@ class WinMLAutoModel:
             precision=precision,
             ep=ep,
             override=config,
+            no_compile=no_compile,
         )
 
         # Resolve task from explicit arg or generated config

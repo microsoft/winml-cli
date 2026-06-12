@@ -373,6 +373,7 @@ def generate_onnx_build_config(
     precision: str = "auto",
     ep: EPNameOrAlias | None = None,
     override: WinMLBuildConfig | None = None,
+    no_compile: bool = False,
 ) -> WinMLBuildConfig:
     """Generate build config for a pre-exported ONNX model (Scenario D).
 
@@ -388,6 +389,8 @@ def generate_onnx_build_config(
             "int16", or "w{x}a{y}" e.g. "w8a16").
         ep: Explicit execution provider override.
         override: Partial WinMLBuildConfig to merge on top of auto-detected.
+        no_compile: If True, drop the compile stage (compile=None) regardless
+            of device/precision policy or override. Applied last so it always wins.
 
     Returns:
         WinMLBuildConfig with export=None and device/precision applied.
@@ -442,6 +445,10 @@ def generate_onnx_build_config(
         # override's default field, but ONNX builds use export=None to signal
         # "already exported, skip export stage".
         config.export = None
+
+    # no_compile overrides policy and override — applied last so it always wins
+    if no_compile:
+        config.compile = None
 
     return config
 
