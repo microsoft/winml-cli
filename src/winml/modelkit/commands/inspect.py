@@ -323,7 +323,7 @@ def _inspect_model_v2(
     from huggingface_hub.errors import RepositoryNotFoundError
 
     try:
-        loader_config, hf_config, _resolved_class = resolve_loader_config(
+        loader_config, hf_config, _resolved_class, resolution = resolve_loader_config(  # noqa: RUF059
             model_id,
             task=task_override,
             model_type=model_type_override,

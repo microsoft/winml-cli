@@ -427,7 +427,7 @@ def resolve_export_config(
     """
     from ..loader import resolve_loader_config
 
-    loader_config, hf_config, _ = resolve_loader_config(
+    loader_config, hf_config, _, _resolution = resolve_loader_config(
         model_id,
         task=task,
         model_class=model_class,
