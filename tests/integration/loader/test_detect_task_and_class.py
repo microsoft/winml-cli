@@ -100,3 +100,29 @@ class TestSupportedModelsIntegration:
 
         assert task == "image-classification"
         assert "ImageClassification" in resolved_class.__name__
+
+
+@pytest.mark.slow
+class TestSeq2SeqFillMaskCorrection:
+    """Encoder-decoder generation heads that Optimum mislabels as fill-mask must
+    resolve to text2text-generation, not the encoder-only masked-LM task."""
+
+    def test_bart_conditional_generation_is_text2text(self):
+        """BartForConditionalGeneration -> text2text-generation / BartDecoderWrapper."""
+        config = AutoConfig.from_pretrained("facebook/bart-large-cnn")
+
+        task, resolved_class = _detect_task_and_class_from_config(config)
+
+        assert task == "text2text-generation"
+        # BartDecoderWrapper is WinML's encoder-decoder decoder sub-component class
+        # registered for (bart, text2text-generation) — i.e. the seq2seq route,
+        # not the AutoModelForMaskedLM that the fill-mask mislabel would produce.
+        assert resolved_class.__name__ == "BartDecoderWrapper"
+
+    def test_bert_masked_lm_stays_fill_mask(self):
+        """Encoder-only masked-LM is untouched (is_encoder_decoder is False)."""
+        config = AutoConfig.from_pretrained("bert-base-uncased")
+
+        task, _ = _detect_task_and_class_from_config(config)
+
+        assert task == "fill-mask"

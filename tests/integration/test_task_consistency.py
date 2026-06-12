@@ -40,6 +40,9 @@ CASES = [
     # sam has a (sam, None) default-class sentinel plus a single real task; the
     # sentinel must not make detection fall through — it resolves to mask-generation.
     ("facebook/sam-vit-base", "mask-generation"),
+    # optimum mislabels BartForConditionalGeneration as fill-mask; an encoder-decoder
+    # reported as fill-mask is a seq2seq generator -> text2text-generation.
+    ("facebook/bart-large-cnn", "text2text-generation"),
 ]
 
 

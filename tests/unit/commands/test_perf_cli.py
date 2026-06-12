@@ -395,3 +395,118 @@ class TestPerfUnifiedPipeline:
             benchmark._load_model()
 
         assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
+
+
+# =============================================================================
+# --FORMAT JSON TESTS
+# =============================================================================
+
+
+class TestPerfFormatJson:
+    """Test --format json produces structured JSON to stdout."""
+
+    def test_help_shows_format_option(self, runner: CliRunner) -> None:
+        """--format flag must appear in --help output."""
+        result = runner.invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        assert "--format" in result.output
+        assert "json" in result.output
+
+    def test_invalid_format_rejected(self, runner: CliRunner) -> None:
+        """An invalid --format value must be rejected by Click."""
+        result = runner.invoke(perf, ["-m", "test", "--format", "xml"], obj={})
+        assert result.exit_code != 0
+
+    @patch("winml.modelkit.commands.perf.PerfBenchmark")
+    def test_format_json_emits_valid_json(
+        self, mock_benchmark_class: MagicMock, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--format json must produce parseable JSON on stdout.
+
+        Note: CliRunner mixes stderr into result.output; in production the
+        Console(stderr=True) keeps stdout clean. Extract JSON from mixed output.
+        """
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {
+            "benchmark_info": {
+                "model_id": "microsoft/resnet-50",
+                "task": "image-classification",
+                "device": "cpu",
+                "ep": None,
+            },
+            "latency_ms": {"mean": 18.3, "p50": 17.5, "p90": 21.7},
+            "throughput": {"samples_per_sec": 54.6},
+        }
+        mock_instance = MagicMock()
+        mock_instance.run.return_value = mock_result
+        mock_benchmark_class.return_value = mock_instance
+
+        output_file = tmp_path / "result.json"
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "microsoft/resnet-50",
+                "--format",
+                "json",
+                "--output",
+                str(output_file),
+            ],
+            obj={},
+        )
+
+        assert result.exit_code == 0
+        # Extract JSON object from mixed output (CliRunner mixes stderr)
+        output = result.output
+        json_start = output.index("{")
+        json_end = output.rindex("}") + 1
+        parsed = json.loads(output[json_start:json_end])
+        assert parsed["benchmark_info"]["model_id"] == "microsoft/resnet-50"
+        assert "latency_ms" in parsed
+
+    @patch("winml.modelkit.commands.perf.PerfBenchmark")
+    def test_format_text_shows_console_report(
+        self, mock_benchmark_class: MagicMock, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Default --format text must not emit raw JSON."""
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {"benchmark_info": {"model_id": "test"}}
+        mock_result.config = MagicMock()
+        mock_result.config.model_id = "test"
+        mock_result.actual_device = "cpu"
+        mock_result.actual_task = "cls"
+        mock_result.actual_ep = None
+        mock_result.mean_ms = 10.0
+        mock_result.min_ms = 9.0
+        mock_result.max_ms = 11.0
+        mock_result.p50_ms = 10.0
+        mock_result.p90_ms = 10.5
+        mock_result.p95_ms = 10.8
+        mock_result.p99_ms = 11.0
+        mock_result.std_ms = 0.5
+        mock_result.warmup_mean_ms = 12.0
+        mock_result.samples_per_sec = 100.0
+        mock_result.batches_per_sec = 100.0
+        mock_result.hw_monitor = None
+        mock_instance = MagicMock()
+        mock_instance.run.return_value = mock_result
+        mock_benchmark_class.return_value = mock_instance
+
+        output_file = tmp_path / "result.json"
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "test",
+                "--output",
+                str(output_file),
+            ],
+            obj={},
+        )
+
+        assert result.exit_code == 0
+        # Should NOT be parseable as JSON (it's console text)
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(result.output)
