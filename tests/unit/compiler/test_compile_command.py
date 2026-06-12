@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 from click.testing import CliRunner
 
 from winml.modelkit.cli import main
+from winml.modelkit.utils.constants import ORT_SESSION_COMPILER
 
 
 @pytest.fixture
@@ -459,13 +460,13 @@ class TestCompileCommand:
                 "--output-dir",
                 str(out_dir),
                 "--compiler",
-                "ort_session",
+                ORT_SESSION_COMPILER,
             ],
         )
 
         assert result.exit_code == 0, result.output
         # The compiler choice is applied onto the config that drives compilation.
-        assert mock_compile_multiple.call_args.args[2].ep_config.compiler == "ort_session"
+        assert mock_compile_multiple.call_args.args[2].ep_config.compiler == ORT_SESSION_COMPILER
 
     def _create_simple_onnx(self, path: Path) -> None:
         """Create a simple ONNX model for testing."""
