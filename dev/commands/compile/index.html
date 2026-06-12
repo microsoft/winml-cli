@@ -2666,6 +2666,13 @@ model) that loads faster and avoids online graph compilation at inference time.<
 <td>Input ONNX model file.</td>
 </tr>
 <tr>
+<td><code>--output</code></td>
+<td><code>-o</code></td>
+<td>path</td>
+<td>—</td>
+<td>Output file path (e.g., <code>model_compiled.onnx</code>). Takes precedence over <code>--output-dir</code>.</td>
+</tr>
+<tr>
 <td><code>--output-dir</code></td>
 <td></td>
 <td>path</td>
@@ -2682,16 +2689,16 @@ model) that loads faster and avoids online graph compilation at inference time.<
 <tr>
 <td><code>--ep</code></td>
 <td></td>
-<td>choice</td>
-<td><code>None</code></td>
-<td>Force a specific execution provider, overriding device-to-provider mapping. Choices: <code>cpu</code>, <code>cuda</code>, <code>dml</code>, <code>migraphx</code>, <code>openvino</code>, <code>qnn</code>, <code>tensorrt</code>, <code>vitisai</code>.</td>
+<td><code>TEXT</code></td>
+<td>—</td>
+<td>Force a specific execution provider, overriding device-to-provider mapping. Accepts full names (e.g., <code>QNNExecutionProvider</code>) or aliases (<code>qnn</code>, <code>dml</code>, <code>openvino</code>, <code>vitisai</code>, <code>migraphx</code>, <code>cpu</code>, <code>nvtensorrtrtx</code>).</td>
 </tr>
 <tr>
-<td><code>--no-validate</code></td>
+<td><code>--validate</code> / <code>--no-validate</code></td>
 <td></td>
 <td>flag</td>
-<td><code>false</code></td>
-<td>Skip validation of the compiled model after compilation.</td>
+<td><code>--validate</code></td>
+<td>Run a post-compilation validation pass on the target hardware. Enabled by default; pass <code>--no-validate</code> to skip when the target hardware or driver is unavailable.</td>
 </tr>
 <tr>
 <td><code>--compiler</code></td>
@@ -2762,8 +2769,8 @@ target EP; skip it with <code>--no-validate</code> when the target hardware is a
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Compile a pre-quantized BERT model for NPU with context embedded inline</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased_qdq.onnx<span class="w"> </span>--embed
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Compile for GPU using the MIGraphX execution provider</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>microsoft_resnet50.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>migraphx
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Compile for GPU using the OpenVINO execution provider</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>microsoft_resnet50.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>openvino
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>

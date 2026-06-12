@@ -1221,6 +1221,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Memory and resource metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminal-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#json-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2572,6 +2600,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Memory and resource metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminal-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#json-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2622,18 +2678,19 @@
 
 
 <h1 id="perf-and-monitoring">Perf and monitoring<a class="headerlink" href="#perf-and-monitoring" title="Permanent link">&para;</a></h1>
-<p>Knowing that a model produces correct outputs is necessary but not sufficient for a production deployment. You also need to know how fast it runs, how consistently it runs, and where the time goes when it does not run fast enough. <code>winml perf</code> is the primary tool in <code>winml-cli</code> for answering those questions. It synthesises end-to-end latency numbers, per-operator timings, and live hardware utilisation into a single benchmarking workflow.</p>
+<p>Knowing that a model produces correct outputs is necessary but not sufficient for a production deployment. You also need to know how fast it runs, how consistently it runs, and where the time goes when it does not run fast enough. <code>winml perf</code> is the primary tool in <code>winml-cli</code> for answering those questions. It synthesises end-to-end latency numbers and live hardware utilisation into a single benchmarking workflow.</p>
 <p>Because <code>winml perf</code> accepts both HuggingFace model IDs and local <code>.onnx</code> files, you can benchmark at any stage of the development cycle — from a freshly exported float model through to a compiled, quantized production artifact.</p>
 <h2 id="what-perf-measures">What perf measures<a class="headerlink" href="#what-perf-measures" title="Permanent link">&para;</a></h2>
 <p>At its core, <code>winml perf</code> runs a configurable number of inference iterations and reports latency statistics. Here is a real example benchmarking <code>bert-tiny</code> on CPU:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$ winml perf -m bert-tiny.onnx --device cpu --iterations 50 --warmup 5
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>Device:      cpu / CPUExecutionProvider
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>Precision:   fp32
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>Inputs:      input_ids            [1, 512]    int32
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>             attention_mask       [1, 512]    int32
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>             token_type_ids       [1, 512]    int32
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>Outputs:     last_hidden_state    [1, 512, 128]
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>Task:        auto (auto-detected)
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>Model Precision:   fp32
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>Inputs:      input_ids            [1, 512]    int32
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>             attention_mask       [1, 512]    int32
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>             token_type_ids       [1, 512]    int32
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>Outputs:     last_hidden_state    [1, 512, 128]
 </span></code></pre></div>
 <p>Output latency table:</p>
 <table>
@@ -2722,86 +2779,135 @@
 <div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">&quot;benchmark_info&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">&quot;model_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bert-tiny.onnx&quot;</span><span class="p">,</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">&quot;device&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">&quot;ep&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CPUExecutionProvider&quot;</span><span class="p">,</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">&quot;iterations&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">50</span><span class="p">,</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">&quot;warmup&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">&quot;batch_size&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="nt">&quot;latency_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="nt">&quot;avg&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">5.53</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;p50&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">5.40</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;p90&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">6.55</span><span class="p">,</span>
-</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="nt">&quot;p95&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">6.87</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;p99&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">7.65</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;min&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4.89</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">7.65</span>
-</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">  </span><span class="nt">&quot;throughput&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;samples_per_sec&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">180.72</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">  </span><span class="nt">&quot;raw_samples_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mf">5.12</span><span class="p">,</span><span class="w"> </span><span class="mf">5.40</span><span class="p">,</span><span class="w"> </span><span class="err">...</span><span class="p">]</span>
-</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="p">}</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">&quot;task&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;auto-detected&quot;</span><span class="p">,</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">&quot;device&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">&quot;ep&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CPUExecutionProvider&quot;</span><span class="p">,</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">&quot;precision&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">&quot;iterations&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">50</span><span class="p">,</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="nt">&quot;warmup&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="nt">&quot;batch_size&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-06-11T03:27:24+00:00&quot;</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span><span class="nt">&quot;model_info&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="nt">&quot;input_names&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;input_ids&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;attention_mask&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;token_type_ids&quot;</span><span class="p">],</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nt">&quot;input_shapes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">512</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">512</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">512</span><span class="p">]],</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nt">&quot;input_types&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;int32&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;int32&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;int32&quot;</span><span class="p">],</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="nt">&quot;output_names&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;last_hidden_state&quot;</span><span class="p">],</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">    </span><span class="nt">&quot;output_shapes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">512</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">]]</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">  </span><span class="nt">&quot;latency_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">    </span><span class="nt">&quot;mean&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">5.53</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;p50&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">5.40</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;p90&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">6.55</span><span class="p">,</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">    </span><span class="nt">&quot;p95&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">6.87</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;p99&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">7.65</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;min&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4.89</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">7.65</span><span class="p">,</span>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">    </span><span class="nt">&quot;std&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.58</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;warmup_mean&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">14.14</span>
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="w">  </span><span class="nt">&quot;throughput&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;samples_per_sec&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">180.72</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;batches_per_sec&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">180.72</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="w">  </span><span class="nt">&quot;raw_samples_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mf">5.12</span><span class="p">,</span><span class="w"> </span><span class="mf">5.40</span><span class="p">,</span><span class="w"> </span><span class="err">...</span><span class="p">]</span>
+</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>Results are also saved automatically to <code>~/.cache/winml/perf/&lt;model_slug&gt;/&lt;timestamp&gt;.json</code> for later comparison. Override the path with <code>--output</code>.</p>
 <h2 id="live-monitoring">Live monitoring<a class="headerlink" href="#live-monitoring" title="Permanent link">&para;</a></h2>
 <p>Latency numbers alone do not tell you whether the hardware is actually being used. A slow NPU inference could mean the model is running on the NPU and hitting a memory bottleneck, or it could mean the EP silently fell back to CPU and is not using the NPU at all.</p>
-<p>The <code>--monitor</code> flag adds a live terminal chart (powered by plotext + Rich Live) that streams hardware utilisation for whichever device is being benchmarked. The chart auto-refreshes in a background thread so you can see whether utilisation is sustained, bursty, or absent. This is particularly useful when commissioning a new model on QNN or DirectML hardware, where EP fallback can be hard to detect from latency numbers alone. If the chart stays near zero while the benchmark runs, the model is not executing on the expected device.</p>
+<p>The <code>--monitor</code> flag adds a live terminal chart (powered by plotext + Rich Live) that streams hardware utilisation for whichever device is being benchmarked. The chart updates once per iteration so you can see whether utilisation is sustained, bursty, or absent. This is particularly useful when commissioning a new model on QNN or DirectML hardware, where EP fallback can be hard to detect from latency numbers alone. If the chart stays near zero while the benchmark runs, it is a strong signal that the model may not be executing on the expected device — investigate further with EP-specific tools.</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>winml perf -m model.onnx --device npu --monitor
 </span></code></pre></div>
-<p><code>--monitor</code> has no effect on the measured latency statistics — it is a passive observer.</p>
+<p>Display updates are not included in the timed inference call, but monitoring may introduce small system overhead from background PDH polling.</p>
 <h2 id="memory-and-resource-metrics">Memory and resource metrics<a class="headerlink" href="#memory-and-resource-metrics" title="Permanent link">&para;</a></h2>
 <p>When <code>--monitor</code> is active, hardware metrics are sampled throughout the benchmark and reported at the end. These metrics help answer questions like "how much device memory does this model need?" and "is the model memory-bound?".</p>
+<p>The metrics collected depend on the target device:</p>
 <table>
 <thead>
 <tr>
-<th>Category</th>
-<th>Metrics</th>
-<th>Description</th>
+<th>Metric</th>
+<th style="text-align: center;">CPU</th>
+<th style="text-align: center;">GPU</th>
+<th style="text-align: center;">NPU</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Device memory (local)</strong></td>
-<td>Peak dedicated MB</td>
-<td>VRAM or on-device memory exclusively allocated to the inference workload</td>
+<td>CPU utilisation (mean/peak %)</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
 </tr>
 <tr>
-<td><strong>Device memory (shared)</strong></td>
-<td>Peak shared MB</td>
-<td>System memory shared with the device (common on integrated GPUs and NPUs)</td>
+<td>RAM (used MB, peak MB)</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
 </tr>
 <tr>
-<td><strong>RAM</strong></td>
-<td>Used MB, peak used MB</td>
-<td>Process-level system memory consumption</td>
+<td>Device utilisation (mean/peak %)</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
 </tr>
 <tr>
-<td><strong>CPU</strong></td>
-<td>Mean %, peak %</td>
-<td>CPU utilisation during the benchmark window</td>
+<td>Device memory local (peak MB)</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
 </tr>
 <tr>
-<td><strong>Device utilisation</strong></td>
-<td>Mean %, peak %</td>
-<td>NPU or GPU engine utilisation (hardware-reported)</td>
+<td>Device memory shared (peak MB)</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+</tr>
+<tr>
+<td>Engine running time (ns)</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
 </tr>
 </tbody>
 </table>
-<p>Example output (NPU device):</p>
+<ul>
+<li><strong>CPU</strong>: Only system-level metrics (CPU %, RAM) are shown in terminal output. In JSON, <code>device_memory</code> and <code>running_time_ns</code> are still present but will be zero.</li>
+<li><strong>GPU</strong>: Reports GPU engine utilisation plus dedicated VRAM (<code>local_peak_mb</code>) and shared system memory (<code>shared_peak_mb</code>) allocated by the GPU driver.</li>
+<li><strong>NPU</strong>: Same structure as GPU. NPU adapters register as Windows GPU Engine devices, so utilisation and memory are read via the same PDH counters. <code>local_peak_mb</code> represents dedicated adapter memory; <code>shared_peak_mb</code> is system memory shared with the NPU.</li>
+</ul>
+<h3 id="terminal-output">Terminal output<a class="headerlink" href="#terminal-output" title="Permanent link">&para;</a></h3>
+<p>CPU device:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Hardware (during benchmark)
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  NPU: 87.3% avg, 100.0% peak  |  CPU: 12.1% avg  |  Mem: 1842 MB
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  Device Mem: 245/0 MB (local/shared)
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  CPU: 8.3% avg  |  Mem: 644 MB
 </span></code></pre></div>
+<p>NPU or GPU device:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Hardware (during benchmark)
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  NPU: 87.3% avg, 100.0% peak  |  CPU: 12.1% avg  |  Mem: 1842 MB
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>  Device Mem: 245/0 MB (local/shared)
+</span></code></pre></div>
+<h3 id="json-structure">JSON structure<a class="headerlink" href="#json-structure" title="Permanent link">&para;</a></h3>
 <p>In JSON output (<code>-f json</code>), these metrics appear under the <code>hw_monitor</code> key:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">&quot;hw_monitor&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;device_kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;npu&quot;</span><span class="p">,</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">&quot;device_memory&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;local_peak_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">245</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;shared_peak_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">&quot;cpu&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;mean_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">12.1</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;peak_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">34.5</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">&quot;ram&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;used_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1842</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;peak_used_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1910</span><span class="w"> </span><span class="p">},</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">&quot;npu&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;mean_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">87.3</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;peak_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">100.0</span><span class="w"> </span><span class="p">}</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">&quot;hw_monitor&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;monitor&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;HWMonitor&quot;</span><span class="p">,</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;device_kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">&quot;adapter_luid&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">&quot;cpu&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;mean_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">15.8</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;peak_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">16.71</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;sample_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">&quot;ram&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;used_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">640.21</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;peak_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">640.21</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span><span class="nt">&quot;device_memory&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;local_peak_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;shared_peak_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="nt">&quot;running_time_ns&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>When a hardware accelerator is active, <code>device_kind</code> will be <code>"npu"</code> or <code>"gpu"</code>, and an additional key (e.g. <code>"npu"</code>) appears with device utilisation:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">&quot;hw_monitor&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;monitor&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;HWMonitor&quot;</span><span class="p">,</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;device_kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;npu&quot;</span><span class="p">,</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;adapter_luid&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0x0000abcd12340000&quot;</span><span class="p">,</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;cpu&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;mean_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">12.1</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;peak_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">34.5</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;sample_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">50</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">&quot;ram&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;used_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1842.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;peak_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1910.0</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nt">&quot;device_memory&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;local_peak_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">245.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;shared_peak_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nt">&quot;npu&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;mean_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">87.3</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;peak_pct&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">100.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;sample_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">50</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span><span class="nt">&quot;running_time_ns&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4820000000</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>This makes it straightforward to track memory consumption across model revisions or compare devices programmatically.</p>
 <h2 id="per-module-benchmarking">Per-module benchmarking<a class="headerlink" href="#per-module-benchmarking" title="Permanent link">&para;</a></h2>
 <p>Large Transformer-family models contain many repeated module instances — attention blocks, feed-forward layers, encoder stages. When you want to understand the cost of one type of block rather than the full network, <code>--module &lt;ClassName&gt;</code> isolates and benchmarks matching modules from the HuggingFace model hierarchy.</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>winml perf -m bert-base-uncased --module BertAttention
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>winml perf -m bert-base-uncased --module BertAttention
 </span></code></pre></div>
 <p>This builds and benchmarks each <code>BertAttention</code> instance separately and reports per-instance statistics. The <code>--module</code> argument must be a <strong>class name</strong> (e.g. <code>BertAttention</code>), not a dotted module path (e.g. not <code>encoder.layer.0.attention</code>).</p>
-<p>The module hierarchy that <code>--module</code> navigates is built at export time: every ONNX node carries a <code>winml.hierarchy.tag</code> metadata entry recording the PyTorch module path it came from. <code>winml perf --module</code> matches against those tags, builds a separate ONNX for each match, and benchmarks them in isolation. See <a href="../load-and-export/">Load and export</a> for how the metadata is written.</p>
+<p>Internally, <code>--module</code> uses <code>torchinfo</code> to discover all submodule instances matching the given class name in the HuggingFace model. For each match it generates a separate build config, exports an isolated ONNX file, and benchmarks it independently. This requires a HuggingFace model ID (not a local <code>.onnx</code> file) because it needs access to the PyTorch module tree.</p>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../load-and-export/">Load and export</a> — how the module-tree metadata that <code>--module</code> targets gets written</li>
