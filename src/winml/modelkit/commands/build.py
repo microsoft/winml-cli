@@ -1027,10 +1027,33 @@ def _run_optimize_stage(
 
         # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
         # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        #
+        # ``_resolved_device`` is only used as a cosmetic key for
+        # ``has_rule_data_for_ep`` (decides whether to show a per-EP progress
+        # bar). When the build will *not* compile (``config.compile is None`` —
+        # either from ``--no-compile`` or a config that explicitly opts out)
+        # the EP doesn't need to be installed on this host: we're only
+        # exporting + optimizing + quantizing, all of which run on CPU. In
+        # that case fall back to the requested device string so cross-EP
+        # builds (e.g. emitting a QNN/VitisAI artifact on a CPU box) work.
+        # When compile *will* run, re-raise so the missing EP fails fast
+        # here instead of deep inside the compile stage.
         from ..analyze.utils.ep_utils import has_rule_data_for_ep
         from ..sysinfo import resolve_device as _resolve_device
 
-        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+        try:
+            _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+        except ValueError as exc:
+            # Only an EP-not-available failure is expected here (target EP not
+            # installed on this host); resolve_device phrases those with
+            # "...not available..." / "...no compatible EP is available...". A
+            # malformed device/EP name raises "Unknown ..." and is a real bug,
+            # so re-raise it. Also re-raise whenever the build will compile, so
+            # a missing EP fails fast instead of deep in the compile stage.
+            ep_unavailable = "available" in str(exc).lower()
+            if config.compile is not None or not ep_unavailable:
+                raise
+            _resolved_device = device or ""
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep
