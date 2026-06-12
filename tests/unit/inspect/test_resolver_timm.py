@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from winml.modelkit.inspect import SupportLevel, detect_task, resolve_exporter
+from winml.modelkit.inspect import SupportLevel, resolve_exporter
+from winml.modelkit.loader import detect_task
 
 
 @pytest.fixture(scope="module")
