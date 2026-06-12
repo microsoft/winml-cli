@@ -249,9 +249,6 @@ class WinMLSession:
                     # Some EPs don't support compilation - fall back to original
                     logger.warning("ModelCompiler failed, using original: %s", e)
 
-        # Record the model ORT actually loads (original or EPContext).
-        self._running_model_path = model_path
-
         try:
             # Create InferenceSession.
             # EP is either configured via add_provider_for_devices (WinML EP
@@ -282,8 +279,11 @@ class WinMLSession:
             actual_providers,
         )
 
-        # Store session
+        # Store session. Record the model ORT actually loaded (original or
+        # EPContext) only after the session is successfully created, so a
+        # failed compile leaves running_model_path unset rather than stale.
         self._session = session
+        self._running_model_path = model_path
         self._state = SessionState.COMPILED
 
         # Resolve device label from the primary provider ORT actually selected

@@ -233,8 +233,10 @@ class WinMLQairtSession(WinMLSession):
         import onnxruntime as ort
 
         sess_options, _, _ = self._build_session_options(self._device)
-        self._running_model_path = self._ctx_path
         self._session = ort.InferenceSession(str(self._ctx_path), sess_options=sess_options)
+        # Record the loaded model only after the session is successfully
+        # created, so a failed load leaves running_model_path unset.
+        self._running_model_path = self._ctx_path
         self._state = SessionState.COMPILED
 
         actual_providers = self._session.get_providers()

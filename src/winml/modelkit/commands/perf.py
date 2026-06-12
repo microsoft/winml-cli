@@ -158,6 +158,7 @@ class BenchmarkResult:
                 "input_types": self.input_types,
                 "output_names": self.output_names,
                 "output_shapes": self.output_shapes,
+                "precision": self.model_precision,
             },
             "latency_ms": {
                 "mean": round(self.mean_ms, 3),
@@ -176,8 +177,6 @@ class BenchmarkResult:
             },
             "raw_samples_ms": [round(s, 3) for s in self.raw_samples_ms],
         }
-        if self.model_precision:
-            result["model_info"]["precision"] = self.model_precision
         if self.hw_monitor:
             result["hw_monitor"] = self.hw_monitor
         return result
