@@ -191,14 +191,17 @@ def test_detect_task_applies_model_id_override() -> None:
     m.assert_not_called()
 
 
-def test_detect_task_short_circuits_for_unambiguous_model_type() -> None:
-    """A model_type with a single task entry (segformer -> image-segmentation)
-    still short-circuits via MODEL_CLASS_MAPPING without consulting TasksManager."""
+def test_detect_task_no_override_for_single_entry_without_sentinel() -> None:
+    """segformer's only MODEL_CLASS_MAPPING entry (image-segmentation) is a class-fix, NOT
+    a (model_type, None) sentinel, so it is not treated as a default-task override:
+    detection falls through to the architecture head instead of short-circuiting. A
+    fine-tuned classification checkpoint therefore keeps image-classification rather than
+    being forced to image-segmentation."""
     cfg = _FakeConfig("segformer")
-    with patch(_DETECT) as m:
+    with patch(_DETECT, return_value="image-classification") as m:
         task, source = detect_task(cfg)
-    assert (task, source) == ("image-segmentation", "HF_MODEL_CLASS_MAPPING")
-    m.assert_not_called()
+    assert (task, source) == ("image-classification", "TasksManager")
+    m.assert_called_once()
 
 
 def test_resolve_case1_surfaces_modality_aware_task() -> None:

@@ -16,7 +16,7 @@ Offline: synthetic configs (``Config(architectures=[...])``) and
 from __future__ import annotations
 
 import pytest
-from transformers import ASTConfig, BartConfig, Sam2Config, ViTConfig
+from transformers import ASTConfig, BartConfig, Sam2Config, SegformerConfig, ViTConfig
 
 from winml.modelkit.loader import (
     detect_task,
@@ -46,6 +46,13 @@ def test_sam2_resolves_to_mask_generation_on_every_entry_point() -> None:
         (ViTConfig(architectures=["ViTModel"]), "image-feature-extraction"),
         # Multi-task type, head decides (no override).
         (BartConfig(architectures=["BartForSequenceClassification"]), "text-classification"),
+        # Single-entry-no-sentinel type: the class-fix entry must NOT force its task; a
+        # classification checkpoint resolves head-aware to image-classification, not the
+        # image-segmentation class-fix entry (regression guard).
+        (
+            SegformerConfig(architectures=["SegformerForImageClassification"]),
+            "image-classification",
+        ),
     ],
 )
 def test_detect_task_agrees_with_resolve_for_checkpoint_configs(

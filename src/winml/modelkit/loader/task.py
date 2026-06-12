@@ -212,14 +212,18 @@ def _resolve_task_override(model_type_normalized: str, model_id: str | None = No
     1. Model-id default (e.g. ``prajjwal1/bert-tiny`` -> ``feature-extraction``).
     2. ``(model_type, None)`` sentinel in ``MODEL_CLASS_MAPPING``: its value is the
        default *class*; the task is reverse-looked-up from the matching
-       ``(model_type, task) -> same class`` entry. Covers multi-task families whose
-       canonical export differs from the headless TasksManager default
-       (SAM/SAM2 -> ``mask-generation``), structurally enforcing that the matching
-       class entry exists.
-    3. Exactly one real (non-``None``) task for the model_type -> that task.
+       ``(model_type, task) -> same class`` entry. Covers families whose canonical
+       export differs from the headless TasksManager default (SAM/SAM2 ->
+       ``mask-generation``), structurally enforcing that the matching class entry exists.
 
-    Returns ``None`` when the model_type is unregistered or maps to several real
-    tasks with no sentinel (ambiguous -> the architecture head decides).
+    A default-task override is declared ONLY by an explicit sentinel — never inferred
+    from a model_type happening to have a single ``(model_type, task)`` entry. Such an
+    entry exists to fix the *class* for that task (e.g. ``segformer`` image-segmentation),
+    not to declare it the default; without a sentinel the architecture head decides, so a
+    fine-tuned checkpoint keeps its own task (a segformer classification checkpoint stays
+    ``image-classification``).
+
+    Returns ``None`` when there is no model-id default and no sentinel.
     """
     if model_id:
         model_id_task = get_default_task_for_model_id(model_id)
@@ -230,34 +234,24 @@ def _resolve_task_override(model_type_normalized: str, model_id: str | None = No
 
     # (model_type, None) sentinel -> reverse-lookup the task sharing its class.
     default_class = MODEL_CLASS_MAPPING.get((model_type_normalized, None))
-    if default_class is not None:
-        default_task = next(
-            (
-                t
-                for (mt, t), cls in MODEL_CLASS_MAPPING.items()
-                if mt == model_type_normalized and t is not None and cls is default_class
-            ),
-            None,
+    if default_class is None:
+        return None
+    default_task = next(
+        (
+            t
+            for (mt, t), cls in MODEL_CLASS_MAPPING.items()
+            if mt == model_type_normalized and t is not None and cls is default_class
+        ),
+        None,
+    )
+    if default_task is None:
+        raise ValueError(
+            f"MODEL_CLASS_MAPPING has ({model_type_normalized!r}, None) sentinel "
+            f"-> {default_class.__name__}, but no matching "
+            f"({model_type_normalized!r}, <task>) entry maps to that class. "
+            f"Add the corresponding (model_type, task) entry."
         )
-        if default_task is None:
-            raise ValueError(
-                f"MODEL_CLASS_MAPPING has ({model_type_normalized!r}, None) sentinel "
-                f"-> {default_class.__name__}, but no matching "
-                f"({model_type_normalized!r}, <task>) entry maps to that class. "
-                f"Add the corresponding (model_type, task) entry."
-            )
-        return default_task
-
-    # Exactly one real task -> unambiguous default (the former detect_task short-circuit).
-    distinct_tasks = {
-        mapped
-        for (mt, mapped) in MODEL_CLASS_MAPPING
-        if mt == model_type_normalized and mapped is not None
-    }
-    if len(distinct_tasks) == 1:
-        return next(iter(distinct_tasks))
-
-    return None
+    return default_task
 
 
 def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
@@ -414,7 +408,14 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
     #    architecture head decides in step 3.
     override_task = _resolve_task_override(model_type_normalized, model_id)
     if override_task is not None:
-        task, source = override_task, "HF_MODEL_CLASS_MAPPING"
+        task = override_task
+        # Accurate provenance: the model-id default reads MODEL_TASK_MAPPING; the
+        # (model_type, None) sentinel reads MODEL_CLASS_MAPPING.
+        source = (
+            "MODEL_TASK_MAPPING"
+            if model_id and get_default_task_for_model_id(model_id) is not None
+            else "HF_MODEL_CLASS_MAPPING"
+        )
 
     # 2. Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
     #    `architectures`; resolve through their wrapped library instead of the

@@ -28,8 +28,10 @@ from winml.modelkit.loader.task import _resolve_task_override
         # (reverse-looked-up), NOT a fall-through. This is the sam2 fix.
         ("sam2", "mask-generation"),
         ("sam2-video", "mask-generation"),
-        # Single real task, no sentinel -> that task (former short-circuit).
-        ("segformer", "image-segmentation"),
+        # A single (model_type, task) entry with NO sentinel is a class-fix, not a default
+        # declaration -> no override (the architecture head decides). segformer's only entry
+        # exists to fix the image-segmentation class, so it must not force that task.
+        ("segformer", None),
         # Multi-task, no sentinel -> ambiguous, no override (architecture head decides).
         ("bart", None),
         ("clip", None),
