@@ -297,6 +297,7 @@ class InformationEngine:
                 self._model,
                 op_runtime_results=self._op_runtime_results,
                 device=self._device,
+                ep=self._ep,
             )
             manager_init_ms = int((time.perf_counter() - manager_init_start) * 1000)
 
