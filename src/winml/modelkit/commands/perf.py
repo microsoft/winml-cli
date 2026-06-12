@@ -562,7 +562,7 @@ class PerfBenchmark:
             if ep_dict:  # NullEPMonitor returns {}, real monitors return data
                 self._hw_metrics["ep_proof"] = ep_dict
 
-        return cast("PerfStats", stats)
+        return stats
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
