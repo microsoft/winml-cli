@@ -25,7 +25,7 @@
     
     
       
-        <title>winml-cli</title>
+        <title>Windows ML CLI</title>
       
     
     
@@ -50,6 +50,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="stylesheets/extra.css">
     
     <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -94,7 +96,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -108,7 +110,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -320,7 +322,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="samples/convnext-primitives/" class="md-tabs__link">
+        <a href="samples/bert-config-build/" class="md-tabs__link">
           
   
   
@@ -410,6 +412,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -432,13 +453,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -559,6 +580,17 @@
     <span class="md-ellipsis">
       
         Learn the model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repository-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repository access
       
     </span>
   </a>
@@ -699,14 +731,14 @@
   
   
     <li class="md-nav__item">
-      <a href="getting-started/end-to-end/" class="md-nav__link">
+      <a href="getting-started/ui-quickstart/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -950,14 +982,14 @@
   
   
     <li class="md-nav__item">
-      <a href="concepts/eps-and-devices/" class="md-nav__link">
+      <a href="concepts/quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -978,14 +1010,14 @@
   
   
     <li class="md-nav__item">
-      <a href="concepts/quantization/" class="md-nav__link">
+      <a href="concepts/eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -1066,14 +1098,14 @@
   
   
     <li class="md-nav__item">
-      <a href="concepts/primitives-and-pipeline/" class="md-nav__link">
+      <a href="concepts/load-and-export/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Primitives and pipeline
+    Load and export
   
 
     
@@ -1094,14 +1126,14 @@
   
   
     <li class="md-nav__item">
-      <a href="concepts/load-and-export/" class="md-nav__link">
+      <a href="concepts/primitives-and-pipeline/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Load and export
+    Primitives and pipeline
   
 
     
@@ -1486,34 +1518,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="commands/analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1602,34 +1606,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="commands/optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1705,6 +1681,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -1992,34 +2024,6 @@
   
   
     <li class="md-nav__item">
-      <a href="samples/convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="samples/bert-config-build/" class="md-nav__link">
         
   
@@ -2048,14 +2052,14 @@
   
   
     <li class="md-nav__item">
-      <a href="samples/qwen3-composite/" class="md-nav__link">
+      <a href="samples/clip-composite/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -2170,7 +2174,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2285,35 +2289,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="reference/python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
+    Config Schema
   
 
     
@@ -2383,6 +2359,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2432,6 +2436,33 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
   
 
     
@@ -2515,6 +2546,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#repository-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repository access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#license" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2551,31 +2593,33 @@
 
 
 <h1 id="winml-cli">winml-cli<a class="headerlink" href="#winml-cli" title="Permanent link">&para;</a></h1>
-<p>winml-cli is a CLI toolkit to build portable, performant, and high-quality models for <a href="https://learn.microsoft.com/en-us/windows/ai/windows-ml/">Windows ML</a>.</p>
+<p>Windows ML CLI is a command line tool for building portable, performant, and high-quality AI models for Windows ML. It takes you from a source model — whether from Hugging Face or your own pipeline — to a hardware-optimized artifact in a reproducible workflow.</p>
+<p>Purpose-built for Windows hardware diversity, the CLI handles conversion, graph optimization, and compilation across AMD, Intel, NVIDIA, and Qualcomm targets. The CLI fits naturally into CI/CD pipelines so teams can validate and ship models easily.</p>
 <h2 id="what-you-can-do">What you can do<a class="headerlink" href="#what-you-can-do" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Build once, run anywhere.</strong> Compose your own workflow from primitive commands (<code>export</code>, <code>analyze</code>, <code>optimize</code>, <code>quantize</code>, <code>compile</code>), or hand a config to the built-in pipeline. Same portable ONNX, two complementary paths.</li>
-<li><strong>Drill into the details.</strong> Inspect operators, pinpoint compatibility errors, and trace performance bottlenecks at any stage of the pipeline.</li>
-<li><strong>AI-ready.</strong> Built-in agent skills work with mainstream coding agents — let the agent drive the pipeline for you.</li>
+<li><strong>Build once, run across hardwares.</strong> Compose your own workflow from primitive commands (<code>export</code>, <code>analyze</code>, <code>optimize</code>, <code>quantize</code>, <code>compile</code>), or use an auto-generated config with <code>winml build</code> — both produce portable models that run across hardware.</li>
+<li><strong>Drill into the details.</strong> Deep insights into operator compatibility, shape mismatches, graph optimizations, and EP-aware tuning at any stage of the pipeline.</li>
+<li><strong>AI-ready.</strong> CLI-driven tools with built-in skills, friendly to work with mainstream agents.</li>
 </ul>
 <h2 id="what-you-get-out-of-the-box">What you get out of the box<a class="headerlink" href="#what-you-get-out-of-the-box" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>One toolkit, every EP.</strong> All <a href="concepts/eps-and-devices/#eps-winml-cli-supports">supported execution providers</a> live behind the same commands.</li>
-<li><strong>Repeatable and traceable.</strong> Configs are deterministic; every pipeline run records inputs, outputs, and decisions at each stage.</li>
-<li><strong>Quality gates built in.</strong> The analyzer catches operator-compatibility issues before deployment and suggests fixes automatically.</li>
+<li><strong>All Windows ML EPs supported.</strong> Every <a href="concepts/eps-and-devices/#eps-winml-cli-supports">supported execution provider</a> is available behind the same commands.</li>
+<li><strong>Curated model catalog.</strong> A <a href="reference/supported-models/">verified set of models</a> that run across all Windows ML EPs — a reliable starting point.</li>
+<li><strong>Bring your own ONNX.</strong> Not only for converting from PyTorch — bring an <a href="tutorials/build-from-onnx/">existing ONNX model</a> to get operator-compatibility insights and optimize it based on the analysis.</li>
 </ul>
 <h2 id="where-to-start">Where to start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><a href="getting-started/installation/">Installation</a></strong> — get the <code>winml</code> CLI running locally.</li>
 <li><strong><a href="getting-started/quickstart/">Quickstart</a></strong> — export a Hugging Face model in five minutes.</li>
-<li><strong><a href="getting-started/end-to-end/">End-to-End Tour</a></strong> — full pipeline targeting whatever hardware you have (NPU / GPU / CPU).</li>
 </ul>
 <h2 id="learn-the-model">Learn the model<a class="headerlink" href="#learn-the-model" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><a href="concepts/how-it-works/">How winml-cli Works</a></strong> — the pipeline from a PyTorch model to an EP-compiled artifact.</li>
 <li><strong><a href="commands/overview/">Commands</a></strong> — reference for all 12 <code>winml</code> subcommands.</li>
-<li><strong><a href="samples/convnext-primitives/">Samples</a></strong> — end-to-end walkthroughs for ConvNeXt, BERT, and Qwen3.</li>
+<li><strong><a href="samples/bert-config-build/">Samples</a></strong> — walkthroughs for BERT and CLIP.</li>
 </ul>
+<h2 id="repository-access">Repository access<a class="headerlink" href="#repository-access" title="Permanent link">&para;</a></h2>
+<p>To request access to the Windows ML CLI repository, visit <a href="https://aka.ms/winml-cli">aka.ms/winml-cli</a>.</p>
 <h2 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
 <p>MIT. See <a href="https://github.com/microsoft/winml-cli/blob/main/LICENSE.txt">LICENSE</a>.</p>
 
@@ -2633,7 +2677,7 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="assets/javascripts/bundle.79ae519e.min.js"></script>

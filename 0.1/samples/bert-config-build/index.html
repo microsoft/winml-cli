@@ -13,10 +13,10 @@
         <link rel="canonical" href="https://microsoft.github.io/winml-cli/0.1/samples/bert-config-build/">
       
       
-        <link rel="prev" href="../convnext-primitives/">
+        <link rel="prev" href="../../commands/eval/">
       
       
-        <link rel="next" href="../qwen3-composite/">
+        <link rel="next" href="../clip-composite/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>BERT — Config + Build + Perf - winml-cli</title>
+        <title>BERT — Config + Build + Perf - Windows ML CLI</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -96,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,7 +112,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -322,7 +324,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../convnext-primitives/" class="md-tabs__link">
+        <a href="./" class="md-tabs__link">
           
   
   
@@ -412,6 +414,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -434,13 +455,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -599,14 +620,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/end-to-end/" class="md-nav__link">
+      <a href="../../getting-started/ui-quickstart/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -850,14 +871,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+      <a href="../../concepts/quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -878,14 +899,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/quantization/" class="md-nav__link">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -966,14 +987,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Primitives and pipeline
+    Load and export
   
 
     
@@ -994,14 +1015,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/load-and-export/" class="md-nav__link">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Load and export
+    Primitives and pipeline
   
 
     
@@ -1386,34 +1407,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1502,34 +1495,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1605,6 +1570,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -1894,34 +1915,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -2077,14 +2070,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../qwen3-composite/" class="md-nav__link">
+      <a href="../clip-composite/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -2199,7 +2192,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2314,35 +2307,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
+    Config Schema
   
 
     
@@ -2412,6 +2377,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2461,6 +2454,33 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
   
 
     
@@ -2603,11 +2623,10 @@
 
 <h1 id="bert-config-build-perf">BERT — Config + Build + Perf<a class="headerlink" href="#bert-config-build-perf" title="Permanent link">&para;</a></h1>
 <p>BERT (<code>bert-base-uncased</code>) is a canonical text model that exercises every stage of the winml-cli pipeline: it has multiple input tensors, benefits from graph fusion (GeLU, LayerNorm, MatMul+Add), and produces quantizable activations that run well on NPU. That combination makes it a useful reference point for teams deploying transformer encoders on Windows.</p>
-<p>This sample walks through the production-style workflow: generate a reusable <code>WinMLBuildConfig</code> JSON file with <code>winml config</code>, run the full export → optimize → quantize → compile pipeline in one shot with <code>winml build</code>, and measure the result with <code>winml perf</code>. If you want to understand each pipeline stage individually before running the all-in-one command, read the <a href="../convnext-primitives/">ConvNeXt primitives sample</a> first.</p>
+<p>This sample walks through the production-style workflow: generate a reusable <code>WinMLBuildConfig</code> JSON file with <code>winml config</code>, run the full export → optimize → quantize → compile pipeline in one shot with <code>winml build</code>, and measure the result with <code>winml perf</code>. If you want to understand each pipeline stage individually before running the all-in-one command, read the <a href="../../tutorials/npu-convnext/">Hugging Face Model to NPU tutorial</a> first.</p>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
 <li>winml-cli installed and <code>winml</code> on your PATH.</li>
-<li>A network connection to download <code>bert-base-uncased</code> weights from HuggingFace on first run.</li>
 <li>A target device (NPU or GPU recommended; CPU also works).</li>
 </ul>
 <h2 id="step-1-generate-a-build-config">Step 1: Generate a build config<a class="headerlink" href="#step-1-generate-a-build-config" title="Permanent link">&para;</a></h2>
@@ -2617,34 +2636,29 @@
 <div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;loader&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">&quot;task&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text-classification&quot;</span><span class="p">,</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">&quot;model_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bert&quot;</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">&quot;export&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">&quot;opset_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">&quot;batch_size&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="nt">&quot;optim&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">&quot;gelu_fusion&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">&quot;layer_norm_fusion&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="nt">&quot;matmul_add_fusion&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">&quot;model_class&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;AutoModelForSequenceClassification&quot;</span><span class="p">,</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">&quot;model_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bert&quot;</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">&quot;export&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">&quot;opset_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">&quot;batch_size&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="err">..</span><span class="w"> </span><span class="c1">// truncated: input_tensors, output_tensors</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">   </span><span class="nt">&quot;optim&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="nt">&quot;clamp_constant_values&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
 </span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">  </span><span class="p">},</span>
 </span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">  </span><span class="nt">&quot;quant&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">    </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qdq&quot;</span><span class="p">,</span>
 </span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">    </span><span class="nt">&quot;weight_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;uint8&quot;</span><span class="p">,</span>
-</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">    </span><span class="nt">&quot;activation_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;uint8&quot;</span><span class="p">,</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">    </span><span class="nt">&quot;activation_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;uint16&quot;</span><span class="p">,</span>
 </span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">    </span><span class="nt">&quot;samples&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
 </span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">    </span><span class="nt">&quot;calibration_method&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;minmax&quot;</span><span class="p">,</span>
 </span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">    </span><span class="nt">&quot;task&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text-classification&quot;</span><span class="p">,</span>
 </span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">    </span><span class="nt">&quot;model_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bert-base-uncased&quot;</span>
 </span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="w">    </span><span class="err">...</span><span class="w"> </span><span class="c1">// truncated: per_channel, symmetric, distribution, ...</span>
 </span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="w">  </span><span class="nt">&quot;compile&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="w">    </span><span class="nt">&quot;execution_provider&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qnn&quot;</span><span class="p">,</span>
-</span><span id="__span-1-27"><a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="w">    </span><span class="nt">&quot;enable_ep_context&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-</span><span id="__span-1-28"><a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="w">    </span><span class="nt">&quot;compiler&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ort&quot;</span>
-</span><span id="__span-1-29"><a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a><span class="w">    </span><span class="err">...</span><span class="w"> </span><span class="c1">// truncated: provider_options, embed_context, validate, ...</span>
-</span><span id="__span-1-30"><a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-1-31"><a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a><span class="p">}</span>
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="w">  </span><span class="nt">&quot;compile&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="p">}</span>
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -2694,8 +2708,8 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>winml<span class="w"> </span>config<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-t<span class="w"> </span>text-classification<span class="w"> </span>--precision<span class="w"> </span>fp16<span class="w"> </span>-o<span class="w"> </span>bert_config.json
 </span></code></pre></div>
 <p>Alternatively, edit <code>bert_config.json</code> directly: set <code>quant.weight_type</code> and <code>quant.activation_type</code> to <code>"int8"</code> or <code>"uint16"</code>, or set <code>quant</code> to <code>null</code> to skip quantization entirely.</p>
-<p><strong>Disable a stage at build time.</strong> You can suppress a stage for a single run without touching the config file using the <code>--no-quant</code> or <code>--no-compile</code> flags:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>bert_config.json<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--output-dir<span class="w"> </span>bert_out/<span class="w"> </span>--no-quant
+<p><strong>Disable a stage at build time.</strong> You can suppress a stage for a single run without touching the config file using the <code>--no-quant</code> flags:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>bert_config.json<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--output-dir<span class="w"> </span>bert_out/<span class="w"> </span>--no-quant<span class="w"> </span>
 </span></code></pre></div>
 <p>This is useful for measuring the fp32 baseline before committing to a quantized build. The <code>quant</code> section in <code>bert_config.json</code> is unchanged; the flag only affects this invocation. See <a href="../../concepts/config-and-build/">Config and build</a> for the full list of configurable fields.</p>
 <h2 id="what-you-learned">What you learned<a class="headerlink" href="#what-you-learned" title="Permanent link">&para;</a></h2>
@@ -2703,7 +2717,6 @@
 <li><code>winml config</code> generates a complete, version-controllable <code>WinMLBuildConfig</code> JSON from a HuggingFace model ID in one command.</li>
 <li><code>winml build</code> orchestrates the full export → optimize → quantize → compile pipeline from a single config file and model ID.</li>
 <li>The autoconf loop inside the optimize stage adjusts graph fusion flags automatically to maximize EP compatibility.</li>
-<li>JSON fields (<code>quant</code>, <code>compile</code>) and CLI flags (<code>--no-quant</code>, <code>--no-compile</code>) are interchangeable ways to skip stages; CLI flags win for one-off experiments without modifying the file.</li>
 <li><code>winml perf</code> gives a latency and throughput baseline on the built artifact in seconds.</li>
 </ul>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
@@ -2768,7 +2781,7 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>

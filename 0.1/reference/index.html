@@ -16,7 +16,7 @@
         <link rel="prev" href="../tutorials/build-from-onnx/">
       
       
-        <link rel="next" href="python-api/">
+        <link rel="next" href="output-layout/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Build Config Schema - winml-cli</title>
+        <title>Config Schema - Windows ML CLI</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
     
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -78,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#reference-build-configuration-schema" class="md-skip">
+        <a href="#reference-config-schema" class="md-skip">
           Skip to content
         </a>
       
@@ -96,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href=".." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,13 +112,13 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Build Config Schema
+              Config Schema
             
           </span>
         </div>
@@ -320,7 +322,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../samples/convnext-primitives/" class="md-tabs__link">
+        <a href="../samples/bert-config-build/" class="md-tabs__link">
           
   
   
@@ -412,6 +414,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -434,13 +455,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href=".." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -599,14 +620,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/end-to-end/" class="md-nav__link">
+      <a href="../getting-started/ui-quickstart/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -850,14 +871,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/eps-and-devices/" class="md-nav__link">
+      <a href="../concepts/quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -878,14 +899,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/quantization/" class="md-nav__link">
+      <a href="../concepts/eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -966,14 +987,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/primitives-and-pipeline/" class="md-nav__link">
+      <a href="../concepts/load-and-export/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Primitives and pipeline
+    Load and export
   
 
     
@@ -994,14 +1015,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/load-and-export/" class="md-nav__link">
+      <a href="../concepts/primitives-and-pipeline/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Load and export
+    Primitives and pipeline
   
 
     
@@ -1386,34 +1407,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../commands/analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1502,34 +1495,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../commands/optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1605,6 +1570,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -1892,34 +1913,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../samples/convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../samples/bert-config-build/" class="md-nav__link">
         
   
@@ -1948,14 +1941,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../samples/qwen3-composite/" class="md-nav__link">
+      <a href="../samples/clip-composite/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -2070,7 +2063,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2199,7 +2192,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
+    Config Schema
   
 
     
@@ -2217,7 +2210,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
+    Config Schema
   
 
     
@@ -2374,34 +2367,6 @@
   
   
     <li class="md-nav__item">
-      <a href="python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="output-layout/" class="md-nav__link">
         
   
@@ -2438,6 +2403,34 @@
     
   
     Supported Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
   
 
     
@@ -2500,6 +2493,33 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
   
 
     
@@ -2679,10 +2699,14 @@
   
 
 
-<h1 id="reference-build-configuration-schema">Reference — Build Configuration Schema<a class="headerlink" href="#reference-build-configuration-schema" title="Permanent link">&para;</a></h1>
+<h1 id="reference-config-schema">Reference — Config Schema<a class="headerlink" href="#reference-config-schema" title="Permanent link">&para;</a></h1>
 <p>This page documents the full schema for <code>WinMLBuildConfig</code>, the JSON configuration
-file that drives <code>winml build</code> and related commands. Generate a config with
-<code>winml config</code>, then customize it before feeding it to <code>winml build -c config.json</code>.</p>
+file that drives the winml-cli pipeline. Generate a config with
+<code>winml config</code>, then pass it to any command with <code>-c config.json</code>.</p>
+<p>The config is accepted by <strong>all pipeline commands</strong> — not just <code>winml build</code>. For
+example, <code>winml export -c config.json</code>, <code>winml quantize -c config.json</code>, and
+<code>winml compile -c config.json</code> each read the relevant section of the same config
+file. This lets you use a single config as the source of truth across all stages.</p>
 <h2 id="top-level-structure">Top-Level Structure<a class="headerlink" href="#top-level-structure" title="Permanent link">&para;</a></h2>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;loader&quot;</span><span class="p">:</span><span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">},</span>
@@ -3059,7 +3083,7 @@ stages based on the target device and precision.</p>
 <td><code>ep_config.qnn_sdk_root</code></td>
 <td><code>str \| null</code></td>
 <td><code>null</code></td>
-<td>QAIRT SDK path (required for <code>compiler: "qairt"</code>).</td>
+<td>QNN SDK path for QAIRT compiler backend.</td>
 </tr>
 <tr>
 <td><code>validate</code></td>
@@ -3285,7 +3309,7 @@ stages based on the target device and precision.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>

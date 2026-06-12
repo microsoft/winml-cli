@@ -13,10 +13,10 @@
         <link rel="canonical" href="https://microsoft.github.io/winml-cli/0.1/concepts/load-and-export/">
       
       
-        <link rel="prev" href="../primitives-and-pipeline/">
+        <link rel="prev" href="../eps-and-devices/">
       
       
-        <link rel="next" href="../analyze-and-optimize/">
+        <link rel="next" href="../primitives-and-pipeline/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Load and export - winml-cli</title>
+        <title>Load and export - Windows ML CLI</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -96,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,7 +112,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -324,7 +326,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../samples/convnext-primitives/" class="md-tabs__link">
+        <a href="../../samples/bert-config-build/" class="md-tabs__link">
           
   
   
@@ -414,6 +416,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -436,13 +457,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -601,14 +622,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/end-to-end/" class="md-nav__link">
+      <a href="../../getting-started/ui-quickstart/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -860,14 +881,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../eps-and-devices/" class="md-nav__link">
+      <a href="../quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -888,14 +909,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../quantization/" class="md-nav__link">
+      <a href="../eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -973,34 +994,6 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../primitives-and-pipeline/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Primitives and pipeline
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
             
               
                 
@@ -1088,6 +1081,106 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Exporting to ONNX">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#hierarchy-tagging-in-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hierarchy tagging in detail
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hierarchy tagging in detail">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-tags-are-built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How tags are built
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#concrete-example-bert-tiny" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concrete example: BERT-tiny
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#node-to-module-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node-to-module mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#graph-level-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Graph-level metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sidecar-metadata-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sidecar metadata file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#features-that-depend-on-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features that depend on tags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#disabling-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Disabling tags
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1116,6 +1209,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../primitives-and-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Primitives and pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1492,34 +1613,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1608,34 +1701,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1711,6 +1776,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -1998,34 +2119,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../samples/bert-config-build/" class="md-nav__link">
         
   
@@ -2054,14 +2147,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/qwen3-composite/" class="md-nav__link">
+      <a href="../../samples/clip-composite/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -2176,7 +2269,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2291,35 +2384,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
+    Config Schema
   
 
     
@@ -2376,6 +2441,34 @@
     
   
     Supported Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
   
 
     
@@ -2450,6 +2543,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2495,6 +2615,106 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Exporting to ONNX">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#hierarchy-tagging-in-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hierarchy tagging in detail
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hierarchy tagging in detail">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-tags-are-built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How tags are built
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#concrete-example-bert-tiny" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concrete example: BERT-tiny
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#node-to-module-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node-to-module mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#graph-level-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Graph-level metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sidecar-metadata-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sidecar metadata file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#features-that-depend-on-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features that depend on tags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#disabling-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Disabling tags
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2555,9 +2775,128 @@
 <p>Some community models host custom Python code in their repositories. The loader refuses to execute it by default. Pass <code>--trust-remote-code</code> to <code>winml config</code> when generating a build configuration for such a model.</p>
 <h2 id="exporting-to-onnx">Exporting to ONNX<a class="headerlink" href="#exporting-to-onnx" title="Permanent link">&para;</a></h2>
 <p><code>winml export</code> converts the loaded model to ONNX. The conversion uses TorchScript tracing by default, which follows actual execution paths and tends to produce compact, inference-oriented graphs. A <code>--dynamo</code> flag exists for the PyTorch 2.x dynamo exporter; however, <strong>Note:</strong> the <code>--dynamo</code> flag is reserved for the PyTorch 2.x dynamo exporter but is <strong>not yet functional</strong> in the current release — passing it logs a warning and the flag is ignored.</p>
-<p>By default the exporter runs an eight-step process that includes hierarchy tracing and tag injection. Every ONNX node carries a <code>winml.hierarchy.tag</code> metadata entry recording the PyTorch module path it came from (e.g. <code>/BertModel/BertEncoder/BertLayer.3/BertAttention</code>), plus a companion <code>winml.hierarchy.depth</code> integer. The model itself also carries <code>winml.io.inputs</code> and <code>winml.io.outputs</code> JSON metadata describing the I/O tensor specs. Together these power per-module benchmarking with <code>winml perf --module</code>, inspector views with <code>winml inspect --hierarchy</code>, and optimizer scoping.</p>
-<p>If you need a clean, standard-compliant ONNX without custom metadata — to hand off to a third-party tool, for example — pass <code>--no-hierarchy</code> (alias <code>--clean-onnx</code>). The graph behaviour is unchanged, but hierarchy-dependent features will not work against that file.</p>
-<p>Use <code>--with-report</code> to generate companion markdown and JSON reports alongside the output.</p>
+<p>By default the exporter runs an eight-step process that includes hierarchy tracing and tag injection. The result is an ONNX file enriched with structural metadata that powers downstream features such as per-module benchmarking, inspector views, and optimizer scoping.</p>
+<h3 id="hierarchy-tagging-in-detail">Hierarchy tagging in detail<a class="headerlink" href="#hierarchy-tagging-in-detail" title="Permanent link">&para;</a></h3>
+<p>During export the HTP (Hierarchy-preserving Tags Protocol) exporter attaches two pieces of information to every ONNX graph node via <code>node.metadata_props</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Value</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>winml.hierarchy.tag</code></td>
+<td>Full module path the node originated from</td>
+<td><code>/BertModel/BertEncoder/BertLayer.0/BertAttention</code></td>
+</tr>
+<tr>
+<td><code>winml.hierarchy.depth</code></td>
+<td>Number of path segments (integer as string)</td>
+<td><code>4</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="how-tags-are-built">How tags are built<a class="headerlink" href="#how-tags-are-built" title="Permanent link">&para;</a></h4>
+<p>The exporter registers PyTorch forward hooks on each module. When a module executes, a pre-hook pushes its class name onto a tag stack; the post-hook pops it. This produces hierarchical paths that mirror the PyTorch module tree:</p>
+<pre class="mermaid"><code>flowchart LR
+    A[Register hooks] --&gt; B[Run forward pass]
+    B --&gt; C[Pre-hook pushes tag]
+    C --&gt; D[Child modules execute]
+    D --&gt; E[Post-hook pops tag]
+    E --&gt; F[Tag stack → path]</code></pre>
+<p>Only modules that are actually executed during tracing receive tags — unused modules are excluded. For example, <code>prajjwal1/bert-tiny</code> has 48 registered modules but only 18 are reached during a forward pass.</p>
+<h4 id="concrete-example-bert-tiny">Concrete example: BERT-tiny<a class="headerlink" href="#concrete-example-bert-tiny" title="Permanent link">&para;</a></h4>
+<p>Running <code>winml export -m prajjwal1/bert-tiny -o model.onnx -v</code> produces the following hierarchy tree (18 traced modules, 132 ONNX nodes, 100 % coverage):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>BertModel (132 nodes)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── BertEmbeddings: embeddings (7 nodes)
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── BertEncoder: encoder (106 nodes)
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── BertLayer: encoder.layer.0 (53 nodes)
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   │   ├── BertAttention: encoder.layer.0.attention (39 nodes)
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│   │   │   ├── BertSelfOutput: encoder.layer.0.attention.output (4 nodes)
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│   │   │   └── BertSdpaSelfAttention: encoder.layer.0.attention.self (35 nodes)
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   │   ├── BertIntermediate: encoder.layer.0.intermediate (10 nodes)
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│   │   │   └── GELUActivation: encoder.layer.0.intermediate.intermediate_act_fn (8 nodes)
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│   │   └── BertOutput: encoder.layer.0.output (4 nodes)
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   └── BertLayer: encoder.layer.1 (53 nodes)
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│       └── ... (same structure)
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>└── BertPooler: pooler (0 nodes)
+</span></code></pre></div>
+<p>Each ONNX node gets its tag from the module it belongs to. Here are a few examples from the actual exported model:</p>
+<table>
+<thead>
+<tr>
+<th>ONNX node name</th>
+<th>Assigned tag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/embeddings/word_embeddings/Gather</code></td>
+<td><code>/BertModel/BertEmbeddings</code></td>
+</tr>
+<tr>
+<td><code>/encoder/layer.0/attention/self/query/MatMul</code></td>
+<td><code>/BertModel/BertEncoder/BertLayer.0/BertAttention/BertSdpaSelfAttention</code></td>
+</tr>
+<tr>
+<td><code>/encoder/layer.0/intermediate/intermediate_act_fn/Mul</code></td>
+<td><code>/BertModel/BertEncoder/BertLayer.0/BertIntermediate/GELUActivation</code></td>
+</tr>
+<tr>
+<td><code>/Unsqueeze</code> (no scope)</td>
+<td><code>/BertModel</code> (root fallback)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="node-to-module-mapping">Node-to-module mapping<a class="headerlink" href="#node-to-module-mapping" title="Permanent link">&para;</a></h4>
+<p>After the ONNX graph is produced by <code>torch.onnx.export</code>, a 4-priority system assigns each ONNX node to the closest matching module:</p>
+<ol>
+<li><strong>Direct match</strong> (61 %) — the node's scope name maps exactly to a traced module.</li>
+<li><strong>Parent match</strong> (24 %) — walk up the scope hierarchy until a traced module is found.</li>
+<li><strong>Operation fallback</strong> (optional, off by default) — find the most similar scope by common prefix.</li>
+<li><strong>Root fallback</strong> (14 %) — unmatched nodes receive the model root tag (e.g. <code>/BertModel</code>).</li>
+</ol>
+<p>This guarantees 100 % tag coverage: every node in the graph carries a non-empty tag.</p>
+<h3 id="graph-level-metadata">Graph-level metadata<a class="headerlink" href="#graph-level-metadata" title="Permanent link">&para;</a></h3>
+<p>Beyond per-node tags, the exporter also writes model-level metadata properties:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>winml.io.inputs</code></td>
+<td>JSON array of <code>InputTensorSpec</code> — name, shape, dtype, and optional <code>value_range</code></td>
+</tr>
+<tr>
+<td><code>winml.io.outputs</code></td>
+<td>JSON array of <code>OutputTensorSpec</code> — name, shape, dtype</td>
+</tr>
+</tbody>
+</table>
+<p>These I/O specs enable tools like <code>winml perf</code> to generate correct dummy inputs for benchmarking and <code>winml inspect</code> to display tensor shapes without loading the model into a runtime.</p>
+<h3 id="sidecar-metadata-file">Sidecar metadata file<a class="headerlink" href="#sidecar-metadata-file" title="Permanent link">&para;</a></h3>
+<p>Alongside the <code>.onnx</code> file, the exporter writes a <code>*_htp_metadata.json</code> sidecar containing:</p>
+<ul>
+<li><strong><code>nodes</code></strong> — complete mapping of every ONNX node name → hierarchy tag</li>
+<li><strong><code>modules</code></strong> — traced module information (class name, tag, execution order)</li>
+<li><strong><code>statistics</code></strong> — export time, node counts, coverage percentage</li>
+<li><strong><code>outputs</code></strong> — I/O tensor specifications</li>
+</ul>
+<p>Use <code>--with-report</code> to additionally generate a human-readable markdown report (<code>*_htp_export_report.md</code>).</p>
+<h3 id="features-that-depend-on-tags">Features that depend on tags<a class="headerlink" href="#features-that-depend-on-tags" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>winml inspect --hierarchy</code></strong> — traces the model with random weights and displays the resulting module tree in the terminal. This is a lightweight preview of what tags will look like after a full export.</li>
+<li><strong><code>winml perf --module &lt;ClassName&gt;</code></strong> — isolates a submodule (e.g. <code>BertAttention</code>) and benchmarks it independently.</li>
+</ul>
+<h3 id="disabling-tags">Disabling tags<a class="headerlink" href="#disabling-tags" title="Permanent link">&para;</a></h3>
+<p>If you need a clean, standard-compliant ONNX without custom metadata — to hand off to a third-party tool, for example — pass <code>--no-hierarchy</code>. (The old <code>--clean-onnx</code> spelling remains as a deprecated hidden alias.) The graph behaviour is unchanged, but hierarchy-dependent features will not work against that file.</p>
 <h2 id="where-it-goes-wrong">Where it goes wrong<a class="headerlink" href="#where-it-goes-wrong" title="Permanent link">&para;</a></h2>
 <p>Most export failures fall into three categories.</p>
 <p><strong>Task mismatch.</strong> The loader auto-detects task from the model card and configuration, but some models are registered under multiple tasks or have ambiguous metadata. If the wrong task is selected the exporter generates incorrect dummy inputs and the trace fails or produces wrong output shapes. Override it explicitly with <code>--task</code>, for example <code>--task image-feature-extraction</code>.</p>
@@ -2624,7 +2963,7 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>

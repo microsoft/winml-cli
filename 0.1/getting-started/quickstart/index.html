@@ -16,7 +16,7 @@
         <link rel="prev" href="../installation/">
       
       
-        <link rel="next" href="../end-to-end/">
+        <link rel="next" href="../ui-quickstart/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Quickstart - winml-cli</title>
+        <title>Quickstart - Windows ML CLI</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -96,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,7 +112,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -322,7 +324,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../samples/convnext-primitives/" class="md-tabs__link">
+        <a href="../../samples/bert-config-build/" class="md-tabs__link">
           
   
   
@@ -412,6 +414,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -434,13 +455,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -658,10 +679,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#export-the-model" class="md-nav__link">
+  <a href="#build-the-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Export the model
+        Build the model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark the model
       
     </span>
   </a>
@@ -706,14 +738,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../end-to-end/" class="md-nav__link">
+      <a href="../ui-quickstart/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -957,14 +989,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+      <a href="../../concepts/quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -985,14 +1017,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/quantization/" class="md-nav__link">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -1073,14 +1105,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Primitives and pipeline
+    Load and export
   
 
     
@@ -1101,14 +1133,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/load-and-export/" class="md-nav__link">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Load and export
+    Primitives and pipeline
   
 
     
@@ -1493,34 +1525,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1609,34 +1613,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1712,6 +1688,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -1999,34 +2031,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../samples/bert-config-build/" class="md-nav__link">
         
   
@@ -2055,14 +2059,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/qwen3-composite/" class="md-nav__link">
+      <a href="../../samples/clip-composite/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -2177,7 +2181,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2292,35 +2296,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
+    Config Schema
   
 
     
@@ -2377,6 +2353,34 @@
     
   
     Supported Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
   
 
     
@@ -2451,6 +2455,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2500,10 +2531,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#export-the-model" class="md-nav__link">
+  <a href="#build-the-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Export the model
+        Build the model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark the model
       
     </span>
   </a>
@@ -2558,64 +2600,55 @@
 
 
 <h1 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h1>
-<p>This page proves your winml-cli install works end-to-end. You will inspect a
-Hugging Face image classifier, then export it to ONNX. No quantization, no
-execution-provider selection — just the commands you need to confirm everything
-is wired up correctly. Estimated time: 5 minutes.</p>
 <h2 id="verify-the-install">Verify the install<a class="headerlink" href="#verify-the-install" title="Permanent link">&para;</a></h2>
 <p>Run the following command to enumerate available devices and execution providers
 on your machine:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>sys<span class="w"> </span>--list-device<span class="w"> </span>--list-ep
 </span></code></pre></div>
-<p><code>--list-device</code> and <code>--list-ep</code> print only the hardware and EP inventory,
-skipping SDK versions and Python environment details that plain <code>winml sys</code>
-would include. If the command exits without error, your winml-cli install is
+<p><code>--list-device</code> and <code>--list-ep</code> print only the hardware and EP inventory. If the command exits without error, your winml-cli install is
 ready. See <a href="../../commands/sys/"><code>winml sys</code></a> for the full flag reference.</p>
 <h2 id="inspect-the-model">Inspect the model<a class="headerlink" href="#inspect-the-model" title="Permanent link">&para;</a></h2>
-<p>Before downloading any weights, confirm that winml-cli recognises the model:</p>
+<p>Before downloading any models, confirm that winml-cli recognises the model:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>inspect<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>╭─────────────────────────── microsoft/resnet-50 ───────────────────────────╮
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>│ Task          image-classification                                         │
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>│ Model Class   ResNetForImageClassification                                 │
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>│ Exporter      OptimumExporter                                              │
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>│ WinML Class   WinMLImageClassificationModel                                │
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>│ Status        Supported                                                    │
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>╰────────────────────────────────────────────────────────────────────────────╯
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>+--------------------------- microsoft/resnet-50 ---------------------------+
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>| Task          image-classification                                         |
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>| Model Class   ResNetForImageClassification                                 |
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>| Exporter      OptimumExporter                                              |
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>| WinML Class   WinMLImageClassificationModel                                |
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>| Status        Supported                                                    |
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>+---------------------------------------------------------------------------+
 </span></code></pre></div>
-<div class="admonition note">
-<p class="admonition-title">What just happened</p>
-<p><code>winml inspect</code> read only the model's <code>config.json</code> from Hugging Face Hub —
-no weights downloaded — and confirmed that <code>microsoft/resnet-50</code> maps to a
-supported task, a known model class, and a compatible ONNX exporter. Always
-inspect before export to catch unsupported architectures early. See
-<a href="../../commands/inspect/"><code>winml inspect</code></a> for output-format and hierarchy
-options.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Always inspect before build to catch unsupported architectures early.</p>
 </div>
-<h2 id="export-the-model">Export the model<a class="headerlink" href="#export-the-model" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>resnet50.onnx
+<h2 id="build-the-model">Build the model<a class="headerlink" href="#build-the-model" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>resnet_out/<span class="w"> </span>--no-quant
 </span></code></pre></div>
-<div class="admonition note">
-<p class="admonition-title">What just happened</p>
-<p>winml-cli downloaded the <code>microsoft/resnet-50</code> weights from Hugging Face,
-ran the eight-step Hierarchy-preserving Tags Protocol (HTP) to trace the
-PyTorch module tree, and wrote an ONNX file to <code>resnet50.onnx</code>. Each ONNX
-node carries a <code>hierarchy_tag</code> metadata property recording its full PyTorch
-ancestry, which downstream quantization and compilation steps use to reason
-about the graph. See <a href="../../commands/export/"><code>winml export</code></a> for the full
-flag reference.</p>
-</div>
+<p><code>winml build</code> runs all pipeline steps in sequence — export, optimize, quantize. You can start a model build without a config file, or provide one to configure each step in the sequence (see <a href="../../commands/config/"><code>winml config</code></a> to customize).
+All intermediate artifacts land in <code>resnet_out/</code>, so you can reuse any stage independently.</p>
+<p>After a successful build, you will find the following outputs in <code>resnet_out/</code>:</p>
+<ul>
+<li><strong>A standard ONNX file for each completed stage</strong> — load, inspect, or pass any of these to a downstream tool independently.</li>
+<li><strong><code>analyze_result.json</code></strong> — detailed model compatibility insights for each Windows ML EP, including supported, partially supported, and unsupported operators, detected optimization patterns, and recommended optimization workflows.</li>
+<li><strong>A declarative <code>winml_build_config</code> file</strong> — automatically generated after the build step to capture the full workflow end-to-end.</li>
+</ul>
+<h2 id="benchmark-the-model">Benchmark the model<a class="headerlink" href="#benchmark-the-model" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>resnet_out/model.onnx<span class="w"> </span>--device<span class="w"> </span>auto<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span><span class="w"> </span>--monitor
+</span></code></pre></div>
+<p><code>--device auto</code> lets the CLI resolve the best available device on your machine — NPU first, then GPU, then CPU.</p>
 <h2 id="whats-next">What's next<a class="headerlink" href="#whats-next" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><a href="../end-to-end/">End-to-End walkthrough</a></strong> — full pipeline from Hugging Face to NPU.</li>
 <li><strong><a href="../../concepts/how-it-works/">How winml-cli Works</a></strong> — understand what each command does under the hood.</li>
-<li><strong><a href="../../samples/convnext-primitives/">ConvNeXt primitives sample</a></strong> — see every pipeline stage in detail with a representative model.</li>
+<li><strong><a href="../../samples/bert-config-build/">BERT sample</a></strong> — see the config + build + perf workflow in detail with a representative model.</li>
 </ul>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../../commands/export/"><code>winml export</code></a></li>
+<li><a href="../../commands/build/"><code>winml build</code></a></li>
 <li><a href="../../commands/inspect/"><code>winml inspect</code></a></li>
-<li><a href="../../concepts/load-and-export/">Load and export</a></li>
+<li><a href="../../commands/perf/"><code>winml perf</code></a></li>
+<li><a href="../../commands/sys/"><code>winml sys</code></a></li>
 </ul>
 
 
@@ -2672,7 +2705,7 @@ flag reference.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>

@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://microsoft.github.io/winml-cli/0.1/getting-started/agent-skill/">
       
       
-        <link rel="prev" href="../end-to-end/">
+        <link rel="prev" href="../ui-quickstart/">
       
       
         <link rel="next" href="../../concepts/how-it-works/">
@@ -27,7 +27,7 @@
     
     
       
-        <title>Use with AI Agent - winml-cli</title>
+        <title>Use with AI Agent - Windows ML CLI</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -96,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,7 +112,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -322,7 +324,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../samples/convnext-primitives/" class="md-tabs__link">
+        <a href="../../samples/bert-config-build/" class="md-tabs__link">
           
   
   
@@ -412,6 +414,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -434,13 +455,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -604,14 +625,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../end-to-end/" class="md-nav__link">
+      <a href="../ui-quickstart/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -753,32 +774,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-principles-encoded-in-the-skill" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key principles encoded in the skill
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#example-agent-interaction" class="md-nav__link">
     <span class="md-ellipsis">
       
         Example agent interaction
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#updating-the-skill" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Updating the skill
       
     </span>
   </a>
@@ -996,14 +995,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+      <a href="../../concepts/quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -1024,14 +1023,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/quantization/" class="md-nav__link">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -1112,14 +1111,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Primitives and pipeline
+    Load and export
   
 
     
@@ -1140,14 +1139,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/load-and-export/" class="md-nav__link">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Load and export
+    Primitives and pipeline
   
 
     
@@ -1532,34 +1531,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1648,34 +1619,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1751,6 +1694,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -2038,34 +2037,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../samples/bert-config-build/" class="md-nav__link">
         
   
@@ -2094,14 +2065,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/qwen3-composite/" class="md-nav__link">
+      <a href="../../samples/clip-composite/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -2216,7 +2187,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2331,35 +2302,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
+    Config Schema
   
 
     
@@ -2429,6 +2372,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2478,6 +2449,33 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
   
 
     
@@ -2578,32 +2576,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-principles-encoded-in-the-skill" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key principles encoded in the skill
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#example-agent-interaction" class="md-nav__link">
     <span class="md-ellipsis">
       
         Example agent interaction
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#updating-the-skill" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Updating the skill
       
     </span>
   </a>
@@ -2680,11 +2656,10 @@ interpret results — without you having to remember exact flags or stage orderi
 <hr />
 <h2 id="how-to-use-it">How to use it<a class="headerlink" href="#how-to-use-it" title="Permanent link">&para;</a></h2>
 <h3 id="with-github-copilot-coding-agent">With GitHub Copilot Coding Agent<a class="headerlink" href="#with-github-copilot-coding-agent" title="Permanent link">&para;</a></h3>
-<p>The <a href="https://docs.github.com/en/copilot/using-github-copilot/using-the-copilot-coding-agent">Copilot Coding Agent</a>
-(the cloud agent that creates PRs) automatically reads <code>skills/use-winml-cli/SKILL.md</code>
-when working on this repository. No setup needed — assign an issue or ask
-Copilot to build/optimize a model and it will follow the skill's guidance to
-run the correct <code>winml</code> commands.</p>
+<p>To make the <a href="https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/overview">Copilot Coding Agent</a>
+(the cloud agent that creates PRs) follow the skill's guidance, reference it in
+<code>.github/copilot-instructions.md</code>. The Coding Agent reads that file automatically
+when working on this repository.</p>
 <h3 id="with-other-ai-agents">With other AI agents<a class="headerlink" href="#with-other-ai-agents" title="Permanent link">&para;</a></h3>
 <p>For agents that support custom instructions (e.g., Copilot Extensions, Claude,
 ChatGPT with file uploads, or custom MCP tool servers), attach the skill file
@@ -2703,30 +2678,6 @@ any agent that accepts text context can benefit from it.</p>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>        └── SKILL.md          ← the skill definition
 </span></code></pre></div>
 <hr />
-<h2 id="key-principles-encoded-in-the-skill">Key principles encoded in the skill<a class="headerlink" href="#key-principles-encoded-in-the-skill" title="Permanent link">&para;</a></h2>
-<ol>
-<li>
-<p><strong>Inspect first</strong> — always run <code>winml inspect</code> before building to catch
-   unsupported architectures early.</p>
-</li>
-<li>
-<p><strong>Don't fabricate flags</strong> — if a flag isn't in <code>--help</code>, it doesn't exist.
-   The skill enforces this as a hard rule.</p>
-</li>
-<li>
-<p><strong>Published outputs only</strong> — each command has an explicit <code>-o</code> output; never
-   fish artifacts from internal cache.</p>
-</li>
-<li>
-<p><strong>EP-compiled models are EP-bound</strong> — don't benchmark a QNN-compiled model on
-   the CPU EP. Use the pre-compile optimized ONNX for cross-EP comparison.</p>
-</li>
-<li>
-<p><strong>Scope gate</strong> — the agent will refuse to attempt generative/decoder-only
-   models (GPT, LLaMA, Phi, Stable Diffusion) and explain they're out of scope.</p>
-</li>
-</ol>
-<hr />
 <h2 id="example-agent-interaction">Example agent interaction<a class="headerlink" href="#example-agent-interaction" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>User: Can I run ConvNeXt on my Snapdragon X Elite NPU?
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
@@ -2738,11 +2689,6 @@ any agent that accepts text context can benefit from it.</p>
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>5. Runs `winml perf -m output/model.onnx -d npu --monitor`
 </span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>6. Reports latency + NPU utilization to user
 </span></code></pre></div>
-<hr />
-<h2 id="updating-the-skill">Updating the skill<a class="headerlink" href="#updating-the-skill" title="Permanent link">&para;</a></h2>
-<p>The skill lives at <code>skills/use-winml-cli/SKILL.md</code> in the repository root.
-When commands or flags change, update both the docs site and the skill file to
-keep agent behavior aligned with the CLI.</p>
 
 
 
@@ -2798,7 +2744,7 @@ keep agent behavior aligned with the CLI.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>

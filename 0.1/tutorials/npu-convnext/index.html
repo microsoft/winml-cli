@@ -27,7 +27,7 @@
     
     
       
-        <title>ConvNeXt on NPU - winml-cli</title>
+        <title>Hugging Face Model to NPU - Windows ML CLI</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -78,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#convnext-on-npu" class="md-skip">
+        <a href="#hugging-face-model-to-npu" class="md-skip">
           Skip to content
         </a>
       
@@ -96,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,13 +112,13 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              ConvNeXt on NPU
+              Hugging Face Model to NPU
             
           </span>
         </div>
@@ -320,7 +322,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../samples/convnext-primitives/" class="md-tabs__link">
+        <a href="../../samples/bert-config-build/" class="md-tabs__link">
           
   
   
@@ -412,6 +414,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -434,13 +455,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -599,14 +620,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/end-to-end/" class="md-nav__link">
+      <a href="../../getting-started/ui-quickstart/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -850,14 +871,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+      <a href="../../concepts/quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -878,14 +899,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/quantization/" class="md-nav__link">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -966,14 +987,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Primitives and pipeline
+    Load and export
   
 
     
@@ -994,14 +1015,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/load-and-export/" class="md-nav__link">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Load and export
+    Primitives and pipeline
   
 
     
@@ -1386,34 +1407,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1502,34 +1495,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1605,6 +1570,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -1892,34 +1913,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../samples/bert-config-build/" class="md-nav__link">
         
   
@@ -1948,14 +1941,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/qwen3-composite/" class="md-nav__link">
+      <a href="../../samples/clip-composite/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -2084,7 +2077,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2102,7 +2095,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2397,35 +2390,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
+    Config Schema
   
 
     
@@ -2495,6 +2460,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2544,6 +2537,33 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
   
 
     
@@ -2767,14 +2787,13 @@
   
 
 
-<h1 id="convnext-on-npu">ConvNeXt on NPU<a class="headerlink" href="#convnext-on-npu" title="Permanent link">&para;</a></h1>
+<h1 id="hugging-face-model-to-npu">Hugging Face Model to NPU<a class="headerlink" href="#hugging-face-model-to-npu" title="Permanent link">&para;</a></h1>
 <div class="admonition info">
 <p class="admonition-title">Pick the right ConvNeXt page</p>
-<p>Three pages use ConvNeXt as their vehicle, each with a different teaching purpose:</p>
+<p>Two pages use ConvNeXt as their vehicle:</p>
 <ul>
 <li><strong>This tutorial</strong> — the canonical deep-dive: full pipeline with both QNN and OpenVINO NPU backends, plus the <code>winml build</code> one-shot. Start here if you want to ship to NPU.</li>
-<li><strong><a href="../../samples/convnext-primitives/">ConvNeXt — Primitives Walkthrough</a></strong> — a CPU vs GPU vs NPU comparison using the primitive commands. Start here if you want to compare devices on the same model.</li>
-<li><strong><a href="../../getting-started/end-to-end/">End-to-End Tour</a></strong> — the short Getting Started introduction. Start here for a 15-minute taste.</li>
+<li><strong><a href="../../getting-started/quickstart/">Quickstart</a></strong> — the short Getting Started introduction. Start here for a 15-minute taste.</li>
 </ul>
 </div>
 <p>This tutorial walks you through the complete journey from a pretrained Hugging Face model — <code>facebook/convnext-tiny-224</code> — to a quantized, compiled artifact running on an NPU. By the end you will have benchmarked the model on your device and measured real inference latency. Nothing is skipped, and every command produces a file you can inspect or reuse.</p>
@@ -2787,8 +2806,6 @@
 <li><strong>Copilot+PC with NPU</strong> — 40+ TOPS recommended; CPU and DirectML work as fallback throughout</li>
 <li><strong>Python 3.11</strong> and <strong>uv</strong> installed (<code>pip install uv</code> or follow <a href="https://astral.sh/uv">astral.sh/uv</a>)</li>
 <li><strong>winml-cli</strong> installed — see <a href="../../getting-started/installation/">Installation</a></li>
-<li><strong>For QNN (Snapdragon NPU):</strong> QAIRT SDK installed and <code>QNN_SDK_ROOT</code> set to its root directory</li>
-<li><strong>For OpenVINO (Intel CPU/GPU/NPU):</strong> OpenVINO runtime installed and registered as an ONNX Runtime EP</li>
 </ul>
 <blockquote>
 <p>No NPU? Set <code>--device cpu</code> wherever you see <code>--device npu</code> and drop <code>--monitor</code> from perf commands. Every other flag stays the same.</p>
@@ -2831,7 +2848,7 @@
 <p>This runs an eight-stage export pipeline: model preparation, input generation, hierarchy building, ONNX conversion, node tagging, tag injection, and metadata generation. The result is a standards-compliant ONNX file with winml-cli's Hierarchy-preserving Tags Protocol (HTP) metadata embedded in node <code>metadata_props</code>. That metadata is what lets downstream tools make architecture-aware optimization decisions without hardcoded model knowledge.</p>
 <div class="admonition note">
 <p class="admonition-title">What we just did</p>
-<p>The default export embeds hierarchy tags — a tree of source module names mapped onto ONNX nodes — so that the optimizer and analyzer can reason about the graph in terms of the original model structure rather than flat node lists. If you need a clean ONNX without that metadata (for compatibility with other tools), add <code>--clean-onnx</code>. See <a href="../../concepts/load-and-export/">Concepts → Load and export</a> for what hierarchy preservation adds and when it matters.</p>
+<p>The default export embeds hierarchy tags — a tree of source module names mapped onto ONNX nodes — so that the optimizer and analyzer can reason about the graph in terms of the original model structure rather than flat node lists. If you need a clean ONNX without that metadata (for compatibility with other tools), add <code>--no-hierarchy</code>. See <a href="../../concepts/load-and-export/">Concepts → Load and export</a> for what hierarchy preservation adds and when it matters.</p>
 </div>
 <hr />
 <h3 id="step-4-analyze-for-ep-compatibility">Step 4: Analyze for EP compatibility<a class="headerlink" href="#step-4-analyze-for-ep-compatibility" title="Permanent link">&para;</a></h3>
@@ -2868,25 +2885,24 @@
 </div>
 <hr />
 <h3 id="step-7-compile-for-the-target-ep">Step 7: Compile for the target EP<a class="headerlink" href="#step-7-compile-for-the-target-ep" title="Permanent link">&para;</a></h3>
-<p>Compilation converts the portable quantized ONNX into an EP-specific binary format that the execution provider can load directly, skipping JIT compilation at inference time. This is the step that produces a device-locked artifact — the output is tied to the specific EP and, for QNN, to the QNN SDK version.</p>
-<p>Two compiler backends are available:</p>
-<ul>
-<li><strong><code>--compiler ort</code></strong> (default) — uses ONNX Runtime's built-in EP context compiler. Works for QNN and OpenVINO targets without needing the vendor SDK on the build machine (the ORT package bundles the necessary libraries).</li>
-<li><strong><code>--compiler qairt</code></strong> — uses the QAIRT SDK's offline compiler directly. Requires <code>QNN_SDK_ROOT</code> to point at a local QAIRT SDK installation. Produces the same EPContext output but goes through Qualcomm's native toolchain.</li>
-</ul>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">QNN via ORT (default)</label><label for="__tabbed_1_2">QNN via QAIRT SDK</label><label for="__tabbed_1_3">OpenVINO (Intel CPU/GPU/NPU)</label></div>
+<p>Compilation converts the portable quantized ONNX into an EP-specific binary format that the execution provider can load directly, skipping JIT compilation at inference time. This is the step that produces a device-locked artifact tied to the selected EP.</p>
+<p>The examples below use the default compiler backend (<code>--compiler ort</code>), which uses ONNX Runtime's built-in EP context compiler:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Qualcomm NPU</label><label for="__tabbed_1_2">Intel NPU</label><label for="__tabbed_1_3">AMD NPU</label><label for="__tabbed_1_4">CPU</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--device<span class="w"> </span>npu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>qnn
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Requires QNN_SDK_ROOT env var set to your QAIRT SDK root</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--compiler<span class="w"> </span>qairt
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>openvino
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>openvino
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>vitisai
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--device<span class="w"> </span>cpu
 </span></code></pre></div>
 </div>
 </div>
@@ -2894,7 +2910,7 @@
 <p>The compiled output file appears in the same directory as the input model. The file name follows the pattern <code>convnext_int8_npu_ctx.onnx</code> (using the resolved device string <code>npu</code>, not the EP name) and an accompanying <code>.bin</code> context binary is written alongside it (unless <code>--embed</code> is passed, which embeds the binary inside the ONNX file). CPU builds do not produce a new artifact — the compile step validates EP compatibility but writes no output file; use <code>convnext_int8.onnx</code> directly for CPU inference.</p>
 <div class="admonition note">
 <p class="admonition-title">What we just did</p>
-<p>Compilation embeds EP context — the compiled binary — inside or alongside the ONNX file using the <code>EPContext</code> node convention. At inference time the runtime loads the pre-compiled binary directly rather than re-compiling from the ONNX graph, eliminating the 15–60 second JIT penalty on first load. The default <code>--compiler ort</code> backend bundles compilation within ONNX Runtime itself. The <code>--compiler qairt</code> backend calls the QAIRT SDK directly and requires <code>QNN_SDK_ROOT</code> (set as an environment variable, or passed with <code>--qnn-sdk-root</code> on <code>winml compile</code>). <code>winml build</code> reads only the env var. See <a href="../../concepts/compile-and-epcontext/">Concepts → Compile and EPContext</a> for the full picture of what gets embedded and how the context is consumed at runtime.</p>
+<p>Compilation embeds EP context — the compiled binary — inside or alongside the ONNX file using the <code>EPContext</code> node convention. At inference time the runtime loads the pre-compiled binary directly rather than re-compiling from the ONNX graph, eliminating the 15–60 second JIT penalty on first load. The default <code>--compiler ort</code> backend bundles compilation within ONNX Runtime itself. See <a href="../../concepts/compile-and-epcontext/">Concepts → Compile and EPContext</a> for the full picture of what gets embedded and how the context is consumed at runtime.</p>
 </div>
 <hr />
 <h3 id="step-8-benchmark">Step 8: Benchmark<a class="headerlink" href="#step-8-benchmark" title="Permanent link">&para;</a></h3>
@@ -2902,34 +2918,34 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">QNN NPU</label><label for="__tabbed_2_2">OpenVINO NPU</label><label for="__tabbed_2_3">CPU</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>convnext_int8_npu_ctx.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span><span class="w"> </span>--monitor
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>convnext_int8_npu_ctx.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span><span class="w"> </span>--monitor
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>convnext_int8_npu_ctx.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>openvino<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span><span class="w"> </span>--monitor
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>convnext_int8_npu_ctx.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>openvino<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span><span class="w"> </span>--monitor
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--device<span class="w"> </span>cpu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--device<span class="w"> </span>cpu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span>
 </span></code></pre></div>
 </div>
 </div>
 </div>
 <p>A representative run on a Snapdragon X Elite NPU produces output like the following:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Device:       npu
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>Task:         image-classification
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>Iterations:   50 (+ 10 warmup)
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>Batch Size:   1
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>
-</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>Latency (ms)
-</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>  Avg    P50    P90    P95    P99    Min    Max    Std
-</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>  2.14   2.11   2.31   2.38   2.59   1.98   2.71   0.14
-</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>
-</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>Throughput:  467.29 samples/sec
-</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>
-</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>Hardware (during benchmark)
-</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>  NPU: 72.4% avg, 89.1% peak  |  CPU: 3.2% avg
-</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a>  Sys Mem: 1842 MB  |  Device Mem: 48/12 MB (local/shared)
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>Device:       npu
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>Task:         image-classification
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>Iterations:   50 (+ 10 warmup)
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>Batch Size:   1
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>Latency (ms)
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>  Avg    P50    P90    P95    P99    Min    Max    Std
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>  2.14   2.11   2.31   2.38   2.59   1.98   2.71   0.14
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>Throughput:  467.29 samples/sec
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>
+</span><span id="__span-15-12"><a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a>Hardware (during benchmark)
+</span><span id="__span-15-13"><a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a>  NPU: 72.4% avg, 89.1% peak  |  CPU: 3.2% avg
+</span><span id="__span-15-14"><a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>  Sys Mem: 1842 MB  |  Device Mem: 48/12 MB (local/shared)
 </span></code></pre></div>
 <p>The CPU fallback (same model, <code>--device cpu</code>) will typically show latencies 8–15x higher and near-zero NPU utilization. The contrast between those two runs is the best proof that your NPU path is actually being used.</p>
 <div class="admonition note">
@@ -2939,7 +2955,7 @@
 <hr />
 <h3 id="step-9-optional-evaluate-accuracy">Step 9 (optional): Evaluate accuracy<a class="headerlink" href="#step-9-optional-evaluate-accuracy" title="Permanent link">&para;</a></h3>
 <p>After quantization it is good practice to verify that INT8 accuracy is close to the FP32 baseline. The <code>winml eval</code> command runs the model against a held-out dataset slice and reports task-relevant metrics.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--model-id<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>--dataset<span class="w"> </span>imagenet-1k<span class="w"> </span>--split<span class="w"> </span>validation<span class="w"> </span>--samples<span class="w"> </span><span class="m">100</span><span class="w"> </span>--device<span class="w"> </span>npu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>convnext_int8.onnx<span class="w"> </span>--model-id<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>--dataset<span class="w"> </span>imagenet-1k<span class="w"> </span>--split<span class="w"> </span>validation<span class="w"> </span>--samples<span class="w"> </span><span class="m">100</span><span class="w"> </span>--device<span class="w"> </span>npu
 </span></code></pre></div>
 <p>The <code>--model-id</code> flag is required when passing an ONNX file, because the evaluator needs it to locate the preprocessor and label mappings. The command downloads 100 shuffled validation samples, runs inference, and reports top-1 and top-5 accuracy. A well-quantized ConvNeXt-tiny should lose less than 0.5 percentage points of top-1 accuracy compared to the floating-point checkpoint.</p>
 <div class="admonition note">
@@ -2948,9 +2964,13 @@
 </div>
 <hr />
 <h2 id="section-b-one-shot-with-winml-build">Section B — One-shot with <code>winml build</code><a class="headerlink" href="#section-b-one-shot-with-winml-build" title="Permanent link">&para;</a></h2>
-<p>Once you understand what each primitive stage does (which you now do), you can collapse the entire pipeline into a single command. <code>winml build</code> orchestrates export, optimize, quantize, and compile in sequence using the config file you generated in Step 2.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>convnext_config.json<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>-o<span class="w"> </span>convnext_out/
+<p>Once you understand what each primitive stage does (which you now do), you can collapse the entire pipeline into a single command. <code>winml build</code> orchestrates export, optimize, quantize, and compile in sequence.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>-o<span class="w"> </span>convnext_out/<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--precision<span class="w"> </span>int8
 </span></code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Config file is optional</p>
+<p>The <code>-c config.json</code> flag is optional. Without it, <code>winml build</code> auto-generates an internal config from the flags you pass (like <code>--device</code> and <code>--precision</code>). If you need a reusable config, generate one with <a href="../../commands/config/"><code>winml config</code></a>.</p>
+</div>
 <p>The command downloads the pretrained weights, runs all four pipeline stages, and writes every intermediate and final artifact into <code>convnext_out/</code>. The stage timing is printed as each stage completes, and the final line tells you the path of the compiled model.</p>
 <p>You can selectively skip stages using the override flags:</p>
 <ul>
@@ -2959,14 +2979,14 @@
 <li><code>--no-compile</code> — skip compilation (produces a quantized but not device-locked ONNX)</li>
 </ul>
 <p>For example, to produce an optimized and quantized model without the compile step:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>convnext_config.json<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>-o<span class="w"> </span>convnext_out/<span class="w"> </span>--no-compile
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>-o<span class="w"> </span>convnext_out/<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--precision<span class="w"> </span>int8<span class="w"> </span>--no-compile
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">What we just did</p>
-<p><code>winml build</code> is the production workflow. It guarantees that stages run in the correct order, passes intermediate artifacts through the pipeline automatically, and records which stages completed or were skipped in the result summary. The config file you pass with <code>-c</code> fully specifies the device target, precision, and EP — so you get an NPU-targeted INT8 compiled model without needing to repeat those flags on every primitive command. The QNN SDK path is read from the <code>QNN_SDK_ROOT</code> environment variable, not from the config or CLI flags.</p>
+<p><code>winml build</code> is the production workflow. It guarantees that stages run in the correct order, passes intermediate artifacts through the pipeline automatically, and records which stages completed or were skipped in the result summary.</p>
 </div>
 <p>Once the build completes, benchmark the final artifact from <code>convnext_out/</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>convnext_out/model.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span><span class="w"> </span>--monitor
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>convnext_out/model.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span><span class="w"> </span>--monitor
 </span></code></pre></div>
 <p>The result should match what you saw in Step 8, confirming that the <code>winml build</code> pipeline produces bit-identical output to the manual primitive chain.</p>
 <hr />
@@ -2974,7 +2994,6 @@
 <ul>
 <li><a href="../../concepts/how-it-works/">Concepts → How winml-cli works</a> — the full mental model for the pipeline</li>
 <li><a href="../../concepts/compile-and-epcontext/">Concepts → Compile and EPContext</a> — understanding the compiled artifact format</li>
-<li><a href="../../samples/convnext-primitives/">Samples → ConvNeXt primitives walkthrough</a> — a side-by-side CPU vs. GPU vs. NPU device comparison using the same model</li>
 <li><a href="../../commands/overview/">Commands → Overview</a> — quick reference for every flag on every command</li>
 </ul>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
@@ -3039,7 +3058,7 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>

@@ -16,7 +16,7 @@
         <link rel="prev" href="../perf/">
       
       
-        <link rel="next" href="../../samples/convnext-primitives/">
+        <link rel="next" href="../../samples/bert-config-build/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>eval - winml-cli</title>
+        <title>eval - Windows ML CLI</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -96,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,7 +112,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -322,7 +324,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../samples/convnext-primitives/" class="md-tabs__link">
+        <a href="../../samples/bert-config-build/" class="md-tabs__link">
           
   
   
@@ -412,6 +414,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -434,13 +455,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -599,14 +620,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/end-to-end/" class="md-nav__link">
+      <a href="../../getting-started/ui-quickstart/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -850,14 +871,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+      <a href="../../concepts/quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -878,14 +899,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/quantization/" class="md-nav__link">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -966,14 +987,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Primitives and pipeline
+    Load and export
   
 
     
@@ -994,14 +1015,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/load-and-export/" class="md-nav__link">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Load and export
+    Primitives and pipeline
   
 
     
@@ -1394,34 +1415,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1513,34 +1506,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1619,6 +1584,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -2035,34 +2056,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../samples/bert-config-build/" class="md-nav__link">
         
   
@@ -2091,14 +2084,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/qwen3-composite/" class="md-nav__link">
+      <a href="../../samples/clip-composite/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -2213,7 +2206,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2328,35 +2321,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
+    Config Schema
   
 
     
@@ -2426,6 +2391,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2475,6 +2468,33 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
   
 
     
@@ -2651,32 +2671,67 @@
 <td>HuggingFace model ID used for preprocessor and config resolution when <code>-m</code> points to an <code>.onnx</code> file. Required when <code>-m</code> is an ONNX file.</td>
 </tr>
 <tr>
+<td><code>--task</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td>auto-detected</td>
+<td>Task name (e.g., <code>image-classification</code>). Auto-detected from <code>--model-id</code> when not provided. Required when <code>-m</code> is an ONNX file and the task cannot be inferred.</td>
+</tr>
+<tr>
+<td><code>--precision</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td><code>auto</code></td>
+<td>Precision used when building the model from a HuggingFace ID. One of <code>auto</code>, <code>fp32</code>, <code>fp16</code>, <code>int8</code>, <code>int16</code>, or a mixed <code>w{x}a{y}</code> spec (e.g., <code>w8a16</code>). <code>fp16</code>/<code>fp32</code> skip quantization. <strong>Ignored</strong> when <code>-m</code> is a pre-built <code>.onnx</code> file — the precision is already baked in.</td>
+</tr>
+<tr>
+<td><code>--device</code></td>
+<td></td>
+<td>choice</td>
+<td><code>auto</code></td>
+<td>Target device. Choices: <code>auto</code>, <code>npu</code>, <code>gpu</code>, <code>cpu</code>. <code>auto</code> selects the best available device. Combined with <code>--precision</code>, this drives the build when <code>-m</code> is a HuggingFace ID.</td>
+</tr>
+<tr>
+<td><code>--ep</code> / <code>--execution-provider</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td>—</td>
+<td>Target ONNX Runtime execution provider when finer control than <code>--device</code> is needed. Full names (e.g., <code>QNNExecutionProvider</code>, <code>OpenVINOExecutionProvider</code>, <code>VitisAIExecutionProvider</code>) and aliases (<code>qnn</code>, <code>ov</code>/<code>openvino</code>, <code>vitis</code>/<code>vitisai</code>) are accepted.</td>
+</tr>
+<tr>
 <td><code>--dataset</code></td>
 <td></td>
 <td><code>TEXT</code></td>
 <td>task default</td>
-<td>HuggingFace dataset path (e.g., <code>imagenet-1k</code>, <code>glue</code>). If omitted, a default dataset is selected based on the task.</td>
+<td>HuggingFace dataset path (e.g., <code>imagenet-1k</code>, <code>nyu-mll/glue</code>). If omitted, a default dataset is selected based on the task.</td>
 </tr>
 <tr>
 <td><code>--dataset-name</code></td>
 <td></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>Dataset configuration name for multi-config datasets (e.g., <code>mrpc</code> within <code>glue</code>).</td>
+<td>Dataset configuration name for multi-config datasets.</td>
 </tr>
 <tr>
-<td><code>--task</code></td>
+<td><code>--dataset-revision</code></td>
 <td></td>
 <td><code>TEXT</code></td>
-<td>auto-detected</td>
-<td>Task name (e.g., <code>image-classification</code>). Auto-detected from <code>--model-id</code> when not provided.</td>
+<td>—</td>
+<td>Git revision (branch, tag, or commit) of the dataset to load. Use <code>refs/convert/parquet</code> for HF datasets that are only served via the parquet mirror.</td>
 </tr>
 <tr>
-<td><code>--device</code></td>
+<td><code>--dataset-script</code></td>
 <td></td>
-<td><code>auto\|cpu\|gpu\|npu</code></td>
-<td><code>auto</code></td>
-<td>Device to run inference on during evaluation. <code>auto</code> selects the best available device.</td>
+<td><code>TEXT</code></td>
+<td>—</td>
+<td>Path to a Python script that builds the evaluation dataset locally. Requires <code>--trust-remote-code</code>.</td>
+</tr>
+<tr>
+<td><code>--trust-remote-code / --no-trust-remote-code</code></td>
+<td></td>
+<td>flag</td>
+<td><code>false</code></td>
+<td>Allow executing custom code from model repositories or dataset scripts. Required with <code>--dataset-script</code>. Use only with trusted sources.</td>
 </tr>
 <tr>
 <td><code>--samples</code></td>
@@ -2700,7 +2755,7 @@
 <td>Shuffle the dataset before sampling. Disable with <code>--no-shuffle</code> for reproducible sample ordering.</td>
 </tr>
 <tr>
-<td><code>--streaming</code></td>
+<td><code>--streaming / --no-streaming</code></td>
 <td></td>
 <td>flag</td>
 <td><code>false</code></td>
@@ -2718,7 +2773,7 @@
 <td></td>
 <td><code>PATH</code></td>
 <td>—</td>
-<td>Path to a JSON file mapping label names to integer IDs: <code>{"label_name": id}</code>.</td>
+<td>Path to a JSON file mapping dataset label names to the integer class IDs the model emits: <code>{"label_name": id}</code>.</td>
 </tr>
 <tr>
 <td><code>--output</code></td>
@@ -2734,6 +2789,13 @@
 <td><code>false</code></td>
 <td>Print the expected dataset schema for the given <code>--task</code> and exit. Does not run evaluation.</td>
 </tr>
+<tr>
+<td><code>--mode</code></td>
+<td></td>
+<td><code>onnx\|compare</code></td>
+<td><code>onnx</code></td>
+<td>Evaluation mode. <code>onnx</code> evaluates the ONNX candidate on a dataset. <code>compare</code> runs the ONNX candidate and the HuggingFace reference on identical random inputs and reports per-tensor similarity metrics — no dataset required.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
@@ -2743,7 +2805,7 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50
 </span></code></pre></div>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Task:     image-classification
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>Dataset:  imagenet-1k (validation, 100 samples)
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>Dataset:  timm/mini-imagenet (test, 100 samples)
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>Device:   auto
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>Accuracy: 76.00%
@@ -2751,27 +2813,55 @@
 </span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>Results saved to: microsoft_resnet-50_eval.json
 </span></code></pre></div>
 <p>Evaluate a pre-exported ONNX file, providing the source model ID for preprocessing:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--model-id<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dataset<span class="w"> </span>imagenet-1k
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--model-id<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dataset<span class="w"> </span>timm/mini-imagenet
 </span></code></pre></div>
 <p>Evaluate a BERT model on the MRPC paraphrase task with column remapping:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--dataset<span class="w"> </span>glue<span class="w"> </span>--dataset-name<span class="w"> </span>mrpc<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>--column<span class="w"> </span><span class="nv">input_column</span><span class="o">=</span>sentence1<span class="w"> </span>--samples<span class="w"> </span><span class="m">500</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>Intel/bert-base-uncased-mrpc<span class="w"> </span>--dataset<span class="w"> </span>nyu-mll/glue<span class="w"> </span>--dataset-name<span class="w"> </span>mrpc<span class="w"> </span>--column<span class="w"> </span><span class="nv">input_column</span><span class="o">=</span>sentence1<span class="w"> </span>--column<span class="w"> </span><span class="nv">second_input_column</span><span class="o">=</span>sentence2<span class="w"> </span>--samples<span class="w"> </span><span class="m">500</span>
 </span></code></pre></div>
-<p>Check what dataset columns are expected before running, then evaluate on the NPU:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--schema<span class="w"> </span>--task<span class="w"> </span>image-classification
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--samples<span class="w"> </span><span class="m">200</span><span class="w"> </span>--split<span class="w"> </span><span class="nb">test</span>
+<p>Check what dataset columns are expected before running, then remap them to match your dataset:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--schema<span class="w"> </span>--task<span class="w"> </span>text-classification
 </span></code></pre></div>
-<p>Evaluate with a custom label mapping file and save results:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--model-id<span class="w"> </span>microsoft/resnet-50<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>--label-mapping<span class="w"> </span>labels.json<span class="w"> </span>-o<span class="w"> </span>results/resnet_eval.json
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>Input schema for text-classification models
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>==================================================
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>--column option schema
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>Evaluating needs a dataset with the following columns:
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  input_column
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>      input text (default: text)
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>  label_column
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>      class label (ClassLabel or integer) (default: label)
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>  second_input_column
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>      second text for sentence-pair tasks (optional) (default: None)
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>Override any default with --column:
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>  --column input_column=&lt;your_text_column&gt;
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>  --column label_column=&lt;your_label_column&gt;
+</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>  --column second_input_column=&lt;your_pair_column&gt;
+</span></code></pre></div>
+<p>The GLUE SST-2 dataset uses <code>sentence</code> instead of the default <code>text</code> column, so remap it with a single <code>--column</code> override:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>distilbert/distilbert-base-uncased-finetuned-sst-2-english<span class="w"> </span>--dataset<span class="w"> </span>nyu-mll/glue<span class="w"> </span>--dataset-name<span class="w"> </span>sst2<span class="w"> </span>--column<span class="w"> </span><span class="nv">input_column</span><span class="o">=</span>sentence<span class="w"> </span>--samples<span class="w"> </span><span class="m">500</span>
+</span></code></pre></div>
+<p>Evaluate against a custom dataset whose label names differ from the model's class IDs. The <code>--label-mapping</code> flag points to a JSON file whose <strong>keys are the label name strings as they appear in the dataset</strong> and whose <strong>values are the integer class IDs the model emits</strong>. For example, ResNet-50 outputs ImageNet-1k class IDs (<code>0</code>–<code>999</code>), so if your custom dataset uses readable strings like <code>"tabby cat"</code> or <code>"golden retriever"</code>, <code>labels.json</code> translates each dataset label to the corresponding ImageNet ID the model predicts:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">&quot;tabby cat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">281</span><span class="p">,</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">&quot;Egyptian cat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">285</span><span class="p">,</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">&quot;golden retriever&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">207</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="p">}</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dataset<span class="w"> </span>my-org/my-pets-dataset<span class="w"> </span>--label-mapping<span class="w"> </span>labels.json<span class="w"> </span>-o<span class="w"> </span>results/resnet_eval.json
+</span></code></pre></div>
+<p>Evaluate a composite model from pre-exported ONNX files. Some tasks (e.g., <code>image-to-text</code>, encoder-decoder, dual-encoder) split the model across multiple ONNX files, one per role. Pass <code>-m</code> once per role as <code>&lt;role&gt;=&lt;path&gt;.onnx</code> and supply <code>--model-id</code> so the preprocessor and tokenizer can be resolved. Run <code>winml eval --schema --task image-to-text</code> to see the expected roles for a task:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span><span class="nv">encoder</span><span class="o">=</span>encoder.onnx<span class="w"> </span>-m<span class="w"> </span><span class="nv">decoder</span><span class="o">=</span>decoder.onnx<span class="w"> </span>--model-id<span class="w"> </span>microsoft/trocr-base-printed
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>ONNX file without <code>--model-id</code> fails.</strong> When <code>-m</code> is a <code>.onnx</code> path, <code>--model-id</code> is mandatory. Without it the command cannot resolve the preprocessor or label vocabulary and will exit with a usage error.</li>
-<li><strong>Default dataset requires Hub credentials for gated datasets.</strong> Some task defaults (e.g., <code>imagenet-1k</code>) require a HuggingFace account with accepted terms of use. Log in with <code>huggingface-cli login</code> before running eval on gated data.</li>
+<li><strong>The task-default dataset may not match every model.</strong> A default dataset cannot fit every model. Classification and detection models in particular need a dataset whose label space and domain match what the model was trained on — using the default may produce misleadingly low scores, missing-label errors, or a dataset-schema error. Always pass <code>--dataset</code> (and <code>--label-mapping</code> if needed) when evaluating a model whose label space or domain differs from the task default.</li>
+<li><strong>Some dataset requires Hub credentials for gated datasets.</strong> Some datasets (e.g., <code>imagenet-1k</code>) require a HuggingFace account with accepted terms of use. Log in with <code>huggingface-cli login</code> before running eval on gated data.</li>
 <li><strong><code>--shuffle</code> is on by default.</strong> The random 100-sample slice changes between runs unless you pass <code>--no-shuffle</code>. Use <code>--no-shuffle</code> when comparing two model variants to ensure they see identical samples.</li>
 <li><strong><code>--streaming</code> skips the local cache.</strong> Streaming mode avoids downloading the full split but prevents random shuffling on large datasets. For reproducible evaluation, download the split once and omit <code>--streaming</code>.</li>
-<li><strong>Column names vary across dataset versions.</strong> If the evaluator raises a missing-column error, run <code>winml eval --schema --task &lt;task&gt;</code> to inspect the expected schema and use <code>--column</code> to remap dataset field names to the expected names.</li>
+<li><strong>Column names vary across datasets.</strong> If the evaluator raises a missing-column error, run <code>winml eval --schema --task &lt;task&gt;</code> to inspect the expected schema and use <code>--column</code> to remap dataset field names to the expected names.</li>
 </ul>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
@@ -2835,7 +2925,7 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>

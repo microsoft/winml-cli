@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://microsoft.github.io/winml-cli/0.1/getting-started/end-to-end/">
+        <link rel="canonical" href="https://microsoft.github.io/winml-cli/0.1/samples/clip-composite/">
       
       
-        <link rel="prev" href="../quickstart/">
+        <link rel="prev" href="../bert-config-build/">
       
       
-        <link rel="next" href="../agent-skill/">
+        <link rel="next" href="../../tutorials/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>End-to-End Tour - winml-cli</title>
+        <title>CLIP — Composite Models - Windows ML CLI</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -78,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#end-to-end-tour" class="md-skip">
+        <a href="#clip-composite-models" class="md-skip">
           Skip to content
         </a>
       
@@ -96,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,13 +112,13 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              End-to-End Tour
+              CLIP — Composite Models
             
           </span>
         </div>
@@ -246,13 +248,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../installation/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../getting-started/installation/" class="md-tabs__link">
           
   
   
@@ -318,11 +318,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../samples/convnext-primitives/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../bert-config-build/" class="md-tabs__link">
           
   
   
@@ -412,6 +414,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -434,13 +455,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -488,31 +509,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
             
   
   
@@ -530,7 +546,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -548,7 +564,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/" class="md-nav__link">
+      <a href="../../getting-started/installation/" class="md-nav__link">
         
   
   
@@ -576,7 +592,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../quickstart/" class="md-nav__link">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
         
   
   
@@ -601,44 +617,17 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    End-to-End Tour
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../getting-started/ui-quickstart/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -647,103 +636,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-0-see-what-your-machine-has" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 0: See what your machine has
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-1-generate-the-build-config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 1: Generate the build config
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-2-run-the-build" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 2: Run the build
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-benchmark-on-your-device" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Benchmark on your device
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cross-device-comparison" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cross-device comparison
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#where-to-go-next" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where to go next
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -756,7 +648,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agent-skill/" class="md-nav__link">
+      <a href="../../getting-started/agent-skill/" class="md-nav__link">
         
   
   
@@ -979,14 +871,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+      <a href="../../concepts/quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -1007,14 +899,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/quantization/" class="md-nav__link">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -1095,14 +987,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Primitives and pipeline
+    Load and export
   
 
     
@@ -1123,14 +1015,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/load-and-export/" class="md-nav__link">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Load and export
+    Primitives and pipeline
   
 
     
@@ -1515,34 +1407,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1631,34 +1495,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1734,6 +1570,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -1966,26 +1858,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -2003,7 +1900,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2021,35 +1918,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../samples/bert-config-build/" class="md-nav__link">
+      <a href="../bert-config-build/" class="md-nav__link">
         
   
   
@@ -2074,17 +1943,44 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../samples/qwen3-composite/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLIP — Composite Models
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -2093,6 +1989,131 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overall-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overall workflow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-1-generate-build-configs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Generate build configs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-2-build-each-sub-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Build each sub-model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-3-benchmark-each-sub-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Benchmark each sub-model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-4-run-inference-python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Run inference (Python API)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step 4: Run inference (Python API)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#customizing-shape-config-per-sub-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Customizing shape config per sub-model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#other-composite-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other composite models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2199,7 +2220,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2314,35 +2335,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
+    Config Schema
   
 
     
@@ -2399,6 +2392,34 @@
     
   
     Supported Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
   
 
     
@@ -2473,6 +2494,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2511,10 +2559,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-0-see-what-your-machine-has" class="md-nav__link">
+  <a href="#overall-workflow" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 0: See what your machine has
+        Overall workflow
       
     </span>
   </a>
@@ -2522,10 +2570,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-1-generate-the-build-config" class="md-nav__link">
+  <a href="#step-1-generate-build-configs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Generate the build config
+        Step 1: Generate build configs
       
     </span>
   </a>
@@ -2533,10 +2581,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-run-the-build" class="md-nav__link">
+  <a href="#step-2-build-each-sub-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Run the build
+        Step 2: Build each sub-model
       
     </span>
   </a>
@@ -2544,10 +2592,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-3-benchmark-on-your-device" class="md-nav__link">
+  <a href="#step-3-benchmark-each-sub-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 3: Benchmark on your device
+        Step 3: Benchmark each sub-model
       
     </span>
   </a>
@@ -2555,10 +2603,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cross-device-comparison" class="md-nav__link">
+  <a href="#step-4-run-inference-python-api" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cross-device comparison
+        Step 4: Run inference (Python API)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step 4: Run inference (Python API)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#customizing-shape-config-per-sub-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Customizing shape config per sub-model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#other-composite-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other composite models
       
     </span>
   </a>
@@ -2566,10 +2642,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-to-go-next" class="md-nav__link">
+  <a href="#see-also" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to go next
+        See also
       
     </span>
   </a>
@@ -2593,7 +2669,7 @@
 
 
   
-    <a href="https://github.com/microsoft/winml-cli/edit/main/docs/getting-started/end-to-end.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/microsoft/winml-cli/edit/main/docs/samples/clip-composite.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -2601,192 +2677,145 @@
   
 
 
-<h1 id="end-to-end-tour">End-to-End Tour<a class="headerlink" href="#end-to-end-tour" title="Permanent link">&para;</a></h1>
-<p>This page walks the full winml-cli pipeline using <code>--device auto</code>. The CLI
-resolves to the best available device on your machine — NPU first, then GPU,
-then CPU — so the four commands below are identical regardless of whether you
-have a Copilot+ PC with a Qualcomm NPU, a DirectML-capable GPU, or a plain
-laptop with no accelerator at all. You do not need to think about device flags
-after Step 0.</p>
-<p>The vehicle for this tour is <code>facebook/convnext-tiny-224</code>, a compact image
-classifier whose operator mix exercises every stage of the pipeline: export,
-optimize, quantize, and compile. Estimated time is 15–25 minutes, most of
-which is the Hugging Face model download and the compile stage. At the end you
-will have a compiled ONNX artifact targeted at your hardware and a real latency
-reading from that device.</p>
+<h1 id="clip-composite-models">CLIP — Composite Models<a class="headerlink" href="#clip-composite-models" title="Permanent link">&para;</a></h1>
+<p>CLIP (<code>openai/clip-vit-base-patch32</code>) is a dual-encoder vision-language model: one tower encodes images, the other encodes text, and both project into a shared embedding space. winml-cli treats it as a <strong>composite model</strong> — a model that is split into multiple ONNX sub-models that run together at inference time. For CLIP, the two sub-models are:</p>
+<table>
+<thead>
+<tr>
+<th>Sub-model</th>
+<th>Role</th>
+<th>Input shape</th>
+<th>Output (projected)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>image-encoder</code></td>
+<td>Encodes images into embeddings</td>
+<td><code>pixel_values</code> <code>[1, 3, 224, 224]</code></td>
+<td><code>image_embeds</code> <code>[1, 512]</code></td>
+</tr>
+<tr>
+<td><code>text-encoder</code></td>
+<td>Encodes text labels into embeddings</td>
+<td><code>input_ids</code> <code>[1, 77]</code></td>
+<td><code>text_embeds</code> <code>[1, 512]</code></td>
+</tr>
+</tbody>
+</table>
+<p>Zero-shot classification is achieved by embedding the image and the candidate text labels, then ranking the labels by the cosine similarity between their embeddings. Splitting the towers into two ONNX graphs lets each encoder have fully static shapes (required for efficient NPU compilation) and lets you build, cache, and benchmark them independently.</p>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Windows 11 24H2 (required for NPU; earlier versions work for CPU/GPU)</li>
-<li>winml-cli installed (see <a href="../installation/">Installation</a>)</li>
+<li>winml-cli installed and <code>winml</code> on your PATH.</li>
+<li>A network connection to download CLIP weights from HuggingFace on first run.</li>
 </ul>
-<div class="admonition note">
-<p class="admonition-title">NPU users only</p>
-<p>To target the Qualcomm NPU you also need:</p>
+<h2 id="overall-workflow">Overall workflow<a class="headerlink" href="#overall-workflow" title="Permanent link">&para;</a></h2>
+<p>The composite model architecture for CLIP:</p>
+<pre class="mermaid"><code>graph LR
+    A[winml config] --&gt;|"(clip, zero-shot-image-classification)"| B[Composite Registry]
+    B --&gt; C[image-encoder config]
+    B --&gt; D[text-encoder config]
+    C --&gt; E[winml build → image-encoder.onnx]
+    D --&gt; F[winml build → text-encoder.onnx]
+    E --&gt; G[WinMLAutoModel]
+    F --&gt; G
+    G --&gt;|logits_per_image| H[Classification scores]</code></pre>
+<h2 id="step-1-generate-build-configs">Step 1: Generate build configs<a class="headerlink" href="#step-1-generate-build-configs" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>winml<span class="w"> </span>config<span class="w"> </span>-m<span class="w"> </span>openai/clip-vit-base-patch32<span class="w"> </span>--task<span class="w"> </span>zero-shot-image-classification<span class="w"> </span>-o<span class="w"> </span>clip.json
+</span></code></pre></div>
+<p>Because <code>(clip, zero-shot-image-classification)</code> is registered as a composite model, this command produces <strong>two</strong> config files — one per sub-model:</p>
 <ul>
-<li>A Qualcomm Snapdragon X device</li>
-<li>QAIRT SDK installed; <code>QNN_SDK_ROOT</code> env var pointing at it</li>
-<li><code>--extra qnn</code> installed (Python 3.11+)</li>
+<li><code>clip_image-encoder.json</code> — export config using <code>image-feature-extraction</code> task</li>
+<li><code>clip_text-encoder.json</code> — export config using <code>feature-extraction</code> task</li>
 </ul>
-<p>Everything else on this page works without these.</p>
-</div>
-<h2 id="step-0-see-what-your-machine-has">Step 0: See what your machine has<a class="headerlink" href="#step-0-see-what-your-machine-has" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>sys<span class="w"> </span>--list-device<span class="w"> </span>--list-ep
+<p>Each config includes CLIP-specific optimizations (GELU fusion, LayerNorm fusion, MatMul+Add fusion, and clamp constant values).</p>
+<h2 id="step-2-build-each-sub-model">Step 2: Build each sub-model<a class="headerlink" href="#step-2-build-each-sub-model" title="Permanent link">&para;</a></h2>
+<p>Build both sub-models individually using their config files:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Build the image encoder</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>clip_image-encoder.json<span class="w"> </span>-m<span class="w"> </span>openai/clip-vit-base-patch32<span class="w"> </span>-o<span class="w"> </span>output/image-encoder
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Build the text encoder</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>clip_text-encoder.json<span class="w"> </span>-m<span class="w"> </span>openai/clip-vit-base-patch32<span class="w"> </span>-o<span class="w"> </span>output/text-encoder
 </span></code></pre></div>
-<p>This lists every hardware device detected and the execution providers (EPs)
-that can target each one. When you pass <code>--device auto</code> in the steps below,
-winml-cli resolves that to the highest-priority device shown here: NPU first,
-then GPU, then CPU.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Copilot+ PC (NPU available)</label><label for="__tabbed_1_2">Regular Windows laptop (no NPU)</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Available Devices (priority order)
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  #1  NPU   Qualcomm(R) AI Accelerator
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>             Driver: 31.0.0.6978 | Manufacturer: Qualcomm Technologies, Inc.
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  #2  GPU   NVIDIA GeForce RTX 4060 Laptop GPU
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>             Driver: 31.0.15.5107 | Manufacturer: NVIDIA
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  #3  CPU   Snapdragon X Elite - X1E-80-100 - Oryon
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>             Cores: 12 | Threads: 12 | Architecture: ARM64
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>Available Execution Providers
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>  QNNExecutionProvider              -&gt; NPU/GPU
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  DmlExecutionProvider              -&gt; GPU
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  CPUExecutionProvider              -&gt; CPU
+<p>Each <code>winml build</code> runs the full pipeline: export → optimize → quantize → compile. The output directories contain the final ONNX files ready for inference.</p>
+<p>To target a specific execution provider (e.g., QNN for NPU):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>clip_image-encoder.json<span class="w"> </span>-m<span class="w"> </span>openai/clip-vit-base-patch32<span class="w"> </span>-o<span class="w"> </span>output/image-encoder<span class="w"> </span>--ep<span class="w"> </span>qnn
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>clip_text-encoder.json<span class="w"> </span>-m<span class="w"> </span>openai/clip-vit-base-patch32<span class="w"> </span>-o<span class="w"> </span>output/text-encoder<span class="w"> </span>--ep<span class="w"> </span>qnn
 </span></code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Available Devices (priority order)
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  #1  GPU   Intel(R) Iris(R) Xe Graphics
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>             Driver: 31.0.101.5382 | Manufacturer: Intel Corporation
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  #2  CPU   12th Gen Intel(R) Core(TM) i7-1260P
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>             Cores: 12 | Threads: 16 | Architecture: x86_64
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>Available Execution Providers
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  DmlExecutionProvider              -&gt; GPU
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  CPUExecutionProvider              -&gt; CPU
+<h2 id="step-3-benchmark-each-sub-model">Step 3: Benchmark each sub-model<a class="headerlink" href="#step-3-benchmark-each-sub-model" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>output/image-encoder<span class="w"> </span>-d<span class="w"> </span>npu
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span>perf<span class="w"> </span>output/text-encoder<span class="w"> </span>-d<span class="w"> </span>npu
 </span></code></pre></div>
-</div>
-</div>
-</div>
-<h2 id="step-1-generate-the-build-config">Step 1: Generate the build config<a class="headerlink" href="#step-1-generate-the-build-config" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>config<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>--device<span class="w"> </span>auto<span class="w"> </span>-o<span class="w"> </span>convnext_config.json
+<p>This lets you identify whether the image or text encoder is the bottleneck on your target hardware.</p>
+<h2 id="step-4-run-inference-python-api">Step 4: Run inference (Python API)<a class="headerlink" href="#step-4-run-inference-python-api" title="Permanent link">&para;</a></h2>
+<p>There are two ways to get a ready-to-run model. Both return the same <code>WinMLModelForZeroShotImageClassification</code> — a single object that orchestrates the two encoders and combines their projected embeddings into similarity scores — so the inference code afterward is identical.</p>
+<p><strong>Option 1 — Load the ONNX files built in Step 2</strong> (skips re-export/optimization). Pass a dict mapping each component name to its built <code>model.onnx</code>, plus the HF config so the composite registry can resolve <code>(clip, zero-shot-image-classification)</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoConfig</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">winml.modelkit.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">WinMLAutoModel</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">model</span> <span class="o">=</span> <span class="n">WinMLAutoModel</span><span class="o">.</span><span class="n">from_onnx</span><span class="p">(</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="p">{</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>        <span class="s2">&quot;image-encoder&quot;</span><span class="p">:</span> <span class="s2">&quot;output/image-encoder/model.onnx&quot;</span><span class="p">,</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>        <span class="s2">&quot;text-encoder&quot;</span><span class="p">:</span> <span class="s2">&quot;output/text-encoder/model.onnx&quot;</span><span class="p">,</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="p">},</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="n">task</span><span class="o">=</span><span class="s2">&quot;zero-shot-image-classification&quot;</span><span class="p">,</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="n">hf_config</span><span class="o">=</span><span class="n">AutoConfig</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;openai/clip-vit-base-patch32&quot;</span><span class="p">),</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>    <span class="n">skip_build</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="p">)</span>
 </span></code></pre></div>
-<p><code>winml config</code> queries Hugging Face, auto-detects the task and model type, and
-produces a <code>WinMLBuildConfig</code> JSON. Passing <code>--device auto</code> tells the config
-generator to resolve the target device at generation time — it inspects your
-hardware and writes the winning device (NPU, GPU, or CPU) together with
-matching precision and compile settings into <code>convnext_config.json</code>. You can
-open the file to see exactly what was picked before committing to a full build.</p>
-<div class="admonition tip">
-<p class="admonition-title">Config as CI/CD artifact</p>
-<p>The generated <code>convnext_config.json</code> is a self-contained, reproducible pipeline specification. Check it into version control and use it in CI/CD pipelines (<code>winml build -c convnext_config.json -m ... -o ...</code>) to guarantee identical model processing across machines and runs. Set <code>"auto": false</code> in the config for fully deterministic builds (disables the autoconf discovery loop). See <a href="../../concepts/config-and-build/#why-version-a-config">Why version a config</a> for details.</p>
-</div>
-<p>For a field-by-field explanation of every section in the generated JSON and how
-the <code>quant</code> and <code>compile</code> blocks interact, see
-<a href="../../concepts/config-and-build/">Config and build</a>.</p>
-<h2 id="step-2-run-the-build">Step 2: Run the build<a class="headerlink" href="#step-2-run-the-build" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>convnext_config.json<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224<span class="w"> </span>-o<span class="w"> </span>convnext_out/
+<p><strong>Option 2 — Build both encoders from the HuggingFace model in one call.</strong> <code>WinMLAutoModel.from_pretrained</code> detects the composite task and runs the full pipeline for each sub-model:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">winml.modelkit.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">WinMLAutoModel</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">model</span> <span class="o">=</span> <span class="n">WinMLAutoModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="s2">&quot;openai/clip-vit-base-patch32&quot;</span><span class="p">,</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">task</span><span class="o">=</span><span class="s2">&quot;zero-shot-image-classification&quot;</span><span class="p">,</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">)</span>
 </span></code></pre></div>
-<p>This single command runs all four pipeline stages in sequence — export,
-optimize, quantize, and compile — reading the device and precision settings
-recorded in <code>convnext_config.json</code>. The compile stage targets whichever device
-the config captured: it calls the QNN backend and embeds a pre-compiled Hexagon
-binary on NPU, or it compiles a DirectML graph on GPU, or it produces a
-standard optimized ONNX for CPU. All intermediate artifacts land in
-<code>convnext_out/</code>, so you can inspect or reuse any stage independently.</p>
-<p>You can also pass <code>--no-quant</code> or <code>--no-compile</code> to stop the pipeline early,
-or <code>--rebuild</code> to force re-running even when cached artifacts exist. For a
-deeper look at how each stage works, see
-<a href="../../concepts/how-it-works/">Concepts → How winml-cli works</a> and
-<a href="../../concepts/config-and-build/">Config and Build</a>.</p>
-<div class="admonition warning">
-<p class="admonition-title">NPU users</p>
-<p><code>winml build</code> reads <code>QNN_SDK_ROOT</code> from the environment. Make sure it
-points at your QAIRT SDK before this step, or the compile stage will fail
-with <em>"QAIRT SDK path not found"</em>.</p>
-</div>
-<h2 id="step-3-benchmark-on-your-device">Step 3: Benchmark on your device<a class="headerlink" href="#step-3-benchmark-on-your-device" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>convnext_out/&lt;artifact&gt;.onnx<span class="w"> </span>--device<span class="w"> </span>auto<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span><span class="w"> </span>--monitor
+<p>Either way, run inference the same way — prepare an image plus candidate labels with the HF processor, then call the model:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">PIL</span><span class="w"> </span><span class="kn">import</span> <span class="n">Image</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">CLIPProcessor</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">processor</span> <span class="o">=</span> <span class="n">CLIPProcessor</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;openai/clip-vit-base-patch32&quot;</span><span class="p">)</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">image</span> <span class="o">=</span> <span class="n">Image</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">&quot;cat.jpg&quot;</span><span class="p">)</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">labels</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;a photo of a cat&quot;</span><span class="p">,</span> <span class="s2">&quot;a photo of a dog&quot;</span><span class="p">,</span> <span class="s2">&quot;a photo of a car&quot;</span><span class="p">]</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">inputs</span> <span class="o">=</span> <span class="n">processor</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">labels</span><span class="p">,</span> <span class="n">images</span><span class="o">=</span><span class="n">image</span><span class="p">,</span> <span class="n">return_tensors</span><span class="o">=</span><span class="s2">&quot;pt&quot;</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1"># Run both encoders and combine into per-label similarity scores</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">outputs</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="o">**</span><span class="n">inputs</span><span class="p">)</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="n">probs</span> <span class="o">=</span> <span class="n">outputs</span><span class="o">.</span><span class="n">logits_per_image</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">labels</span><span class="p">,</span> <span class="n">probs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()):</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">p</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </span></code></pre></div>
-<p>Replace <code>&lt;artifact&gt;</code> with the filename written to <code>convnext_out/</code> by the build.
-For NPU builds the compiled artifact is named <code>model.onnx</code> in the output
-directory (the <code>_npu_ctx.onnx</code> suffix applies only when the compile stage
-produces an EPContext file, which requires <code>enable_ep_context=True</code> in the
-compile config). You can check the directory listing or read the compiled
-artifact path from the build output to get the exact name.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">NPU (QNN)</label><label for="__tabbed_2_2">GPU (DirectML)</label><label for="__tabbed_2_3">CPU</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>Device:      npu
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>Precision:   auto
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>Task:        image-classification
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>Iterations:  50 (+ 10 warmup)
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>Batch Size:  1
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>Latency (ms)
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>  Avg    P50    P90    P95    P99    Min    Max    Std
-</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a> 3.87   3.82   4.21   4.38   4.71   3.51   5.04   0.21
-</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>
-</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>Throughput: 258.14 samples/sec
-</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>
-</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>Results saved to: model_perf.json
+<p>The text encoder's fixed sequence length (77) is handled for you — the processor's tokens are padded or truncated to match the ONNX graph before each run.</p>
+<h3 id="customizing-shape-config-per-sub-model">Customizing shape config per sub-model<a class="headerlink" href="#customizing-shape-config-per-sub-model" title="Permanent link">&para;</a></h3>
+<p>Each encoder takes its own <code>shape_config</code>, passed through <code>sub_model_kwargs</code>. The image encoder accepts vision keys (<code>height</code>, <code>width</code>); the text encoder accepts text keys (<code>sequence_length</code>):</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">WinMLAutoModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="s2">&quot;openai/clip-vit-base-patch32&quot;</span><span class="p">,</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">task</span><span class="o">=</span><span class="s2">&quot;zero-shot-image-classification&quot;</span><span class="p">,</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">sub_model_kwargs</span><span class="o">=</span><span class="p">{</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>        <span class="s2">&quot;image-encoder&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;shape_config&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;height&quot;</span><span class="p">:</span> <span class="mi">224</span><span class="p">,</span> <span class="s2">&quot;width&quot;</span><span class="p">:</span> <span class="mi">224</span><span class="p">}},</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>        <span class="s2">&quot;text-encoder&quot;</span><span class="p">:</span>  <span class="p">{</span><span class="s2">&quot;shape_config&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;sequence_length&quot;</span><span class="p">:</span> <span class="mi">77</span><span class="p">}},</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="p">},</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="p">)</span>
 </span></code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Device:      gpu
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>Precision:   auto
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>Task:        image-classification
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>Iterations:  50 (+ 10 warmup)
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>Batch Size:  1
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>Latency (ms)
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>  Avg    P50    P90    P95    P99    Min    Max    Std
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>12.43  12.18  13.74  14.11  15.02  11.27  16.55   0.89
-</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>
-</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>Throughput: 80.45 samples/sec
-</span></code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Device:      cpu
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>Precision:   auto
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>Task:        image-classification
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>Iterations:  50 (+ 10 warmup)
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>Batch Size:  1
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>Latency (ms)
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>  Avg    P50    P90    P95    P99    Min    Max    Std
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>48.31  47.85  52.14  53.77  57.40  44.62  61.23   2.94
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>Throughput: 20.70 samples/sec
-</span></code></pre></div>
-</div>
-</div>
-</div>
-<p>The <code>--monitor</code> flag opens a live chart of device utilization while the
-benchmark runs — most meaningful on NPU or GPU where it confirms the workload
-actually hit the accelerator rather than falling back to CPU. After the run
-finishes, a JSON file named <code>{model_slug}_perf.json</code> is written to the current
-directory; you can load it programmatically to compare results across runs or
-across machines.</p>
-<h2 id="cross-device-comparison">Cross-device comparison<a class="headerlink" href="#cross-device-comparison" title="Permanent link">&para;</a></h2>
-<p>Each artifact produced by <code>winml build</code> is compiled for the specific device
-recorded in the config — a QNN EPContext binary will not execute on DirectML,
-and vice versa. If you want to measure NPU vs. GPU vs. CPU latency on the same
-model and the same machine you need to generate a separate config and artifact
-for each EP. The
-<a href="../../samples/convnext-primitives/">ConvNeXt — Primitives Walkthrough</a> sample
-does exactly that: it builds a separate compiled artifact for each execution
-provider and benchmarks them side by side so you can compare the numbers
-directly.</p>
-<h2 id="where-to-go-next">Where to go next<a class="headerlink" href="#where-to-go-next" title="Permanent link">&para;</a></h2>
+<h2 id="other-composite-models">Other composite models<a class="headerlink" href="#other-composite-models" title="Permanent link">&para;</a></h2>
+<p>The same composite model pattern is used for:</p>
 <ul>
-<li><a href="../../tutorials/npu-convnext/">ConvNeXt on NPU tutorial</a> — full primitives
-  walkthrough plus the <code>winml build</code> one-shot wrapper, going deeper than this
-  page on NPU-specific tuning</li>
-<li><a href="../../samples/convnext-primitives/">ConvNeXt — Primitives Walkthrough sample</a>
-  — CPU/GPU/NPU comparison on the same model built with explicit per-device
-  configs</li>
-<li><a href="../../concepts/how-it-works/">Concepts → How winml-cli works</a> — what each
-  stage of the build pipeline does and how they chain together</li>
+<li><strong>SigLIP</strong> (<code>google/siglip-base-patch16-224</code>) — dual-encoder zero-shot image classification; shares the same composite wrapper as CLIP</li>
+<li><strong>T5</strong> (<code>google-t5/t5-small</code>) — encoder + decoder for translation/summarization</li>
+<li><strong>BART</strong> (<code>facebook/bart-large-cnn</code>) — encoder + decoder for summarization and table-question-answering (TAPEX)</li>
+<li><strong>Marian</strong> (<code>Helsinki-NLP/opus-mt-en-de</code>) — encoder + decoder for translation</li>
+<li><strong>Qwen3</strong> (<code>Qwen/Qwen3-0.6B</code>) — prefill + generation decoders for text generation</li>
+<li><strong>BLIP</strong> (<code>Salesforce/blip-image-captioning-base</code>) — vision encoder + text decoder for image-to-text captioning</li>
+<li><strong>Vision-encoder-decoder</strong> (<code>microsoft/trocr-base-handwritten</code>) — vision encoder + text decoder for image-to-text (TrOCR, Donut)</li>
+</ul>
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../bert-config-build/">BERT — Config + Build + Perf</a> — single-model workflow</li>
+<li><a href="../../tutorials/npu-convnext/">Hugging Face Model to NPU</a> — step-by-step pipeline</li>
+<li><a href="../../reference/supported-models/">Supported Models</a> — full list of validated architectures</li>
+<li><a href="../../concepts/config-and-build/">Config and build</a> — concept overview</li>
 </ul>
 
 
@@ -2843,7 +2872,7 @@ directly.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>

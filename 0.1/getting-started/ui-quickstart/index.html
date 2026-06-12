@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://microsoft.github.io/winml-cli/0.1/samples/qwen3-composite/">
+        <link rel="canonical" href="https://microsoft.github.io/winml-cli/0.1/getting-started/ui-quickstart/">
       
       
-        <link rel="prev" href="../bert-config-build/">
+        <link rel="prev" href="../quickstart/">
       
       
-        <link rel="next" href="../../tutorials/">
+        <link rel="next" href="../agent-skill/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Qwen3 — Composite Models - winml-cli</title>
+        <title>UI Quickstart - Windows ML CLI</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -78,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#qwen3-composite-models" class="md-skip">
+        <a href="#try-windows-ml-cli-with-a-ui" class="md-skip">
           Skip to content
         </a>
       
@@ -96,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="winml-cli" class="md-header__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,13 +112,13 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            winml-cli
+            Windows ML CLI
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Qwen3 — Composite Models
+              UI Quickstart
             
           </span>
         </div>
@@ -246,11 +248,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../getting-started/installation/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../installation/" class="md-tabs__link">
           
   
   
@@ -316,13 +320,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../convnext-primitives/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../samples/bert-config-build/" class="md-tabs__link">
           
   
   
@@ -412,6 +414,25 @@
   
 
       
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
     </ul>
   </div>
 </nav>
@@ -434,13 +455,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="winml-cli" class="md-nav__button md-logo" aria-label="winml-cli" data-md-component="logo">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    winml-cli
+    Windows ML CLI
   </label>
   
     <div class="md-nav__source">
@@ -488,26 +509,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
             
   
   
@@ -525,7 +551,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -543,7 +569,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/installation/" class="md-nav__link">
+      <a href="../installation/" class="md-nav__link">
         
   
   
@@ -571,7 +597,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/quickstart/" class="md-nav__link">
+      <a href="../quickstart/" class="md-nav__link">
         
   
   
@@ -596,17 +622,44 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../getting-started/end-to-end/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Quickstart
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
   <span class="md-ellipsis">
     
   
-    End-to-End Tour
+    UI Quickstart
   
 
     
@@ -615,6 +668,37 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -627,7 +711,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/agent-skill/" class="md-nav__link">
+      <a href="../agent-skill/" class="md-nav__link">
         
   
   
@@ -850,14 +934,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+      <a href="../../concepts/quantization/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    EP and Device
+    Datatype and Quantization
   
 
     
@@ -878,14 +962,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/quantization/" class="md-nav__link">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Datatype and Quantization
+    EP and Device
   
 
     
@@ -966,14 +1050,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Primitives and pipeline
+    Load and export
   
 
     
@@ -994,14 +1078,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/load-and-export/" class="md-nav__link">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Load and export
+    Primitives and pipeline
   
 
     
@@ -1386,34 +1470,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/analyze/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    analyze
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1502,34 +1558,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../commands/optimize/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1605,6 +1633,62 @@
     
   
     export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
   
 
     
@@ -1837,31 +1921,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
             
   
   
@@ -1879,7 +1958,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1897,35 +1976,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../convnext-primitives/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ConvNeXt — Primitives Walkthrough
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../bert-config-build/" class="md-nav__link">
+      <a href="../../samples/bert-config-build/" class="md-nav__link">
         
   
   
@@ -1950,44 +2001,17 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Qwen3 — Composite Models
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../samples/clip-composite/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Qwen3 — Composite Models
+    CLIP — Composite Models
   
 
     
@@ -1996,131 +2020,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-1-generate-build-configs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 1: Generate build configs
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-2-build-each-sub-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 2: Build each sub-model
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-benchmark-each-sub-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Benchmark each sub-model
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-4-run-inference-python-api" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Run inference (Python API)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 4: Run inference (Python API)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#customizing-shape-config-per-sub-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Customizing shape config per sub-model
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works-internally" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works internally
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#other-composite-models" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Other composite models
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        See also
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2227,7 +2126,7 @@
   <span class="md-ellipsis">
     
   
-    ConvNeXt on NPU
+    Hugging Face Model to NPU
   
 
     
@@ -2342,35 +2241,7 @@
   <span class="md-ellipsis">
     
   
-    Build Config Schema
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/python-api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Python API
+    Config Schema
   
 
     
@@ -2427,6 +2298,34 @@
     
   
     Supported Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
   
 
     
@@ -2501,6 +2400,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2528,104 +2454,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#quick-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-1-generate-build-configs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 1: Generate build configs
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-2-build-each-sub-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 2: Build each sub-model
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-benchmark-each-sub-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Benchmark each sub-model
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-4-run-inference-python-api" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Run inference (Python API)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 4: Run inference (Python API)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#customizing-shape-config-per-sub-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Customizing shape config per sub-model
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works-internally" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works internally
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#other-composite-models" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Other composite models
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        See also
+        Quick reference
       
     </span>
   </a>
@@ -2649,7 +2481,7 @@
 
 
   
-    <a href="https://github.com/microsoft/winml-cli/edit/main/docs/samples/qwen3-composite.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/microsoft/winml-cli/edit/main/docs/getting-started/ui-quickstart.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -2657,135 +2489,17 @@
   
 
 
-<h1 id="qwen3-composite-models">Qwen3 — Composite Models<a class="headerlink" href="#qwen3-composite-models" title="Permanent link">&para;</a></h1>
-<p>Qwen3 (<code>Qwen/Qwen3-0.6B</code>, <code>Qwen/Qwen3-1.7B</code>, etc.) is a decoder-only large language model that uses grouped-query attention and a sliding-window KV cache. winml-cli treats it as a <strong>composite model</strong> — a model that is split into multiple ONNX sub-models that run together at inference time. For Qwen3, the two sub-models are:</p>
-<table>
-<thead>
-<tr>
-<th>Sub-model</th>
-<th>Role</th>
-<th>Input shape (<code>input_ids</code>)</th>
-<th>Output KV shape</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>decoder_prefill</code></td>
-<td>Processes the full prompt in chunks</td>
-<td><code>[1, 64]</code></td>
-<td><code>[1, kv_heads, 64, head_dim]</code></td>
-</tr>
-<tr>
-<td><code>decoder_gen</code></td>
-<td>Generates one token at a time</td>
-<td><code>[1, 1]</code></td>
-<td><code>[1, kv_heads, 1, head_dim]</code></td>
-</tr>
-</tbody>
-</table>
-<p>Both sub-models share the same weights and KV cache buffer. Splitting prefill from generation lets each ONNX graph have fully static shapes, which is required for efficient NPU compilation.</p>
-<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
-<ul>
-<li>winml-cli installed and <code>winml</code> on your PATH.</li>
-<li>A network connection to download Qwen3 weights from HuggingFace on first run.</li>
-<li>At least 4 GB free disk space (for <code>Qwen3-0.6B</code>; larger variants need more).</li>
-</ul>
-<h2 id="step-1-generate-build-configs">Step 1: Generate build configs<a class="headerlink" href="#step-1-generate-build-configs" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>winml<span class="w"> </span>config<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--task<span class="w"> </span>text-generation<span class="w"> </span>-o<span class="w"> </span>qwen3.json
-</span></code></pre></div>
-<p>Because <code>(qwen3, text-generation)</code> is registered as a composite model, this command produces <strong>two</strong> config files — one per sub-model:</p>
-<ul>
-<li><code>qwen3_decoder_prefill.json</code> — export config using <code>feature-extraction</code> task</li>
-<li><code>qwen3_decoder_gen.json</code> — export config using <code>text2text-generation</code> task</li>
-</ul>
-<p>Each config includes Qwen3-specific optimizations (dynamo export, opset 18, GeLU fusion, RMSNorm fusion, MatMul+Add fusion, clamp constant values, and remove-IsNaN-in-attention-mask).</p>
-<h2 id="step-2-build-each-sub-model">Step 2: Build each sub-model<a class="headerlink" href="#step-2-build-each-sub-model" title="Permanent link">&para;</a></h2>
-<p>Build both sub-models individually using their config files:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Build the prefill sub-model</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>qwen3_decoder_prefill.json<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>output/prefill
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Build the generation sub-model</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>qwen3_decoder_gen.json<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>output/gen
-</span></code></pre></div>
-<p>Each <code>winml build</code> runs the full pipeline: export (via torch dynamo) → optimize → quantize → compile. The output directories contain the final ONNX files ready for inference.</p>
-<p>To target a specific execution provider (e.g., QNN for NPU):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>qwen3_decoder_prefill.json<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>output/prefill<span class="w"> </span>--ep<span class="w"> </span>qnn
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-c<span class="w"> </span>qwen3_decoder_gen.json<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>output/gen<span class="w"> </span>--ep<span class="w"> </span>qnn
-</span></code></pre></div>
-<h2 id="step-3-benchmark-each-sub-model">Step 3: Benchmark each sub-model<a class="headerlink" href="#step-3-benchmark-each-sub-model" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>output/prefill<span class="w"> </span>-d<span class="w"> </span>npu
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span>perf<span class="w"> </span>output/gen<span class="w"> </span>-d<span class="w"> </span>npu
-</span></code></pre></div>
-<p>This lets you identify whether the prefill or generation phase is the bottleneck on your target hardware.</p>
-<h2 id="step-4-run-inference-python-api">Step 4: Run inference (Python API)<a class="headerlink" href="#step-4-run-inference-python-api" title="Permanent link">&para;</a></h2>
-<p>The <code>WinMLQwen3Model</code> class combines both sub-models into a single generation pipeline that implements HuggingFace's <code>GenerationMixin</code> interface:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">winml.modelkit.models.hf.qwen</span><span class="w"> </span><span class="kn">import</span> <span class="n">WinMLQwen3Model</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># Build and load both sub-models in one call</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">model</span> <span class="o">=</span> <span class="n">WinMLQwen3Model</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;Qwen/Qwen3-0.6B&quot;</span><span class="p">,</span> <span class="n">task</span><span class="o">=</span><span class="s2">&quot;text-generation&quot;</span><span class="p">)</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># Or load pre-built ONNX files (skips re-export/optimization)</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">winml.modelkit.models.auto</span><span class="w"> </span><span class="kn">import</span> <span class="n">WinMLAutoModel</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoConfig</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="n">prefill</span> <span class="o">=</span> <span class="n">WinMLAutoModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;output/prefill/model.onnx&quot;</span><span class="p">,</span> <span class="n">skip_build</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="n">gen</span> <span class="o">=</span> <span class="n">WinMLAutoModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;output/gen/model.onnx&quot;</span><span class="p">,</span> <span class="n">skip_build</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="n">config</span> <span class="o">=</span> <span class="n">AutoConfig</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;Qwen/Qwen3-0.6B&quot;</span><span class="p">)</span>
-</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>
-</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="n">model</span> <span class="o">=</span> <span class="n">WinMLQwen3Model</span><span class="p">(</span>
-</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>    <span class="n">sub_models</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;decoder_prefill&quot;</span><span class="p">:</span> <span class="n">prefill</span><span class="p">,</span> <span class="s2">&quot;decoder_gen&quot;</span><span class="p">:</span> <span class="n">gen</span><span class="p">},</span>
-</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>    <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span>
-</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="p">)</span>
-</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>
-</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="c1"># Generate text using HF&#39;s standard generate() API</span>
-</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoTokenizer</span>
-</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>
-</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;Qwen/Qwen3-0.6B&quot;</span><span class="p">)</span>
-</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a><span class="n">inputs</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="p">(</span><span class="s2">&quot;Hello, how are you?&quot;</span><span class="p">,</span> <span class="n">return_tensors</span><span class="o">=</span><span class="s2">&quot;pt&quot;</span><span class="p">)</span>
-</span><span id="__span-4-24"><a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a><span class="n">output_ids</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="o">**</span><span class="n">inputs</span><span class="p">,</span> <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
-</span><span id="__span-4-25"><a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a><span class="nb">print</span><span class="p">(</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">output_ids</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">skip_special_tokens</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
-</span></code></pre></div>
-<h3 id="customizing-shape-config-per-sub-model">Customizing shape config per sub-model<a class="headerlink" href="#customizing-shape-config-per-sub-model" title="Permanent link">&para;</a></h3>
-<p>You can pass different <code>shape_config</code> to each sub-model via <code>sub_model_kwargs</code>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">WinMLQwen3Model</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="s2">&quot;Qwen/Qwen3-0.6B&quot;</span><span class="p">,</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="n">task</span><span class="o">=</span><span class="s2">&quot;text-generation&quot;</span><span class="p">,</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">sub_model_kwargs</span><span class="o">=</span><span class="p">{</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>        <span class="s2">&quot;decoder_prefill&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;shape_config&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;max_cache_len&quot;</span><span class="p">:</span> <span class="mi">512</span><span class="p">,</span> <span class="s2">&quot;seq_len&quot;</span><span class="p">:</span> <span class="mi">64</span><span class="p">}},</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>        <span class="s2">&quot;decoder_gen&quot;</span><span class="p">:</span>     <span class="p">{</span><span class="s2">&quot;shape_config&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;max_cache_len&quot;</span><span class="p">:</span> <span class="mi">512</span><span class="p">,</span> <span class="s2">&quot;seq_len&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">}},</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="p">},</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="p">)</span>
-</span></code></pre></div>
-<h2 id="how-it-works-internally">How it works internally<a class="headerlink" href="#how-it-works-internally" title="Permanent link">&para;</a></h2>
-<p>The composite model architecture for Qwen3:</p>
-<pre class="mermaid"><code>graph LR
-    A[winml config] --&gt;|"(qwen3, text-generation)"| B[Composite Registry]
-    B --&gt; C[decoder_prefill config]
-    B --&gt; D[decoder_gen config]
-    C --&gt; E[winml build → prefill.onnx]
-    D --&gt; F[winml build → gen.onnx]
-    E --&gt; G[WinMLQwen3Model]
-    F --&gt; G
-    G --&gt;|GenerationMixin.generate| H[Token output]</code></pre>
-<p>Key design decisions:</p>
-<ul>
-<li><strong>Dynamo export required</strong> — TorchScript fails for Qwen3; dynamo produces opset 18 graphs.</li>
-<li><strong>Sliding-window KV cache</strong> — Uses Slice+Concat (FIFO) instead of index_copy_. New KV tokens are appended at the end of the buffer; oldest tokens are evicted.</li>
-<li><strong>Static shapes throughout</strong> — Both sub-models have fixed input/output shapes, enabling ahead-of-time compilation for NPU.</li>
-<li><strong>GenericTask registration</strong> — Sub-models are registered as <code>WinMLModelForGenericTask</code> so their raw ONNX outputs (logits + KV) are preserved without task-specific post-processing.</li>
-</ul>
-<h2 id="other-composite-models">Other composite models<a class="headerlink" href="#other-composite-models" title="Permanent link">&para;</a></h2>
-<p>The same composite model pattern is used for:</p>
-<ul>
-<li><strong>T5</strong> (<code>google-t5/t5-small</code>) — encoder + decoder architecture for translation/summarization</li>
-<li><strong>Mu2</strong> — encoder-decoder with custom code (<code>trust_remote_code=True</code>)</li>
-</ul>
-<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
-<ul>
-<li><a href="../bert-config-build/">BERT — Config + Build + Perf</a> — single-model workflow</li>
-<li><a href="../convnext-primitives/">ConvNeXt — Primitive commands</a> — step-by-step pipeline</li>
-<li><a href="../../concepts/config-and-build/">Config and build</a> — concept overview</li>
-</ul>
+<h1 id="try-windows-ml-cli-with-a-ui">Try Windows ML CLI with a UI<a class="headerlink" href="#try-windows-ml-cli-with-a-ui" title="Permanent link">&para;</a></h1>
+<p>If you prefer a graphical interface, you can use the <strong>Foundry Toolkit</strong> extension for VS Code to run Windows ML CLI model conversion without typing commands.</p>
+<h2 id="quick-reference">Quick reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Install <a href="https://code.visualstudio.com/">Visual Studio Code</a></strong></li>
+<li><strong>Install the Foundry Toolkit extension</strong> — search for <code>Foundry Toolkit</code> in the VS Code Extensions view</li>
+<li><strong>Open the Model Conversion tool</strong> — in the Foundry Toolkit panel, select <strong>Model Conversion</strong></li>
+<li><strong>Choose your model</strong> — pick a model from Hugging Face, provide a local path, or select from the built-in model catalog filtered by Windows ML CLI</li>
+<li><strong>Run the build</strong> — the extension invokes Windows ML CLI and streams the output to the VS Code terminal</li>
+</ol>
+<p>For a full walkthrough, see <a href="https://code.visualstudio.com/docs/intelligentapps/modelconversion#_build-with-windows-ml-cli-preview">Build with Windows ML CLI (Preview)</a> in the VS Code documentation.</p>
 
 
 
@@ -2841,7 +2555,7 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
