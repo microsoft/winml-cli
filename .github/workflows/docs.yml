@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: uv sync --group docs
+      - run: uv sync --only-group docs
 
       - name: Configure git for mike
         run: |
