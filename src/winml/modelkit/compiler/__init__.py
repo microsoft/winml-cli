@@ -41,7 +41,7 @@ from .utils import QDQ_OP_TYPES, needs_format_conversion
 # (mypy, CodeQL) visibility into what ``__all__`` actually exports without
 # triggering the heavy imports at runtime.
 if TYPE_CHECKING:
-    from .compiler import Compiler, compile_onnx, list_compilers
+    from .compiler import Compiler, compile_multiple_onnx, compile_onnx, list_compilers
     from .stages.compile import CompileStage
     from .stages.optimize import OptimizeStage
     from .stages.qformat import QFormatConvertStage
@@ -49,11 +49,19 @@ if TYPE_CHECKING:
 
 def __getattr__(name: str) -> Any:
     """Lazy-load heavy symbols that pull in session/torch to speed up import."""
-    if name in {"Compiler", "compile_onnx", "list_compilers"}:
-        from .compiler import Compiler, compile_onnx, list_compilers
+    if name in {"Compiler", "compile_multiple_onnx", "compile_onnx", "list_compilers"}:
+        from .compiler import (
+            Compiler,
+            compile_multiple_onnx,
+            compile_onnx,
+            list_compilers,
+        )
 
         globals().update(
-            Compiler=Compiler, compile_onnx=compile_onnx, list_compilers=list_compilers
+            Compiler=Compiler,
+            compile_multiple_onnx=compile_multiple_onnx,
+            compile_onnx=compile_onnx,
+            list_compilers=list_compilers,
         )
         return globals()[name]
 
@@ -84,6 +92,7 @@ __all__ = [
     "QFormatConvertStage",
     "WinMLCompileConfig",
     "clear_transforms",
+    "compile_multiple_onnx",
     "compile_onnx",
     "get_transforms_for_ep",
     "list_compilers",
