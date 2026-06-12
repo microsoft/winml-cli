@@ -158,9 +158,15 @@ def resolve_task(
                 config,
             )
         )
-        resolved = TasksManager.get_model_class_for_task(
-            opt_task, framework="pt", model_class_name=model_class
-        )
+        try:
+            resolved = TasksManager.get_model_class_for_task(
+                opt_task, framework="pt", model_class_name=model_class
+            )
+        except (KeyError, AttributeError) as e:
+            raise ValueError(
+                f"Model class '{model_class}' not found for task '{opt_task}'. "
+                f"Check that the class name is correct and available in transformers."
+            ) from e
         return TaskResolution(
             opt_task, to_optimum_task(opt_task), resolved, TaskSource.USER_CLASS, None
         )
@@ -174,7 +180,13 @@ def resolve_task(
                 model_type_norm, original
             ) or _get_custom_model_class(model_type_norm, normalized)
         if resolved is None:
-            resolved = TasksManager.get_model_class_for_task(normalized, framework="pt")
+            try:
+                resolved = TasksManager.get_model_class_for_task(normalized, framework="pt")
+            except KeyError as e:
+                raise ValueError(
+                    f"Task '{normalized}' not supported by TasksManager. "
+                    f"Check optimum documentation for supported tasks."
+                ) from e
         return TaskResolution(
             original, to_optimum_task(original), resolved, TaskSource.USER_TASK, None
         )
@@ -197,6 +209,10 @@ def resolve_task(
     # 1b. no architectures -> first ONNX-exportable task
     #     (merges the old timm wrapped-library stage AND the --model-type fallback)
     if opt_task is None and not getattr(config, "architectures", None) and model_type:
+        # Populate Optimum's ONNX export-config registry before querying it;
+        # get_supported_tasks returns [] if this hasn't been imported.
+        import optimum.exporters.onnx.model_configs  # noqa: F401
+
         supported = get_supported_tasks(model_type, resolve_optimum_library(model_type))
         if supported:
             opt_task = supported[0]
