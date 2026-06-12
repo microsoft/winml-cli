@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from random import Random
-from typing import Any
+from typing import Any, cast
 
 from datasets import load_dataset
 from datasets.features import ClassLabel, Image
@@ -35,6 +35,10 @@ class ImageDataset(BaseTaskDataset):
     - HuggingFace Features API for metadata discovery
     """
 
+    # Populated by _detect_columns(); empty string until then.
+    _image_col: str = ""
+    _label_col: str = ""
+    _label_feature: ClassLabel | None = None
 
     def _get_default_dataset(self) -> None:
         """Set default dataset configuration if none specified.
@@ -130,13 +134,13 @@ class ImageDataset(BaseTaskDataset):
         processor = AutoImageProcessor.from_pretrained(self._model_name, use_fast=True)
 
         # 5. Conditional label alignment using should_align_labels()
-        if should_align_labels(self._dataset_name):
+        if self._dataset_name and should_align_labels(self._dataset_name):
             dataset = dataset.align_labels_with_mapping(get_imagenet_label_map(), self._label_col)
 
         # 6. Apply image processing with proper batch dimension
-        def preprocess_single_sample(example):
+        def preprocess_single_sample(example: dict[str, Any]) -> dict[str, Any]:
             # Process single image and add batch dimension
-            return processor(example[self._image_col].convert("RGB"), return_tensors="pt")
+            return dict(processor(example[self._image_col].convert("RGB"), return_tensors="pt"))
 
         self._dataset = (
             dataset
@@ -146,7 +150,7 @@ class ImageDataset(BaseTaskDataset):
 
         logger.info(f"Dataset initialized with {len(self._dataset)} samples")
 
-    def _detect_columns(self, dataset) -> None:
+    def _detect_columns(self, dataset: Any) -> None:
         """Detect image and label columns using HuggingFace Features API.
 
         Uses proper type checking with HuggingFace Features API to reliably
@@ -158,8 +162,8 @@ class ImageDataset(BaseTaskDataset):
         features = dataset.features
 
         # Detect columns using proper type checking
-        self._image_col = None
-        self._label_col = None
+        self._image_col = ""
+        self._label_col = ""
         self._label_feature = None  # Store ClassLabel feature for mapping
 
         for col_name, feature in features.items():
@@ -210,7 +214,7 @@ class ImageDataset(BaseTaskDataset):
         Returns:
             Dictionary containing preprocessed tensors
         """
-        return self._dataset[idx]
+        return cast("dict[str, Any]", self._dataset[idx])
 
     @property
     def label_names(self) -> list[str]:

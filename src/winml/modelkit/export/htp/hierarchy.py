@@ -39,14 +39,14 @@ class TracingHierarchyBuilder:
                        torch.nn modules. Passed to should_include_in_hierarchy.
                        Example: ["Conv2d", "BatchNorm2d"] to include these in hierarchy.
         """
-        self.tag_stack = []
-        self.execution_trace = []
-        self.operation_context = {}
-        self.hooks = []
-        self.module_hierarchy = {}  # Only populated for executed modules
-        self.traced_modules = set()  # Track which modules were traced
+        self.tag_stack: list[str] = []
+        self.execution_trace: list[dict[str, Any]] = []
+        self.operation_context: dict[str, dict[str, Any]] = {}
+        self.hooks: list[Any] = []
+        self.module_hierarchy: dict[str, dict[str, Any]] = {}  # Only populated for executed modules
+        self.traced_modules: set[str] = set()  # Track which modules were traced
         self.exceptions = exceptions  # torch.nn exceptions to include
-        self.model_outputs = None  # Store model outputs from execution
+        self.model_outputs: Any = None  # Store model outputs from execution
 
     def is_hf_class(self, module: nn.Module) -> bool:
         """Check if a module is a HuggingFace class - UNIVERSAL."""
@@ -183,7 +183,9 @@ class TracingHierarchyBuilder:
         self.hooks.clear()
 
     def trace_model_execution(
-        self, model: nn.Module, example_inputs: tuple[torch.Tensor, ...]
+        self,
+        model: nn.Module,
+        example_inputs: tuple[torch.Tensor, ...] | dict[str, Any],
     ) -> None:
         """Trace model execution to build hierarchy mapping - UNIVERSAL."""
         self.register_hooks(model)

@@ -35,15 +35,17 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 import onnx
 import pytest
 from click.testing import CliRunner
+from onnx import TensorProto, helper
 
 from tests.e2e.require_ep import require_ep, require_not_ep
 from winml.modelkit.commands.compile import compile as compile_cmd
 from winml.modelkit.onnx import is_compiled_onnx
 from winml.modelkit.utils import normalize_ep_name
-from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES
+from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES, ORT_SESSION_COMPILER
 
 
 if TYPE_CHECKING:
@@ -164,6 +166,9 @@ def assert_by_run_inference(
     device: str,
     ep: str,
     sample_input: dict,
+    reference_model: Path | None = None,
+    rtol: float = 1e-2,
+    atol: float = 1e-2,
 ) -> None:
     """Bind ``ep`` + ``device`` and run one inference call on the compiled artifact.
 
@@ -171,12 +176,33 @@ def assert_by_run_inference(
     EP), this asserts the artifact specifically loads and runs on the
     requested ``(device, ep)`` pair. Catches the case where the compile
     succeeded against a different EP/device than the user asked for.
+
+    When ``reference_model`` is given, the original (pre-compile) model is run on
+    the CPU EP with the same input and the compiled output is checked against it
+    with :func:`numpy.allclose` — a correctness check that the compiled graph still
+    computes the same result, not just that it runs.
     """
+    import onnxruntime as ort
+
     from winml.modelkit.session import WinMLSession
 
     session = WinMLSession(out_path, device=device, ep=ep)
     outputs = session.run(sample_input)
     assert outputs, "Inference produced no outputs"
+
+    if reference_model is not None:
+        ref_sess = ort.InferenceSession(str(reference_model), providers=["CPUExecutionProvider"])
+        ref_names = [o.name for o in ref_sess.get_outputs()]
+        ref_outputs = ref_sess.run(None, sample_input)
+        for name, ref in zip(ref_names, ref_outputs, strict=True):
+            assert name in outputs, f"Compiled model missing output {name!r}"
+            got = np.asarray(outputs[name], dtype=np.float32)
+            ref = np.asarray(ref, dtype=np.float32)
+            assert np.allclose(got, ref, rtol=rtol, atol=atol), (
+                f"Compiled output {name!r} differs from CPU reference "
+                f"(max abs diff {np.max(np.abs(got - ref)):.4g}, "
+                f"rtol={rtol}, atol={atol})"
+            )
 
 
 def _find_qairt_sdk_root() -> Path | None:
@@ -860,3 +886,123 @@ def test_bad_input_no_ep_covers_device(simple_matmul_onnx: Path) -> None:
         src_hash,
         simple_matmul_onnx,
     )
+
+
+# ===========================================================================
+# Compile backend (ort.ModelCompiler vs ort.InferenceSession) + multi-model
+# shared EP context (qnn-only)
+# ===========================================================================
+
+
+@pytest.fixture
+def shared_weight_models(tmp_path: Path) -> tuple[Path, Path]:
+    """Two MatMul models sharing the SAME weight but with different input shapes.
+
+    Mirrors the prefill/decode (ctx/iter) pattern that QNN weight sharing targets:
+    one ``[K, K]`` weight ``B`` reused across both graphs while the leading sequence
+    dimension differs (4 vs 1). Returns ``(seq4_model, seq1_model)``.
+    """
+    np.random.seed(7)
+    k = 4
+    b_values = np.random.randn(k, k).astype(np.float32)
+
+    def _build(seq: int, name: str) -> Path:
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, seq, k])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, seq, k])
+        b = helper.make_tensor("B", TensorProto.FLOAT, [k, k], b_values.flatten().tolist())
+        node = helper.make_node("MatMul", ["A", "B"], ["C"], name="matmul")
+        graph = helper.make_graph([node], "shared_matmul", [a], [c], [b])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        onnx.checker.check_model(model)
+        path = tmp_path / name
+        onnx.save(model, str(path))
+        return path
+
+    return _build(4, "shared_seq4.onnx"), _build(1, "shared_seq1.onnx")
+
+
+def _sample_for(model_path: Path) -> dict[str, np.ndarray]:
+    """Random input matching a ``shared_weight_models`` graph's declared shape."""
+    dims = onnx.load(str(model_path)).graph.input[0].type.tensor_type.shape.dim
+    shape = [d.dim_value for d in dims]
+    return {"A": np.random.randn(*shape).astype(np.float32)}
+
+
+@pytest.mark.e2e
+def test_default_backend_uses_model_compiler(
+    simple_matmul_onnx: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """By default (``--compiler ort``), a single-model compile is driven by
+    ``ort.ModelCompiler``."""
+    require_ep("qnn")
+    import onnxruntime as ort
+
+    real = ort.ModelCompiler
+    calls: list[int] = []
+
+    def _spy(*args: object, **kwargs: object) -> object:
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ort, "ModelCompiler", _spy)
+
+    out = tmp_path / "default.onnx"
+    result = _invoke("-m", str(simple_matmul_onnx), "--ep", "qnn", "-o", str(out))
+    assert result.exit_code == 0, result.output
+    assert calls, "Default single-model compile should use ort.ModelCompiler"
+    assert is_compiled_onnx(out)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "use_inference_session",
+    [False, True],
+    ids=["model_compiler", "inference_session"],
+)
+def test_multi_model_shared_weights(
+    use_inference_session: bool,
+    shared_weight_models: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """Multiple models with shared weights compile to a single shared EP context in
+    BOTH backends (``ort.ModelCompiler`` default, ``ort.InferenceSession`` opt-in).
+
+    Both backends are smoke-checked (files + one shared weights bin). The
+    inference_session output is additionally loaded and run on QNN; the
+    model_compiler output is smoke-only (not loaded).
+    """
+    require_ep("qnn")
+    m_seq4, m_seq1 = shared_weight_models
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    cmd = ["-m", str(m_seq4), "-m", str(m_seq1), "--ep", "qnn", "--output-dir", str(out_dir)]
+    if use_inference_session:
+        cmd += ["--compiler", ORT_SESSION_COMPILER]
+    result = _invoke(*cmd)
+    assert result.exit_code == 0, result.output
+    assert "Success! Model compiled" in result.output, result.output
+    # The InferenceSession backend is selected via --compiler ort_session.
+    if use_inference_session:
+        assert ORT_SESSION_COMPILER in result.output
+    else:
+        assert ORT_SESSION_COMPILER not in result.output
+
+    # Both compiled wrappers exist + exactly one shared weights bin (weight sharing).
+    ctx4 = out_dir / f"{m_seq4.stem}_ctx.onnx"
+    ctx1 = out_dir / f"{m_seq1.stem}_ctx.onnx"
+    assert ctx4.is_file() and is_compiled_onnx(ctx4), f"missing/invalid {ctx4}"
+    assert ctx1.is_file() and is_compiled_onnx(ctx1), f"missing/invalid {ctx1}"
+    bins = [p for p in out_dir.glob("*.bin") if not p.name.endswith("_schematic.bin")]
+    assert len(bins) == 1, f"Expected one shared weights bin, got {[b.name for b in bins]}"
+
+    # inference_session output is runnable; model_compiler output is smoke-only (no load).
+    # Run on QNN and np.allclose-check against the original model on CPU.
+    if use_inference_session:
+        assert_by_run_inference(
+            ctx4, device="npu", ep="qnn", sample_input=_sample_for(m_seq4), reference_model=m_seq4
+        )
+        assert_by_run_inference(
+            ctx1, device="npu", ep="qnn", sample_input=_sample_for(m_seq1), reference_model=m_seq1
+        )
