@@ -295,7 +295,6 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
-        self._io_config: dict[str, Any] | None = None
 
     @property
     def _is_composite(self) -> bool:
@@ -323,32 +322,17 @@ class PerfBenchmark:
 
         Only valid for non-composite models: composites dispatch to
         ``_run_sub_models``, which benchmarks each sub-model through a child
-        ``PerfBenchmark`` whose ``_model`` is itself single-session.
+        ``PerfBenchmark`` whose ``_model`` is itself single-session. Exposes
+        ``io_config`` / ``device`` / ``ep_name`` / ``task`` directly (the
+        session caches ``io_config``), so callers read ``self._single.*``
+        rather than going through per-attribute wrappers.
         """
         assert self._model is not None
         return cast("WinMLPreTrainedModel", self._model)
 
-    def _resolved_io_config(self) -> dict[str, Any]:
-        """I/O config of the (single-session) model being benchmarked."""
-        if self._io_config is None:
-            self._io_config = self._single.io_config
-        return self._io_config
-
     def _compile_model(self) -> None:
         """Compile the underlying ORT session so device/EP are resolved."""
         self._single._session.compile()
-
-    def _resolved_device(self) -> str:
-        """Actual device bound after compile."""
-        return self._single.device
-
-    def _resolved_ep(self) -> EPName | None:
-        """Primary EP bound after compile."""
-        return self._single.ep_name
-
-    def _resolved_task(self) -> str | None:
-        """Resolved task; falls back to the requested task."""
-        return self._single.task or self.config.task
 
     def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
         """Execute full benchmark pipeline.
@@ -403,11 +387,11 @@ class PerfBenchmark:
 
         # Print model info before benchmark starts
         _print_model_info(
-            self._resolved_io_config(),
-            task=self._resolved_task(),
+            self._single.io_config,
+            task=self._single.task or self.config.task,
             req_device=self.config.device,
-            act_device=self._resolved_device(),
-            ep_name=self._resolved_ep(),
+            act_device=self._single.device,
+            ep_name=self._single.ep_name,
         )
 
         # [3] Run benchmark
@@ -479,10 +463,8 @@ class PerfBenchmark:
 
     def _generate_inputs(self) -> None:
         """Generate random inputs based on model io_config."""
-        assert self._model is not None
-        io_config = self._resolved_io_config()
         self._inputs = generate_random_inputs(
-            io_config=io_config,
+            io_config=self._single.io_config,
             batch_size=self.config.batch_size,
         )
 
@@ -529,8 +511,8 @@ class PerfBenchmark:
         # GPU when --device gpu is specified, NPU when --device npu, etc.
         # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
         # metadata so we follow the adapter the session actually binds to.
-        ep_name = self._resolved_ep()
-        monitor_device = self._resolved_device() or self.config.device or "auto"
+        ep_name = self._single.ep_name
+        monitor_device = self._single.device or self.config.device or "auto"
         hw_monitor = HWMonitor(
             poll_interval_ms=_HW_POLL_INTERVAL_MS,
             device=monitor_device,
@@ -578,8 +560,7 @@ class PerfBenchmark:
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
-        assert self._model is not None
-        io_config = self._resolved_io_config()
+        io_config = self._single.io_config
 
         # Calculate throughput
         mean_latency_sec = stats.mean_ms / 1000.0
@@ -618,10 +599,10 @@ class PerfBenchmark:
             samples_per_sec=samples_per_sec,
             batches_per_sec=batches_per_sec,
             # Actual values (resolved after build + compile)
-            actual_device=self._resolved_device(),
-            actual_task=self._resolved_task() or "auto-detected",
-            actual_ep=self._resolved_ep(),
-            running_model_path=str(self._single().running_model_path),
+            actual_device=self._single.device,
+            actual_task=self._single.task or self.config.task or "auto-detected",
+            actual_ep=self._single.ep_name,
+            running_model_path=str(self._single.running_model_path),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
         )

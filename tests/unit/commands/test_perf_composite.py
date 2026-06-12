@@ -42,6 +42,7 @@ class _FakeSession:
         self.io_config = io_config
         self.device = device
         self.ep_name = ep_name
+        self.running_model_path = "model.onnx"
         self.compiled = False
         self.run_log: list[dict[str, Any]] = []
         self._perf_stats: PerfStats | None = None
@@ -89,6 +90,10 @@ class _FakeSubModel:
     @property
     def ep_name(self) -> str:
         return self._session.ep_name
+
+    @property
+    def running_model_path(self) -> str:
+        return self._session.running_model_path
 
 
 class _FakeComposite:
