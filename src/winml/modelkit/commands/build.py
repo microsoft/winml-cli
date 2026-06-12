@@ -454,11 +454,9 @@ def _validate_loader_tasks_for_model(
     show_default=True,
     help="Enable quantization (use --no-quant to skip, overrides config)",
 )
-@click.option(
-    "--no-compile/--compile",
-    "no_compile",
+@cli_utils.compile_option(
     default=None,
-    help="Override compilation. --compile forces enable (config must have a compile section). "
+    help_text="Override compilation. --compile forces enable (config must have a compile section). "
     "--no-compile forces skip. Default: inherit from config; when auto-generating "
     "config (no -c), compilation is off unless --compile is passed.",
 )
