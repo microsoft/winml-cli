@@ -14,7 +14,6 @@ Usage:
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -34,7 +33,7 @@ from ._live_chart import LiveMonitorDisplay
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
@@ -262,81 +261,6 @@ def _resolve_shape(
     return tuple(resolved)
 
 
-def _aggregate_io_config(sub_models: Iterable[Any]) -> dict[str, Any]:
-    """Merge a composite model's sub-model io_configs into one unified view.
-
-    Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
-    session; they orchestrate several sub-models. For benchmarking we present a
-    unified io_config whose inputs are the union of every sub-model's inputs
-    (deduplicated by name, order preserved) -- which is exactly the set of
-    keyword arguments the composite's ``forward()`` consumes. Outputs are
-    likewise unioned for display and result-reporting purposes.
-    """
-    agg: dict[str, Any] = {
-        "input_names": [],
-        "input_shapes": [],
-        "input_types": [],
-        "output_names": [],
-        "output_shapes": [],
-        "output_types": [],
-        "precision": None,
-    }
-    seen_in: set[str] = set()
-    seen_out: set[str] = set()
-    for sub in sub_models:
-        io = sub.io_config
-        for name, shape, dtype in zip(
-            io["input_names"], io["input_shapes"], io["input_types"], strict=True
-        ):
-            if name not in seen_in:
-                seen_in.add(name)
-                agg["input_names"].append(name)
-                agg["input_shapes"].append(shape)
-                agg["input_types"].append(dtype)
-        out_types = io.get("output_types") or [None] * len(io["output_names"])
-        for name, shape, dtype in zip(
-            io["output_names"], io["output_shapes"], out_types, strict=False
-        ):
-            if name not in seen_out:
-                seen_out.add(name)
-                agg["output_names"].append(name)
-                agg["output_shapes"].append(shape)
-                agg["output_types"].append(dtype)
-        if agg["precision"] is None:
-            agg["precision"] = io.get("precision")
-    return agg
-
-
-def _describe_outputs(output: Any) -> tuple[list[str], list[list[int]], list[str | None]]:
-    """Extract ``(names, shapes, dtypes)`` from a model ``forward()`` result.
-
-    Architecture-agnostic: handles HuggingFace ``ModelOutput`` / ``dict``
-    (named fields), plain sequences (positional ``output_N`` names), and a
-    single tensor. ``None`` fields and non-array values are skipped. Used to
-    report a composite model's real task-level outputs (e.g. ``logits``)
-    rather than its sub-models' raw ONNX outputs.
-    """
-    if hasattr(output, "items"):
-        pairs = list(output.items())
-    elif isinstance(output, (list, tuple)):
-        pairs = [(f"output_{i}", value) for i, value in enumerate(output)]
-    else:
-        pairs = [("output_0", output)]
-
-    names: list[str] = []
-    shapes: list[list[int]] = []
-    types: list[str | None] = []
-    for name, value in pairs:
-        shape = getattr(value, "shape", None)
-        if value is None or shape is None:
-            continue
-        names.append(name)
-        shapes.append([int(dim) for dim in shape])
-        dtype = getattr(value, "dtype", None)
-        types.append(str(dtype) if dtype is not None else None)
-    return names, shapes, types
-
-
 # =============================================================================
 # Benchmark Engine
 # =============================================================================
@@ -372,92 +296,82 @@ class PerfBenchmark:
         return cast("WinMLCompositeModel", self._model).sub_models
 
     def _resolved_io_config(self) -> dict[str, Any]:
-        """Unified io_config (aggregated across sub-models for composites)."""
+        """I/O config of the (single-session) model being benchmarked."""
         if self._io_config is None:
             assert self._model is not None
-            if self._is_composite:
-                self._io_config = _aggregate_io_config(self._sub_models().values())
-            else:
-                self._io_config = self._model.io_config
+            self._io_config = self._model.io_config
         return self._io_config
 
     def _compile_model(self) -> None:
-        """Compile the underlying ORT session(s) so device/EP are resolved."""
+        """Compile the underlying ORT session so device/EP are resolved."""
         assert self._model is not None
-        if self._is_composite:
-            for sub in self._sub_models().values():
-                sub._session.compile()
-        else:
-            self._model._session.compile()
+        self._model._session.compile()
 
     def _resolved_device(self) -> str:
-        """Actual device bound after compile (representative sub-model for composites)."""
+        """Actual device bound after compile."""
         assert self._model is not None
-        if self._is_composite:
-            return next(iter(self._sub_models().values())).device
         return self._model.device
 
     def _resolved_ep(self) -> EPName | None:
-        """Primary EP bound after compile (representative sub-model for composites)."""
+        """Primary EP bound after compile."""
         assert self._model is not None
-        if self._is_composite:
-            return next(iter(self._sub_models().values())).ep_name
         return self._model.ep_name
 
     def _resolved_task(self) -> str | None:
-        """Resolved task; composites fall back to the requested task."""
+        """Resolved task; falls back to the requested task."""
         assert self._model is not None
-        if self._is_composite:
-            return self.config.task
         return self._model.task or self.config.task
 
-    def _probe_composite_outputs(self) -> None:
-        """Overwrite a composite's reported outputs with its real forward() result.
-
-        Runs one ``forward()`` pass (an extra warmup) and introspects the
-        returned object so the displayed/reported outputs reflect the
-        composite's task-level tensors (e.g. ``logits_per_image``) instead of
-        the deduplicated union of its sub-models' raw ONNX outputs. Falls back
-        to the aggregated view if the probe fails or yields nothing.
-        """
-        assert self._model is not None
-        assert self._inputs is not None
-        try:
-            output = self._model(**self._inputs)
-        except Exception:  # best-effort display only; never fail the run
-            logger.debug("Composite output probe failed; keeping aggregated view", exc_info=True)
-            return
-
-        names, shapes, types = _describe_outputs(output)
-        if not names:
-            return
-        io = self._resolved_io_config()
-        io["output_names"] = names
-        io["output_shapes"] = shapes
-        io["output_types"] = types
-
-    def run(self) -> BenchmarkResult:
+    def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
         """Execute full benchmark pipeline.
 
         Returns:
-            BenchmarkResult with timing statistics
+            A single ``BenchmarkResult`` for single-session models, or a
+            ``{sub_model_name: BenchmarkResult}`` mapping for composite models
+            (e.g. CLIP/SigLIP dual-encoders). Composite models have no single
+            ORT session, so each sub-model is benchmarked individually rather
+            than timing the aggregate ``forward()`` pass.
         """
         # [1] Load model
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
         assert self._model is not None
 
+        if self._is_composite:
+            return self._run_sub_models()
+        return self._run_single()
+
+    def _run_sub_models(self) -> dict[str, BenchmarkResult]:
+        """Benchmark each sub-model of a composite individually.
+
+        Each sub-model is itself a single-session ``WinMLAutoModel``, so it is
+        benchmarked through the standard single-model pipeline by spawning a
+        child ``PerfBenchmark`` with the already-loaded sub-model. Results are
+        keyed by sub-model name for per-component reporting.
+        """
+        results: dict[str, BenchmarkResult] = {}
+        for name, sub in self._sub_models().items():
+            logger.info("Benchmarking sub-model '%s'", name)
+            Console(stderr=True).print(f"\n[bold]Sub-model:[/bold] {name}")
+            child = PerfBenchmark(self.config)
+            child._model = sub
+            results[name] = child._run_single()
+        return results
+
+    def _run_single(self) -> BenchmarkResult:
+        """Benchmark the loaded single-session model.
+
+        Returns:
+            BenchmarkResult with timing statistics
+        """
+        assert self._model is not None
+
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
         self._generate_inputs()
 
-        # Compile session(s) early so model.device is resolved for display
+        # Compile session early so model.device is resolved for display
         self._compile_model()
-
-        # Composite forward() returns task-level outputs (e.g. logits) that
-        # don't map to any single sub-model's ONNX outputs; probe the real ones.
-        if self._is_composite:
-            self._probe_composite_outputs()
 
         # Print model info before benchmark starts
         _print_model_info(
@@ -543,14 +457,6 @@ class PerfBenchmark:
             batch_size=self.config.batch_size,
         )
 
-    def _composite_run_iteration(self, stats: PerfStats) -> None:
-        """Time one full composite forward() pass (orchestrates all sub-sessions)."""
-        assert self._model is not None
-        assert self._inputs is not None
-        model = self._model
-        inputs = self._inputs
-        stats.record(lambda: model(**inputs))
-
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing."""
         if self.config.monitor:
@@ -562,18 +468,6 @@ class PerfBenchmark:
         assert self._model is not None
         assert self._inputs is not None
         total_iterations = self.config.warmup + self.config.iterations
-
-        # Composite models have no single ORT session; time the full forward()
-        # pass with an external PerfStats instead of the session's perf() hook.
-        if self._is_composite:
-            from ..session.stats import PerfStats
-
-            stats = PerfStats(warmup=self.config.warmup)
-            for i in range(total_iterations):
-                self._composite_run_iteration(stats)
-                if (i + 1) % max(1, total_iterations // 10) == 0:
-                    logger.debug("Progress: %d/%d", i + 1, total_iterations)
-            return stats
 
         session = self._model._session
         with session.perf(warmup=self.config.warmup) as stats:
@@ -592,7 +486,6 @@ class PerfBenchmark:
         from ..session.monitor.ep_monitor import NullEPMonitor
         from ..session.monitor.hw_monitor import HWMonitor
         from ..session.monitor.vitisai_monitor import VitisAIMonitor
-        from ..session.stats import PerfStats
 
         assert self._model is not None
         assert self._inputs is not None
@@ -627,29 +520,16 @@ class PerfBenchmark:
         else:
             ep_monitor = NullEPMonitor()
 
-        # Composite models time the full forward() pass via an external
-        # PerfStats; single-session models record pure-ORT time inside the
-        # session's perf() context. The run callable abstracts that difference.
-        if self._is_composite:
-            stats_cm: Any = contextlib.nullcontext(PerfStats(warmup=self.config.warmup))
-        else:
-            stats_cm = self._model._session.perf(warmup=self.config.warmup)
-
         with (
-            stats_cm as stats,
+            self._model._session.perf(warmup=self.config.warmup) as stats,
             hw_monitor as hw,
             ep_monitor as ep_mon,
         ):
-            if self._is_composite:
+            session = self._model._session
+            inputs = self._inputs
 
-                def run_iteration() -> None:
-                    self._composite_run_iteration(stats)
-            else:
-                session = self._model._session
-                inputs = self._inputs
-
-                def run_iteration() -> None:
-                    session.run(inputs)
+            def run_iteration() -> None:
+                session.run(inputs)
 
             _run_monitored_loop(
                 run_iteration,
@@ -1084,6 +964,74 @@ def write_json_report(result: BenchmarkResult, output_path: Path) -> None:
         json.dump(result.to_dict(), f, indent=2)
 
 
+def _composite_report_dict(
+    results: dict[str, BenchmarkResult],
+    *,
+    model_id: str,
+    task: str | None,
+) -> dict[str, Any]:
+    """Build the combined JSON report for a composite model's sub-models."""
+    return {
+        "model_id": model_id,
+        "task": task,
+        "component_count": len(results),
+        "components": {name: result.to_dict() for name, result in results.items()},
+    }
+
+
+def report_composite_results(
+    results: dict[str, BenchmarkResult],
+    *,
+    console: Console,
+    json_mode: bool,
+    output_path: Path,
+    model_id: str,
+    task: str | None,
+) -> None:
+    """Display and persist per-sub-model results for a composite model.
+
+    Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
+    session; each sub-model is benchmarked individually (like ``--module``)
+    and reported as its own summary row rather than timing the aggregate
+    ``forward()`` pass. The combined JSON nests each sub-model's full
+    ``BenchmarkResult.to_dict()`` under ``components``.
+    """
+    combined = _composite_report_dict(results, model_id=model_id, task=task)
+
+    if json_mode:
+        click.echo(json.dumps(combined, indent=2))
+    else:
+        table = Table(title="Per-Sub-Model Perf", show_header=True)
+        table.add_column("Sub-Model", style="cyan")
+        table.add_column("Task")
+        table.add_column("Device")
+        table.add_column("Mean (ms)", justify="right")
+        table.add_column("P90 (ms)", justify="right")
+        table.add_column("Min (ms)", justify="right")
+        table.add_column("Max (ms)", justify="right")
+        for name, result in results.items():
+            device_str = _device_string(
+                result.config.device, result.actual_device, result.actual_ep
+            )
+            table.add_row(
+                name,
+                result.actual_task,
+                device_str,
+                f"{result.mean_ms:.2f}",
+                f"{result.p90_ms:.2f}",
+                f"{result.min_ms:.2f}",
+                f"{result.max_ms:.2f}",
+            )
+        console.print()
+        console.print(table)
+        console.print()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump(combined, f, indent=2)
+
+
 def generate_output_path(model_id: str, *, module_class: str | None = None) -> Path:
     r"""Generate default output path under the user's cache directory.
 
@@ -1502,6 +1450,21 @@ def perf(
 
         benchmark = PerfBenchmark(config)
         result = benchmark.run()
+
+        # Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
+        # session; each sub-model is benchmarked individually and reported as
+        # its own row (like --module), not as one aggregate forward() timing.
+        if isinstance(result, dict):
+            report_composite_results(
+                result,
+                console=console,
+                json_mode=json_mode,
+                output_path=output,
+                model_id=hf_model,
+                task=task,
+            )
+            console.print(f"[green]Results saved to:[/green] {output}")
+            return
 
         # Display results
         if json_mode:

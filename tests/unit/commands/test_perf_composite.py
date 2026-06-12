@@ -5,9 +5,9 @@
 """Tests for winml perf support of composite (multi-session) models.
 
 Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ONNX
-session; they orchestrate several sub-models. The perf benchmark must
-aggregate their io_configs and time the full ``forward()`` pass rather
-than reaching for a single ``_session``.
+session; they orchestrate several sub-models. ``winml perf`` benchmarks
+each sub-model individually (like ``--module``) and reports one row per
+sub-model rather than timing the aggregate ``forward()`` pass.
 
 Regression guard: previously ``PerfBenchmark`` assumed every model exposed
 ``io_config`` / ``_session`` and raised ``AttributeError`` on composites.
@@ -15,32 +15,99 @@ Regression guard: previously ``PerfBenchmark`` assumed every model exposed
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import Any
+import json
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
+from rich.console import Console
 
 from winml.modelkit.commands.perf import (
     BenchmarkConfig,
+    BenchmarkResult,
     PerfBenchmark,
-    _aggregate_io_config,
-    _describe_outputs,
+    report_composite_results,
 )
+from winml.modelkit.session.stats import PerfStats
 
 
-def _make_sub_model(
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
+
+
+class _FakeSession:
+    """Stand-in for a WinMLSession that times runs via a real PerfStats."""
+
+    def __init__(self, io_config: dict[str, Any], device: str, ep_name: str) -> None:
+        self.io_config = io_config
+        self.device = device
+        self.ep_name = ep_name
+        self.compiled = False
+        self.run_log: list[dict[str, Any]] = []
+        self._perf_stats: PerfStats | None = None
+
+    def compile(self) -> None:
+        self.compiled = True
+
+    @contextmanager
+    def perf(self, warmup: int = 0) -> Generator[PerfStats, None, None]:
+        self._perf_stats = PerfStats(warmup=warmup)
+        try:
+            yield self._perf_stats
+        finally:
+            self._perf_stats = None
+
+    def run(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        self.run_log.append(inputs)
+        if self._perf_stats is not None:
+            self._perf_stats.record(lambda: None)
+        return {}
+
+
+class _FakeSubModel:
+    """Stand-in for a single-session WinMLAutoModel sub-component."""
+
+    def __init__(
+        self,
+        io_config: dict[str, Any],
+        task: str,
+        *,
+        device: str = "GPU",
+        ep_name: str = "OpenVINOExecutionProvider",
+    ) -> None:
+        self._session = _FakeSession(io_config, device, ep_name)
+        self.task = task
+
+    @property
+    def io_config(self) -> dict[str, Any]:
+        return self._session.io_config
+
+    @property
+    def device(self) -> str:
+        return self._session.device
+
+    @property
+    def ep_name(self) -> str:
+        return self._session.ep_name
+
+
+class _FakeComposite:
+    """Stand-in for a WinMLCompositeModel (duck-typed via ``sub_models``)."""
+
+    def __init__(self, sub_models: dict[str, Any]) -> None:
+        self.sub_models = sub_models
+
+
+def _io_config(
     input_names: list[str],
-    input_shapes: list[list[int | None]],
+    input_shapes: list[list[int]],
     input_types: list[str],
     output_names: list[str],
-    output_shapes: list[list[int | None]],
+    output_shapes: list[list[int]],
     *,
-    device: str = "GPU",
-    ep_name: str = "OpenVINOExecutionProvider",
     precision: str | None = "fp16",
-) -> Any:
-    """Build a minimal stand-in for a WinMLAutoModel sub-component."""
-    io_config = {
+) -> dict[str, Any]:
+    return {
         "input_names": input_names,
         "input_shapes": input_shapes,
         "input_types": input_types,
@@ -49,201 +116,144 @@ def _make_sub_model(
         "output_types": ["float32"] * len(output_names),
         "precision": precision,
     }
-    compiled: dict[str, bool] = {"compiled": False}
-
-    def _compile() -> None:
-        compiled["compiled"] = True
-
-    return SimpleNamespace(
-        io_config=io_config,
-        device=device,
-        ep_name=ep_name,
-        _session=SimpleNamespace(compile=_compile),
-        _compiled_flag=compiled,
-    )
-
-
-class _FakeComposite:
-    """Stand-in for a WinMLCompositeModel (duck-typed via ``sub_models``)."""
-
-    def __init__(self, sub_models: dict[str, Any]) -> None:
-        self.sub_models = sub_models
-        self.call_log: list[dict[str, np.ndarray]] = []
-
-    def __call__(self, **kwargs: np.ndarray) -> dict[str, np.ndarray]:
-        self.call_log.append(kwargs)
-        # Mimics a composite's task-level forward() output (e.g. SigLIP):
-        # tensors that exist on no single sub-model's ONNX graph.
-        return {
-            "logits_per_image": np.zeros((1, 1), dtype=np.float32),
-            "image_embeds": np.zeros((1, 768), dtype=np.float32),
-            "text_embeds": np.zeros((1, 768), dtype=np.float32),
-        }
 
 
 def _siglip_like() -> _FakeComposite:
-    image_encoder = _make_sub_model(
-        input_names=["pixel_values"],
-        input_shapes=[[1, 3, 224, 224]],
-        input_types=["float32"],
-        output_names=["image_embeds"],
-        output_shapes=[[1, 768]],
+    image_encoder = _FakeSubModel(
+        _io_config(
+            ["pixel_values"],
+            [[1, 3, 224, 224]],
+            ["float32"],
+            ["image_embeds"],
+            [[1, 768]],
+        ),
+        task="image-feature-extraction",
     )
-    text_encoder = _make_sub_model(
-        input_names=["input_ids", "attention_mask"],
-        input_shapes=[[1, 64], [1, 64]],
-        input_types=["int64", "int64"],
-        output_names=["text_embeds"],
-        output_shapes=[[1, 768]],
+    text_encoder = _FakeSubModel(
+        _io_config(
+            ["input_ids", "attention_mask"],
+            [[1, 64], [1, 64]],
+            ["int64", "int64"],
+            ["text_embeds"],
+            [[1, 768]],
+        ),
+        task="feature-extraction",
     )
     return _FakeComposite({"image-encoder": image_encoder, "text-encoder": text_encoder})
 
 
-class TestAggregateIoConfig:
-    """Unit tests for the io_config union helper."""
-
-    def test_union_dedupes_by_name_preserving_order(self) -> None:
-        model = _siglip_like()
-        agg = _aggregate_io_config(model.sub_models.values())
-
-        assert agg["input_names"] == ["pixel_values", "input_ids", "attention_mask"]
-        assert agg["input_shapes"] == [[1, 3, 224, 224], [1, 64], [1, 64]]
-        assert agg["input_types"] == ["float32", "int64", "int64"]
-        assert agg["output_names"] == ["image_embeds", "text_embeds"]
-
-    def test_shared_input_name_is_not_duplicated(self) -> None:
-        # Both encoders consume "attention_mask" -> it must appear once.
-        a = _make_sub_model(
-            ["input_ids", "attention_mask"],
-            [[1, 8], [1, 8]],
-            ["int64", "int64"],
-            ["a"],
-            [[1, 4]],
-        )
-        b = _make_sub_model(
-            ["attention_mask", "token_type_ids"],
-            [[1, 8], [1, 8]],
-            ["int64", "int64"],
-            ["b"],
-            [[1, 4]],
-        )
-        agg = _aggregate_io_config([a, b])
-        assert agg["input_names"] == ["input_ids", "attention_mask", "token_type_ids"]
-
-    def test_precision_taken_from_first_sub_model(self) -> None:
-        a = _make_sub_model(["x"], [[1]], ["float32"], ["y"], [[1]], precision="int8")
-        b = _make_sub_model(["z"], [[1]], ["float32"], ["w"], [[1]], precision="fp16")
-        assert _aggregate_io_config([a, b])["precision"] == "int8"
+def _composite_benchmark() -> tuple[PerfBenchmark, _FakeComposite]:
+    config = BenchmarkConfig(
+        model_id="google/siglip-base-patch16-224",
+        task="zero-shot-image-classification",
+        device="gpu",
+        iterations=3,
+        warmup=1,
+    )
+    bench = PerfBenchmark(config)
+    model = _siglip_like()
+    bench._model = model  # bypass _load_model (no HF download in unit tests)
+    return bench, model
 
 
 class TestPerfBenchmarkComposite:
-    """PerfBenchmark must transparently handle composite models."""
-
-    def _benchmark(self) -> tuple[PerfBenchmark, _FakeComposite]:
-        config = BenchmarkConfig(
-            model_id="google/siglip-base-patch16-224",
-            task="zero-shot-image-classification",
-            device="gpu",
-            iterations=3,
-            warmup=1,
-        )
-        bench = PerfBenchmark(config)
-        model = _siglip_like()
-        bench._model = model  # bypass _load_model (no HF download in unit tests)
-        return bench, model
+    """PerfBenchmark benchmarks each sub-model of a composite individually."""
 
     def test_detects_composite(self) -> None:
-        bench, _ = self._benchmark()
+        bench, _ = _composite_benchmark()
         assert bench._is_composite is True
 
-    def test_resolved_io_config_is_aggregated_and_cached(self) -> None:
-        bench, _ = self._benchmark()
-        io = bench._resolved_io_config()
-        assert io["input_names"] == ["pixel_values", "input_ids", "attention_mask"]
-        # Cached: second call returns the same object.
-        assert bench._resolved_io_config() is io
+    def test_run_returns_result_per_sub_model(self) -> None:
+        bench, _ = _composite_benchmark()
+        results = bench._run_sub_models()
 
-    def test_compile_compiles_every_sub_session(self) -> None:
-        bench, model = self._benchmark()
-        bench._compile_model()
-        assert all(s._compiled_flag["compiled"] for s in model.sub_models.values())
+        assert set(results) == {"image-encoder", "text-encoder"}
+        assert all(isinstance(r, BenchmarkResult) for r in results.values())
 
-    def test_generate_inputs_covers_all_sub_model_inputs(self) -> None:
-        bench, _ = self._benchmark()
-        bench._generate_inputs()
-        assert set(bench._inputs) == {"pixel_values", "input_ids", "attention_mask"}
-        assert bench._inputs["pixel_values"].shape == (1, 3, 224, 224)
-        assert bench._inputs["input_ids"].shape == (1, 64)
+    def test_each_sub_model_reports_its_own_io(self) -> None:
+        # No aggregation: each result carries only its sub-model's inputs.
+        bench, _ = _composite_benchmark()
+        results = bench._run_sub_models()
 
-    def test_resolved_device_ep_task_from_sub_model(self) -> None:
-        bench, _ = self._benchmark()
-        assert bench._resolved_device() == "GPU"
-        assert bench._resolved_ep() == "OpenVINOExecutionProvider"
-        assert bench._resolved_task() == "zero-shot-image-classification"
+        assert results["image-encoder"].input_names == ["pixel_values"]
+        assert results["text-encoder"].input_names == ["input_ids", "attention_mask"]
+        assert results["image-encoder"].output_names == ["image_embeds"]
+        assert results["text-encoder"].output_names == ["text_embeds"]
 
-    def test_simple_benchmark_times_full_forward(self) -> None:
-        bench, model = self._benchmark()
-        bench._generate_inputs()
-        stats = bench._run_benchmark_simple()
+    def test_each_sub_model_reports_its_own_task(self) -> None:
+        bench, _ = _composite_benchmark()
+        results = bench._run_sub_models()
 
-        # warmup(1) + iterations(3) == 4 forward() calls; stats excludes warmup.
-        assert len(model.call_log) == 4
-        assert stats.count == 3
-        # forward() received the generated inputs as kwargs.
-        assert set(model.call_log[0]) == {"pixel_values", "input_ids", "attention_mask"}
+        assert results["image-encoder"].actual_task == "image-feature-extraction"
+        assert results["text-encoder"].actual_task == "feature-extraction"
 
-    def test_probe_replaces_outputs_with_real_forward_result(self) -> None:
-        # The aggregated view reports the image encoder's raw ONNX outputs;
-        # probing must replace them with the composite forward()'s outputs.
-        bench, _ = self._benchmark()
-        bench._generate_inputs()
-        assert bench._resolved_io_config()["output_names"] == ["image_embeds", "text_embeds"]
+    def test_resolved_device_and_ep_per_sub_model(self) -> None:
+        bench, _ = _composite_benchmark()
+        results = bench._run_sub_models()
 
-        bench._probe_composite_outputs()
-        io = bench._resolved_io_config()
-        assert io["output_names"] == ["logits_per_image", "image_embeds", "text_embeds"]
-        assert io["output_shapes"] == [[1, 1], [1, 768], [1, 768]]
+        for result in results.values():
+            assert result.actual_device == "GPU"
+            assert result.actual_ep == "OpenVINOExecutionProvider"
 
-    def test_collect_results_reports_probed_outputs(self) -> None:
-        bench, _ = self._benchmark()
-        bench._generate_inputs()
-        bench._probe_composite_outputs()
-        stats = bench._run_benchmark_simple()
-        result = bench._collect_results(stats)
+    def test_compiles_and_runs_every_sub_session(self) -> None:
+        bench, model = _composite_benchmark()
+        bench._run_sub_models()
 
-        assert result.input_names == ["pixel_values", "input_ids", "attention_mask"]
-        # Real composite outputs, not the deduped sub-model ONNX outputs.
-        assert result.output_names == ["logits_per_image", "image_embeds", "text_embeds"]
-        assert result.actual_device == "GPU"
-        assert result.actual_ep == "OpenVINOExecutionProvider"
-        assert result.actual_task == "zero-shot-image-classification"
+        for sub in model.sub_models.values():
+            assert sub._session.compiled is True
+            # warmup(1) + iterations(3) == 4 run() calls per sub-session.
+            assert len(sub._session.run_log) == 4
+
+    def test_each_sub_model_stats_exclude_warmup(self) -> None:
+        bench, _ = _composite_benchmark()
+        results = bench._run_sub_models()
+
+        for result in results.values():
+            assert len(result.raw_samples_ms) == 3
 
 
-class TestDescribeOutputs:
-    """Unit tests for the architecture-agnostic forward()-output describer."""
+class TestReportCompositeResults:
+    """report_composite_results writes a combined per-component JSON report."""
 
-    def test_dict_output_named_fields(self) -> None:
-        out = {
-            "logits": np.zeros((2, 5), dtype=np.float32),
-            "embeds": np.zeros((2, 8), dtype=np.float32),
-        }
-        names, shapes, types = _describe_outputs(out)
-        assert names == ["logits", "embeds"]
-        assert shapes == [[2, 5], [2, 8]]
-        assert all("float32" in t for t in types)
+    def test_combined_json_nests_each_component(self, tmp_path: Path) -> None:
+        bench, _ = _composite_benchmark()
+        results = bench._run_sub_models()
+        output = tmp_path / "perf.json"
 
-    def test_skips_none_and_non_array_fields(self) -> None:
-        out = {"a": np.zeros((1, 3)), "b": None, "c": "not-an-array"}
-        names, shapes, _ = _describe_outputs(out)
-        assert names == ["a"]
-        assert shapes == [[1, 3]]
+        report_composite_results(
+            results,
+            console=Console(),
+            json_mode=False,
+            output_path=output,
+            model_id="google/siglip-base-patch16-224",
+            task="zero-shot-image-classification",
+        )
 
-    def test_sequence_output_positional_names(self) -> None:
-        names, shapes, _ = _describe_outputs([np.zeros((1, 4)), np.zeros((1, 2))])
-        assert names == ["output_0", "output_1"]
-        assert shapes == [[1, 4], [1, 2]]
+        data = json.loads(output.read_text())
+        assert data["model_id"] == "google/siglip-base-patch16-224"
+        assert data["task"] == "zero-shot-image-classification"
+        assert data["component_count"] == 2
+        assert set(data["components"]) == {"image-encoder", "text-encoder"}
+        # Each component holds a full BenchmarkResult.to_dict() payload.
+        img = data["components"]["image-encoder"]
+        assert img["model_info"]["input_names"] == ["pixel_values"]
+        assert "latency_ms" in img
 
-    def test_single_tensor_output(self) -> None:
-        names, shapes, _ = _describe_outputs(np.zeros((3, 3)))
-        assert names == ["output_0"]
-        assert shapes == [[3, 3]]
+    def test_json_mode_emits_combined_payload_to_stdout(self, tmp_path: Path, capsys: Any) -> None:
+        bench, _ = _composite_benchmark()
+        results = bench._run_sub_models()
+        output = tmp_path / "perf.json"
+
+        report_composite_results(
+            results,
+            console=Console(stderr=True),
+            json_mode=True,
+            output_path=output,
+            model_id="google/siglip-base-patch16-224",
+            task="zero-shot-image-classification",
+        )
+
+        payload = json.loads(capsys.readouterr().out)
+        assert set(payload["components"]) == {"image-encoder", "text-encoder"}
+        # File is written regardless of json_mode.
+        assert output.exists()
