@@ -33,7 +33,7 @@ def test_sam2_resolves_to_mask_generation_on_every_entry_point() -> None:
     cfg = Sam2Config(architectures=["Sam2Model"])
     assert detect_task(cfg)[0] == "mask-generation"
     assert resolve_task_and_model_class(cfg)[0] == "mask-generation"
-    loader_config, _, _ = resolve_loader_config(model_type="sam2")
+    loader_config, _, _, _ = resolve_loader_config(model_type="sam2")
     assert loader_config.task == "mask-generation"
 
 
