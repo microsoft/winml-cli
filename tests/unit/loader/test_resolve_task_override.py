@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Unit tests for ``loader.task._resolve_task_override``.
+"""Unit tests for ``loader.resolution._resolve_task_override``.
 
 The single model-type / model-id task-override lookup. It unifies the three
 mechanisms that used to live in three places (the ``detect_task`` short-circuit,
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from winml.modelkit.loader.task import _resolve_task_override
+from winml.modelkit.loader.resolution import _resolve_task_override
 
 
 @pytest.mark.parametrize(

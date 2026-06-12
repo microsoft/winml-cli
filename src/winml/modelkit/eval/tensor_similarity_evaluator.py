@@ -55,7 +55,7 @@ class TensorSimilarityEvaluator:
         """Load the HF PyTorch reference model on CPU/fp32 in eval mode.
 
         Resolves the appropriate ``AutoModelFor*`` class via
-        :func:`resolve_task_and_model_class` so no task-specific mapping is
+        :func:`resolve_task` so no task-specific mapping is
         needed here.
         """
         import torch

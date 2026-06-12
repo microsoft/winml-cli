@@ -139,7 +139,7 @@ def resolve_loader_config(
         2-3. Unified task + model_class resolution (depends on: hf_config + task)
            → resolve_task(hf_config, task, model_class)
            Subsumes the old --model-type fallback (first supported task) and the
-           resolve_task_and_model_class call; returns a TaskResolution.
+           legacy task/model-class orchestrator; returns a TaskResolution.
         4. Resolve hf_config + model_type (depends on: resolved_class)
            → _resolve_hf_config_for_class(hf_config, resolved_class)
            Uses config_class.base_config_key to extract sub-config for multimodal

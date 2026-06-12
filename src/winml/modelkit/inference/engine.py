@@ -192,7 +192,7 @@ def _resolve_hf_task(model_id: str, task: str | None) -> str | None:
 
     When *task* is provided, normalises it and returns immediately.
     Otherwise downloads the small ``config.json`` from the Hub and infers
-    the task via ``resolve_task_and_model_class``.
+    the task via ``resolve_task``.
     """
     if task is not None:
         # If the task has its own entry in TASK_REGISTRY (e.g.

@@ -16,6 +16,7 @@ optimum/transformers are imported lazily inside functions so the
 
 from __future__ import annotations
 
+import importlib
 import logging
 from dataclasses import dataclass
 from enum import Enum
@@ -23,12 +24,6 @@ from typing import TYPE_CHECKING
 
 from .task import (
     HF_TASK_DEFAULTS,
-    _detect_task_from_model_class,
-    _get_custom_model_class,
-    _resolve_model_class_from_config,
-    _resolve_task_modality,
-    _resolve_task_override,
-    _upgrade_fill_mask_for_seq2seq,
     get_default_task_for_model_id,
     get_supported_tasks,
     normalize_task,
@@ -42,6 +37,202 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Task-detection helpers (relocated from loader.task)
+# =============================================================================
+
+
+def _resolve_task_override(model_type_normalized: str, model_id: str | None = None) -> str | None:
+    """Return the canonical default task for a model_type / model_id, or ``None``.
+
+    Single source of truth for task overrides, consulted by every detection entry
+    point so they all resolve the same default task. Priority:
+
+    1. Model-id default (e.g. ``prajjwal1/bert-tiny`` -> ``feature-extraction``).
+    2. ``(model_type, None)`` sentinel in ``MODEL_CLASS_MAPPING``: its value is the
+       default *class*; the task is reverse-looked-up from the matching
+       ``(model_type, task) -> same class`` entry. Covers families whose canonical
+       export differs from the headless TasksManager default (SAM/SAM2 ->
+       ``mask-generation``), structurally enforcing that the matching class entry exists.
+
+    A default-task override is declared ONLY by an explicit sentinel — never inferred
+    from a model_type happening to have a single ``(model_type, task)`` entry. Such an
+    entry exists to fix the *class* for that task (e.g. ``segformer`` image-segmentation),
+    not to declare it the default; without a sentinel the architecture head decides, so a
+    fine-tuned checkpoint keeps its own task (a segformer classification checkpoint stays
+    ``image-classification``).
+
+    Returns ``None`` when there is no model-id default and no sentinel.
+    """
+    if model_id:
+        model_id_task = get_default_task_for_model_id(model_id)
+        if model_id_task is not None:
+            return model_id_task
+
+    from ..models.hf import MODEL_CLASS_MAPPING
+
+    # (model_type, None) sentinel -> reverse-lookup the task sharing its class.
+    default_class = MODEL_CLASS_MAPPING.get((model_type_normalized, None))
+    if default_class is None:
+        return None
+    default_task = next(
+        (
+            t
+            for (mt, t), cls in MODEL_CLASS_MAPPING.items()
+            if mt == model_type_normalized and t is not None and cls is default_class
+        ),
+        None,
+    )
+    if default_task is None:
+        raise ValueError(
+            f"MODEL_CLASS_MAPPING has ({model_type_normalized!r}, None) sentinel "
+            f"-> {default_class.__name__}, but no matching "
+            f"({model_type_normalized!r}, <task>) entry maps to that class. "
+            f"Add the corresponding (model_type, task) entry."
+        )
+    return default_task
+
+
+def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
+    """Extract architecture class from config and import it from transformers.
+
+    Reads ``config.architectures[0]`` and dynamically imports the corresponding
+    class from the ``transformers`` package.
+
+    Args:
+        config: HuggingFace PretrainedConfig
+
+    Returns:
+        The model class (e.g., ``BertForSequenceClassification``)
+
+    Raises:
+        ValueError: If ``architectures`` is ``None`` or empty ``[]``,
+            or if the class name is not importable from ``transformers``.
+    """
+    architectures = getattr(config, "architectures", None)
+    if not architectures:
+        raise ValueError(
+            "Cannot detect task: config has no 'architectures' field. "
+            "Please specify task explicitly."
+        )
+
+    arch_name = architectures[0]
+    logger.debug("Resolving model class for architecture: %s", arch_name)
+
+    try:
+        transformers_module = importlib.import_module("transformers")
+        return getattr(transformers_module, arch_name)
+    except AttributeError as e:
+        raise ValueError(
+            f"Cannot import {arch_name} from transformers. Please specify task explicitly."
+        ) from e
+
+
+def _detect_task_from_model_class(model_class: type) -> str:
+    """Detect task from a model class via TasksManager.
+
+    One-liner wrapper around ``TasksManager.infer_task_from_model()``.
+    Avoids the ``class -> string -> reimport -> class`` round-trip when
+    the class is already available.
+
+    Args:
+        model_class: A HuggingFace model class (e.g., ``BertForSequenceClassification``)
+
+    Returns:
+        Canonical task name (e.g., ``"text-classification"``)
+    """
+    from optimum.exporters.tasks import TasksManager
+
+    return TasksManager.infer_task_from_model(model_class)
+
+
+def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
+    """Correct Optimum's ``fill-mask`` mislabel for encoder-decoder generation heads.
+
+    ``TasksManager`` maps some encoder-decoder ``*ForConditionalGeneration`` classes
+    (e.g. ``BartForConditionalGeneration``) to ``fill-mask``. A real masked-LM is
+    encoder-only, so a config that is ``is_encoder_decoder`` yet reported as
+    ``fill-mask`` is actually a seq2seq generator -> ``text2text-generation``.
+    Architecture-agnostic: keyed on the ``is_encoder_decoder`` flag, not model names.
+    Requires the flag to be explicitly ``True`` (HF configs set a real bool) so a
+    partial/duck-typed config without the field is never silently upgraded.
+    """
+    if task == "fill-mask" and getattr(config, "is_encoder_decoder", False) is True:
+        return "text2text-generation"
+    return task
+
+
+# Modality-aware upgrade (D2) for the one modality-blind task, ``feature-extraction``.
+# Keyed on the architecture class's ``main_input_name`` — an HF framework convention
+# that is authoritative, offline, and architecture-agnostic (``pixel_values`` -> image,
+# ``input_ids`` -> text, ``input_values``/``input_features`` -> audio). Only image has a
+# downstream (dataset + evaluator) today, so text/audio/video deliberately stay
+# ``feature-extraction`` (the Optimum-canonical export task). Extend this table — not the
+# code — when a modality gains its downstream.
+_FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
+    "pixel_values": "image-feature-extraction",
+}
+
+
+def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
+    """Upgrade a modality-blind ``feature-extraction`` to its modality-aware variant.
+
+    Reads the *architecture* class's ``main_input_name`` and maps it via
+    :data:`_FEATURE_MODALITY_BY_MAIN_INPUT`. Uses ``config.architectures`` (not a
+    resolved Auto/wrapper class, whose ``main_input_name`` may be generic) so a ViT
+    backbone resolving to a generic ``AutoModel`` still reads ``pixel_values``.
+
+    Applied only to the surfaced/returned task — never to a task headed into an Optimum
+    API, which does not recognise modality-aware names like ``image-feature-extraction``.
+    Offline; a no-op for non-``feature-extraction`` tasks, for modalities with no
+    downstream yet, and when the architecture class cannot be resolved.
+    """
+    if task != "feature-extraction":
+        return task
+    try:
+        model_class = _resolve_model_class_from_config(config)
+    except ValueError:
+        return task
+    main_input = getattr(model_class, "main_input_name", None)
+    return _FEATURE_MODALITY_BY_MAIN_INPUT.get(main_input, task)
+
+
+def _get_custom_model_class(model_type: str, task: str) -> type | None:
+    """Get model class for a (model_type, task) combination.
+
+    Three-level lookup for model class overrides:
+
+    1. ``MODEL_CLASS_MAPPING[(model_type, task)]`` from ``models/hf/``
+       (CLIP, SAM2 specializations)
+    2. ``HF_TASK_DEFAULTS[task]`` for unsupported tasks (e.g., NSP)
+    3. Return ``None`` -> caller falls back to TasksManager
+
+    Args:
+        model_type: HuggingFace model type (e.g., ``"clip"``, ``"sam2_video"``).
+        task: Task name (e.g., ``"feature-extraction"``, ``"image-segmentation"``).
+
+    Returns:
+        Model class, or ``None`` if TasksManager default should be used.
+    """
+    # Normalize model_type (handle underscores, case)
+    model_type_normalized = model_type.lower().replace("_", "-")
+
+    # Lazy import to avoid circular imports
+    from ..models.hf import MODEL_CLASS_MAPPING
+
+    key = (model_type_normalized, task)
+    if key in MODEL_CLASS_MAPPING:
+        return MODEL_CLASS_MAPPING[key]
+
+    # Task defaults (for tasks TasksManager doesn't support, e.g., NSP)
+    if task in HF_TASK_DEFAULTS:
+        import transformers
+
+        return getattr(transformers, HF_TASK_DEFAULTS[task])
+
+    return None
 
 # Component-name -> sub-task, e.g. {"encoder": "feature-extraction",
 # "decoder": "text2text-generation"} (the composite ``_SUB_MODEL_CONFIG`` shape).

@@ -15,8 +15,10 @@ from transformers import (
     CLIPVisionModelWithProjection,
 )
 
-from winml.modelkit.loader.resolution import resolve_task
-from winml.modelkit.loader.task import _get_custom_model_class  # Testing internal implementation
+from winml.modelkit.loader.resolution import (
+    _get_custom_model_class,  # Testing internal implementation
+    resolve_task,
+)
 from winml.modelkit.models.hf.clip import MODEL_CLASS_MAPPING
 
 

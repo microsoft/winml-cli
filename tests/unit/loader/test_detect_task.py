@@ -16,8 +16,12 @@ from unittest.mock import patch
 
 import pytest
 
-from winml.modelkit.loader.resolution import TaskSource, resolve_task
-from winml.modelkit.loader.task import _resolve_task_modality, _upgrade_fill_mask_for_seq2seq
+from winml.modelkit.loader.resolution import (
+    TaskSource,
+    _resolve_task_modality,
+    _upgrade_fill_mask_for_seq2seq,
+    resolve_task,
+)
 
 
 class _FakeConfig:
@@ -56,8 +60,8 @@ class _FakeConfig:
 # dispatch deterministically without network.
 _INFER = "winml.modelkit.loader.resolution._infer_task_from_architecture"
 # Stage 3 (modality upgrade) reads the architecture class's ``main_input_name``
-# via this helper in ``task.py``.
-_RESOLVE_CLASS = "winml.modelkit.loader.task._resolve_model_class_from_config"
+# via this helper in ``resolution.py``.
+_RESOLVE_CLASS = "winml.modelkit.loader.resolution._resolve_model_class_from_config"
 
 
 def _fake_arch_class(main_input_name: str) -> type:

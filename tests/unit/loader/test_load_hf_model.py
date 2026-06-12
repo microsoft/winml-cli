@@ -326,19 +326,19 @@ class TestCreateHfConfigFromModelClass:
         assert hf_config.vocab_size > 0
 
     def test_config_usable_with_resolve(self):
-        """Config can be passed to resolve_task_and_model_class."""
+        """Config can be passed to resolve_task."""
         from transformers import ResNetForImageClassification
 
-        from winml.modelkit.loader import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task
 
         hf_config = create_hf_config_from_model_class(ResNetForImageClassification)
-        task, resolved_class = resolve_task_and_model_class(
+        resolution = resolve_task(
             hf_config,
             task="image-classification",
             model_class="AutoModelForImageClassification",
         )
-        assert task == "image-classification"
-        assert "ImageClassification" in resolved_class.__name__
+        assert resolution.task == "image-classification"
+        assert "ImageClassification" in resolution.model_class.__name__
 
     def test_no_network_access_needed(self):
         """Function works without network (no from_pretrained calls)."""
