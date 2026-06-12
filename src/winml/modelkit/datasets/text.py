@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from random import Random
-from typing import Any
+from typing import Any, cast
 
 from datasets import load_dataset
 from datasets.features import ClassLabel, Value
@@ -50,7 +50,7 @@ class TextDataset(BaseTaskDataset):
         max_length: int | None = None,
         io_config: dict | None = None,
         io_mapping: dict | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Initialize text classification dataset.
 
@@ -159,13 +159,13 @@ class TextDataset(BaseTaskDataset):
 
         def tokenize(example: dict) -> dict:
             texts = [example[col] for col in self._text_cols]
-            return tokenizer(
+            return dict(tokenizer(
                 *texts,
                 padding="max_length",
                 truncation=True,
                 max_length=self._max_length,
                 return_tensors="pt",
-            )
+            ))
 
         # 7. Apply tokenization, remove text columns
         self._dataset = (
@@ -180,7 +180,7 @@ class TextDataset(BaseTaskDataset):
         logger.info("Initialized: %d samples, max_length=%d, text=%s, label=%s",
                     len(self._dataset), self._max_length, self._text_cols, self._label_col)
 
-    def _detect_columns(self, dataset) -> None:
+    def _detect_columns(self, dataset: Any) -> None:
         """Detect text and label columns by feature type."""
         if not hasattr(dataset, "features"):
             raise ValueError(f"Dataset {self._dataset_name} has no features")
@@ -210,12 +210,13 @@ class TextDataset(BaseTaskDataset):
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         """Get tokenized sample."""
-        return self._dataset[idx]
+        return cast("dict[str, Any]", self._dataset[idx])
 
     # Readonly properties
     @property
     def max_length(self) -> int:
         """Sequence length."""
+        assert self._max_length is not None, "max_length not resolved"
         return self._max_length
 
     @property

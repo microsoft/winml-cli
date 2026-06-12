@@ -49,6 +49,7 @@ from .base import PreTrainedModel
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     from transformers import PretrainedConfig
@@ -198,7 +199,9 @@ class WinMLCompositeModel(PreTrainedModel):
     @classmethod
     def from_onnx(
         cls,
-        onnx_path: dict[str, str | Path],
+        # Mapping (not dict) so dict[str, str] from configs is accepted
+        # without a cast — dict is invariant on value type, Mapping is covariant.
+        onnx_path: Mapping[str, str | Path],
         *,
         task: str | None = None,
         hf_config: PretrainedConfig | None = None,

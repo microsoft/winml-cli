@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import io
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.tree import Tree
@@ -201,7 +201,7 @@ class ConsoleWriter(StepAwareWriter):
 
         self.console.print("🔧 Export configuration:")
         self.console.print(
-            f"   • Opset version: {self._bright_green(data.onnx_export.opset_version)}"
+            f"   • Opset version: {self._bright_green(str(data.onnx_export.opset_version))}"
         )
         self.console.print(
             f"   • Constant folding: {self._format_bool(data.onnx_export.do_constant_folding)}"
@@ -335,7 +335,9 @@ class ConsoleWriter(StepAwareWriter):
         line_count = 1  # Start with root
 
         # Helper to add nodes up to limit
-        def add_nodes_to_limit(source_children, target_parent, current_count):
+        def add_nodes_to_limit(
+            source_children: Any, target_parent: Any, current_count: int
+        ) -> int:
             count = current_count
             for child in source_children:
                 if count >= max_lines:

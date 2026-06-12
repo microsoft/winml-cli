@@ -136,7 +136,7 @@ def universal_calib_dataset(
         raise RuntimeError(f"Failed to create {task} dataset: {e}") from e
 
 
-class DatasetCalibrationReader(CalibrationDataReader):
+class DatasetCalibrationReader(CalibrationDataReader):  # type: ignore[misc]
     """Calibration data reader that wraps universal_calib_dataset.
 
     Bridges HuggingFace-style datasets to ORT's calibration API by:
