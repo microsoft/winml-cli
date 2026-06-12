@@ -296,7 +296,9 @@ class PerfBenchmark:
         Returns:
             BenchmarkResult with timing statistics
         """
-        # Initialize memory tracker if enabled
+        # Initialize memory tracker if enabled.
+        # Baseline is taken here — after Python/ORT/EP DLLs are loaded but
+        # before model-specific work, so EP initialization cost is excluded.
         if self.config.memory:
             from ..session.monitor.memory_tracker import MemoryTracker
 
@@ -307,9 +309,6 @@ class PerfBenchmark:
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
         assert self._model is not None
-
-        if self._memory_tracker:
-            self._memory_tracker.snapshot_post_load()
 
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
@@ -939,11 +938,17 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     # Memory section (only when --memory is enabled)
     if result.memory_profile:
         mem = result.memory_profile
-        inference_ws = mem.post_inference.working_set_mb
-        inference_dev = mem.post_inference.device_local_mb
-        dev_str = f" | {inference_dev:.1f} MB (device)" if inference_dev > 0 else ""
+        dev_str = (
+            f" | {mem.peak_device_local_mb:.1f} MB (device)" if mem.peak_device_local_mb > 0 else ""
+        )
+        rss = mem.post_inference.rss_mb
         console.print()
-        console.print(f"[bold]Memory:[/bold]      {inference_ws:.1f} MB (process){dev_str}")
+        console.print(f"[bold]Memory:[/bold]      {rss:.1f} MB (process){dev_str}")
+        console.print(
+            f"  [dim]model load: +{mem.model_load_delta_mb:.1f} MB  |  "
+            f"inference: +{mem.inference_alloc_delta_mb:.1f} MB  |  "
+            f"total: +{mem.total_delta_mb:.1f} MB[/dim]"
+        )
 
     console.print()
 

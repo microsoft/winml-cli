@@ -2,14 +2,15 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-r"""Process memory tracking for perf benchmarking.
+"""Process memory tracking for perf benchmarking.
 
-Provides lightweight, zero-dependency process memory snapshots via Windows
-``GetProcessMemoryInfo`` (ctypes). Used by ``winml perf --memory`` to measure
-memory consumption at each benchmark phase.
+Measures RSS (Resident Set Size) at benchmark phase boundaries to compute
+memory deltas for model loading, compilation, and inference. Uses the same
+approach as standalone memory measurement scripts: psutil for process memory
+with a ctypes fallback on Windows.
 
-For device (NPU/GPU) memory, a single-shot PDH query is used to read
-``\GPU Process Memory\Local Usage`` and ``\GPU Process Memory\Shared Usage``.
+The tracker excludes one-time EP initialization costs (DLL loading) by
+taking the baseline *after* the EP registry is warmed up.
 """
 
 from __future__ import annotations
@@ -31,10 +32,34 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Process Memory via GetProcessMemoryInfo (Windows)
+# Memory Measurement
 # =============================================================================
 
 _MB = 1024 * 1024
+
+
+def _get_memory_mb() -> dict[str, float]:
+    """Return current RSS and peak working set in MB for this process.
+
+    Tries psutil first (cross-platform), falls back to ctypes on Windows
+    or /proc/self/status on Linux.
+    """
+    try:
+        import psutil
+
+        proc = psutil.Process(os.getpid())
+        info = proc.memory_info()
+        return {
+            "rss_mb": info.rss / _MB,
+            "peak_wset_mb": getattr(info, "peak_wset", info.rss) / _MB,
+        }
+    except ImportError:
+        pass
+
+    # Fallback: platform-specific
+    if sys.platform == "win32":
+        return _get_memory_mb_win32()
+    return _get_memory_mb_linux()
 
 
 if sys.platform == "win32":
@@ -57,18 +82,8 @@ if sys.platform == "win32":
         ]
 
 
-def _get_process_memory() -> tuple[float, float, float, float]:
-    """Get current process memory via K32GetProcessMemoryInfo.
-
-    Uses kernel32.K32GetProcessMemoryInfo (Windows 7+) which supports
-    PROCESS_MEMORY_COUNTERS_EX natively.
-
-    Returns:
-        (working_set_mb, peak_working_set_mb, private_bytes_mb, peak_private_bytes_mb)
-    """
-    if sys.platform != "win32":
-        return _get_process_memory_linux()
-
+def _get_memory_mb_win32() -> dict[str, float]:
+    """Fallback for Windows: ctypes K32GetProcessMemoryInfo."""
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
     kernel32.K32GetProcessMemoryInfo.restype = wintypes.BOOL
@@ -84,19 +99,16 @@ def _get_process_memory() -> tuple[float, float, float, float]:
 
     success = kernel32.K32GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb)
     if not success:
-        err = ctypes.get_last_error()
-        logger.warning("K32GetProcessMemoryInfo failed (error=%d), returning zeros", err)
-        return (0.0, 0.0, 0.0, 0.0)
+        logger.warning("K32GetProcessMemoryInfo failed, returning zeros")
+        return {"rss_mb": 0.0, "peak_wset_mb": 0.0}
 
-    return (
-        counters.WorkingSetSize / _MB,
-        counters.PeakWorkingSetSize / _MB,
-        counters.PrivateUsage / _MB,
-        counters.PeakPagefileUsage / _MB,
-    )
+    return {
+        "rss_mb": counters.WorkingSetSize / _MB,
+        "peak_wset_mb": counters.PeakWorkingSetSize / _MB,
+    }
 
 
-def _get_process_memory_linux() -> tuple[float, float, float, float]:
+def _get_memory_mb_linux() -> dict[str, float]:
     """Fallback for Linux: read /proc/self/status."""
     try:
         with Path("/proc/self/status").open() as f:
@@ -105,18 +117,14 @@ def _get_process_memory_linux() -> tuple[float, float, float, float]:
         values: dict[str, float] = {}
         for line in content.splitlines():
             parts = line.split()
-            if len(parts) >= 2 and parts[0].rstrip(":") in (
-                "VmRSS",
-                "VmPeak",
-                "VmSize",
-            ):
+            if len(parts) >= 2 and parts[0].rstrip(":") in ("VmRSS", "VmPeak"):
                 values[parts[0].rstrip(":")] = float(parts[1]) / 1024  # kB -> MB
 
         rss = values.get("VmRSS", 0.0)
         peak = values.get("VmPeak", 0.0)
-        return (rss, peak, rss, peak)
+        return {"rss_mb": rss, "peak_wset_mb": peak}
     except OSError:
-        return (0.0, 0.0, 0.0, 0.0)
+        return {"rss_mb": 0.0, "peak_wset_mb": 0.0}
 
 
 # =============================================================================
@@ -158,7 +166,6 @@ def _get_device_memory_mb(luid: str | None) -> tuple[float, float]:
             query.close()
             return (0.0, 0.0)
 
-        # PDH large counters don't need priming (not rate-based)
         query.prime()
         values = query.collect()
         query.close()
@@ -180,20 +187,16 @@ def _get_device_memory_mb(luid: str | None) -> tuple[float, float]:
 class MemorySnapshot:
     """A point-in-time memory measurement."""
 
-    working_set_mb: float = 0.0
-    peak_working_set_mb: float = 0.0
-    private_bytes_mb: float = 0.0
-    peak_private_bytes_mb: float = 0.0
+    rss_mb: float = 0.0
+    peak_wset_mb: float = 0.0
     device_local_mb: float = 0.0
     device_shared_mb: float = 0.0
 
     def to_dict(self) -> dict[str, float]:
         """JSON-serializable dictionary."""
         return {
-            "working_set_mb": round(self.working_set_mb, 2),
-            "peak_working_set_mb": round(self.peak_working_set_mb, 2),
-            "private_bytes_mb": round(self.private_bytes_mb, 2),
-            "peak_private_bytes_mb": round(self.peak_private_bytes_mb, 2),
+            "rss_mb": round(self.rss_mb, 2),
+            "peak_wset_mb": round(self.peak_wset_mb, 2),
             "device_local_mb": round(self.device_local_mb, 2),
             "device_shared_mb": round(self.device_shared_mb, 2),
         }
@@ -201,69 +204,62 @@ class MemorySnapshot:
 
 @dataclass
 class MemoryProfile:
-    """Memory measurements across benchmark phases."""
+    """Memory measurements across benchmark phases.
+
+    Mirrors the structure used in standalone memory measurement scripts:
+    baseline → after_compile → after_warmup, with computed deltas.
+    """
 
     baseline: MemorySnapshot
-    post_load: MemorySnapshot
     post_compile: MemorySnapshot
     post_inference: MemorySnapshot
 
     @property
-    def load_delta_mb(self) -> float:
-        """Working set increase from model loading."""
-        return self.post_load.working_set_mb - self.baseline.working_set_mb
+    def model_load_delta_mb(self) -> float:
+        """RSS increase from model loading + compilation."""
+        return self.post_compile.rss_mb - self.baseline.rss_mb
 
     @property
-    def compile_delta_mb(self) -> float:
-        """Working set increase from session compilation."""
-        return self.post_compile.working_set_mb - self.post_load.working_set_mb
-
-    @property
-    def inference_delta_mb(self) -> float:
-        """Working set increase during inference."""
-        return self.post_inference.working_set_mb - self.post_compile.working_set_mb
+    def inference_alloc_delta_mb(self) -> float:
+        """RSS increase from inference (warmup + benchmark)."""
+        return self.post_inference.rss_mb - self.post_compile.rss_mb
 
     @property
     def total_delta_mb(self) -> float:
-        """Total working set increase from baseline."""
-        return self.post_inference.working_set_mb - self.baseline.working_set_mb
+        """Total RSS increase from baseline."""
+        return self.post_inference.rss_mb - self.baseline.rss_mb
 
     @property
-    def peak_working_set_mb(self) -> float:
-        """Peak working set across all phases (from OS counter)."""
-        return self.post_inference.peak_working_set_mb
+    def peak_wset_mb(self) -> float:
+        """Peak working set (from OS counter at end of benchmark)."""
+        return self.post_inference.peak_wset_mb
+
+    @property
+    def peak_delta_mb(self) -> float:
+        """Peak working set increase from baseline."""
+        return self.post_inference.peak_wset_mb - self.baseline.peak_wset_mb
 
     @property
     def peak_device_local_mb(self) -> float:
         """Peak device local memory across all phases."""
         return max(
             self.baseline.device_local_mb,
-            self.post_load.device_local_mb,
             self.post_compile.device_local_mb,
             self.post_inference.device_local_mb,
-        )
-
-    @property
-    def peak_device_shared_mb(self) -> float:
-        """Peak device shared memory across all phases."""
-        return max(
-            self.baseline.device_shared_mb,
-            self.post_load.device_shared_mb,
-            self.post_compile.device_shared_mb,
-            self.post_inference.device_shared_mb,
         )
 
     def to_dict(self) -> dict[str, Any]:
         """JSON-serializable dictionary."""
         return {
-            "baseline": self.baseline.to_dict(),
-            "post_load": self.post_load.to_dict(),
-            "post_compile": self.post_compile.to_dict(),
-            "post_inference": self.post_inference.to_dict(),
-            "peak_working_set_mb": round(self.peak_working_set_mb, 2),
-            "peak_device_local_mb": round(self.peak_device_local_mb, 2),
-            "peak_device_shared_mb": round(self.peak_device_shared_mb, 2),
-            "total_delta_working_set_mb": round(self.total_delta_mb, 2),
+            "rss_baseline_mb": round(self.baseline.rss_mb, 2),
+            "rss_after_compile_mb": round(self.post_compile.rss_mb, 2),
+            "rss_after_inference_mb": round(self.post_inference.rss_mb, 2),
+            "model_load_delta_mb": round(self.model_load_delta_mb, 2),
+            "inference_alloc_delta_mb": round(self.inference_alloc_delta_mb, 2),
+            "total_delta_mb": round(self.total_delta_mb, 2),
+            "peak_working_set_mb": round(self.peak_wset_mb, 2),
+            "peak_delta_mb": round(self.peak_delta_mb, 2),
+            "device_local_mb": round(self.peak_device_local_mb, 2),
         }
 
 
@@ -275,13 +271,16 @@ class MemoryProfile:
 class MemoryTracker:
     """Lightweight memory tracker that takes snapshots at phase boundaries.
 
+    Follows the same measurement approach as standalone memory scripts:
+    - Baseline is taken *after* EP initialization (excludes DLL loading)
+    - Snapshots after compile and after inference warmup
+    - Deltas show model load cost and inference allocation cost
+
     Usage::
 
         tracker = MemoryTracker()
         tracker.snapshot_baseline()
-        # ... load model ...
-        tracker.snapshot_post_load()
-        # ... compile ...
+        # ... load model + compile ...
         tracker.snapshot_post_compile(adapter_luid="0x...")
         # ... run benchmark ...
         tracker.snapshot_post_inference(adapter_luid="0x...")
@@ -290,33 +289,30 @@ class MemoryTracker:
 
     def __init__(self) -> None:
         self._baseline: MemorySnapshot | None = None
-        self._post_load: MemorySnapshot | None = None
         self._post_compile: MemorySnapshot | None = None
         self._post_inference: MemorySnapshot | None = None
 
     def _take_snapshot(self, adapter_luid: str | None = None) -> MemorySnapshot:
         """Take a point-in-time memory snapshot."""
-        ws, peak_ws, priv, peak_priv = _get_process_memory()
+        mem = _get_memory_mb()
         dev_local, dev_shared = _get_device_memory_mb(adapter_luid)
         return MemorySnapshot(
-            working_set_mb=ws,
-            peak_working_set_mb=peak_ws,
-            private_bytes_mb=priv,
-            peak_private_bytes_mb=peak_priv,
+            rss_mb=mem["rss_mb"],
+            peak_wset_mb=mem["peak_wset_mb"],
             device_local_mb=dev_local,
             device_shared_mb=dev_shared,
         )
 
     def snapshot_baseline(self) -> None:
-        """Capture baseline memory before model loading."""
+        """Capture baseline memory.
+
+        Should be called *after* EP registry initialization so that one-time
+        DLL loading costs are excluded from model measurements.
+        """
         self._baseline = self._take_snapshot()
 
-    def snapshot_post_load(self) -> None:
-        """Capture memory after model loading."""
-        self._post_load = self._take_snapshot()
-
     def snapshot_post_compile(self, adapter_luid: str | None = None) -> None:
-        """Capture memory after session compilation.
+        """Capture memory after model load + session compilation.
 
         Args:
             adapter_luid: Adapter LUID for device memory query.
@@ -325,7 +321,7 @@ class MemoryTracker:
         self._post_compile = self._take_snapshot(adapter_luid)
 
     def snapshot_post_inference(self, adapter_luid: str | None = None) -> None:
-        """Capture memory after benchmark completion.
+        """Capture memory after inference (warmup + benchmark).
 
         Args:
             adapter_luid: Adapter LUID for device memory query.
@@ -337,21 +333,16 @@ class MemoryTracker:
 
         Returns None if any phase snapshot is missing.
         """
-        if any(
-            s is None
-            for s in (self._baseline, self._post_load, self._post_compile, self._post_inference)
-        ):
+        if any(s is None for s in (self._baseline, self._post_compile, self._post_inference)):
             logger.warning("Incomplete memory snapshots, cannot build profile")
             return None
 
         assert self._baseline is not None
-        assert self._post_load is not None
         assert self._post_compile is not None
         assert self._post_inference is not None
 
         return MemoryProfile(
             baseline=self._baseline,
-            post_load=self._post_load,
             post_compile=self._post_compile,
             post_inference=self._post_inference,
         )
