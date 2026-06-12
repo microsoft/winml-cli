@@ -68,7 +68,6 @@ class ModelValidatorManager:
         "batched_const_matmul": {
             "class": BatchedConstMatMulValidator,
             "enabled_devices": ["GPU"],  # OpenVINO GPU gemm impl-selection issue
-            "needs_context": True,  # validator self-gates on EP (Intel IHV)
         },
     }
 
@@ -121,10 +120,11 @@ class ModelValidatorManager:
                     )
                     continue
 
-                ctor_kwargs: dict = {"op_runtime_results": self.op_runtime_results}
-                if validator_config.get("needs_context"):
-                    ctor_kwargs["ep"] = self.ep
-                    ctor_kwargs["device"] = self.device
+                ctor_kwargs: dict = {
+                    "op_runtime_results": self.op_runtime_results,
+                    "ep": self.ep,
+                    "device": self.device,
+                }
 
                 try:
                     self.validators.append(validator_class(self.model, **ctor_kwargs))
