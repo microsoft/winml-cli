@@ -489,6 +489,7 @@ class TestPerfFormatJson:
         mock_result.samples_per_sec = 100.0
         mock_result.batches_per_sec = 100.0
         mock_result.hw_monitor = None
+        mock_result.memory_profile = None
         mock_instance = MagicMock()
         mock_instance.run.return_value = mock_result
         mock_benchmark_class.return_value = mock_instance
