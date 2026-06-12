@@ -282,45 +282,62 @@ class PerfBenchmark:
     def __init__(self, config: BenchmarkConfig) -> None:
         """Initialize benchmark with configuration."""
         self.config = config
-        self._model: WinMLPreTrainedModel | None = None
+        self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
         self._io_config: dict[str, Any] | None = None
 
     @property
     def _is_composite(self) -> bool:
-        """Composite models orchestrate multiple sub-sessions (e.g. CLIP/SigLIP)."""
+        """Composite models orchestrate multiple sub-sessions (e.g. CLIP/SigLIP).
+
+        Duck-typed on ``sub_models`` rather than ``isinstance(..., WinMLCompositeModel)``
+        on purpose: an ``isinstance`` check needs a runtime import of
+        ``composite_model``, which imports torch and would blow the
+        ``winml perf --help`` import budget (see tests/cli/test_import_time.py) by
+        pulling torch in at module load. Keeping ``WinMLCompositeModel`` a
+        TYPE_CHECKING-only import also lets the unit tests use lightweight
+        duck-typed fakes instead of constructing real torch-backed composites.
+        ``sub_models`` is the defining member of the composite base, so it is a
+        reliable marker.
+        """
         return hasattr(self._model, "sub_models")
 
     def _sub_models(self) -> dict[str, WinMLPreTrainedModel]:
         """Sub-models of a composite model (only valid when ``_is_composite``)."""
         return cast("WinMLCompositeModel", self._model).sub_models
 
+    @property
+    def _single(self) -> WinMLPreTrainedModel:
+        """The model under benchmark, narrowed to a single-session model.
+
+        Only valid for non-composite models: composites dispatch to
+        ``_run_sub_models``, which benchmarks each sub-model through a child
+        ``PerfBenchmark`` whose ``_model`` is itself single-session.
+        """
+        assert self._model is not None
+        return cast("WinMLPreTrainedModel", self._model)
+
     def _resolved_io_config(self) -> dict[str, Any]:
         """I/O config of the (single-session) model being benchmarked."""
         if self._io_config is None:
-            assert self._model is not None
-            self._io_config = self._model.io_config
+            self._io_config = self._single.io_config
         return self._io_config
 
     def _compile_model(self) -> None:
         """Compile the underlying ORT session so device/EP are resolved."""
-        assert self._model is not None
-        self._model._session.compile()
+        self._single._session.compile()
 
     def _resolved_device(self) -> str:
         """Actual device bound after compile."""
-        assert self._model is not None
-        return self._model.device
+        return self._single.device
 
     def _resolved_ep(self) -> EPName | None:
         """Primary EP bound after compile."""
-        assert self._model is not None
-        return self._model.ep_name
+        return self._single.ep_name
 
     def _resolved_task(self) -> str | None:
         """Resolved task; falls back to the requested task."""
-        assert self._model is not None
-        return self._model.task or self.config.task
+        return self._single.task or self.config.task
 
     def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
         """Execute full benchmark pipeline.
@@ -465,11 +482,10 @@ class PerfBenchmark:
 
     def _run_benchmark_simple(self) -> PerfStats:
         """Execute benchmark without live monitoring."""
-        assert self._model is not None
         assert self._inputs is not None
         total_iterations = self.config.warmup + self.config.iterations
 
-        session = self._model._session
+        session = self._single._session
         with session.perf(warmup=self.config.warmup) as stats:
             _run_simple_loop(session, self._inputs, total_iterations)
 
@@ -487,7 +503,6 @@ class PerfBenchmark:
         from ..session.monitor.hw_monitor import HWMonitor
         from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
-        assert self._model is not None
         assert self._inputs is not None
         total_iterations = self.config.warmup + self.config.iterations
 
@@ -520,12 +535,12 @@ class PerfBenchmark:
         else:
             ep_monitor = NullEPMonitor()
 
+        session = self._single._session
         with (
-            self._model._session.perf(warmup=self.config.warmup) as stats,
+            session.perf(warmup=self.config.warmup) as stats,
             hw_monitor as hw,
             ep_monitor as ep_mon,
         ):
-            session = self._model._session
             inputs = self._inputs
 
             def run_iteration() -> None:
@@ -1497,9 +1512,7 @@ def perf(
             # For HF models the ONNX is built internally by PerfBenchmark.
             try:
                 onnx_for_trace = (
-                    model_path
-                    if is_onnx
-                    else (benchmark._model._onnx_path if benchmark._model else None)
+                    model_path if is_onnx else getattr(benchmark._model, "_onnx_path", None)
                 )
                 if onnx_for_trace is None:
                     raise AttributeError("benchmark._model not initialized")
