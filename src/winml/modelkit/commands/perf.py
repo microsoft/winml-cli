@@ -297,11 +297,13 @@ class PerfBenchmark:
             BenchmarkResult with timing statistics
         """
         # Initialize memory tracker if enabled.
-        # Baseline is taken here — after Python/ORT/EP DLLs are loaded but
-        # before model-specific work, so EP initialization cost is excluded.
+        # Warm up EP registry first so one-time DLL loading costs (~190 MB
+        # for OV plugin) are excluded from model memory measurements.
         if self.config.memory:
             from ..session.monitor.memory_tracker import MemoryTracker
+            from ..session.session import WinMLSession
 
+            WinMLSession._init_winml_eps_once()
             self._memory_tracker = MemoryTracker()
             self._memory_tracker.snapshot_baseline()
 
