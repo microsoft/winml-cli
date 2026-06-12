@@ -80,6 +80,7 @@ class BenchmarkConfig:
     batch_size: int = 1
     output_path: Path | None = None
     no_quantize: bool = False
+    no_compile: bool = True
     rebuild: bool = False
     ignore_cache: bool = False
     skip_build: bool = True
@@ -451,6 +452,7 @@ class PerfBenchmark:
             "force_rebuild": force_rebuild,
             "shape_config": self.config.shape_config,
             "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
+            "no_compile": self.config.no_compile,
         }
 
         if is_onnx:
@@ -1251,6 +1253,11 @@ def _run_simple_loop(
     help="Build from scratch in a temp folder (discard after benchmarking)",
 )
 @cli_utils.skip_build_option()
+@cli_utils.compile_option(
+    default=True,
+    help_text="Compile the model during build. Default: off (skip compilation); "
+    "use --compile to enable.",
+)
 @cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--module",
@@ -1296,6 +1303,7 @@ def perf(
     rebuild: bool,
     ignore_cache: bool,
     skip_build: bool,
+    no_compile: bool,
     allow_unsupported_nodes: bool,
     module_class: str | None,
     monitor: bool,
@@ -1435,6 +1443,7 @@ def perf(
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         skip_build=skip_build,
+        no_compile=no_compile,
         allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
         ep=ep,

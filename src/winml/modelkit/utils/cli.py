@@ -368,6 +368,40 @@ def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F
     )
 
 
+def compile_option(
+    default: bool | None = None,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add shared ``--no-compile/--compile`` toggle to a Click command.
+
+    The flag is exposed as the ``no_compile`` parameter. Note the inverted
+    sense — ``--no-compile`` maps to ``no_compile=True``:
+
+        * ``--no-compile`` -> ``no_compile=True``  (force skip compilation)
+        * ``--compile``    -> ``no_compile=False`` (force enable compilation)
+
+    Args:
+        default: Value for ``no_compile`` when neither flag is passed.
+            ``None`` -> tri-state inherit (e.g. ``winml build`` inherits from
+            the config file); ``True`` -> exclude compilation by default
+            (e.g. ``winml config`` omits the compile section).
+        help_text: Command-specific help string. Falls back to a generic
+            description when not provided.
+
+    Returns:
+        Decorator function.
+    """
+    if help_text is None:
+        help_text = "Override compilation. --compile forces enable; --no-compile forces skip."
+
+    return click.option(
+        "--no-compile/--compile",
+        "no_compile",
+        default=default,
+        help=help_text,
+    )
+
+
 def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add shared --allow-unsupported-nodes option to a Click command.
 
