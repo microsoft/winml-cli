@@ -23,8 +23,13 @@ from __future__ import annotations
 import threading
 from contextlib import contextmanager
 from functools import wraps
+from typing import TYPE_CHECKING, Any
 
 from optimum.utils.input_generators import DummyInputGenerator
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 
 # Thread-local to correlate static method calls with the current input_name.
@@ -41,11 +46,13 @@ _TENSOR_GEN_METHODS = (
 )
 
 
-def _make_static_wrapper(original, method_name, captured):
+def _make_static_wrapper(
+    original: Callable[..., Any], method_name: str, captured: dict[str, dict[str, Any]]
+) -> Callable[..., Any]:
     """Wrap a DummyInputGenerator static method to capture value range args."""
 
     @wraps(original)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         result = original(*args, **kwargs)
         input_name = getattr(_current_input, "name", None)
         if input_name is None:
@@ -81,11 +88,11 @@ def _make_static_wrapper(original, method_name, captured):
     return wrapper
 
 
-def _make_generate_wrapper(original):
+def _make_generate_wrapper(original: Callable[..., Any]) -> Callable[..., Any]:
     """Wrap a generator's generate() to track which input_name is active."""
 
     @wraps(original)
-    def wrapper(self, input_name, *args, **kwargs):
+    def wrapper(self: Any, input_name: str, *args: Any, **kwargs: Any) -> Any:
         _current_input.name = input_name
         try:
             return original(self, input_name, *args, **kwargs)
@@ -96,7 +103,7 @@ def _make_generate_wrapper(original):
 
 
 @contextmanager
-def intercept_value_ranges():
+def intercept_value_ranges() -> Iterator[dict[str, dict[str, Any]]]:
     """Context manager that captures value ranges from Optimum's dummy input generation.
 
     Monkey-patches DummyInputGenerator's static tensor methods and all
@@ -133,11 +140,12 @@ def intercept_value_ranges():
     # Patch generate() on all subclasses that override it
     patched_classes = []
 
-    def _patch_subclasses(base):
+    def _patch_subclasses(base: type) -> None:
         for cls in base.__subclasses__():
             if "generate" in cls.__dict__:
                 originals[(cls, "generate")] = cls.__dict__["generate"]
-                cls.generate = _make_generate_wrapper(cls.__dict__["generate"])
+                # Monkey-patch optimum's untyped generator hierarchy.
+                cls.generate = _make_generate_wrapper(cls.__dict__["generate"])  # type: ignore[attr-defined]
                 patched_classes.append(cls)
             _patch_subclasses(cls)
 
@@ -154,4 +162,4 @@ def intercept_value_ranges():
                 staticmethod(originals[method_name]),
             )
         for cls in patched_classes:
-            cls.generate = originals[(cls, "generate")]
+            cls.generate = originals[(cls, "generate")]  # type: ignore[attr-defined]

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from random import Random
-from typing import Any
+from typing import Any, cast
 
 from datasets import load_dataset
 from datasets.features import Image
@@ -39,6 +39,11 @@ class ImageSegmentationDataset(BaseTaskDataset):
     DEFAULT_DATASET = "nielsr/ade20k-demo"
     DEFAULT_SPLIT = "train"
 
+    # Populated by _detect_columns(); empty string until then.
+    _image_col: str = ""
+    _label_col: str = ""
+    _mask_col: str = ""
+
     def __init__(
         self,
         model_name: str,
@@ -46,7 +51,7 @@ class ImageSegmentationDataset(BaseTaskDataset):
         max_samples: int | None = None,
         data_split: str | None = None,
         do_reduce_labels: bool = True,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Initialize image segmentation dataset.
 
@@ -119,7 +124,7 @@ class ImageSegmentationDataset(BaseTaskDataset):
         processor = AutoImageProcessor.from_pretrained(self._model_name, use_fast=False)
 
         # 6. Apply image + mask processing
-        def preprocess_single_sample(example):
+        def preprocess_single_sample(example: dict[str, Any]) -> dict[str, Any]:
             """Preprocess a single image + mask sample for segmentation models."""
             # Get image and mask
             image = example[self._image_col].convert("RGB")
@@ -146,7 +151,7 @@ class ImageSegmentationDataset(BaseTaskDataset):
         logger.info(f"Image column: {self._image_col}")
         logger.info(f"Mask column: {self._mask_col}")
 
-    def _detect_columns(self, dataset) -> None:
+    def _detect_columns(self, dataset: Any) -> None:
         """Detect image and mask columns using HuggingFace Features API.
 
         Uses proper type checking to identify Image features and applies
@@ -158,8 +163,8 @@ class ImageSegmentationDataset(BaseTaskDataset):
         features = dataset.features
 
         # Initialize column detection
-        self._image_col = None
-        self._mask_col = None
+        self._image_col = ""
+        self._mask_col = ""
 
         # Detect columns using proper type checking and naming patterns
         image_candidates = []
@@ -256,7 +261,7 @@ class ImageSegmentationDataset(BaseTaskDataset):
         Returns:
             Dictionary containing preprocessed tensors for segmentation models
         """
-        return self._dataset[idx]
+        return cast("dict[str, Any]", self._dataset[idx])
 
     @property
     def mask_col(self) -> str:

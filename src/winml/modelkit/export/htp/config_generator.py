@@ -203,7 +203,8 @@ class ExportConfigGenerator:
         Uses InputSpecGenerator patterns (universal approach).
         """
         try:
-            from ...inference.onnx_config.input_generator import (
+            # Tracked: inference.onnx_config.* doesn't exist; #859 decides delete-vs-restore.
+            from ...inference.onnx_config.input_generator import (  # type: ignore[import-not-found]
                 InputSpecGenerator,
             )
 
@@ -265,10 +266,13 @@ class ExportConfigGenerator:
         Uses InputSpecGenerator patterns (universal approach).
         """
         try:
-            from ...inference.onnx_config.patterns import TASK_TO_OUTPUTS
+            # Tracked: inference.onnx_config.* doesn't exist; #859 decides delete-vs-restore.
+            from ...inference.onnx_config.patterns import (  # type: ignore[import-not-found]
+                TASK_TO_OUTPUTS,
+            )
 
             if task and task in TASK_TO_OUTPUTS:
-                return TASK_TO_OUTPUTS[task]
+                return list(TASK_TO_OUTPUTS[task])
 
             # Default outputs
             if task and "classification" in task:
@@ -300,7 +304,7 @@ class ExportConfigGenerator:
 def generate_config_cli(
     model: str,
     output: str = "export_config.json",
-    target: str = "qnn",
+    target: Literal["qnn", "cpu", "cuda", "universal"] = "qnn",
     task: str | None = None,
     batch_size: int = 1,
 ) -> None:
@@ -340,6 +344,18 @@ if __name__ == "__main__":
 
     model = sys.argv[1]
     output = sys.argv[2] if len(sys.argv) > 2 else "export_config.json"
-    target = sys.argv[3] if len(sys.argv) > 3 else "qnn"
+    target: Literal["qnn", "cpu", "cuda", "universal"]
+    raw_target = sys.argv[3] if len(sys.argv) > 3 else "qnn"
+    if raw_target == "qnn":
+        target = "qnn"
+    elif raw_target == "cpu":
+        target = "cpu"
+    elif raw_target == "cuda":
+        target = "cuda"
+    elif raw_target == "universal":
+        target = "universal"
+    else:
+        print(f"Invalid target {raw_target!r}; expected qnn, cpu, cuda, or universal.")
+        sys.exit(1)
 
     generate_config_cli(model, output, target)

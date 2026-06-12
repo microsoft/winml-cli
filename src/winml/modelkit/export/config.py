@@ -435,6 +435,9 @@ def resolve_export_config(
         trust_remote_code=trust_remote_code,
         library_name=library_name,
     )
+    # resolve_loader_config guarantees both fields are populated (it raises otherwise).
+    assert loader_config.model_type is not None
+    assert loader_config.task is not None
 
     export_config = _resolve_export_config_from_specs(
         model_type=loader_config.model_type,

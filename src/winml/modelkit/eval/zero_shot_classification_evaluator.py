@@ -20,7 +20,7 @@ positionally for both predictions and references.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from tqdm import tqdm
 from transformers.pipelines.zero_shot_classification import ZeroShotClassificationPipeline
@@ -46,10 +46,10 @@ class _FixedShapeZeroShotPipeline(ZeroShotClassificationPipeline):
 
     _winml_evaluator: WinMLEvaluator | None = None
 
-    def _parse_and_tokenize(self, sequence_pairs: Any, **kwargs: Any) -> Any:
+    def _parse_and_tokenize(self, *args: Any, **kwargs: Any) -> Any:
         kwargs.setdefault("padding", True)
         kwargs.setdefault("truncation", True)
-        encoding = super()._parse_and_tokenize(sequence_pairs, **kwargs)
+        encoding = super()._parse_and_tokenize(*args, **kwargs)
         if self._winml_evaluator is None or self.tokenizer is None:
             return encoding
         return self._winml_evaluator._pad_or_truncate(encoding, self.tokenizer)
@@ -79,7 +79,9 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
 
         max_length = self._fixed_seq_length()
 
-        pipe = pipeline(
+        # WinMLPreTrainedModel isn't in transformers' Pipeline model union;
+        # the pipeline_class override is also outside the Literal overloads.
+        pipe = pipeline(  # type: ignore[call-overload]
             "zero-shot-classification",
             model=self.model,
             framework="pt",
@@ -101,7 +103,7 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
                 if filtered:
                     pipe.tokenizer.model_input_names = filtered
 
-        return pipe
+        return cast("Pipeline", pipe)
 
     def align_labels(
         self,

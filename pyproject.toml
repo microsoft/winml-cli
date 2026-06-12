@@ -111,8 +111,10 @@ dev = [
   "pre-commit>=4.5.1",
   "pytest-cov>=7",
   "pytest-timeout>=2.4.0",
+  "scipy-stubs>=1.17.1.5",
   "types-jsonschema>=4.26.0.20260518",
   "types-protobuf>=7.34.1.20260518",
+  "types-psutil>=7.2.2.20260518",
   "types-pyyaml>=6.0.12.20260518",
   "types-tqdm>=4.67.3.20260518",
 ]
@@ -478,6 +480,10 @@ module = [
   "openvino",
   "openvino.*",
   "plotext",
+  "soundfile",       # audio I/O in inference/engine.py; no community stubs
+  "sklearn.*",       # used in eval/metrics; no community stubs
+  "evaluate",        # HF evaluate, used in eval/; no community stubs
+  "evaluate.*",
 ]
 ignore_missing_imports = true
 

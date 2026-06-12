@@ -32,7 +32,7 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from optimum.exporters.tasks import TasksManager
 from optimum.utils.input_generators import (
@@ -92,7 +92,7 @@ map_task_synonym = to_optimum_task
 # =============================================================================
 # Custom Input Generators
 # =============================================================================
-class MaxLengthTextInputGenerator(DummyTextInputGenerator):
+class MaxLengthTextInputGenerator(DummyTextInputGenerator):  # type: ignore[misc]
     """Text input generator that uses max_position_embeddings as sequence_length.
 
     Optimum's DummyTextInputGenerator uses a hardcoded default of 16 for
@@ -116,8 +116,8 @@ class MaxLengthTextInputGenerator(DummyTextInputGenerator):
         task: str,
         normalized_config: NormalizedTextConfig,
         sequence_length: int | None = None,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initialize with sequence_length from normalized_config.
 
         Args:
@@ -271,7 +271,11 @@ def _get_preprocessor_dict(
     from. Returns an empty dict when neither source yields a usable size.
     """
     try:
-        from transformers.image_processing_utils import ImageProcessingMixin
+        if model_id is None:
+            raise OSError("No model_id provided")
+        from transformers.image_processing_utils import (  # type: ignore[attr-defined]
+            ImageProcessingMixin,
+        )
 
         config, _ = ImageProcessingMixin.get_image_processor_dict(model_id)
         if "size" in config:
@@ -279,7 +283,6 @@ def _get_preprocessor_dict(
         # Partial preprocessor_config.json without a "size" key: fall through
         # to synthesis so we don't silently use Optimum's 64x64 default.
     except (OSError, ValueError, KeyError) as e:
-        # if model_id is None, OSError is raised
         logger.debug("Could not load preprocessor_config.json for %s: %s", model_id, e)
 
     if hf_config is not None:
@@ -411,7 +414,11 @@ def generate_dummy_inputs(
         shape_kwargs,
     )
 
-    return onnx_config.generate_dummy_inputs(framework="pt", **shape_kwargs)
+    # Optimum's OnnxConfig is untyped; the dummy-inputs dict matches our return type.
+    return cast(
+        "dict[str, torch.Tensor]",
+        onnx_config.generate_dummy_inputs(framework="pt", **shape_kwargs),
+    )
 
 
 def resolve_io_specs(
@@ -477,7 +484,9 @@ def resolve_io_specs(
     input_dtypes = [str(t.dtype).replace("torch.", "") for t in dummy_inputs.values()]
 
     # Build value_range dict: {name: (min, max)} from intercepted data
-    value_ranges = {name: (info["min"], info["max"]) for name, info in value_ranges.items()}
+    value_range_tuples = {
+        name: (info["min"], info["max"]) for name, info in value_ranges.items()
+    }
 
     return {
         "inputs": onnx_config.inputs,
@@ -487,5 +496,5 @@ def resolve_io_specs(
         "dynamic_axes": {**onnx_config.inputs, **onnx_config.outputs},
         "input_shapes": input_shapes,
         "input_dtypes": input_dtypes,
-        "value_ranges": value_ranges,
+        "value_ranges": value_range_tuples,
     }

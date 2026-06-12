@@ -123,7 +123,7 @@ class ObjectDetectionDataset(ImageDataset):
 
         # Apply image processing
         def preprocess_single_sample(example: dict[str, Any]) -> dict[str, Any]:
-            return processor(example[self._image_col].convert("RGB"), return_tensors="pt")
+            return dict(processor(example[self._image_col].convert("RGB"), return_tensors="pt"))
 
         self._dataset = (
             dataset
@@ -151,8 +151,8 @@ class ObjectDetectionDataset(ImageDataset):
         features = dataset.features
 
         # Find image column
-        self._image_col = None
-        self._label_col = None  # May not have simple label column
+        self._image_col = ""
+        self._label_col = ""  # May not have simple label column
         self._label_feature = None
 
         for col_name, feature in features.items():
@@ -174,7 +174,7 @@ class ObjectDetectionDataset(ImageDataset):
                 self._label_col = col_name
                 break
 
-        if self._label_col is None:
+        if not self._label_col:
             # Use first non-image column as fallback
             for col_name in features:
                 if col_name != self._image_col:
@@ -200,5 +200,5 @@ class ObjectDetectionDataset(ImageDataset):
         so this returns an empty list unless explicitly set.
         """
         if self._label_feature is not None and hasattr(self._label_feature, "names"):
-            return self._label_feature.names
+            return list(self._label_feature.names)
         return []
