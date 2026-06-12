@@ -1,0 +1,137 @@
+site_name: Windows ML CLI
+site_description: A CLI toolkit to build portable, performant, and high-quality models for Windows ML.
+site_url: https://microsoft.github.io/winml-cli/
+repo_url: https://github.com/microsoft/winml-cli
+repo_name: microsoft/winml-cli
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+exclude_docs: |
+  /design/
+  /naming-convention.md
+  /pytest-best-practices.md
+
+extra:
+  version:
+    provider: mike
+    default: latest
+
+extra_css:
+  - stylesheets/extra.css
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mike:
+      version_selector: true
+      css_dir: css
+      javascript_dir: js
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - UI Quickstart: getting-started/ui-quickstart.md
+      - Use with AI Agent: getting-started/agent-skill.md
+  - Concepts:
+      - Fundamentals:
+          - How winml-cli works: concepts/how-it-works.md
+          - Graph and IR: concepts/graphs-and-ir.md
+          - Weight and Activation: concepts/weight-and-activation.md
+          - Datatype and Quantization: concepts/quantization.md
+          - EP and Device: concepts/eps-and-devices.md
+      - WinML CLI:
+          - Load and export: concepts/load-and-export.md
+          - Primitives and pipeline: concepts/primitives-and-pipeline.md
+          - Analyze and optimize: concepts/analyze-and-optimize.md
+          - Compile and EPContext: concepts/compile-and-epcontext.md
+          - Perf and monitoring: concepts/perf-and-monitoring.md
+          - Eval and datasets: concepts/eval-and-datasets.md
+          - Config and build: concepts/config-and-build.md
+  - Commands:
+      - Overview: commands/overview.md
+      - Discover:
+          - sys: commands/sys.md
+          - inspect: commands/inspect.md
+          - catalog: commands/catalog.md
+      - Configure:
+          - config: commands/config.md
+      - Build:
+          - export: commands/export.md
+          - analyze: commands/analyze.md
+          - optimize: commands/optimize.md
+          - quantize: commands/quantize.md
+          - compile: commands/compile.md
+          - build: commands/build.md
+      - Measure:
+          - perf: commands/perf.md
+          - eval: commands/eval.md
+  - Samples:
+      - BERT — Config + Build + Perf: samples/bert-config-build.md
+      - CLIP — Composite Models: samples/clip-composite.md
+  - Tutorials:
+      - Overview: tutorials/index.md
+      - Hugging Face Model to NPU: tutorials/npu-convnext.md
+      - Bring Your Own ONNX Model: tutorials/build-from-onnx.md
+  - Reference:
+      - Config Schema: reference/index.md
+      - Output Layout: reference/output-layout.md
+      - Supported Models: reference/supported-models.md
+      - Python API: reference/python-api.md
+  - Troubleshooting: troubleshooting.md
+  - Contributing: contributing.md
+  - Privacy: Privacy.md
