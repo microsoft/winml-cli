@@ -8,6 +8,7 @@ Offline / config-only: every case builds its config with
 ``AutoConfig.for_model`` so no network access is required.
 """
 
+import pytest
 from transformers import AutoConfig
 
 from winml.modelkit.loader.resolution import TaskSource, resolve_task
@@ -60,3 +61,29 @@ def test_no_architectures_uses_first_supported_task():
     r = resolve_task(cfg)
     assert r.source == TaskSource.WRAPPED_LIBRARY
     assert r.task in ("feature-extraction", "fill-mask")
+
+
+def test_model_id_default_source():
+    cfg = _cfg("bert")
+    cfg._name_or_path = "prajjwal1/bert-tiny"
+    r = resolve_task(cfg)
+    assert r.task == "feature-extraction"
+    assert r.source == TaskSource.MODEL_ID_DEFAULT
+
+
+def test_user_class_unknown_raises_friendly_error():
+    cfg = _cfg("bert", ["BertModel"])
+    with pytest.raises(ValueError, match="not found for task"):
+        resolve_task(cfg, model_class="NotARealClass")
+
+
+def test_user_task_unsupported_raises_friendly_error():
+    cfg = _cfg("bert", ["BertModel"])
+    with pytest.raises(ValueError, match="not supported by TasksManager"):
+        resolve_task(cfg, task="not-a-real-task")
+
+
+def test_unimportable_architecture_falls_back_to_hf_task_default():
+    cfg = _cfg("bert", ["TotallyNotAClass"])
+    r = resolve_task(cfg)
+    assert r.source == TaskSource.HF_TASK_DEFAULT

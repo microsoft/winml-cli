@@ -100,6 +100,17 @@ def resolve_composite(model_type: str, task: str) -> CompositeComponents | None:
 _SEQ2SEQ_GENERATION_TASK = "text2text-generation"
 
 
+def _infer_task_from_architecture(config: PretrainedConfig) -> str:
+    """Optimum task inferred from ``config.architectures[0]``.
+
+    Includes the encoder-decoder fill-mask -> text2text-generation correction.
+    """
+    return _upgrade_fill_mask_for_seq2seq(
+        _detect_task_from_model_class(_resolve_model_class_from_config(config)),
+        config,
+    )
+
+
 def _composite_components_for_task(model_type: str, task: str) -> CompositeComponents | None:
     """Composite components serving a *detected* task, else None.
 
@@ -151,12 +162,7 @@ def resolve_task(
     # --- Stage 0: user override (short-circuits detection) ----------------
     if model_class is not None:
         opt_task = (
-            normalize_task(task)
-            if task is not None
-            else _upgrade_fill_mask_for_seq2seq(
-                _detect_task_from_model_class(_resolve_model_class_from_config(config)),
-                config,
-            )
+            normalize_task(task) if task is not None else _infer_task_from_architecture(config)
         )
         try:
             resolved = TasksManager.get_model_class_for_task(
@@ -222,10 +228,7 @@ def resolve_task(
     # 1c. TasksManager (reads config.architectures)
     if opt_task is None:
         try:
-            opt_task = _upgrade_fill_mask_for_seq2seq(
-                _detect_task_from_model_class(_resolve_model_class_from_config(config)),
-                config,
-            )
+            opt_task = _infer_task_from_architecture(config)
             source = TaskSource.TASKS_MANAGER
         except ValueError:
             opt_task = None
