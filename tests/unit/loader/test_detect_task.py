@@ -29,10 +29,12 @@ class _FakeConfig:
         patch_size: int | None = None,
         architectures: list[str] | None = None,
         is_encoder_decoder: bool = False,
+        name_or_path: str = "",
     ) -> None:
         self.model_type = model_type
         self.architectures = architectures or ["FakeModel"]
         self.is_encoder_decoder = is_encoder_decoder
+        self._name_or_path = name_or_path
         if image_size is not None:
             self.image_size = image_size
         if patch_size is not None:
@@ -140,16 +142,27 @@ def test_detect_task_uses_single_real_task_despite_none_sentinel() -> None:
     m.assert_not_called()
 
 
-def test_detect_task_falls_through_for_multi_task_model_type_sam2() -> None:
-    """sam2 maps to multiple real tasks (image-segmentation, feature-extraction,
-    image-feature-extraction, mask-generation) in MODEL_CLASS_MAPPING, so the
-    (sam2, None) sentinel cannot disambiguate and detection must fall through to
-    architecture-aware detection rather than short-circuiting."""
+def test_detect_task_applies_sentinel_for_multi_task_model_type_sam2() -> None:
+    """sam2 maps to multiple real tasks but also carries a (sam2, None) sentinel whose
+    canonical export target is the mask-generation decoder. The unified override applies
+    that sentinel on the detect path too (matching the build path), so detection resolves
+    to mask-generation without consulting the architecture head — inspect now predicts the
+    artifact build actually produces."""
     cfg = _FakeConfig("sam2")
-    with patch(_DETECT, return_value="feature-extraction") as m:
+    with patch(_DETECT) as m:
         task, source = detect_task(cfg)
-    assert (task, source) == ("feature-extraction", "TasksManager")
-    m.assert_called_once()
+    assert (task, source) == ("mask-generation", "HF_MODEL_CLASS_MAPPING")
+    m.assert_not_called()
+
+
+def test_detect_task_applies_model_id_override() -> None:
+    """A configured model-id default (prajjwal1/bert-tiny -> feature-extraction) now fires
+    on the detect path too (previously build-only), so inspect agrees with build."""
+    cfg = _FakeConfig("bert", name_or_path="prajjwal1/bert-tiny")
+    with patch(_DETECT) as m:
+        task, _ = detect_task(cfg)
+    assert task == "feature-extraction"
+    m.assert_not_called()
 
 
 def test_detect_task_short_circuits_for_unambiguous_model_type() -> None:
