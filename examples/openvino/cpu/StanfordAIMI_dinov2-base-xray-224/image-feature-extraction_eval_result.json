@@ -1,0 +1,20 @@
+{
+  "model_id": "StanfordAIMI/dinov2-base-xray-224",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\StanfordAIMI_dinov2-base-xray-224\\image-feature-extraction_build_artifacts\\model.onnx",
+  "task": "image-feature-extraction",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 582,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Ewakaa/pneumonia_classification_chest_xray"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\StanfordAIMI_dinov2-base-xray-224\\image-feature-extraction_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "knn_top1_accuracy": 93.6426,
+    "knn_top5_accuracy": 99.3127
+  }
+}

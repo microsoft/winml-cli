@@ -19,10 +19,10 @@
     }
   },
   "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\microsoft_trocr-large-printed\\image-to-text_eval_result.json",
+  "skip_build": true,
   "metrics": {
-    "cer": null,
-    "cider": null,
-    "n_samples": 0,
-    "skipped": 200
+    "cer": 0.0037,
+    "cider": 4.532,
+    "n_samples": 200
   }
 }

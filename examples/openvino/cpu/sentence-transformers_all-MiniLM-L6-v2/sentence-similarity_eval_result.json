@@ -1,0 +1,24 @@
+{
+  "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_build_artifacts\\model.onnx",
+  "task": "sentence-similarity",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "cosine_spearman": 81.9722
+  }
+}

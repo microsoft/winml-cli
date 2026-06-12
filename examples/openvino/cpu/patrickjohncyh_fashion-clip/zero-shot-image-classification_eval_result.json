@@ -1,0 +1,26 @@
+{
+  "model_id": "patrickjohncyh/fashion-clip",
+  "model_path": {
+    "image-encoder": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\patrickjohncyh_fashion-clip\\zero-shot-image-classification_build_artifacts\\image-encoder\\model.onnx",
+    "text-encoder": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\patrickjohncyh_fashion-clip\\zero-shot-image-classification_build_artifacts\\text-encoder\\model.onnx"
+  },
+  "task": "zero-shot-image-classification",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "zalando-datasets/fashion_mnist",
+    "columns_mapping": {
+      "input_column": "image"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\patrickjohncyh_fashion-clip\\zero-shot-image-classification_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "top1_accuracy": 74.3,
+    "top5_accuracy": 99.8
+  }
+}
