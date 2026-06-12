@@ -95,7 +95,7 @@ class TestCompileMultipleOutputPath:
         """Multiple models with a file output_path (has a suffix) is rejected."""
         m1 = tmp_path / "a" / "m.onnx"
         m2 = tmp_path / "b" / "m.onnx"
-        with pytest.raises(AssertionError, match="must be a directory"):
+        with pytest.raises(ValueError, match="must be a directory"):
             compile_multiple_onnx([m1, m2], tmp_path / "out.onnx")
 
     @patch("winml.modelkit.compiler.compiler.Compiler")
@@ -105,7 +105,7 @@ class TestCompileMultipleOutputPath:
         """Multiple models with no output_path is rejected (would break shared context)."""
         m1 = tmp_path / "a" / "m.onnx"
         m2 = tmp_path / "b" / "m.onnx"
-        with pytest.raises(AssertionError, match="must be a directory"):
+        with pytest.raises(ValueError, match="must be a directory"):
             compile_multiple_onnx([m1, m2], None)
 
     @patch("winml.modelkit.compiler.compiler.Compiler")

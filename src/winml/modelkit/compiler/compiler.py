@@ -271,9 +271,8 @@ def compile_multiple_onnx(
     # A path with a suffix (e.g. ".onnx") is a file; otherwise it's a directory.
     out_is_file = out is not None and bool(out.suffix)
 
-    if len(paths) > 1:
-        out_is_dir = out is not None and not out_is_file
-        assert out_is_dir, (
+    if len(paths) > 1 and (out is None or out_is_file):
+        raise ValueError(
             "output_path must be a directory when compiling multiple models "
             f"(shared EP context), got {output_path!r}"
         )
