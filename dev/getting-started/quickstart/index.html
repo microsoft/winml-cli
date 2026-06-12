@@ -2600,7 +2600,6 @@
 
 
 <h1 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h1>
-<p>This guide walks you through verifying your install, inspecting a model from Hugging Face, running a full build pipeline to produce an optimized ONNX, and benchmarking the model on your device. Estimated time: 5 minutes.</p>
 <h2 id="verify-the-install">Verify the install<a class="headerlink" href="#verify-the-install" title="Permanent link">&para;</a></h2>
 <p>Run the following command to enumerate available devices and execution providers
 on your machine:</p>
@@ -2620,12 +2619,6 @@ ready. See <a href="../../commands/sys/"><code>winml sys</code></a> for the full
 </span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>| Status        Supported                                                    |
 </span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>+---------------------------------------------------------------------------+
 </span></code></pre></div>
-<div class="admonition note">
-<p class="admonition-title">What just happened</p>
-<p><code>winml inspect</code> read only the model's <code>config.json</code> from Hugging Face Hub —
-no weights downloaded — and confirmed that <code>microsoft/resnet-50</code> maps to a
-supported task, a known model class, and a compatible ONNX exporter.</p>
-</div>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p>Always inspect before build to catch unsupported architectures early.</p>
@@ -2633,7 +2626,7 @@ supported task, a known model class, and a compatible ONNX exporter.</p>
 <h2 id="build-the-model">Build the model<a class="headerlink" href="#build-the-model" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>-o<span class="w"> </span>resnet_out/<span class="w"> </span>--no-quant
 </span></code></pre></div>
-<p><code>winml build</code> runs all pipeline steps in sequence — export, optimize, quantize (when an NPU is detected on your device), and compile (disabled by default). You can start a model build without a config file, or provide one to configure each step in the sequence (see <a href="../../commands/config/"><code>winml config</code></a> to customize).
+<p><code>winml build</code> runs all pipeline steps in sequence — export, optimize, quantize. You can start a model build without a config file, or provide one to configure each step in the sequence (see <a href="../../commands/config/"><code>winml config</code></a> to customize).
 All intermediate artifacts land in <code>resnet_out/</code>, so you can reuse any stage independently.</p>
 <p>After a successful build, you will find the following outputs in <code>resnet_out/</code>:</p>
 <ul>
@@ -2641,18 +2634,6 @@ All intermediate artifacts land in <code>resnet_out/</code>, so you can reuse an
 <li><strong><code>analyze_result.json</code></strong> — detailed model compatibility insights for each Windows ML EP, including supported, partially supported, and unsupported operators, detected optimization patterns, and recommended optimization workflows.</li>
 <li><strong>A declarative <code>winml_build_config</code> file</strong> — automatically generated after the build step to capture the full workflow end-to-end.</li>
 </ul>
-<div class="admonition tip">
-<p class="admonition-title">CI/CD integration</p>
-<p>The declarative <code>winml_build_config</code> makes it easy to integrate the model build workflow into CI/CD pipelines — the same file drives reproducible, portable build workflows across environments.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">--no-quant</p>
-<p><code>--no-quant</code> tells the pipeline to skip the quantize stage. Quantization is a valuable step for NPU targets, but skipping it here for the output model run on any device.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Why compile is disabled by default</p>
-<p>Compilation embeds a pre-compiled binary optimized for your specific device. Skip this step to keep the ONNX output portable — it will run on any device using just-in-time (JIT) compilation.</p>
-</div>
 <h2 id="benchmark-the-model">Benchmark the model<a class="headerlink" href="#benchmark-the-model" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>resnet_out/model.onnx<span class="w"> </span>--device<span class="w"> </span>auto<span class="w"> </span>--iterations<span class="w"> </span><span class="m">50</span><span class="w"> </span>--monitor
 </span></code></pre></div>
