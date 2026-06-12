@@ -37,3 +37,20 @@ REMOVE_ISNAN_IN_ATTENTION_MASK = BoolCapability(
     category=CapabilityCategory.SURGERY,
     default=False,
 )
+
+# Route a constant operand of a batched (rank >= 3) MatMul through a runtime
+# no-op so it is no longer a compile-time constant. OpenVINO GPU's oneDNN gemm
+# cannot select an implementation for a batched MatMul with a constant operand
+# (e.g. transformer disentangled-attention position terms that fold to 3D
+# constants); making the operand runtime-valued lets gemm impl selection
+# succeed without changing numerics or splitting the batched op.
+UNTIE_CONSTANT_BATCHED_MATMUL = BoolCapability(
+    name="untie-constant-batched-matmul",
+    ort_name=None,  # Custom implementation, not ORT optimizer
+    description=(
+        "Make a batched MatMul's constant operand runtime-valued so OpenVINO "
+        "GPU can select a gemm implementation"
+    ),
+    category=CapabilityCategory.SURGERY,
+    default=False,
+)
