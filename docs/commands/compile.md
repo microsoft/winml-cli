@@ -22,7 +22,7 @@ $ winml compile [options]
 | `--output` | `-o` | path | — | Output file path (e.g., `model_compiled.onnx`). Takes precedence over `--output-dir`. |
 | `--output-dir` | | path | same dir as input | Directory to write compiled output artifacts. |
 | `--device` | `-d` | choice | `auto` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
-| `--ep` | | choice | `None` | Force a specific execution provider, overriding device-to-provider mapping. Choices: `cpu`, `cuda`, `dml`, `migraphx`, `openvino`, `qnn`, `tensorrt`, `vitisai`. |
+| `--ep` | | `TEXT` | — | Force a specific execution provider, overriding device-to-provider mapping. Accepts full names (e.g., `QNNExecutionProvider`) or aliases (`qnn`, `dml`, `openvino`, `vitisai`, `migraphx`, `cpu`, `nvtensorrtrtx`). |
 | `--validate` / `--no-validate` | | flag | `--validate` | Run a post-compilation validation pass on the target hardware. Enabled by default; pass `--no-validate` to skip when the target hardware or driver is unavailable. |
 | `--compiler` | | choice | `ort` | Compiler backend: `ort` (ONNX Runtime) or `qairt` (Qualcomm AI Runtime Tools). |
 | `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |

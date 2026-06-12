@@ -26,8 +26,8 @@ $ winml quantize [options]
 | `--precision` | `-p` | string | `None` | Precision shorthand: `int8`, `int16`, or mixed-precision like `w8a16`. Overridden by explicit `--weight-type` / `--activation-type`. |
 | `--samples` | | integer | `10` | Number of calibration samples used to compute quantization ranges. |
 | `--method` | | choice | `minmax` | Calibration algorithm: `minmax`, `entropy`, or `percentile`. |
-| `--weight-type` | | choice | `uint8` | Per-tensor type for weights: `uint8`, `int8`, `uint16`, or `int16`. Overrides `--precision`. When unset, the effective type comes from `--precision`, or `uint8` if neither is set. |
-| `--activation-type` | | choice | `uint8` | Per-tensor type for activations: `uint8`, `int8`, `uint16`, or `int16`. Overrides `--precision`. When unset, the effective type comes from `--precision`, or `uint8` if neither is set. |
+| `--weight-type` | | choice | — | Per-tensor type for weights: `uint8`, `int8`, `uint16`, or `int16`. Overrides `--precision`. When unset, defaults to `uint8` (or the type implied by `--precision`). |
+| `--activation-type` | | choice | — | Per-tensor type for activations: `uint8`, `int8`, `uint16`, or `int16`. Overrides `--precision`. When unset, defaults to `uint8` (or the type implied by `--precision`). |
 | `--per-channel/--no-per-channel` | | flag | `false` | Apply per-channel (rather than per-tensor) quantization to weight tensors. |
 | `--symmetric/--no-symmetric` | | flag | `false` | Use symmetric quantization (zero-point fixed at 0). |
 | `--help` | `-h` | flag | | Show this message and exit. |
