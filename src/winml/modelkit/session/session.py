@@ -183,6 +183,10 @@ class WinMLSession:
         # Single session (one session = one EP)
         self._session: ort.InferenceSession | None = None
 
+        # ONNX model ORT actually loads (set during compile()). May differ from
+        # _onnx_path when an EPContext model is compiled or a cached one reused.
+        self._running_model_path: Path | None = None
+
         # Cached I/O metadata (lazy-loaded)
         self._io_config: dict | None = None
 
@@ -275,8 +279,11 @@ class WinMLSession:
             actual_providers,
         )
 
-        # Store session
+        # Store session. Record the model ORT actually loaded (original or
+        # EPContext) only after the session is successfully created, so a
+        # failed compile leaves running_model_path unset rather than stale.
         self._session = session
+        self._running_model_path = model_path
         self._state = SessionState.COMPILED
 
         # Resolve device label from the primary provider ORT actually selected
@@ -504,6 +511,16 @@ class WinMLSession:
     def is_compiled(self) -> bool:
         """Check if session is compiled."""
         return self._session is not None
+
+    @property
+    def running_model_path(self) -> Path:
+        """Path to the ONNX model ORT actually loads.
+
+        May differ from the input ``onnx_path`` when an EPContext model is
+        compiled or a cached one is reused. Falls back to the input path
+        before ``compile()`` runs.
+        """
+        return self._running_model_path or self._onnx_path
 
     @property
     def perf_stats(self) -> PerfStats | None:
