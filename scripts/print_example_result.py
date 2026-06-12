@@ -50,10 +50,19 @@ from utils.accuracy import (  # type: ignore[import-not-found]
 DEVICE_NAMES = {"cpu", "gpu", "npu"}
 
 # Higher rank = better verdict; used to pick the BEST across precisions.
-# Order: PASS > REGRESSION > FAIL > N/A > no data.
-_VERDICT_RANK = {"PASS": 4, "REGRESSION": 3, "FAIL": 2, "N/A": 1, None: 0}
-_VERDICT_CHAR = {"PASS": "P", "REGRESSION": "R", "N/A": "N", "FAIL": "F", None: "-"}
-_ANSI = {"P": "\x1b[32m", "R": "\x1b[33m", "F": "\x1b[31m", "N": "\x1b[36m"}
+# Order: PASS > REGRESSION > TIMEOUT > FAIL > N/A > no data.
+# TIMEOUT outranks FAIL because a timeout is recoverable (bump the deadline)
+# whereas a hard build/eval error indicates a real defect.
+_VERDICT_RANK = {"PASS": 5, "REGRESSION": 4, "TIMEOUT": 3, "FAIL": 2, "N/A": 1, None: 0}
+_VERDICT_CHAR = {
+    "PASS": "P",
+    "REGRESSION": "R",
+    "N/A": "N",
+    "TIMEOUT": "TO",
+    "FAIL": "F",
+    None: "-",
+}
+_ANSI = {"P": "\x1b[32m", "R": "\x1b[33m", "F": "\x1b[31m", "TO": "\x1b[31m", "N": "\x1b[36m"}
 _RESET = "\x1b[0m"
 
 
@@ -106,28 +115,33 @@ def _grade_group(
     reg_map: dict[tuple[str, str], dict],
     cache: dict,
 ) -> str | None:
-    """Return verdict ('PASS' | 'REGRESSION' | 'FAIL' | 'N/A' | None).
+    """Return verdict ('PASS' | 'REGRESSION' | 'TIMEOUT' | 'FAIL' | 'N/A' | None).
 
     PASS       => eval_result.json exists, metric present, passes threshold.
     REGRESSION => eval_result.json exists, but metric missing/None OR fails
                   the threshold vs baseline.
     N/A        => eval_result.json exists but no baseline is available.
-    FAIL       => no eval_result.json, but a build/eval error or timeout marker
-                  exists on disk (the attempt failed).
-    None       => no result and no error marker -> never evaluated (no data).
+    TIMEOUT    => no eval_result.json, but a .timeout marker exists (the
+                  attempt was killed by the deadline; recoverable).
+    FAIL       => no eval_result.json, but a .error.txt marker exists (hard
+                  build/eval error).
+    None       => no result and no marker -> never evaluated (no data).
     """
     result_json = model_dir / f"{group_stem}_eval_result.json"
     if not result_json.exists():
-        # Distinguish an attempted-but-failed run (error/timeout marker present
-        # -> FAIL) from a pair that was simply never evaluated (no markers ->
-        # no data).
-        failure_markers = (
-            model_dir / f"{group_stem}_eval_result.error.txt",
+        # Distinguish timeout (recoverable) from hard error (real failure)
+        # from never-evaluated (no markers at all).
+        timeout_markers = (
             model_dir / f"{group_stem}_eval_result.timeout",
-            model_dir / f"{group_stem}_build_result.error.txt",
             model_dir / f"{group_stem}_build_result.timeout",
         )
-        if any(marker.exists() for marker in failure_markers):
+        error_markers = (
+            model_dir / f"{group_stem}_eval_result.error.txt",
+            model_dir / f"{group_stem}_build_result.error.txt",
+        )
+        if any(marker.exists() for marker in timeout_markers):
+            return "TIMEOUT"
+        if any(marker.exists() for marker in error_markers):
             return "FAIL"
         return None
 
@@ -289,7 +303,9 @@ def print_summary_table(
     rows = sorted(matrix.keys())
     model_w = max(len("model"), max(len(hf) for hf, _ in rows))
     task_w = max(len("task"), max(len(t) for _, t in rows))
-    col_w = {c: max(len(c), 1) for c in columns}
+    # Column needs to fit the header AND the widest verdict glyph in use
+    # (TIMEOUT renders as "TO", so 2 chars minimum).
+    col_w = {c: max(len(c), 2) for c in columns}
 
     header = f"{'model':<{model_w}}  {'task':<{task_w}}  " + "  ".join(
         f"{c:^{col_w[c]}}" for c in columns
@@ -297,25 +313,32 @@ def print_summary_table(
     sep = "-" * len(header)
     print(header)
     print(sep)
-    tally = {"P": 0, "R": 0, "F": 0, "N": 0, "-": 0}
+    tally = {"P": 0, "R": 0, "F": 0, "TO": 0, "N": 0, "-": 0}
+    all_pass_rows = 0
     for hf_id, task in rows:
         row = matrix[(hf_id, task)]
         cells = []
+        row_chars: list[str] = []
         for c in columns:
             ch = _VERDICT_CHAR[row.get(c)] if c in row else "-"
             tally[ch] += 1
+            row_chars.append(ch)
             cells.append(_format_cell(ch, col_w[c], use_color))
+        if all(ch == "P" for ch in row_chars):
+            all_pass_rows += 1
         print(f"{hf_id:<{model_w}}  {task:<{task_w}}  " + "  ".join(cells))
     print(sep)
     legend = (
         f"Legend: {_format_cell('P', 1, use_color)}=PASS  "
         f"{_format_cell('R', 1, use_color)}=REGRESSION  "
+        f"{_format_cell('TO', 2, use_color)}=TIMEOUT  "
         f"{_format_cell('F', 1, use_color)}=FAIL  "
         f"{_format_cell('N', 1, use_color)}=N/A (no baseline)  -=no data"
     )
     print(
-        f"{legend}   |   P={tally['P']}  R={tally['R']}  F={tally['F']}  "
-        f"N={tally['N']}  -={tally['-']}  total={sum(tally.values())}"
+        f"{legend}   |   P={tally['P']}  R={tally['R']}  TO={tally['TO']}  "
+        f"F={tally['F']}  N={tally['N']}  -={tally['-']}  "
+        f"total={sum(tally.values())}  all-pass rows={all_pass_rows}/{len(rows)}"
     )
 
 

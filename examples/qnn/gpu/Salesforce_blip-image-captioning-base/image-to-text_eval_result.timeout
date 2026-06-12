@@ -1,1 +1,0 @@
-Known slow model on QNN GPU - autoregressive image captioning over 500 samples exceeds 7200s
