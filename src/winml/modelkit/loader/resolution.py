@@ -19,6 +19,26 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
+
+from .task import (
+    HF_TASK_DEFAULTS,
+    _detect_task_from_model_class,
+    _get_custom_model_class,
+    _resolve_model_class_from_config,
+    _resolve_task_modality,
+    _resolve_task_override,
+    _upgrade_fill_mask_for_seq2seq,
+    get_default_task_for_model_id,
+    get_supported_tasks,
+    normalize_task,
+    resolve_optimum_library,
+    to_optimum_task,
+)
+
+
+if TYPE_CHECKING:
+    from transformers import PretrainedConfig
 
 
 logger = logging.getLogger(__name__)
@@ -108,3 +128,111 @@ def _composite_components_for_task(model_type: str, task: str) -> CompositeCompo
     raise ValueError(
         f"{model_type!r} has multiple composite exports; pass --task explicitly (one of: {tasks})."
     )
+
+
+def resolve_task(
+    config: PretrainedConfig,
+    *,
+    task: str | None = None,
+    model_class: str | None = None,
+) -> TaskResolution:
+    """Resolve a single model's task + class from an HF config.
+
+    Stages: 0 user override -> 1 detect (override / no-architectures /
+    TasksManager / default) -> 2 model class -> 3 modality upgrade
+    (detection path only) -> 4 composite tag.
+    """
+    from optimum.exporters.tasks import TasksManager
+
+    model_type = getattr(config, "model_type", None)
+    model_type_norm = model_type.lower().replace("_", "-") if model_type else ""
+    model_id = getattr(config, "_name_or_path", "") or None
+
+    # --- Stage 0: user override (short-circuits detection) ----------------
+    if model_class is not None:
+        opt_task = (
+            normalize_task(task)
+            if task is not None
+            else _upgrade_fill_mask_for_seq2seq(
+                _detect_task_from_model_class(_resolve_model_class_from_config(config)),
+                config,
+            )
+        )
+        resolved = TasksManager.get_model_class_for_task(
+            opt_task, framework="pt", model_class_name=model_class
+        )
+        return TaskResolution(
+            opt_task, to_optimum_task(opt_task), resolved, TaskSource.USER_CLASS, None
+        )
+
+    if task is not None:
+        original = task
+        normalized = normalize_task(task)
+        resolved = None
+        if model_type_norm:
+            resolved = _get_custom_model_class(
+                model_type_norm, original
+            ) or _get_custom_model_class(model_type_norm, normalized)
+        if resolved is None:
+            resolved = TasksManager.get_model_class_for_task(normalized, framework="pt")
+        return TaskResolution(
+            original, to_optimum_task(original), resolved, TaskSource.USER_TASK, None
+        )
+
+    # --- Stage 1: detection -----------------------------------------------
+    opt_task: str | None = None
+    source: TaskSource | None = None
+    resolved = None
+
+    # 1a. canonical override (model-id default / sentinel)
+    override = _resolve_task_override(model_type_norm, model_id)
+    if override is not None:
+        opt_task = override
+        source = (
+            TaskSource.MODEL_ID_DEFAULT
+            if model_id and get_default_task_for_model_id(model_id) is not None
+            else TaskSource.SENTINEL_DEFAULT
+        )
+
+    # 1b. no architectures -> first ONNX-exportable task
+    #     (merges the old timm wrapped-library stage AND the --model-type fallback)
+    if opt_task is None and not getattr(config, "architectures", None) and model_type:
+        supported = get_supported_tasks(model_type, resolve_optimum_library(model_type))
+        if supported:
+            opt_task = supported[0]
+            source = TaskSource.WRAPPED_LIBRARY
+            resolved = TasksManager.get_model_class_for_task(opt_task, framework="pt")
+
+    # 1c. TasksManager (reads config.architectures)
+    if opt_task is None:
+        try:
+            opt_task = _upgrade_fill_mask_for_seq2seq(
+                _detect_task_from_model_class(_resolve_model_class_from_config(config)),
+                config,
+            )
+            source = TaskSource.TASKS_MANAGER
+        except ValueError:
+            opt_task = None
+
+    # 1d. last-resort default
+    if opt_task is None:
+        opt_task = next(iter(HF_TASK_DEFAULTS))
+        source = TaskSource.HF_TASK_DEFAULT
+
+    # --- Stage 2: model class (if not already resolved in 1b) -------------
+    if resolved is None:
+        resolved = _get_custom_model_class(model_type_norm, opt_task)
+        if resolved is None:
+            try:
+                resolved = TasksManager.get_model_class_for_task(opt_task, framework="pt")
+            except Exception:
+                resolved = _resolve_model_class_from_config(config)  # arch fallback
+
+    # --- Stage 3: modality upgrade (surfaced task only) -------------------
+    surfaced = _resolve_task_modality(config, opt_task)
+
+    # --- Stage 4: composite tag (detection path) --------------------------
+    composite = _composite_components_for_task(model_type, opt_task) if model_type else None
+
+    assert source is not None
+    return TaskResolution(surfaced, to_optimum_task(surfaced), resolved, source, composite)
