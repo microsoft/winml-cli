@@ -87,3 +87,42 @@ def test_unimportable_architecture_falls_back_to_hf_task_default():
     cfg = _cfg("bert", ["TotallyNotAClass"])
     r = resolve_task(cfg)
     assert r.source == TaskSource.HF_TASK_DEFAULT
+
+
+# --- ported from the deleted test_detect_task_from_config.py -----------------
+# These pin the architecture-class -> TasksManager task inference that the
+# (now-removed) ``_detect_task_from_config`` covered, asserted against the
+# unified ``resolve_task`` auto-detect path.
+
+
+def test_known_vision_architecture_resolves_via_tasks_manager():
+    """A known vision architecture class infers its TasksManager task."""
+    r = resolve_task(_cfg("resnet", ["ResNetForImageClassification"]))
+    assert r.task == "image-classification"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
+def test_encoder_only_masked_lm_resolves_to_fill_mask():
+    """BertForMaskedLM (encoder-only) stays fill-mask — not upgraded to seq2seq."""
+    r = resolve_task(_cfg("bert", ["BertForMaskedLM"]))
+    assert r.task == "fill-mask"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
+def test_uses_first_architecture_only():
+    """architectures[0] drives detection when multiple architectures are present."""
+    r = resolve_task(_cfg("resnet", ["ResNetForImageClassification", "SomeOtherClass"]))
+    assert r.task == "image-classification"
+    assert r.source == TaskSource.TASKS_MANAGER
+
+
+def test_missing_architectures_with_unknown_model_type_falls_back_to_hf_task_default():
+    """No architectures AND an unknown model_type (no wrapped-library route, no
+    ONNX-exportable task): the legacy ``_detect_task_from_config`` raised ValueError;
+    ``resolve_task`` instead falls back to the last-resort HF_TASK_DEFAULT."""
+    cfg = AutoConfig.for_model("bert")
+    cfg.architectures = None
+    cfg.model_type = "totally-unknown-model-xyz"
+    cfg._name_or_path = ""
+    r = resolve_task(cfg)
+    assert r.source == TaskSource.HF_TASK_DEFAULT

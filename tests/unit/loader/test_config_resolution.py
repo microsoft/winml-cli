@@ -2,15 +2,15 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for config-driven resolution in resolve_task_and_model_class.
+"""Tests for config-driven resolution in resolve_task.
 
 Covers gaps NOT tested by existing loader tests:
-- Auto-detect (Case 1) for new architecture categories (text_decoder, seq2seq, detection)
-- Task alias preservation (Case 2) returning original task, not normalized
-- Double-lookup order (Case 2) preventing CLIP task collapsing
+- Auto-detect for new architecture categories (text_decoder, seq2seq, detection)
+- User-task alias preservation (returning original task, not normalized)
+- Double-lookup order (original then normalized) preventing CLIP task collapsing
 - model_type normalization (underscore -> hyphen, case insensitive)
 
-Uses mock configs (no network) with real resolve_task_and_model_class calls.
+Uses mock configs (no network) with real resolve_task calls.
 """
 
 from __future__ import annotations
@@ -19,11 +19,11 @@ import pytest
 
 # Trigger ONNX config registrations and MODEL_CLASS_MAPPING population
 import winml.modelkit.models  # noqa: F401
-from winml.modelkit.loader import resolve_task_and_model_class
+from winml.modelkit.loader.resolution import resolve_task
 
 
 class TestResolveAutoDetectNewArchitectures:
-    """Case 1: Auto-detect task for architecture categories missing from existing tests.
+    """Auto-detect task for architecture categories missing from existing tests.
 
     Existing tests cover: BERT (text_encoder), ResNet (vision), BLIP (multimodal).
     These tests extend coverage to: text_decoder, seq2seq, detection, additional vision.
@@ -71,25 +71,24 @@ class TestResolveAutoDetectNewArchitectures:
         expected_task: str,
         make_mock_config,
     ) -> None:
-        """Case 1: Auto-detect task for architecture categories missing from existing tests."""
+        """Auto-detect task for architecture categories missing from existing tests."""
         config = make_mock_config(model_type, [arch_class_name])
 
-        task, resolved_class = resolve_task_and_model_class(config)
+        r = resolve_task(config)
 
-        assert task == expected_task, (
-            f"Expected task '{expected_task}' for {arch_class_name}, got '{task}'"
+        assert r.task == expected_task, (
+            f"Expected task '{expected_task}' for {arch_class_name}, got '{r.task}'"
         )
-        assert resolved_class is not None
-        # resolved_class should be a real class (not None or MagicMock)
-        assert hasattr(resolved_class, "__name__")
+        assert r.model_class is not None
+        # model_class should be a real class (not None or MagicMock)
+        assert hasattr(r.model_class, "__name__")
 
 
 class TestResolveTaskAliasPreservation:
-    """Case 2: Original task is returned, not the normalized form.
+    """User-task path: original task is returned, not the normalized form.
 
-    resolve_task_and_model_class normalizes internally but MUST return
-    the original_task so downstream consumers (dataset lookup, cache keys)
-    see the user's original intent.
+    resolve_task normalizes internally but MUST surface the original task so
+    downstream consumers (dataset lookup, cache keys) see the user's original intent.
     """
 
     @pytest.mark.parametrize(
@@ -125,14 +124,14 @@ class TestResolveTaskAliasPreservation:
         expected_returned_task: str,
         make_mock_config,
     ) -> None:
-        """Case 2: Original task is returned, not the normalized form."""
+        """User-task path: original task is returned, not the normalized form."""
         config = make_mock_config("bert", ["BertForMaskedLM"])
 
-        returned_task, _ = resolve_task_and_model_class(config, task=original_task)
+        r = resolve_task(config, task=original_task)
 
-        assert returned_task == expected_returned_task, (
-            f"Expected returned task '{expected_returned_task}', got '{returned_task}'. "
-            f"resolve_task_and_model_class must return original_task, not normalized."
+        assert r.task == expected_returned_task, (
+            f"Expected returned task '{expected_returned_task}', got '{r.task}'. "
+            f"resolve_task must surface the original task, not the normalized form."
         )
 
 
@@ -157,13 +156,13 @@ class TestResolveDoubleLookupOrder:
         """
         config = make_mock_config("clip", ["CLIPModel"])
 
-        task, resolved_class = resolve_task_and_model_class(config, task="image-feature-extraction")
+        r = resolve_task(config, task="image-feature-extraction")
 
-        assert resolved_class.__name__ == "CLIPVisionModelWithProjection", (
-            f"Expected CLIPVisionModelWithProjection, got {resolved_class.__name__}. "
+        assert r.model_class.__name__ == "CLIPVisionModelWithProjection", (
+            f"Expected CLIPVisionModelWithProjection, got {r.model_class.__name__}. "
             f"Double-lookup should check original_task 'image-feature-extraction' first."
         )
-        assert task == "image-feature-extraction"
+        assert r.task == "image-feature-extraction"
 
     def test_clip_feature_extraction_gives_text(
         self,
@@ -172,12 +171,12 @@ class TestResolveDoubleLookupOrder:
         """'feature-extraction' gives CLIPTextModelWithProjection."""
         config = make_mock_config("clip", ["CLIPModel"])
 
-        task, resolved_class = resolve_task_and_model_class(config, task="feature-extraction")
+        r = resolve_task(config, task="feature-extraction")
 
-        assert resolved_class.__name__ == "CLIPTextModelWithProjection", (
-            f"Expected CLIPTextModelWithProjection, got {resolved_class.__name__}"
+        assert r.model_class.__name__ == "CLIPTextModelWithProjection", (
+            f"Expected CLIPTextModelWithProjection, got {r.model_class.__name__}"
         )
-        assert task == "feature-extraction"
+        assert r.task == "feature-extraction"
 
 
 class TestResolveModelTypeNormalization:
@@ -220,9 +219,9 @@ class TestResolveModelTypeNormalization:
         """model_type with underscores/uppercase is normalized before lookup."""
         config = make_mock_config(raw_model_type, [arch_class_name])
 
-        _, resolved_class = resolve_task_and_model_class(config, task=task)
+        r = resolve_task(config, task=task)
 
-        assert resolved_class.__name__ == expected_class_name, (
+        assert r.model_class.__name__ == expected_class_name, (
             f"Expected {expected_class_name} for model_type='{raw_model_type}', "
-            f"got {resolved_class.__name__}. model_type normalization may be broken."
+            f"got {r.model_class.__name__}. model_type normalization may be broken."
         )

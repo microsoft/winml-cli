@@ -15,7 +15,7 @@ from transformers import (
     CLIPVisionModelWithProjection,
 )
 
-from winml.modelkit.loader import resolve_task_and_model_class
+from winml.modelkit.loader.resolution import resolve_task
 from winml.modelkit.loader.task import _get_custom_model_class  # Testing internal implementation
 from winml.modelkit.models.hf.clip import MODEL_CLASS_MAPPING
 
@@ -172,12 +172,12 @@ class TestGetCustomModelClass:
 
 
 # =============================================================================
-# Tests: resolve_task_and_model_class()
+# Tests: resolve_task()
 # =============================================================================
 
 
-class TestResolveTaskAndModelClass:
-    """Tests for resolve_task_and_model_class() resolution function."""
+class TestResolveTask:
+    """Tests for resolve_task() resolution function."""
 
     def test_config_has_correct_model_type(self, clip_config):
         """Verify fixture has model_type='clip'."""
@@ -185,26 +185,24 @@ class TestResolveTaskAndModelClass:
 
     def test_feature_extraction_resolves_to_text_model(self, clip_config):
         """task='feature-extraction' resolves to CLIPTextModelWithProjection via specialization."""
-        task, resolved_class = resolve_task_and_model_class(clip_config, task="feature-extraction")
+        r = resolve_task(clip_config, task="feature-extraction")
 
-        assert task == "feature-extraction"
-        assert resolved_class is CLIPTextModelWithProjection
+        assert r.task == "feature-extraction"
+        assert r.model_class is CLIPTextModelWithProjection
 
     def test_image_feature_extraction_resolves_to_vision_model(self, clip_config):
         """image-feature-extraction resolves to CLIPVisionModelWithProjection."""
-        task, resolved_class = resolve_task_and_model_class(
-            clip_config, task="image-feature-extraction"
-        )
+        r = resolve_task(clip_config, task="image-feature-extraction")
 
-        assert task == "image-feature-extraction"
-        assert resolved_class is CLIPVisionModelWithProjection
+        assert r.task == "image-feature-extraction"
+        assert r.model_class is CLIPVisionModelWithProjection
 
     def test_preserves_original_task_name(self, clip_config):
-        """Returns original task name, not normalized version."""
-        task, _ = resolve_task_and_model_class(clip_config, task="image-feature-extraction")
+        """Surfaces original task name, not normalized version."""
+        r = resolve_task(clip_config, task="image-feature-extraction")
 
         # Should preserve "image-feature-extraction", not normalize to "feature-extraction"
-        assert task == "image-feature-extraction"
+        assert r.task == "image-feature-extraction"
 
 
 # =============================================================================
