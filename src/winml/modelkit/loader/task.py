@@ -350,43 +350,39 @@ def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
     return task
 
 
-# Data-driven task-modality disambiguation (D2). Maps a modality-blind task to its
-# modality-aware variants, each keyed by the top-level config fields that signal that
-# modality. Extend this table — not the code — to add new modalities. First match wins.
-_TASK_MODALITY_DISAMBIGUATION: dict[str, dict[str, tuple[str, ...]]] = {
-    "feature-extraction": {
-        # Vision backbones (ViT, DINOv2, ConvNeXt, …) carry image_size/patch_size at the
-        # config root; multimodal models (CLIP) nest them under vision_config, so the
-        # top-level check does not fire for those.
-        "image-feature-extraction": ("image_size", "patch_size"),
-        # Future, when supported: "audio-feature-extraction": ("sampling_rate", ...),
-    },
+# Modality-aware upgrade (D2) for the one modality-blind task, ``feature-extraction``.
+# Keyed on the architecture class's ``main_input_name`` — an HF framework convention
+# that is authoritative, offline, and architecture-agnostic (``pixel_values`` -> image,
+# ``input_ids`` -> text, ``input_values``/``input_features`` -> audio). Only image has a
+# downstream (dataset + evaluator) today, so text/audio/video deliberately stay
+# ``feature-extraction`` (the Optimum-canonical export task). Extend this table — not the
+# code — when a modality gains its downstream.
+_FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
+    "pixel_values": "image-feature-extraction",
 }
 
 
-def _top_level_config_keys(config: PretrainedConfig) -> set[str]:
-    """Top-level field names of an HF config (nested sub-configs are not flattened)."""
-    try:
-        return set(config.to_dict().keys())
-    except Exception:
-        return set(vars(config).keys())
-
-
 def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
-    """Disambiguate a modality-blind task using top-level config fields (D2).
+    """Upgrade a modality-blind ``feature-extraction`` to its modality-aware variant.
 
-    Data-driven via :data:`_TASK_MODALITY_DISAMBIGUATION`. Applied only to surfaced/
-    returned tasks — never to a task headed into an Optimum API, which does not
-    recognise modality-aware names like ``image-feature-extraction``.
+    Reads the *architecture* class's ``main_input_name`` and maps it via
+    :data:`_FEATURE_MODALITY_BY_MAIN_INPUT`. Uses ``config.architectures`` (not a
+    resolved Auto/wrapper class, whose ``main_input_name`` may be generic) so a ViT
+    backbone resolving to a generic ``AutoModel`` still reads ``pixel_values``.
+
+    Applied only to the surfaced/returned task — never to a task headed into an Optimum
+    API, which does not recognise modality-aware names like ``image-feature-extraction``.
+    Offline; a no-op for non-``feature-extraction`` tasks, for modalities with no
+    downstream yet, and when the architecture class cannot be resolved.
     """
-    candidates = _TASK_MODALITY_DISAMBIGUATION.get(task)
-    if not candidates:
+    if task != "feature-extraction":
         return task
-    keys = _top_level_config_keys(config)
-    for modality_task, signal_fields in candidates.items():
-        if any(field in keys for field in signal_fields):
-            return modality_task
-    return task
+    try:
+        model_class = _resolve_model_class_from_config(config)
+    except ValueError:
+        return task
+    main_input = getattr(model_class, "main_input_name", None)
+    return _FEATURE_MODALITY_BY_MAIN_INPUT.get(main_input, task)
 
 
 def detect_task(config: PretrainedConfig) -> tuple[str, str]:

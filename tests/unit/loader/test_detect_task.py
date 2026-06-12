@@ -14,8 +14,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from winml.modelkit.loader import detect_task, resolve_task_and_model_class
-from winml.modelkit.loader.task import _upgrade_fill_mask_for_seq2seq
+from winml.modelkit.loader.task import _resolve_task_modality, _upgrade_fill_mask_for_seq2seq
 
 
 class _FakeConfig:
@@ -50,6 +52,12 @@ class _FakeConfig:
 
 
 _DETECT = "winml.modelkit.loader.task._detect_task_from_config"
+_RESOLVE_CLASS = "winml.modelkit.loader.task._resolve_model_class_from_config"
+
+
+def _fake_arch_class(main_input_name: str) -> type:
+    """A stand-in architecture class exposing only ``main_input_name`` (the modality signal)."""
+    return type("FakeArch", (), {"main_input_name": main_input_name})
 
 
 def test_upgrade_fill_mask_for_seq2seq_upgrades_encoder_decoder() -> None:
@@ -82,10 +90,14 @@ def test_upgrade_fill_mask_for_seq2seq_ignores_config_without_flag() -> None:
     assert _upgrade_fill_mask_for_seq2seq("fill-mask", _NoFlagConfig()) == "fill-mask"
 
 
-def test_d2_upgrades_vision_feature_extraction_on_returned_task() -> None:
-    """Top-level image_size/patch_size + feature-extraction -> image-feature-extraction."""
-    cfg = _FakeConfig("faketype", image_size=518, patch_size=14)
-    with patch(_DETECT, return_value="feature-extraction") as m:
+def test_detect_task_upgrades_pixel_values_feature_extraction_to_image() -> None:
+    """detect_task wires the modality upgrade: a feature-extraction backbone whose
+    architecture takes pixel_values surfaces as image-feature-extraction."""
+    cfg = _FakeConfig("faketype")
+    with (
+        patch(_DETECT, return_value="feature-extraction") as m,
+        patch(_RESOLVE_CLASS, return_value=_fake_arch_class("pixel_values")),
+    ):
         task, source = detect_task(cfg)
     assert task == "image-feature-extraction"
     assert source == "TasksManager"
@@ -93,21 +105,35 @@ def test_d2_upgrades_vision_feature_extraction_on_returned_task() -> None:
     m.assert_called_once()
 
 
-def test_d2_does_not_fire_for_text_feature_extraction() -> None:
-    """No top-level image_size/patch_size -> feature-extraction stays as-is (text)."""
-    cfg = _FakeConfig("faketype")  # no vision fields
-    with patch(_DETECT, return_value="feature-extraction"):
-        task, source = detect_task(cfg)
-    assert task == "feature-extraction"
-    assert source == "TasksManager"
+@pytest.mark.parametrize(
+    "main_input_name, expected",
+    [
+        ("pixel_values", "image-feature-extraction"),  # vision backbone (ViT/DINOv2)
+        ("input_ids", "feature-extraction"),  # text encoder (BERT/CLIP-text)
+        ("input_values", "feature-extraction"),  # audio (wav2vec2/AST) — no downstream yet
+        ("input_features", "feature-extraction"),  # audio (whisper-style) — no downstream yet
+    ],
+)
+def test_resolve_task_modality_by_main_input(main_input_name: str, expected: str) -> None:
+    """feature-extraction is upgraded by the architecture class's main_input_name; only
+    pixel_values has a modality-aware downstream today, so text/audio stay as-is."""
+    cfg = _FakeConfig("faketype")
+    with patch(_RESOLVE_CLASS, return_value=_fake_arch_class(main_input_name)):
+        assert _resolve_task_modality(cfg, "feature-extraction") == expected
 
 
-def test_d2_only_upgrades_feature_extraction() -> None:
-    """A vision config whose task is NOT feature-extraction is left untouched."""
-    cfg = _FakeConfig("faketype", image_size=224, patch_size=16)
-    with patch(_DETECT, return_value="image-classification"):
-        task, _ = detect_task(cfg)
-    assert task == "image-classification"
+def test_resolve_task_modality_only_touches_feature_extraction() -> None:
+    """A non-feature-extraction task is returned unchanged without resolving a class."""
+    cfg = _FakeConfig("faketype")
+    with patch(_RESOLVE_CLASS, side_effect=AssertionError("must not resolve a class")):
+        assert _resolve_task_modality(cfg, "image-classification") == "image-classification"
+
+
+def test_resolve_task_modality_noop_when_class_unresolvable() -> None:
+    """When config.architectures cannot be resolved, feature-extraction is left as-is."""
+    cfg = _FakeConfig("faketype")
+    with patch(_RESOLVE_CLASS, side_effect=ValueError("no architectures")):
+        assert _resolve_task_modality(cfg, "feature-extraction") == "feature-extraction"
 
 
 def test_detect_task_falls_back_to_hf_task_defaults() -> None:
@@ -176,13 +202,18 @@ def test_detect_task_short_circuits_for_unambiguous_model_type() -> None:
 
 
 def test_resolve_case1_surfaces_modality_aware_task() -> None:
-    """Orchestrator Case 1 (auto-detect) surfaces the D2-upgraded task; the model
-    class is unchanged (resolved from the pre-upgrade Optimum task)."""
-    cfg = _FakeConfig("faketype", image_size=518)
+    """Orchestrator Case 1 (auto-detect) surfaces the modality-aware task. Modality comes
+    from the architecture class's main_input_name (pixel_values), while the class returned
+    for loading is the one _detect_task_and_class_from_config resolved — they are distinct,
+    which is exactly why modality must read the arch class, not the resolved/Auto class."""
+    cfg = _FakeConfig("faketype")
     sentinel_cls = type("Sentinel", (), {})
-    with patch(
-        "winml.modelkit.loader.task._detect_task_and_class_from_config",
-        return_value=("feature-extraction", sentinel_cls),
+    with (
+        patch(
+            "winml.modelkit.loader.task._detect_task_and_class_from_config",
+            return_value=("feature-extraction", sentinel_cls),
+        ),
+        patch(_RESOLVE_CLASS, return_value=_fake_arch_class("pixel_values")),
     ):
         task, cls = resolve_task_and_model_class(cfg)
     assert task == "image-feature-extraction"
