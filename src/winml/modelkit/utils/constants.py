@@ -49,6 +49,21 @@ EPAlias = Literal[
 EPNameOrAlias: TypeAlias = EPName | EPAlias
 
 
+# Compile backends selectable via ``--compiler`` (see commands/compile.py):
+#   "ort"          -> ort.ModelCompiler (default)
+#   "ort_session"  -> ort.InferenceSession (ep.context_enable)
+#   "qairt"        -> QAIRT SDK compiler
+CompilerName = Literal["ort", "ort_session", "qairt"]
+
+# The ``--compiler`` choice that selects the ort.InferenceSession backend (the others
+# go through ort.ModelCompiler / the QAIRT SDK). Referenced wherever the backend is
+# branched on, so the magic string lives in exactly one place.
+ORT_SESSION_COMPILER: CompilerName = "ort_session"
+
+# Runtime-iterable form of ``CompilerName`` (e.g. for the CLI choice list).
+COMPILER_NAMES: tuple[CompilerName, ...] = get_args(CompilerName)
+
+
 # Supported execution providers — derived from the ``EPName`` Literal above so
 # that ``utils.constants`` stays leaf-level (no import dependency on sysinfo).
 # Membership parity with ``sysinfo.device._EP_DEVICE_MAP`` is enforced by

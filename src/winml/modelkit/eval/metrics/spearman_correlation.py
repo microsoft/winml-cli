@@ -65,6 +65,6 @@ class SpearmanCorrelationMetric:
                 "Spearman correlation is NaN. This typically means the model "
                 "produced constant outputs (zero variance). Returning 0.0.",
             )
-            corr = 0.0
+            return {"cosine_spearman": 0.0}
 
         return {"cosine_spearman": round(float(corr) * 100, 4)}

@@ -1354,6 +1354,8 @@ def _build_hf_pipeline(
             config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
         )
         t0 = time.monotonic()
+        # config.export is None only for the ONNX build path; this is the HF path.
+        assert config.export is not None, "HF build path requires config.export"
         export_onnx(
             model=pytorch_model,
             output_path=export_path,

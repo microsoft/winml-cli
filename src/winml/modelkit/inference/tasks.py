@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
@@ -124,9 +124,9 @@ def _masked_mean_pool(
         mask = attention_mask.astype(float)
         denom = mask.sum()
         if denom > 0:
-            return (token_embeddings * mask[:, None]).sum(0) / denom
+            return cast("np.ndarray", (token_embeddings * mask[:, None]).sum(0) / denom)
     if token_embeddings.ndim > 1:
-        return token_embeddings.mean(axis=0)
+        return cast("np.ndarray", token_embeddings.mean(axis=0))
     return token_embeddings
 
 

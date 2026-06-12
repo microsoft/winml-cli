@@ -46,13 +46,21 @@ class WinMLObjectDetectionEvaluator(WinMLEvaluator):
         mapping = config.dataset.columns_mapping
         task = "object-detection"
         self._image_col = mapping.get("input_column", get_default(task, "input_column"))
-        self._annotation_col = mapping.get(
-            "annotation_column", get_default(task, "annotation_column"),
-        )
-        self._bbox_key = mapping.get("bbox_key", get_default(task, "bbox_key"))
-        self._category_key = mapping.get("category_key", get_default(task, "category_key"))
-        self._box_format = mapping.get("box_format", get_default(task, "box_format"))
-        self._box_coords = mapping.get("box_coords", get_default(task, "box_coords"))
+        ann_col_raw = mapping.get("annotation_column", get_default(task, "annotation_column"))
+        bbox_key_raw = mapping.get("bbox_key", get_default(task, "bbox_key"))
+        category_key_raw = mapping.get("category_key", get_default(task, "category_key"))
+        assert ann_col_raw is not None, "annotation_column has no default for object-detection"
+        assert bbox_key_raw is not None, "bbox_key has no default for object-detection"
+        assert category_key_raw is not None, "category_key has no default for object-detection"
+        self._annotation_col: str = ann_col_raw
+        self._bbox_key: str = bbox_key_raw
+        self._category_key: str = category_key_raw
+        box_format_raw = mapping.get("box_format", get_default(task, "box_format"))
+        box_coords_raw = mapping.get("box_coords", get_default(task, "box_coords"))
+        assert box_format_raw is not None, "box_format has no default for object-detection"
+        assert box_coords_raw is not None, "box_coords has no default for object-detection"
+        self._box_format: str = box_format_raw
+        self._box_coords: str = box_coords_raw
 
         super().__init__(config, model)
 
@@ -63,21 +71,23 @@ class WinMLObjectDetectionEvaluator(WinMLEvaluator):
         io_config = getattr(self.model, "io_config", None) or {}
         input_shapes = io_config.get("input_shapes", [[]])
         input_names = io_config.get("input_names", [])
-        if input_shapes and len(input_shapes[0]) == 4:
+        image_processor = pipe.image_processor
+        if image_processor is not None and input_shapes and len(input_shapes[0]) == 4:
             _, _, h, w = input_shapes[0]
+            # Runtime-settable processor attributes; not on the base class.
             if "pixel_mask" in input_names:
-                pipe.image_processor.size = {
+                image_processor.size = {  # type: ignore[attr-defined]
                     "shortest_edge": min(h, w),
                     "longest_edge": max(h, w),
                 }
-                if hasattr(pipe.image_processor, "pad_size"):
-                    pipe.image_processor.pad_size = {"height": h, "width": w}
-                if hasattr(pipe.image_processor, "do_pad"):
-                    pipe.image_processor.do_pad = True
+                if hasattr(image_processor, "pad_size"):
+                    image_processor.pad_size = {"height": h, "width": w}
+                if hasattr(image_processor, "do_pad"):
+                    image_processor.do_pad = True
             else:
-                pipe.image_processor.size = {"height": h, "width": w}
-                if hasattr(pipe.image_processor, "do_pad"):
-                    pipe.image_processor.do_pad = False
+                image_processor.size = {"height": h, "width": w}  # type: ignore[attr-defined]
+                if hasattr(image_processor, "do_pad"):
+                    image_processor.do_pad = False
 
         return pipe
 
@@ -132,7 +142,7 @@ class WinMLObjectDetectionEvaluator(WinMLEvaluator):
         ann_feat[cat_key] = Sequence(Value("int64"))
         new_features[ann_col] = ann_feat
 
-        def remap(sample):
+        def remap(sample: dict[str, Any]) -> dict[str, Any]:
             ann = sample[ann_col]
             ann[cat_key] = [id_map[lbl] for lbl in ann[cat_key]]
             return sample
@@ -151,8 +161,8 @@ class WinMLObjectDetectionEvaluator(WinMLEvaluator):
 
         label2id = getattr(self.model.config, "label2id", {})
 
-        predictions = []
-        references = []
+        predictions: list[dict[str, Any]] = []
+        references: list[dict[str, Any]] = []
 
         for i, sample in enumerate(self.data):
             # --- Ground truth ---
