@@ -795,10 +795,10 @@ class TestBuildAnalyzerLoop:
 class TestBuildHfPreQuantized:
     """Test pre-quantized detection in HF build pipeline."""
 
-    def test_post_export_qdq_skips_optimize_and_quantize(
+    def test_post_export_qdq_skips_quantize_but_runs_optimize(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
-        """If exported ONNX has QDQ nodes, skip optimize+quantize."""
+        """If exported ONNX has QDQ nodes, run optimize but skip quantize."""
         mock_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
@@ -807,9 +807,9 @@ class TestBuildHfPreQuantized:
             output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
         )
-        assert "optimize" in result.stages_skipped
+        assert "optimize" in result.stages_completed
+        assert "optimize" not in result.stages_skipped
         assert "quantize" in result.stages_skipped
-        assert "optimize" not in result.stages_completed
         assert "quantize" not in result.stages_completed
         mock_pipeline["optimize"].assert_called_once()
         mock_pipeline["quantize"].assert_not_called()
@@ -844,10 +844,10 @@ class TestBuildHfPreQuantized:
         assert "compile" in result.stages_completed
         mock_pipeline["compile"].assert_called_once()
 
-    def test_post_export_qdq_runs_analyze_only(
+    def test_post_export_qdq_runs_optimize_and_analyze(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
-        """Pre-quantized path runs optimize but skips autoconf (no analyze)."""
+        """Pre-quantized path runs full optimize with autoconf (analyze runs)."""
         mock_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
@@ -856,9 +856,9 @@ class TestBuildHfPreQuantized:
             output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
         )
-        # max_optim_iterations=0 means no analyze loop runs
-        mock_pipeline["analyze"].assert_not_called()
         mock_pipeline["optimize"].assert_called_once()
+        # Full autoconf: analyze is called by run_optimize_analyze_loop
+        mock_pipeline["analyze"].assert_called()
 
     def test_skip_optimize_kwarg(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         """skip_optimize=True forces optimize+quantize skip."""
@@ -913,17 +913,17 @@ class TestAnalyzeJsonOutput:
         for call in mock_pipeline["analyze"].call_args_list:
             assert call.kwargs["output_path"] == expected
 
-    def test_no_output_path_for_prequantized(
+    def test_analyze_output_path_for_prequantized(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
-        """Pre-quantized path never calls analyze_onnx (no JSON written)."""
+        """Pre-quantized path runs analyze with output_path (full autoconf)."""
         mock_pipeline["is_quantized_onnx"].return_value = True
         build_hf_model(
             config=sample_config,
             output_dir=tmp_path / "output",
             pytorch_model=mock_pipeline["model"],
         )
-        mock_pipeline["analyze"].assert_not_called()
+        mock_pipeline["analyze"].assert_called()
 
     def test_analyze_onnx_writes_json_to_disk(self, tmp_path: Path) -> None:
         """analyze_onnx with output_path writes a valid JSON file."""

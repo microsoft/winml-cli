@@ -594,6 +594,7 @@ def build(
                 model_id,
                 trust_remote_code=trust_remote_code,
                 device=device,
+                onnx_path=model_id if cli_utils.is_onnx_file_path(model_id) else None,
             )
             if not quant:
                 config_or_configs.quant = None

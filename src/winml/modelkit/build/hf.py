@@ -244,44 +244,43 @@ def build_hf_model(
     # config.quant=None. This is_quantized_onnx() check is redundant in that
     # path but kept for backward compatibility when build_hf_model()
     # is called directly with a hand-built config.
-    is_pre_quantized = is_quantized_onnx(current_path) or skip_optimize
+    is_qdq = is_quantized_onnx(current_path)
+    is_pre_quantized = is_qdq or skip_optimize
 
-    if is_pre_quantized:
+    if is_qdq:
         logger.info(
             "Pre-quantized model detected (QDQ nodes present). "
-            "Skipping optimize + quantize, running analyze-only."
+            "Skipping quantize to preserve QDQ structure."
         )
+
+    # Build kwargs for run_optimize_analyze_loop. When skip_optimize is set,
+    # we still run optimize_onnx (applies config.optim flags) but skip the
+    # autoconf re-optimization loop to preserve the original behavior.
+    run_kwargs: dict = dict(
+        model_path=current_path,
+        optimized_path=optimized_path,
+        config=config,
+        ep=ep,
+        device=device,
+        **onnx_kwargs,
+    )
+    if not skip_optimize:
+        run_kwargs["max_optim_iterations"] = hack_max_optim_iterations
+        run_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
+        run_kwargs["analyze_output_path"] = analyze_result_path
+
+    logger.info("Optimizing ONNX model...")
+    (
+        current_path,
+        opt_elapsed,
+        analyze_iterations,
+        analyze_unsupported_nodes,
+        analyze_details,
+    ) = run_optimize_analyze_loop(**run_kwargs)
+
+    if skip_optimize:
         stages_skipped.append("optimize")
-        # Optimize+analyze only, no autoconf re-optimization
-        current_path, _, analyze_iterations, analyze_unsupported_nodes, analyze_details = (
-            run_optimize_analyze_loop(
-                model_path=current_path,
-                optimized_path=optimized_path,
-                config=config,
-                ep=ep,
-                device=device,
-                **onnx_kwargs,
-            )
-        )
     else:
-        logger.info("Optimizing ONNX model...")
-        (
-            current_path,
-            opt_elapsed,
-            analyze_iterations,
-            analyze_unsupported_nodes,
-            analyze_details,
-        ) = run_optimize_analyze_loop(
-            model_path=current_path,
-            optimized_path=optimized_path,
-            config=config,
-            ep=ep,
-            device=device,
-            max_optim_iterations=hack_max_optim_iterations,
-            allow_unsupported_nodes=allow_unsupported_nodes,
-            analyze_output_path=analyze_result_path,
-            **onnx_kwargs,
-        )
         stage_timings["optimize"] = opt_elapsed
         stages_completed.append("optimize")
         logger.info("Optimize done (%.1fs) -> %s", opt_elapsed, optimized_path)
@@ -303,7 +302,7 @@ def build_hf_model(
         # Defensive fallback: catches the edge case where a direct caller
         # provides config.quant != None but the model already has QDQ nodes
         # (e.g., hand-built config without running generate_*_build_config).
-        if is_quantized_onnx(current_path):
+        if is_qdq:
             logger.warning(
                 "Model already contains QDQ nodes, skipping quantization. "
                 "Set config.quant=None to silence this warning."
