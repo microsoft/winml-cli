@@ -63,6 +63,23 @@ def _resolve_dataset_class(task: str) -> tuple[type, str]:
     return TASK_DATASET_MAPPING[task], task
 
 
+def _dataset_produces_any_input(dataset: Any, input_names: set[str]) -> bool:
+    """Whether the dataset's first sample shares any field with the ONNX input names.
+
+    Used to detect a calibration modality mismatch (e.g. a text dataset's ``input_ids``
+    for an audio model that wants ``input_values``). Conservative: an empty model-input
+    set, an empty dataset, or any sampling error returns ``True`` (no fallback), so the
+    check only triggers a fallback on a clear, total mismatch.
+    """
+    if not input_names:
+        return True
+    try:
+        sample = dataset[0]
+    except Exception:
+        return True
+    return bool(set(sample.keys()) & input_names)
+
+
 def universal_calib_dataset(
     model_name: str,
     task: str,
@@ -98,6 +115,9 @@ def universal_calib_dataset(
     if max_samples is not None and max_samples <= 0:
         raise ValueError("max_samples must be positive if specified")
 
+    model_path = kwargs.get("model_path")
+    io_config = kwargs.get("io_config")
+
     # Fallback to random dataset for unsupported tasks
     if task not in TASK_DATASET_MAPPING:
         supported = list(TASK_DATASET_MAPPING.keys())
@@ -108,32 +128,52 @@ def universal_calib_dataset(
         )
         task = "random"
 
-    # Create dataset with error handling
+    dataset_class, task = _resolve_dataset_class(task)
+
+    # Craft kwargs - only add optional parameters if provided
+    dataset_kwargs = {
+        "model_name": model_name,
+        **kwargs,
+    }
+    if dataset_name is not None:
+        dataset_kwargs["dataset_name"] = dataset_name
+    if max_samples is not None:
+        dataset_kwargs["max_samples"] = max_samples
+    if data_split is not None:
+        dataset_kwargs["data_split"] = data_split
+
+    def _random_fallback(reason: str) -> Any:
+        logger.warning("Falling back to RandomDataset for calibration: %s", reason)
+        return RandomDataset(model_path=model_path, max_samples=max_samples or 100)
+
+    # Create dataset instance (loading happens in constructor with lazy pattern).
+    logger.info("Creating %s dataset with %s", task, dataset_class.__name__)
     try:
-        dataset_class, task = _resolve_dataset_class(task)
-
-        # Craft kwargs - only add optional parameters if provided
-        dataset_kwargs = {
-            "model_name": model_name,
-            **kwargs,
-        }
-
-        if dataset_name is not None:
-            dataset_kwargs["dataset_name"] = dataset_name
-        if max_samples is not None:
-            dataset_kwargs["max_samples"] = max_samples
-        if data_split is not None:
-            dataset_kwargs["data_split"] = data_split
-
-        # Create dataset instance (loading happens in constructor with lazy pattern)
-        logger.info("Creating %s dataset with %s", task, dataset_class.__name__)
         dataset = dataset_class(**dataset_kwargs)
-        logger.info("Created dataset with %d samples for calibration", len(dataset))
-
-        return dataset
-
     except Exception as e:
+        # A task-specific dataset that cannot be built for this model (e.g. an audio
+        # backbone that stays feature-extraction -> TextDataset, which needs a tokenizer
+        # the model lacks) degrades to RandomDataset when an ONNX model_path is known.
+        if dataset_class is not RandomDataset and model_path is not None:
+            return _random_fallback(f"{dataset_class.__name__} construction failed: {e}")
         raise RuntimeError(f"Failed to create {task} dataset: {e}") from e
+
+    # Modality mismatch: the dataset produces none of the ONNX model's input tensors
+    # (e.g. a text dataset's input_ids for an audio model that wants input_values). Fall
+    # back so calibration feeds inputs the model accepts instead of failing in the ORT
+    # session. Modality-agnostic — also covers image/video and any future modality.
+    if (
+        dataset_class is not RandomDataset
+        and model_path is not None
+        and io_config
+        and not _dataset_produces_any_input(dataset, set(io_config))
+    ):
+        return _random_fallback(
+            f"{dataset_class.__name__} produces none of the model inputs {sorted(io_config)}"
+        )
+
+    logger.info("Created dataset with %d samples for calibration", len(dataset))
+    return dataset
 
 
 class DatasetCalibrationReader(CalibrationDataReader):
