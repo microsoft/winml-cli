@@ -33,8 +33,6 @@ from ._live_chart import LiveMonitorDisplay
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..session.stats import PerfStats
@@ -330,10 +328,6 @@ class PerfBenchmark:
         assert self._model is not None
         return cast("WinMLPreTrainedModel", self._model)
 
-    def _compile_model(self) -> None:
-        """Compile the underlying ORT session so device/EP are resolved."""
-        self._single._session.compile()
-
     def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
         """Execute full benchmark pipeline.
 
@@ -383,7 +377,7 @@ class PerfBenchmark:
         self._generate_inputs()
 
         # Compile session early so model.device is resolved for display
-        self._compile_model()
+        self._single._session.compile()
 
         # Print model info before benchmark starts
         _print_model_info(
@@ -535,13 +529,9 @@ class PerfBenchmark:
             hw_monitor as hw,
             ep_monitor as ep_mon,
         ):
-            inputs = self._inputs
-
-            def run_iteration() -> None:
-                session.run(inputs)
-
             _run_monitored_loop(
-                run_iteration,
+                session,
+                self._inputs,
                 stats,
                 hw,
                 total_iterations=total_iterations,
@@ -1122,7 +1112,8 @@ def _print_model_info(
 
 
 def _run_monitored_loop(
-    run_iteration: Callable[[], Any],
+    session: Any,
+    inputs: dict[str, Any],
     stats: PerfStats,
     hw: Any,
     *,
@@ -1131,12 +1122,7 @@ def _run_monitored_loop(
     model_id: str,
     device: str,
 ) -> None:
-    """Run the benchmark iteration loop with live hardware monitoring.
-
-    ``run_iteration`` runs (and times into ``stats``) a single inference. For
-    single-session models it invokes ``session.run`` inside the session's
-    perf() context; for composite models it records a full ``forward()`` pass.
-    """
+    """Run the benchmark iteration loop with live hardware monitoring."""
     display = LiveMonitorDisplay(
         total_iterations=total_iterations,
         warmup=warmup,
@@ -1146,7 +1132,7 @@ def _run_monitored_loop(
     )
     with display:
         for i in range(total_iterations):
-            run_iteration()
+            session.run(inputs)
 
             latest_latency = stats.all_samples_ms[-1] if stats.all_samples_ms else 0
             display.update(
