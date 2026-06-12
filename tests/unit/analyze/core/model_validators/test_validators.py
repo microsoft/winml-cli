@@ -287,7 +287,9 @@ class TestModelValidatorManager:
             )
         ]
 
-        manager = ModelValidatorManager(model, op_runtime_results=op_runtime_results)
+        manager = ModelValidatorManager(
+            model, op_runtime_results=op_runtime_results, device="NPU", ep="QNNExecutionProvider"
+        )
         information = manager.run_all_validators()
 
         # Should find at least constant folding issue
@@ -329,7 +331,11 @@ class TestModelValidatorManager:
 
         # Enable only constant folding
         manager = ModelValidatorManager(
-            model, enabled_validators=["constant_folding"], op_runtime_results=op_runtime_results
+            model,
+            enabled_validators=["constant_folding"],
+            op_runtime_results=op_runtime_results,
+            device="NPU",
+            ep="QNNExecutionProvider",
         )
 
         # Should have exactly one validator
@@ -344,11 +350,11 @@ class TestModelValidatorManager:
         """Test that invalid model raises AttributeError when trying to get model."""
         # Passing None should fail when trying to call get_model()
         with pytest.raises(AttributeError):
-            ModelValidatorManager(None)  # type: ignore
+            ModelValidatorManager(None, device="NPU", ep="QNNExecutionProvider")  # type: ignore
 
         # Passing a string should fail when trying to call get_model()
         with pytest.raises(AttributeError):
-            ModelValidatorManager("not a model")  # type: ignore
+            ModelValidatorManager("not a model", device="NPU", ep="QNNExecutionProvider")  # type: ignore
 
     def test_unknown_validator_logs_warning(self, caplog):
         """Test that unknown validator names are handled gracefully."""
@@ -373,6 +379,8 @@ class TestModelValidatorManager:
                 model,
                 enabled_validators=["unknown_validator", "constant_folding"],
                 op_runtime_results=op_runtime_results,
+                device="NPU",
+                ep="QNNExecutionProvider",
             )
 
         # Should only have constant_folding validator (unknown ones are skipped)
@@ -434,7 +442,7 @@ class TestBatchedConstMatMulValidator:
     def test_manager_wires_validator_for_openvino_gpu(self):
         """Manager constructs the validator and surfaces the action for OV GPU."""
         model = create_onnx_model_wrapper(_make_batched_const_matmul_proto())
-        manager = ModelValidatorManager(model, device="GPU", ep="openvino")
+        manager = ModelValidatorManager(model, device="GPU", ep="OpenVINOExecutionProvider")
         names = [v.validator_name for v in manager.validators]
         assert "BatchedConstMatMulValidator" in names
         infos = manager.run_all_validators()

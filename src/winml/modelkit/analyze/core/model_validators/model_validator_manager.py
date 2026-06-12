@@ -24,6 +24,7 @@ from .shape_inference_validator import ShapeInferenceValidator
 
 
 if TYPE_CHECKING:
+    from ....utils.constants import EPName
     from ...models.information import Information
     from ...models.onnx_model import ONNXModel
     from ...models.runtime_checks import PatternRuntime
@@ -76,8 +77,9 @@ class ModelValidatorManager:
         model: ONNXModel,
         enabled_validators: list[str] | None = None,
         op_runtime_results: list[PatternRuntime] | None = None,
-        device: str | None = None,
-        ep: str | None = None,
+        *,
+        device: str,
+        ep: EPName,
     ) -> None:
         """Initialize validator manager.
 
@@ -89,6 +91,7 @@ class ModelValidatorManager:
                                Used to enrich validators with OP-level information.
             device: Device type (e.g., "NPU", "GPU", "CPU").
                    Used to filter validators based on device constraints.
+            ep: Execution provider name. Forwarded to validators that gate on EP.
 
         Raises:
             ValueError: If model is not valid ONNXModel instance
@@ -97,7 +100,7 @@ class ModelValidatorManager:
         self.model = model
         self.model_proto = model.get_model()
         self.op_runtime_results = op_runtime_results or []
-        self.device = device or "NPU"
+        self.device = device
         self.ep = ep
         self.enabled_validators = enabled_validators or list(self.VALIDATORS.keys())
 
