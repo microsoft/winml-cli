@@ -244,10 +244,10 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
 
         from transformers import AutoConfig
 
-        from ..loader import detect_task
+        from ..loader.resolution import resolve_task
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
-        task, _ = detect_task(hf_config)
+        task = resolve_task(hf_config).task
 
     console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
 

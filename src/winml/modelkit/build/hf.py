@@ -498,9 +498,9 @@ def _load_model(
                 )
 
         if model_class is None:
-            from ..loader import resolve_task_and_model_class
+            from ..loader.resolution import resolve_task
 
-            _, model_class = resolve_task_and_model_class(hf_config, task=task)
+            model_class = resolve_task(hf_config, task=task).model_class
 
         model_label = model_id or config.loader.model_type
         logger.info("Creating random-weight model: %s (from %s)", model_class.__name__, model_label)
