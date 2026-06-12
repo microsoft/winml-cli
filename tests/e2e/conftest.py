@@ -141,11 +141,26 @@ def runner() -> CliRunner:
 # Auto-skip E2E
 # ---------------------------------------------------------------------------
 
+# Default per-test timeout (seconds) for E2E tests when --timeout is not passed
+# on the command line. Higher than the global 300 s ini default because cold
+# E2E runs build the model end-to-end (export -> optimize -> quantize ->
+# compile). Precedence (highest first): a per-test ``@pytest.mark.timeout``
+# marker, then ``--timeout`` on the CLI, then this default. An explicit
+# ``--timeout`` therefore always wins over this fallback.
+E2E_DEFAULT_TIMEOUT = 900
+
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-skip E2E tests unless '-m e2e' is explicitly passed."""
+    """Auto-skip E2E tests unless '-m e2e' is passed; else apply the e2e timeout default."""
     marker_expr = config.getoption("-m", default="")
     if "e2e" in str(marker_expr):
+        # E2E tests are running. Inject the default timeout only when neither a
+        # per-test marker nor --timeout is given, so an explicit --timeout on the
+        # CLI always takes effect (pytest-timeout precedence: marker > CLI > ini).
+        if config.getoption("timeout", default=None) is None:
+            for item in items:
+                if "e2e" in item.keywords and item.get_closest_marker("timeout") is None:
+                    item.add_marker(pytest.mark.timeout(E2E_DEFAULT_TIMEOUT))
         return  # User explicitly requested E2E tests
     skip_e2e = pytest.mark.skip(reason="E2E tests require -m e2e (skipped by default)")
     for item in items:

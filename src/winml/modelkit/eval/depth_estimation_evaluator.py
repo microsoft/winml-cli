@@ -41,12 +41,20 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
         task = "depth-estimation"
         self._input_col = mapping.get("input_column", get_default(task, "input_column"))
         self._depth_col = mapping.get("depth_column", get_default(task, "depth_column"))
-        self._align = mapping.get("align", get_default(task, "align"))
-        self._depth_kind = mapping.get("depth_kind", get_default(task, "depth_kind"))
-        self._min_depth = float(mapping.get("min_depth", get_default(task, "min_depth")))
+        align_raw = mapping.get("align", get_default(task, "align"))
+        depth_kind_raw = mapping.get("depth_kind", get_default(task, "depth_kind"))
+        assert align_raw is not None, "align has no default for depth-estimation"
+        assert depth_kind_raw is not None, "depth_kind has no default for depth-estimation"
+        self._align: str = align_raw
+        self._depth_kind: str = depth_kind_raw
+        min_depth_raw = mapping.get("min_depth", get_default(task, "min_depth"))
+        assert min_depth_raw is not None, "min_depth has no default for depth-estimation"
+        self._min_depth = float(min_depth_raw)
         max_depth_raw = mapping.get("max_depth", get_default(task, "max_depth"))
         self._max_depth: float | None
-        if isinstance(max_depth_raw, str) and max_depth_raw.lower() == "none":
+        if max_depth_raw is None or (
+            isinstance(max_depth_raw, str) and max_depth_raw.lower() == "none"
+        ):
             self._max_depth = None
         else:
             self._max_depth = float(max_depth_raw)
@@ -68,13 +76,15 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
 
         io_config = getattr(self.model, "io_config", None) or {}
         input_shapes = io_config.get("input_shapes", [])
-        if input_shapes and len(input_shapes[0]) == 4:
+        image_processor = pipe.image_processor
+        if image_processor is not None and input_shapes and len(input_shapes[0]) == 4:
             _, _, h, w = input_shapes[0]
-            pipe.image_processor.size = {"height": h, "width": w}
-            if hasattr(pipe.image_processor, "keep_aspect_ratio"):
-                pipe.image_processor.keep_aspect_ratio = False
-            if hasattr(pipe.image_processor, "do_pad"):
-                pipe.image_processor.do_pad = False
+            # Runtime-settable processor attribute; not on the base class.
+            image_processor.size = {"height": h, "width": w}  # type: ignore[attr-defined]
+            if hasattr(image_processor, "keep_aspect_ratio"):
+                image_processor.keep_aspect_ratio = False
+            if hasattr(image_processor, "do_pad"):
+                image_processor.do_pad = False
 
         return pipe
 

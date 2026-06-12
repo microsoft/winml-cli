@@ -123,7 +123,7 @@ class DepthEstimationDataset(ImageDataset):
 
         # Convert raw images into model-ready tensors.
         def preprocess_single_sample(example: dict[str, Any]) -> dict[str, Any]:
-            return processor(example[self._image_col].convert("RGB"), return_tensors="pt")
+            return dict(processor(example[self._image_col].convert("RGB"), return_tensors="pt"))
 
         self._dataset = dataset.map(
             preprocess_single_sample, remove_columns=[self._image_col]
@@ -142,7 +142,7 @@ class DepthEstimationDataset(ImageDataset):
 
         features = dataset.features
 
-        self._image_col = None
+        self._image_col = ""
         for col_name, feature in features.items():
             if isinstance(feature, Image):
                 self._image_col = col_name
