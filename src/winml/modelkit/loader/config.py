@@ -174,7 +174,7 @@ def resolve_loader_config(
     """
     from transformers import AutoConfig
 
-    from .task import get_supported_tasks, resolve_task_and_model_class
+    from .task import _resolve_task_override, get_supported_tasks, resolve_task_and_model_class
 
     if trust_remote_code:
         from ..utils.cli import warn_trust_remote_code
@@ -220,19 +220,29 @@ def resolve_loader_config(
 
     # 2. Infer task (depends on: model_type param or hf_config.architectures)
     if task is None and model_type is not None:
-        supported = get_supported_tasks(model_type, library_name=library_name)
-        if not supported:
-            raise ValueError(
-                f"No supported tasks found for model_type '{model_type}'. "
-                f"Provide an explicit --task."
+        # Canonical override first (shared with detect_task / build), so --model-type
+        # resolves the same task as -m for multi-task families (e.g. sam2 ->
+        # mask-generation) instead of the get_supported_tasks[0] default that ignores
+        # the sentinel. Falls back to the first supported task when no override applies.
+        task = _resolve_task_override(model_type.lower().replace("_", "-"), model_id)
+        if task is not None:
+            logger.info(
+                "Auto-detected task '%s' from override for model_type '%s'", task, model_type
             )
-        task = supported[0]
-        logger.info(
-            "Auto-detected task '%s' from model_type '%s' (supported: %s)",
-            task,
-            model_type,
-            supported,
-        )
+        else:
+            supported = get_supported_tasks(model_type, library_name=library_name)
+            if not supported:
+                raise ValueError(
+                    f"No supported tasks found for model_type '{model_type}'. "
+                    f"Provide an explicit --task."
+                )
+            task = supported[0]
+            logger.info(
+                "Auto-detected task '%s' from model_type '%s' (supported: %s)",
+                task,
+                model_type,
+                supported,
+            )
 
     # 3. Resolve task + model_class (depends on: hf_config + task)
     resolved_task, resolved_class = resolve_task_and_model_class(

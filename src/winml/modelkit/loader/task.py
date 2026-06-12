@@ -202,6 +202,58 @@ def get_default_task_for_model_id(model_name_or_path: str) -> str | None:
     return MODEL_TASK_MAPPING.get((model_id, None))
 
 
+def _resolve_task_override(model_type_normalized: str, model_id: str | None = None) -> str | None:
+    """Return the canonical default task for a model_type / model_id, or ``None``.
+
+    Single source of truth for task overrides, consulted by every detection entry
+    point (``detect_task``, ``_detect_task_and_class_from_config``,
+    ``resolve_loader_config``) so they all resolve the same default task. Priority:
+
+    1. Model-id default (e.g. ``prajjwal1/bert-tiny`` -> ``feature-extraction``).
+    2. ``(model_type, None)`` sentinel in ``MODEL_CLASS_MAPPING``: its value is the
+       default *class*; the task is reverse-looked-up from the matching
+       ``(model_type, task) -> same class`` entry. Covers families whose canonical
+       export differs from the headless TasksManager default (SAM/SAM2 ->
+       ``mask-generation``), structurally enforcing that the matching class entry exists.
+
+    A default-task override is declared ONLY by an explicit sentinel — never inferred
+    from a model_type happening to have a single ``(model_type, task)`` entry. Such an
+    entry exists to fix the *class* for that task (e.g. ``segformer`` image-segmentation),
+    not to declare it the default; without a sentinel the architecture head decides, so a
+    fine-tuned checkpoint keeps its own task (a segformer classification checkpoint stays
+    ``image-classification``).
+
+    Returns ``None`` when there is no model-id default and no sentinel.
+    """
+    if model_id:
+        model_id_task = get_default_task_for_model_id(model_id)
+        if model_id_task is not None:
+            return model_id_task
+
+    from ..models.hf import MODEL_CLASS_MAPPING
+
+    # (model_type, None) sentinel -> reverse-lookup the task sharing its class.
+    default_class = MODEL_CLASS_MAPPING.get((model_type_normalized, None))
+    if default_class is None:
+        return None
+    default_task = next(
+        (
+            t
+            for (mt, t), cls in MODEL_CLASS_MAPPING.items()
+            if mt == model_type_normalized and t is not None and cls is default_class
+        ),
+        None,
+    )
+    if default_task is None:
+        raise ValueError(
+            f"MODEL_CLASS_MAPPING has ({model_type_normalized!r}, None) sentinel "
+            f"-> {default_class.__name__}, but no matching "
+            f"({model_type_normalized!r}, <task>) entry maps to that class. "
+            f"Add the corresponding (model_type, task) entry."
+        )
+    return default_task
+
+
 def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
     """Extract architecture class from config and import it from transformers.
 
@@ -292,43 +344,39 @@ def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
     return task
 
 
-# Data-driven task-modality disambiguation (D2). Maps a modality-blind task to its
-# modality-aware variants, each keyed by the top-level config fields that signal that
-# modality. Extend this table — not the code — to add new modalities. First match wins.
-_TASK_MODALITY_DISAMBIGUATION: dict[str, dict[str, tuple[str, ...]]] = {
-    "feature-extraction": {
-        # Vision backbones (ViT, DINOv2, ConvNeXt, …) carry image_size/patch_size at the
-        # config root; multimodal models (CLIP) nest them under vision_config, so the
-        # top-level check does not fire for those.
-        "image-feature-extraction": ("image_size", "patch_size"),
-        # Future, when supported: "audio-feature-extraction": ("sampling_rate", ...),
-    },
+# Modality-aware upgrade (D2) for the one modality-blind task, ``feature-extraction``.
+# Keyed on the architecture class's ``main_input_name`` — an HF framework convention
+# that is authoritative, offline, and architecture-agnostic (``pixel_values`` -> image,
+# ``input_ids`` -> text, ``input_values``/``input_features`` -> audio). Only image has a
+# downstream (dataset + evaluator) today, so text/audio/video deliberately stay
+# ``feature-extraction`` (the Optimum-canonical export task). Extend this table — not the
+# code — when a modality gains its downstream.
+_FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
+    "pixel_values": "image-feature-extraction",
 }
 
 
-def _top_level_config_keys(config: PretrainedConfig) -> set[str]:
-    """Top-level field names of an HF config (nested sub-configs are not flattened)."""
-    try:
-        return set(config.to_dict().keys())
-    except Exception:
-        return set(vars(config).keys())
-
-
 def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
-    """Disambiguate a modality-blind task using top-level config fields (D2).
+    """Upgrade a modality-blind ``feature-extraction`` to its modality-aware variant.
 
-    Data-driven via :data:`_TASK_MODALITY_DISAMBIGUATION`. Applied only to surfaced/
-    returned tasks — never to a task headed into an Optimum API, which does not
-    recognise modality-aware names like ``image-feature-extraction``.
+    Reads the *architecture* class's ``main_input_name`` and maps it via
+    :data:`_FEATURE_MODALITY_BY_MAIN_INPUT`. Uses ``config.architectures`` (not a
+    resolved Auto/wrapper class, whose ``main_input_name`` may be generic) so a ViT
+    backbone resolving to a generic ``AutoModel`` still reads ``pixel_values``.
+
+    Applied only to the surfaced/returned task — never to a task headed into an Optimum
+    API, which does not recognise modality-aware names like ``image-feature-extraction``.
+    Offline; a no-op for non-``feature-extraction`` tasks, for modalities with no
+    downstream yet, and when the architecture class cannot be resolved.
     """
-    candidates = _TASK_MODALITY_DISAMBIGUATION.get(task)
-    if not candidates:
+    if task != "feature-extraction":
         return task
-    keys = _top_level_config_keys(config)
-    for modality_task, signal_fields in candidates.items():
-        if any(field in keys for field in signal_fields):
-            return modality_task
-    return task
+    try:
+        model_class = _resolve_model_class_from_config(config)
+    except ValueError:
+        return task
+    main_input = getattr(model_class, "main_input_name", None)
+    return _FEATURE_MODALITY_BY_MAIN_INPUT.get(main_input, task)
 
 
 def detect_task(config: PretrainedConfig) -> tuple[str, str]:
@@ -346,29 +394,28 @@ def detect_task(config: PretrainedConfig) -> tuple[str, str]:
     Optimum API ever receives ``image-feature-extraction``. Offline / config-only —
     no network.
     """
-    from ..models import HF_MODEL_CLASS_MAPPING
-
     model_type = getattr(config, "model_type", "unknown")
     model_type_normalized = model_type.lower().replace("_", "-")
+    model_id = getattr(config, "_name_or_path", "") or None
 
     task: str | None = None
     source = "none"
 
-    # 1. Explicit (model_type, task) mapping wins — but only when unambiguous.
-    #    The mapping is keyed by (model_type, task) and a model_type may appear
-    #    under several tasks: encoder-decoder types (bart/t5: feature-extraction +
-    #    text2text-generation) plus an optional (model_type, None) default-class
-    #    sentinel. Detection therefore short-circuits only when the model_type maps
-    #    to exactly one *real* (non-None) task. With multiple distinct tasks the
-    #    architecture head is what disambiguates, so fall through to step 3 instead
-    #    of guessing; the None sentinel alone never decides the task.
-    distinct_tasks: set[str] = {
-        mapped
-        for mt, mapped in HF_MODEL_CLASS_MAPPING
-        if mt == model_type_normalized and mapped is not None
-    }
-    if len(distinct_tasks) == 1:
-        task, source = next(iter(distinct_tasks)), "HF_MODEL_CLASS_MAPPING"
+    # 1. Canonical task override — model-id default, the (model_type, None) sentinel, or a
+    #    model_type that maps to exactly one real task. Single source of truth shared with
+    #    the build path (_resolve_task_override), so inspect/eval and config/build resolve
+    #    the same task. A multi-task model_type with no sentinel returns None here, and the
+    #    architecture head decides in step 3.
+    override_task = _resolve_task_override(model_type_normalized, model_id)
+    if override_task is not None:
+        task = override_task
+        # Accurate provenance: the model-id default reads MODEL_TASK_MAPPING; the
+        # (model_type, None) sentinel reads MODEL_CLASS_MAPPING.
+        source = (
+            "MODEL_TASK_MAPPING"
+            if model_id and get_default_task_for_model_id(model_id) is not None
+            else "HF_MODEL_CLASS_MAPPING"
+        )
 
     # 2. Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
     #    `architectures`; resolve through their wrapped library instead of the
@@ -463,16 +510,21 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
     """
     from optimum.exporters.tasks import TasksManager
 
-    # [0] Per-model-id default task override (e.g., prajjwal1/bert-tiny).
-    # Applies before architecture resolution so models with no
-    # config.architectures field can still be auto-detected.
-    model_name_or_path = getattr(config, "_name_or_path", "") or ""
-    override_task = (
-        get_default_task_for_model_id(model_name_or_path) if model_name_or_path else None
+    # [0] Canonical task override — model-id default, the (model_type, None) sentinel, or a
+    # single-real-task model_type. Single source of truth shared with detect_task so
+    # config/build and inspect/eval resolve the same task. Applies before architecture
+    # resolution, so models with no architectures (model-id default) and multi-task families
+    # whose canonical export differs from the headless default (SAM/SAM2 -> mask-generation)
+    # both resolve here without guessing from the arch head.
+    model_id = getattr(config, "_name_or_path", "") or None
+    model_type_for_override = getattr(config, "model_type", None)
+    model_type_normalized = (
+        model_type_for_override.lower().replace("_", "-") if model_type_for_override else ""
     )
+    override_task = _resolve_task_override(model_type_normalized, model_id)
     if override_task is not None:
         logger.info(
-            "Using model-specific default task %s for %s", override_task, model_name_or_path
+            "Using task override %s for %s", override_task, model_id or model_type_for_override
         )
         return resolve_task_and_model_class(config, task=override_task)
 
@@ -540,43 +592,6 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
             "Cannot resolve model class: config has no 'model_type' field. "
             "Please specify model_class explicitly."
         )
-
-    # [3a] Per-model-type default task override.
-    # Some model families (e.g., SAM/SAM2) have an architecture class whose
-    # default TasksManager mapping ("feature-extraction") differs from the
-    # canonical export target ("mask-generation"). The default is encoded as
-    # a sentinel entry MODEL_CLASS_MAPPING[(model_type, None)] = <class>;
-    # we reverse-lookup the task name from the matching
-    # (model_type, default_task) -> same_class entry. This keeps the data in
-    # one table and structurally enforces that the matching class entry exists.
-    from ..models.hf import MODEL_CLASS_MAPPING
-
-    model_type_normalized = model_type.lower().replace("_", "-")
-    default_class = MODEL_CLASS_MAPPING.get((model_type_normalized, None))
-    if default_class is not None:
-        default_task = next(
-            (
-                t
-                for (mt, t), cls in MODEL_CLASS_MAPPING.items()
-                if mt == model_type_normalized and t is not None and cls is default_class
-            ),
-            None,
-        )
-        if default_task is None:
-            raise ValueError(
-                f"MODEL_CLASS_MAPPING has ({model_type_normalized!r}, None) sentinel "
-                f"-> {default_class.__name__}, but no matching "
-                f"({model_type_normalized!r}, <task>) entry maps to that class. "
-                f"Add the corresponding (model_type, task) entry."
-            )
-        if default_task != task:
-            logger.info(
-                "Overriding auto-detected task %r with model-type default %r for %s",
-                task,
-                default_task,
-                model_type_normalized,
-            )
-        return default_task, default_class
 
     # [4] Check specializations first (CLIP, SAM2, etc.) - highest priority
     model_class = _get_custom_model_class(model_type, task)
