@@ -119,6 +119,12 @@ dev = [
   "types-pyyaml>=6.0.12.20260518",
   "types-tqdm>=4.67.3.20260518",
 ]
+docs = [
+  "mkdocs-jupyter>=0.25",
+  "mkdocs-material>=9.5",
+  "mike>=2.1",
+  "pymdown-extensions>=10.7",
+]
 
 [tool.setuptools.packages.find]
 where = [ "src" ]
