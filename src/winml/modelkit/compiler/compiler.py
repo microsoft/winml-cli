@@ -24,15 +24,15 @@ if TYPE_CHECKING:
 
     import onnxruntime as ort
 
-    from ..utils.constants import EPName
+    from ..utils.constants import CompilerName, EPName
     from .configs import WinMLCompileConfig
     from .stages.base import BaseStage
 
 
 # EP → available compilers. Keys are canonical EPName (or None for the default).
-EP_COMPILER_MAPPING: dict[EPName | None, list[str]] = {
-    "QNNExecutionProvider": ["ort", "ort_jit", "qairt"],
-    None: ["ort", "ort_jit"],
+EP_COMPILER_MAPPING: dict[EPName | None, list[CompilerName]] = {
+    "QNNExecutionProvider": ["ort", "ort_session", "qairt"],
+    None: ["ort", "ort_session"],
 }
 
 
@@ -70,7 +70,7 @@ class Compiler:
                 same shared ``SessionOptions`` is reused across every ``compile``.
 
         The compile backend (ort.ModelCompiler vs ort.InferenceSession) is taken from
-        the config's ``compiler`` setting ("ort_jit" selects the
+        the config's ``compiler`` setting ("ort_session" selects the
         InferenceSession backend), surfaced via ``CompileContext.use_inference_session``.
         """
         self.n_total_models = n_total_models
@@ -248,7 +248,7 @@ def compile_multiple_onnx(
     model in sequence, reusing one shared ``SessionOptions`` so the weights are shared
     across the compiled EPContext models. The backend is taken from
     ``config.ep_config.compiler``: ``ort.ModelCompiler`` (default) or
-    ``ort.InferenceSession`` when it is ``"ort_jit"``.
+    ``ort.InferenceSession`` when it is ``"ort_session"``.
 
     Args:
         model_paths: Input ONNX model paths.
@@ -277,7 +277,7 @@ def compile_multiple_onnx(
             f"(shared EP context), got {output_path!r}"
         )
 
-    # Backend is taken from config.ep_config.compiler ("ort_jit" selects
+    # Backend is taken from config.ep_config.compiler ("ort_session" selects
     # the InferenceSession backend), surfaced via CompileContext.use_inference_session.
     compiler = Compiler(n_total_models=len(paths))
     # Compiled in order so the shared context accumulates and the last model flushes it.

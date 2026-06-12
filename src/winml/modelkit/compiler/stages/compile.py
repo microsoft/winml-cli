@@ -16,7 +16,7 @@ import numpy as np
 
 from ...onnx import load_onnx, save_onnx
 from ...session import WinMLQairtSession, WinMLSession
-from ...utils.constants import normalize_ep_name
+from ...utils.constants import ORT_SESSION_COMPILER, normalize_ep_name
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -78,12 +78,12 @@ class CompileStage(BaseStage):
 
     def _compile_single_model_compiler(self, context: CompileContext) -> None:
         """Single-model compile via ``WinMLSession`` (``ort.ModelCompiler``)."""
-        # Resolve session class from compiler config. "ort_jit" must not
+        # Resolve session class from compiler config. "ort_session" must not
         # reach here — it routes to _compile_multiple via context.use_inference_session.
         compiler = context.config.get("compiler", "ort")
-        if compiler == "ort_jit":
+        if compiler == ORT_SESSION_COMPILER:
             raise ValueError(
-                "'ort_jit' is handled by the inference-session path, "
+                f"{ORT_SESSION_COMPILER!r} is handled by the inference-session path, "
                 "not the single-model ModelCompiler path."
             )
         session_cls = COMPILER_SESSION_MAPPING[compiler]

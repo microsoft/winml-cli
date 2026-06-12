@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, cast
 import onnx
 import onnxruntime as ort
 
+from ..utils.constants import ORT_SESSION_COMPILER
+
 
 if TYPE_CHECKING:
     from ..utils.constants import EPAlias
@@ -105,9 +107,9 @@ class CompileContext:
     def use_inference_session(self) -> bool:
         """Whether to use the ort.InferenceSession backend (vs ort.ModelCompiler).
 
-        True iff the configured compiler is ``"ort_jit"``.
+        True iff the configured compiler is ``"ort_session"``.
         """
-        return self.config.get("compiler") == "ort_jit"
+        return self.config.get("compiler") == ORT_SESSION_COMPILER
 
     @property
     def enable_ep_context(self) -> bool:

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..utils.constants import EPAlias, EPName
+from ..utils.constants import CompilerName, EPAlias, EPName
 
 
 if TYPE_CHECKING:
@@ -37,8 +37,8 @@ class EPConfig:
         provider_options: EP-specific options as key=value dict
         enable_ep_context: Generate EPContext model with pre-compiled graph
         embed_context: Embed context in ONNX (True) or external .bin file (False)
-        compiler: Compiler backend ("ort", "ort_jit", or "qairt").
-            "ort_jit" selects the ort.InferenceSession backend.
+        compiler: Compiler backend ("ort", "ort_session", or "qairt").
+            "ort_session" selects the ort.InferenceSession backend.
         qnn_sdk_root: Path to QAIRT SDK root (required when compiler is "qairt")
         device: Target device ("npu", "gpu", "cpu", "auto")
     """
@@ -47,7 +47,7 @@ class EPConfig:
     provider_options: dict[str, str] = field(default_factory=dict)
     enable_ep_context: bool = True
     embed_context: bool = False
-    compiler: str = "ort"
+    compiler: CompilerName = "ort"
     qnn_sdk_root: Path | None = None
     device: str = "auto"
 

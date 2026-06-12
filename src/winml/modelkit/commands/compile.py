@@ -28,11 +28,11 @@ from rich.console import Console
 from ..onnx import is_compiled_onnx
 from ..sysinfo import resolve_device, resolve_eps
 from ..utils import cli as cli_utils
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import COMPILER_NAMES, ORT_SESSION_COMPILER, normalize_ep_name
 
 
 if TYPE_CHECKING:
-    from ..utils.constants import EPName, EPNameOrAlias
+    from ..utils.constants import CompilerName, EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
 
 
@@ -76,9 +76,9 @@ console = Console()
 )
 @click.option(
     "--compiler",
-    type=click.Choice(["ort", "ort_jit", "qairt"]),
+    type=click.Choice(list(COMPILER_NAMES)),
     default="ort",
-    help="Compiler backend (default: ort). 'ort_jit' compiles via "
+    help="Compiler backend (default: ort). 'ort_session' compiles via "
     "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model.",
 )
 @click.option(
@@ -113,7 +113,7 @@ def compile(
     validate: bool,
     verbose: int,
     quiet: bool,
-    compiler: str,
+    compiler: CompilerName,
     qnn_sdk_root: Path | None,
     embed: bool,
     list_compilers_flag: bool,
@@ -222,7 +222,7 @@ def compile(
     config.verbose = bool(verbose)
 
     # Set compiler options. The compiler choice selects the backend:
-    # "ort_jit" -> ort.InferenceSession, else ort.ModelCompiler / qairt.
+    # "ort_session" -> ort.InferenceSession, else ort.ModelCompiler / qairt.
     config.ep_config.compiler = compiler
     config.ep_config.qnn_sdk_root = qnn_sdk_root
     config.ep_config.embed_context = embed
@@ -250,7 +250,7 @@ def compile(
 
     try:
         console.print("\n[bold]Compiling model(s)...[/bold]")
-        if len(models) == 1 and compiler != "ort_jit":
+        if len(models) == 1 and compiler != ORT_SESSION_COMPILER:
             # Default path: single model via ort.ModelCompiler (staged pipeline).
             results = [compile_onnx(models[0], output_path=resolved_output, config=config)]
         else:
