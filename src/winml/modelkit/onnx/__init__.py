@@ -19,6 +19,7 @@ from .external_data import copy_onnx_model
 from .io import InputTensorSpec, OutputTensorSpec, generate_inputs_from_onnx, get_io_config
 from .metadata import capture_metadata, restore_metadata
 from .persistence import cleanup_onnx, load_onnx, save_onnx
+from .qwen_surgery import make_transformer_only
 from .shape import infer_onnx_shapes, infer_shapes
 from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size
 
@@ -41,6 +42,7 @@ __all__ = [
     "is_compiled_onnx",
     "is_quantized_onnx",
     "load_onnx",
+    "make_transformer_only",
     "remove_optional_from_type_annotation",
     "restore_metadata",
     "save_onnx",
