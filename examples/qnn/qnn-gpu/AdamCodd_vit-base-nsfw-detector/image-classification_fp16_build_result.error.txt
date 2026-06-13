@@ -1,0 +1,15 @@
+
+════════════════════════════════════════════════════════════
+🔧 Setup — HuggingFace
+════════════════════════════════════════════════════════════
+   📦 Model:     AdamCodd/vit-base-nsfw-detector  (pretrained)
+   📁 Config:    image-classification_fp16_config.json  (autoconf on)
+   📂 Output:    
+C:\Users\qiowu\source\repos\copilot-worktrees\winml-cli\dingmaomaobjtu-expert-s
+ystem\examples\qnn\gpu\AdamCodd_vit-base-nsfw-detector\image-classification_fp1
+6_build_artifacts
+
+════════════════════════════════════════════════════════════
+🎯 Stages
+════════════════════════════════════════════════════════════
+⏳ Export  Exporting to ONNX...Error: Build failed: bad allocation

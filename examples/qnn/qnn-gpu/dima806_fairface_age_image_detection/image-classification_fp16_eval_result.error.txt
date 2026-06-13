@@ -1,0 +1,3 @@
+WARNING: trust_remote_code is enabled - custom Python from the model repository
+will be downloaded and executed. Proceed only if you trust the publisher.
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_fairface' is not compatible with task 'image-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_fairface' (name=None, split='validation'): Couldn't find any data file at C:\Users\qiowu\.cache\winml\eval_datasets\build_fairface.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task image-classification' to see the expected schema.
