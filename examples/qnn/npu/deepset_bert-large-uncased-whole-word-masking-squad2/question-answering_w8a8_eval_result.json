@@ -1,0 +1,40 @@
+{
+  "model_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_w8a8_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_w8a8_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "exact": 72.6,
+    "f1": 76.18362318982521,
+    "total": 1000,
+    "HasAns_exact": 64.70588235294117,
+    "HasAns_f1": 71.97489490836763,
+    "HasAns_total": 493,
+    "NoAns_exact": 80.27613412228797,
+    "NoAns_f1": 80.27613412228797,
+    "NoAns_total": 507,
+    "best_exact": 72.6,
+    "best_exact_thresh": 0.9727950096130371,
+    "best_f1": 76.18362318982518,
+    "best_f1_thresh": 0.9727950096130371,
+    "total_time_in_seconds": 166.63853169999493,
+    "samples_per_second": 6.001013029809542,
+    "latency_in_seconds": 0.16663853169999493
+  }
+}

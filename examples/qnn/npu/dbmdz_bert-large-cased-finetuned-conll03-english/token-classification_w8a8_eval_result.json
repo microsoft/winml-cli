@@ -1,0 +1,52 @@
+{
+  "model_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\dbmdz_bert-large-cased-finetuned-conll03-english\\token-classification_w8a8_build_artifacts\\model.onnx",
+  "task": "token-classification",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "BramVanroy/conll2003",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\dbmdz_bert-large-cased-finetuned-conll03-english\\token-classification_w8a8_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "LOC": {
+      "precision": 0.8159722222222222,
+      "recall": 0.4079861111111111,
+      "f1": 0.5439814814814815,
+      "number": 576
+    },
+    "MISC": {
+      "precision": 0.43258426966292135,
+      "recall": 0.2730496453900709,
+      "f1": 0.3347826086956522,
+      "number": 282
+    },
+    "ORG": {
+      "precision": 0.5023474178403756,
+      "recall": 0.5646437994722955,
+      "f1": 0.5316770186335403,
+      "number": 379
+    },
+    "PER": {
+      "precision": 0.7560975609756098,
+      "recall": 0.6122082585278277,
+      "f1": 0.6765873015873016,
+      "number": 557
+    },
+    "overall_precision": 0.6455696202531646,
+    "overall_recall": 0.48327759197324416,
+    "overall_f1": 0.5527574115396875,
+    "overall_accuracy": 0.8653350515463918,
+    "total_time_in_seconds": 100.30187370000203,
+    "samples_per_second": 9.969903483467824,
+    "latency_in_seconds": 0.10030187370000203
+  }
+}

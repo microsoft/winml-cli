@@ -1,0 +1,8 @@
+[WinML] Installing Execution Provider: QNNExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+QNNExecutionProvider EP installed successfully.
+- Version: 2.2450.47.0
+- Package Family Name: MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.2_8wekyb3d8bbwe
