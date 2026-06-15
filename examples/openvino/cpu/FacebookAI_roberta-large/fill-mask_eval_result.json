@@ -1,0 +1,24 @@
+{
+  "model_id": "FacebookAI/roberta-large",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\cpu\\FacebookAI_roberta-large\\fill-mask_build_artifacts\\model.onnx",
+  "task": "fill-mask",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Salesforce/wikitext",
+    "name": "wikitext-2-raw-v1",
+    "columns_mapping": {
+      "input_column": "text"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\cpu\\FacebookAI_roberta-large\\fill-mask_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "pseudo_perplexity": 5.3352,
+    "nll": 1.6743
+  }
+}
