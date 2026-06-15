@@ -220,10 +220,10 @@ def normalize_task(task: str) -> str:
 # WinML task-synonym extensions — extend Optimum's ``TasksManager.map_from_synonym``
 # for tasks it does not recognize or mis-maps. Entries here take priority over Optimum.
 TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
-    # image-feature-extraction is a WinML modality-aware name (the D2 upgrade), not an
-    # Optimum task. Pin its collapse to feature-extraction so it never depends on Optimum's
-    # synonym map (which collapses it today, but that isn't a guaranteed contract).
-    "image-feature-extraction": "feature-extraction",
+    # NOTE: do NOT add "image-feature-extraction" here. This set is also consulted by
+    # commands.build._validate_task_supported_for_model (its "WinML extension" branch),
+    # so adding it would silence the cross-modality visibility warning. Its Optimum-synonym
+    # collapse to feature-extraction is guarded by tests/unit/loader/test_task_boundary.py.
     # next-sentence-prediction has the same I/O as text-classification: input_ids -> logits
     "next-sentence-prediction": "text-classification",
     # mask-generation is registered via register_onnx_overwrite for SAM2.
