@@ -946,12 +946,11 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     # Memory section (only when --memory is enabled)
     if result.memory_profile:
         mem = result.memory_profile
-        dev_str = (
-            f" | {mem.peak_device_local_mb:.1f} MB (device)" if mem.peak_device_local_mb > 0 else ""
-        )
-        rss = mem.post_inference.rss_mb
+        dev_str = f" | {mem.device_local_mb:.1f} MB (device)" if mem.device_local_mb > 0 else ""
         console.print()
-        console.print(f"[bold]Memory:[/bold]      {rss:.1f} MB (process){dev_str}")
+        console.print(
+            f"[bold]Memory:[/bold]      {mem.rss_after_inference_mb:.1f} MB (process){dev_str}"
+        )
         console.print(
             f"  [dim]model load: {mem.model_load_delta_mb:+.1f} MB  |  "
             f"inference: {mem.inference_alloc_delta_mb:+.1f} MB  |  "
