@@ -26,7 +26,6 @@ import numpy as np
 from rich.console import Console
 from rich.table import Table
 
-from ..session.monitor.memory_tracker import MemoryProfile
 from ..utils import cli as cli_utils
 from ..utils.constants import EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
@@ -131,8 +130,8 @@ class BenchmarkResult:
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
 
-    # Memory profile (from MemoryTracker)
-    memory_profile: MemoryProfile | None = None
+    # Memory profile dict (rss deltas from memory_tracker)
+    memory_profile: dict[str, float] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -175,7 +174,7 @@ class BenchmarkResult:
         if self.hw_monitor:
             result["hw_monitor"] = self.hw_monitor
         if self.memory_profile:
-            result["memory"] = self.memory_profile.to_dict()
+            result["memory"] = self.memory_profile
         return result
 
 
@@ -288,7 +287,7 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
-        self._memory_tracker: Any = None
+        self._memory: dict[str, float] | None = None
 
     def run(self) -> BenchmarkResult:
         """Execute full benchmark pipeline.
@@ -298,32 +297,26 @@ class PerfBenchmark:
         """
         import gc
 
-        # Initialize memory tracker if enabled.
-        # Warm up EP registry first so one-time DLL loading costs (~190 MB
-        # for OV plugin) are excluded from model measurements.
+        # Memory measurement: warmup EP, then take RSS at phase boundaries.
         if self.config.memory:
-            from ..session.monitor.memory_tracker import MemoryTracker
+            from ..session.monitor.memory_tracker import get_device_memory_mb, get_rss_mb
             from ..session.session import WinMLSession
 
             WinMLSession._init_winml_eps_once()
             gc.collect()
-            self._memory_tracker = MemoryTracker()
-            self._memory_tracker.snapshot_baseline()
+            rss_baseline = get_rss_mb()
 
         # [1] Load model
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
         assert self._model is not None
 
-        # [2] Compile session so model.device is resolved for display.
-        # Snapshot is taken RIGHT after compile (before input generation)
-        # to match reference: model_load_delta = load + compile only.
+        # [2] Compile session
         self._model._session.compile()
 
-        if self._memory_tracker:
+        if self.config.memory:
             gc.collect()
-            adapter_luid = self._resolve_adapter_luid()
-            self._memory_tracker.snapshot_post_compile(adapter_luid=adapter_luid)
+            rss_after_compile = get_rss_mb()
 
         # Print model info before benchmark starts
         _print_model_info(
@@ -334,11 +327,10 @@ class PerfBenchmark:
             ep_name=self._model.ep_name,
         )
 
-        # [3] Generate inputs (after compile so its memory is in inference delta)
+        # [3] Generate inputs + run benchmark
         logger.info("Generating benchmark inputs")
         self._generate_inputs()
 
-        # [4] Run benchmark
         logger.info(
             "Running benchmark: %d iterations + %d warmup",
             self.config.iterations,
@@ -346,11 +338,21 @@ class PerfBenchmark:
         )
         stats = self._run_benchmark()
 
-        if self._memory_tracker:
+        if self.config.memory:
+            rss_after_inference = get_rss_mb()
             adapter_luid = self._resolve_adapter_luid()
-            self._memory_tracker.snapshot_post_inference(adapter_luid=adapter_luid)
+            device_mb = get_device_memory_mb(adapter_luid)
+            self._memory = {
+                "rss_baseline_mb": round(rss_baseline, 2),
+                "rss_after_compile_mb": round(rss_after_compile, 2),
+                "rss_after_inference_mb": round(rss_after_inference, 2),
+                "model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
+                "inference_alloc_delta_mb": round(rss_after_inference - rss_after_compile, 2),
+                "total_delta_mb": round(rss_after_inference - rss_baseline, 2),
+                "device_local_mb": round(device_mb, 2),
+            }
 
-        # [5] Collect results
+        # [4] Collect results
         logger.info("Collecting results")
         return self._collect_results(stats)
 
@@ -585,7 +587,7 @@ class PerfBenchmark:
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
             # Memory profile (only present when --memory is used)
-            memory_profile=(self._memory_tracker.profile() if self._memory_tracker else None),
+            memory_profile=self._memory,
         )
 
 
@@ -946,15 +948,16 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     # Memory section (only when --memory is enabled)
     if result.memory_profile:
         mem = result.memory_profile
-        dev_str = f" | {mem.device_local_mb:.1f} MB (device)" if mem.device_local_mb > 0 else ""
+        dev_mb = mem.get("device_local_mb", 0)
+        dev_str = f" | {dev_mb:.1f} MB (device)" if dev_mb > 0 else ""
         console.print()
         console.print(
-            f"[bold]Memory:[/bold]      {mem.rss_after_inference_mb:.1f} MB (process){dev_str}"
+            f"[bold]Memory:[/bold]      {mem['rss_after_inference_mb']:.1f} MB (process){dev_str}"
         )
         console.print(
-            f"  [dim]model load: {mem.model_load_delta_mb:+.1f} MB  |  "
-            f"inference: {mem.inference_alloc_delta_mb:+.1f} MB  |  "
-            f"total: {mem.total_delta_mb:+.1f} MB[/dim]"
+            f"  [dim]model load: {mem['model_load_delta_mb']:+.1f} MB  |  "
+            f"inference: {mem['inference_alloc_delta_mb']:+.1f} MB  |  "
+            f"total: {mem['total_delta_mb']:+.1f} MB[/dim]"
         )
 
     console.print()
