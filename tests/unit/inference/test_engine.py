@@ -382,9 +382,14 @@ class TestLoadSchemaOnly:
         hub_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
 
         engine = InferenceEngine()
+        # ``WinMLSession.load_schema_only`` now routes Hub-ONNX resolution
+        # through the unified ``resolve_model_input`` (in
+        # ``winml.modelkit.utils.model_input``). Patch the underlying
+        # downloader so the lazy ``from ..loader.onnx_hub import
+        # resolve_hf_onnx_path`` picks up the mock at call time.
         with patch(
-            "winml.modelkit.loader.maybe_resolve_hf_onnx_path",
-            return_value=str(local),
+            "winml.modelkit.loader.onnx_hub.resolve_hf_onnx_path",
+            return_value=local,
         ) as mock_resolve:
             engine.load_schema_only(hub_ref, task="mask-generation")
         mock_resolve.assert_called_once()

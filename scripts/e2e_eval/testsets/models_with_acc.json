@@ -1927,5 +1927,47 @@
         "depth_column": "depth_map"
       }
     }
+  },
+  {
+    "hf_id": "onnx-community/sam3-tracker-ONNX",
+    "task": "mask-generation",
+    "model_type": "sam3_tracker",
+    "group": "Top200",
+    "priority": "P2",
+    "composite_onnx": {
+      "image-encoder": "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx",
+      "prompt-decoder": "onnx-community/sam3-tracker-ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx"
+    },
+    "dataset_config": {
+      "path": "mattmdjaga/human_parsing_dataset",
+      "split": "train",
+      "metric": "mIoU",
+      "samples": 10,
+      "columns_mapping": {
+        "input_column": "image",
+        "mask_column": "mask"
+      }
+    }
+  },
+  {
+    "hf_id": "onnx-community/sam2.1-hiera-small-ONNX",
+    "task": "mask-generation",
+    "model_type": "sam2",
+    "group": "Top200",
+    "priority": "P2",
+    "composite_onnx": {
+      "image-encoder": "onnx-community/sam2.1-hiera-small-ONNX/onnx/vision_encoder_int8.onnx",
+      "prompt-decoder": "onnx-community/sam2.1-hiera-small-ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx"
+    },
+    "dataset_config": {
+      "path": "mattmdjaga/human_parsing_dataset",
+      "split": "train",
+      "metric": "mIoU",
+      "samples": 10,
+      "columns_mapping": {
+        "input_column": "image",
+        "mask_column": "mask"
+      }
+    }
   }
 ]

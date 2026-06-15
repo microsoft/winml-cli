@@ -144,7 +144,7 @@ def mock_onnx_pipeline():
             side_effect=_create_file_side_effect("output_path", compile_result),
         ) as m_compile,
         patch(
-            "winml.modelkit.build.onnx.is_quantized_onnx",
+            "winml.modelkit.build.common.is_quantized_onnx",
             return_value=False,
         ) as m_has_qdq,
         patch(

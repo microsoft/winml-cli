@@ -387,15 +387,26 @@ class TestPerfUnifiedPipeline:
         local.write_bytes(b"fake onnx")
         hub_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
 
+        mock_result = MagicMock()
+        mock_result.to_dict = MagicMock(return_value={})
+
+        # Stub PerfBenchmark so the test stays fast and EP-independent;
+        # capture the BenchmarkConfig it was constructed with so we can
+        # assert ``model_id`` is the resolved local path, not the Hub ref.
+        captured_configs: list = []
+        original_init = PerfBenchmark.__init__
+
+        def _capturing_init(self_, config, *args, **kwargs):
+            captured_configs.append(config)
+            original_init(self_, config, *args, **kwargs)
+
         with (
             patch(
-                "winml.modelkit.loader.maybe_resolve_hf_onnx_path",
-                return_value=str(local),
+                "winml.modelkit.loader.onnx_hub.resolve_hf_onnx_path",
+                return_value=local,
             ) as mock_resolve,
-            patch(
-                "winml.modelkit.commands.perf._run_onnx_benchmark",
-                return_value=MagicMock(),
-            ) as mock_run,
+            patch.object(PerfBenchmark, "__init__", _capturing_init),
+            patch.object(PerfBenchmark, "run", return_value=mock_result) as mock_run,
             patch("winml.modelkit.commands.perf.display_console_report"),
             patch("winml.modelkit.commands.perf.write_json_report"),
         ):
@@ -406,12 +417,15 @@ class TestPerfUnifiedPipeline:
             )
 
         assert result.exit_code == 0, result.output
-        mock_resolve.assert_called_once_with(hub_ref)
-        # After resolution, the Hub ref reaches _run_onnx_benchmark as
-        # the LOCAL path -- not the original Hub ref string.
+        # ``resolve_model_input`` forwards revision/cache_dir/token kwargs
+        # to the downloader; only the positional Hub ref is meaningful here.
+        mock_resolve.assert_called_once()
+        assert mock_resolve.call_args.args == (hub_ref,)
+        # After resolution, the PerfBenchmark sees the LOCAL path on its
+        # config.model_id -- not the original Hub ref string.
         mock_run.assert_called_once()
-        called_path = mock_run.call_args.args[0]
-        assert called_path == local
+        assert len(captured_configs) == 1
+        assert Path(captured_configs[0].model_id) == local
 
     def test_onnx_load_model_passes_ep(self, tmp_path: Path) -> None:
         """EP argument should be forwarded to from_onnx."""

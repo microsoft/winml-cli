@@ -313,11 +313,9 @@ class WinMLAutoModel:
 
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx path thereafter.
-        from ..loader import maybe_resolve_hf_onnx_path
+        from ..utils.model_input import resolve_model_input
 
-        # ``model_id`` is already coerced to ``str`` above, so the helper's
-        # ``str | None`` return type is always ``str`` here.
-        model_id = maybe_resolve_hf_onnx_path(model_id)  # type: ignore[assignment]
+        model_id = resolve_model_input(model_id).local_path or model_id
 
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file

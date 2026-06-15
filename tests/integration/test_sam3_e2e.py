@@ -12,8 +12,9 @@ Hub repo via the Scenario D pipeline (``build_onnx_model``).
 
 Pipeline verified by this test:
 
-1. ``is_hf_onnx_path`` recognizes the Hub-style ONNX reference and
-   ``resolve_hf_onnx_path`` downloads the file via ``huggingface_hub``.
+1. ``classify_model_input`` recognizes the Hub-style ONNX reference as
+   ``kind == "hub_onnx"`` and ``resolve_hf_onnx_path`` downloads the file
+   via ``huggingface_hub``.
 2. ``generate_onnx_build_config`` produces a valid build config for the
    already-quantized ONNX (skips optimize and quantize stages).
 3. ``build_onnx_model`` produces a final ``model.onnx`` artifact that loads
@@ -63,13 +64,15 @@ class TestSam3E2E:
         """
         from huggingface_hub.utils import HfHubHTTPError
 
-        from winml.modelkit.loader import is_hf_onnx_path, resolve_hf_onnx_path
+        from winml.modelkit.loader import resolve_hf_onnx_path
+        from winml.modelkit.utils.model_input import classify_model_input
 
-        assert is_hf_onnx_path(SAM3_ONNX_REF)
+        assert classify_model_input(SAM3_ONNX_REF).kind == "hub_onnx"
         try:
             return resolve_hf_onnx_path(SAM3_ONNX_REF)
         except (HfHubHTTPError, OSError) as e:
             pytest.skip(f"Network unavailable to download {SAM3_ONNX_REF}: {e}")
+            raise  # unreachable (pytest.skip raises Skipped); satisfies static analyzers
 
     def test_resolves_to_local_onnx_file(self, sam3_onnx_path: Path) -> None:
         """The Hub reference resolves to an on-disk .onnx file."""
@@ -198,13 +201,15 @@ class TestSam3EncoderE2E:
         """
         from huggingface_hub.utils import HfHubHTTPError
 
-        from winml.modelkit.loader import is_hf_onnx_path, resolve_hf_onnx_path
+        from winml.modelkit.loader import resolve_hf_onnx_path
+        from winml.modelkit.utils.model_input import classify_model_input
 
-        assert is_hf_onnx_path(SAM3_ENCODER_ONNX_REF)
+        assert classify_model_input(SAM3_ENCODER_ONNX_REF).kind == "hub_onnx"
         try:
             return resolve_hf_onnx_path(SAM3_ENCODER_ONNX_REF)
         except (HfHubHTTPError, OSError) as e:
             pytest.skip(f"Network unavailable to download {SAM3_ENCODER_ONNX_REF}: {e}")
+            raise  # unreachable (pytest.skip raises Skipped); satisfies static analyzers
 
     def test_encoder_is_detected_as_quantized(self, encoder_onnx_path: Path) -> None:
         """The QOperator-quantized encoder is recognized by is_quantized_onnx."""

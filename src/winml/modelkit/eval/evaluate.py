@@ -64,6 +64,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
     "compare-tensor":
         "winml.modelkit.eval.tensor_similarity_evaluator:TensorSimilarityEvaluator",
+    "mask-generation":
+        "winml.modelkit.eval.mask_generation_evaluator:WinMLMaskGenerationEvaluator",
 }
 # fmt: on
 
@@ -172,6 +174,13 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         # the legacy `nyu_depth_v2.py` loader script.
         "revision": "refs/convert/parquet",
     },
+    "mask-generation": {
+        # LIP-derived multi-class body-part labels, collapsed to a single
+        # binary foreground/background mask by ``MaskGenerationDataset``.
+        # Same dataset used by ``scripts/sam3_smoke_eval.py``.
+        "path": "mattmdjaga/human_parsing_dataset",
+        "split": "train",
+    },
 }
 
 
@@ -190,12 +199,25 @@ class EvalResult:
         }
 
 
-def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
-    """Load model from ONNX path or HF model ID."""
+def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | None:
+    """Load model from ONNX path or HF model ID.
+
+    For evaluators that handle their own ORT session construction from a
+    composite ``role=path`` model dict (currently only
+    ``mask-generation``), returns ``None`` -- the evaluator reads
+    ``config.model_path`` directly.  Going through ``WinMLAutoModel``'s
+    composite registry would require registering the model type (e.g.,
+    SAM 3), which is a heavier follow-up; this bypass lets standalone
+    ONNX exports be evaluated today.
+    """
     from ..models import WinMLAutoModel
 
     if config.model_id is None:
         raise ValueError("model_id is required.")
+
+    if isinstance(config.model_path, dict) and config.task == "mask-generation":
+        # Evaluator-driven session loading; skip WinMLAutoModel entirely.
+        return None
 
     if config.model_path is not None:
         # Pre-built ONNX: precision is already baked into the model and is
@@ -306,7 +328,11 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     cls = get_evaluator_class(config)
     try:
         console.print("[bold]Loading dataset and evaluating...[/bold]")
-        task_evaluator = cls(config, model)
+        # ``model`` is ``None`` for composite evaluators that load ORT
+        # sessions directly from ``config.model_path`` (currently only
+        # mask-generation).  Type-checker can't follow the per-task
+        # invariant, so suppress here at the unified call site.
+        task_evaluator = cls(config, model)  # type: ignore[arg-type]
         metrics = task_evaluator.compute()
     except DatasetValidationError as error:
         raise ValueError(

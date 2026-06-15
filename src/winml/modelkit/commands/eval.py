@@ -453,6 +453,10 @@ def _resolve_model_path(
             raise click.UsageError(
                 "--model-id is required when using composite `-m role=path` options."
             )
+        # Each role's path may be either a local .onnx file OR a Hub-hosted
+        # ONNX ref (``org/repo/path/file.onnx``). ``normalize_model_arg``
+        # resolves Hub refs to local cached paths so downstream code sees
+        # only filesystem paths.
         sub_model_paths: dict[str, str] = {}
         for v in role_assigned:
             role, _, path = v.partition("=")
@@ -467,6 +471,7 @@ def _resolve_model_path(
                     f"Duplicate role {role!r} in -m options.",
                     param_hint="-m/--model",
                 )
+            path = cli_utils.normalize_model_arg(path) or path
             if not Path(path).exists():
                 raise click.BadParameter(
                     f"ONNX file not found: {path}",
@@ -484,11 +489,8 @@ def _resolve_model_path(
     if Path(value).suffix.lower() == ".onnx":
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx path thereafter.
-        from ..loader import is_hf_onnx_path, resolve_hf_onnx_path
-
-        if is_hf_onnx_path(value):
-            value = str(resolve_hf_onnx_path(value))
-        elif not Path(value).exists():
+        value = cli_utils.normalize_model_arg(value) or value
+        if not Path(value).exists():
             raise click.BadParameter(
                 f"ONNX file not found: {value}",
                 param_hint="-m/--model",

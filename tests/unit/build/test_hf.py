@@ -150,7 +150,7 @@ def mock_pipeline():
             return_value=_default_analyze_result(),
         ) as m_analyze,
         patch(
-            "winml.modelkit.build.hf.is_quantized_onnx",
+            "winml.modelkit.build.common.is_quantized_onnx",
             return_value=False,
         ) as m_has_qdq,
         patch(

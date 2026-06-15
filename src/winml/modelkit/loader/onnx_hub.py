@@ -4,25 +4,16 @@
 # --------------------------------------------------------------------------
 """Download pre-exported ONNX files hosted on the HuggingFace Hub.
 
-ModelKit accepts two model input forms today: a HuggingFace model ID
-(``org/name``) for the standard ``transformers`` + ``optimum-onnx`` export
-path, and a local ``.onnx`` file path for the Scenario D pipeline in
-``modelkit.build.build_onnx_model``.
+This module is the **download** half of Hub-hosted ONNX support.
+Classification (deciding whether a ``-m/--model`` value is a Hub ONNX
+ref, a local ``.onnx`` file, an HF model ID, or a build directory) lives
+in :mod:`winml.modelkit.utils.model_input` and is the single entry point
+that all CLI commands and library APIs should go through.
 
-This module recognizes a third form -- a path-style reference to a
-pre-exported ONNX artifact in a Hub repo, e.g.::
-
-    onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx
-
-The first two ``/``-separated components are interpreted as the repo ID;
-everything that follows is the file path inside the repo. The file is
-downloaded once via ``huggingface_hub.hf_hub_download`` and the local
-path is then handed to the existing Scenario D code path. This is the
-supported route for models like SAM 3 whose ``transformers`` requirement
-exceeds what ``optimum-onnx`` currently pins.
-
-Any sibling ``<file>.onnx_data`` external-data sidecar is fetched
-best-effort so the ONNX loader can resolve external initializers.
+The function exposed here, :func:`resolve_hf_onnx_path`, is called by
+``resolve_model_input`` for the ``hub_onnx`` case and downloads the
+``.onnx`` file (plus any ``.onnx_data`` sidecar) via
+``huggingface_hub.hf_hub_download``.
 """
 
 from __future__ import annotations
@@ -32,25 +23,6 @@ from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
-
-
-def is_hf_onnx_path(model_id: str | None) -> bool:
-    """Check whether ``model_id`` is a Hub-style reference to a pre-exported ONNX file.
-
-    Returns True only when the value has at least three ``/``-separated
-    components, ends with ``.onnx``, and does not point at an existing
-    local file or directory. Local paths always win over the Hub
-    interpretation so users can keep working with paths that happen to
-    look like repo IDs.
-    """
-    if not model_id:
-        return False
-    if not model_id.endswith(".onnx"):
-        return False
-    if Path(model_id).exists():
-        return False
-    parts = [p for p in model_id.split("/") if p]
-    return len(parts) >= 3
 
 
 def resolve_hf_onnx_path(
@@ -80,6 +52,11 @@ def resolve_hf_onnx_path(
     Raises:
         ValueError: If ``model_id`` does not have at least three ``/``-separated
             components.
+        FileNotFoundError: If the referenced ``.onnx`` file does not exist in
+            the repo. The error message lists the ``.onnx`` files that *are*
+            present so the user can correct the path.
+        huggingface_hub.utils.RepositoryNotFoundError: If the repo itself does
+            not exist (re-raised unchanged).
     """
     from huggingface_hub import hf_hub_download
     from huggingface_hub.utils import EntryNotFoundError
@@ -87,15 +64,27 @@ def resolve_hf_onnx_path(
     repo_id, filename = _split_hf_onnx_path(model_id)
     logger.info("Downloading ONNX from Hub: repo=%s file=%s", repo_id, filename)
 
-    local_path = Path(
-        hf_hub_download(
-            repo_id=repo_id,
-            filename=filename,
-            revision=revision,
-            cache_dir=cache_dir,
-            token=token,
+    try:
+        local_path = Path(
+            hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                revision=revision,
+                cache_dir=cache_dir,
+                token=token,
+            )
         )
-    )
+    except EntryNotFoundError as e:
+        # The repo exists but ``filename`` does not. Surface the available
+        # ``.onnx`` files so the user can pick the right one without leaving
+        # the terminal. Re-raise as ``FileNotFoundError`` so callers that
+        # already handle local-file-missing errors get a consistent type.
+        hint = _format_available_onnx_files(
+            repo_id, revision=revision, token=token
+        )
+        raise FileNotFoundError(
+            f"ONNX file '{filename}' not found in Hub repo '{repo_id}'.\n{hint}"
+        ) from e
 
     # External-data sidecars (used for >2 GiB models) live next to the .onnx
     # file with a ``.onnx_data`` suffix. The main download above just
@@ -144,44 +133,43 @@ def _split_hf_onnx_path(model_id: str) -> tuple[str, str]:
     return "/".join(parts[:2]), "/".join(parts[2:])
 
 
-def maybe_resolve_hf_onnx_path(
-    model_id: str | None,
+def _format_available_onnx_files(
+    repo_id: str,
     *,
     revision: str | None = None,
-    cache_dir: str | Path | None = None,
     token: str | bool | None = None,
-) -> str | None:
-    """Resolve ``model_id`` to a local ONNX path if it is a Hub ONNX reference.
+) -> str:
+    """Build a human-readable hint listing ``.onnx`` files in a Hub repo.
 
-    Convenience wrapper that combines :func:`is_hf_onnx_path` and
-    :func:`resolve_hf_onnx_path`. Non-Hub inputs (HF model IDs, local
-    paths, ``None``) are returned unchanged so callers can use this as a
-    transparent normalization step before dispatching to existing code.
-
-    Args:
-        model_id: HF model ID, local path, Hub ONNX ref, or ``None``.
-        revision: Optional Hub revision (forwarded when downloading).
-        cache_dir: Optional cache override (forwarded when downloading).
-        token: Optional auth token (forwarded when downloading).
-
-    Returns:
-        Local ``.onnx`` path string when ``model_id`` was a Hub ref; the
-        original ``model_id`` otherwise.
+    Used to enrich ``EntryNotFoundError`` messages so users who guessed the
+    wrong filename can see the available options without leaving the
+    terminal. Best-effort: if listing fails for any reason (network,
+    auth, gated repo) we return a generic fallback hint instead of
+    masking the original error.
     """
-    if not is_hf_onnx_path(model_id):
-        return model_id
-    return str(
-        resolve_hf_onnx_path(
-            model_id,  # type: ignore[arg-type]  # is_hf_onnx_path() rejects None
-            revision=revision,
-            cache_dir=cache_dir,
-            token=token,
+    from huggingface_hub import list_repo_files
+
+    try:
+        files = list_repo_files(repo_id, revision=revision, token=token)
+    except Exception as list_err:
+        logger.debug("Could not list files for %s: %s", repo_id, list_err)
+        return (
+            f"Could not list available .onnx files in '{repo_id}' "
+            f"(see https://huggingface.co/{repo_id}/tree/main)."
         )
-    )
+
+    onnx_files = sorted(f for f in files if f.lower().endswith(".onnx"))
+    if not onnx_files:
+        return (
+            f"No .onnx files were found in '{repo_id}'. "
+            f"This repo may not host pre-exported ONNX weights; "
+            f"see https://huggingface.co/{repo_id}/tree/main."
+        )
+
+    listing = "\n".join(f"  - {repo_id}/{f}" for f in onnx_files)
+    return f"Available .onnx files in '{repo_id}':\n{listing}"
 
 
 __all__ = [
-    "is_hf_onnx_path",
-    "maybe_resolve_hf_onnx_path",
     "resolve_hf_onnx_path",
 ]

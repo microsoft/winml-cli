@@ -34,7 +34,6 @@ from ..utils.console import (
     print_error,
     print_final,
     print_setup,
-    print_stage_skip,
     print_stages_header,
 )
 from ..utils.logging import configure_logging
@@ -579,9 +578,7 @@ def build(
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
         if model_id is not None:
-            from ..loader import maybe_resolve_hf_onnx_path
-
-            model_id = maybe_resolve_hf_onnx_path(model_id)
+            model_id = cli_utils.normalize_model_arg(model_id)
 
         # Load or auto-generate config
         if config_file is not None:
@@ -595,11 +592,22 @@ def build(
                 raise click.UsageError("-m/--model is required when -c is not provided.")
             from ..config import generate_build_config
 
-            config_or_configs = generate_build_config(
-                model_id,
-                trust_remote_code=trust_remote_code,
-                device=device,
-            )
+            # When ``model_id`` resolves to an .onnx file (either a local path or
+            # a Hub-hosted ONNX ref that was just downloaded by
+            # ``normalize_model_arg``), route to the ONNX config generator instead
+            # of treating the path as a HuggingFace repo id (which would try to
+            # load the .onnx file as a JSON config and crash).
+            if cli_utils.is_onnx_file_path(model_id):
+                config_or_configs = generate_build_config(
+                    onnx_path=model_id,
+                    device=device,
+                )
+            else:
+                config_or_configs = generate_build_config(
+                    model_id,
+                    trust_remote_code=trust_remote_code,
+                    device=device,
+                )
             if not quant:
                 config_or_configs.quant = None
             # Auto-generated configs: compile disabled by default unless
@@ -1150,16 +1158,14 @@ def _run_quantize_stage(
     Returns:
         Updated current_path (quantized_path if quantization ran, else unchanged).
     """
-    from ..onnx import is_quantized_onnx
     from ..quant import quantize_onnx
     from ..utils.console import StageLive
 
     if config.quant is None:
-        return current_path
-
-    if is_quantized_onnx(current_path):
-        print_stage_skip(console, "quantize", "(QDQ nodes already present)")
-        stage_timings.append(("Quantize", None))
+        # ``generate_onnx_build_config`` and ``ensure_pre_quantized_stamped``
+        # (in build/common.py) both clear ``config.quant`` for pre-quantized
+        # inputs, so this single check covers both "user-explicit None" and
+        # "auto-detected pre-quantized" cases.
         return current_path
 
     with StageLive("quantize", console) as sl:
@@ -1445,7 +1451,7 @@ def _build_onnx_pipeline(
     Returns list of (stage_name, elapsed_seconds | None) for summary,
     or None if build was reused.
     """
-    from ..onnx import copy_onnx_model, is_quantized_onnx
+    from ..onnx import copy_onnx_model
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
     allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
@@ -1488,11 +1494,11 @@ def _build_onnx_pipeline(
 
     # Pre-quantized models (QDQ or QOperator format) cannot pass through
     # ORT-based graph optimization on hosts that lack kernels for ops like
-    # ``ConvInteger``. Skip the optimize pass and the autoconf re-optim
-    # loop; analyze still runs lint-only.
-    is_pre_quantized = is_quantized_onnx(current_path)
-    if is_pre_quantized:
-        max_iters = 0
+    # ``ConvInteger``. The unified pipeline stamps ``config.skip_optimize``
+    # exactly once in ``generate_onnx_build_config`` -- downstream stages
+    # (here and inside ``build_onnx_model``) read the flag instead of
+    # re-running ``is_quantized_onnx`` on the same file.
+    is_pre_quantized = config.skip_optimize
 
     # ── Optimize stage (first stage for ONNX — show I/O here) ────
     current_path, _ = _run_optimize_stage(

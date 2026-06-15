@@ -4,8 +4,12 @@
 # --------------------------------------------------------------------------
 """Tests for winml.modelkit.loader.onnx_hub.
 
-Covers Hub-style ONNX reference detection and download. Uses mock
-``hf_hub_download`` callables so no network access is required.
+Covers the Hub-style ONNX **download** path. Classification and
+the combined classify+download wrapper live in
+``winml.modelkit.utils.model_input`` and are covered by
+``tests/unit/utils/test_model_input.py``.
+
+Uses mock ``hf_hub_download`` callables so no network access is required.
 """
 
 from __future__ import annotations
@@ -17,49 +21,12 @@ import pytest
 
 from winml.modelkit.loader.onnx_hub import (
     _split_hf_onnx_path,
-    is_hf_onnx_path,
-    maybe_resolve_hf_onnx_path,
     resolve_hf_onnx_path,
 )
 
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-class TestIsHfOnnxPath:
-    """Hub ONNX reference detection."""
-
-    def test_three_segment_onnx_recognized(self) -> None:
-        """Repo-id + nested file path is a valid Hub ONNX reference."""
-        assert is_hf_onnx_path("onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx")
-
-    def test_three_segments_minimum(self) -> None:
-        """Two segments are treated as a plain HF model ID, not a file ref."""
-        assert is_hf_onnx_path("org/repo/file.onnx")
-        assert not is_hf_onnx_path("org/file.onnx")
-
-    def test_plain_hf_model_id_rejected(self) -> None:
-        """org/name HF IDs are not Hub ONNX references."""
-        assert not is_hf_onnx_path("microsoft/resnet-50")
-        assert not is_hf_onnx_path("facebook/sam2.1-hiera-small")
-
-    def test_non_onnx_extension_rejected(self) -> None:
-        """Only .onnx file references match."""
-        assert not is_hf_onnx_path("org/repo/path/file.bin")
-        assert not is_hf_onnx_path("org/repo/path/file")
-
-    def test_existing_local_path_takes_precedence(self, tmp_path: Path) -> None:
-        """A real on-disk path that looks like a Hub ref is left alone."""
-        local = tmp_path / "org" / "repo" / "file.onnx"
-        local.parent.mkdir(parents=True)
-        local.write_bytes(b"")
-        assert not is_hf_onnx_path(str(local))
-
-    def test_none_and_empty_inputs(self) -> None:
-        """None and empty string are not Hub references."""
-        assert not is_hf_onnx_path(None)
-        assert not is_hf_onnx_path("")
 
 
 class TestSplitHfOnnxPath:
@@ -181,44 +148,109 @@ class TestResolveHfOnnxPath:
         )
 
 
-class TestMaybeResolveHfOnnxPath:
-    """Convenience wrapper that combines is_hf_onnx_path + resolve_hf_onnx_path."""
+class TestResolveHfOnnxPathDiscovery:
+    """``EntryNotFoundError`` on the main file is enriched with a file listing.
 
-    def test_none_passes_through(self) -> None:
-        """``None`` returns ``None`` without touching the network."""
-        with patch("huggingface_hub.hf_hub_download") as mock:
-            assert maybe_resolve_hf_onnx_path(None) is None
-            mock.assert_not_called()
+    The user typically gets here by guessing the wrong path inside a valid
+    Hub repo (e.g. ``onnx/vision_encoder.onnx`` when only ``int8`` and
+    ``fp16`` variants exist). The error message must list the ``.onnx``
+    files that *are* available so the user can correct the path without
+    having to open the Hub web UI.
+    """
 
-    def test_plain_hf_model_id_passes_through(self) -> None:
-        """An HF model id (e.g. ``microsoft/resnet-50``) is returned unchanged."""
-        with patch("huggingface_hub.hf_hub_download") as mock:
-            assert maybe_resolve_hf_onnx_path("microsoft/resnet-50") == "microsoft/resnet-50"
-            mock.assert_not_called()
-
-    def test_local_path_passes_through(self, tmp_path: Path) -> None:
-        """Existing local ``.onnx`` paths take precedence over Hub interpretation."""
-        local = tmp_path / "model.onnx"
-        local.write_bytes(b"")
-        with patch("huggingface_hub.hf_hub_download") as mock:
-            assert maybe_resolve_hf_onnx_path(str(local)) == str(local)
-            mock.assert_not_called()
-
-    def test_hub_ref_is_resolved(self, tmp_path: Path) -> None:
-        """A Hub-style ONNX ref triggers ``resolve_hf_onnx_path``."""
+    def test_missing_file_lists_available_onnx(self) -> None:
+        """Wrong filename: error names available .onnx files in the repo."""
         from huggingface_hub.utils import EntryNotFoundError
 
-        downloaded = tmp_path / "vision_encoder_int8.onnx"
-        downloaded.write_bytes(b"")
-
         def _fake_download(*, repo_id, filename, revision, cache_dir, token):
-            if filename.endswith(".onnx_data"):
-                raise EntryNotFoundError(filename)
-            return str(downloaded)
+            # Main file is missing; sidecar should never be reached
+            # because the main download raises first.
+            raise EntryNotFoundError(filename)
 
-        with patch("huggingface_hub.hf_hub_download", side_effect=_fake_download):
-            result = maybe_resolve_hf_onnx_path(
-                "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+        repo_files = [
+            "README.md",
+            "config.json",
+            "onnx/vision_encoder_int8.onnx",
+            "onnx/vision_encoder_fp16.onnx",
+            "onnx/prompt_encoder_mask_decoder_int8.onnx",
+        ]
+
+        with (
+            patch("huggingface_hub.hf_hub_download", side_effect=_fake_download),
+            patch(
+                "huggingface_hub.list_repo_files",
+                return_value=repo_files,
+            ) as mock_list,
+            pytest.raises(FileNotFoundError) as exc_info,
+        ):
+            resolve_hf_onnx_path(
+                "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder.onnx"
             )
 
-        assert result == str(downloaded)
+        msg = str(exc_info.value)
+        # Names the bad path and the repo
+        assert "onnx/vision_encoder.onnx" in msg
+        assert "onnx-community/sam3-tracker-ONNX" in msg
+        # Lists every .onnx file that *is* present
+        assert "onnx/vision_encoder_int8.onnx" in msg
+        assert "onnx/vision_encoder_fp16.onnx" in msg
+        assert "onnx/prompt_encoder_mask_decoder_int8.onnx" in msg
+        # Does not include non-ONNX files
+        assert "README.md" not in msg
+        assert "config.json" not in msg
+        # list_repo_files was called with the repo derived from the bad path
+        mock_list.assert_called_once()
+        assert (
+            mock_list.call_args.args[0] == "onnx-community/sam3-tracker-ONNX"
+            or mock_list.call_args.kwargs.get("repo_id")
+            == "onnx-community/sam3-tracker-ONNX"
+        )
+
+    def test_missing_file_listing_failure_falls_back_gracefully(self) -> None:
+        """If list_repo_files itself fails, the error still surfaces cleanly.
+
+        The hint is best-effort -- we must not mask the original
+        ``EntryNotFoundError`` because the listing step also failed
+        (gated repo, network blip, auth issue).
+        """
+        from huggingface_hub.utils import EntryNotFoundError
+
+        def _fake_download(*, repo_id, filename, revision, cache_dir, token):
+            raise EntryNotFoundError(filename)
+
+        with (
+            patch("huggingface_hub.hf_hub_download", side_effect=_fake_download),
+            patch(
+                "huggingface_hub.list_repo_files",
+                side_effect=ConnectionError("network down"),
+            ),
+            pytest.raises(FileNotFoundError) as exc_info,
+        ):
+            resolve_hf_onnx_path("org/repo/onnx/missing.onnx")
+
+        msg = str(exc_info.value)
+        assert "onnx/missing.onnx" in msg
+        assert "org/repo" in msg
+        # Generic fallback hint is included.
+        assert "Could not list available .onnx files" in msg
+
+    def test_missing_file_no_onnx_in_repo(self) -> None:
+        """Repo exists but has no .onnx files at all -- hint says so."""
+        from huggingface_hub.utils import EntryNotFoundError
+
+        def _fake_download(*, repo_id, filename, revision, cache_dir, token):
+            raise EntryNotFoundError(filename)
+
+        with (
+            patch("huggingface_hub.hf_hub_download", side_effect=_fake_download),
+            patch(
+                "huggingface_hub.list_repo_files",
+                return_value=["README.md", "config.json", "pytorch_model.bin"],
+            ),
+            pytest.raises(FileNotFoundError) as exc_info,
+        ):
+            resolve_hf_onnx_path("org/pytorch-only/onnx/model.onnx")
+
+        msg = str(exc_info.value)
+        assert "No .onnx files were found" in msg
+        assert "org/pytorch-only" in msg

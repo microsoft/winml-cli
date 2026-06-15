@@ -27,9 +27,28 @@ if TYPE_CHECKING:
 HUB_ONNX_REF = "onnx-community/sam3-tracker-ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx"
 
 
+_DEVICE_TO_EPS = {
+    "npu": ["QNNExecutionProvider"],
+    "gpu": ["DmlExecutionProvider"],
+    "cpu": ["CPUExecutionProvider"],
+}
+
+
+def _fake_resolve_check_device_ep(*, device: str = "auto", ep: str | None = None):
+    """Side effect for resolve_check_device_ep that honours the requested device."""
+    resolved = device.lower() if device != "auto" else "npu"
+    eps = _DEVICE_TO_EPS.get(resolved, ["CPUExecutionProvider"])
+    return resolved, ["npu", "gpu", "cpu"], eps
+
+
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock hardware detection so config/build tests run on any host."""
+    """Mock hardware detection so config/build tests run on any host.
+
+    Build/config CLIs auto-resolve device + EP at the top of the command,
+    so ``resolve_device``, ``resolve_eps``, and ``resolve_check_device_ep``
+    must all be patched (mirrors ``tests/unit/commands/test_build.py``).
+    """
     mock_registry = MagicMock()
     mock_registry.is_ep_available.return_value = False
 
@@ -37,6 +56,14 @@ def mock_resolve_device():
         patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("npu", ["npu", "gpu", "cpu"]),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_eps",
+            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            side_effect=_fake_resolve_check_device_ep,
         ),
         patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",

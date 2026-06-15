@@ -15,8 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-import onnx
-from onnx import TensorProto, helper
+from onnx import GraphProto, TensorProto, helper, save
 
 from winml.modelkit.onnx.detection import is_compiled_onnx, is_quantized_onnx
 
@@ -25,11 +24,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _save(graph: onnx.GraphProto, path: Path, *, opset: int = 17) -> Path:
+def _save(graph: GraphProto, path: Path, *, opset: int = 17) -> Path:
     """Save a graph as a minimal ONNX model."""
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
     model.ir_version = 8
-    onnx.save(model, str(path))
+    save(model, str(path))
     return path
 
 
