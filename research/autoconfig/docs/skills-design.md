@@ -2,31 +2,59 @@
 
 ## Overview
 
-This document defines the design for 11 skills to be added to `skills/` in winml-cli.
-Skills are split into three audiences:
+This document defines the design for 9 skills to be added to `skills/` in winml-cli.
+Skills are split into **two categories by the single question: does the task require editing repo code?**
 
-- **Consumer skills (7)** — for WinApp developers deploying models
-- **Contributor skills (3)** — for engineers extending winml-cli itself
-- **Internal research skills (1)** — for winml-cli team to find optimization gaps and backlog items
+- **User skills (5)** — the user reaches their goal purely by specifying conditions and letting
+  winml-cli produce or modify a `config.json` / `manifest.json` / report. **No source code is touched.**
+  Audience: WinApp developers and ISVs deploying models.
+- **Contributor skills (4)** — the task requires a winml-cli source-code change (a new exporter, a new
+  EP backend, a new skill), or exists specifically to produce code-change backlog. Audience: winml-cli engineers.
+
+> Discriminator: if the deliverable is a config/manifest/report, it is a **User** skill. If completing it
+> requires editing code in the repo (or its whole purpose is to drive such edits), it is a **Contributor** skill.
 
 Each skill follows the SKILL.md frontmatter convention (`name:`, `description:`) established
 by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standard.
 
-### Consumer skill dependency graph
+### User skills — ranked by importance
+
+| Rank | Skill | Why it ranks here | Output (no code) |
+|---|---|---|---|
+| 1 | `autoconfig` | Flagship. Autonomously searches the config space and delivers the optimal `config.json` per EP. Also hosts the **manual optimize path** (precision-ladder + latency/accuracy-budget decision framework + hardware table) for users who want to choose by hand or have no target hardware. Maps to all five user scenarios (S1–S5). | `config_<ep>_optimal.json` + `report.html` |
+| 2 | `check-model-feasibility` | Pre-build front door, merging model discovery + EP/device compatibility: "find me a *supported* model from my constraints, then confirm it runs on my hardware." The single "what do I run, and will it run?" gate (`inspect` → `sys` → `analyze`). Highest frequency — every user hits it before building. | model shortlist + go/no-go + fallback EP |
+| 3 | `debug-accuracy-drop` | Closes the most acute pain point: accuracy dropped, cause unknown. High-frequency diagnostic need with the clearest existing tooling (`eval --mode compare`). | stage + root cause + fix |
+| 4 | `ship-to-winapp` | Ship-time skill, merging validation + packaging: L1–L5 Definition-of-Done gates **plus** multi-EP artifact layout, `manifest.json`, and runtime EP selection. Everything between "the model is good" and "it's running in the app." | pass/fail report + `manifest.json` |
+| 5 | `use-winml-cli` | General tool-scoped onboarding reference (existing). Foundational but low differentiation vs the task-scoped skills above. | command reference |
+
+### Contributor skills — ranked by importance
+
+| Rank | Skill | Why it ranks here | Code touched |
+|---|---|---|---|
+| 1 | `adding-model-support` | Directly grows model coverage — the core long-tail business problem (ISV onboarding, S2/S5). Highest contribution frequency. | new exporter + recipe |
+| 2 | `optimization-research` | High leverage: deep-searches ORT/Olive/ecosystem to find gaps and file the backlog that drives every other contributor skill. Internal, but sets the roadmap. | files issues + repro (drives code changes) |
+| 3 | `adding-ep-support` | Onboards a new execution-provider backend. Infrequent, but high value the moment a new NPU vendor lands. | compile backend + EP registry |
+| 4 | `contributing-a-skill` | Meta-tooling: how to author, lint, and eval a SKILL.md. Sustains the ecosystem but is supporting infrastructure, not a direct model/EP/perf deliverable. | `SKILL.md` + evals |
+
+> The detailed `## Skill:` sections below appear in document order, not priority order. Importance is
+> defined by the two ranked tables above; implementation sequencing (risk/dependency-driven) is in
+> [Priority order for implementation](#priority-order-for-implementation).
+
+### User skill dependency graph
 
 ```
-ep-compatibility-check ──┐
-                          ├──► optimize-for-device ──┐
-use-winml-cli ────────────┤                           ├──► validate-before-ship
-                          └──► debug-accuracy-drop ───┤
-                                                       │
-prepare-for-winapp ────────────────────────────────────┘
+check-model-feasibility ──► autoconfig ──────────► ship-to-winapp
+  find a supported model      optimize the model      validate (L1–L5 gates)
+  + confirm EP/device runs     (automated autoresearch  + package multi-EP artifacts
+                               loop OR manual framework)  + manifest + runtime EP selection
+          │                         │                          ▲
+          └──────────► debug-accuracy-drop ───────────────────┘
+                       (diagnose accuracy drops at any stage)
 
-autoconfig ────────────────────────────────────────────► validate-before-ship
-  (autoresearch loop: finds optimal config for user-defined EP/accuracy/latency targets)
+use-winml-cli ── general command reference; underpins every step above
 ```
 
-### Internal research skill
+### Contributor research skill
 
 ```
 optimization-research ──► [GitHub issues / winml backlog]
@@ -140,7 +168,7 @@ full diagnostic in one turn.
 
 ## Validation confidence levels (L1–L5)
 
-Inspired by Mobius `writing-tests`. Applied in `validate-before-ship` as the Definition-of-Done backbone.
+Inspired by Mobius `writing-tests`. Applied in `ship-to-winapp` as the Definition-of-Done backbone.
 Each level is checked **independently** — a model can pass L3 without passing L2.
 
 | Level | Name | What it verifies | Key command |
@@ -160,7 +188,7 @@ Each level is checked **independently** — a model can pass L3 without passing 
 | W8A8 | cosine_similarity ≥ 0.90 (or task-specific) |
 
 Waivers: any level that cannot be verified must be documented with a reason and tracking issue.
-The `validate-before-ship` skill maps each of its 6 gates to an L-level.
+The `ship-to-winapp` skill maps each of its 6 validation gates to an L-level.
 
 ---
 
@@ -368,7 +396,7 @@ ModelOpt (HF nvidia/ org), AI Hub (500+ models), NNCF (Model Zoo with accuracy t
 
 ---
 
-## Skill 1: `use-winml-cli` (existing — extend)
+## Skill: `use-winml-cli` (existing — extend)
 
 **Status:** Exists at `skills/use-winml-cli/SKILL.md`. Needs two additions:
 - Add `winml run` and `winml serve` usage (currently missing)
@@ -378,72 +406,7 @@ No structural changes needed; the existing skill is the general entry point.
 
 ---
 
-## Skill 2: `optimize-for-device`
-
-### Frontmatter
-```yaml
-name: optimize-for-device
-description: >
-  Use this skill when a user wants the best performance for their model on a
-  specific Windows device, or wants to compare latency/accuracy tradeoffs across
-  quantization levels (FP16, W8A16, W8A8) and execution providers (QNN NPU,
-  DirectML GPU, CPU). Covers the precision sweep workflow, hardware-specific
-  recommendations, and how to read tradeoff results to make a deployment decision.
-  Use when the user says "make it faster", "which precision should I use", "is NPU
-  worth it", or asks to compare hardware.
-```
-
-### When to use
-- "I want to run this on NPU, how much faster will it be?"
-- "Which quantization should I pick?"
-- "Compare QNN vs DirectML vs CPU for my model"
-- "Is W8A8 accurate enough for my use case?"
-
-### Sections
-
-**1. The decision framework**
-Two inputs: latency budget OR accuracy budget. Decision tree:
-- Have a latency SLA (e.g. <50ms)? → Find highest accuracy within that budget
-- Have an accuracy floor (e.g. <2% drop)? → Find fastest within that floor
-
-**2. The precision ladder**
-Table: FP32 → FP16 → W8A16 → W8A8, with typical speedup and accuracy-drop ranges
-per model family (Encoder/BERT-like, Vision/ConvNet, Transformer/ViT).
-
-**3. The sweep workflow**
-Step-by-step: run `winml build` + `winml eval` + `winml perf` for each precision,
-collect into a tradeoff table, apply decision framework.
-
-Key commands:
-```bash
-winml config -m <model> --device <device> --precision fp16 -o config_fp16.json
-winml build -c config_fp16.json -m <model> -o out_fp16/
-winml eval -m out_fp16/<artifact>.onnx --model-id <model>
-winml perf -m out_fp16/<artifact>.onnx --device <device> --iterations 50
-# repeat for w8a16, w8a8
-```
-
-**4. Hardware-specific guidance table**
-| Device | Best EP | Sweet-spot precision | Notes |
-|---|---|---|---|
-| Snapdragon X Elite NPU | QNN | W8A16 | HTP native for W8A16; W8A8 risky for Attention |
-| Intel Core Ultra NPU | OpenVINO | W8A8 | OpenVINO PTQ handles INT8 well |
-| AMD Ryzen AI NPU | VitisAI | W8A8 | Phoenix/Hawk Point prefer INT8 |
-| Any GPU | DirectML | FP16 | FP16 sufficient; quantization rarely helps on GPU |
-| CPU fallback | CPU | W8A8 | Size + latency both benefit |
-
-**5. Reading the output**
-How to interpret `winml eval` cosine_similarity, SQNR, and `winml perf` p50/p90/p99.
-What values indicate "acceptable" vs "needs investigation".
-
-**Cross-references:**
-- If accuracy dropped unexpectedly → `debug-accuracy-drop`
-- If EP not available → `ep-compatibility-check`
-- After choosing a precision → `validate-before-ship`
-
----
-
-## Skill 3: `debug-accuracy-drop`
+## Skill: `debug-accuracy-drop`
 
 ### Frontmatter
 ```yaml
@@ -525,37 +488,146 @@ W8A8 → W8A16 → FP16 → FP32
 Stop at the first precision that meets accuracy requirements.
 
 **Cross-references:**
-- To compare precision options systematically → `optimize-for-device`
-- If op is listed as unsupported → `ep-compatibility-check`
+- To compare precision options systematically → `autoconfig` (manual or automated optimize)
+- If op is listed as unsupported → `check-model-feasibility`
 
 ---
 
-## Skill 4: `prepare-for-winapp`
+## Skill: `ship-to-winapp` (merge of `validate-before-ship` + `prepare-for-winapp`)
+
+Covers the whole ship-time phase: **first validate** the model meets the Definition-of-Done,
+**then package** the multi-EP artifacts and manifest for the WinApp to load at runtime.
 
 ### Frontmatter
 ```yaml
-name: prepare-for-winapp
+name: ship-to-winapp
 description: >
-  Use this skill when a WinApp developer needs to take winml-cli build artifacts
-  and integrate them into a Windows application. Covers how to organize multi-EP
-  artifacts (QNN/NPU, DirectML/GPU, CPU fallback), the recommended directory
-  layout and manifest structure for runtime EP selection, how to load models
-  using the Windows ML WinRT API or ONNX Runtime C++ API, and runtime EP
-  detection and fallback patterns. Use when the user asks "how do I use this
-  in my app", "how do I package the model", or "what file do I load at runtime".
+  Use this skill when taking a winml-cli model artifact the last mile into a Windows
+  application — both validating it is good enough to ship and packaging it for the app.
+  Validation half: a Definition-of-Done checklist covering artifact completeness, accuracy
+  vs FP32 baseline, performance SLA, output correctness on real inputs, cross-EP consistency,
+  and fallback chain (every item checked or explicitly waived). Packaging half: how to organize
+  multi-EP artifacts (QNN/NPU, OpenVINO, VitisAI, DirectML/GPU, CPU fallback), the recommended
+  directory layout and manifest.json for runtime EP selection, and the runtime EP detection /
+  fallback pattern. Use when the user says "I'm ready to ship", "what should I test before
+  release", "how do I know the model is good enough", "how do I use this in my app",
+  "how do I package the model", or "what file do I load at runtime".
 ```
 
 ### When to use
+- About to ship a WinApp with on-device inference; final QA gate before production
+- After any build config change (new quantization, new EP, new model version)
 - "I built the model, how do I ship it in my app?"
-- "How do I load different models for different hardware?"
-- "What happens when the user doesn't have an NPU?"
+- "How do I load different models for different hardware / what happens with no NPU?"
 - "How do I package QNN + DML + CPU variants together?"
 
-### Sections
+---
+
+### Part A — Validate (Definition-of-Done gates)
+
+**The checklist**
+
+**Gate 1 — Artifact completeness**
+- [ ] All target EP artifacts exist and are loadable
+- [ ] CPU fallback artifact exists
+- [ ] manifest.json (if using multi-EP layout) is valid and references existing files
+- [ ] Artifact was built with `winml build` (not opaque cache artifact)
+
+```bash
+winml inspect -m <artifact>.onnx  # verify each artifact loads
+```
+
+**Gate 2 — Accuracy vs FP32 baseline**
+- [ ] cosine_similarity ≥ 0.99 for FP16 artifacts
+- [ ] cosine_similarity ≥ 0.95 for W8A16 artifacts
+- [ ] cosine_similarity ≥ 0.90 for W8A8 artifacts (or task-specific threshold)
+- [ ] Task accuracy metric (Top-1, F1, mAP) within acceptable drop from FP32
+
+```bash
+winml eval --mode compare -m <artifact>.onnx --model-id <model>
+winml eval -m <artifact>.onnx --model-id <model>  # task accuracy
+```
+
+**Gate 3 — Performance SLA**
+- [ ] p50 latency meets application target on target device
+- [ ] p99 latency within 2x p50 (no outlier spikes)
+- [ ] Benchmark run on actual target hardware (not developer machine)
+
+```bash
+winml perf -m <artifact>.onnx --device <target> --iterations 100 --monitor
+```
+
+**Gate 4 — Output correctness on real inputs**
+- [ ] Model produces correct output on ≥3 representative real-world inputs
+- [ ] No NaN or Inf in outputs
+- [ ] Output shape matches expected shape
+
+```bash
+winml run -m <artifact>.onnx --file <real_input>  # visual/manual check
+```
+
+**Gate 5 — Cross-EP consistency (if shipping multiple EP variants)**
+- [ ] QNN and DML outputs agree within tolerance on same input
+- [ ] CPU fallback output agrees with primary EP within tolerance
+
+```bash
+winml run -m model_qnn.onnx --file sample.jpg --format json -o qnn_out.json
+winml run -m model_dml.onnx --file sample.jpg --format json -o dml_out.json
+winml run -m model_cpu.onnx --file sample.jpg --format json -o cpu_out.json
+# compare qnn_out.json vs dml_out.json vs cpu_out.json manually
+```
+
+**Gate 6 — Fallback chain**
+- [ ] CPU fallback artifact verified independently (not just assumed to work)
+- [ ] App runtime selects correct artifact when target EP is absent (simulate by removing EP)
+
+**Waiver policy**
+Any item that cannot be completed must be waived explicitly:
+```
+Waivers:
+- Cross-EP consistency: VitisAI not available on developer machine.
+  Verified on target hardware by QA team. Issue #NNN.
+- Performance SLA: Target hardware (Snapdragon X Elite) in procurement.
+  Benchmark deferred to post-merge, tracked in issue #NNN.
+```
+Unchecked items without waiver → do not ship.
+
+**L-level mapping** — the 6 gates map directly to the L1–L5 confidence system (see Overview):
+
+| Gate | L-level |
+|---|---|
+| Gate 1 — Artifact completeness | L1 |
+| Gate 2 — Accuracy vs FP32 baseline | L3 + L4 |
+| Gate 3 — Performance SLA | L5 |
+| Gate 4 — Output correctness on real inputs | L4 |
+| Gate 5 — Cross-EP consistency | L5 |
+| Gate 6 — Fallback chain | L1 (CPU artifact) |
+
+Minimum to ship: L1 + L3 all passing. L4 + L5 required for production release.
+
+**Quick command reference**
+```bash
+# Gate 1: inspect all artifacts
+for f in model_qnn.onnx model_dml.onnx model_cpu.onnx; do winml inspect -m $f; done
+# Gate 2: accuracy
+winml eval --mode compare -m <artifact>.onnx --model-id <model>
+winml eval -m <artifact>.onnx --model-id <model>
+# Gate 3: perf
+winml perf -m <artifact>.onnx --device auto --iterations 100 --monitor
+# Gate 4: real input
+winml run -m <artifact>.onnx --file <sample>
+# Gate 5: cross-EP (run individually, compare outputs)
+winml run -m model_qnn.onnx --file <sample> --format json
+winml run -m model_dml.onnx --file <sample> --format json
+```
+
+---
+
+### Part B — Package & integrate (multi-EP)
 
 **1. The multi-EP artifact problem**
-Explain why `winml compile` produces EP-locked files (not portable),
-so a WinApp needs a strategy to select the right file per device.
+`winml compile` produces EP-locked files (not portable), so a WinApp needs a strategy to
+select the right file per device.
 
 **2. Recommended artifact layout**
 ```
@@ -584,6 +656,7 @@ my_model/
   "selection_order": ["qnn", "openvino", "vitisai", "dml", "cpu"]
 }
 ```
+(For multi-EP artifacts, `autoconfig` emits this `manifest.json` directly with experiment provenance.)
 
 **4. Building all variants with winml-cli**
 ```bash
@@ -614,53 +687,88 @@ Pseudocode for app-side logic:
 - Don't ship only the compiled artifact without a CPU fallback
 
 **Cross-references:**
+- If accuracy gate fails → `debug-accuracy-drop`
+- If performance gate fails → `autoconfig` (manual or automated optimize path)
+- If EP not available for testing, or to pick the right EP → `check-model-feasibility`
 - To build the artifacts → `use-winml-cli`
-- To verify each artifact → `validate-before-ship`
 
 ---
 
-## Skill 5: `ep-compatibility-check`
+## Skill: `check-model-feasibility` (merge of `find-a-model` + `ep-compatibility-check`)
+
+The pre-build front door. Two entry points, one shared engine (`inspect` → `sys` → `analyze`):
+**(A)** the user has no model yet → recommend a *supported* one from their constraints;
+**(B)** the user has a model → confirm it runs on their target EP/device. Both converge on the
+same three-layer check, so they are one skill.
 
 ### Frontmatter
 ```yaml
-name: ep-compatibility-check
+name: check-model-feasibility
 description: >
-  Use this skill to determine whether a specific model will work on specific
-  Windows hardware before starting a full build. Covers winml inspect for model
-  support verification, winml sys for EP availability on the current machine,
-  winml analyze for operator-level EP compatibility, and the EP-to-hardware
-  mapping for Windows AI PCs. Use when the user asks "will this work on my
-  device", "is QNN supported here", "what hardware do I need for NPU", or
-  when they get an unsupported operator error.
+  Use this skill before a full build, to answer two linked questions: "which model should I
+  use?" and "will it run on my hardware?". Model discovery: when the user knows the task
+  (image classification, text embedding, object detection, summarization, …) but has no model
+  yet, gather their constraints, generate Hugging Face candidates, and screen each one for
+  winml-cli support. Compatibility: for a chosen (or candidate) model, run the three-layer check
+  — winml inspect (model support), winml sys (EP availability on this machine), winml analyze
+  (operator-level EP coverage) — plus the EP-to-hardware mapping and fallback chain for Windows
+  AI PCs. Use when the user says "what model should I use for X", "find me a model that runs
+  under 20ms on the NPU", "recommend a small image classifier", "I don't have a model yet",
+  "will this work on my device", "is QNN supported here", "what hardware do I need for NPU",
+  or when they hit an unsupported-operator error.
+
+audience: external (WinApp developers)
 ```
 
 ### When to use
-- "Will this model work on my Snapdragon X Elite laptop?"
-- "I don't know if my machine has a QNN EP"
-- "The compile step failed with unsupported op"
-- Starting a new project: verify feasibility before investing build time
+- "What model should I use for background blur / OCR / summarization?"
+- "Find a text-embedding model under 100MB that runs on the Intel NPU"
+- "Will this model work on my Snapdragon X Elite laptop? Is QNN supported here?"
+- "The compile step failed with an unsupported op"
+- Starting a new project: pick a model and verify feasibility before investing build time
+
+### What this skill does NOT do
+- It does not train, fine-tune, or optimize a model — optimization hands off to `autoconfig`.
+- It only recommends models whose architecture winml-cli can actually export/run (verified via
+  `winml inspect`), never an arbitrary HF model it cannot load.
 
 ### Sections
 
-**1. Three-layer compatibility check**
-Layer 1 — Model support: does winml-cli know this model type?
-Layer 2 — EP availability: is the target EP registered on this machine?
-Layer 3 — Operator coverage: does the target EP support all ops in this model?
+**1. Two entry points**
+- (A) **No model yet** → run Section 2 (discovery) to produce candidates, then Section 3 on each.
+- (B) **Have a model** → skip to Section 3 (three-layer check) directly.
 
-Each layer has a command; run in order, stop at first failure.
+**2. Discovery — find candidate models (entry point A)**
+Capture and lock the selection constraints first:
 
-**2. Layer 1: Model support**
+| Condition | Example | Drives |
+|---|---|---|
+| Task | image-classification, feature-extraction, text-generation | HF Hub filter |
+| Target device / EP | Snapdragon X NPU (QNN), Intel NPU (OpenVINO), any GPU (DML) | feasibility + latency class |
+| Latency budget | p50 ≤ 20 ms | size / architecture shortlist |
+| Accuracy need | "≥ ResNet-50 top-1" or a benchmark floor | candidate quality bar |
+| Size limit | ≤ 100 MB on disk | excludes large variants |
+| License | permissive (Apache-2.0 / MIT) | excludes restricted models |
+
+The agent queries the HF Hub by task, sorted by downloads/likes, restricted to architecture
+families winml-cli is known to support → a 5–10 model shortlist. Each candidate then goes
+through the three-layer check below; drop any that fail Layer 1 or have heavy unsupported ops.
+
+**3. The three-layer feasibility check (entry points A and B)**
+Layer 1 — Model support · Layer 2 — EP availability · Layer 3 — Operator coverage.
+Run in order, stop at first hard failure.
+
+*Layer 1 — Model support*
 ```bash
-winml inspect -m <model-id>
+winml inspect -m <model-id> --format json
 ```
-What to look for: `loader`, `exporter`, `winml_inference_class` fields populated.
-If inspect fails or shows "unsupported" → model is out of scope for winml-cli.
+Look for `loader`, `exporter`, `winml_inference_class` populated. If inspect fails or shows
+"unsupported" → model is out of scope for winml-cli (drop the candidate; do not recommend it).
 
-**3. Layer 2: EP availability**
+*Layer 2 — EP availability*
 ```bash
 winml sys --list-ep --list-device
 ```
-EP-to-hardware reference table:
 | EP | Hardware requirement | Check for |
 |---|---|---|
 | QNN | Qualcomm Snapdragon X Elite / X Plus | QNNExecutionProvider in list |
@@ -670,176 +778,47 @@ EP-to-hardware reference table:
 | DML | Any DirectX 12 GPU | DmlExecutionProvider |
 | CPU | Any | Always available |
 
-If the desired EP is not listed → recommend next best EP from fallback chain.
+If the desired EP is not listed → recommend next best EP from the fallback chain.
 
-**4. Layer 3: Operator coverage**
+*Layer 3 — Operator coverage*
 ```bash
-winml analyze -m <exported_model>.onnx --ep <ep>
+winml analyze -m <exported_model>.onnx --ep <ep> --format json
 # or for all EPs at once:
 winml analyze -m <exported_model>.onnx --device all
 ```
-Output interpretation:
 - `supported` (green): op runs natively on EP
 - `partial` (yellow): op may fall back to CPU for some configurations
 - `unsupported` (red): op cannot run on this EP
 
-Decision rule: any `unsupported` → either change EP or accept CPU fallback
-for those ops (which may impact accuracy and latency).
+Decision rule: any `unsupported` → either change EP or accept CPU fallback for those ops
+(which may impact accuracy and latency).
 
-**5. Fallback chain recommendation**
+**4. Fallback chain recommendation**
 If target EP not available or has unsupported ops:
 ```
 QNN not available → OpenVINO (if Intel) or VitisAI (if AMD) → DML → CPU
 ```
 
-**6. Fast-fail before compile**
-`winml compile` is expensive (minutes). Always run analyze first.
-If analyze shows >20% unsupported ops → likely not worth compiling for that EP.
+**5. Rank and recommend (entry point A) / fast-fail before compile (entry point B)**
+- Discovery: rank surviving candidates by fit against the locked conditions (size, latency
+  class, accuracy reference, op coverage, downloads as a popularity prior). Output a short
+  ranked table + one recommended pick + rationale.
+- `winml compile` is expensive (minutes). Always run `analyze` first; if it shows >20%
+  unsupported ops → likely not worth compiling for that EP.
 
 **Cross-references:**
-- After confirming compatibility → `use-winml-cli` (build)
-- If all EPs show unsupported ops → model may be out of scope for winml-cli
+- After picking a model + confirming feasibility → `autoconfig` (find the optimal config)
+- To build the chosen artifacts → `use-winml-cli`
+- If **no** supported model meets the constraints, or all EPs show unsupported ops → the gap
+  feeds `optimization-research` (long-tail coverage) and `adding-model-support`
+
+> Addresses the **Pre-quantized model zoo / cold-start** whitespace from the Competitive Analysis:
+> NVIDIA (`nvidia/` HF org) and AI Hub (500+ models) reduce cold-start with curated zoos; winml-cli
+> has none, so this skill substitutes a constraints-driven recommender that only returns *supported* models.
 
 ---
 
-## Skill 6: `validate-before-ship`
-
-### Frontmatter
-```yaml
-name: validate-before-ship
-description: >
-  Use this skill when preparing to release a Windows application with an
-  on-device AI model. Provides a Definition-of-Done checklist covering artifact
-  completeness, accuracy validation against FP32 baseline, performance SLA
-  verification, output correctness on real inputs, cross-EP consistency, and
-  fallback chain verification. Every item must be checked or explicitly waived
-  before shipping. Use when the user says "I'm ready to ship", "what should I
-  test before release", or "how do I know the model is good enough".
-```
-
-### When to use
-- About to ship a WinApp with on-device inference
-- Final QA gate before a model artifact goes to production
-- After any build config change (new quantization, new EP, new model version)
-
-### Sections
-
-**1. The checklist**
-
-**Gate 1 — Artifact completeness**
-- [ ] All target EP artifacts exist and are loadable
-- [ ] CPU fallback artifact exists
-- [ ] manifest.json (if using multi-EP layout) is valid and references existing files
-- [ ] Artifact was built with `winml build` (not opaque cache artifact)
-
-Command:
-```bash
-winml inspect -m <artifact>.onnx  # verify each artifact loads
-```
-
-**Gate 2 — Accuracy vs FP32 baseline**
-- [ ] cosine_similarity ≥ 0.99 for FP16 artifacts
-- [ ] cosine_similarity ≥ 0.95 for W8A16 artifacts
-- [ ] cosine_similarity ≥ 0.90 for W8A8 artifacts (or task-specific threshold)
-- [ ] Task accuracy metric (Top-1, F1, mAP) within acceptable drop from FP32
-
-Commands:
-```bash
-winml eval --mode compare -m <artifact>.onnx --model-id <model>
-winml eval -m <artifact>.onnx --model-id <model>  # task accuracy
-```
-
-**Gate 3 — Performance SLA**
-- [ ] p50 latency meets application target on target device
-- [ ] p99 latency within 2x p50 (no outlier spikes)
-- [ ] Benchmark run on actual target hardware (not developer machine)
-
-Command:
-```bash
-winml perf -m <artifact>.onnx --device <target> --iterations 100 --monitor
-```
-
-**Gate 4 — Output correctness on real inputs**
-- [ ] Model produces correct output on ≥3 representative real-world inputs
-- [ ] No NaN or Inf in outputs
-- [ ] Output shape matches expected shape
-
-Command:
-```bash
-winml run -m <artifact>.onnx --file <real_input>  # visual/manual check
-```
-
-**Gate 5 — Cross-EP consistency (if shipping multiple EP variants)**
-- [ ] QNN and DML outputs agree within tolerance on same input
-- [ ] CPU fallback output agrees with primary EP within tolerance
-
-Command (manual comparison across runs):
-```bash
-winml run -m model_qnn.onnx     --file sample.jpg --format json -o qnn_out.json
-winml run -m model_dml.onnx     --file sample.jpg --format json -o dml_out.json
-winml run -m model_cpu.onnx     --file sample.jpg --format json -o cpu_out.json
-# compare qnn_out.json vs dml_out.json vs cpu_out.json manually
-```
-
-**Gate 6 — Fallback chain**
-- [ ] CPU fallback artifact verified independently (not just assumed to work)
-- [ ] App runtime selects correct artifact when target EP is absent (simulate by removing EP)
-
-**2. Waiver policy**
-Any item that cannot be completed must be waived explicitly:
-```
-Waivers:
-- Cross-EP consistency: VitisAI not available on developer machine.
-  Verified on target hardware by QA team. Issue #NNN.
-- Performance SLA: Target hardware (Snapdragon X Elite) in procurement.
-  Benchmark deferred to post-merge, tracked in issue #NNN.
-```
-Unchecked items without waiver → do not ship.
-
-**3. L-level mapping**
-
-The 6 gates map directly to the L1–L5 confidence system (see Overview):
-
-| Gate | L-level |
-|---|---|
-| Gate 1 — Artifact completeness | L1 |
-| Gate 2 — Accuracy vs FP32 baseline | L3 + L4 |
-| Gate 3 — Performance SLA | L5 |
-| Gate 4 — Output correctness on real inputs | L4 |
-| Gate 5 — Cross-EP consistency | L5 |
-| Gate 6 — Fallback chain | L1 (CPU artifact) |
-
-Minimum to ship: L1 + L3 all passing. L4 + L5 required for production release.
-
-**3. Quick command reference**
-```bash
-# Gate 1: inspect all artifacts
-for f in model_qnn.onnx model_dml.onnx model_cpu.onnx; do winml inspect -m $f; done
-
-# Gate 2: accuracy
-winml eval --mode compare -m <artifact>.onnx --model-id <model>
-winml eval -m <artifact>.onnx --model-id <model>
-
-# Gate 3: perf
-winml perf -m <artifact>.onnx --device auto --iterations 100 --monitor
-
-# Gate 4: real input
-winml run -m <artifact>.onnx --file <sample>
-
-# Gate 5: cross-EP (run individually, compare outputs)
-winml run -m model_qnn.onnx --file <sample> --format json
-winml run -m model_dml.onnx --file <sample> --format json
-```
-
-**Cross-references:**
-- If accuracy gate fails → `debug-accuracy-drop`
-- If performance gate fails → `optimize-for-device`
-- If EP not available for testing → `ep-compatibility-check`
-- For multi-EP artifact packaging → `prepare-for-winapp`
-
----
-
-## Skill 7: `adding-model-support` (contributor)
+## Skill: `adding-model-support` (contributor)
 
 ### Frontmatter
 ```yaml
@@ -901,12 +880,12 @@ Minimal recipe template:
 - Non-standard tokenizer → verify `winml run` input preprocessing
 
 **Cross-references:**
-- If EP shows unsupported ops → `ep-compatibility-check`
-- After L1–L5 all pass → `validate-before-ship` for PR gate
+- If EP shows unsupported ops → `check-model-feasibility`
+- After L1–L5 all pass → `ship-to-winapp` for PR gate
 
 ---
 
-## Skill 8: `adding-ep-support` (contributor)
+## Skill: `adding-ep-support` (contributor)
 
 ### Frontmatter
 ```yaml
@@ -962,12 +941,12 @@ Minimum before merging:
 - L5: `winml perf` produces valid latency output on target hardware
 
 **Cross-references:**
-- Operator coverage analysis → `ep-compatibility-check`
-- After adding: document the EP in `ep-compatibility-check` hardware table
+- Operator coverage analysis → `check-model-feasibility`
+- After adding: document the EP in the `check-model-feasibility` hardware table
 
 ---
 
-## Skill 9: `contributing-a-skill` (contributor)
+## Skill: `contributing-a-skill` (contributor)
 
 ### Frontmatter
 ```yaml
@@ -1026,28 +1005,33 @@ documentation summary. Include representative user phrases in quotes.
 - [ ] All commands are tested and produce the described output
 - [ ] Cross-references use relative paths and the linked skill exists
 - [ ] No commands reference flags that don't exist in current `winml --help`
-- [ ] Hardware names and EP names match the canonical list in `ep-compatibility-check`
+- [ ] Hardware names and EP names match the canonical list in `check-model-feasibility`
 - [ ] `evals/eval.yaml` exists with ≥2 test cases (including at least one negative assertion)
 
 ---
 
-## Skill 10: `autoconfig` (consumer — autoresearch loop)
+## Skill: `autoconfig` (user — optimize the model: automated loop + manual framework)
+
+The optimize skill. Two modes: **automated** (the autoresearch loop — the bulk of this section) for
+"figure it out for me / run overnight", and **manual** (the decision framework folded in from
+`optimize-for-device`) for "I'll choose by hand" or when there is no target hardware to benchmark on.
 
 ### Frontmatter
 ```yaml
 name: autoconfig
 description: >
-  Use this skill when a **WinApp developer** wants to automatically find the best
-  winml-cli configuration for their model on one or more target EP/device combinations.
-  The agent runs an autonomous experiment loop: it proposes config.json hypotheses,
-  runs winml build + eval + perf, evaluates against user-defined objectives
-  (accuracy floor, latency budget, or Pareto frontier), and iterates — keeping
-  improvements, discarding regressions. Covers single-EP optimization, multi-EP
-  parallel search, mixed-precision (nodes_to_exclude) exploration, calibration
-  parameter tuning, and manifest.json output for multi-EP deployment.
-  Use when the user says "find the best config for my model on QNN",
-  "automate the config search", "generate configs for all EPs",
-  or "I want to leave this running overnight".
+  Use this skill when a **WinApp developer** wants the best performance for their model on one or
+  more Windows EP/device targets — either by letting winml-cli search automatically, or by working
+  through the precision/EP tradeoffs by hand. Automated mode: an autonomous experiment loop that
+  proposes config.json hypotheses, runs winml build + eval + perf, evaluates against user-defined
+  objectives (accuracy floor, latency budget, or Pareto frontier), and iterates — keeping
+  improvements, discarding regressions; covers single-EP optimization, multi-EP parallel search,
+  mixed-precision (nodes_to_exclude) exploration, calibration tuning, and manifest.json output.
+  Manual mode: the latency-budget vs accuracy-floor decision framework, the FP32→FP16→W8A16→W8A8
+  precision ladder, a per-device hardware guidance table, and how to read tradeoff results.
+  Use when the user says "find the best config for my model on QNN", "automate the config search",
+  "generate configs for all EPs", "I want to leave this running overnight", "make it faster",
+  "which precision should I use", "is NPU worth it", or "compare QNN vs DirectML vs CPU".
 
 audience: external (WinApp developers)
 ```
@@ -1055,8 +1039,9 @@ audience: external (WinApp developers)
 ### When to use
 - "Find the best W8A8 config that keeps accuracy > 0.95 on QNN"
 - "Generate optimized configs for QNN + DirectML + CPU and build a manifest"
-- "I don't know which quantization settings to use, figure it out for me"
-- "Run overnight and give me the best accuracy-latency tradeoff you can find"
+- "I don't know which quantization settings to use, figure it out for me" / "run overnight"
+- "Make it faster" / "which precision should I use" / "is NPU worth it" (→ manual mode)
+- "Compare QNN vs DirectML vs CPU for my model"
 - User has a latency SLA or accuracy floor but doesn't know how to achieve it
 
 ### What this skill does NOT do
@@ -1064,6 +1049,45 @@ audience: external (WinApp developers)
 - It does not look for optimization techniques outside winml's current feature set
 - It does not suggest that winml needs new features or file bugs
 - For finding what winml is *missing*, use `optimization-research` instead
+
+---
+
+### Manual mode — the decision framework (folded in from `optimize-for-device`)
+
+Use this lightweight path when the user wants to decide by hand, or has no target hardware to
+benchmark on (so the automated loop's perf gate can't run). It is the conceptual model the
+automated loop below mechanizes.
+
+**1. The decision framework** — two inputs: latency budget OR accuracy budget.
+- Have a latency SLA (e.g. <50ms)? → find highest accuracy within that budget
+- Have an accuracy floor (e.g. <2% drop)? → find fastest within that floor
+
+**2. The precision ladder** — FP32 → FP16 → W8A16 → W8A8, with typical speedup and accuracy-drop
+ranges per model family (Encoder/BERT-like, Vision/ConvNet, Transformer/ViT).
+
+**3. The sweep workflow** — run `winml build` + `winml eval` + `winml perf` for each precision,
+collect into a tradeoff table, apply the decision framework.
+```bash
+winml config -m <model> --device <device> --precision fp16 -o config_fp16.json
+winml build -c config_fp16.json -m <model> -o out_fp16/
+winml eval -m out_fp16/<artifact>.onnx --model-id <model>
+winml perf -m out_fp16/<artifact>.onnx --device <device> --iterations 50
+# repeat for w8a16, w8a8
+```
+
+**4. Hardware-specific guidance table**
+| Device | Best EP | Sweet-spot precision | Notes |
+|---|---|---|---|
+| Snapdragon X Elite NPU | QNN | W8A16 | HTP native for W8A16; W8A8 risky for Attention |
+| Intel Core Ultra NPU | OpenVINO | W8A8 | OpenVINO PTQ handles INT8 well |
+| AMD Ryzen AI NPU | VitisAI | W8A8 | Phoenix/Hawk Point prefer INT8 |
+| Any GPU | DirectML | FP16 | FP16 sufficient; quantization rarely helps on GPU |
+| CPU fallback | CPU | W8A8 | Size + latency both benefit |
+
+**5. Reading the output** — how to interpret `winml eval` cosine_similarity / SQNR and
+`winml perf` p50/p90/p99; what values indicate "acceptable" vs "needs investigation".
+
+When the user wants this automated instead of done by hand, continue to the autoresearch loop below.
 
 ---
 
@@ -2009,15 +2033,15 @@ Rule: W8A8 QDQ on GPU EP hangs — skip quantization immediately for GPU targets
 - `--format json` on `winml eval` (#847), `winml analyze` (#848), `winml perf` (#849)
 
 ### Cross-references
-- Run `ep-compatibility-check` before starting to verify EP is available
-- After autoconfig completes → `validate-before-ship` for final production gate
+- Run `check-model-feasibility` before starting to pick a model and verify the EP is available
+- After autoconfig completes → `ship-to-winapp` for final validation gates + packaging
 - If autoconfig cannot meet objective → `debug-accuracy-drop` for deeper diagnosis
-- Multi-EP output feeds directly into `prepare-for-winapp` manifest layout
+- Multi-EP output feeds directly into `ship-to-winapp`'s manifest layout
 - If the best config found is still not good enough → escalate to `optimization-research`
 
 ---
 
-## Skill 11: `optimization-research` (internal — deep gap analysis)
+## Skill: `optimization-research` (contributor — internal, deep gap analysis)
 
 ### Frontmatter
 ```yaml
@@ -2232,7 +2256,7 @@ S / M / L / XL
 ### Cross-references
 - `autoconfig` provides the winml baseline to compare against
 - Issues filed here feed `adding-ep-support` and `contributing-a-skill` workflows
-- Use `ep-compatibility-check` to confirm EP availability before running external benchmarks
+- Use `check-model-feasibility` to confirm EP availability before running external benchmarks
 
 ---
 
@@ -2704,11 +2728,10 @@ tests:
 
 | Skill | Min cases | Key assertions |
 |---|---|---|
-| `ep-compatibility-check` | 3 | Recommends 3-layer check in order; gives fallback when EP absent |
+| `check-model-feasibility` | 4 | Screens candidates with `winml inspect` (never recommends an unsupported model); recommends the 3-layer check in order; gives fallback when EP absent |
 | `debug-accuracy-drop` | 4 | Correctly isolates pipeline stage; suggests precision escalation |
-| `validate-before-ship` | 3 | Lists all 6 gates; handles waiver scenario |
-| `optimize-for-device` | 3 | Applies latency-budget vs accuracy-budget framework correctly |
-| `prepare-for-winapp` | 2 | Produces manifest.json structure; includes CPU fallback |
+| `ship-to-winapp` | 4 | Lists all 6 validation gates; handles waiver scenario; produces manifest.json with CPU fallback |
+| `autoconfig` | 3 | Applies latency-budget vs accuracy-floor framework (manual mode); keeps/discards by objective (auto mode) |
 | `adding-model-support` | 2 | Suggests L1→L5 order; correct recipe structure |
 | `contributing-a-skill` | 2 | Flags missing trigger phrases; flags pseudocode commands |
 
@@ -2746,22 +2769,19 @@ done
 ### Directory structure
 ```
 skills/
-  use-winml-cli/              ← existing, extend
+  use-winml-cli/              ← existing, extend (user)
     SKILL.md
     evals/eval.yaml
-  optimize-for-device/        ← new (consumer)
+  check-model-feasibility/    ← new (user — model discovery + EP/device compatibility)
     SKILL.md
     evals/eval.yaml
-  debug-accuracy-drop/        ← new (consumer)
+  debug-accuracy-drop/        ← new (user)
     SKILL.md
     evals/eval.yaml
-  prepare-for-winapp/         ← new (consumer, partial dep on winml package feature)
+  autoconfig/                 ← new (user — optimize: autoresearch loop + manual framework)
     SKILL.md
     evals/eval.yaml
-  ep-compatibility-check/     ← new (consumer)
-    SKILL.md
-    evals/eval.yaml
-  validate-before-ship/       ← new (consumer)
+  ship-to-winapp/             ← new (user — validation gates + multi-EP packaging; partial dep on winml package feature)
     SKILL.md
     evals/eval.yaml
   adding-model-support/       ← new (contributor)
@@ -2773,10 +2793,7 @@ skills/
   contributing-a-skill/       ← new (contributor)
     SKILL.md
     evals/eval.yaml
-  autoconfig/                 ← new (consumer — autoresearch loop for external users)
-    SKILL.md
-    evals/eval.yaml
-  optimization-research/      ← new (internal — deep gap analysis for winml-cli team)
+  optimization-research/      ← new (contributor — internal deep gap analysis for winml-cli team)
     SKILL.md
     templates/olive_qnn.json
     templates/olive_dml.json
@@ -2784,23 +2801,28 @@ skills/
 ```
 
 ### Priority order for implementation
+
+This is **implementation sequencing** (risk- and dependency-driven), which intentionally differs from
+the **importance** ranking in the Overview. Importance answers "which skill matters most to users";
+this answers "which is safest to build first." Example: `autoconfig` is the #1 *importance* user skill
+but ships *last* because it depends on the `--format json` changes and is the most complex.
+
 **Code changes first (unblocks agentic skill execution):**
 0. `winml eval --format json` — critical: enables all accuracy-related agentic flows
 0. `winml analyze --format json` — enables EP compatibility agentic flows
 0. `winml perf --format json` — enables performance SLA agentic flows
 
-**Consumer skills:**
-1. `ep-compatibility-check` — lowest risk, pure existing commands, high value for new users
+**User skills:**
+1. `check-model-feasibility` — lowest risk, pure existing commands (`inspect`/`sys`/`analyze`); front door for new users (model discovery half needs `analyze --format json`)
 2. `debug-accuracy-drop` — closes clearest pain point, existing `eval --mode compare`
-3. `validate-before-ship` — most complete checklist, builds on 1+2
-4. `optimize-for-device` — needs good hardware reference data to be accurate
-5. `prepare-for-winapp` — needs `winml package` feature or clear workaround documented
-6. `autoconfig` — depends on #847/#848/#849 + most complex skill to implement
+3. `ship-to-winapp` — validation checklist + packaging; build it once the gate commands exist (partial dep on `winml package` feature)
+4. `autoconfig` — depends on #847/#848/#849 + most complex skill to implement (manual mode can ship first as the lightweight framework)
 
 **Contributor skills:**
-6. `contributing-a-skill` — enables community contributions to the skill ecosystem
-7. `adding-model-support` — most impactful for model coverage growth
-8. `adding-ep-support` — lower frequency, but needed for new EP onboarding
+5. `contributing-a-skill` — enables community contributions to the skill ecosystem
+6. `adding-model-support` — most impactful for model coverage growth
+7. `adding-ep-support` — lower frequency, but needed for new EP onboarding
+8. `optimization-research` — internal gap-finder; depends on a working `autoconfig` baseline to compare against
 
 ### Required code changes for agentic skill execution
 
