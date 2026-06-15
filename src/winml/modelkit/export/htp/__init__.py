@@ -26,8 +26,8 @@ In the future, consider organizing into:
 """
 
 # HTP strategy version (defined before imports to avoid circular dependencies)
-__version__ = "1.0.0"  # HTP strategy version
-__spec_version__ = ".".join(__version__.split(".")[:2])  # "1.0"
+__version__: str = "1.0.0"  # HTP strategy version
+__spec_version__: str = ".".join(__version__.split(".")[:2])  # "1.0"
 
 from .base_writer import ExportStep
 from .exporter import HTPExporter

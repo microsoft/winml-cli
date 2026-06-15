@@ -77,6 +77,7 @@ class BenchmarkConfig:
     batch_size: int = 1
     output_path: Path | None = None
     no_quantize: bool = False
+    no_compile: bool = True
     rebuild: bool = False
     ignore_cache: bool = False
     skip_build: bool = True
@@ -100,6 +101,10 @@ class BenchmarkResult:
     input_types: list[str] = field(default_factory=list)
     output_names: list[str] = field(default_factory=list)
     output_shapes: list[list[int]] = field(default_factory=list)
+
+    # Resolved model precision from io_config (None if the model does not
+    # expose one). Distinct from the requested config.precision policy.
+    model_precision: str | None = None
 
     # Latency stats (milliseconds)
     mean_ms: float = 0.0
@@ -126,14 +131,19 @@ class BenchmarkResult:
     actual_task: str = ""
     actual_ep: EPName | None = None
 
+    # ONNX model ORT actually loaded (may be an EPContext model, differing
+    # from the input model_id when compiled or a cached one is reused)
+    running_model_path: str = ""
+
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        result = {
+        result: dict[str, Any] = {
             "benchmark_info": {
                 "model_id": self.config.model_id,
+                "running_model_path": self.running_model_path,
                 "task": self.actual_task,
                 "device": self.actual_device,
                 "ep": self.actual_ep,
@@ -149,6 +159,7 @@ class BenchmarkResult:
                 "input_types": self.input_types,
                 "output_names": self.output_names,
                 "output_shapes": self.output_shapes,
+                "precision": self.model_precision,
             },
             "latency_ms": {
                 "mean": round(self.mean_ms, 3),
@@ -361,6 +372,7 @@ class PerfBenchmark:
             "force_rebuild": force_rebuild,
             "shape_config": self.config.shape_config,
             "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
+            "no_compile": self.config.no_compile,
         }
 
         if is_onnx:
@@ -497,6 +509,7 @@ class PerfBenchmark:
             input_types=[str(t) for t in io_config["input_types"]],
             output_names=io_config["output_names"],
             output_shapes=[list(s) if s else [] for s in io_config["output_shapes"]],
+            model_precision=io_config.get("precision"),
             # Latency stats
             mean_ms=stats.mean_ms,
             min_ms=stats.min_ms,
@@ -515,6 +528,7 @@ class PerfBenchmark:
             actual_device=self._model.device,
             actual_task=self._model.task or self.config.task or "auto-detected",
             actual_ep=self._model.ep_name,
+            running_model_path=str(self._model.running_model_path),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
         )
@@ -707,6 +721,7 @@ def _perf_modules(
                 mod_stats = stats
                 result_entry: dict[str, Any] = {
                     "module_path": module_path,
+                    "running_model_path": str(session.running_model_path),
                     "mean_ms": round(mod_stats.mean_ms, 3),
                     "p50_ms": round(mod_stats.p50_ms, 3),
                     "p90_ms": round(mod_stats.p90_ms, 3),
@@ -1086,6 +1101,11 @@ def _run_simple_loop(
     help="Build from scratch in a temp folder (discard after benchmarking)",
 )
 @cli_utils.skip_build_option()
+@cli_utils.compile_option(
+    default=True,
+    help_text="Compile the model during build. Default: off (skip compilation); "
+    "use --compile to enable.",
+)
 @cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--module",
@@ -1131,6 +1151,7 @@ def perf(
     rebuild: bool,
     ignore_cache: bool,
     skip_build: bool,
+    no_compile: bool,
     allow_unsupported_nodes: bool,
     module_class: str | None,
     monitor: bool,
@@ -1270,6 +1291,7 @@ def perf(
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         skip_build=skip_build,
+        no_compile=no_compile,
         allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
         ep=ep,

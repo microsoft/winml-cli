@@ -218,6 +218,9 @@ def build_hf_model(
     # =========================================================================
     logger.info("Exporting to ONNX...")
     t0 = time.monotonic()
+    # config.export is None only for the ONNX build path (build_onnx_model);
+    # this is the HF path so the field must be populated.
+    assert config.export is not None, "build_hf_model requires config.export"
     export_onnx(
         model=pytorch_model,
         output_path=export_path,

@@ -12,7 +12,7 @@ positive, and within an optional ``[min_depth, max_depth]`` range.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -170,7 +170,7 @@ class DepthMetric:
         if self._max_depth is not None:
             mask &= gt <= self._max_depth
         mask &= np.isfinite(pred) & (pred > 0)
-        return mask
+        return cast("np.ndarray", mask)
 
     @staticmethod
     def _to_numpy(arr: Any) -> np.ndarray:

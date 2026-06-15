@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -218,3 +219,98 @@ class TestPerfModuleParameterForwarding:
         session_kwargs = mock_session_cls.call_args.kwargs
         assert session_kwargs["device"] == "npu"
         assert session_kwargs["ep"] == "qnn"
+
+    def test_running_model_path_in_module_result(self, tmp_path: Path) -> None:
+        """A completed module benchmark records running_model_path in its
+        per-instance result entry.
+
+        Unlike the forwarding test above (which short-circuits the benchmark
+        loop via a RuntimeError), this drives a successful run so result_entry
+        is actually populated, then reads it back from the JSON report.
+        """
+        fake_cfg = MagicMock()
+        fake_cfg.loader.model_type = "bert"
+        fake_cfg.loader.module_path = "encoder.layer.0"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        # Stats yielded by `with session.perf(...) as stats` — needs real
+        # numbers since result_entry rounds/divides them.
+        fake_stats = MagicMock()
+        fake_stats.mean_ms = 1.0
+        fake_stats.p50_ms = 1.0
+        fake_stats.p90_ms = 1.0
+        fake_stats.p95_ms = 1.0
+        fake_stats.p99_ms = 1.0
+        fake_stats.min_ms = 1.0
+        fake_stats.max_ms = 1.0
+        fake_stats.samples_ms = [1.0, 1.0]
+
+        running_model_path = tmp_path / "model_cpu_ctx.onnx"
+        fake_session = MagicMock()
+        fake_session.perf.return_value.__enter__.return_value = fake_stats
+        fake_session.running_model_path = running_model_path
+
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        out_path = tmp_path / "out.json"
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("npu", "qnn"),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[fake_cfg],
+            ),
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ),
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+            patch(
+                "winml.modelkit.commands.perf.generate_random_inputs",
+                return_value={},
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--device",
+                    "npu",
+                    "--ep",
+                    "qnn",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(out_path),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+
+        report = json.loads(out_path.read_text(encoding="utf-8"))
+        instance = report["instances"][0]
+        assert instance["running_model_path"] == str(running_model_path)

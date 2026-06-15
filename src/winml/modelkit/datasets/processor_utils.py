@@ -13,7 +13,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from transformers.image_processing_utils import ImageProcessingMixin
+from transformers.image_processing_utils import (  # type: ignore[attr-defined]
+    ImageProcessingMixin,
+)
 
 
 logger = logging.getLogger(__name__)
