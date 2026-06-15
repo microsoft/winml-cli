@@ -173,6 +173,9 @@ def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
 # code — when a modality gains its downstream.
 _FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
     "pixel_values": "image-feature-extraction",
+    # TODO: add "input_values" / "input_features" -> "audio-feature-extraction" once an
+    # AudioDataset + evaluator exist. Until then audio stays "feature-extraction"; the
+    # calibration RandomDataset fallback covers the modality mismatch gracefully.
 }
 
 
@@ -352,9 +355,16 @@ def resolve_task(
 
     # --- Stage 0: user override (short-circuits detection) ----------------
     if model_class is not None:
-        opt_task = (
-            normalize_task(task) if task is not None else _infer_task_from_architecture(config)
-        )
+        if task is not None:
+            # User gave an explicit task: preserve it verbatim (like USER_TASK).
+            opt_task = normalize_task(task)
+            surfaced = opt_task
+        else:
+            # Task inferred from the architecture: surface it modality-aware, consistent
+            # with the detection path (Stage 3), so e.g. a ViT backbone is
+            # image-feature-extraction rather than the modality-blind feature-extraction.
+            opt_task = _infer_task_from_architecture(config)
+            surfaced = _resolve_task_modality(config, opt_task)
         try:
             resolved = TasksManager.get_model_class_for_task(
                 opt_task, framework="pt", model_class_name=model_class
@@ -365,7 +375,7 @@ def resolve_task(
                 f"Check that the class name is correct and available in transformers."
             ) from e
         return TaskResolution(
-            opt_task, to_optimum_task(opt_task), resolved, TaskSource.USER_CLASS, None
+            surfaced, to_optimum_task(surfaced), resolved, TaskSource.USER_CLASS, None
         )
 
     if task is not None:
@@ -414,7 +424,9 @@ def resolve_task(
         if supported:
             opt_task = supported[0]
             source = TaskSource.WRAPPED_LIBRARY
-            resolved = TasksManager.get_model_class_for_task(opt_task, framework="pt")
+            # The model class is resolved uniformly in Stage 2 (under its try/except), so a
+            # lookup failure here — e.g. a wrapped library whose classes aren't registered
+            # under framework="pt" — can't escape as a raw KeyError.
 
     # 1c. TasksManager (reads config.architectures)
     if opt_task is None:
@@ -444,5 +456,6 @@ def resolve_task(
     # --- Stage 4: composite tag (detection path) --------------------------
     composite = _composite_components_for_task(model_type, opt_task) if model_type else None
 
-    assert source is not None
+    if source is None:  # structural invariant: Stage 1d always sets a source
+        raise RuntimeError("resolve_task: internal invariant violated — source was not set")
     return TaskResolution(surfaced, to_optimum_task(surfaced), resolved, source, composite)

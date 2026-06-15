@@ -126,3 +126,22 @@ def test_missing_architectures_with_unknown_model_type_falls_back_to_hf_task_def
     cfg._name_or_path = ""
     r = resolve_task(cfg)
     assert r.source == TaskSource.HF_TASK_DEFAULT
+
+
+def test_user_class_inferred_task_is_modality_aware():
+    """USER_CLASS without --task infers the task from the architecture, so it is surfaced
+    modality-aware (consistent with the detection path) — a ViT backbone resolves to
+    image-feature-extraction, not the modality-blind feature-extraction."""
+    r = resolve_task(_cfg("vit", ["ViTModel"]), model_class="ViTModel")
+    assert r.source == TaskSource.USER_CLASS
+    assert r.task == "image-feature-extraction"
+    assert r.optimum_task == "feature-extraction"
+
+
+def test_user_class_with_explicit_task_preserved_verbatim():
+    """USER_CLASS WITH an explicit --task preserves the user's task (no modality upgrade)."""
+    r = resolve_task(
+        _cfg("vit", ["ViTModel"]), model_class="ViTModel", task="feature-extraction"
+    )
+    assert r.source == TaskSource.USER_CLASS
+    assert r.task == "feature-extraction"
