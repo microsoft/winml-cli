@@ -143,6 +143,8 @@ def universal_calib_dataset(
         dataset_kwargs["data_split"] = data_split
 
     def _random_fallback(reason: str) -> Any:
+        # Only reached under the `model_path is not None` guard at the call site below.
+        assert model_path is not None
         logger.warning("Falling back to RandomDataset for calibration: %s", reason)
         return RandomDataset(model_path=model_path, max_samples=max_samples or 100)
 
