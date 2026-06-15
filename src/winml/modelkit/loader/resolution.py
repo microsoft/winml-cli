@@ -356,9 +356,11 @@ def resolve_task(
     # --- Stage 0: user override (short-circuits detection) ----------------
     if model_class is not None:
         if task is not None:
-            # User gave an explicit task: preserve it verbatim (like USER_TASK).
+            # User gave an explicit task: surface it verbatim (like USER_TASK), so an
+            # alias such as "causal-lm" is not silently collapsed. opt_task is the
+            # normalized form, used only for the Optimum class lookup below.
             opt_task = normalize_task(task)
-            surfaced = opt_task
+            surfaced = task
         else:
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is

@@ -145,3 +145,17 @@ def test_user_class_with_explicit_task_preserved_verbatim():
     )
     assert r.source == TaskSource.USER_CLASS
     assert r.task == "feature-extraction"
+
+
+def test_user_class_with_explicit_task_alias_preserved_verbatim():
+    """USER_CLASS with an ALIAS task preserves the user's original string (not normalized),
+    matching the USER_TASK path — so the surfaced task is the same regardless of whether
+    --model-class was also given."""
+    r = resolve_task(
+        _cfg("gpt2", ["GPT2LMHeadModel"]),
+        model_class="GPT2LMHeadModel",
+        task="causal-lm",  # alias for text-generation
+    )
+    assert r.source == TaskSource.USER_CLASS
+    assert r.task == "causal-lm"  # verbatim, not collapsed to "text-generation"
+    assert r.optimum_task == "text-generation"
