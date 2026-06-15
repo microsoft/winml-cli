@@ -138,24 +138,12 @@ def test_user_class_inferred_task_is_modality_aware():
     assert r.optimum_task == "feature-extraction"
 
 
-def test_user_class_with_explicit_task_preserved_verbatim():
-    """USER_CLASS WITH an explicit --task preserves the user's task (no modality upgrade)."""
+def test_user_class_explicit_task_is_not_modality_upgraded():
+    """USER_CLASS WITH an explicit --task uses that task as given (normalized for the class
+    lookup); unlike the inferred-task branch it is NOT modality-upgraded — explicit
+    feature-extraction stays feature-extraction, not image-feature-extraction."""
     r = resolve_task(
         _cfg("vit", ["ViTModel"]), model_class="ViTModel", task="feature-extraction"
     )
     assert r.source == TaskSource.USER_CLASS
     assert r.task == "feature-extraction"
-
-
-def test_user_class_with_explicit_task_alias_preserved_verbatim():
-    """USER_CLASS with an ALIAS task preserves the user's original string (not normalized),
-    matching the USER_TASK path — so the surfaced task is the same regardless of whether
-    --model-class was also given."""
-    r = resolve_task(
-        _cfg("gpt2", ["GPT2LMHeadModel"]),
-        model_class="GPT2LMHeadModel",
-        task="causal-lm",  # alias for text-generation
-    )
-    assert r.source == TaskSource.USER_CLASS
-    assert r.task == "causal-lm"  # verbatim, not collapsed to "text-generation"
-    assert r.optimum_task == "text-generation"

@@ -356,11 +356,12 @@ def resolve_task(
     # --- Stage 0: user override (short-circuits detection) ----------------
     if model_class is not None:
         if task is not None:
-            # User gave an explicit task: surface it verbatim (like USER_TASK), so an
-            # alias such as "causal-lm" is not silently collapsed. opt_task is the
-            # normalized form, used only for the Optimum class lookup below.
+            # USER_CLASS normalizes the surfaced task (e.g. masked-lm -> fill-mask),
+            # pinned by test_task_normalized_with_model_class. This INTENTIONALLY differs
+            # from USER_TASK, which preserves the original string to keep WinML
+            # modality-aware names (image-feature-extraction) un-collapsed.
             opt_task = normalize_task(task)
-            surfaced = task
+            surfaced = opt_task
         else:
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is
