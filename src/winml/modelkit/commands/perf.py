@@ -297,21 +297,21 @@ class PerfBenchmark:
         """
         import gc
 
-        # Memory: pre-import heavy dependencies and warmup EP so their
-        # one-time costs are excluded from model_load_delta.
-        if self.config.memory:
-            from ..models import WinMLAutoModel  # noqa: F401 (triggers heavy imports)
-            from ..session.monitor.memory_tracker import get_device_memory_mb, get_rss_mb
-            from ..session.session import WinMLSession
-
-            WinMLSession._init_winml_eps_once()
-            gc.collect()
-            rss_baseline = get_rss_mb()
-
-        # [1] Load model + compile
+        # [1] Load model (build pipeline: optimize, cache, etc.)
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
         assert self._model is not None
+
+        # Memory: baseline right before compile() — excludes all Python lib
+        # imports, EP DLLs, and build pipeline overhead. Measures only ORT
+        # session compilation (model weights loaded into memory).
+        if self.config.memory:
+            from ..session.monitor.memory_tracker import get_device_memory_mb, get_rss_mb
+
+            gc.collect()
+            rss_baseline = get_rss_mb()
+
+        # [2] Compile session (ORT loads model weights into memory here)
         self._model._session.compile()
 
         if self.config.memory:
@@ -327,7 +327,7 @@ class PerfBenchmark:
             ep_name=self._model.ep_name,
         )
 
-        # [2] Generate inputs + run benchmark
+        # [3] Generate inputs + run benchmark
         logger.info("Generating benchmark inputs")
         self._generate_inputs()
 
@@ -352,7 +352,7 @@ class PerfBenchmark:
                 "device_local_mb": round(device_mb, 2),
             }
 
-        # [3] Collect results
+        # [4] Collect results
         logger.info("Collecting results")
         return self._collect_results(stats)
 
