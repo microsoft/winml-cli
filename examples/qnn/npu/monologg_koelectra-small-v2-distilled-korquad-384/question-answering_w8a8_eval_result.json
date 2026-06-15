@@ -1,0 +1,29 @@
+{
+  "model_id": "monologg/koelectra-small-v2-distilled-korquad-384",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_w8a8_build_artifacts\\model.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "KorQuAD/squad_kor_v1",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\monologg_koelectra-small-v2-distilled-korquad-384\\question-answering_w8a8_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "exact_match": 0.7,
+    "f1": 1.1166666666666665,
+    "total_time_in_seconds": 56.51193340000464,
+    "samples_per_second": 17.695377592583267,
+    "latency_in_seconds": 0.05651193340000464
+  }
+}

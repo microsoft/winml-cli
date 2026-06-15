@@ -1,0 +1,185 @@
+{
+  "model_id": "w11wo/indonesian-roberta-base-posp-tagger",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\w11wo_indonesian-roberta-base-posp-tagger\\token-classification_w8a8_build_artifacts\\model.onnx",
+  "task": "token-classification",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_indonlu_posp",
+    "columns_mapping": {
+      "label_column": "pos_tags"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_indonlu_posp.py"
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\w11wo_indonesian-roberta-base-posp-tagger\\token-classification_w8a8_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "$$$": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 13
+    },
+    "ADJ": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 633
+    },
+    "ADK": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 300
+    },
+    "ADV": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 478
+    },
+    "ART": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 365
+    },
+    "CCN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 484
+    },
+    "CSN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 301
+    },
+    "INT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "KUA": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 129
+    },
+    "NEG": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 143
+    },
+    "NNO": {
+      "precision": 0.34190927555856465,
+      "recall": 0.2133051742344245,
+      "f1": 0.26271296657562754,
+      "number": 4735
+    },
+    "NNP": {
+      "precision": 0.20126139627825654,
+      "recall": 0.8727321960465746,
+      "f1": 0.32709189628050944,
+      "number": 3693
+    },
+    "NUM": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 791
+    },
+    "PAR": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 47
+    },
+    "PPO": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1591
+    },
+    "PRI": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 28
+    },
+    "PRK": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 27
+    },
+    "PRN": {
+      "precision": 0.125,
+      "recall": 0.0038910505836575876,
+      "f1": 0.007547169811320756,
+      "number": 257
+    },
+    "PRR": {
+      "precision": 0.735494880546075,
+      "recall": 0.9817767653758542,
+      "f1": 0.8409756097560975,
+      "number": 439
+    },
+    "SYM": {
+      "precision": 0.03076923076923077,
+      "recall": 0.0006765899864682003,
+      "f1": 0.00132406487917908,
+      "number": 2956
+    },
+    "UNS": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 15
+    },
+    "VBE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 70
+    },
+    "VBI": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 553
+    },
+    "VBL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 138
+    },
+    "VBP": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 541
+    },
+    "VBT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 900
+    },
+    "overall_precision": 0.2377604564674716,
+    "overall_recall": 0.2377604564674716,
+    "overall_f1": 0.2377604564674716,
+    "overall_accuracy": 0.2377604564674716,
+    "total_time_in_seconds": 32.4401935999922,
+    "samples_per_second": 25.893803543768062,
+    "latency_in_seconds": 0.03861927809522881
+  }
+}
