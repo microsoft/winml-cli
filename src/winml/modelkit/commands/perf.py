@@ -297,21 +297,21 @@ class PerfBenchmark:
         """
         import gc
 
-        # [1] Load model (imports optimizer libs, builds ONNX graph, etc.)
-        logger.info("Loading model: %s", self.config.model_id)
-        self._load_model()
-        assert self._model is not None
-
-        # Memory measurement: baseline is taken AFTER model load but BEFORE
-        # compile, so model_load_delta measures only ORT session compilation
-        # (matching mem_ov.py which takes baseline after all imports).
+        # Memory: pre-import heavy dependencies and warmup EP so their
+        # one-time costs are excluded from model_load_delta.
         if self.config.memory:
+            from ..models import WinMLAutoModel  # noqa: F401 (triggers heavy imports)
             from ..session.monitor.memory_tracker import get_device_memory_mb, get_rss_mb
+            from ..session.session import WinMLSession
 
+            WinMLSession._init_winml_eps_once()
             gc.collect()
             rss_baseline = get_rss_mb()
 
-        # [2] Compile session
+        # [1] Load model + compile
+        logger.info("Loading model: %s", self.config.model_id)
+        self._load_model()
+        assert self._model is not None
         self._model._session.compile()
 
         if self.config.memory:
@@ -327,7 +327,7 @@ class PerfBenchmark:
             ep_name=self._model.ep_name,
         )
 
-        # [3] Generate inputs + run benchmark
+        # [2] Generate inputs + run benchmark
         logger.info("Generating benchmark inputs")
         self._generate_inputs()
 
@@ -346,13 +346,13 @@ class PerfBenchmark:
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
                 "rss_after_inference_mb": round(rss_after_inference, 2),
-                "compile_delta_mb": round(rss_after_compile - rss_baseline, 2),
+                "model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
                 "inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
                 "total_delta_mb": round(rss_after_inference - rss_baseline, 2),
                 "device_local_mb": round(device_mb, 2),
             }
 
-        # [4] Collect results
+        # [3] Collect results
         logger.info("Collecting results")
         return self._collect_results(stats)
 
@@ -947,7 +947,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             f"[bold]Memory:[/bold]      {mem['rss_after_inference_mb']:.1f} MB (process){dev_str}"
         )
         console.print(
-            f"  [dim]compile: {mem['compile_delta_mb']:+.1f} MB  |  "
+            f"  [dim]model load: {mem['model_load_delta_mb']:+.1f} MB  |  "
             f"inference: {mem['inference_delta_mb']:+.1f} MB  |  "
             f"total: {mem['total_delta_mb']:+.1f} MB[/dim]"
         )
