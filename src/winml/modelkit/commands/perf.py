@@ -297,19 +297,19 @@ class PerfBenchmark:
         """
         import gc
 
-        # Memory measurement: warmup EP, then take RSS at phase boundaries.
-        if self.config.memory:
-            from ..session.monitor.memory_tracker import get_device_memory_mb, get_rss_mb
-            from ..session.session import WinMLSession
-
-            WinMLSession._init_winml_eps_once()
-            gc.collect()
-            rss_baseline = get_rss_mb()
-
-        # [1] Load model
+        # [1] Load model (imports optimizer libs, builds ONNX graph, etc.)
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
         assert self._model is not None
+
+        # Memory measurement: baseline is taken AFTER model load but BEFORE
+        # compile, so model_load_delta measures only ORT session compilation
+        # (matching mem_ov.py which takes baseline after all imports).
+        if self.config.memory:
+            from ..session.monitor.memory_tracker import get_device_memory_mb, get_rss_mb
+
+            gc.collect()
+            rss_baseline = get_rss_mb()
 
         # [2] Compile session
         self._model._session.compile()
@@ -346,8 +346,8 @@ class PerfBenchmark:
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
                 "rss_after_inference_mb": round(rss_after_inference, 2),
-                "model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
-                "inference_alloc_delta_mb": round(rss_after_inference - rss_after_compile, 2),
+                "compile_delta_mb": round(rss_after_compile - rss_baseline, 2),
+                "inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
                 "total_delta_mb": round(rss_after_inference - rss_baseline, 2),
                 "device_local_mb": round(device_mb, 2),
             }
@@ -947,8 +947,8 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             f"[bold]Memory:[/bold]      {mem['rss_after_inference_mb']:.1f} MB (process){dev_str}"
         )
         console.print(
-            f"  [dim]model load: {mem['model_load_delta_mb']:+.1f} MB  |  "
-            f"inference: {mem['inference_alloc_delta_mb']:+.1f} MB  |  "
+            f"  [dim]compile: {mem['compile_delta_mb']:+.1f} MB  |  "
+            f"inference: {mem['inference_delta_mb']:+.1f} MB  |  "
             f"total: {mem['total_delta_mb']:+.1f} MB[/dim]"
         )
 
