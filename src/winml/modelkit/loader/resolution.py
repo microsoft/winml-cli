@@ -173,9 +173,6 @@ def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
 # code — when a modality gains its downstream.
 _FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
     "pixel_values": "image-feature-extraction",
-    # TODO: add "input_values" / "input_features" -> "audio-feature-extraction" once an
-    # AudioDataset + evaluator exist. Until then audio stays "feature-extraction"; the
-    # calibration RandomDataset fallback covers the modality mismatch gracefully.
 }
 
 
