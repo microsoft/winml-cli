@@ -138,12 +138,28 @@ def test_user_class_inferred_task_is_modality_aware():
     assert r.optimum_task == "feature-extraction"
 
 
-def test_user_class_explicit_task_is_not_modality_upgraded():
-    """USER_CLASS WITH an explicit --task uses that task as given (normalized for the class
-    lookup); unlike the inferred-task branch it is NOT modality-upgraded — explicit
-    feature-extraction stays feature-extraction, not image-feature-extraction."""
+def test_user_class_explicit_feature_extraction_is_modality_aware():
+    """USER_CLASS WITH an explicit --task is modality-upgraded just like the inferred
+    branch: the surfaced task drives dataset/evaluator routing, so a ViT backbone must
+    surface image-feature-extraction (-> ImageDataset), not the modality-blind
+    feature-extraction (-> TextDataset). optimum_task still collapses for the Optimum
+    class lookup."""
     r = resolve_task(
         _cfg("vit", ["ViTModel"]), model_class="ViTModel", task="feature-extraction"
     )
     assert r.source == TaskSource.USER_CLASS
-    assert r.task == "feature-extraction"
+    assert r.task == "image-feature-extraction"
+    assert r.optimum_task == "feature-extraction"
+
+
+def test_user_class_explicit_image_feature_extraction_preserved():
+    """Regression: USER_CLASS with explicit --task image-feature-extraction keeps the
+    modality-aware name. normalize_task collapses it to feature-extraction, which would
+    route a ViT to a text dataset; _resolve_task_modality re-applies the modality. The
+    USER_TASK path already preserves it, so adding --model-class must not collapse it."""
+    r = resolve_task(
+        _cfg("vit", ["ViTModel"]), model_class="ViTModel", task="image-feature-extraction"
+    )
+    assert r.source == TaskSource.USER_CLASS
+    assert r.task == "image-feature-extraction"
+    assert r.optimum_task == "feature-extraction"

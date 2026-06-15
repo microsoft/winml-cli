@@ -353,12 +353,15 @@ def resolve_task(
     # --- Stage 0: user override (short-circuits detection) ----------------
     if model_class is not None:
         if task is not None:
-            # USER_CLASS normalizes the surfaced task (e.g. masked-lm -> fill-mask),
-            # pinned by test_task_normalized_with_model_class. This INTENTIONALLY differs
-            # from USER_TASK, which preserves the original string to keep WinML
-            # modality-aware names (image-feature-extraction) un-collapsed.
+            # USER_CLASS with an explicit task does two separable things to the surfaced
+            # task: (a) canonicalize the alias for the Optimum class lookup
+            # (masked-lm -> fill-mask) and (b) re-apply modality so a WinML modality-aware
+            # name survives (feature-extraction -> image-feature-extraction for a
+            # pixel_values arch). (b) is a no-op for non-feature-extraction tasks, so (a)
+            # is preserved. Consistent with the inferred branch below and USER_TASK —
+            # adding --model-class must not collapse the modality.
             opt_task = normalize_task(task)
-            surfaced = opt_task
+            surfaced = _resolve_task_modality(config, opt_task)
         else:
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is
