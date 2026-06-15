@@ -420,11 +420,7 @@ class PerfBenchmark:
         )
 
     def _resolve_adapter_luid(self) -> str | None:
-        """Resolve the adapter LUID for device memory queries.
-
-        Uses the same resolution logic as HWMonitor: device kind + EP name.
-        Returns None on non-Windows or when no adapter is available.
-        """
+        """Resolve adapter LUID for device memory queries."""
         import sys
 
         if sys.platform != "win32":
@@ -432,25 +428,21 @@ class PerfBenchmark:
 
         assert self._model is not None
         device = self._model.device or self.config.device
-        ep_name = self._model.ep_name
-
         if device == "cpu":
             return None
 
         try:
             from ..sysinfo.pdh_adapters import resolve_adapter_luid
 
-            if device == "npu":
-                return resolve_adapter_luid("npu", ep_name=ep_name)
-            if device == "gpu":
-                return resolve_adapter_luid("gpu", ep_name=ep_name)
-            # "auto" — try NPU first, then GPU
-            luid = resolve_adapter_luid("npu", ep_name=ep_name)
-            if luid:
-                return luid
-            return resolve_adapter_luid("gpu", ep_name=ep_name)
+            ep_name = self._model.ep_name
+            # For "auto" or unknown, try npu then gpu
+            for kind in [device] if device in ("npu", "gpu") else ["npu", "gpu"]:
+                luid = resolve_adapter_luid(kind, ep_name=ep_name)
+                if luid:
+                    return luid
+            return None
         except Exception:
-            logger.debug("Could not resolve adapter LUID for memory query", exc_info=True)
+            logger.debug("Could not resolve adapter LUID", exc_info=True)
             return None
 
     def _run_benchmark(self) -> PerfStats:
