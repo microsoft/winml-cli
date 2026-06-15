@@ -1,0 +1,126 @@
+{
+  "_meta": {
+    "ep": "cpu",
+    "device": "cpu",
+    "hardware": "Snapdragon X Elite CRD (Oryon CPU)",
+    "ort_version": "1.x (check winml version at experiment time)",
+    "model": "facebook/convnext-tiny-224 (ALL findings from this model only)",
+    "last_updated": "2026-06-10",
+    "epistemics_warning": "⚠️ All findings from rigorous 3-run ablation. However, still 1 model, 1 device. CPU behavior can differ significantly between x86 and ARM (Oryon). Check architecture before applying rules."
+  },
+
+  "findings": [
+
+    {
+      "id": "cpu-001",
+      "title": "opset 19+ causes severe regression on CPU EP (3-4x slowdown)",
+      "observation": "opset 17: p50=43.7ms. opset 19: p50=160ms (3.7x). opset 20: p50=131ms (3.0x). opset 21: p50=170ms (3.9x). opset 22: p50=85ms (1.9x). All runs consistent — not noise.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "ORT C++ Transpose Optimizer has kMaxSupportedOpset gate. If model opset > kMaxSupportedOpset, the entire Transpose Optimizer is skipped silently. ConvNext has 42 Transpose nodes — without optimization, each executes as a full memory-layout copy. Code: onnxruntime/core/optimizer/transpose_optimization/optimizer_api.h. kMaxSupportedOpset is bumped with each ORT release.",
+      "action_for_autoconfig": "For CPU EP: default to opset 17. Do NOT try opset 19+ unless you first verify that the shipping ORT version's kMaxSupportedOpset >= target_opset.",
+      "confidence": "high — mechanism confirmed by source code + ORT session opt-level experiment (ENABLE_ALL removes the regression)",
+      "falsified_by": null,
+      "scope": "Models with many Transpose nodes (ConvNext, ViT, vision transformers). Models with few Transposes (BERT) may be less affected.",
+      "ort_kMaxSupportedOpset_by_version": {
+        "v1.14.x": 18,
+        "v1.16.x": 19,
+        "v1.17.x": 20,
+        "v1.18.x": 21,
+        "main_HEAD": 26
+      },
+      "do_not_generalize_to": "QNN NPU EP or DML EP — kMaxSupportedOpset is a CPU-only ORT optimizer gate. These EPs have their own kernel dispatch unaffected by this."
+    },
+
+    {
+      "id": "cpu-002",
+      "title": "matmul_add_fusion is a CONFIRMED REGRESSION on ConvNext CPU (+38ms, ~87%)",
+      "observation": "matmul_add_fusion: p50=81.7ms, runs=[63.0, 70.8, 111.2ms]. Baseline p50=43.7ms. All 3 runs far above highest baseline run (45.4ms).",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "ORT baseline already converts MatMul+Add→Gemm (37 Gemm in model.onnx). Applying matmul_add_fusion on top may create redundant kernel dispatch or conflicting operator mapping. Requires profiling to confirm.",
+      "action_for_autoconfig": "Do NOT apply matmul_add_fusion for CPU EP on models where baseline already uses Gemm (check model.onnx for Gemm nodes before applying this pass).",
+      "confidence": "high — 3 independent runs, all far above baseline; direction is unambiguous",
+      "falsified_by": null,
+      "scope": "ConvNext and models where ORT L2 baseline already fuses MatMul+Add→Gemm",
+      "do_not_generalize_to": "Models where baseline does NOT have Gemm (the pass may legitimately help there)"
+    },
+
+    {
+      "id": "cpu-003",
+      "title": "transpose_optimizer is neutral on ConvNext CPU (NOT +270ms as previously reported)",
+      "observation": "winml perf (warmup=10, iter=50): 42.3 / 52.3 / 41.8ms — overlapping baseline. Earlier winml eval-based measurement showed +270ms — this was a measurement artifact.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "winml eval includes HF preprocessing + model load + no warmup. The +270ms was preprocessing overhead, not inference regression. Pure inference measurement (winml perf) shows no effect.",
+      "action_for_autoconfig": "transpose_optimizer is neutral for ConvNext CPU — neither helpful nor harmful. Can be omitted from search space.",
+      "confidence": "high — measurement methodology confirmed; tool comparison validated",
+      "falsified_by": "Earlier winml eval measurement — RETRACTED. Use winml perf for all latency comparisons.",
+      "scope": "ConvNext CPU",
+      "measurement_lesson": "Always use winml perf (warmup=10, iter=50) for latency experiments. Never use winml eval latency to compare configs."
+    },
+
+    {
+      "id": "cpu-004",
+      "title": "nchwc_transformer is neutral on ConvNext CPU",
+      "observation": "nchwc: 43.4 / 48.0 / 44.7ms — overlapping baseline (42.5–45.4ms). No improvement.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "NCHWc SIMD layout benefits Conv-heavy models. ConvNext has 22 Conv nodes but 57.7% of kernel time is Gemm. The bottleneck is not memory layout but compute throughput — NCHWc doesn't help.",
+      "action_for_autoconfig": "nchwc_transformer is low-priority for ConvNext-class models. Profile first — if Conv% > 40%, try nchwc. If Gemm% > 50%, skip.",
+      "confidence": "medium — 3 runs, neutral result; mechanism is a hypothesis",
+      "falsified_by": null,
+      "scope": "ConvNext CPU (Gemm-dominated, not Conv-dominated)"
+    },
+
+    {
+      "id": "cpu-005",
+      "title": "Baseline (no extra flags) is the optimal config for ConvNext CPU",
+      "observation": "No flag in 22-experiment ablation improved p50 beyond noise. Baseline p50=43.7ms is the floor.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "ORT L2 baseline already applies gelu_fusion and MatMul→Gemm before any user flags. The effective optimization space is narrow for ConvNext on CPU. Compute bottleneck (Gemm=57.7%) is not addressable via graph passes.",
+      "action_for_autoconfig": "For CPU EP on ConvNext-class models: skip optimization pass sweep. Go directly to quantization experiments.",
+      "confidence": "high — 22 experiments, no improvement found",
+      "falsified_by": null,
+      "scope": "ConvNext-class vision models on CPU",
+      "do_not_generalize_to": "BERT/Transformer models where attention_fusion + skip_layer_norm can significantly help"
+    },
+
+    {
+      "id": "cpu-006",
+      "title": "CPU EP opset 21 is 3.9x SLOWER — opposite of QNN NPU behavior",
+      "observation": "CPU opset 21: p50=170ms. CPU opset 17: p50=43.7ms. QNN NPU opset 21: p50=8.45ms (2.3x FASTER).",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "Same kMaxSupportedOpset gate as cpu-001. CPU and QNN NPU have completely different optimizer paths. CPU regression from Transpose Optimizer bypass. QNN NPU speedup from better kernel dispatch (mechanism under research).",
+      "action_for_autoconfig": "EP ISOLATION: CPU opset findings MUST NOT influence QNN NPU search space, and vice versa. Always validate per EP independently.",
+      "confidence": "high — both directions confirmed empirically",
+      "falsified_by": null,
+      "scope": "ALL — this is a meta-rule about EP isolation, not model-specific"
+    }
+
+  ],
+
+  "search_space_rules": {
+    "opset": {
+      "recommended_order": [17],
+      "skip": ["19, 20, 21, 22 — kMaxSupportedOpset regression (cpu-001). Only safe to try if ORT version's kMaxSupportedOpset >= target."],
+      "dialectical_note": "⚠️ This rule is ORT-version dependent. Check kMaxSupportedOpset for the shipping ORT build before skipping higher opsets."
+    },
+    "quantization": {
+      "recommended": "w8a8 (CPU benefits most from small model size)",
+      "dialectical_note": "⚠️ W8A8 on CPU not yet validated for ConvNext. General guidance — run accuracy gate."
+    },
+    "compile": {
+      "always_run": false,
+      "skip": true,
+      "dialectical_note": "⚠️ winml compile targets QNN EPContext. Not applicable to CPU EP."
+    },
+    "graph_passes": {
+      "recommended": "autoconf defaults only",
+      "skip": ["matmul_add_fusion if model already has Gemm (cpu-002)", "nchwc_transformer if Gemm% > 50% in profile (cpu-004)"],
+      "dialectical_note": "⚠️ Skip rules are Gemm-bottleneck specific. Conv-heavy models may still benefit from nchwc_transformer."
+    }
+  },
+
+  "meta_lessons": {
+    "measurement_discipline": "Always use winml perf (warmup=10, iter=50) for latency. Never use winml eval latency. See cpu-003.",
+    "ep_isolation": "CPU findings (especially opset regression) DO NOT transfer to QNN NPU or DML. Each EP has its own optimizer path. See cpu-006.",
+    "baseline_check": "Before applying any fusion flag, check model.onnx for existing fused ops. If Gemm already present, matmul_add_fusion is likely a no-op or regression."
+  }
+}

@@ -298,6 +298,8 @@ lint.per-file-ignores."tests/**" = [ "ANN", "D", "PLR2004", "PT", "S101", "T20" 
 lint.per-file-ignores."tests/**/generate_patterns.py" = [ "PERF401" ]
 # Generated opset code: Allow long lines
 lint.per-file-ignores."src/winml/modelkit/analyze/onnx_opset/**" = [ "D", "E501", "N802", "N803", "N806", "TC001", "TC002", "TC003" ]
+# Research scripts: POC code, not production — exempt from all style/type/security rules
+lint.per-file-ignores."research/**" = [ "ANN", "D", "E", "N", "S", "T20", "UP", "W", "B", "C4", "FA", "I", "PERF", "PIE", "PT", "PTH", "RET", "RSE", "RUF", "SIM", "TCH", "TID", "TRY", "G", "ICN", "E402", "E501", "F401", "F403", "F811" ]
 # === Import Conventions ===
 lint.flake8-bandit.check-typed-exception = true
 lint.flake8-bandit.hardcoded-tmp-directory = [ "/tmp", "/var/tmp", "C:\\Temp" ]

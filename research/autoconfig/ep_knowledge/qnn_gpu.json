@@ -1,0 +1,115 @@
+{
+  "_meta": {
+    "ep": "qnn",
+    "device": "gpu",
+    "hardware": "Snapdragon X Elite CRD (Adreno X1-85 / QNN GPU EP)",
+    "ort_version": "1.x (check winml version at experiment time)",
+    "qnn_sdk_version": "unknown — check QnnSystem.dll version",
+    "model": "facebook/convnext-tiny-224 (ALL findings from this model only)",
+    "last_updated": "2026-06-10",
+    "epistemics_warning": "⚠️ All findings are hypotheses derived from 1 model on 1 device. Confidence levels reflect mechanism understanding, not universal applicability. GPU EP behavior varies significantly by model architecture and Adreno driver version."
+  },
+
+  "findings": [
+
+    {
+      "id": "gpu-001",
+      "title": "FP32 baseline is already optimal for ConvNext on QNN GPU — no optimization pass helps",
+      "observation": "Full sweep of 11 passes/combinations on ConvNext QNN GPU: all returned 0% node reduction or worse latency. Baseline p50=17.7ms, p90=19.7ms, std=0.97.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "251/0/0/0 (all ops native on GPU, zero CPU fallback). ConvNext linear layers use Reshape→MatMul→Reshape, not bare MatMul+Add — so MatMulAdd→Conv2D rewrites don't match. autoconf (gelu_fusion + matmul_add_fusion) already applied all applicable transforms.",
+      "action_for_autoconfig": "Skip all graph optimization experiments for QNN GPU on ConvNext-class models. Use FP32 baseline directly.",
+      "confidence": "high — confirmed by 0% node delta on all rewrites + 251/0/0/0 analyze output",
+      "falsified_by": null,
+      "scope": "ConvNext-class models (Reshape→MatMul→Reshape pattern)",
+      "do_not_generalize_to": "Transformer models with bare MatMul+Add (those may benefit from rewrites)"
+    },
+
+    {
+      "id": "gpu-002",
+      "title": "NHWC transformer hurts QNN GPU on Adreno X1-85 (~10% worse)",
+      "observation": "NHWC transformer: p50=19.5ms (+10%), p90=23.8ms (+21%), std=3.43 (3.5x worse). Consistent across multiple runs.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "Adreno X1-85 + QNN GPU EP does not benefit from explicit NHWC layout transforms. QNN GPU EP handles layout internally; forcing NHWC via ORT creates additional Reshape overhead without the memory alignment benefit.",
+      "action_for_autoconfig": "Do NOT apply nhwc-transformer for QNN GPU EP.",
+      "confidence": "medium — observed consistently; mechanism hypothesis, not confirmed",
+      "falsified_by": null,
+      "scope": "Adreno X1-85 + QNN GPU EP",
+      "do_not_generalize_to": "Non-Adreno GPUs (NVIDIA, Intel Arc) — NHWC may help there"
+    },
+
+    {
+      "id": "gpu-003",
+      "title": "winml compile HURTS QNN GPU (~34% regression)",
+      "observation": "FP32 + compile: p50=23.7ms vs baseline 17.7ms. compile is opposite of NPU: regresses on GPU.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "QNN GPU EP compile (EPContext) is designed for NPU (HTP). On GPU EP, the compilation path may force a different dispatch mode that bypasses the optimized GPU shader path. QNN SDK likely has a GPU-specific compilation flow that winml compile doesn't trigger correctly.",
+      "action_for_autoconfig": "NEVER run winml compile for QNN GPU EP. This is the opposite of NPU behavior.",
+      "confidence": "medium — single experiment, consistent direction (34% is large signal); mechanism unconfirmed",
+      "falsified_by": null,
+      "scope": "QNN GPU EP",
+      "do_not_generalize_to": "QNN NPU EP (compile always helps NPU)"
+    },
+
+    {
+      "id": "gpu-004",
+      "title": "W8A8 QDQ hangs indefinitely on QNN GPU EP",
+      "observation": "Passing a W8A8 QDQ-annotated ONNX to QNN GPU EP causes infinite hang. winml build's _patch_device() sets quant=null for GPU, preventing this in normal user path.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "QNN SDK's GPU EP does not support QDQ-quantized graphs. This is a known QNN SDK limitation. winml build already protects against this via _patch_device().",
+      "action_for_autoconfig": "Skip ALL quantization experiments for QNN GPU EP. Do not even attempt W8A8 or W8A16.",
+      "confidence": "high — hang confirmed; protection mechanism in _patch_device() confirmed by code inspection",
+      "falsified_by": null,
+      "scope": "QNN GPU EP (QNN SDK limitation)",
+      "tracked_issue": "#868 (fast-fail enhancement)"
+    },
+
+    {
+      "id": "gpu-005",
+      "title": "gelu_fusion improves latency STABILITY (p90/std) on QNN GPU, not p50",
+      "observation": "Raw export (287 nodes, unfused Gelu): p50=17.4ms, p90=29.2ms, std=5.90. Autoconf (251 nodes, fused Gelu): p50=17.7ms, p90=19.7ms, std=0.97. p50 nearly identical, p90 -48%, std -6x.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "5 separate GPU kernel dispatches (Mul→Div→Erf→Mul→Add) for unfused GELU create scheduling jitter. Single Gelu kernel eliminates dispatch overhead → dramatically lower tail latency.",
+      "action_for_autoconfig": "Always apply gelu_fusion for QNN GPU (stability benefit). Do not expect p50 improvement.",
+      "confidence": "high — mechanism is well-understood (GPU kernel dispatch overhead)",
+      "falsified_by": null,
+      "scope": "Any model with GELU activations on QNN GPU"
+    },
+
+    {
+      "id": "gpu-006",
+      "title": "opset 21 on QNN GPU not yet validated",
+      "observation": "opset 21 sweep only run on QNN NPU. QNN GPU behavior with opset 21 is unknown.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "QNN GPU and QNN NPU use different kernel registries. opset 21 speedup on NPU does NOT imply the same on GPU.",
+      "action_for_autoconfig": "Do not assume opset 21 helps QNN GPU. Run a validation experiment before adding to search space.",
+      "confidence": "low — no data",
+      "falsified_by": null,
+      "scope": "UNKNOWN — needs experiment"
+    }
+
+  ],
+
+  "search_space_rules": {
+    "opset": {
+      "recommended_order": [17],
+      "rationale": "gpu-006: opset 21 not validated for GPU. Stay at 17 until tested.",
+      "dialectical_note": "⚠️ May change once opset 21 GPU experiment is run."
+    },
+    "quantization": {
+      "recommended": "skip",
+      "skip": ["all — QDQ hangs on GPU EP (gpu-004)"],
+      "dialectical_note": "⚠️ This is a QNN SDK limitation, not winml. May change with future QNN SDK versions that support GPU quantization."
+    },
+    "compile": {
+      "always_run": false,
+      "skip": true,
+      "dialectical_note": "⚠️ gpu-003: compile regresses QNN GPU. Confirmed by single experiment. Re-validate if winml compile behavior changes."
+    },
+    "graph_passes": {
+      "recommended": "autoconf defaults only",
+      "skip": ["nhwc-transformer (gpu-002)", "all additional fusion passes (gpu-001)"],
+      "dialectical_note": "⚠️ Skip rules are ConvNext-specific. Transformer models may benefit from attention_fusion etc."
+    }
+  }
+}

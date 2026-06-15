@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>autoconfig Skill — Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f4f6f9;
+    padding: 32px 24px;
+    color: #1a1a2e;
+  }
+  h1 {
+    font-size: 18px; font-weight: 700; color: #1a1a2e;
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    font-size: 12px; color: #666; margin-bottom: 28px;
+  }
+
+  /* ── Layout ── */
+  .diagram {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    position: relative;
+  }
+
+  /* ── Phase strips ── */
+  .phase-row {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    max-width: 860px;
+    margin-bottom: 0;
+  }
+  .phase-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    padding: 12px 8px;
+    border-radius: 8px 0 0 8px;
+    min-width: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .phase-body {
+    flex: 1;
+    padding: 16px 20px;
+    border-radius: 0 8px 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  /* ── Phase colors ── */
+  .p0 .phase-label { background: #e8eaf6; color: #3949ab; }
+  .p0 .phase-body  { background: #f3f4fc; border: 1.5px solid #c5cae9; }
+  .p1 .phase-label { background: #e0f2f1; color: #00695c; }
+  .p1 .phase-body  { background: #f1faf9; border: 1.5px solid #b2dfdb; }
+  .p2 .phase-label { background: #fff3e0; color: #e65100; }
+  .p2 .phase-body  { background: #fffbf5; border: 1.5px solid #ffe0b2; }
+  .p3 .phase-label { background: #fce4ec; color: #880e4f; }
+  .p3 .phase-body  { background: #fff5f8; border: 1.5px solid #f8bbd0; }
+
+  /* ── Connector arrows ── */
+  .arrow {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 28px;
+    width: 100%;
+    max-width: 860px;
+    position: relative;
+  }
+  .arrow::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #aab;
+  }
+  .arrow-head {
+    position: relative;
+    z-index: 1;
+    background: #f4f6f9;
+    padding: 0 6px;
+    font-size: 18px;
+    color: #889;
+    line-height: 1;
+  }
+  .arrow-label {
+    position: relative;
+    z-index: 1;
+    background: #f4f6f9;
+    font-size: 10px;
+    color: #778;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
+  }
+
+  /* ── Boxes inside phases ── */
+  .box {
+    background: #fff;
+    border-radius: 8px;
+    padding: 10px 14px;
+    border: 1.5px solid #dde;
+    font-size: 12px;
+    min-width: 130px;
+  }
+  .box-title {
+    font-weight: 700;
+    font-size: 11px;
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .box-title .icon { font-size: 14px; }
+  .box ul {
+    padding-left: 14px;
+    color: #445;
+    line-height: 1.6;
+    font-size: 11px;
+  }
+  .box code {
+    font-family: "Cascadia Code", "Fira Code", monospace;
+    font-size: 10px;
+    background: #f0f2f5;
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: #2d4a8a;
+  }
+
+  /* ── Loop box (Phase 2) ── */
+  .loop-container {
+    width: 100%;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    position: relative;
+  }
+  .loop-agents {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .loop-agent {
+    background: #fff;
+    border-radius: 8px;
+    padding: 10px 14px;
+    border: 1.5px solid #ffe0b2;
+    font-size: 11px;
+    position: relative;
+  }
+  .loop-agent .agent-title {
+    font-weight: 700;
+    font-size: 11px;
+    margin-bottom: 4px;
+    color: #bf360c;
+  }
+  .loop-agent ul {
+    padding-left: 14px;
+    color: #445;
+    line-height: 1.65;
+  }
+  .loop-side {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 150px;
+  }
+  .stop-box {
+    background: #fff;
+    border: 1.5px dashed #aab;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 11px;
+    color: #556;
+  }
+  .stop-box .stop-title { font-weight: 700; margin-bottom: 4px; }
+  .stop-box ul { padding-left: 14px; line-height: 1.65; }
+
+  /* loop back arrow */
+  .loop-back {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 5px 10px;
+    background: #fff8f0;
+    border-radius: 20px;
+    font-size: 10px;
+    color: #e65100;
+    border: 1px solid #ffcc80;
+    align-self: flex-start;
+  }
+
+  /* ── Output badges ── */
+  .output-badges {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    background: #fff;
+    border-radius: 8px;
+    padding: 8px 14px;
+    border: 1.5px solid #f48fb1;
+    font-size: 11px;
+    min-width: 160px;
+  }
+  .badge .badge-title {
+    font-weight: 700;
+    font-size: 10px;
+    color: #880e4f;
+    margin-bottom: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge code {
+    display: block;
+    font-family: "Cascadia Code", monospace;
+    font-size: 10px;
+    background: #fce4ec;
+    padding: 2px 5px;
+    border-radius: 3px;
+    margin-top: 2px;
+    color: #6a0e30;
+  }
+
+  /* ── User input block ── */
+  .user-input {
+    max-width: 860px;
+    width: 100%;
+    background: #fff;
+    border: 2px solid #3949ab;
+    border-radius: 10px;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 0;
+  }
+  .user-input .ui-icon { font-size: 24px; }
+  .user-input .ui-text { font-size: 12px; }
+  .user-input .ui-text strong { font-size: 13px; }
+  .tag {
+    display: inline-block;
+    background: #e8eaf6;
+    color: #3949ab;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    margin: 2px 3px 2px 0;
+  }
+
+  .profile-result {
+    background: #e0f7fa;
+    border: 1.5px solid #80cbc4;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 10.5px;
+    color: #004d40;
+    min-width: 190px;
+  }
+  .profile-result strong { font-size: 11px; display: block; margin-bottom: 3px; }
+  .profile-result .skip { color: #c62828; }
+  .profile-result .priority { color: #1b5e20; }
+
+  hr.section-divider {
+    width: 100%;
+    max-width: 860px;
+    border: none;
+    border-top: 1px dashed #ccd;
+    margin: 4px 0;
+  }
+
+  /* connector between agent rows */
+  .mini-arrow {
+    text-align: center;
+    font-size: 13px;
+    color: #e65100;
+    line-height: 1;
+    margin: -2px 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>autoconfig — Skill Architecture</h1>
+<p class="subtitle">Profile-guided autonomous config search for WinApp developers</p>
+
+<div class="diagram">
+
+  <!-- ── USER INPUT ── -->
+  <div class="user-input">
+    <div class="ui-icon">👤</div>
+    <div class="ui-text">
+      <strong>User input</strong><br>
+      Model ID &nbsp;+&nbsp; Target EP/device &nbsp;+&nbsp; Objective:
+      <span class="tag">accuracy-primary</span>
+      <span class="tag">latency-primary</span>
+      <span class="tag">Pareto</span>
+      &nbsp; + optional constraints (latency budget, accuracy floor)
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-head">↓</div></div>
+
+  <!-- ── PHASE 0 ── -->
+  <div class="phase-row p0">
+    <div class="phase-label">Phase 0 · Intake</div>
+    <div class="phase-body">
+      <div class="box">
+        <div class="box-title"><span class="icon">🔍</span> Inspect</div>
+        <ul>
+          <li><code>winml inspect</code></li>
+          <li>Validate model is supported</li>
+          <li>Check EP availability</li>
+        </ul>
+      </div>
+      <div style="color:#aab;font-size:18px">→</div>
+      <div class="box">
+        <div class="box-title"><span class="icon">🏗️</span> Baseline Build</div>
+        <ul>
+          <li><code>winml build</code> (default config)</li>
+          <li>opset=17, no quant</li>
+          <li>Output: <code>baseline/model.onnx</code></li>
+        </ul>
+      </div>
+      <div style="color:#aab;font-size:18px">→</div>
+      <div class="box">
+        <div class="box-title"><span class="icon">✅</span> Correctness Contract</div>
+        <ul>
+          <li><code>winml eval --mode compare</code></li>
+          <li>Lock cosine = 1.000</li>
+          <li>Record baseline p50</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-head">↓</div></div>
+
+  <!-- ── PHASE 1 ── -->
+  <div class="phase-row p1">
+    <div class="phase-label">Phase 1 · Insight</div>
+    <div class="phase-body" style="flex-direction:column;gap:14px">
+
+      <!-- Three input sources -->
+      <div style="display:flex;gap:10px;width:100%;align-items:flex-start">
+
+        <div class="box" style="flex:1">
+          <div class="box-title"><span class="icon">📊</span> Runtime Profile</div>
+          <ul>
+            <li><code>winml perf --profile</code></li>
+            <li>ORT per-op kernel time</li>
+            <li>Bottleneck op type + %</li>
+            <li>Canonical vs decomposed ops</li>
+            <li>Layout ops (Reorder) activity</li>
+          </ul>
+        </div>
+
+        <div class="box" style="flex:1">
+          <div class="box-title"><span class="icon">🔬</span> Static Analyzer</div>
+          <ul>
+            <li><code>winml analyze --ep &lt;ep&gt;</code></li>
+            <li>Partial-support ops list</li>
+            <li>EP fallback candidates</li>
+            <li>Quant-sensitive node names</li>
+            <li>EP-specific constraints</li>
+          </ul>
+        </div>
+
+        <div class="box" style="flex:1">
+          <div class="box-title"><span class="icon">🗂️</span> Graph Analysis</div>
+          <ul>
+            <li>ONNX proto inspection</li>
+            <li>opset version (kMaxSupportedOpset check)</li>
+            <li>Op counts per type</li>
+            <li>Fusion opportunities (decomposed subgraphs)</li>
+            <li>Static shape vs dynamic axes</li>
+          </ul>
+        </div>
+
+      </div>
+
+      <!-- Aggregation arrow -->
+      <div style="display:flex;align-items:center;gap:8px;padding:0 4px">
+        <div style="flex:1;height:1.5px;background:#a5d6a7"></div>
+        <div style="font-size:11px;color:#2e7d32;font-weight:600">Insight Engine — fuse 3 signals →</div>
+        <div style="flex:1;height:1.5px;background:#a5d6a7"></div>
+      </div>
+
+      <!-- Output -->
+      <div style="display:flex;gap:10px;width:100%">
+        <div class="box" style="flex:1;border-color:#80cbc4;background:#e0f7fa">
+          <div class="box-title" style="color:#004d40"><span class="icon">🚫</span> skip_set (passes to prune)</div>
+          <ul style="color:#004d40">
+            <li>Gelu op present → skip gelu-fusion</li>
+            <li>LN op present → skip layer-norm-fusion</li>
+            <li>ReorderInput &gt; 2% → skip nchwc-transformer</li>
+            <li>Transpose &lt; 5% + opset=17 → skip transpose-opt</li>
+            <li>opset ≥ 19 + Transpose &gt; 10% → flag [KNOWN_TRADEOFF]</li>
+            <li>Partial-op list empty → skip nodes_to_exclude trials</li>
+          </ul>
+        </div>
+        <div class="box" style="flex:1;border-color:#a5d6a7;background:#f1faf9">
+          <div class="box-title" style="color:#1b5e20"><span class="icon">📋</span> priority_queue (ranked hypotheses)</div>
+          <ul style="color:#1b5e20">
+            <li>Gemm &gt; 50% → quant precision, calib method first</li>
+            <li>Conv &gt; 20% → nchwc, conv-fusions first</li>
+            <li>Partial ops exist → nodes_to_exclude exclusion trials</li>
+            <li>Decomposed Gelu subgraph → gelu-fusion trial</li>
+            <li>Dynamic axes → try static shape export</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-head">↓</div></div>
+
+  <!-- ── PHASE 2 ── -->
+  <div class="phase-row p2">
+    <div class="phase-label">Phase 2 · Opt Loop</div>
+    <div class="phase-body">
+      <div class="loop-container">
+
+        <!-- Agent chain -->
+        <div class="loop-agents">
+
+          <div class="loop-agent">
+            <div class="agent-title">🔭 Explorer</div>
+            <ul>
+              <li>Pop next hypothesis from <code>priority_queue</code></li>
+              <li>Check KB <code>ep_knowledge/&lt;ep&gt;.json</code> — skip if "confirmed" rule prunes it</li>
+              <li>Build <code>config.json</code> delta (opset / quant / fusions)</li>
+              <li style="color:#e65100"><b>⚡ External research trigger</b>: 5 DISCARDs in same dimension → read ORT/QNN source code</li>
+            </ul>
+          </div>
+
+          <div class="mini-arrow">↓</div>
+
+          <div class="loop-agent">
+            <div class="agent-title">⚙️ Optimizer</div>
+            <ul>
+              <li><code>winml build -c config.json</code></li>
+              <li><b>Phase A</b>: <code>winml perf --iter 200</code> → CV = std/p50</li>
+              <li style="color:#c62828">CV &gt; 10%? → REJECT (DVFS noise) — do NOT run full bench</li>
+              <li><b>Phase B</b> (if CV passes): <code>winml perf --iter 1000</code> ×3, 60s cool-down</li>
+              <li><code>winml eval --samples 100</code> → accuracy gate</li>
+            </ul>
+          </div>
+
+          <div class="mini-arrow">↓</div>
+
+          <div class="loop-agent">
+            <div class="agent-title">🔎 Reviewer</div>
+            <ul>
+              <li><b>keep</b> — all 3 p50s better than baseline × 99% AND cosine ≥ floor</li>
+              <li><b>discard</b> — revert to last kept config; write per-experiment .md</li>
+              <li><b>unstable</b> — CV too high; log [UNSTABLE], do not count as DISCARD</li>
+              <li>Write KB draft entry if new mechanism observed (status="draft")</li>
+            </ul>
+          </div>
+
+          <div class="loop-back">↩ loop back to Explorer &nbsp;(until stop condition)</div>
+
+        </div>
+
+        <!-- Stop conditions -->
+        <div class="loop-side">
+          <div class="stop-box">
+            <div class="stop-title">🛑 Stop conditions</div>
+            <ul>
+              <li>Objective achieved</li>
+              <li><b>30</b> consecutive DISCARDs (plateau)</li>
+              <li>priority_queue empty</li>
+              <li>User manually stops</li>
+            </ul>
+          </div>
+          <div class="stop-box" style="background:#fffde7;border-color:#ffe082">
+            <div class="stop-title" style="color:#f57f17">📋 results.tsv</div>
+            Every experiment:<br>
+            config · screen_p50 · median_p50<br>
+            CV · delta_pct · status · dim
+          </div>
+          <div class="stop-box" style="background:#fce4ec;border-color:#f48fb1;margin-top:8px">
+            <div class="stop-title" style="color:#880e4f">📚 ep_knowledge/</div>
+            New entries written as<br>
+            <b>status="draft"</b><br>
+            Promoted to "confirmed"<br>
+            only after Gate 2 (source)
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-head">↓</div></div>
+
+  <!-- ── PHASE 3 ── -->
+  <div class="phase-row p3">
+    <div class="phase-label">Phase 3 · Report</div>
+    <div class="phase-body">
+      <div class="output-badges">
+        <div class="badge">
+          <div class="badge-title">Champion Config</div>
+          Best config with provenance metadata
+          <code>config_&lt;ep&gt;_optimal.json</code>
+        </div>
+        <div class="badge">
+          <div class="badge-title">HTML Report</div>
+          Benchmark chart + experiment table + profile section
+          <code>report.html</code>
+        </div>
+        <div class="badge">
+          <div class="badge-title">Per-Experiment Artifacts</div>
+          hypothesis/impl/parity/perf/analysis/decision
+          <code>experiments/&lt;n&gt;/experiment.md</code>
+        </div>
+        <div class="badge">
+          <div class="badge-title">KB Draft Entry</div>
+          New findings (status="draft") — promoted to "confirmed" after Gate 2
+          <code>ep_knowledge/&lt;ep&gt;.json</code>
+        </div>
+        <div class="badge">
+          <div class="badge-title">Manifest (multi-EP)</div>
+          Ranked EP configs for WinApp deployment
+          <code>manifest.json</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- footnote -->
+  <div style="max-width:860px;width:100%;margin-top:20px;font-size:11px;color:#778;line-height:1.7;">
+    <b>Key insight (validated on ConvNext):</b>
+    Profiler first → Gemm=57.7%, Transpose=2.6% → skip_set eliminates 16+ irrelevant pass experiments before search starts.
+    Estimated reduction: 22 experiments → ~6 with identical conclusions.
+    <br>
+    <b>Bench protocol (from GPU Optimizer V2):</b>
+    Phase A: 200-iter CV screen (CV = std/p50 &lt; 10%) gates Phase B.
+    Phase B: 3×1000-iter with 60s cool-down. KEEP only if all 3 sessions beat baseline × 99%.
+    Single 50-iter run is NOT sufficient — DVFS on mobile NPUs causes 2-10× run-to-run variance.
+    <br>
+    <b>External research trigger:</b> After 5 DISCARDs in same search dimension → read ORT/QNN source code.
+    Lesson: opset 21 QNN NPU effect (kMaxSupportedOpset gate) was discovered accidentally. Systematic external-research would have found it after 5 graph-pass DISCARDs.
+    <br>
+    <b>Dependency:</b> <code>winml perf --profile</code> (new flag); POC: <code>winml_profile.py</code> bridges until it ships.
+  </div>
+
+</div>
+</body>
+</html>

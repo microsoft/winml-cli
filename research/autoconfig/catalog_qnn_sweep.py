@@ -1,0 +1,881 @@
+#!/usr/bin/env python3
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
+"""catalog_qnn_sweep.py — QNN NPU optimization hypothesis sweep for winml catalog models.
+
+Hypothesis matrix (per model):
+  h0: baseline (auto-config, default winml build for QNN NPU + W8A16)
+  h1: opset 17 explicit (explicit opset, same optim as baseline)
+  h2: opset 19
+  h3: opset 21  ← tests npu-001 generalization
+  h4: opset 17 + conv fusions (conv-bn, conv-add, conv-activation)
+  h5: opset 21 + conv fusions
+
+2-phase bench protocol:
+  Phase A: 200-iter screen — reject if CV >= 15%
+  Phase B: 3 independent sessions × 500 iters, 30 s cool-down between sessions
+
+Results: catalog-qnn-sweep/<model_slug>/results.json
+Summary: catalog-qnn-sweep/SUMMARY.md
+"""
+
+import argparse
+import copy
+import json
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
+# ── constants ─────────────────────────────────────────────────────────────────
+BASE_DIR = Path(__file__).parent
+WINML = str(BASE_DIR / ".venv" / "Scripts" / "winml.exe")
+EP = "qnn"
+DEVICE = "npu"
+RESULTS_DIR = BASE_DIR / "catalog-qnn-sweep"
+
+SCREEN_WARMUP = 20
+SCREEN_ITERS = 200
+SCREEN_CV_MAX = 0.15
+
+FULL_WARMUP = 50
+FULL_ITERS = 500
+FULL_SESSIONS = 3
+COOL_DOWN_S = 30
+
+MODEL_TIMEOUT_S = 20 * 60  # 20 min per model total
+BUILD_TIMEOUT_S = 8 * 60  # 8 min per individual build
+BENCH_TIMEOUT_S = 8 * 60  # 8 min per bench run
+EVAL_TIMEOUT_S = 6 * 60  # 6 min for accuracy eval
+EVAL_SAMPLES = 50
+
+# Hypotheses: (id, label, opset_override, extra_optim)
+# opset_override=None → keep whatever auto-config chose
+# extra_optim=None    → keep auto-config optim unchanged
+# extra_optim=dict    → merge these flags ON TOP of auto-config optim
+HYPOTHESES = [
+    ("h0", "baseline (auto-config, W8A16)", None, None),
+    ("h1", "opset 17 explicit", 17, None),
+    ("h2", "opset 19", 19, None),
+    ("h3", "opset 21 (tests npu-001 bypass)", 21, None),
+    (
+        "h4",
+        "opset 17 + conv fusions",
+        17,
+        {
+            "conv_bn_fusion": True,
+            "conv_add_fusion": True,
+            "conv_activation_fusion": True,
+        },
+    ),
+    (
+        "h5",
+        "opset 21 + conv fusions",
+        21,
+        {
+            "conv_bn_fusion": True,
+            "conv_add_fusion": True,
+            "conv_activation_fusion": True,
+        },
+    ),
+]
+
+# Full catalog sweep list: (model_id, task, model_type, run_eval_on_baseline)
+ALL_MODELS: list[tuple[str, str, str, bool]] = [
+    # Vision
+    ("microsoft/resnet-18", "image-classification", "resnet", True),
+    ("google/vit-base-patch16-224", "image-classification", "vit", True),
+    ("apple/mobilevit-small", "image-classification", "mobilevit", True),
+    ("facebook/dinov2-small", "image-feature-extraction", "dinov2", False),  # no imagenet eval
+    ("hustvl/yolos-small", "object-detection", "yolos", False),  # no imagenet eval
+    # NLP
+    (
+        "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+        "text-classification",
+        "distilbert",
+        False,
+    ),
+    ("sentence-transformers/all-MiniLM-L6-v2", "sentence-similarity", "bert", False),
+    ("deepset/roberta-base-squad2", "question-answering", "roberta", False),
+]
+
+
+# ── low-level helpers ─────────────────────────────────────────────────────────
+
+
+def run_cmd(cmd: list[str], label: str = "", timeout: int = 600) -> tuple[int, str, float]:
+    """Run a command; return (returncode, combined_output, elapsed_s)."""
+    t0 = time.time()
+    print(f"  >> {label or cmd[1]}", flush=True)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+        elapsed = time.time() - t0
+        tag = "ok" if result.returncode == 0 else f"rc={result.returncode}"
+        print(f"     {elapsed:.0f}s [{tag}]", flush=True)
+        if result.returncode != 0:
+            snippet = (result.stderr or result.stdout or "")[-600:]
+            print(f"     stderr: {snippet}", flush=True)
+        return result.returncode, result.stdout + result.stderr, elapsed
+    except subprocess.TimeoutExpired:
+        elapsed = time.time() - t0
+        print(f"     TIMEOUT after {elapsed:.0f}s", flush=True)
+        return -999, f"TIMEOUT after {timeout}s", elapsed
+
+
+# ── winml wrappers ────────────────────────────────────────────────────────────
+
+
+def get_base_config(model_id: str, task: str, model_type: str) -> dict | None:
+    """Generate the auto-config via `winml config` for QNN NPU.
+    Returns the parsed config dict, or None on failure.
+    """
+    tmp_path = RESULTS_DIR / "_tmp_base_config.json"
+    tmp_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _try(extra_args: list[str]) -> dict | None:
+        cmd = [
+            WINML,
+            "config",
+            "-m",
+            model_id,
+            "-t",
+            task,
+            "--device",
+            DEVICE,
+            "--ep",
+            EP,
+            "--no-compile",
+            "-o",
+            str(tmp_path),
+        ] + extra_args
+        rc, out, _ = run_cmd(cmd, label="winml config", timeout=120)
+        if rc == 0 and tmp_path.exists():
+            try:
+                cfg = json.loads(tmp_path.read_text(encoding="utf-8"))
+                tmp_path.unlink(missing_ok=True)
+                return cfg
+            except Exception as e:
+                print(f"  [warn] config parse error: {e}", flush=True)
+        tmp_path.unlink(missing_ok=True)
+        return None
+
+    # Try with explicit model-type first, fall back without it
+    cfg = _try(["--model-type", model_type])
+    if cfg is None:
+        print("  [warn] config with --model-type failed, retrying without…", flush=True)
+        cfg = _try([])
+    return cfg
+
+
+def make_hypothesis_config(
+    base: dict, opset_override: int | None, extra_optim: dict | None
+) -> dict:
+    """Return a modified copy of base config for this hypothesis."""
+    cfg = copy.deepcopy(base)
+    if opset_override is not None:
+        if cfg.get("export"):
+            cfg["export"]["opset_version"] = opset_override
+    if extra_optim is not None:
+        existing = cfg.get("optim") or {}
+        cfg["optim"] = {**existing, **extra_optim}
+    return cfg
+
+
+def run_build(model_id: str, cfg_path: Path, out_dir: Path) -> tuple[bool, str]:
+    """Run `winml build -c cfg_path -m model_id -o out_dir --ep qnn --device npu --no-compile`."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        WINML,
+        "build",
+        "-c",
+        str(cfg_path),
+        "-m",
+        model_id,
+        "-o",
+        str(out_dir),
+        "--ep",
+        EP,
+        "--device",
+        DEVICE,
+        "--no-compile",
+        "--rebuild",
+    ]
+    rc, out, _ = run_cmd(cmd, label=f"winml build [{out_dir.name}]", timeout=BUILD_TIMEOUT_S)
+    return rc == 0, out
+
+
+def bench_screen(model_path: Path) -> tuple[float | None, float, bool]:
+    """Phase A: 200-iter screen.
+    Returns (p50_ms, cv, stable).
+    p50_ms=None only on hard failure (rc!=0 or missing output file).
+    QNN NPU DVFS routinely produces CV >> 0.15 — high CV is logged but does NOT
+    block Phase B; Phase B's multi-session cool-down is the thermal control.
+    """
+    out_json = model_path.parent / "screen_perf.json"
+    rc, _, _ = run_cmd(
+        [
+            WINML,
+            "perf",
+            "-m",
+            str(model_path),
+            "--ep",
+            EP,
+            "--device",
+            DEVICE,
+            "--warmup",
+            str(SCREEN_WARMUP),
+            "--iterations",
+            str(SCREEN_ITERS),
+            "-o",
+            str(out_json),
+        ],
+        label=f"perf screen ({SCREEN_ITERS} iters)",
+        timeout=BENCH_TIMEOUT_S,
+    )
+    if rc != 0 or not out_json.exists():
+        return None, 999.0, False
+    try:
+        data = json.loads(out_json.read_text())
+        lat = data["latency_ms"]
+        p50, std = lat["p50"], lat["std"]
+        cv = std / p50 if p50 > 0 else 999.0
+        stable = cv <= SCREEN_CV_MAX
+        tag = "stable" if stable else "HIGH-CV (DVFS noise — proceeding to Phase B)"
+        print(f"     screen: p50={p50:.2f}ms  std={std:.2f}ms  CV={cv:.3f}  [{tag}]", flush=True)
+        return p50, cv, stable
+    except Exception as e:
+        print(f"     [warn] screen parse error: {e}", flush=True)
+        return None, 999.0, False
+
+
+def bench_full(model_path: Path) -> list[float]:
+    """Phase B: 3 × 500-iter full bench with cool-down. Returns list of p50 values."""
+    p50s: list[float] = []
+    for s in range(1, FULL_SESSIONS + 1):
+        out_json = model_path.parent / f"full_perf_s{s}.json"
+        rc, _, _ = run_cmd(
+            [
+                WINML,
+                "perf",
+                "-m",
+                str(model_path),
+                "--ep",
+                EP,
+                "--device",
+                DEVICE,
+                "--warmup",
+                str(FULL_WARMUP),
+                "--iterations",
+                str(FULL_ITERS),
+                "-o",
+                str(out_json),
+            ],
+            label=f"perf full s{s}/{FULL_SESSIONS} ({FULL_ITERS} iters)",
+            timeout=BENCH_TIMEOUT_S,
+        )
+        if rc == 0 and out_json.exists():
+            try:
+                data = json.loads(out_json.read_text())
+                lat = data["latency_ms"]
+                p50, std = lat["p50"], lat["std"]
+                cv = std / p50 if p50 > 0 else 999.0
+                print(f"     full s{s}: p50={p50:.2f}ms  std={std:.2f}ms  CV={cv:.3f}", flush=True)
+                p50s.append(p50)
+            except Exception as e:
+                print(f"     [warn] full bench s{s} parse error: {e}", flush=True)
+        else:
+            print(f"     [warn] full bench s{s} failed", flush=True)
+        if s < FULL_SESSIONS:
+            print(f"     cool-down {COOL_DOWN_S}s…", flush=True)
+            time.sleep(COOL_DOWN_S)
+    return p50s
+
+
+def run_eval(model_path: Path, model_id: str, task: str) -> float | None:
+    """Run `winml eval` for accuracy. Returns accuracy or None."""
+    out_json = model_path.parent / "eval_result.json"
+    rc, _, _ = run_cmd(
+        [
+            WINML,
+            "eval",
+            "-m",
+            str(model_path),
+            "--model-id",
+            model_id,
+            "--task",
+            task,
+            "--ep",
+            EP,
+            "--device",
+            DEVICE,
+            "--samples",
+            str(EVAL_SAMPLES),
+            "-o",
+            str(out_json),
+        ],
+        label="winml eval (accuracy gate)",
+        timeout=EVAL_TIMEOUT_S,
+    )
+    if rc != 0 or not out_json.exists():
+        return None
+    try:
+        data = json.loads(out_json.read_text())
+        metrics = data.get("metrics", data)
+        acc = metrics.get("accuracy")
+        if acc is not None:
+            print(f"     eval accuracy: {acc:.4f}", flush=True)
+        return float(acc) if acc is not None else None
+    except Exception as e:
+        print(f"     [warn] eval parse error: {e}", flush=True)
+        return None
+
+
+def _perf_result(onnx_path: Path, model_id: str, task: str, run_eval_flag: bool) -> dict:
+    """Run Phase A + Phase B bench and optionally eval. Returns result dict."""
+    result: dict = {"status": "PENDING", "screen": {}, "full": {}, "accuracy": None}
+
+    p50_screen, cv_screen, stable = bench_screen(onnx_path)
+    result["screen"] = {
+        "p50_ms": p50_screen,
+        "cv": round(cv_screen, 4),
+        "stable": stable,
+    }
+
+    if p50_screen is None:
+        # Hard failure (rc != 0 or missing output) — cannot proceed
+        result["status"] = "SCREEN_FAIL"
+        return result
+
+    # QNN NPU note: always proceed to Phase B even if screen CV is high.
+    # Phase B multi-session cool-down is the thermal / DVFS control.
+    if not stable:
+        result["screen"]["note"] = "DVFS noise — high CV expected on QNN NPU"
+
+    full_p50s = bench_full(onnx_path)
+    if not full_p50s:
+        result["status"] = "BENCH_FAIL"
+        return result
+
+    median_p50 = float(sorted(full_p50s)[len(full_p50s) // 2])
+    result["full"] = {
+        "p50s_ms": [round(p, 3) for p in full_p50s],
+        "median_p50_ms": round(median_p50, 3),
+    }
+    result["status"] = "OK" if stable else "OK_HIGH_CV"
+
+    if run_eval_flag:
+        acc = run_eval(onnx_path, model_id, task)
+        result["accuracy"] = acc
+
+    return result
+
+
+# ── main sweep logic ──────────────────────────────────────────────────────────
+
+
+def sweep_model(
+    model_id: str,
+    task: str,
+    model_type: str,
+    run_eval_on_baseline: bool,
+) -> dict:
+    """Run all 6 hypotheses for one model on QNN NPU. Returns results dict."""
+    model_slug = model_id.replace("/", "--")
+    model_dir = RESULTS_DIR / model_slug
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    results: dict = {
+        "model_id": model_id,
+        "task": task,
+        "model_type": model_type,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "ep": EP,
+        "device": DEVICE,
+        "baseline_opset": None,
+        "hypotheses": {},
+        "best_hypothesis": None,
+        "baseline_p50_ms": None,
+        "best_p50_ms": None,
+        "best_gain_pct": None,
+        "npu001_generalized": None,  # True/False/"neutral"/None
+        "feature_gaps": [],
+        "errors": [],
+    }
+
+    print(f"\n{'=' * 64}", flush=True)
+    print(f"  SWEEP: {model_id}  [{task}]", flush=True)
+    print(f"{'=' * 64}", flush=True)
+
+    model_start = time.time()
+
+    # ── Step 1: generate base config (auto-detect for QNN NPU) ────────────────
+    print("\n[1/3] Generating base config (winml config)…", flush=True)
+    base_config = get_base_config(model_id, task, model_type)
+
+    if base_config is None:
+        results["errors"].append("base config generation failed — model may not be supported")
+        results["feature_gaps"].append("winml config failed for this model (inspect winml output)")
+        _save_results(results, model_dir)
+        return results
+
+    baseline_opset = (base_config.get("export") or {}).get("opset_version", "?")
+    results["baseline_opset"] = baseline_opset
+    base_quant = base_config.get("quant")
+    print(
+        f"  auto-config: opset={baseline_opset}  quant={'W8A16' if base_quant else 'NONE'}",
+        flush=True,
+    )
+    if base_quant is None:
+        results["feature_gaps"].append(
+            "auto-config did not include quantization — possible model type not supported for W8A16"
+        )
+    optim_keys = list((base_config.get("optim") or {}).keys())
+    print(f"  auto-config optim: {optim_keys}", flush=True)
+
+    # ── Step 2: per-hypothesis loop ───────────────────────────────────────────
+    print(f"\n[2/3] Running {len(HYPOTHESES)} hypotheses…", flush=True)
+
+    for hyp_id, label, opset_override, extra_optim in HYPOTHESES:
+        elapsed_total = time.time() - model_start
+        if elapsed_total > MODEL_TIMEOUT_S:
+            print(
+                f"\n  ⏰ MODEL TIMEOUT ({elapsed_total:.0f}s > {MODEL_TIMEOUT_S}s) — stopping",
+                flush=True,
+            )
+            results["hypotheses"][hyp_id] = {"status": "TIMEOUT", "label": label}
+            results["errors"].append(f"Model timed out at {elapsed_total:.0f}s (before {hyp_id})")
+            continue
+
+        sep = "─" * 56
+        print(f"\n{sep}", flush=True)
+        print(f"  {hyp_id}: {label}", flush=True)
+        print(f"{sep}", flush=True)
+
+        # Build config for this hypothesis
+        hyp_config = make_hypothesis_config(base_config, opset_override, extra_optim)
+        opset_used = (hyp_config.get("export") or {}).get("opset_version", "?")
+        print(f"  opset={opset_used}  extra_optim={extra_optim}", flush=True)
+
+        hyp_dir = model_dir / hyp_id
+        hyp_dir.mkdir(parents=True, exist_ok=True)
+        cfg_path = hyp_dir / "build_config.json"
+        cfg_path.write_text(json.dumps(hyp_config, indent=2), encoding="utf-8")
+
+        # Build
+        build_ok, build_out = run_build(model_id, cfg_path, hyp_dir)
+
+        if not build_ok:
+            is_timeout = "TIMEOUT" in build_out
+            status = "BUILD_TIMEOUT" if is_timeout else "BUILD_FAIL"
+            error_snippet = build_out[-600:] if not is_timeout else "build timed out"
+            results["hypotheses"][hyp_id] = {
+                "status": status,
+                "label": label,
+                "opset": opset_used,
+                "build_error": error_snippet,
+            }
+            results["errors"].append(f"{hyp_id}: {status}")
+            # Try to extract feature gap info from the build output
+            if any(
+                kw in build_out.lower() for kw in ("unsupported", "not supported", "no handler")
+            ):
+                results["feature_gaps"].append(
+                    f"{hyp_id} ({label}): EP/op unsupported — '{build_out[-200:]}'"
+                )
+            elif is_timeout:
+                results["feature_gaps"].append(
+                    f"{hyp_id} ({label}): build timeout — possible QNN compilation hang"
+                )
+            continue
+
+        onnx_path = hyp_dir / "model.onnx"
+        if not onnx_path.exists():
+            # Check for EPContext model (compile might have happened anyway)
+            ctx_candidates = list(hyp_dir.glob("*_ctx*.onnx")) + list(
+                hyp_dir.glob("model_npu*.onnx")
+            )
+            if ctx_candidates:
+                onnx_path = ctx_candidates[0]
+                print(f"  [info] using compiled model: {onnx_path.name}", flush=True)
+            else:
+                results["hypotheses"][hyp_id] = {
+                    "status": "NO_MODEL_ONNX",
+                    "label": label,
+                    "opset": opset_used,
+                }
+                results["errors"].append(f"{hyp_id}: build OK but model.onnx missing")
+                results["feature_gaps"].append(
+                    f"{hyp_id}: build completed but no model.onnx produced (unexpected pipeline behavior)"
+                )
+                continue
+
+        # Only run eval for h0 (baseline) on image-classification models
+        do_eval = run_eval_on_baseline and hyp_id == "h0" and task == "image-classification"
+
+        bench = _perf_result(onnx_path, model_id, task, do_eval)
+        bench["label"] = label
+        bench["opset"] = opset_used
+        results["hypotheses"][hyp_id] = bench
+
+        if bench["status"] == "UNSTABLE":
+            results["errors"].append(f"{hyp_id}: bench UNSTABLE (CV too high)")
+
+    # ── Step 3: compute summary stats ─────────────────────────────────────────
+    print("\n[3/3] Computing summary stats…", flush=True)
+    _compute_summary(results)
+    _save_results(results, model_dir)
+    return results
+
+
+def _compute_summary(results: dict) -> None:
+    """Fill in baseline_p50, best_hypothesis, best_gain, npu001_generalized."""
+    hyps = results["hypotheses"]
+
+    # Baseline p50: prefer h0, fall back to h1
+    baseline_p50: float | None = None
+    for h_id in ("h0", "h1"):
+        h = hyps.get(h_id, {})
+        if h.get("status") in ("OK", "OK_HIGH_CV"):
+            baseline_p50 = h.get("full", {}).get("median_p50_ms")
+            if baseline_p50:
+                break
+    results["baseline_p50_ms"] = baseline_p50
+
+    # Best hypothesis (minimum median p50)
+    best_p50: float | None = None
+    best_h: str | None = None
+    for h_id, h in hyps.items():
+        if h.get("status") in ("OK", "OK_HIGH_CV"):
+            p50 = h.get("full", {}).get("median_p50_ms")
+            if p50 is not None and (best_p50 is None or p50 < best_p50):
+                best_p50 = p50
+                best_h = h_id
+    results["best_hypothesis"] = best_h
+    results["best_p50_ms"] = best_p50
+
+    if baseline_p50 and best_p50:
+        gain_pct = (baseline_p50 - best_p50) / baseline_p50 * 100
+        results["best_gain_pct"] = round(gain_pct, 2)
+
+    # npu-001 generalization: does h3 (opset 21) beat h1 (opset 17) by ≥5%?
+    h1 = hyps.get("h1", {})
+    h3 = hyps.get("h3", {})
+    if h1.get("status") in ("OK", "OK_HIGH_CV") and h3.get("status") in ("OK", "OK_HIGH_CV"):
+        p50_h1 = h1["full"].get("median_p50_ms", float("inf"))
+        p50_h3 = h3["full"].get("median_p50_ms", float("inf"))
+        if p50_h3 < p50_h1 * 0.95:  # ≥5% improvement for h3
+            results["npu001_generalized"] = True
+            gain = (p50_h1 - p50_h3) / p50_h1 * 100
+            print(
+                f"  ✓ npu-001 GENERALIZES: opset21={p50_h3:.1f}ms vs opset17={p50_h1:.1f}ms (+{gain:.1f}%)",
+                flush=True,
+            )
+        elif p50_h1 < p50_h3 * 0.95:  # opset 17 is better
+            results["npu001_generalized"] = False
+            print(
+                f"  ✗ npu-001 does NOT generalize: opset17={p50_h1:.1f}ms < opset21={p50_h3:.1f}ms",
+                flush=True,
+            )
+        else:
+            results["npu001_generalized"] = "neutral"
+            print(
+                f"  ~ npu-001 neutral: opset17={p50_h1:.1f}ms ≈ opset21={p50_h3:.1f}ms", flush=True
+            )
+    else:
+        missing = [h for h, d in [("h1", h1), ("h3", h3)] if d.get("status") != "OK"]
+        results["npu001_generalized"] = f"N/A ({', '.join(missing)} not OK)"
+
+
+def _save_results(results: dict, model_dir: Path) -> None:
+    """Write results.json."""
+    out = model_dir / "results.json"
+    out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"  Results: {out}", flush=True)
+
+
+# ── summary writer ────────────────────────────────────────────────────────────
+
+
+def write_summary(all_results: list[dict]) -> None:
+    """Write SUMMARY.md to RESULTS_DIR."""
+    lines: list[str] = [
+        "# QNN NPU Optimization Sweep — Catalog Models",
+        "",
+        f"Generated: {datetime.now().isoformat(timespec='seconds')}  ",
+        f"EP: `{EP}` / device: `{DEVICE}`  ",
+        f"Bench protocol: Phase-A {SCREEN_ITERS} iters (CV<{SCREEN_CV_MAX * 100:.0f}%),"
+        f" Phase-B {FULL_ITERS}×{FULL_SESSIONS} sessions  ",
+        "",
+        "---",
+        "",
+        "## Per-Model Results",
+        "",
+        "| Model | Task | Baseline p50 | Best p50 | Best config | Gain% | opset-21 helps? | Notes |",
+        "|-------|------|-------------|----------|-------------|-------|-----------------|-------|",
+    ]
+
+    for r in all_results:
+        model_id = r["model_id"]
+        task = r.get("task", "?")
+        baseline = f"{r['baseline_p50_ms']:.1f} ms" if r.get("baseline_p50_ms") else "N/A"
+        best = f"{r['best_p50_ms']:.1f} ms" if r.get("best_p50_ms") else "N/A"
+        best_h = r.get("best_hypothesis") or "N/A"
+        # Annotate best_h with label
+        best_label = ""
+        if best_h != "N/A":
+            h_data = r.get("hypotheses", {}).get(best_h, {})
+            best_label = h_data.get("label", "")
+        gain = f"{r['best_gain_pct']:.1f}%" if r.get("best_gain_pct") is not None else "N/A"
+        npu001 = r.get("npu001_generalized")
+        if npu001 is True:
+            npu001_str = "✓ YES"
+        elif npu001 is False:
+            npu001_str = "✗ NO"
+        elif npu001 == "neutral":
+            npu001_str = "~ neutral"
+        else:
+            npu001_str = f"N/A ({npu001})"
+        errors = "; ".join(r.get("errors", []))[:100] or "none"
+        lines.append(
+            f"| `{model_id}` | {task} | {baseline} | {best} | {best_h} ({best_label}) | {gain} | {npu001_str} | {errors} |"
+        )
+
+    # Per-model hypothesis breakdown
+    lines += [
+        "",
+        "## Hypothesis Breakdown per Model",
+        "",
+    ]
+    for r in all_results:
+        lines.append(f"### {r['model_id']}")
+        lines.append("")
+        lines.append(
+            "| Hypothesis | Opset | Screen p50 | Full p50 (median) | CV | Status | Accuracy |"
+        )
+        lines.append(
+            "|------------|-------|-----------|-------------------|-----|--------|---------|"
+        )
+        for h_id, h_data in r.get("hypotheses", {}).items():
+            lbl = h_data.get("label", "")
+            opset = h_data.get("opset", "?")
+            s_p50 = h_data.get("screen", {}).get("p50_ms")
+            s_p50_str = f"{s_p50:.1f}" if s_p50 else "—"
+            f_p50 = h_data.get("full", {}).get("median_p50_ms")
+            f_p50_str = f"{f_p50:.1f}" if f_p50 else "—"
+            cv = h_data.get("screen", {}).get("cv", "?")
+            cv_str = f"{cv:.3f}" if isinstance(cv, float) else str(cv)
+            status = h_data.get("status", "?")
+            stable = h_data.get("screen", {}).get("stable", True)
+            if not stable and status.startswith("OK"):
+                status += " ⚡DVFS"
+            acc = h_data.get("accuracy")
+            acc_str = f"{acc:.3f}" if acc is not None else "—"
+            lines.append(
+                f"| {h_id} ({lbl}) | {opset} | {s_p50_str} | {f_p50_str} | {cv_str} | {status} | {acc_str} |"
+            )
+        lines.append("")
+
+    # Cross-model patterns
+    lines += [
+        "---",
+        "",
+        "## Cross-Model Patterns",
+        "",
+        "### npu-001: Does opset 21 bypass help broadly?",
+        "",
+    ]
+
+    npu001_map = {r["model_id"]: r.get("npu001_generalized") for r in all_results}
+    yes_m = [m for m, v in npu001_map.items() if v is True]
+    no_m = [m for m, v in npu001_map.items() if v is False]
+    neut_m = [m for m, v in npu001_map.items() if v == "neutral"]
+    na_m = [m for m, v in npu001_map.items() if v not in (True, False, "neutral")]
+
+    lines += [
+        f"- **Helps ({len(yes_m)} models):** {', '.join(f'`{m}`' for m in yes_m) or 'none'}",
+        f"- **Hurts ({len(no_m)} models):** {', '.join(f'`{m}`' for m in no_m) or 'none'}",
+        f"- **Neutral ({len(neut_m)} models):** {', '.join(f'`{m}`' for m in neut_m) or 'none'}",
+        f"- **N/A ({len(na_m)} models):** {', '.join(f'`{m}`' for m in na_m) or 'none'}",
+        "",
+    ]
+
+    total_tested = len(yes_m) + len(no_m) + len(neut_m)
+    if total_tested > 0:
+        if len(yes_m) > total_tested / 2:
+            lines.append(
+                f"> **Finding**: opset 21 bypass generalizes to {len(yes_m)}/{total_tested} tested models."
+                " Consider upgrading npu-001 scope from ConvNext-only to broader architectures."
+            )
+        elif len(no_m) > total_tested / 2:
+            lines.append(
+                f"> **Finding**: opset 21 bypass does NOT broadly generalize ({len(no_m)}/{total_tested} hurt)."
+                " npu-001 appears ConvNext-specific (residual connection topology dependency confirmed)."
+            )
+        else:
+            lines.append(
+                f"> **Finding**: Mixed results ({len(yes_m)} help, {len(no_m)} hurt, {len(neut_m)} neutral)."
+                " Architecture-dependent. Confirm ORT `kMaxSupportedOpset` version before drawing conclusions."
+            )
+        lines.append("")
+
+    lines += [
+        "### Feature Gaps",
+        "",
+    ]
+    all_gaps: list[str] = []
+    for r in all_results:
+        for gap in r.get("feature_gaps", []):
+            all_gaps.append(f"- **`{r['model_id']}`**: {gap}")
+    lines += all_gaps if all_gaps else ["- No feature gaps observed"]
+
+    lines += [
+        "",
+        "### Build / Compatibility Issues",
+        "",
+    ]
+    for r in all_results:
+        errs = r.get("errors", [])
+        if errs:
+            lines.append(f"**`{r['model_id']}`**")
+            for e in errs:
+                lines.append(f"  - {e}")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## Updated Recommendations for `ep_knowledge/qnn_npu.json`",
+        "",
+        "Based on this cross-architecture sweep:",
+        "",
+    ]
+
+    # Auto-generate KB recommendations
+    if total_tested > 0:
+        if len(yes_m) >= 2:
+            lines += [
+                "- **npu-001**: Broaden scope beyond ConvNext. Architectures that benefit: "
+                f"{', '.join(yes_m)}. Update `scope` field and set `gate1_statistical` confidence accordingly.",
+                "- **search_space_rules.opset.recommended_order**: Retain `[21, 17]` as default order.",
+            ]
+        if len(no_m) >= 2:
+            lines += [
+                "- **npu-001**: Keep 'architecture-specific' caveat. Architectures where opset 21 hurts: "
+                f"{', '.join(no_m)}. Add to `do_not_generalize_to` list.",
+                "- **search_space_rules**: Add architecture check before applying opset 21 preference.",
+            ]
+
+    # Conv fusions analysis
+    lines += [
+        "",
+        "### Conv Fusion Findings (h4 vs h1, h5 vs h3)",
+        "",
+    ]
+    for r in all_results:
+        h1_p50 = r.get("hypotheses", {}).get("h1", {}).get("full", {}).get("median_p50_ms")
+        h4_p50 = r.get("hypotheses", {}).get("h4", {}).get("full", {}).get("median_p50_ms")
+        h3_p50 = r.get("hypotheses", {}).get("h3", {}).get("full", {}).get("median_p50_ms")
+        h5_p50 = r.get("hypotheses", {}).get("h5", {}).get("full", {}).get("median_p50_ms")
+        parts = []
+        if h1_p50 and h4_p50:
+            delta = (h1_p50 - h4_p50) / h1_p50 * 100
+            parts.append(f"conv-fusions on opset17: {delta:+.1f}% ({h1_p50:.1f}→{h4_p50:.1f}ms)")
+        if h3_p50 and h5_p50:
+            delta = (h3_p50 - h5_p50) / h3_p50 * 100
+            parts.append(f"conv-fusions on opset21: {delta:+.1f}% ({h3_p50:.1f}→{h5_p50:.1f}ms)")
+        if parts:
+            lines.append(f"- **`{r['model_id']}`**: {'; '.join(parts)}")
+
+    summary_path = RESULTS_DIR / "SUMMARY.md"
+    summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"\n📄 Summary: {summary_path}", flush=True)
+
+
+# ── entry point ───────────────────────────────────────────────────────────────
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="QNN NPU optimization hypothesis sweep for winml catalog models"
+    )
+    parser.add_argument(
+        "--model", default=None, help="Single HF model ID to sweep (default: all catalog models)"
+    )
+    parser.add_argument(
+        "--task", default=None, help="Task override (required when --model is given)"
+    )
+    parser.add_argument(
+        "--model-type", default="auto", help="Model type hint (e.g. resnet, vit). Default: auto"
+    )
+    parser.add_argument(
+        "--skip-eval",
+        action="store_true",
+        help="Skip winml eval accuracy step even for image models",
+    )
+    args = parser.parse_args()
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Confirm QNN EP is present
+    print("=== Confirming QNN EP ===", flush=True)
+    rc, out, _ = run_cmd([WINML, "sys", "--list-ep"], label="winml sys --list-ep", timeout=30)
+    if "qnn" not in out.lower():
+        print("❌ QNN EP not detected! Aborting.", flush=True)
+        sys.exit(1)
+    print("✓ QNN EP available\n", flush=True)
+
+    # Determine model list
+    if args.model:
+        if not args.task:
+            print("Error: --task is required when --model is specified", flush=True)
+            sys.exit(1)
+        models_to_run: list[tuple[str, str, str, bool]] = [
+            (args.model, args.task, args.model_type, not args.skip_eval)
+        ]
+    else:
+        models_to_run = ALL_MODELS  # type: ignore[assignment]
+
+    all_results: list[dict] = []
+
+    for model_id, task, model_type, do_eval in models_to_run:
+        if args.skip_eval:
+            do_eval = False
+        try:
+            result = sweep_model(model_id, task, model_type, do_eval)
+        except Exception as exc:
+            print(f"\n❌ Unexpected error for {model_id}: {exc}", flush=True)
+            result = {
+                "model_id": model_id,
+                "task": task,
+                "model_type": model_type,
+                "errors": [f"Unexpected exception: {exc}"],
+                "hypotheses": {},
+                "feature_gaps": [],
+            }
+        all_results.append(result)
+
+        # Save rolling summary after each model
+        write_summary(all_results)
+
+    print("\n" + "=" * 64, flush=True)
+    print("  SWEEP COMPLETE", flush=True)
+    print("=" * 64, flush=True)
+    write_summary(all_results)
+
+
+if __name__ == "__main__":
+    main()
