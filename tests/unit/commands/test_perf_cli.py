@@ -20,6 +20,7 @@ from click.testing import CliRunner
 
 from winml.modelkit.commands.perf import (
     BenchmarkConfig,
+    BenchmarkResult,
     PerfBenchmark,
     generate_output_path,
     perf,
@@ -498,6 +499,21 @@ class TestPerfUnifiedPipeline:
         result = runner.invoke(perf, ["--help"])
         assert result.exit_code == 0
         assert "--ep-options" in result.output
+
+    def test_ep_options_captured_in_to_dict(self) -> None:
+        """ep_options must be written into benchmark_info so saved JSON is reproducible."""
+        ep_options = {"htp_performance_mode": "burst"}
+        config = BenchmarkConfig(model_id="m", ep_options=ep_options)
+        result = BenchmarkResult(config=config)
+
+        assert result.to_dict()["benchmark_info"]["ep_options"] == ep_options
+
+    def test_ep_options_none_when_not_set_in_to_dict(self) -> None:
+        """When no EP options are given, benchmark_info records None."""
+        config = BenchmarkConfig(model_id="m")
+        result = BenchmarkResult(config=config)
+
+        assert result.to_dict()["benchmark_info"]["ep_options"] is None
 
 
 # =============================================================================

@@ -206,7 +206,8 @@ def ep_options_option(optional_message: str | None = None) -> Callable[[F], F]:
     help_text = (
         "Runtime EP provider option as KEY=VALUE (repeatable). Forwarded to the "
         "inference session's execution provider (e.g. "
-        "--ep-options htp_performance_mode=burst)."
+        "--ep-options htp_performance_mode=burst). Duplicate keys: later "
+        "occurrence wins."
     )
     if optional_message:
         help_text = f"{help_text} {optional_message}"
@@ -224,6 +225,9 @@ def parse_ep_options(values: tuple[str, ...]) -> dict[str, str] | None:
 
     Args:
         values: Raw values collected by a ``multiple=True`` Click option.
+
+    Surrounding whitespace is stripped from both key and value. Duplicate
+    keys follow last-write-wins semantics (the later occurrence wins).
 
     Returns:
         Mapping of option name to value, or ``None`` when nothing was provided
@@ -249,7 +253,7 @@ def parse_ep_options(values: tuple[str, ...]) -> dict[str, str] | None:
                 f"Invalid EP option format: '{item}'. Key cannot be empty.",
                 param_hint="--ep-options",
             )
-        options[key] = value
+        options[key] = value.strip()
     return options
 
 

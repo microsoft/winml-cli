@@ -40,6 +40,13 @@ class TestParseEpOptions:
     def test_last_wins_on_duplicate_key(self) -> None:
         assert parse_ep_options(("k=1", "k=2")) == {"k": "2"}
 
+    def test_whitespace_stripped_from_key_and_value(self) -> None:
+        """Surrounding whitespace (e.g. from shell quoting) is stripped."""
+        assert parse_ep_options(("htp_performance_mode= burst ",)) == {
+            "htp_performance_mode": "burst"
+        }
+        assert parse_ep_options(("  k  =  v  ",)) == {"k": "v"}
+
     def test_missing_equals_raises(self) -> None:
         with pytest.raises(click.BadParameter):
             parse_ep_options(("no_equals_sign",))

@@ -148,6 +148,7 @@ class BenchmarkResult:
                 "task": self.actual_task,
                 "device": self.actual_device,
                 "ep": self.actual_ep,
+                "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
