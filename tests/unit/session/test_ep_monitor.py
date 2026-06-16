@@ -520,6 +520,7 @@ class TestHWMonitor:
 
         assert isinstance(hw.mean_utilization_pct, float)
         assert isinstance(hw.peak_utilization_pct, float)
+        assert isinstance(hw.peak_memory_mb, float)
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_to_dict_structure(self):
@@ -556,8 +557,10 @@ class TestHWMonitor:
         else:
             assert "npu" not in d
             assert "gpu" not in d
-        # Running time
-        assert "device_memory" not in d
+        # Device memory + running time
+        assert "device_memory" in d
+        assert "local_peak_mb" in d["device_memory"]
+        assert "shared_peak_mb" in d["device_memory"]
         assert "running_time_ns" in d
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
@@ -1428,6 +1431,8 @@ class TestLiveMonitorDisplay:
             iteration=5,
             latency_ms=1.0,
             util_samples=[50.0],
+            memory_local_mb=10.0,
+            memory_shared_mb=20.0,
             cpu_pct=5.0,
             ram_mb=8000.0,
         )
@@ -1442,6 +1447,8 @@ class TestLiveMonitorDisplay:
             iteration=50,
             latency_ms=2.0,
             util_samples=[80.0, 90.0],
+            memory_local_mb=31.0,
+            memory_shared_mb=43.0,
             cpu_pct=15.0,
             ram_mb=40000.0,
         )
@@ -1496,7 +1503,7 @@ class TestLiveMonitorDisplay:
         )
 
     def test_cpu_only_status_omits_adapter_cell(self):
-        """device='cpu' → no adapter cell — only CPU/RAM."""
+        """device='cpu' → no adapter cell, no Device Mem cell — only CPU/RAM."""
         from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
         display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
@@ -1547,3 +1554,4 @@ class TestLiveMonitorDisplay:
             ram_mb=8000.0,
         )
         assert "GPU: 42.0% avg" in status
+        assert "Device Mem:" in status

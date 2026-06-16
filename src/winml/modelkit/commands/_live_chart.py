@@ -85,6 +85,8 @@ class LiveMonitorDisplay:
         iteration: int,
         latency_ms: float,
         util_samples: list[float],
+        memory_local_mb: float = 0.0,
+        memory_shared_mb: float = 0.0,
         cpu_pct: float = 0.0,
         ram_mb: float = 0.0,
         cpu_samples: list[float] | None = None,
@@ -99,6 +101,8 @@ class LiveMonitorDisplay:
                 iteration,
                 latency_ms,
                 util_samples,
+                memory_local_mb,
+                memory_shared_mb,
                 cpu_pct,
                 ram_mb,
             )
@@ -217,6 +221,8 @@ class LiveMonitorDisplay:
         iteration: int,
         latency_ms: float,
         util_samples: list[float],
+        memory_local_mb: float = 0.0,
+        memory_shared_mb: float = 0.0,
         cpu_pct: float = 0.0,
         ram_mb: float = 0.0,
     ) -> str:
@@ -244,12 +250,14 @@ class LiveMonitorDisplay:
         row1 = f"  {pct_cell:<30}|  {progress}  |  Device: {self._device}"
 
         # Row 2: Hardware (pad each cell to fixed width, spaces before divider).
-        # CPU-only mode drops the adapter cell since we have no live values.
+        # CPU-only mode drops the adapter cell + device-memory cell since we
+        # have no live values to populate them with.
         cpu_cell = f"CPU: {cpu_pct:.1f}%"
         ram_cell = f"Mem: {ram_mb:.0f} MB"
         if self._show_adapter:
             adapter_cell = f"{self._adapter_label}: {mean_util:.1f}% avg ({current_util:.1f}% now)"
-            row2 = f"  {adapter_cell:<30}| {cpu_cell:<12}|  {ram_cell}"
+            mem_cell = f"Device Mem: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
+            row2 = f"  {adapter_cell:<30}| {cpu_cell:<12}|  {ram_cell}  |  {mem_cell}"
         else:
             row2 = f"  {cpu_cell:<12}|  {ram_cell}"
 

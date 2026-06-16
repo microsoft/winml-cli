@@ -113,6 +113,21 @@ class HWMonitor:
         """Peak adapter (NPU/GPU) utilization % during monitoring period."""
         return self._pdh.peak_utilization_pct
 
+    @property
+    def peak_memory_mb(self) -> float:
+        """Peak device memory (local preferred, shared fallback) in MB."""
+        return self._pdh.peak_memory_mb
+
+    @property
+    def peak_memory_local_mb(self) -> float:
+        """Peak dedicated device memory in MB."""
+        return self._pdh.peak_memory_local_mb
+
+    @property
+    def peak_memory_shared_mb(self) -> float:
+        """Peak shared system memory used by device in MB."""
+        return self._pdh.peak_memory_shared_mb
+
     # --- CPU metrics ---
 
     @property
@@ -173,6 +188,10 @@ class HWMonitor:
             "ram": {
                 "used_mb": round(self._pdh.ram_used_mb, 2),
                 "peak_mb": round(self._pdh.peak_ram_used_mb, 2),
+            },
+            "device_memory": {
+                "local_peak_mb": round(self._pdh.peak_memory_local_mb, 2),
+                "shared_peak_mb": round(self._pdh.peak_memory_shared_mb, 2),
             },
             "running_time_ns": self._pdh.running_time_delta_ns,
         }
