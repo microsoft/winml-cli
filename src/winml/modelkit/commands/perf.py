@@ -84,6 +84,7 @@ class BenchmarkConfig:
     skip_build: bool = True
     allow_unsupported_nodes: bool = False
     monitor: bool = False
+    memory: bool = True
     ep: EPNameOrAlias | None = None
     ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
@@ -140,6 +141,9 @@ class BenchmarkResult:
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
 
+    # Memory profile dict (rss deltas from memory_tracker)
+    memory_profile: dict[str, float] | None = None
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result: dict[str, Any] = {
@@ -183,6 +187,8 @@ class BenchmarkResult:
         }
         if self.hw_monitor:
             result["hw_monitor"] = self.hw_monitor
+        if self.memory_profile:
+            result["memory"] = self.memory_profile
         return result
 
 
@@ -295,6 +301,7 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
+        self._memory: dict[str, float] | None = None
 
     @property
     def _is_composite(self) -> bool:
@@ -345,7 +352,7 @@ class PerfBenchmark:
             ORT session, so each sub-model is benchmarked individually rather
             than timing the aggregate ``forward()`` pass.
         """
-        # [1] Load model
+        # [1] Load model (build pipeline: optimize, cache, etc.)
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
         assert self._model is not None
@@ -381,7 +388,26 @@ class PerfBenchmark:
         Returns:
             BenchmarkResult with timing statistics
         """
+        import gc
+
         assert self._model is not None
+
+        # Initialize memory tracking variables
+        adapter_luid: str | None = None
+        rss_baseline = rss_after_compile = 0.0
+        vram_local_baseline = vram_shared_baseline = 0.0
+        vram_local_compile = vram_shared_compile = 0.0
+
+        # Memory: baseline right before compile() — excludes all Python lib
+        # imports, EP DLLs, and build pipeline overhead. Measures only ORT
+        # session compilation (model weights loaded into memory).
+        if self.config.memory:
+            from ..session.monitor.memory_tracker import get_rss_mb, get_vram_mb
+
+            adapter_luid = self._resolve_adapter_luid()
+            gc.collect()
+            rss_baseline = get_rss_mb()
+            vram_local_baseline, vram_shared_baseline = get_vram_mb(adapter_luid)
 
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
@@ -389,6 +415,11 @@ class PerfBenchmark:
 
         # Compile session early so model.device is resolved for display
         self._single._session.compile()
+
+        if self.config.memory:
+            gc.collect()
+            rss_after_compile = get_rss_mb()
+            vram_local_compile, vram_shared_compile = get_vram_mb(adapter_luid)
 
         # Print model info before benchmark starts
         _print_model_info(
@@ -406,6 +437,30 @@ class PerfBenchmark:
             self.config.warmup,
         )
         stats = self._run_benchmark()
+
+        if self.config.memory:
+            rss_after_inference = get_rss_mb()
+            vram_local_infer, vram_shared_infer = get_vram_mb(adapter_luid)
+            self._memory = {
+                "rss_baseline_mb": round(rss_baseline, 2),
+                "rss_after_compile_mb": round(rss_after_compile, 2),
+                "rss_after_inference_mb": round(rss_after_inference, 2),
+                "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
+                "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
+                "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
+                "vram_local_after_inference_mb": round(vram_local_infer, 2),
+                "vram_shared_after_inference_mb": round(vram_shared_infer, 2),
+                "vram_local_model_load_delta_mb": round(
+                    vram_local_compile - vram_local_baseline, 2
+                ),
+                "vram_local_inference_delta_mb": round(vram_local_infer - vram_local_compile, 2),
+                "vram_local_total_delta_mb": round(vram_local_infer - vram_local_baseline, 2),
+                "vram_shared_model_load_delta_mb": round(
+                    vram_shared_compile - vram_shared_baseline, 2
+                ),
+                "vram_shared_inference_delta_mb": round(vram_shared_infer - vram_shared_compile, 2),
+                "vram_shared_total_delta_mb": round(vram_shared_infer - vram_shared_baseline, 2),
+            }
 
         # [4] Collect results
         logger.info("Collecting results")
@@ -473,6 +528,31 @@ class PerfBenchmark:
             io_config=self._single.io_config,
             batch_size=self.config.batch_size,
         )
+
+    def _resolve_adapter_luid(self) -> str | None:
+        """Resolve adapter LUID for VRAM queries."""
+        import sys
+
+        if sys.platform != "win32":
+            return None
+
+        assert self._model is not None
+        device = self._single.device or self.config.device
+        if device == "cpu":
+            return None
+
+        try:
+            from ..sysinfo.pdh_adapters import resolve_adapter_luid
+
+            ep_name = self._single.ep_name
+            for kind in [device] if device in ("npu", "gpu") else ["npu", "gpu"]:
+                luid = resolve_adapter_luid(kind, ep_name=ep_name)
+                if luid:
+                    return luid
+            return None
+        except Exception:
+            logger.debug("Could not resolve adapter LUID", exc_info=True)
+            return None
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing."""
@@ -607,6 +687,8 @@ class PerfBenchmark:
             running_model_path=str(self._single.running_model_path),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
+            # Memory profile (only present when --memory is used)
+            memory_profile=self._memory,
         )
 
 
@@ -951,7 +1033,6 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         console.print("[bold]Hardware (during benchmark)[/bold]")
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
-        dev_mem = result.hw_monitor.get("device_memory", {})
         # to_dict() emits both "npu" (always) and "gpu" (when monitoring GPU).
         # device_kind is None when CPU/RAM-only — drop the adapter line entirely
         # rather than printing zeroed "NPU: 0.0% avg".
@@ -962,15 +1043,35 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
                 f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
-                f"Mem: {ram.get('used_mb', 0):.0f} MB"
-            )
-            console.print(
-                f"  Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
-                f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
+                f"RAM: {ram.get('used_mb', 0):.0f} MB"
             )
         else:
             console.print(
-                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  Mem: {ram.get('used_mb', 0):.0f} MB"
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram.get('used_mb', 0):.0f} MB"
+            )
+
+    # Memory section (only when --memory is enabled)
+    if result.memory_profile:
+        mem = result.memory_profile
+        console.print()
+        console.print("[bold]Memory:[/bold]")
+        console.print(
+            f"  RAM:  {mem['rss_after_inference_mb']:.1f} MB -> "
+            f"model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
+            f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
+            f"total: {mem['rss_total_delta_mb']:+.1f} MB"
+        )
+        vram_local = mem.get("vram_local_after_inference_mb", 0)
+        vram_shared = mem.get("vram_shared_after_inference_mb", 0)
+        if vram_local > 0 or vram_shared > 0:
+            console.print(
+                f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
+                f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
+                f"inference: {mem['vram_local_inference_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_inference_delta_mb']:+.1f} MB  |  "
+                f"total: {mem['vram_local_total_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
             )
 
     console.print()
@@ -1279,6 +1380,12 @@ def _run_simple_loop(
     help="Show live hardware utilization chart for the benchmarked device (NPU, GPU, or CPU)",
 )
 @click.option(
+    "--memory/--no-memory",
+    default=True,
+    show_default=True,
+    help="Measure process and device memory at each benchmark phase",
+)
+@click.option(
     "--op-tracing",
     "op_tracing",
     type=click.Choice(["basic", "detail"], case_sensitive=False),
@@ -1311,6 +1418,7 @@ def perf(
     allow_unsupported_nodes: bool,
     module_class: str | None,
     monitor: bool,
+    memory: bool,
     op_tracing: str | None,
     output_format: cli_utils.OutputFormat,
     verbose: int,
@@ -1459,6 +1567,7 @@ def perf(
         no_compile=no_compile,
         allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
+        memory=memory,
         ep=ep,
         ep_options=ep_provider_options,
         shape_config=shape_config,
