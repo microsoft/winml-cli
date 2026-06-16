@@ -11,13 +11,13 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 
 ---
 
-## What you can do[¶](https://microsoft.github.io/winml-cli/latest/#what-you-can-do)
+## What you can do
 
 - **Build once, run across hardwares.** Compose your own workflow from primitive commands (`export`, `analyze`, `optimize`, `quantize`, `compile`), or use an auto-generated config with `winml build` - both produce portable models that run across hardware.
 - **Drill into the details.** Deep insights into operator compatibility, shape mismatches, graph optimizations, and EP-aware tuning at any stage of the pipeline.
 - **AI-ready.** CLI-driven tools with built-in skills, friendly to work with mainstream agents.
 
-## What you get out of the box[¶](https://microsoft.github.io/winml-cli/latest/#what-you-get-out-of-the-box)
+## What you get out of the box
 
 - **All Windows ML EPs supported.** Every [supported execution provider](https://microsoft.github.io/winml-cli/latest/concepts/eps-and-devices/#eps-winml-cli-supports) is available behind the same commands.
 - **Curated model catalog.** A [verified set of models](https://microsoft.github.io/winml-cli/latest/reference/supported-models/) that run across all Windows ML EPs - a reliable starting point.
@@ -72,7 +72,7 @@ This command enumerates available compute devices and execution providers on you
 
 ## 🚀 Quick Start
 
-### Inspect the model[¶](https://microsoft.github.io/winml-cli/latest/getting-started/quickstart/#inspect-the-model)
+### Inspect the model
 
 Before downloading any models, confirm that winml-cli recognises the model:
 
@@ -82,7 +82,7 @@ uv run winml inspect -m microsoft/resnet-50
 
 💡 Tip: Always inspect before build to catch unsupported architectures early.
 
-### Build the model[¶](https://microsoft.github.io/winml-cli/latest/getting-started/quickstart/#build-the-model)
+### Build the model
 
 ```bash
 uv run winml build -m microsoft/resnet-50 -o resnet_out/ --no-quant
@@ -90,7 +90,7 @@ uv run winml build -m microsoft/resnet-50 -o resnet_out/ --no-quant
 
 `winml build` runs all pipeline steps in sequence — export, optimize, quantize. You can start a model build without a config file, or provide one to configure each step in the sequence (see [`winml config`](https://microsoft.github.io/winml-cli/latest/commands/config/) to customize). All intermediate artifacts land in `resnet_out/`. For more details, see [Output Layout - Windows ML CLI](https://microsoft.github.io/winml-cli/latest/reference/output-layout/#file-categories).
 
-### Benchmark the model[¶](https://microsoft.github.io/winml-cli/latest/getting-started/quickstart/#benchmark-the-model)
+### Benchmark the model
 
 ```bash
 uv run winml perf -m resnet_out/model.onnx --device auto --iterations 50 --monitor
