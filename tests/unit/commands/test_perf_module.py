@@ -352,7 +352,7 @@ class TestPerfModuleQuantCompileToggles:
             ),
             patch(
                 "winml.modelkit.loader.resolve_loader_config",
-                return_value=(fake_loader_cfg, MagicMock(), MagicMock()),
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock(), MagicMock()),
             ),
             patch(
                 "winml.modelkit.commands.build._instantiate_parent_model",
