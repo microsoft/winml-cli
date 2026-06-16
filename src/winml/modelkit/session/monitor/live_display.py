@@ -218,7 +218,7 @@ class HWLiveDisplay:
         cpu_now = cpu_samples[-1] if cpu_samples else 0.0
         ram_mb = self._hw.ram_used_mb
         cpu_cell = f"CPU: {cpu_now:.1f}%"
-        ram_cell = f"Mem: {ram_mb:.0f} MB"
+        ram_cell = f"RAM: {ram_mb:.0f} MB"
 
         if not self._show_adapter:
             return f"  {cpu_cell:<12}| {ram_cell}"
@@ -229,7 +229,7 @@ class HWLiveDisplay:
         mem_shared = self._hw.peak_memory_shared_mb
 
         adapter_cell = f"{self._adapter_label}: {adapter_mean:.1f}% avg ({adapter_now:.1f}% now)"
-        mem_cell = f"Device Mem: {mem_local:.0f}/{mem_shared:.0f} MB"
+        mem_cell = f"VRAM: {mem_local:.0f}/{mem_shared:.0f} MB"
 
         return f"  {adapter_cell:<32}| {cpu_cell:<12}| {ram_cell:<16}| {mem_cell}"
 

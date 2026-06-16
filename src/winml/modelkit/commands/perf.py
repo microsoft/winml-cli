@@ -896,11 +896,11 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
                 f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
-                f"Mem: {ram.get('used_mb', 0):.0f} MB"
+                f"RAM: {ram.get('used_mb', 0):.0f} MB"
             )
         else:
             console.print(
-                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  Mem: {ram.get('used_mb', 0):.0f} MB"
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram.get('used_mb', 0):.0f} MB"
             )
 
     # Memory section (only when --memory is enabled)
