@@ -177,9 +177,16 @@ class WinMLEPRegistry:
 
         # Single canonical cache — one filesystem scan per process.
         self._entries: list[EPEntry] = list(discover_all_eps())
-        # Cache of successful registrations keyed by EPEntry.dll_path so
-        # repeated requests for the same plugin DLL short-circuit.
+        # Map of dll_path -> the WinMLEP that ORT loaded for it. Used to
+        # reject double-registration of the same DLL (register_ep raises).
         self._registered: dict[Path, WinMLEP] = {}
+        # How many times each canonical ep_name has been registered with
+        # ORT so far. First registration uses the canonical name; later
+        # ones get a ``_<n>`` suffix on the ORT-side arg0 — the device's
+        # self-reported ``ep_name`` stays canonical (empirically verified
+        # via temp/probe_double_register.py), so this only affects ORT's
+        # internal registration-tracking key, never the device routing.
+        self._registration_count: dict[str, int] = {}
         # ORT's built-in EPs (CPUExecutionProvider, DmlExecutionProvider,
         # bundled Azure, etc.) aren't discovered via EP_PATH — they're
         # baked into ORT itself. Snapshot them here so callers can ask
@@ -212,49 +219,68 @@ class WinMLEPRegistry:
     def register_ep(self, entry: EPEntry) -> WinMLEP:
         """Atomic registration: load entry.dll_path, enumerate OrtEpDevices, wrap.
 
-        Idempotent at the ``entry.dll_path`` level — re-registering returns
-        the cached :class:`WinMLEP`. The aggregate wraps every
-        :class:`WinMLDevice` ORT exposed after the
-        ``register_execution_provider_library`` call.
+        Each call independently loads the DLL — there is NO idempotency
+        cache that silently returns a prior result. Calling twice with
+        the same ``entry.dll_path`` raises ``WinMLEPRegistrationFailed``;
+        callers (e.g. the ``--list-ep`` walker) must ensure they pass each
+        DLL path at most once. The Batch G discovery dedup at
+        :func:`discover_all_eps` (keyed on ``(ep_name, canonical
+        dll_path)``) is the upstream guard.
+
+        Multiple DLLs reporting the same canonical ``ep_name`` (e.g. a
+        PyPI OpenVINO + an MSIX OpenVINO + a Catalog OpenVINO) all load
+        independently. ORT's first registration uses the canonical
+        ``entry.ep_name`` as its registration-tracking key; subsequent
+        registrations for the same ``ep_name`` are suffixed ``_<n>`` so
+        ORT's internal arg0 stays unique. The OrtEpDevice handles still
+        self-report the canonical ``ep_name`` (verified via
+        temp/probe_double_register.py), so neither
+        :meth:`add_provider_for_devices` nor session compilation are
+        affected by the suffix.
 
         Raises:
-            WinMLEPRegistrationFailed: DLL load failure or ORT registered the
-                DLL but yielded zero devices.
+            WinMLEPRegistrationFailed: Same dll_path already registered,
+                DLL load failed, or ORT exposed zero matching devices.
         """
-        # Idempotency — keyed on the DLL path because two EPEntries pointing
-        # at the same DLL must collapse to one registration.
-        cached = self._registered.get(entry.dll_path)
-        if cached is not None:
-            return cached
-
-        # Defensive: another singleton (e.g. winml.py:WinML) may have already
-        # called ort.register_execution_provider_library for this EP.  ORT's
-        # C++ layer is NOT idempotent — a second registration of the same DLL
-        # calls exit(127) with no Python traceback.  Check ORT's live device
-        # list before attempting the DLL load.
-        already_loaded = any(d.ep_name == entry.ep_name for d in ort.get_ep_devices())
-        if not already_loaded:
-            try:
-                ort.register_execution_provider_library(entry.ep_name, str(entry.dll_path))
-            except Exception as exc:
-                raise WinMLEPRegistrationFailed(
-                    f"ort.register_execution_provider_library({entry.ep_name!r}, "
-                    f"{str(entry.dll_path)!r}) failed: {exc}"
-                ) from exc
-        else:
-            logger.debug(
-                "EP %s already loaded by another caller; skipping DLL register",
-                entry.ep_name,
+        # Reject double-registration of the same DLL path. Upstream dedup
+        # in discover_all_eps should ensure this never fires from the
+        # Path B walker; if it does, the caller has a bug.
+        if entry.dll_path in self._registered:
+            existing = self._registered[entry.dll_path]
+            raise WinMLEPRegistrationFailed(
+                f"DLL {entry.dll_path} already registered for "
+                f"ep_name={existing.source.ep_name!r}; register_ep must be "
+                f"called at most once per DLL path."
             )
 
-        # Enumerate devices for this EP and dedup by (vendor_id, device_id).
+        # First registration of this ep_name uses the canonical name;
+        # subsequent get a ``_<n>`` suffix to keep ORT's arg0 unique.
+        n = self._registration_count.get(entry.ep_name, 0)
+        arg0 = entry.ep_name if n == 0 else f"{entry.ep_name}_{n}"
+
+        try:
+            ort.register_execution_provider_library(arg0, str(entry.dll_path))
+        except Exception as exc:
+            raise WinMLEPRegistrationFailed(
+                f"ort.register_execution_provider_library({arg0!r}, "
+                f"{str(entry.dll_path)!r}) failed: {exc}"
+            ) from exc
+        self._registration_count[entry.ep_name] = n + 1
+
+        # Filter ORT's device list by THIS DLL's library_path — the
+        # device's self-reported ep_name is canonical (not suffixed), so
+        # filtering on ep_name would collapse multiple registrations of
+        # the same ep_name into one set.
         all_handles = ort.get_ep_devices()
-        matching = [d for d in all_handles if d.ep_name == entry.ep_name]
+        matching = [
+            d for d in all_handles
+            if d.ep_metadata.get("library_path") == str(entry.dll_path)
+        ]
         deduped = _dedup_ort_devices(matching)
 
         if not deduped:
             raise WinMLEPRegistrationFailed(
-                f"Registered {entry.ep_name!r} from {entry.dll_path} but no "
+                f"Registered {arg0!r} from {entry.dll_path} but no "
                 f"OrtEpDevices visible in ort.get_ep_devices()."
             )
 
@@ -264,13 +290,8 @@ class WinMLEPRegistry:
 
         # Keep _entries consistent with what we just registered, so a later
         # auto_device call for this EP can find this entry via _entries_for.
-        # Closes the inconsistency where Path B (--list-ep) used wider extras
-        # (e.g. list_msix_eps()) than the registry's default discovery scan
-        # saw, causing auto_device to raise WinMLEPNotDiscovered for an EP
-        # the registry just registered.
-        #
         # EPEntry is a frozen dataclass — structural equality, so `not in`
-        # is the natural idempotency check (no path-keyed lookup needed).
+        # is the natural membership check (no path-keyed lookup needed).
         if entry not in self._entries:
             self._entries.append(entry)
 
