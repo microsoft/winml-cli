@@ -2706,6 +2706,13 @@
 <td>Force a specific execution provider (e.g., <code>qnn</code>, <code>dml</code>, <code>vitisai</code>, <code>openvino</code>, <code>cpu</code>). Overrides the device-to-provider mapping.</td>
 </tr>
 <tr>
+<td><code>--ep-options</code></td>
+<td></td>
+<td><code>KEY=VALUE</code> (multiple)</td>
+<td>—</td>
+<td>Runtime EP provider option forwarded to the inference session (e.g., <code>--ep-options htp_performance_mode=burst</code>). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. Unlike build-time options set via <code>--config</code>, these tune the runtime session, not the compiled graph.</td>
+</tr>
+<tr>
 <td><code>--output</code></td>
 <td><code>-o</code></td>
 <td><code>PATH</code></td>
@@ -2792,8 +2799,13 @@
 <p>Benchmark with live hardware monitoring enabled:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--monitor
 </span></code></pre></div>
+<p>Pass runtime EP provider options to tune the session (repeatable):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_performance_mode</span><span class="o">=</span>burst<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_graph_finalization_optimization_mode</span><span class="o">=</span><span class="m">3</span>
+</span></code></pre></div>
 <p>Per-module benchmarking to find latency hot-spots across all attention blocks:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--module<span class="w"> </span>BertAttention<span class="w"> </span>--iterations<span class="w"> </span><span class="m">200</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--module<span class="w"> </span>BertAttention<span class="w"> </span>--iterations<span class="w"> </span><span class="m">200</span>
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
