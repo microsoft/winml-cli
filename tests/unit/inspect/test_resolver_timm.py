@@ -4,10 +4,10 @@
 # --------------------------------------------------------------------------
 """timm (wrapped-library) resolution in the public `inspect` path.
 
-`inspect_model` resolves task/exporter via `resolver.detect_task` +
+`inspect_model` resolves task/exporter via `resolve_task` +
 `resolver.resolve_exporter` — a separate path from the CLI's `_inspect_model_v2`.
 timm checkpoints load as `TimmWrapperConfig` (model_type="timm_wrapper",
-architectures=None). Without wrapped-library handling, `detect_task` mislabels
+architectures=None). Without wrapped-library handling, `resolve_task` mislabels
 the task (HF_TASK_DEFAULTS fallback) and `resolve_exporter` hardcodes
 library_name="transformers" so the OnnxConfig lookup fails (UNSUPPORTED).
 
@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from winml.modelkit.inspect import SupportLevel, detect_task, resolve_exporter
+from winml.modelkit.inspect import SupportLevel, resolve_exporter
+from winml.modelkit.loader.resolution import TaskSource, resolve_task
 
 
 @pytest.fixture(scope="module")
@@ -32,8 +33,9 @@ def timm_wrapper_config():
 class TestDetectTaskTimm:
     def test_timm_detects_image_classification(self, timm_wrapper_config) -> None:
         """timm_wrapper (no architectures) resolves to image-classification, not a fallback."""
-        task, source = detect_task(timm_wrapper_config)
-        assert task == "image-classification", f"got task={task!r} source={source!r}"
+        r = resolve_task(timm_wrapper_config)
+        assert r.task == "image-classification", f"got task={r.task!r} source={r.source!r}"
+        assert r.source == TaskSource.WRAPPED_LIBRARY
 
 
 class TestResolveExporterTimm:

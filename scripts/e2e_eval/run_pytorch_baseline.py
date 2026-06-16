@@ -154,10 +154,10 @@ def _load_pytorch_model(model_id: str, task: str, device_str: str):
     import torch
     from transformers import AutoConfig
 
-    from winml.modelkit.loader.task import resolve_task_and_model_class
+    from winml.modelkit.loader import resolve_task
 
     config = AutoConfig.from_pretrained(model_id)
-    _, cls = resolve_task_and_model_class(config, task=task)
+    cls = resolve_task(config, task=task).model_class
     _out(f"Loading {cls.__name__} for {model_id} on {device_str}")
     device = torch.device(
         device_str if device_str != "cuda" or torch.cuda.is_available() else "cpu"

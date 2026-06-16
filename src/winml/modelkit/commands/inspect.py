@@ -323,7 +323,7 @@ def _inspect_model_v2(
     from huggingface_hub.errors import RepositoryNotFoundError
 
     try:
-        loader_config, hf_config, _resolved_class = resolve_loader_config(
+        loader_config, hf_config, _resolved_class, resolution = resolve_loader_config(
             model_id,
             task=task_override,
             model_type=model_type_override,
@@ -359,14 +359,10 @@ def _inspect_model_v2(
     architectures = getattr(parent_hf_config, "architectures", []) or []
 
     # =========================================================================
-    # STEP 3: Derive task_source by checking registries post-hoc
+    # STEP 3: provenance comes straight from the resolver (no post-hoc recompute).
     # =========================================================================
     mt = model_type.lower().replace("_", "-")
-    task_source = "TasksManager"
-    for m, t in HF_MODEL_CLASS_MAPPING:
-        if m == mt and t == task:
-            task_source = "HF_MODEL_CLASS_MAPPING"
-            break
+    task_source = resolution.source.value
 
     # =========================================================================
     # STEP 4: Derive loader display info

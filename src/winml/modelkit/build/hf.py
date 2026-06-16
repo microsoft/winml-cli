@@ -484,7 +484,7 @@ def _load_model(
             hf_config = AutoConfig.for_model(model_type)
 
         # Prefer explicit model_class from loader config (set by winml config),
-        # fall back to resolve_task_and_model_class for auto-detection.
+        # fall back to resolve_hf_model_class for auto-detection.
         # Annotated Any: resolvers return bare `type`, but the actual classes are
         # HF model classes with extra methods (from_config, from_pretrained, etc.)
         # that bare `type` doesn't expose.
@@ -501,9 +501,9 @@ def _load_model(
                 )
 
         if model_class is None:
-            from ..loader import resolve_task_and_model_class
+            from ..loader.resolution import resolve_task
 
-            _, model_class = resolve_task_and_model_class(hf_config, task=task)
+            model_class = resolve_task(hf_config, task=task).model_class
 
         model_label = model_id or config.loader.model_type
         logger.info("Creating random-weight model: %s (from %s)", model_class.__name__, model_label)

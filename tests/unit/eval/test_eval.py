@@ -86,6 +86,8 @@ class TestResolveTask:
         from winml.modelkit.eval.evaluate import _resolve_task
 
         fake_hf_config = MagicMock()
+        fake_resolution = MagicMock()
+        fake_resolution.task = "image-classification"
         config = WinMLEvaluationConfig(model_id="microsoft/resnet-50")
         with (
             patch(
@@ -93,8 +95,8 @@ class TestResolveTask:
                 return_value=fake_hf_config,
             ),
             patch(
-                "winml.modelkit.loader.task._detect_task_from_config",
-                return_value="image-classification",
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=fake_resolution,
             ),
         ):
             assert _resolve_task(config) == "image-classification"
@@ -116,16 +118,18 @@ class TestResolveTask:
 
     def test_auto_detect_vision_feature_model_resolves_image_feature_extraction(self):
         """Auto-detect (no --task) for a vision embedding model resolves the
-        modality-aware image-feature-extraction via detect_task — the source-level
+        modality-aware image-feature-extraction via resolve_task — the source-level
         fix for #778 that replaces the reverse io_config reconstruction."""
         from winml.modelkit.eval.evaluate import _resolve_task
 
+        fake_resolution = MagicMock()
+        fake_resolution.task = "image-feature-extraction"
         config = WinMLEvaluationConfig(model_id="facebook/dinov2-base")  # no explicit task
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=MagicMock()),
             patch(
-                "winml.modelkit.loader.detect_task",
-                return_value=("image-feature-extraction", "TasksManager"),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=fake_resolution,
             ),
         ):
             assert _resolve_task(config) == "image-feature-extraction"
