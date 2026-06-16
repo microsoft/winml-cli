@@ -128,7 +128,11 @@ def load_optimum_types() -> set[str]:
 
 
 def load_curated_entries(curated_path: Path) -> list[dict]:
-    """Load curated entries (hf_id + task + group + priority) from source JSON."""
+    """Load curated entries (hf_id + task + group + priority) from source JSON.
+
+    ``onnx_file`` is carried through when present so Phase 2 can stamp it onto
+    the generated row (pre-exported ONNX models; see the eval harness).
+    """
     with curated_path.open(encoding="utf-8") as f:
         entries = json.load(f)
     return [
@@ -137,6 +141,7 @@ def load_curated_entries(curated_path: Path) -> list[dict]:
             "task": e.get("task") or "",
             "group": e.get("group", "P0"),
             "priority": e.get("priority", "P0"),
+            **({"onnx_file": e["onnx_file"]} if e.get("onnx_file") else {}),
         }
         for e in entries
         if "hf_id" in e
