@@ -225,13 +225,10 @@ class HWLiveDisplay:
 
         adapter_mean = sum(adapter_samples) / len(adapter_samples) if adapter_samples else 0.0
         adapter_now = adapter_samples[-1] if adapter_samples else 0.0
-        mem_local = self._hw.peak_memory_local_mb
-        mem_shared = self._hw.peak_memory_shared_mb
 
         adapter_cell = f"{self._adapter_label}: {adapter_mean:.1f}% avg ({adapter_now:.1f}% now)"
-        mem_cell = f"Device Mem: {mem_local:.0f}/{mem_shared:.0f} MB"
 
-        return f"  {adapter_cell:<32}| {cpu_cell:<12}| {ram_cell:<16}| {mem_cell}"
+        return f"  {adapter_cell:<32}| {cpu_cell:<12}| {ram_cell}"
 
     @property
     def hw(self) -> HWMonitor:

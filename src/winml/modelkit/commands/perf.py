@@ -1028,8 +1028,6 @@ def _run_monitored_loop(
                 iteration=i + 1,
                 latency_ms=latest_latency,
                 util_samples=hw.utilization_samples,
-                memory_local_mb=hw.peak_memory_local_mb,
-                memory_shared_mb=hw.peak_memory_shared_mb,
                 cpu_pct=hw.mean_cpu_pct,
                 ram_mb=hw.ram_used_mb,
                 cpu_samples=hw.cpu_samples,
