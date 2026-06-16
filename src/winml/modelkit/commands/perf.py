@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 import numpy as np
@@ -34,6 +34,7 @@ from ._live_chart import LiveMonitorDisplay
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..models.winml.composite_model import WinMLCompositeModel
     from ..session.stats import PerfStats
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,9 @@ class BenchmarkConfig:
     skip_build: bool = True
     allow_unsupported_nodes: bool = False
     monitor: bool = False
+    memory: bool = True
     ep: EPNameOrAlias | None = None
+    ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
 
 
@@ -138,6 +141,9 @@ class BenchmarkResult:
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
 
+    # Memory profile dict (rss deltas from memory_tracker)
+    memory_profile: dict[str, float] | None = None
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result: dict[str, Any] = {
@@ -147,6 +153,7 @@ class BenchmarkResult:
                 "task": self.actual_task,
                 "device": self.actual_device,
                 "ep": self.actual_ep,
+                "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
@@ -180,6 +187,8 @@ class BenchmarkResult:
         }
         if self.hw_monitor:
             result["hw_monitor"] = self.hw_monitor
+        if self.memory_profile:
+            result["memory"] = self.memory_profile
         return result
 
 
@@ -332,34 +341,135 @@ class PerfBenchmark:
     def __init__(self, config: BenchmarkConfig) -> None:
         """Initialize benchmark with configuration."""
         self.config = config
-        self._model: WinMLPreTrainedModel | None = None
+        self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
+        self._memory: dict[str, float] | None = None
 
-    def run(self) -> BenchmarkResult:
+    @property
+    def _is_composite(self) -> bool:
+        """Composite models orchestrate multiple sub-sessions (e.g. CLIP/SigLIP).
+
+        Uses a concrete ``isinstance(..., WinMLCompositeModel)`` check rather
+        than duck-typing on ``sub_models`` so a future single-session model
+        carrying an unrelated ``sub_models`` attribute can't be misrouted. The
+        import is function-local because ``composite_model`` pulls in torch: a
+        module-level runtime import would blow the ``winml perf --help`` import
+        budget (see tests/cli/test_import_time.py). A function-local import
+        runs only when this property is read — i.e. after a model is loaded, by
+        which point torch is already imported — and never at module load.
+        """
+        from ..models.winml.composite_model import WinMLCompositeModel
+
+        return isinstance(self._model, WinMLCompositeModel)
+
+    @property
+    def _sub_models(self) -> dict[str, WinMLPreTrainedModel]:
+        """Sub-models of a composite model (only valid when ``_is_composite``)."""
+        from ..models.winml.composite_model import WinMLCompositeModel
+
+        assert isinstance(self._model, WinMLCompositeModel)
+        return self._model.sub_models
+
+    @property
+    def _single(self) -> WinMLPreTrainedModel:
+        """The model under benchmark, narrowed to a single-session model.
+
+        Only valid for non-composite models: composites dispatch to
+        ``_run_sub_models``, which benchmarks each sub-model through a child
+        ``PerfBenchmark`` whose ``_model`` is itself single-session. Exposes
+        ``io_config`` / ``device`` / ``ep_name`` / ``task`` directly (the
+        session caches ``io_config``), so callers read ``self._single.*``
+        rather than going through per-attribute wrappers.
+        """
+        assert self._model is not None
+        return cast("WinMLPreTrainedModel", self._model)
+
+    def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
         """Execute full benchmark pipeline.
+
+        Returns:
+            A single ``BenchmarkResult`` for single-session models, or a
+            ``{sub_model_name: BenchmarkResult}`` mapping for composite models
+            (e.g. CLIP/SigLIP dual-encoders). Composite models have no single
+            ORT session, so each sub-model is benchmarked individually rather
+            than timing the aggregate ``forward()`` pass.
+        """
+        # [1] Load model (build pipeline: optimize, cache, etc.)
+        logger.info("Loading model: %s", self.config.model_id)
+        self._load_model()
+        assert self._model is not None
+
+        if self._is_composite:
+            return self._run_sub_models()
+        return self._run_single()
+
+    def _run_sub_models(self) -> dict[str, BenchmarkResult]:
+        """Benchmark each sub-model of a composite individually.
+
+        Each sub-model is itself a single-session ``WinMLAutoModel``, so it is
+        benchmarked through the standard single-model pipeline by spawning a
+        child ``PerfBenchmark`` with the already-loaded sub-model. Results are
+        keyed by sub-model name for per-component reporting.
+        """
+        results: dict[str, BenchmarkResult] = {}
+        for name, sub in self._sub_models.items():
+            logger.info("Benchmarking sub-model '%s'", name)
+            Console(stderr=True).print(f"\n[bold]Sub-model:[/bold] {name}")
+            child = PerfBenchmark(self.config)
+            child._model = sub
+            try:
+                results[name] = child._run_single()
+            except Exception as exc:
+                logger.error("Benchmarking sub-model '%s' failed", name)
+                raise RuntimeError(f"Sub-model '{name}' failed: {exc}") from exc
+        return results
+
+    def _run_single(self) -> BenchmarkResult:
+        """Benchmark the loaded single-session model.
 
         Returns:
             BenchmarkResult with timing statistics
         """
-        # [1] Load model
-        logger.info("Loading model: %s", self.config.model_id)
-        self._load_model()
+        import gc
+
         assert self._model is not None
+
+        # Initialize memory tracking variables
+        adapter_luid: str | None = None
+        rss_baseline = rss_after_compile = 0.0
+        vram_local_baseline = vram_shared_baseline = 0.0
+        vram_local_compile = vram_shared_compile = 0.0
+
+        # Memory: baseline right before compile() — excludes all Python lib
+        # imports, EP DLLs, and build pipeline overhead. Measures only ORT
+        # session compilation (model weights loaded into memory).
+        if self.config.memory:
+            from ..session.monitor.memory_tracker import get_rss_mb, get_vram_mb
+
+            adapter_luid = self._resolve_adapter_luid()
+            gc.collect()
+            rss_baseline = get_rss_mb()
+            vram_local_baseline, vram_shared_baseline = get_vram_mb(adapter_luid)
 
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
         self._generate_inputs()
 
         # Compile session early so model.device is resolved for display
-        self._model._session.compile()
+        self._single._session.compile()
+
+        if self.config.memory:
+            gc.collect()
+            rss_after_compile = get_rss_mb()
+            vram_local_compile, vram_shared_compile = get_vram_mb(adapter_luid)
 
         # Print model info before benchmark starts
         _print_model_info(
-            self._model.io_config,
-            task=self._model.task or self.config.task,
+            self._single.io_config,
+            task=self._single.task or self.config.task,
             req_device=self.config.device,
-            act_device=self._model.device,
-            ep_name=self._model.ep_name,
+            act_device=self._single.device,
+            ep_name=self._single.ep_name,
         )
 
         # [3] Run benchmark
@@ -369,6 +479,30 @@ class PerfBenchmark:
             self.config.warmup,
         )
         stats = self._run_benchmark()
+
+        if self.config.memory:
+            rss_after_inference = get_rss_mb()
+            vram_local_infer, vram_shared_infer = get_vram_mb(adapter_luid)
+            self._memory = {
+                "rss_baseline_mb": round(rss_baseline, 2),
+                "rss_after_compile_mb": round(rss_after_compile, 2),
+                "rss_after_inference_mb": round(rss_after_inference, 2),
+                "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
+                "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
+                "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
+                "vram_local_after_inference_mb": round(vram_local_infer, 2),
+                "vram_shared_after_inference_mb": round(vram_shared_infer, 2),
+                "vram_local_model_load_delta_mb": round(
+                    vram_local_compile - vram_local_baseline, 2
+                ),
+                "vram_local_inference_delta_mb": round(vram_local_infer - vram_local_compile, 2),
+                "vram_local_total_delta_mb": round(vram_local_infer - vram_local_baseline, 2),
+                "vram_shared_model_load_delta_mb": round(
+                    vram_shared_compile - vram_shared_baseline, 2
+                ),
+                "vram_shared_inference_delta_mb": round(vram_shared_infer - vram_shared_compile, 2),
+                "vram_shared_total_delta_mb": round(vram_shared_infer - vram_shared_baseline, 2),
+            }
 
         # [4] Collect results
         logger.info("Collecting results")
@@ -410,6 +544,7 @@ class PerfBenchmark:
             "device": self.config.device,
             "precision": self.config.precision,
             "ep": self.config.ep,
+            "provider_options": self.config.ep_options,
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
             "shape_config": self.config.shape_config,
@@ -431,13 +566,36 @@ class PerfBenchmark:
 
     def _generate_inputs(self) -> None:
         """Generate random inputs based on model io_config."""
-        assert self._model is not None
-        io_config = self._model.io_config
         self._inputs = generate_random_inputs(
-            io_config=io_config,
+            io_config=self._single.io_config,
             batch_size=self.config.batch_size,
             shape_config=self.config.shape_config,
         )
+
+    def _resolve_adapter_luid(self) -> str | None:
+        """Resolve adapter LUID for VRAM queries."""
+        import sys
+
+        if sys.platform != "win32":
+            return None
+
+        assert self._model is not None
+        device = self._single.device or self.config.device
+        if device == "cpu":
+            return None
+
+        try:
+            from ..sysinfo.pdh_adapters import resolve_adapter_luid
+
+            ep_name = self._single.ep_name
+            for kind in [device] if device in ("npu", "gpu") else ["npu", "gpu"]:
+                luid = resolve_adapter_luid(kind, ep_name=ep_name)
+                if luid:
+                    return luid
+            return None
+        except Exception:
+            logger.debug("Could not resolve adapter LUID", exc_info=True)
+            return None
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing."""
@@ -447,11 +605,10 @@ class PerfBenchmark:
 
     def _run_benchmark_simple(self) -> PerfStats:
         """Execute benchmark without live monitoring."""
-        assert self._model is not None
         assert self._inputs is not None
-        session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
+        session = self._single._session
         with session.perf(warmup=self.config.warmup) as stats:
             _run_simple_loop(session, self._inputs, total_iterations)
 
@@ -469,9 +626,7 @@ class PerfBenchmark:
         from ..session.monitor.hw_monitor import HWMonitor
         from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
-        assert self._model is not None
         assert self._inputs is not None
-        session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
         if not HWMonitor.is_available():
@@ -485,23 +640,25 @@ class PerfBenchmark:
         # GPU when --device gpu is specified, NPU when --device npu, etc.
         # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
         # metadata so we follow the adapter the session actually binds to.
-        monitor_device = self._model.device or self.config.device or "auto"
+        ep_name = self._single.ep_name
+        monitor_device = self._single.device or self.config.device or "auto"
         hw_monitor = HWMonitor(
             poll_interval_ms=_HW_POLL_INTERVAL_MS,
             device=monitor_device,
-            ep_name=session.ep_name,
+            ep_name=ep_name,
         )
 
         # EP-specific proof-of-execution monitor.
         # When QNN/OpenVINO monitors become real, add entries here.
         _ep_monitors: dict[EPName, Any] = {"VitisAIExecutionProvider": VitisAIMonitor}
-        monitor_cls = _ep_monitors.get(session.ep_name) if session.ep_name else None
+        monitor_cls = _ep_monitors.get(ep_name) if ep_name else None
         ep_monitor: Any
         if monitor_cls and monitor_cls.is_available():
             ep_monitor = monitor_cls()
         else:
             ep_monitor = NullEPMonitor()
 
+        session = self._single._session
         with (
             session.perf(warmup=self.config.warmup) as stats,
             hw_monitor as hw,
@@ -528,8 +685,7 @@ class PerfBenchmark:
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
-        assert self._model is not None
-        io_config = self._model.io_config
+        io_config = self._single.io_config
 
         # Calculate throughput
         mean_latency_sec = stats.mean_ms / 1000.0
@@ -568,12 +724,14 @@ class PerfBenchmark:
             samples_per_sec=samples_per_sec,
             batches_per_sec=batches_per_sec,
             # Actual values (resolved after build + compile)
-            actual_device=self._model.device,
-            actual_task=self._model.task or self.config.task or "auto-detected",
-            actual_ep=self._model.ep_name,
-            running_model_path=str(self._model.running_model_path),
+            actual_device=self._single.device,
+            actual_task=self._single.task or self.config.task or "auto-detected",
+            actual_ep=self._single.ep_name,
+            running_model_path=str(self._single.running_model_path),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
+            # Memory profile (only present when --memory is used)
+            memory_profile=self._memory,
         )
 
 
@@ -591,12 +749,14 @@ def _perf_modules(
     warmup: int,
     batch_size: int,
     no_quantize: bool,
+    no_compile: bool,
     output: Path | None,
     verbose: bool,
     console: Console,
     monitor: bool = False,
     device: str = "auto",
     ep: EPNameOrAlias | None = None,
+    ep_options: dict[str, str] | None = None,
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
 ) -> None:
@@ -613,7 +773,8 @@ def _perf_modules(
         iterations: Number of benchmark iterations.
         warmup: Number of warmup iterations.
         batch_size: Batch size for input generation.
-        no_quantize: If True, skip quantization and compilation.
+        no_quantize: If True, skip quantization during the per-module build.
+        no_compile: If True, skip the build's compile stage for each module.
         output: Output JSON path, or None for auto-generated path.
         verbose: If True, log exceptions at DEBUG level.
         console: Rich console for output.
@@ -621,6 +782,8 @@ def _perf_modules(
         device: Target device policy ("auto", "cpu", "gpu", "npu").
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
             device-to-provider mapping when set.
+        ep_options: Runtime EP provider options (e.g. QNN
+            ``htp_performance_mode``) forwarded to each per-module session.
         precision: Precision mode passed through to the build stage.
         allow_unsupported_nodes: If True, warn instead of failing the build when
             the analyzer reports unsupported nodes that persist.
@@ -683,7 +846,7 @@ def _perf_modules(
 
     from ..loader import resolve_loader_config
 
-    parent_loader_cfg, _, _ = resolve_loader_config(model_id=hf_model, task=task)
+    parent_loader_cfg, _, _, _resolution = resolve_loader_config(model_id=hf_model, task=task)
     parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
     all_results: list[dict[str, Any]] = []
@@ -707,9 +870,11 @@ def _perf_modules(
 
         submodule = parent_model.get_submodule(module_path)
 
-        # Skip quant/compile for faster iteration when requested
+        # Skip quant/compile for faster iteration when requested. Quantization
+        # and compilation are independent toggles (mirrors the single-model path).
         if no_quantize:
             cfg.quant = None
+        if no_compile:
             cfg.compile = None
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
@@ -730,6 +895,7 @@ def _perf_modules(
                     str(build_result.final_onnx_path),
                     device=resolved_device,
                     ep=ep,
+                    provider_options=ep_options,
                 )
                 io_cfg = session.io_config
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
@@ -910,7 +1076,6 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         console.print("[bold]Hardware (during benchmark)[/bold]")
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
-        dev_mem = result.hw_monitor.get("device_memory", {})
         # to_dict() emits both "npu" (always) and "gpu" (when monitoring GPU).
         # device_kind is None when CPU/RAM-only — drop the adapter line entirely
         # rather than printing zeroed "NPU: 0.0% avg".
@@ -921,15 +1086,35 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
                 f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
-                f"Mem: {ram.get('used_mb', 0):.0f} MB"
-            )
-            console.print(
-                f"  Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
-                f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
+                f"RAM: {ram.get('used_mb', 0):.0f} MB"
             )
         else:
             console.print(
-                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  Mem: {ram.get('used_mb', 0):.0f} MB"
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram.get('used_mb', 0):.0f} MB"
+            )
+
+    # Memory section (only when --memory is enabled)
+    if result.memory_profile:
+        mem = result.memory_profile
+        console.print()
+        console.print("[bold]Memory:[/bold]")
+        console.print(
+            f"  RAM:  {mem['rss_after_inference_mb']:.1f} MB -> "
+            f"model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
+            f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
+            f"total: {mem['rss_total_delta_mb']:+.1f} MB"
+        )
+        vram_local = mem.get("vram_local_after_inference_mb", 0)
+        vram_shared = mem.get("vram_shared_after_inference_mb", 0)
+        if vram_local > 0 or vram_shared > 0:
+            console.print(
+                f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
+                f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
+                f"inference: {mem['vram_local_inference_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_inference_delta_mb']:+.1f} MB  |  "
+                f"total: {mem['vram_local_total_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
             )
 
     console.print()
@@ -942,6 +1127,74 @@ def write_json_report(result: BenchmarkResult, output_path: Path) -> None:
 
     with output_path.open("w", encoding="utf-8") as f:
         json.dump(result.to_dict(), f, indent=2)
+
+
+def _composite_report_dict(
+    results: dict[str, BenchmarkResult],
+    *,
+    model_id: str,
+    task: str | None,
+) -> dict[str, Any]:
+    """Build the combined JSON report for a composite model's sub-models."""
+    return {
+        "model_id": model_id,
+        "task": task,
+        "component_count": len(results),
+        "components": {name: result.to_dict() for name, result in results.items()},
+    }
+
+
+def report_composite_results(
+    results: dict[str, BenchmarkResult],
+    *,
+    console: Console,
+    json_mode: bool,
+    output_path: Path,
+    model_id: str,
+    task: str | None,
+) -> None:
+    """Display and persist per-sub-model results for a composite model.
+
+    Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
+    session; each sub-model is benchmarked individually (like ``--module``)
+    and reported as its own summary row rather than timing the aggregate
+    ``forward()`` pass. The combined JSON nests each sub-model's full
+    ``BenchmarkResult.to_dict()`` under ``components``.
+    """
+    combined = _composite_report_dict(results, model_id=model_id, task=task)
+
+    if json_mode:
+        click.echo(json.dumps(combined, indent=2))
+    else:
+        table = Table(title="Per-Sub-Model Perf", show_header=True)
+        table.add_column("Sub-Model", style="cyan")
+        table.add_column("Task")
+        table.add_column("Device")
+        table.add_column("Mean (ms)", justify="right")
+        table.add_column("P90 (ms)", justify="right")
+        table.add_column("Min (ms)", justify="right")
+        table.add_column("Max (ms)", justify="right")
+        for name, result in results.items():
+            device_str = _device_string(
+                result.config.device, result.actual_device, result.actual_ep
+            )
+            table.add_row(
+                name,
+                result.actual_task,
+                device_str,
+                f"{result.mean_ms:.2f}",
+                f"{result.p90_ms:.2f}",
+                f"{result.min_ms:.2f}",
+                f"{result.max_ms:.2f}",
+            )
+        console.print()
+        console.print(table)
+        console.print()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump(combined, f, indent=2)
 
 
 def generate_output_path(model_id: str, *, module_class: str | None = None) -> Path:
@@ -1106,6 +1359,9 @@ def _run_simple_loop(
     required=False,
     optional_message="Overrides device-to-provider mapping.",
 )
+@cli_utils.ep_options_option(
+    optional_message="Applied to both HuggingFace model IDs and ONNX file inputs.",
+)
 @cli_utils.output_option(
     "Output JSON file path. Defaults to "
     "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
@@ -1167,6 +1423,12 @@ def _run_simple_loop(
     help="Show live hardware utilization chart for the benchmarked device (NPU, GPU, or CPU)",
 )
 @click.option(
+    "--memory/--no-memory",
+    default=True,
+    show_default=True,
+    help="Measure process and device memory at each benchmark phase",
+)
+@click.option(
     "--op-tracing",
     "op_tracing",
     type=click.Choice(["basic", "detail"], case_sensitive=False),
@@ -1187,6 +1449,7 @@ def perf(
     device: str,
     precision: str,
     ep: EPNameOrAlias | None,
+    ep_options: tuple[str, ...],
     output: Path | None,
     batch_size: int,
     shape_config_path: Path | None,
@@ -1198,6 +1461,7 @@ def perf(
     allow_unsupported_nodes: bool,
     module_class: str | None,
     monitor: bool,
+    memory: bool,
     op_tracing: str | None,
     output_format: cli_utils.OutputFormat,
     verbose: int,
@@ -1227,6 +1491,9 @@ def perf(
 
         # Text model with explicit task
         winml perf -m bert-base-uncased --task text-classification
+
+        # Pass runtime EP provider options (repeatable)
+        winml perf -m model.onnx --device npu --ep-options htp_performance_mode=burst
 
         # Per-module benchmarking
         winml perf -m bert-base-uncased --module BertAttention
@@ -1261,6 +1528,10 @@ def perf(
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
+    # Runtime EP provider options (e.g. QNN htp_performance_mode) forwarded to
+    # the inference session for both HF model IDs and ONNX file inputs.
+    ep_provider_options = cli_utils.parse_ep_options(ep_options)
+
     json_mode = output_format == "json"
     console = Console(stderr=True) if json_mode else Console()
 
@@ -1292,12 +1563,14 @@ def perf(
             warmup=warmup,
             batch_size=batch_size,
             no_quantize=not quantize,
+            no_compile=no_compile,
             output=output,
             verbose=bool(verbose),
             console=console,
             monitor=monitor,
             device=device.lower(),
             ep=ep,
+            ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
         )
@@ -1344,7 +1617,9 @@ def perf(
         no_compile=no_compile,
         allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
+        memory=memory,
         ep=ep,
+        ep_options=ep_provider_options,
         shape_config=shape_config,
     )
 
@@ -1372,6 +1647,26 @@ def perf(
 
         benchmark = PerfBenchmark(config)
         result = benchmark.run()
+
+        # Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
+        # session; each sub-model is benchmarked individually and reported as
+        # its own row (like --module), not as one aggregate forward() timing.
+        if isinstance(result, dict):
+            if op_tracing:
+                console.print(
+                    "[yellow]Warning:[/yellow] --op-tracing is not supported for "
+                    "composite models and will be skipped."
+                )
+            report_composite_results(
+                result,
+                console=console,
+                json_mode=json_mode,
+                output_path=output,
+                model_id=hf_model,
+                task=task,
+            )
+            console.print(f"[green]Results saved to:[/green] {output}")
+            return
 
         # Display results
         if json_mode:
@@ -1404,9 +1699,7 @@ def perf(
             # For HF models the ONNX is built internally by PerfBenchmark.
             try:
                 onnx_for_trace = (
-                    model_path
-                    if is_onnx
-                    else (benchmark._model._onnx_path if benchmark._model else None)
+                    model_path if is_onnx else getattr(benchmark._model, "_onnx_path", None)
                 )
                 if onnx_for_trace is None:
                     raise AttributeError("benchmark._model not initialized")

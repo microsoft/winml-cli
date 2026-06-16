@@ -109,6 +109,7 @@ class WinMLAutoModel:
         device: str = "auto",
         precision: str = "auto",
         ep: EPNameOrAlias | None = None,
+        provider_options: dict[str, str] | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
@@ -131,6 +132,8 @@ class WinMLAutoModel:
             device: Target device ("auto", "npu", "gpu", "cpu").
             precision: Target precision ("auto", "fp32", "fp16", "int8").
             ep: Explicit execution provider.
+            provider_options: Runtime EP provider options (e.g. QNN
+                ``htp_performance_mode``) forwarded to the inference session.
             cache_dir: Override cache directory.
             use_cache: Whether to use persistent cache.
             force_rebuild: Force rebuild even if cached.
@@ -156,10 +159,12 @@ class WinMLAutoModel:
                 device=device,
                 precision=precision,
                 ep=ep,
+                provider_options=provider_options,
                 cache_dir=cache_dir,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
                 skip_build=skip_build,
+                no_compile=no_compile,
                 session_options=session_options,
                 **kwargs,
             )
@@ -203,6 +208,7 @@ class WinMLAutoModel:
                 device=device,
                 session_options=session_options,
                 ep=ep,
+                provider_options=provider_options,
             )
 
         # Resolve output directory
@@ -241,6 +247,7 @@ class WinMLAutoModel:
             device=device,
             session_options=session_options,
             ep=ep,
+            provider_options=provider_options,
         )
 
     @classmethod
@@ -252,6 +259,7 @@ class WinMLAutoModel:
         config: WinMLBuildConfig | None = None,
         device: str = "auto",
         precision: str = "auto",
+        provider_options: dict[str, str] | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
@@ -282,6 +290,8 @@ class WinMLAutoModel:
                 "auto" detects available hardware (NPU > GPU > CPU).
             precision: Target precision ("auto", "fp32", "fp16", "int8", "int16").
                 "auto" selects based on device (npu->int8, gpu->fp16, cpu->fp16).
+            provider_options: Runtime EP provider options (e.g. QNN
+                ``htp_performance_mode``) forwarded to the inference session.
             cache_dir: Directory for caching. If None, uses default cache dir.
             use_cache: If True (default), use persistent cache directory.
                 If False, build in a temp directory and always rebuild.
@@ -329,6 +339,7 @@ class WinMLAutoModel:
                 device=device,
                 precision=precision,
                 ep=kwargs.pop("ep", None),
+                provider_options=provider_options,
                 cache_dir=cache_dir,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
@@ -368,9 +379,11 @@ class WinMLAutoModel:
                     trust_remote_code=trust_remote_code,
                     shape_config=shape_config,
                     precision=precision,
+                    provider_options=provider_options,
                     config=config,
                     cache_dir=cache_dir,
                     allow_unsupported_nodes=allow_unsupported_nodes,
+                    no_compile=no_compile,
                     **kwargs,
                 )
 
@@ -469,6 +482,7 @@ class WinMLAutoModel:
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
             device=device,  # pass user's original device string; WinMLSession handles "auto"
             ep=resolved_ep,
+            provider_options=provider_options,
         )
         model._build_config = config  # resolved build config (task, quant, compile)
         return model

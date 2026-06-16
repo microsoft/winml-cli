@@ -11,13 +11,13 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 
 ---
 
-## What you can do[¶](https://microsoft.github.io/winml-cli/latest/#what-you-can-do)
+## What you can do
 
 - **Build once, run across hardwares.** Compose your own workflow from primitive commands (`export`, `analyze`, `optimize`, `quantize`, `compile`), or use an auto-generated config with `winml build` - both produce portable models that run across hardware.
 - **Drill into the details.** Deep insights into operator compatibility, shape mismatches, graph optimizations, and EP-aware tuning at any stage of the pipeline.
 - **AI-ready.** CLI-driven tools with built-in skills, friendly to work with mainstream agents.
 
-## What you get out of the box[¶](https://microsoft.github.io/winml-cli/latest/#what-you-get-out-of-the-box)
+## What you get out of the box
 
 - **All Windows ML EPs supported.** Every [supported execution provider](https://microsoft.github.io/winml-cli/latest/concepts/eps-and-devices/#eps-winml-cli-supports) is available behind the same commands.
 - **Curated model catalog.** A [verified set of models](https://microsoft.github.io/winml-cli/latest/reference/supported-models/) that run across all Windows ML EPs - a reliable starting point.
@@ -73,7 +73,7 @@ This command enumerates available compute devices and execution providers on you
 
 ## 🚀 Quick Start
 
-### Inspect the model[¶](https://microsoft.github.io/winml-cli/latest/getting-started/quickstart/#inspect-the-model)
+### Inspect the model
 
 Before downloading any models, confirm that winml-cli recognises the model:
 
@@ -83,7 +83,7 @@ uv run winml inspect -m microsoft/resnet-50
 
 💡 Tip: Always inspect before build to catch unsupported architectures early.
 
-### Build the model[¶](https://microsoft.github.io/winml-cli/latest/getting-started/quickstart/#build-the-model)
+### Build the model
 
 ```bash
 uv run winml build -m microsoft/resnet-50 -o resnet_out/ --no-quant
@@ -91,7 +91,7 @@ uv run winml build -m microsoft/resnet-50 -o resnet_out/ --no-quant
 
 `winml build` runs all pipeline steps in sequence — export, optimize, quantize. You can start a model build without a config file, or provide one to configure each step in the sequence (see [`winml config`](https://microsoft.github.io/winml-cli/latest/commands/config/) to customize). All intermediate artifacts land in `resnet_out/`. For more details, see [Output Layout - Windows ML CLI](https://microsoft.github.io/winml-cli/latest/reference/output-layout/#file-categories).
 
-### Benchmark the model[¶](https://microsoft.github.io/winml-cli/latest/getting-started/quickstart/#benchmark-the-model)
+### Benchmark the model
 
 ```bash
 uv run winml perf -m resnet_out/model.onnx --device auto --iterations 50 --monitor
@@ -116,6 +116,24 @@ uv run winml perf -m resnet_out/model.onnx --device auto --iterations 50 --monit
 
 ---
 
+## 🔒 Privacy & Telemetry
+
+Official WinML CLI releases can collect **unlinked pseudonymized** usage telemetry
+to help improve the product. Telemetry is classified as **Optional**. A one-time
+prompt on your first run asks for consent (default: accept — press **Enter** to
+enable, type `n` to decline).
+
+**Control** — edit `%USERPROFILE%\.winml\config.json`:
+
+- Set `telemetry.consent` to `"disabled"` to opt out
+- Set `telemetry.consent` to `"enabled"` to opt in
+- Delete the file to re-show the first-run prompt on the next run
+
+See [docs/Privacy.md](docs/Privacy.md) for the full list of what is and is not
+collected, event schemas, CI auto-disable behavior, and storage locations.
+
+---
+
 ## 🤝 Contributing
 
 We welcome contributions! Please see the [contribution guidelines](CONTRIBUTING.md).
@@ -129,3 +147,11 @@ See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 ### License
 
 This project is licensed under the [MIT License](LICENSE.txt).
+
+### Trademarks
+
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
+trademarks or logos is subject to and must follow
+[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
+Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft
+sponsorship. Any use of third-party trademarks or logos are subject to those third-party's policies.

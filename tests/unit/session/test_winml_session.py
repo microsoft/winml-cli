@@ -680,6 +680,57 @@ class TestWinMLSessionExplicitProviders:
         assert options in captured, f"provider_options not forwarded; got calls with: {captured}"
         assert "C" in outputs
 
+    def test_runtime_provider_options_forwarded(
+        self,
+        simple_matmul_onnx: Path,
+        sample_input: dict[str, np.ndarray],
+    ):
+        """Runtime ``provider_options`` kwarg is forwarded to add_provider_for_devices."""
+        from unittest.mock import patch
+
+        import onnxruntime as ort
+
+        options = {"runtime_only_key": "runtime_only_value"}
+        captured: list[dict[str, str]] = []
+        real_method = ort.SessionOptions.add_provider_for_devices
+
+        def spy(self_sess, ep_devices, provider_opts):
+            captured.append(dict(provider_opts))
+            return real_method(self_sess, ep_devices, provider_opts)
+
+        with patch.object(ort.SessionOptions, "add_provider_for_devices", spy):
+            session = WinMLSession(
+                onnx_path=simple_matmul_onnx,
+                device="cpu",
+                provider_options=options,
+            )
+            outputs = session.run(sample_input)
+
+        assert options in captured, f"provider_options not forwarded; got calls with: {captured}"
+        assert "C" in outputs
+
+    def test_runtime_provider_options_override_ep_config(
+        self,
+        simple_matmul_onnx: Path,
+    ):
+        """Runtime ``provider_options`` merge on top of and override ep_config options."""
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            device="cpu",
+            ep_config=EPConfig(
+                provider="cpu",
+                provider_options={"shared": "from_build", "build_only": "x"},
+            ),
+            provider_options={"shared": "from_runtime", "runtime_only": "y"},
+        )
+
+        # Runtime value wins for the shared key; both source-specific keys survive.
+        assert session._provider_options == {
+            "shared": "from_runtime",
+            "build_only": "x",
+            "runtime_only": "y",
+        }
+
     def test_explicit_ep_and_device_both_required(self, simple_matmul_onnx: Path):
         """Regression: ep=qnn + device=gpu must bind QNN-on-GPU, not QNN-on-NPU.
 

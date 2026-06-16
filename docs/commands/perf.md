@@ -23,6 +23,7 @@ $ winml perf [options]
 | `--device` | `-d` | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. |
 | `--precision` | | `TEXT` | `auto` | Precision mode applied during model build: `auto`, `fp32`, `fp16`, `int8`, `int16`, or compound forms such as `w8a16`. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider (e.g., `qnn`, `dml`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. |
+| `--ep-options` | | `KEY=VALUE` (multiple) | — | Runtime EP provider option forwarded to the inference session (e.g., `--ep-options htp_performance_mode=burst`). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. Unlike build-time options set via `--config`, these tune the runtime session, not the compiled graph. |
 | `--output` | `-o` | `PATH` | `~/.cache/winml/perf/<slug>/<timestamp>.json` | Output JSON file path for the benchmark report. |
 | `--batch-size` | | `INTEGER` | `1` | Batch size used when generating synthetic input tensors. |
 | `--shape-config` | | `PATH` | — | Path to a JSON file containing shape overrides (e.g., `{"height": 480, "width": 480}`). Ignored for pre-exported ONNX files and in `--module` mode. |
@@ -76,6 +77,14 @@ Benchmark with live hardware monitoring enabled:
 
 ```bash
 $ winml perf -m microsoft/resnet-50 --device npu --monitor
+```
+
+Pass runtime EP provider options to tune the session (repeatable):
+
+```bash
+$ winml perf -m model.onnx --device npu \
+    --ep-options htp_performance_mode=burst \
+    --ep-options htp_graph_finalization_optimization_mode=3
 ```
 
 Per-module benchmarking to find latency hot-spots across all attention blocks:

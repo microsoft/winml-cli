@@ -140,7 +140,7 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
     """
     from ..loader import resolve_loader_config
 
-    _, hf_config, resolved_class_typed = resolve_loader_config(
+    _, hf_config, resolved_class_typed, _resolution = resolve_loader_config(
         model_type=model_type,
         task=task,
     )

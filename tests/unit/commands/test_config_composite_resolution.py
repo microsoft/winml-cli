@@ -26,10 +26,10 @@ import pytest
 from transformers import BartConfig, Qwen3Config, T5Config
 
 from winml.modelkit.commands.config import (
-    _composite_components_for_task as _serve,
-)
-from winml.modelkit.commands.config import (
     _resolve_composite_model_components as _resolve,
+)
+from winml.modelkit.loader.resolution import (
+    _composite_components_for_task as _serve,
 )
 
 

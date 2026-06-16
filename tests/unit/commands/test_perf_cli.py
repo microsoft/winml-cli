@@ -20,6 +20,7 @@ from click.testing import CliRunner
 
 from winml.modelkit.commands.perf import (
     BenchmarkConfig,
+    BenchmarkResult,
     PerfBenchmark,
     generate_output_path,
     perf,
@@ -449,6 +450,124 @@ class TestPerfUnifiedPipeline:
 
         assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
 
+    def test_onnx_load_model_passes_ep_options(self, tmp_path: Path) -> None:
+        """--ep-options should reach from_onnx as provider_options (ONNX path)."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(
+            model_id=str(onnx_file),
+            task="image-classification",
+            device="npu",
+            ep="qnn",
+            ep_options={"htp_performance_mode": "burst"},
+        )
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+            return_value=MagicMock(),
+        ) as mock_from_onnx:
+            benchmark._load_model()
+
+        assert mock_from_onnx.call_args.kwargs["provider_options"] == {
+            "htp_performance_mode": "burst"
+        }
+
+    def test_hf_load_model_passes_ep_options(self) -> None:
+        """--ep-options should reach from_pretrained as provider_options (HF path)."""
+        config = BenchmarkConfig(
+            model_id="microsoft/resnet-50",
+            task="image-classification",
+            device="npu",
+            ep="qnn",
+            ep_options={"htp_performance_mode": "burst"},
+        )
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_from_pretrained:
+            benchmark._load_model()
+
+        assert mock_from_pretrained.call_args.kwargs["provider_options"] == {
+            "htp_performance_mode": "burst"
+        }
+
+    def test_cli_ep_options_parsed_into_config(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Repeated --ep-options KEY=VALUE are parsed into BenchmarkConfig.ep_options."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            return MagicMock()
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark", side_effect=capture_config),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--ep-options",
+                    "htp_performance_mode=burst",
+                    "--ep-options",
+                    "htp_graph_finalization_optimization_mode=3",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["config"].ep_options == {
+            "htp_performance_mode": "burst",
+            "htp_graph_finalization_optimization_mode": "3",
+        }
+
+    def test_cli_ep_options_invalid_format_rejected(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """An --ep-options value without '=' is rejected with a clear error."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        result = runner.invoke(
+            perf,
+            ["-m", str(onnx_file), "--ep-options", "no_equals_sign"],
+            obj={},
+        )
+
+        assert result.exit_code != 0
+        assert "KEY=VALUE" in result.output
+
+    def test_help_shows_ep_options(self, runner: CliRunner) -> None:
+        result = runner.invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        assert "--ep-options" in result.output
+
+    def test_ep_options_captured_in_to_dict(self) -> None:
+        """ep_options must be written into benchmark_info so saved JSON is reproducible."""
+        ep_options = {"htp_performance_mode": "burst"}
+        config = BenchmarkConfig(model_id="m", ep_options=ep_options)
+        result = BenchmarkResult(config=config)
+
+        assert result.to_dict()["benchmark_info"]["ep_options"] == ep_options
+
+    def test_ep_options_none_when_not_set_in_to_dict(self) -> None:
+        """When no EP options are given, benchmark_info records None."""
+        config = BenchmarkConfig(model_id="m")
+        result = BenchmarkResult(config=config)
+
+        assert result.to_dict()["benchmark_info"]["ep_options"] is None
+
 
 # =============================================================================
 # --FORMAT JSON TESTS
@@ -542,6 +661,7 @@ class TestPerfFormatJson:
         mock_result.samples_per_sec = 100.0
         mock_result.batches_per_sec = 100.0
         mock_result.hw_monitor = None
+        mock_result.memory_profile = None
         mock_instance = MagicMock()
         mock_instance.run.return_value = mock_result
         mock_benchmark_class.return_value = mock_instance
