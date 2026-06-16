@@ -392,6 +392,12 @@ class PerfBenchmark:
 
         assert self._model is not None
 
+        # Initialize memory tracking variables
+        adapter_luid: str | None = None
+        rss_baseline = rss_after_compile = 0.0
+        vram_local_baseline = vram_shared_baseline = 0.0
+        vram_local_compile = vram_shared_compile = 0.0
+
         # Memory: baseline right before compile() — excludes all Python lib
         # imports, EP DLLs, and build pipeline overhead. Measures only ORT
         # session compilation (model weights loaded into memory).
