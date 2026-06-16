@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Analyze command for winml CLI.
+"""Analyze command for WinML CLI.
 
 Analyzes ONNX models for runtime support with Rich Live stacked bar
 visualization, showing real-time per-node progress display.

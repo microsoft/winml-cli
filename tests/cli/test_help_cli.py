@@ -212,3 +212,7 @@ class TestOptionsSection:
         result = _invoke("--version")
         assert result.exit_code == 0
         assert __version__ in result.output
+
+    def test_version_uses_canonical_product_name(self) -> None:
+        """``winml --version`` must brand the product as 'WinML CLI' (issue #510)."""
+        assert "WinML CLI" in _invoke("--version").output

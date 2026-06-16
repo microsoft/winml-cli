@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Shared console output utilities for winml CLI commands.
+"""Shared console output utilities for WinML CLI commands.
 
 Provides consistent Rich-based formatting for:
 - Config command: headers, I/O specs, resolution summary
