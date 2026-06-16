@@ -317,6 +317,8 @@ class PerfBenchmark:
         if self.config.memory:
             gc.collect()
             rss_after_compile = get_rss_mb()
+            adapter_luid = self._resolve_adapter_luid()
+            device_after_compile = get_device_memory_mb(adapter_luid)
 
         # Print model info before benchmark starts
         _print_model_info(
@@ -338,11 +340,9 @@ class PerfBenchmark:
         )
         stats = self._run_benchmark()
 
-        # Device memory queried once at the end — captures peak allocation
-        # after inference (device memory only grows, never shrinks mid-session).
         if self.config.memory:
             rss_after_inference = get_rss_mb()
-            device_mb = get_device_memory_mb(self._resolve_adapter_luid())
+            device_after_inference = get_device_memory_mb(adapter_luid)
             self._memory = {
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
@@ -350,7 +350,8 @@ class PerfBenchmark:
                 "model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
                 "inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
                 "total_delta_mb": round(rss_after_inference - rss_baseline, 2),
-                "device_local_mb": round(device_mb, 2),
+                "device_after_compile_mb": round(device_after_compile, 2),
+                "device_after_inference_mb": round(device_after_inference, 2),
             }
 
         # [4] Collect results
@@ -941,8 +942,9 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     # Memory section (only when --memory is enabled)
     if result.memory_profile:
         mem = result.memory_profile
-        dev_mb = mem.get("device_local_mb", 0)
-        dev_str = f" | {dev_mb:.1f} MB (device)" if dev_mb > 0 else ""
+        dev_compile = mem.get("device_after_compile_mb", 0)
+        dev_inference = mem.get("device_after_inference_mb", 0)
+        dev_str = f" | {dev_inference:.1f} MB (device)" if dev_inference > 0 else ""
         console.print()
         console.print(
             f"[bold]Memory:[/bold]      {mem['rss_after_inference_mb']:.1f} MB (process){dev_str}"
@@ -952,6 +954,11 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             f"inference: {mem['inference_delta_mb']:+.1f} MB  |  "
             f"total: {mem['total_delta_mb']:+.1f} MB[/dim]"
         )
+        if dev_compile > 0 or dev_inference > 0:
+            console.print(
+                f"  [dim]device: compile {dev_compile:.1f} MB → "
+                f"inference {dev_inference:.1f} MB[/dim]"
+            )
 
     console.print()
 
