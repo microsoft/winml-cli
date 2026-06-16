@@ -368,9 +368,9 @@ class PerfBenchmark:
             child._model = sub
             try:
                 results[name] = child._run_single()
-            except Exception:
+            except Exception as exc:
                 logger.error("Benchmarking sub-model '%s' failed", name)
-                raise
+                raise RuntimeError(f"Sub-model '{name}' failed: {exc}") from exc
         return results
 
     def _run_single(self) -> BenchmarkResult:

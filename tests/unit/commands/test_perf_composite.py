@@ -19,6 +19,7 @@ import json
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+import pytest
 from rich.console import Console
 
 from winml.modelkit.commands.perf import (
@@ -221,6 +222,21 @@ class TestPerfBenchmarkComposite:
 
         for result in results.values():
             assert len(result.raw_samples_ms) == 3
+
+    def test_sub_model_failure_names_component(self) -> None:
+        # A failing sub-model surfaces a RuntimeError naming the component,
+        # chained (``from``) from the original exception so the cause is kept.
+        bench, model = _composite_benchmark()
+
+        def _boom() -> None:
+            raise ValueError("compile failed")
+
+        # image-encoder is first in dict order, so it fails before text-encoder.
+        model.sub_models["image-encoder"]._session.compile = _boom
+
+        with pytest.raises(RuntimeError, match="image-encoder") as excinfo:
+            bench._run_sub_models()
+        assert isinstance(excinfo.value.__cause__, ValueError)
 
     def test_empty_sub_models_returns_empty_dict(self) -> None:
         # Boundary: a composite with zero sub-models must not crash; it
