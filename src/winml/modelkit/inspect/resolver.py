@@ -12,10 +12,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from ..loader.resolution import _get_custom_model_class
 from ..loader.task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
-    _get_custom_model_class,
     resolve_optimum_library,
 )
 from ..models import (
@@ -107,7 +107,7 @@ def validate_task(task: str) -> None:
 def resolve_loader(model_type: str, task: str) -> LoaderInfo:
     """Resolve loader configuration for a model.
 
-    Uses _get_custom_model_class() from loader/task.py which looks up
+    Uses _get_custom_model_class() from loader/resolution.py which looks up
     MODEL_CLASS_MAPPING for (model_type, task) overrides.
 
     Args:

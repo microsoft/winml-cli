@@ -22,7 +22,6 @@ import logging
 
 from transformers import AutoConfig
 
-from ..loader import detect_task
 from .resolver import (
     build_tensor_infos_from_io_specs,
     compile_support_status,
@@ -118,7 +117,10 @@ def inspect_model(
         task_source = "user_override"
         logger.debug("Task override: %s", task)
     else:
-        task, task_source = detect_task(hf_config)
+        from ..loader.resolution import resolve_task
+
+        _resolution = resolve_task(hf_config)
+        task, task_source = _resolution.task, _resolution.source.value
         logger.debug("Detected task: %s (source: %s)", task, task_source)
 
     # Step 3: Resolve loader configuration

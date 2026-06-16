@@ -2,22 +2,22 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for resolve_task_and_model_class edge cases.
+"""Tests for resolve_task edge cases with explicit task / model_class.
 
 Tests edge cases not covered by test_detect_task_and_class.py:
-- Case 2 with model_type=None in config (specialization silently skipped)
-- Case 3 with incompatible task+architecture (currently unvalidated)
+- User task with model_type=None in config (specialization silently skipped)
+- User model_class with incompatible task+architecture (currently unvalidated)
 """
 
 from unittest.mock import MagicMock
 
 import pytest
 
-from winml.modelkit.loader import resolve_task_and_model_class
+from winml.modelkit.loader.resolution import TaskSource, resolve_task
 
 
-class TestCase2ModelTypeNone:
-    """Case 2: User specified task, but config has model_type=None.
+class TestUserTaskModelTypeNone:
+    """User specified task, but config has model_type=None.
 
     When model_type is None, specialization lookup is silently skipped
     and TasksManager is used directly.
@@ -28,84 +28,92 @@ class TestCase2ModelTypeNone:
         config = MagicMock()
         config.model_type = None
         config.architectures = ["BertForSequenceClassification"]
+        config._name_or_path = ""
 
-        task, resolved_class = resolve_task_and_model_class(config, task="text-classification")
+        r = resolve_task(config, task="text-classification")
 
-        assert task == "text-classification"
+        assert r.task == "text-classification"
+        assert r.source == TaskSource.USER_TASK
         # TasksManager should still resolve the class even without model_type
-        assert "Classification" in resolved_class.__name__
+        assert "Classification" in r.model_class.__name__
 
     def test_specialization_skipped_when_model_type_none(self):
         """CLIP specialization is NOT applied when model_type=None."""
         config = MagicMock()
         config.model_type = None
         config.architectures = ["CLIPModel"]
+        config._name_or_path = ""
 
         # feature-extraction without model_type should NOT trigger CLIP specialization
-        task, resolved_class = resolve_task_and_model_class(config, task="feature-extraction")
+        r = resolve_task(config, task="feature-extraction")
 
-        assert task == "feature-extraction"
+        assert r.task == "feature-extraction"
         # Should be TasksManager default, not CLIPTextModelWithProjection
-        assert resolved_class.__name__ != "CLIPTextModelWithProjection"
+        assert r.model_class.__name__ != "CLIPTextModelWithProjection"
 
 
-class TestCase2OriginalTaskPreserved:
-    """Case 2: Original task name is preserved in return value."""
+class TestUserTaskOriginalPreserved:
+    """User task name is preserved verbatim in the resolution."""
 
     def test_alias_task_returns_original(self):
         """Task aliases are normalized internally but original is returned."""
         config = MagicMock()
         config.model_type = "bert"
         config.architectures = ["BertForMaskedLM"]
+        config._name_or_path = ""
 
         # "masked-lm" normalizes to "fill-mask" internally
-        task, _resolved_class = resolve_task_and_model_class(config, task="masked-lm")
+        r = resolve_task(config, task="masked-lm")
 
         # Returns original task name, not normalized
-        assert task == "masked-lm"
+        assert r.task == "masked-lm"
+        assert r.source == TaskSource.USER_TASK
 
 
-class TestCase3EdgeCases:
-    """Case 3: model_class specified edge cases."""
+class TestUserModelClassEdgeCases:
+    """model_class specified edge cases."""
 
     def test_model_class_with_task_auto_detected(self):
         """model_class with task=None auto-detects task."""
         config = MagicMock()
         config.model_type = "resnet"
         config.architectures = ["ResNetForImageClassification"]
+        config._name_or_path = ""
 
-        task, resolved_class = resolve_task_and_model_class(
-            config, model_class="AutoModelForImageClassification"
-        )
+        r = resolve_task(config, model_class="AutoModelForImageClassification")
 
-        assert task == "image-classification"
-        assert "ImageClassification" in resolved_class.__name__
+        assert r.task == "image-classification"
+        assert r.source == TaskSource.USER_CLASS
+        assert "ImageClassification" in r.model_class.__name__
 
     def test_invalid_model_class_raises_error(self):
         """Non-existent model_class raises ValueError."""
         config = MagicMock()
         config.model_type = "bert"
         config.architectures = ["BertForSequenceClassification"]
+        config._name_or_path = ""
 
         with pytest.raises(ValueError, match="not found"):
-            resolve_task_and_model_class(
+            resolve_task(
                 config,
                 task="text-classification",
                 model_class="NonExistentModelClass",
             )
 
-    def test_task_normalized_in_case3(self):
-        """Task is normalized in Case 3 when provided."""
+    def test_task_normalized_with_model_class(self):
+        """Task is normalized when model_class is provided."""
         config = MagicMock()
         config.model_type = "bert"
         config.architectures = ["BertForMaskedLM"]
+        config._name_or_path = ""
 
         # "masked-lm" should normalize to "fill-mask" for TasksManager lookup
-        task, _resolved_class = resolve_task_and_model_class(
+        r = resolve_task(
             config,
             task="masked-lm",
             model_class="AutoModelForMaskedLM",
         )
 
-        # Task is normalized (unlike Case 2 which preserves original)
-        assert task == "fill-mask"
+        # Task is normalized (unlike the user-task path which preserves the original)
+        assert r.task == "fill-mask"
+        assert r.source == TaskSource.USER_CLASS

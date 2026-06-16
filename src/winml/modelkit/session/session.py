@@ -137,6 +137,7 @@ class WinMLSession:
         ep_config: EPConfig | None = None,
         *,
         ep: EPNameOrAlias | None = None,
+        provider_options: dict[str, str] | None = None,
         session_options: Callable[[], ort.SessionOptions] | None = None,
     ) -> None:
         """Initialize WinMLSession.
@@ -153,6 +154,11 @@ class WinMLSession:
             ep: Explicit EP short name (e.g., "migraphx", "nv_tensorrt_rtx").
                 When set, bypasses policy-based selection and uses
                 add_provider_for_devices to force the specific EP.
+            provider_options: Runtime EP provider options merged on top of any
+                ``ep_config.provider_options`` and forwarded to
+                ``add_provider_for_devices`` (e.g. QNN ``htp_performance_mode``).
+                Unlike ``ep_config``, this does not affect EPContext persistence —
+                it only tunes the runtime session.
             session_options: Factory returning an ``ort.SessionOptions``.
                 Called once per ``_build_session_options`` invocation so each
                 ORT session gets a fresh, un-poisoned options object
@@ -170,7 +176,11 @@ class WinMLSession:
         self._ep = ep
         self._persist_jit = ep_config.enable_ep_context if ep_config else False
         self._embed_context = ep_config.embed_context if ep_config else False
-        self._provider_options = ep_config.provider_options if ep_config else {}
+        self._provider_options = dict(ep_config.provider_options) if ep_config else {}
+        # Runtime provider options (e.g. from --ep-options) merge on top of and
+        # override any build-time options carried by ep_config.
+        if provider_options:
+            self._provider_options.update(provider_options)
 
         self._session_options_factory: Callable[[], ort.SessionOptions] = (
             session_options or ort.SessionOptions
@@ -391,11 +401,12 @@ class WinMLSession:
         opts = self._session_options_factory()
         if add_ep_for_device(opts, resolved_ep, device_type, self._provider_options):
             logger.info(
-                "Built SessionOptions with EP: %s (%s) device=%s -> %s",
+                "Built SessionOptions with EP: %s (%s) device=%s -> %s provider_options=%s",
                 resolved_ep,
                 self._ep,
                 device,
                 resolved_device,
+                self._provider_options,
             )
             return opts, resolved_device, resolved_ep
 

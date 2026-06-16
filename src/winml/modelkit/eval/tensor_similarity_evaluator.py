@@ -59,21 +59,19 @@ class TensorSimilarityEvaluator:
         """Load the HF PyTorch reference model on CPU/fp32 in eval mode.
 
         Resolves the appropriate ``AutoModelFor*`` class via
-        :func:`resolve_task_and_model_class` so no task-specific mapping is
+        :func:`resolve_task` so no task-specific mapping is
         needed here.
         """
         import torch
         from transformers import AutoConfig
 
-        from ..loader.task import resolve_task_and_model_class
+        from ..loader.resolution import resolve_task
 
         if self.config.model_id is None:
-            raise ValueError(
-                "model_id is required to load the HF reference model."
-            )
+            raise ValueError("model_id is required to load the HF reference model.")
 
         hf_config = AutoConfig.from_pretrained(self.config.model_id)
-        _, cls = resolve_task_and_model_class(hf_config, task=self.config.task)
+        cls = resolve_task(hf_config, task=self.config.task).model_class
         logger.info("Loading HF reference %s on CPU/fp32", cls.__name__)
         # cls is a HF model class which exposes from_pretrained; not in `type`.
         return cls.from_pretrained(  # type: ignore[attr-defined]
@@ -128,13 +126,13 @@ class TensorSimilarityEvaluator:
 
                 for name in common_keys:
                     metrics.setdefault(name, TensorSimilarityMetric()).update(
-                        ort_out[name], hf_out[name],
+                        ort_out[name],
+                        hf_out[name],
                     )
 
         if ort_keys != hf_keys:
             logger.warning(
-                "ONNX and HF reference output names differ. "
-                "ONNX: %s, HF: %s.",
+                "ONNX and HF reference output names differ. ONNX: %s, HF: %s.",
                 sorted(ort_keys),
                 sorted(hf_keys),
             )
@@ -147,9 +145,7 @@ class TensorSimilarityEvaluator:
         return pivoted
 
     @staticmethod
-    def _inference_model(
-        model: Any, sample: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _inference_model(model: Any, sample: dict[str, Any]) -> dict[str, Any]:
         """Run one sample through a model and return its named tensor outputs.
 
         Uniform for both backends: HF embeddings require int64 indices, so
@@ -160,11 +156,7 @@ class TensorSimilarityEvaluator:
         import torch
 
         inputs = {
-            k: (
-                v.to(torch.int64)
-                if v.dtype in (torch.int8, torch.int16, torch.int32)
-                else v
-            )
+            k: (v.to(torch.int64) if v.dtype in (torch.int8, torch.int16, torch.int32) else v)
             for k, v in sample.items()
         }
         output = model(**inputs)

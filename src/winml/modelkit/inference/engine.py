@@ -192,7 +192,7 @@ def _resolve_hf_task(model_id: str, task: str | None) -> str | None:
 
     When *task* is provided, normalises it and returns immediately.
     Otherwise downloads the small ``config.json`` from the Hub and infers
-    the task via ``resolve_task_and_model_class``.
+    the task via ``resolve_task``.
     """
     if task is not None:
         # If the task has its own entry in TASK_REGISTRY (e.g.
@@ -211,10 +211,9 @@ def _resolve_hf_task(model_id: str, task: str | None) -> str | None:
 
         config = AutoConfig.from_pretrained(model_id)
 
-        from ..loader import resolve_task_and_model_class
+        from ..loader.resolution import resolve_task
 
-        resolved_task, _ = resolve_task_and_model_class(config)
-        return resolved_task
+        return resolve_task(config).task
     except Exception as exc:
         logger.warning("Could not detect task for %s: %s", model_id, exc)
         return None

@@ -115,7 +115,7 @@ class TestSubmoduleDiscovery:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -154,7 +154,7 @@ class TestSubmoduleDiscovery:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
