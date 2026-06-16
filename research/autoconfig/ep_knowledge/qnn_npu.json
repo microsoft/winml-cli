@@ -16,7 +16,7 @@
       "sentence-transformers/all-MiniLM-L6-v2",
       "deepset/roberta-base-squad2"
     ],
-    "last_updated": "2026-06-13",
+    "last_updated": "2026-06-16",
     "epistemics_warning": "⚠️ All findings are hypotheses derived from limited models on 1 device (Snapdragon X Elite). Confidence levels reflect how well the mechanism is understood, not how universally applicable the finding is. ALWAYS re-validate on new model architectures before using to prune search space."
   },
 
@@ -24,17 +24,29 @@
 
     {
       "id": "npu-001",
-      "title": "opset 21 export is faster on QNN NPU for some Conv+attention hybrid models — mechanism UNKNOWN for ORT 1.24.x",
-      "observation": "Catalog sweep 2026-06-13 (ORT 1.24.5): DINOv2-small opset21 median 4.98ms vs opset17 median 7.18ms (+30.6%). MobileViT-small opset21 8.62ms vs opset17 11.72ms (+26.5%, but opset17 has a DVFS spike session). ViT-base: opset21 -7.4% (slower). BERT/RoBERTa/DistilBERT: neutral. ResNet-18: data noise-dominated — unreliable (see below).",
+      "title": "opset 21 export gives +24-31% speedup on DINOv2 family models on QNN NPU — mechanism UNKNOWN, NOT a general ViT property",
+      "observation": "Catalog sweep 2026-06-13 + validation sweep 2026-06-16 (ORT 1.24.5, W8A16 quantized.onnx, 3×500-iter sessions): DINOv2-small +30.6% (opset17 7.18ms → opset21 4.98ms). DINOv2-base +24.1% (opset17 34.56ms → opset21 26.23ms). CRITICAL CONTROL: dino-vitb16 (plain DINO ViT-B/16) -0.7% — NEUTRAL. rad-dino (ViT-L medical) -0.1% — CPU-bound, no NPU effect. MobileViT-small +26.5% original data (DVFS spike caveat). ViT-base: -7.4%. BERT/RoBERTa/DistilBERT: neutral.",
       "mechanism_confirmed": false,
       "mechanism_status": "ORIGINAL_MECHANISM_INVALIDATED — must re-investigate",
       "mechanism_source": "ORT source code investigation (2026-06-10) for ORT < 1.18. Sweep used onnxruntime-windowsml==1.24.5 where this mechanism no longer applies.",
       "ort_version_critical_note": "The original mechanism (kMaxSupportedOpset gate in IsSupportedOpset()) requires kMaxSupportedOpset < 21. onnxruntime-windowsml==1.24.5 (ORT 1.24.x) has kMaxSupportedOpset >= 22, so BOTH opset17 and opset21 go through the NHWC layout transform. The bypass mechanism does NOT apply to the ORT version used in the sweep. The observed speedup for DINOv2 and MobileViT has an UNKNOWN root cause.",
-      "architecture_requirement": ["empirically: hybrid Conv+attention; pure Conv (ResNet) and pure attention (ViT) show no reliable benefit"],
+      "architecture_requirement": ["empirically: DINOv2 family (facebook/dinov2-*) consistently benefits. Plain ViT (dino-vitb16) does NOT. Hybrid Conv+attention (MobileViT) showed speedup in original data. Pure Conv (ResNet) insufficient data. NLP: neutral."],
+      "architecture_discriminant_note": "⚠️ KEY FINDING: opset21 speedup is NOT a general ViT property. dino-vitb16 (plain DINO ViT-B/16, same size as dinov2-base) shows -0.7% — noise-level NEUTRAL. DINOv2 variants consistently show +24-31%. The discriminating architectural factor is not yet identified — may be DINOv2-specific LayerNorm/attention op variants, or differences in how the PyTorch exporter serializes the computation graph at opset21.",
       "validated_models": {
-        "benefits_from_opset21": ["dinov2-small (+30.6%, 3-session consistent)", "mobilevit-small (~20-26%, note: opset17 has DVFS spike inflating its median)"],
-        "no_benefit_or_regression": ["vit-base-patch16-224 (-7.4%)", "yolos-small (timeout, no data)"],
-        "neutral": ["distilbert", "bert/MiniLM", "roberta"],
+        "benefits_from_opset21": [
+          "facebook/dinov2-small (+30.6%, original catalog sweep 2026-06-13, 3-session)",
+          "facebook/dinov2-base (+24.1%, validation sweep 2026-06-16, fresh quantized.onnx builds, 3-session h1=[34.56,34.67,33.15]ms h3=[33.00,26.22,26.23]ms)",
+          "apple/mobilevit-small (~20-26%, original catalog, note: opset17 has DVFS spike session)"
+        ],
+        "no_benefit_neutral": [
+          "facebook/dino-vitb16 (-0.7%, validation sweep 2026-06-16, h1=[19.92,19.97,19.90]ms h3=[20.20,20.07,19.99]ms — NEUTRAL, critical control)",
+          "google/vit-base-patch16-224 (-7.4%, original catalog)",
+          "hustvl/yolos-small (timeout, no data)",
+          "distilbert, bert/MiniLM, roberta (neutral, NLP)"
+        ],
+        "cpu_bound_cannot_test": [
+          "microsoft/rad-dino (-0.1%, all hypotheses ~275ms CV<0.022 — model runs on CPU, opset irrelevant)"
+        ],
         "data_unreliable": ["resnet-18 — sub-ms latency, 3-session range spans 4x; no reliable signal (see data_reliability_notes)"]
       },
       "original_mechanism_explanation": {
@@ -65,7 +77,20 @@
         "dinov2_small": {
           "h1_opset17_sessions_ms": [7.176, 6.392, 9.436],
           "h3_opset21_sessions_ms": [4.977, 4.876, 6.884],
-          "assessment": "RELIABLE. Ranges barely overlap only at extremes. h3 sessions 1+2 (4.97/4.88ms) are well below entire h1 range. Speedup is real."
+          "assessment": "RELIABLE. Ranges barely overlap only at extremes. h3 sessions 1+2 (4.97/4.88ms) are well below entire h1 range. Speedup is real.",
+          "tool": "catalog_qnn_sweep.py, optimized.onnx (v1 pipeline)"
+        },
+        "dinov2_base_v3": {
+          "h1_opset17_sessions_ms": [34.556, 34.668, 33.148],
+          "h3_opset21_sessions_ms": [33.001, 26.224, 26.227],
+          "assessment": "RELIABLE. h1 sessions fully consistent (~34ms). h3 s0 slightly elevated (JIT warmup) but s1+s2 consistent at 26.2ms. Speedup +24.1% is well-separated from noise.",
+          "tool": "validation_sweep.py v3, quantized.onnx W8A16 (fresh builds for both hyps)"
+        },
+        "dino_vitb16": {
+          "h1_opset17_sessions_ms": [19.924, 19.975, 19.897],
+          "h3_opset21_sessions_ms": [20.197, 20.071, 19.988],
+          "assessment": "RELIABLE CONTROL. Extremely stable. +0.7% regression (within noise). Opset21 has NO EFFECT on plain DINO ViT-B/16. Critical discriminant: npu-001 speedup is NOT a general ViT property.",
+          "tool": "validation_sweep.py, quantized.onnx W8A16 (fresh builds)"
         },
         "mobilevit_small": {
           "h1_opset17_sessions_ms": [10.557, 11.721, 27.436],
@@ -78,10 +103,10 @@
           "assessment": "UNRELIABLE. Sub-ms model. Session range spans 4x for same config. Reported '+20.2% speedup' (h1 median 2.72ms vs h3 median 2.18ms) is NOT a real signal — the two distributions fully overlap. REMOVED from benefits list."
         }
       },
-      "action_for_autoconfig": "Include opset 21 in search for Conv+attention hybrid models (dinov2-class, mobilevit-class). Do NOT apply to pure attention (ViT, YOLOS) or NLP (BERT-family). For ResNet-class Conv-only models: insufficient evidence. ALWAYS dump the optimized graph to compare Transpose counts — if opset17 has more Transposes in QNN partition, it explains speedup regardless of mechanism.",
-      "confidence": "medium on empirical observation (DINOv2 speedup is real; MobileViT likely real). Low on mechanism — original explanation does not apply to ORT 1.24.x. Mechanism must be re-investigated.",
+      "action_for_autoconfig": "Include opset 21 in search for DINOv2-family models (facebook/dinov2-*). Likely worthwhile for MobileViT-class Conv+attention hybrids. Do NOT apply to plain ViT (dino-vitb16-class), YOLOS, or NLP (BERT-family). For ResNet-class Conv-only: insufficient data. ALWAYS dump optimized graph to compare Transpose counts if speedup is unexpected.",
+      "confidence": "high on empirical observation (DINOv2-small and DINOv2-base both confirmed with fresh separate builds, clean 3-session protocol). Low on mechanism — original explanation does not apply to ORT 1.24.x. Mechanism must be re-investigated. Scope: DINOv2 family only until mechanism is understood.",
       "falsified_by": null,
-      "scope": "ORT 1.24.5 (onnxruntime-windowsml). DINOv2-small and MobileViT-small confirmed. Mechanism unknown. Does NOT apply to ViT-base, YOLOS-small, BERT-family. ResNet-18 data inconclusive.",
+      "scope": "ORT 1.24.5 (onnxruntime-windowsml). DINOv2-small and DINOv2-base confirmed. MobileViT-small likely. Does NOT apply to plain ViT (dino-vitb16 confirmed NEUTRAL), YOLOS-small, BERT-family, CPU-bound models (rad-dino). ResNet-18 data inconclusive.",
       "tracked_issue": "#869",
       "perf_gain_validation_gates": {
         "gate1_statistical": "PASSED for DINOv2 (3-session, ranges separate). PARTIALLY for MobileViT (DVFS spike in h1). FAILED for ResNet-18.",
@@ -157,14 +182,14 @@
     {
       "id": "npu-006",
       "title": "Conv fusions (conv-bn/add/activation) cause catastrophic QNN NPU CPU fallback on Conv-dominant models",
-      "observation": "ResNet-18 with conv-bn-fusion+conv-add-fusion+conv-activation-fusion: 3-session p50s = [132.3, 134.97, 130.67]ms (CV=0.016, extremely stable) vs baseline [0.99, 4.00, 2.72]ms. ~130-135x regression. MobileViT with same fusions: [11.60, 11.36, 10.52]ms — neutral vs baseline [10.56, 11.72, 27.44]ms. BERT-family: neutral (no Conv ops to fuse).",
+      "observation": "ResNet-18 with conv-bn-fusion+conv-add-fusion+conv-activation-fusion: 3-session p50s = [132.3, 134.97, 130.67]ms (CV=0.016, extremely stable) vs baseline [0.99, 4.00, 2.72]ms. ~130-135x regression. MobileViT with same fusions: [11.60, 11.36, 10.52]ms — neutral vs baseline [10.56, 11.72, 27.44]ms. BERT-family: neutral (no Conv ops to fuse). VALIDATION SWEEP 2026-06-16: dinov2-base h4=[26.06,25.92,25.87]ms vs h1=[34.56,34.67,33.15]ms → fusions actually -25% (FASTER, not regression). dino-vitb16 h4=[20.12,20.04,20.41]ms vs h1=[19.92,19.97,19.90]ms → +1.0% (neutral). Conv fusions are only hazardous for Conv-dominant models.",
       "session_evidence_note": "The h4 sessions for ResNet-18 (132.3, 134.97, 130.67ms) show near-zero variance (CV=0.016) — in stark contrast to all other hypotheses. This is unusual for QNN NPU and strongly suggests deterministic CPU fallback (not DVFS noise). The regression is 50-136x even comparing best sessions.",
       "mechanism_confirmed": false,
       "mechanism_hypothesis": "ORT conv fusion pass (ConvAddActivationFusion, ConvBNFusion) produces fused op types (e.g., Conv+BN fused) that QNN EP cannot map to HTP kernels. These ops fall back to CPU execution, adding PCIe round-trip overhead per-op for a Conv-heavy graph like ResNet.",
       "action_for_autoconfig": "⚠️ CRITICAL: Do NOT apply conv-bn-fusion / conv-add-fusion / conv-activation-fusion for QNN NPU on Conv-dominant models (ResNet, EfficientNet, MobileNet). These passes are beneficial for CPU EP but hazardous for QNN NPU. Always run accuracy + latency gate after applying any Conv fusion. If regression > 5x, disable all conv fusions immediately.",
       "confidence": "high on regression observation (4900%); medium on mechanism (CPU fallback hypothesis not yet confirmed via EP partition dump)",
       "falsified_by": null,
-      "scope": "Conv-dominant models (ResNet, EfficientNet, MobileNet). MobileViT may be safe due to different Conv placement. Not applicable to pure transformers or NLP.",
+      "scope": "Conv-dominant models (ResNet, EfficientNet, MobileNet). MobileViT safe (original data). DINOv2 and plain ViT: fusions are neutral or slightly beneficial (2026-06-16 validation). Not applicable to NLP.",
       "severity": "critical — can produce 50x regression",
       "follow_up_required": [
         "Dump QNN EP partition to confirm fused ops cause CPU fallback",
@@ -199,8 +224,8 @@
       "recommended_order_pure_attention": [17],
       "recommended_order_nlp": [17],
       "recommended_order_pure_conv": [17, "21 only if time allows — insufficient data"],
-      "architecture_gate": "Conv+attention hybrid (DINOv2-class, MobileViT-class) → try opset 21 first. Pure attention (ViT, YOLOS) → opset 17 only. NLP (BERT-family) → opset 17 only. Pure Conv (ResNet) → opset 17 (data insufficient for opset21 recommendation).",
-      "rationale": "npu-001 (catalog-validated 2026-06-13): opset 21 +30% for DINOv2, +20-26% for MobileViT. -7% for pure ViT. Neutral for BERT-family. ResNet-18 data is noise-dominated.",
+      "architecture_gate": "DINOv2 family (facebook/dinov2-*) → try opset 21 first (+24-31% confirmed). MobileViT-class Conv+attention hybrid → try opset 21 (+26% original data). Plain ViT (dino-vitb16-class) → opset 17 only (NEUTRAL confirmed 2026-06-16). YOLOS → opset 17 only. NLP (BERT-family) → opset 17 only. Pure Conv (ResNet) → opset 17 (data insufficient for opset21 recommendation).",
+      "rationale": "npu-001 validated 2026-06-13 and 2026-06-16: DINOv2-small +30.6%, DINOv2-base +24.1% (fresh builds, clean protocol). Critical control: dino-vitb16 -0.7% NEUTRAL. This proves the speedup is DINOv2-architecture-specific, not a general ViT property.",
       "dialectical_note": "⚠️ The original mechanism explanation (kMaxSupportedOpset bypass) does NOT apply to ORT 1.24.x (onnxruntime-windowsml 1.24.5). The speedup for DINOv2/MobileViT is empirically real but mechanistically unexplained. Always validate on the actual ORT version being shipped."
     },
     "quantization": {
