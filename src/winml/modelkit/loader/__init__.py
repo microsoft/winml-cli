@@ -27,6 +27,7 @@ Note:
 
 from .config import WinMLLoaderConfig, resolve_loader_config
 from .onnx_hub import resolve_hf_onnx_path
+from .resolution import TaskResolution, TaskSource, resolve_composite, resolve_task
 from .task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
