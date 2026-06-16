@@ -942,17 +942,18 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     if result.memory_profile:
         mem = result.memory_profile
         console.print()
-        console.print(f"[bold]Memory:[/bold]      RAM: {mem['rss_after_inference_mb']:.1f} MB")
+        console.print("[bold]Memory:[/bold]")
         console.print(
-            f"  model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
+            f"  RAM:  {mem['rss_after_inference_mb']:.1f} MB -> "
+            f"model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
             f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
             f"total: {mem['rss_total_delta_mb']:+.1f} MB"
         )
         vram_total = mem.get("vram_after_inference_mb", 0)
         if vram_total > 0:
-            console.print(f"               VRAM: {vram_total:.1f} MB")
             console.print(
-                f"  model load: {mem['vram_model_load_delta_mb']:+.1f} MB  |  "
+                f"  VRAM: {vram_total:.1f} MB -> "
+                f"model load: {mem['vram_model_load_delta_mb']:+.1f} MB  |  "
                 f"inference: {mem['vram_inference_delta_mb']:+.1f} MB  |  "
                 f"total: {mem['vram_total_delta_mb']:+.1f} MB"
             )
