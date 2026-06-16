@@ -187,6 +187,76 @@ def ep_option(required: bool = True, optional_message: str | None = None) -> Cal
     )
 
 
+def ep_options_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add a repeatable ``--ep-options KEY=VALUE`` option to a Click command.
+
+    Collects runtime EP provider options (e.g. QNN ``htp_performance_mode``)
+    that are forwarded to ``add_provider_for_devices`` when the inference
+    session is created. Distinct from build-time provider options set via
+    ``--config``: these affect the runtime session, not the compiled graph.
+
+    Use :func:`parse_ep_options` to turn the collected tuple into a dict.
+
+    Args:
+        optional_message: Extra command-specific guidance appended to help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = (
+        "Runtime EP provider option as KEY=VALUE (repeatable). Forwarded to the "
+        "inference session's execution provider (e.g. "
+        "--ep-options htp_performance_mode=burst). Duplicate keys: later "
+        "occurrence wins."
+    )
+    if optional_message:
+        help_text = f"{help_text} {optional_message}"
+
+    return click.option(
+        "--ep-options",
+        "ep_options",
+        multiple=True,
+        help=help_text,
+    )
+
+
+def parse_ep_options(values: tuple[str, ...]) -> dict[str, str] | None:
+    """Parse ``--ep-options KEY=VALUE`` tuples into a provider-options dict.
+
+    Args:
+        values: Raw values collected by a ``multiple=True`` Click option.
+
+    Surrounding whitespace is stripped from both key and value. Duplicate
+    keys follow last-write-wins semantics (the later occurrence wins).
+
+    Returns:
+        Mapping of option name to value, or ``None`` when nothing was provided
+        (so callers can leave the session default untouched).
+
+    Raises:
+        click.BadParameter: If any value is missing the ``=`` separator or has
+            an empty key.
+    """
+    if not values:
+        return None
+    options: dict[str, str] = {}
+    for item in values:
+        if "=" not in item:
+            raise click.BadParameter(
+                f"Invalid EP option format: '{item}'. Use KEY=VALUE.",
+                param_hint="--ep-options",
+            )
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise click.BadParameter(
+                f"Invalid EP option format: '{item}'. Key cannot be empty.",
+                param_hint="--ep-options",
+            )
+        options[key] = value.strip()
+    return options
+
+
 def device_option(
     required: bool = True,
     optional_message: str | None = None,

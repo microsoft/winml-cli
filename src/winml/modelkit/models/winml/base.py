@@ -68,6 +68,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         device: str = "auto",
         session_options: Any | None = None,
         ep: EPNameOrAlias | None = None,
+        provider_options: dict[str, str] | None = None,
     ) -> None:
         """Initialize inference model.
 
@@ -78,6 +79,9 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
             session_options: Factory returning an ORT SessionOptions (e.g., for
                 graph_optimization_level). Called fresh per ORT session.
             ep: Explicit EP short name (e.g., "dml", "qnn"). Forwarded to WinMLSession.
+            provider_options: Runtime EP provider options (e.g. QNN
+                ``htp_performance_mode``). Forwarded to WinMLSession and on to
+                ``add_provider_for_devices``.
         """
         self._onnx_path = Path(onnx_path)
         self.config = config
@@ -92,6 +96,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
             device=device,
             session_options=session_options,
             ep=ep,
+            provider_options=provider_options,
         )
 
     @property

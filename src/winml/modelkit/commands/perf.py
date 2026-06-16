@@ -84,6 +84,7 @@ class BenchmarkConfig:
     allow_unsupported_nodes: bool = False
     monitor: bool = False
     ep: EPNameOrAlias | None = None
+    ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
 
 
@@ -147,6 +148,7 @@ class BenchmarkResult:
                 "task": self.actual_task,
                 "device": self.actual_device,
                 "ep": self.actual_ep,
+                "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
@@ -368,6 +370,7 @@ class PerfBenchmark:
             "device": self.config.device,
             "precision": self.config.precision,
             "ep": self.config.ep,
+            "provider_options": self.config.ep_options,
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
             "shape_config": self.config.shape_config,
@@ -554,6 +557,7 @@ def _perf_modules(
     monitor: bool = False,
     device: str = "auto",
     ep: EPNameOrAlias | None = None,
+    ep_options: dict[str, str] | None = None,
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
 ) -> None:
@@ -578,6 +582,8 @@ def _perf_modules(
         device: Target device policy ("auto", "cpu", "gpu", "npu").
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
             device-to-provider mapping when set.
+        ep_options: Runtime EP provider options (e.g. QNN
+            ``htp_performance_mode``) forwarded to each per-module session.
         precision: Precision mode passed through to the build stage.
         allow_unsupported_nodes: If True, warn instead of failing the build when
             the analyzer reports unsupported nodes that persist.
@@ -687,6 +693,7 @@ def _perf_modules(
                     str(build_result.final_onnx_path),
                     device=resolved_device,
                     ep=ep,
+                    provider_options=ep_options,
                 )
                 io_cfg = session.io_config
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
@@ -1063,6 +1070,9 @@ def _run_simple_loop(
     required=False,
     optional_message="Overrides device-to-provider mapping.",
 )
+@cli_utils.ep_options_option(
+    optional_message="Applied to both HuggingFace model IDs and ONNX file inputs.",
+)
 @cli_utils.output_option(
     "Output JSON file path. Defaults to "
     "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
@@ -1144,6 +1154,7 @@ def perf(
     device: str,
     precision: str,
     ep: EPNameOrAlias | None,
+    ep_options: tuple[str, ...],
     output: Path | None,
     batch_size: int,
     shape_config_path: Path | None,
@@ -1185,6 +1196,9 @@ def perf(
         # Text model with explicit task
         winml perf -m bert-base-uncased --task text-classification
 
+        # Pass runtime EP provider options (repeatable)
+        winml perf -m model.onnx --device npu --ep-options htp_performance_mode=burst
+
         # Per-module benchmarking
         winml perf -m bert-base-uncased --module BertAttention
 
@@ -1210,6 +1224,10 @@ def perf(
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
+
+    # Runtime EP provider options (e.g. QNN htp_performance_mode) forwarded to
+    # the inference session for both HF model IDs and ONNX file inputs.
+    ep_provider_options = cli_utils.parse_ep_options(ep_options)
 
     json_mode = output_format == "json"
     console = Console(stderr=True) if json_mode else Console()
@@ -1248,6 +1266,7 @@ def perf(
             monitor=monitor,
             device=device.lower(),
             ep=ep,
+            ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
         )
@@ -1295,6 +1314,7 @@ def perf(
         allow_unsupported_nodes=allow_unsupported_nodes,
         monitor=monitor,
         ep=ep,
+        ep_options=ep_provider_options,
         shape_config=shape_config,
     )
 
