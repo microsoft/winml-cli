@@ -27,11 +27,17 @@
       "title": "opset 21 export gives +24-31% speedup on DINOv2 family models on QNN NPU — mechanism UNKNOWN, NOT a general ViT property",
       "observation": "Catalog sweep 2026-06-13 + validation sweep 2026-06-16 (ORT 1.24.5, W8A16 quantized.onnx, 3×500-iter sessions): DINOv2-small +30.6% (opset17 7.18ms → opset21 4.98ms). DINOv2-base +24.1% (opset17 34.56ms → opset21 26.23ms). CRITICAL CONTROL: dino-vitb16 (plain DINO ViT-B/16) -0.7% — NEUTRAL. rad-dino (ViT-L medical) -0.1% — CPU-bound, no NPU effect. MobileViT-small +26.5% original data (DVFS spike caveat). ViT-base: -7.4%. BERT/RoBERTa/DistilBERT: neutral.",
       "mechanism_confirmed": false,
+      "mechanism_invalidation": "Original hypothesis: kMaxSupportedOpset < 21 gate causes NHWC bypass on older ORT. INVALIDATED: sweep used onnxruntime-windowsml==1.24.5 where kMaxSupportedOpset >= 22. Both opset 17 and opset 21 go through the same NHWC layout transform path on this ORT version. The bypass mechanism does NOT apply. The observed speedup is real but the cause is unknown.",
       "mechanism_status": "ORIGINAL_MECHANISM_INVALIDATED — must re-investigate",
       "mechanism_source": "ORT source code investigation (2026-06-10) for ORT < 1.18. Sweep used onnxruntime-windowsml==1.24.5 where this mechanism no longer applies.",
       "ort_version_critical_note": "The original mechanism (kMaxSupportedOpset gate in IsSupportedOpset()) requires kMaxSupportedOpset < 21. onnxruntime-windowsml==1.24.5 (ORT 1.24.x) has kMaxSupportedOpset >= 22, so BOTH opset17 and opset21 go through the NHWC layout transform. The bypass mechanism does NOT apply to the ORT version used in the sweep. The observed speedup for DINOv2 and MobileViT has an UNKNOWN root cause.",
       "architecture_requirement": ["empirically: DINOv2 family (facebook/dinov2-*) consistently benefits. Plain ViT (dino-vitb16) does NOT. Hybrid Conv+attention (MobileViT) showed speedup in original data. Pure Conv (ResNet) insufficient data. NLP: neutral."],
-      "architecture_discriminant_note": "⚠️ KEY FINDING: opset21 speedup is NOT a general ViT property. dino-vitb16 (plain DINO ViT-B/16, same size as dinov2-base) shows -0.7% — noise-level NEUTRAL. DINOv2 variants consistently show +24-31%. The discriminating architectural factor is not yet identified — may be DINOv2-specific LayerNorm/attention op variants, or differences in how the PyTorch exporter serializes the computation graph at opset21.",
+      "critical_caveats": [
+        "MECHANISM UNKNOWN: The perf gain is observed but not explained. Do NOT cite a mechanism until the optimized graph diff (opset17 vs opset21 Transpose node count) is confirmed.",
+        "RESNET-18 EXCLUDED: apparent +20% is statistical noise — 3 sessions span 4x range at sub-ms latency. Need 3 sessions × 2000 iters for reliable data at this scale.",
+        "DVFS NOISE: always use 3 sessions × 500+ iters with cool-down. Single-session CV is meaningless on QNN NPU.",
+        "SCOPE IS DINOVS2-FAMILY NOT GENERAL VIT: dino-vitb16 (same ViT-B size as dinov2-base) shows -0.7% NEUTRAL. The speedup is DINOv2-architecture-specific."
+      ],
       "validated_models": {
         "benefits_from_opset21": [
           "facebook/dinov2-small (+30.6%, original catalog sweep 2026-06-13, 3-session)",
@@ -104,7 +110,7 @@
         }
       },
       "action_for_autoconfig": "Include opset 21 in search for DINOv2-family models (facebook/dinov2-*). Likely worthwhile for MobileViT-class Conv+attention hybrids. Do NOT apply to plain ViT (dino-vitb16-class), YOLOS, or NLP (BERT-family). For ResNet-class Conv-only: insufficient data. ALWAYS dump optimized graph to compare Transpose counts if speedup is unexpected.",
-      "confidence": "high on empirical observation (DINOv2-small and DINOv2-base both confirmed with fresh separate builds, clean 3-session protocol). Low on mechanism — original explanation does not apply to ORT 1.24.x. Mechanism must be re-investigated. Scope: DINOv2 family only until mechanism is understood.",
+      "confidence": "medium-high on empirical observation (DINOv2-small +30.6% and DINOv2-base +24.1% both confirmed with clean 3-session protocol, fresh builds). Low on mechanism — original explanation does not apply to ORT 1.24.x. Mechanism must be re-investigated. Scope: DINOv2 family only until mechanism is understood.",
       "falsified_by": null,
       "scope": "ORT 1.24.5 (onnxruntime-windowsml). DINOv2-small and DINOv2-base confirmed. MobileViT-small likely. Does NOT apply to plain ViT (dino-vitb16 confirmed NEUTRAL), YOLOS-small, BERT-family, CPU-bound models (rad-dino). ResNet-18 data inconclusive.",
       "tracked_issue": "#869",
@@ -137,7 +143,8 @@
       "confidence": "medium — mechanism is well-understood (HTP architecture), but 1.9x magnitude is from 1 model only. Speedup will vary by architecture.",
       "falsified_by": null,
       "scope": "ConvNext only — single model validation. The catalog sweep used W8A16 for all 8 models but did not include FP32 baselines for those models, so the 1.9x figure cannot be generalized. Need FP32 baseline runs on at least 3 diverse models before claiming 'most vision models'.",
-      "do_not_generalize_to": "Models with unusual op types not supported by QNN W8A16 path. Magnitude claim (1.9x) is ConvNext-specific."
+      "do_not_generalize_to": "Models with unusual op types not supported by QNN W8A16 path. Magnitude claim (1.9x) is ConvNext-specific.",
+      "follow_up_required": ["Measure FP32 baseline for MobileViT, DINOv2, ResNet-18 to verify speedup generalizes"]
     },
 
     {
@@ -149,7 +156,8 @@
       "action_for_autoconfig": "Always run winml compile after finding best quantized config for QNN NPU.",
       "confidence": "medium — mechanism is well-understood (EPContext documented by QNN SDK). 1.7x magnitude is ConvNext-specific. Simpler models may see less benefit; complex models may see more.",
       "falsified_by": null,
-      "scope": "ConvNext only — single model validation. Mechanism generalizes; magnitude (1.7x) does not. The catalog sweep results.json baseline p50 values already include the effects of whatever auto-config winml chose (which may or may not include compile) — not directly comparable."
+      "scope": "ConvNext only — single model validation. Mechanism generalizes; magnitude (1.7x) does not. The catalog sweep results.json baseline p50 values already include the effects of whatever auto-config winml chose (which may or may not include compile) — not directly comparable.",
+      "follow_up_required": ["Verify compile speedup on MobileViT and DINOv2"]
     },
 
     {
@@ -158,8 +166,8 @@
       "observation": "W8A8 quantization was attempted on ConvNext. The experiment was aborted early — exact accuracy numbers were NOT recorded. The claim 'top-1 < 15%' is a recalled anecdote from the experimenter, not a measured result.",
       "mechanism_confirmed": false,
       "mechanism_hypothesis": "ConvNext uses LayerNormalization + GELU in every block. Quantizing both weights AND activations to INT8 in these ops introduces severe numerical error. However, this is a hypothesis — the aborted experiment does not confirm or refute it.",
-      "action_for_autoconfig": "Treat W8A8 as potentially risky for LN+GELU-heavy models. Run accuracy gate (winml eval) before deploying W8A8. If top-1 drops > 5 points vs W8A16, discard W8A8.",
-      "confidence": "very_low — unrecorded anecdote; no numerical evidence. Must re-run the experiment and record results before promoting to 'finding'.",
+      "action_for_autoconfig": "Treat as anecdotal. Do NOT use this to skip W8A8 without running eval first. If W8A8 top-1 drops > 15 points vs W8A16 baseline on first attempt, then skip.",
+      "confidence": "very_low — anecdotal, no preserved data, experiment not reproducible as recorded",
       "falsified_by": null,
       "scope": "UNVALIDATED. May apply to models with LN+GELU blocks but this is unconfirmed.",
       "do_not_generalize_to": "BERT/ResNet models where W8A8 is often fine",
@@ -220,7 +228,7 @@
 
   "search_space_rules": {
     "opset": {
-      "recommended_order_conv_attention_hybrid": [21, 17],
+      "recommended_order_conv_residual": [21, 17],
       "recommended_order_pure_attention": [17],
       "recommended_order_nlp": [17],
       "recommended_order_pure_conv": [17, "21 only if time allows — insufficient data"],
