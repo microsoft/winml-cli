@@ -392,6 +392,10 @@ markers = [
   "requires_network: Tests requiring network access (alias for network)",
   "memory_intensive: Tests requiring >2GB memory",
 
+  # Command Capability Markers
+  "e2e_run: E2E tests for 'winml run' (disabled by default — command not yet enabled)",
+  "e2e_serve: E2E tests for 'winml serve' (disabled by default — command not yet enabled)",
+
   # Hardware Markers
   "npu: Tests requiring NPU hardware",
   "gpu: Tests requiring GPU hardware",
