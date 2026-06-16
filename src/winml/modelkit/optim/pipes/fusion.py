@@ -14,7 +14,7 @@ from __future__ import annotations
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 
 if TYPE_CHECKING:
@@ -70,7 +70,7 @@ class ORTFusionPipeConfig(PipeConfig):
     fuse_rmsnorm: bool = False
 
 
-class ORTFusionPipe(BasePipe):
+class ORTFusionPipe(BasePipe[ORTFusionPipeConfig]):
     """Fusion optimization pipe using ORT FusionOptions."""
 
     name: ClassVar[str] = "ort_fusion"
@@ -290,7 +290,7 @@ class ORTFusionPipe(BasePipe):
 
                 FusionRMSNorm(optimized).apply()
 
-            return optimized.model
+            return cast("onnx.ModelProto", optimized.model)
 
         except Exception as e:
             raise OptimizationError(

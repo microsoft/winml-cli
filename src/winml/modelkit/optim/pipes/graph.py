@@ -291,7 +291,7 @@ class ORTGraphPipeConfig(PipeConfig):
 # =============================================================================
 
 
-class ORTGraphPipe(BasePipe):
+class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
     """Graph optimization pipe using ORT SessionOptions.
 
     This pipe applies graph-level optimizations by:

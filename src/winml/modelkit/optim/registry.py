@@ -16,6 +16,13 @@ The module supports:
 - Configuration validation
 """
 
+# The isinstance() guards in each capability's __post_init__ are unreachable per
+# the (statically-typed) field annotations, but are kept as runtime validation:
+# dataclass construction does not enforce field types, and tests in
+# test_registry_cli.py exercise these TypeError paths. Silence [unreachable] here
+# only; other mypy errors are still reported.
+# mypy: disable-error-code="unreachable"
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -174,8 +174,13 @@ def extract_hierarchy(model_id: str) -> HierarchyInfo:
         module: nn.Module,
         depth: int,
         parent_path: str = "",
-    ) -> ModuleInfo | None:
-        """Recursively process modules, filtering out torch.nn modules."""
+    ) -> ModuleInfo | list[ModuleInfo] | None:
+        """Recursively process modules, filtering out torch.nn modules.
+
+        Returns a single ``ModuleInfo`` for an HF module, a ``list[ModuleInfo]``
+        of HF descendants propagated up through a skipped ``nn`` module, or
+        ``None`` when no HF module is found in this subtree.
+        """
         nonlocal hf_module_count, nn_module_count
 
         full_path = f"{parent_path}.{name}" if parent_path else name

@@ -57,7 +57,7 @@ def _init_custom_schemas(domains: set[str] | None = None) -> None:
         return
 
     try:
-        from onnxruntime.capi.onnxruntime_pybind11_state import (  # type: ignore[import]
+        from onnxruntime.capi.onnxruntime_pybind11_state import (
             get_all_operator_schema,
         )
     except ImportError:
@@ -85,7 +85,8 @@ def _init_custom_schemas(domains: set[str] | None = None) -> None:
                     inp.name,
                     inp.typeStr,
                     inp.description,
-                    param_option=OpSchema.FormalParameterOption(inp.option.value),
+                    # onnx's pybind11 enum stubs don't model value-lookup construction
+                    param_option=OpSchema.FormalParameterOption(inp.option.value),  # type: ignore[call-arg]
                 )
                 for inp in ort_schema.inputs
             ]
@@ -94,7 +95,8 @@ def _init_custom_schemas(domains: set[str] | None = None) -> None:
                     out.name,
                     out.typeStr,
                     out.description,
-                    param_option=OpSchema.FormalParameterOption(out.option.value),
+                    # onnx's pybind11 enum stubs don't model value-lookup construction
+                    param_option=OpSchema.FormalParameterOption(out.option.value),  # type: ignore[call-arg]
                 )
                 for out in ort_schema.outputs
             ]
@@ -105,7 +107,8 @@ def _init_custom_schemas(domains: set[str] | None = None) -> None:
             attributes = [
                 OpSchema.Attribute(
                     attr.name,
-                    OpSchema.AttrType(attr.type.value),
+                    # onnx's pybind11 enum stubs don't model value-lookup construction
+                    OpSchema.AttrType(attr.type.value),  # type: ignore[call-arg]
                     attr.description,
                     required=attr.required,
                 )

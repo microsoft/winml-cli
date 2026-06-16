@@ -72,7 +72,7 @@ class SurgeryPipeConfig(PipeConfig):
 # =============================================================================
 
 
-class SurgeryPipe(BasePipe):
+class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
     """Surgery pipe for precise model modifications.
 
     This pipe performs targeted graph transformations to prepare models
@@ -302,9 +302,9 @@ class SurgeryPipe(BasePipe):
             for i, inp in enumerate(node.input):
                 if inp in rewire_map:
                     node.input[i] = rewire_map[inp]
-        for out in model.graph.output:
-            if out.name in rewire_map:
-                out.name = rewire_map[out.name]
+        for graph_out in model.graph.output:
+            if graph_out.name in rewire_map:
+                graph_out.name = rewire_map[graph_out.name]
 
         # Remove dead nodes
         remove_ids = {id(n) for n in nodes_to_remove}

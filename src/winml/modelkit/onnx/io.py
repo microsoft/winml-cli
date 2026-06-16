@@ -110,7 +110,7 @@ class InputTensorSpec:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
-        result = {}
+        result: dict[str, Any] = {}
         if self.name is not None:
             result["name"] = self.name
         if self.dtype is not None:
@@ -244,7 +244,7 @@ def get_io_config(
             dtype = ONNX_ELEM_TYPE_TO_NUMPY.get(tensor_type.elem_type, np.dtype("float32"))
 
             # Extract shape (None for dynamic dims)
-            shape = []
+            shape: list[int | None] = []
             if tensor_type.HasField("shape"):
                 for dim in tensor_type.shape.dim:
                     if dim.HasField("dim_value"):

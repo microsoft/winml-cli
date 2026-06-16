@@ -37,13 +37,14 @@ from onnxruntime.transformers.fusion_base import Fusion
 
 
 if TYPE_CHECKING:
+    from onnx import NodeProto
     from onnxruntime.transformers.onnx_model import OnnxModel
 
 
 logger = logging.getLogger(__name__)
 
 
-class FusionRMSNorm(Fusion):
+class FusionRMSNorm(Fusion):  # type: ignore[misc]  # ORT Fusion base ships no stubs (Any)
     """Replace decomposed RMSNorm with LpNormalization(p=2).
 
     Searches backward from Mul nodes (the final weight scaling) to find
@@ -54,7 +55,12 @@ class FusionRMSNorm(Fusion):
     def __init__(self, model: OnnxModel) -> None:
         super().__init__(model, "LpNormalization", "Mul", "FuseRMSNorm")
 
-    def fuse(self, node, input_name_to_nodes, output_name_to_node) -> None:
+    def fuse(
+        self,
+        node: NodeProto,
+        input_name_to_nodes: dict[str, list[NodeProto]],
+        output_name_to_node: dict[str, NodeProto],
+    ) -> None:
         """Match RMSNorm pattern and replace with LpNormalization."""
         # The weight Mul: Mul(weight_initializer, normalized_output)
         weight_index = self._find_weight_input(node)
@@ -155,7 +161,7 @@ class FusionRMSNorm(Fusion):
 
         self.increase_counter("RMSNorm")
 
-    def _find_weight_input(self, mul_node) -> int | None:
+    def _find_weight_input(self, mul_node: NodeProto) -> int | None:
         """Find which Mul input is an initializer weight. Returns index or None."""
         for i, inp in enumerate(mul_node.input):
             if self.model.get_initializer(inp) is not None:

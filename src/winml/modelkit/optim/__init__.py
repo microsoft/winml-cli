@@ -24,6 +24,8 @@ Example:
 
 from __future__ import annotations
 
+from typing import Any
+
 from .api import optimize_onnx
 from .config import WinMLOptimizationConfig
 from .errors import ConfigurationError, ModelValidationError, OptimizationError
@@ -59,7 +61,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load pipe utilities that pull in heavy dependencies."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]

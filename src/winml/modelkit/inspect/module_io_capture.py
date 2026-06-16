@@ -13,10 +13,14 @@ from __future__ import annotations
 import inspect
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import nn
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 logger = logging.getLogger(__name__)
@@ -105,9 +109,9 @@ def capture_module_io(
 
         def make_hook(
             mod_name: str, cls_name: str, fwd_params: list[str],
-        ):
+        ) -> Callable[[nn.Module, tuple[Any, ...], dict[str, Any], Any], None]:
             def hook(
-                mod: nn.Module, args: tuple, kwargs: dict, output: Any,
+                mod: nn.Module, args: tuple[Any, ...], kwargs: dict[str, Any], output: Any,
             ) -> None:
                 info = ModuleIOInfo(class_name=cls_name, module_path=mod_name)
 
