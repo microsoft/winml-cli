@@ -886,7 +886,6 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         console.print("[bold]Hardware (during benchmark)[/bold]")
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
-        dev_mem = result.hw_monitor.get("device_memory", {})
         # to_dict() emits both "npu" (always) and "gpu" (when monitoring GPU).
         # device_kind is None when CPU/RAM-only — drop the adapter line entirely
         # rather than printing zeroed "NPU: 0.0% avg".
@@ -898,10 +897,6 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
                 f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
                 f"Mem: {ram.get('used_mb', 0):.0f} MB"
-            )
-            console.print(
-                f"  Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
-                f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
             )
         else:
             console.print(
