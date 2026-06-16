@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
 
 import snakemd
 
@@ -53,9 +54,9 @@ class MarkdownReportWriter(StepAwareWriter):
         self.doc = snakemd.new_doc()
 
         # Store step data for final report generation
-        self._step_results = {}
+        self._step_results: dict[ExportStep, dict[str, Any]] = {}
         self._start_time = time.time()
-        self._export_data = None  # Will be set on first write
+        self._export_data: ExportData | None = None  # Will be set on first write
         self._report_generated = False  # Track if report was generated
 
     def _write_default(self, export_step: ExportStep, data: ExportData) -> int:
@@ -421,8 +422,8 @@ class MarkdownReportWriter(StepAwareWriter):
         self.doc.add_heading("Module List (Sorted by Execution Order)", level=3)
 
         # Count direct and total nodes for each module if available
-        direct_counts = {}
-        total_counts = {}
+        direct_counts: dict[str, int] = {}
+        total_counts: dict[str, int] = {}
         if data.node_tagging and data.node_tagging.tagged_nodes:
             direct_counts, total_counts = count_direct_and_total_nodes(
                 data.node_tagging.tagged_nodes

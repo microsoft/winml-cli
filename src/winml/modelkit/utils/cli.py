@@ -187,6 +187,76 @@ def ep_option(required: bool = True, optional_message: str | None = None) -> Cal
     )
 
 
+def ep_options_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add a repeatable ``--ep-options KEY=VALUE`` option to a Click command.
+
+    Collects runtime EP provider options (e.g. QNN ``htp_performance_mode``)
+    that are forwarded to ``add_provider_for_devices`` when the inference
+    session is created. Distinct from build-time provider options set via
+    ``--config``: these affect the runtime session, not the compiled graph.
+
+    Use :func:`parse_ep_options` to turn the collected tuple into a dict.
+
+    Args:
+        optional_message: Extra command-specific guidance appended to help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = (
+        "Runtime EP provider option as KEY=VALUE (repeatable). Forwarded to the "
+        "inference session's execution provider (e.g. "
+        "--ep-options htp_performance_mode=burst). Duplicate keys: later "
+        "occurrence wins."
+    )
+    if optional_message:
+        help_text = f"{help_text} {optional_message}"
+
+    return click.option(
+        "--ep-options",
+        "ep_options",
+        multiple=True,
+        help=help_text,
+    )
+
+
+def parse_ep_options(values: tuple[str, ...]) -> dict[str, str] | None:
+    """Parse ``--ep-options KEY=VALUE`` tuples into a provider-options dict.
+
+    Args:
+        values: Raw values collected by a ``multiple=True`` Click option.
+
+    Surrounding whitespace is stripped from both key and value. Duplicate
+    keys follow last-write-wins semantics (the later occurrence wins).
+
+    Returns:
+        Mapping of option name to value, or ``None`` when nothing was provided
+        (so callers can leave the session default untouched).
+
+    Raises:
+        click.BadParameter: If any value is missing the ``=`` separator or has
+            an empty key.
+    """
+    if not values:
+        return None
+    options: dict[str, str] = {}
+    for item in values:
+        if "=" not in item:
+            raise click.BadParameter(
+                f"Invalid EP option format: '{item}'. Use KEY=VALUE.",
+                param_hint="--ep-options",
+            )
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise click.BadParameter(
+                f"Invalid EP option format: '{item}'. Key cannot be empty.",
+                param_hint="--ep-options",
+            )
+        options[key] = value.strip()
+    return options
+
+
 def device_option(
     required: bool = True,
     optional_message: str | None = None,
@@ -365,6 +435,40 @@ def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F
         show_default=True,
         help=help_text,
         callback=_warn_callback,
+    )
+
+
+def compile_option(
+    default: bool | None = None,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add shared ``--no-compile/--compile`` toggle to a Click command.
+
+    The flag is exposed as the ``no_compile`` parameter. Note the inverted
+    sense — ``--no-compile`` maps to ``no_compile=True``:
+
+        * ``--no-compile`` -> ``no_compile=True``  (force skip compilation)
+        * ``--compile``    -> ``no_compile=False`` (force enable compilation)
+
+    Args:
+        default: Value for ``no_compile`` when neither flag is passed.
+            ``None`` -> tri-state inherit (e.g. ``winml build`` inherits from
+            the config file); ``True`` -> exclude compilation by default
+            (e.g. ``winml config`` omits the compile section).
+        help_text: Command-specific help string. Falls back to a generic
+            description when not provided.
+
+    Returns:
+        Decorator function.
+    """
+    if help_text is None:
+        help_text = "Override compilation. --compile forces enable; --no-compile forces skip."
+
+    return click.option(
+        "--no-compile/--compile",
+        "no_compile",
+        default=default,
+        help=help_text,
     )
 
 

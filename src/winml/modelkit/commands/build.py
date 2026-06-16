@@ -141,7 +141,7 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
     """
     from ..loader import resolve_loader_config
 
-    _, hf_config, resolved_class_typed = resolve_loader_config(
+    _, hf_config, resolved_class_typed, _resolution = resolve_loader_config(
         model_type=model_type,
         task=task,
     )
@@ -454,11 +454,9 @@ def _validate_loader_tasks_for_model(
     show_default=True,
     help="Enable quantization (use --no-quant to skip, overrides config)",
 )
-@click.option(
-    "--no-compile/--compile",
-    "no_compile",
+@cli_utils.compile_option(
     default=None,
-    help="Override compilation. --compile forces enable (config must have a compile section). "
+    help_text="Override compilation. --compile forces enable (config must have a compile section). "
     "--no-compile forces skip. Default: inherit from config; when auto-generating "
     "config (no -c), compilation is off unless --compile is passed.",
 )
@@ -1356,6 +1354,8 @@ def _build_hf_pipeline(
             config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
         )
         t0 = time.monotonic()
+        # config.export is None only for the ONNX build path; this is the HF path.
+        assert config.export is not None, "HF build path requires config.export"
         export_onnx(
             model=pytorch_model,
             output_path=export_path,

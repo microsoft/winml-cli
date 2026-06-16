@@ -137,6 +137,7 @@ class WinMLSession:
         ep_config: EPConfig | None = None,
         *,
         ep: EPNameOrAlias | None = None,
+        provider_options: dict[str, str] | None = None,
         session_options: Callable[[], ort.SessionOptions] | None = None,
     ) -> None:
         """Initialize WinMLSession.
@@ -153,6 +154,11 @@ class WinMLSession:
             ep: Explicit EP short name (e.g., "migraphx", "nv_tensorrt_rtx").
                 When set, bypasses policy-based selection and uses
                 add_provider_for_devices to force the specific EP.
+            provider_options: Runtime EP provider options merged on top of any
+                ``ep_config.provider_options`` and forwarded to
+                ``add_provider_for_devices`` (e.g. QNN ``htp_performance_mode``).
+                Unlike ``ep_config``, this does not affect EPContext persistence —
+                it only tunes the runtime session.
             session_options: Factory returning an ``ort.SessionOptions``.
                 Called once per ``_build_session_options`` invocation so each
                 ORT session gets a fresh, un-poisoned options object
@@ -170,7 +176,11 @@ class WinMLSession:
         self._ep = ep
         self._persist_jit = ep_config.enable_ep_context if ep_config else False
         self._embed_context = ep_config.embed_context if ep_config else False
-        self._provider_options = ep_config.provider_options if ep_config else {}
+        self._provider_options = dict(ep_config.provider_options) if ep_config else {}
+        # Runtime provider options (e.g. from --ep-options) merge on top of and
+        # override any build-time options carried by ep_config.
+        if provider_options:
+            self._provider_options.update(provider_options)
 
         self._session_options_factory: Callable[[], ort.SessionOptions] = (
             session_options or ort.SessionOptions
@@ -182,6 +192,10 @@ class WinMLSession:
 
         # Single session (one session = one EP)
         self._session: ort.InferenceSession | None = None
+
+        # ONNX model ORT actually loads (set during compile()). May differ from
+        # _onnx_path when an EPContext model is compiled or a cached one reused.
+        self._running_model_path: Path | None = None
 
         # Cached I/O metadata (lazy-loaded)
         self._io_config: dict | None = None
@@ -275,8 +289,11 @@ class WinMLSession:
             actual_providers,
         )
 
-        # Store session
+        # Store session. Record the model ORT actually loaded (original or
+        # EPContext) only after the session is successfully created, so a
+        # failed compile leaves running_model_path unset rather than stale.
         self._session = session
+        self._running_model_path = model_path
         self._state = SessionState.COMPILED
 
         # Resolve device label from the primary provider ORT actually selected
@@ -384,11 +401,12 @@ class WinMLSession:
         opts = self._session_options_factory()
         if add_ep_for_device(opts, resolved_ep, device_type, self._provider_options):
             logger.info(
-                "Built SessionOptions with EP: %s (%s) device=%s -> %s",
+                "Built SessionOptions with EP: %s (%s) device=%s -> %s provider_options=%s",
                 resolved_ep,
                 self._ep,
                 device,
                 resolved_device,
+                self._provider_options,
             )
             return opts, resolved_device, resolved_ep
 
@@ -504,6 +522,16 @@ class WinMLSession:
     def is_compiled(self) -> bool:
         """Check if session is compiled."""
         return self._session is not None
+
+    @property
+    def running_model_path(self) -> Path:
+        """Path to the ONNX model ORT actually loads.
+
+        May differ from the input ``onnx_path`` when an EPContext model is
+        compiled or a cached one is reused. Falls back to the input path
+        before ``compile()`` runs.
+        """
+        return self._running_model_path or self._onnx_path
 
     @property
     def perf_stats(self) -> PerfStats | None:

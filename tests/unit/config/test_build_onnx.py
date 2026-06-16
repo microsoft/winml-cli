@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from transformers import BertConfig
 
 # Import models package to trigger ONNX config registration with TasksManager
 import winml.modelkit.models  # noqa: F401
@@ -155,13 +156,16 @@ class TestConfigOnnxAutoDetect:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
