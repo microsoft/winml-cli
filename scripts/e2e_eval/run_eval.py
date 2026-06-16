@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import json
 import logging
 import os
@@ -477,6 +478,73 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
+# winml's optimize stage requires opset >= 12 (see
+# winml.modelkit.analyze.models.onnx_model.validate_opset_version). Pre-exported
+# ONNX below this is upgraded to a modern opset before config/build. 17 matches
+# winml's own default export opset.
+_WINML_MIN_OPSET = 12
+_OPSET_UPGRADE_TARGET = 17
+
+
+def _ensure_min_opset(onnx_path: str, model_dir: Path) -> str:
+    """Upgrade an ONNX file to winml's minimum opset if it ships below it.
+
+    Some pre-exported ONNX models (e.g. PaddleOCR's ``inference.onnx``) ship at
+    opset 11. onnxruntime can run them, but winml's optimize stage rejects
+    opset < 12. Convert to :data:`_OPSET_UPGRADE_TARGET` and write the result
+    into ``model_dir`` so config/build consume the upgraded graph. Models already
+    at/above the minimum are returned unchanged (no needless rewrite).
+    """
+    import onnx
+
+    model = onnx.load(onnx_path)
+    current = max(
+        (imp.version for imp in model.opset_import if imp.domain in ("", "ai.onnx")),
+        default=0,
+    )
+    if current >= _WINML_MIN_OPSET:
+        return onnx_path
+
+    from onnx import version_converter
+
+    safe_print(
+        f"    [onnx] opset {current} < {_WINML_MIN_OPSET} (winml minimum); "
+        f"upgrading to opset {_OPSET_UPGRADE_TARGET} ..."
+    )
+    upgraded = version_converter.convert_version(model, _OPSET_UPGRADE_TARGET)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    out_path = model_dir / f"{Path(onnx_path).stem}_op{_OPSET_UPGRADE_TARGET}.onnx"
+    onnx.save(upgraded, str(out_path))
+    safe_print(f"    [onnx] upgraded ONNX: {out_path}")
+    return str(out_path)
+
+
+def _resolve_model_input(entry: ModelEntry, model_dir: Path) -> str:
+    """Return the value to pass to winml's ``-m`` argument for this model.
+
+    For models that ship a pre-exported ONNX (``entry.onnx_file`` set, e.g. the
+    PaddleOCR ``*_onnx`` repos), download that file from the HF repo and return
+    its local path. winml config/build/perf accept a local ``.onnx`` path
+    directly (``is_onnx_file_path`` routes to the skip-export pipeline), so the
+    harness hands them the downloaded file instead of the HF id — avoiding the
+    HF->ONNX export that these architectures don't support. The file is upgraded
+    to winml's minimum opset first when necessary (see :func:`_ensure_min_opset`).
+
+    Otherwise return ``entry.hf_id`` unchanged.
+    """
+    if not entry.onnx_file:
+        return entry.hf_id
+
+    # Lazy import: keeps script load cheap and matches the in-function import
+    # pattern used elsewhere in this module.
+    from huggingface_hub import hf_hub_download
+
+    safe_print(f"    [onnx] downloading {entry.onnx_file} from {entry.hf_id} ...")
+    local_path = hf_hub_download(repo_id=entry.hf_id, filename=entry.onnx_file)
+    safe_print(f"    [onnx] using pre-exported ONNX: {local_path}")
+    return _ensure_min_opset(local_path, model_dir)
+
+
 def _run_build(
     entry: ModelEntry,
     device: str,
@@ -506,12 +574,33 @@ def _run_build(
         safe_print(f"    [config] Removing stale sub-config from prior run: {_stale.name}")
         _stale.unlink(missing_ok=True)
 
+    # Resolve the -m argument shared by config + build. For onnx_file models this
+    # downloads the pre-exported ONNX (upgrading opset if needed) and returns its
+    # local path; otherwise it is the HF id. Failures surface as a synthetic build
+    # failure so the run continues to the next model instead of crashing.
+    try:
+        model_input = _resolve_model_input(entry, model_dir)
+    except Exception as exc:
+        return {
+            "success": False,
+            "onnx_paths": {},
+            "stage": "onnx_prepare",
+            "proc": {
+                "stdout": "",
+                "stderr": f"ONNX prepare failed for {entry.hf_id}/{entry.onnx_file}: {exc}",
+                "exit_code": -1,
+                "elapsed": 0,
+                "timeout": False,
+                "command": f"hf_hub_download({entry.hf_id}, {entry.onnx_file})",
+            },
+        }
+
     # Step 1: winml config
     config_args = [
         *WINML_CLI,
         "config",
         "-m",
-        entry.hf_id,
+        model_input,
         "--device",
         device,
         "-o",
@@ -563,11 +652,18 @@ def _run_build(
             "-c",
             str(sub_cfg),
             "-m",
-            entry.hf_id,
-            "--use-cache",
+            model_input,
             "--device",
             device,
         ]
+        # Direct-ONNX configs (export=None) carry no loader.task, so --use-cache
+        # cannot form its task-prefixed cache key; write the artifact to the
+        # model dir instead. HF-id builds keep using the shared model cache.
+        build_out_dir = model_dir / "build"
+        if entry.onnx_file:
+            build_args += ["--output-dir", str(build_out_dir)]
+        else:
+            build_args += ["--use-cache"]
         if ep:
             build_args += ["--ep", ep]
         # Mirror the --no-quant passed to winml config above so the build
@@ -587,8 +683,16 @@ def _run_build(
                 "proc": build_proc,
             }
 
-        task_hint = _extract_task_from_config(sub_cfg) or entry.task
-        path = _extract_onnx_path(build_proc, entry.hf_id, task_hint)
+        if entry.onnx_file:
+            # --output-dir builds write a deterministic <output-dir>/model.onnx.
+            # Use it directly rather than parsing stdout markers, which Rich wraps
+            # for long paths (an unfound path silently drops perf to a build-only
+            # false PASS).
+            built = build_out_dir / "model.onnx"
+            path = str(built) if built.exists() else None
+        else:
+            task_hint = _extract_task_from_config(sub_cfg) or entry.task
+            path = _extract_onnx_path(build_proc, entry.hf_id, task_hint)
         if path:
             onnx_paths[label] = path
 
@@ -809,9 +913,7 @@ def _build_dataset(ds_config: dict, timeout: int) -> None:
         return
 
     script_path = Path(build_script)
-    cache_dir = Path(
-        ds_config.get("dataset", EVAL_DATASETS_CACHE / script_path.stem)
-    ).expanduser()
+    cache_dir = Path(ds_config.get("dataset", EVAL_DATASETS_CACHE / script_path.stem)).expanduser()
 
     if (cache_dir / "dataset_info.json").exists():
         safe_print(f"    dataset: cached ({cache_dir})")
@@ -1288,16 +1390,10 @@ def main() -> None:
         except Exception as e:
             safe_print(f"  [registry] Optional enrichment skipped: {e}")
         if matched_entry is not None:
-            # Override task if explicitly provided on CLI
+            # Override task if explicitly provided on CLI. Use dataclasses.replace
+            # so all other fields (onnx_file, precision, perf_args, ...) survive.
             if args.task and args.task != matched_entry.task:
-                matched_entry = ModelEntry(
-                    hf_id=matched_entry.hf_id,
-                    task=args.task,
-                    model_type=matched_entry.model_type,
-                    group=matched_entry.group,
-                    priority=matched_entry.priority,
-                    dataset_config=matched_entry.dataset_config,
-                )
+                matched_entry = dataclasses.replace(matched_entry, task=args.task)
             entries = [matched_entry]
         else:
             entries = [make_adhoc_entry(args.hf_model, args.task)]

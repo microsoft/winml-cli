@@ -234,7 +234,7 @@ def build_registry(
     # Soft filter: prioritize Optimum-supported models, then fill remaining slots
     if top_n == 0:
         safe_print("\n  top_n=0 — skipping HF top-N queries")
-    for task in (tasks if top_n > 0 else []):
+    for task in tasks if top_n > 0 else []:
         safe_print(f"\n  Task: {task}")
         # Fetch extra candidates to allow Optimum-first selection
         candidates = get_models_for_task(task, top_n * 3)
@@ -380,6 +380,9 @@ def build_registry(
                     existing["priority"] = priority
                     existing["group"] = group
                     safe_print(f"    [{priority}] {model_id} / {task} — updated (group={group})")
+                # Sync curated onnx_file (pre-exported ONNX models) onto the row.
+                if c.get("onnx_file"):
+                    existing["onnx_file"] = c["onnx_file"]
                 continue
 
             # New curated entry — fetch metadata if not already loaded
@@ -399,6 +402,9 @@ def build_registry(
                 "last_update_time": metadata["last_modified"],
                 "optimum_supported": is_optimum,
             }
+            # Carry through pre-exported ONNX filename when the curated row sets it.
+            if c.get("onnx_file"):
+                entry["onnx_file"] = c["onnx_file"]
 
             seen.add(key)
             entry_lookup[key] = entry

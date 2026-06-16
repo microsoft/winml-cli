@@ -916,22 +916,24 @@
     "order": 9
   },
   {
-    "hf_id": "PaddlePaddle/PP-OCRv5_server_det",
+    "hf_id": "PaddlePaddle/PP-OCRv5_server_det_onnx",
     "task": "image-to-text",
     "model_type": "unknown",
     "group": "ISV",
     "priority": "P1",
+    "onnx_file": "inference.onnx",
     "downloads": 623512,
     "last_update_time": "2025-07-22T10:03:07+00:00",
     "optimum_supported": false,
     "order": 4
   },
   {
-    "hf_id": "PaddlePaddle/PP-OCRv5_server_rec",
+    "hf_id": "PaddlePaddle/PP-OCRv5_server_rec_onnx",
     "task": "image-to-text",
     "model_type": "unknown",
     "group": "ISV",
     "priority": "P1",
+    "onnx_file": "inference.onnx",
     "downloads": 196930,
     "last_update_time": "2025-07-22T10:04:11+00:00",
     "optimum_supported": false,
