@@ -241,8 +241,10 @@ def load_hf_model(
     # [4] Model Instantiation
     logger.debug("Loading model with class: %s", resolved_class.__name__)
     # resolved_class is a dynamically-resolved model class (transformers, timm,
-    # diffusers, ...); from_pretrained is a duck-typed boundary across these libs.
-    model = cast("Any", resolved_class).from_pretrained(
+    # diffusers, ...); from_pretrained is a duck-typed boundary across these libs,
+    # so go through an Any-typed alias rather than a static attribute access.
+    loader_cls: Any = resolved_class
+    model = loader_cls.from_pretrained(
         model_name_or_path,
         trust_remote_code=trust_remote_code,
     )

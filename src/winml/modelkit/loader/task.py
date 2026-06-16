@@ -20,13 +20,9 @@ Public API:
 
 from __future__ import annotations
 
-import importlib
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
-
-if TYPE_CHECKING:
-    from transformers import PretrainedConfig
 
 logger = logging.getLogger(__name__)
 
