@@ -848,6 +848,40 @@ def _is_publish_conflict(proc: dict) -> bool:
     )
 
 
+def _is_az_unavailable(proc: dict) -> bool:
+    """True if an ``az`` invocation failed because the CLI/login is unavailable.
+
+    Distinguishes a host-level Azure CLI problem (not installed, not logged in,
+    token expired, or the CLI hung and was killed) from a per-package publish
+    error (a one-off network blip or a version conflict). The former recurs for
+    every remaining model, so the caller aborts the whole run instead of marking
+    the model ``failed`` and keeping the local copy — otherwise every subsequent
+    "kept local" dir piles up and fills the disk.
+    """
+    if proc.get("exit_code") == 127:  # az not found on PATH (see _run_az)
+        return True
+    if proc.get("timeout"):  # az hung (e.g. blocked on interactive re-auth) and was killed
+        return True
+    blob = (proc.get("stdout", "") + proc.get("stderr", "")).lower()
+    return any(
+        marker in blob
+        for marker in (
+            "az login",
+            "not logged in",
+            "no subscription found",
+            "interactive authentication is needed",
+            "authenticationfailed",
+            "authentication failed",
+            "aadsts",
+            "token has expired",
+            "expired token",
+            "refresh token",
+            "re-authenticate",
+            "az account set",
+        )
+    )
+
+
 def _upload_model_dir(args: argparse.Namespace, model_dir: Path, version: str, timeout: int) -> dict:
     """Publish a model dir to the feed as a Universal Package version."""
     return _run_az(
@@ -1128,6 +1162,25 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
             up = _upload_model_dir(args, model_dir, version, args.timeout)
             ok = up["exit_code"] == 0
             conflict = (not ok) and _is_publish_conflict(up)
+            # A host-level az failure (not logged in, token expired, CLI hung)
+            # will recur for every remaining model, and each "kept local" copy
+            # would accumulate and fill the disk. Abort immediately so the user
+            # can re-auth and resume (already-uploaded models are skipped via
+            # --continue + the same --run-stamp).
+            if not ok and not conflict and _is_az_unavailable(up):
+                safe_print(f"  [upload FAIL] {args.package_name}@{version}")
+                detail = (up.get("stderr", "") or up.get("stdout", "")).strip()
+                for line in detail.splitlines()[-12:]:
+                    safe_print(f"    {line}")
+                reason = "timed out (hung)" if up.get("timeout") else "unavailable"
+                safe_print(
+                    f"\n[upload] ABORT: Azure CLI is {reason} "
+                    "(not logged in / token expired / az hung). "
+                    "Re-run 'az login', then resume with --continue and the same "
+                    f"--run-stamp {run_stamp}. "
+                    f"The current model's local artifacts were kept at: {model_dir}"
+                )
+                sys.exit(3)
             status: str
             if ok:
                 status = "uploaded"
