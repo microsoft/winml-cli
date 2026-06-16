@@ -27,6 +27,7 @@ from ..models import (
 from .types import (
     CacheInfo,
     CacheStageInfo,
+    CompositeInfo,
     ExporterInfo,
     IOConfigInfo,
     LoaderInfo,
@@ -578,6 +579,31 @@ def resolve_cache(model_id: str) -> CacheInfo:
         stages=stages,
         total_cached=total_cached,
         total_size_mb=round(total_size_mb, 2),
+    )
+
+
+def resolve_composite_info(
+    model_type: str, detected_components: dict[str, str] | None = None
+) -> CompositeInfo | None:
+    """Composite pipeline structure for a *resolved* model, or ``None``.
+
+    Returns ``None`` unless the model's resolved task bridges to a composite — i.e.
+    ``detected_components`` (from :attr:`TaskResolution.composite`) is set. This scopes
+    the composite view to genuine multi-component / non-runnable-half exports (a seq2seq
+    decoder, etc.) and avoids flagging every model_type that merely *could* serve a
+    composite pipeline (e.g. a CLIP inspected for plain feature-extraction).
+
+    ``pipeline_tasks`` (the higher-level pipelines the model_type serves) come from the
+    live composite registry; ``components`` is the resolver's detected breakdown.
+    """
+    if not detected_components:
+        return None
+
+    from ..loader import composite_pipeline_tasks
+
+    return CompositeInfo(
+        pipeline_tasks=composite_pipeline_tasks(model_type),
+        components=dict(detected_components),
     )
 
 

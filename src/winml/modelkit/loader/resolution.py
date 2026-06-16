@@ -286,6 +286,28 @@ def resolve_composite(model_type: str, task: str) -> CompositeComponents | None:
     return dict(cls._SUB_MODEL_CONFIG) if cls is not None else None
 
 
+def composite_pipeline_tasks(model_type: str) -> list[str]:
+    """Pipeline (composite) tasks a model_type can serve, sorted; ``[]`` for non-composites.
+
+    Registry-driven and architecture-agnostic (e.g. ``bart`` ->
+    ``["summarization", "table-question-answering"]``, ``marian`` -> ``["translation"]``,
+    ``qwen3`` -> ``["text-generation"]``). Surfaced by ``winml inspect`` to show which
+    higher-level pipelines a composite serves. The per-checkpoint pipeline is
+    config-indistinguishable, so the list is sorted (deterministic, model-id-independent) —
+    the order must not imply inspect knows which pipeline a given checkpoint is.
+    """
+    import winml.modelkit.models.hf  # noqa: F401  # trigger composite registrations
+
+    from ..models.winml import WinMLCompositeModel
+    from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
+
+    return sorted(
+        task
+        for (mt, task), cls in COMPOSITE_MODEL_REGISTRY.items()
+        if mt == model_type and issubclass(cls, WinMLCompositeModel)
+    )
+
+
 # Optimum-canonical generation task that detect-path seq2seq models surface;
 # bridged to the model_type's composite. Universal taxonomy, not a model name.
 _SEQ2SEQ_GENERATION_TASK = "text2text-generation"
