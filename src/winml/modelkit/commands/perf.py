@@ -706,7 +706,7 @@ def _perf_modules(
 
     from ..loader import resolve_loader_config
 
-    parent_loader_cfg, _, _ = resolve_loader_config(model_id=hf_model, task=task)
+    parent_loader_cfg, _, _, _resolution = resolve_loader_config(model_id=hf_model, task=task)
     parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
     all_results: list[dict[str, Any]] = []

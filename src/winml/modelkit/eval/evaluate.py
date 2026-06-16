@@ -228,7 +228,7 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
     """Resolve the eval task and validate it is supported.
 
     An explicit ``config.task`` is surfaced verbatim (explicit means explicit).
-    When omitted, the modality-aware :func:`detect_task` infers it from the model's
+    When omitted, the modality-aware :func:`resolve_task` infers it from the model's
     HF config — an image-embedding model resolves to ``image-feature-extraction``
     (not the lossy ``feature-extraction``), so the evaluator-registry lookup picks
     the image evaluator without any reverse io_config reconstruction.
@@ -244,10 +244,10 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
 
         from transformers import AutoConfig
 
-        from ..loader import detect_task
+        from ..loader.resolution import resolve_task
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
-        task, _ = detect_task(hf_config)
+        task = resolve_task(hf_config).task
 
     console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
 

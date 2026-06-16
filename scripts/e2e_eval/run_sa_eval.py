@@ -673,7 +673,6 @@ def evaluate_model(
     run_quantize: bool = True,
     quantize_precision: str = "int8",
     run_compile: bool = True,
-    cleanup: bool = False,
 ) -> dict | None:
     """Run the winml build + SA analysis pipeline for a single model."""
     hf_id = model_entry["hf_id"]
@@ -899,9 +898,6 @@ def evaluate_model(
     out_file = model_dir / "sa_eval_result.json"
     out_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     safe_print(f"  Written: {out_file}")
-
-    if cleanup:
-        cleanup_onnx_artifacts(model_dir)
 
     return result
 
@@ -1319,22 +1315,26 @@ def main() -> None:
                 pass  # Corrupted result file — re-run
 
         safe_print(f"\n[{i}/{len(models_to_run)}]")
-        result = evaluate_model(
-            entry,
-            output_dir,
-            use_cache=args.use_cache,
-            ep=args.ep,
-            device=args.device,
-            run_perf=not args.no_perf,
-            perf_iterations=args.perf_iterations,
-            perf_warmup=args.perf_warmup,
-            run_quantize=not args.no_quantize,
-            quantize_precision=args.quantize_precision,
-            run_compile=not args.no_compile,
-            cleanup=args.cleanup,
-        )
-        if result:
-            all_results.append(result)
+        try:
+            result = evaluate_model(
+                entry,
+                output_dir,
+                use_cache=args.use_cache,
+                ep=args.ep,
+                device=args.device,
+                run_perf=not args.no_perf,
+                perf_iterations=args.perf_iterations,
+                perf_warmup=args.perf_warmup,
+                run_quantize=not args.no_quantize,
+                quantize_precision=args.quantize_precision,
+                run_compile=not args.no_compile,
+            )
+            if result:
+                all_results.append(result)
+        finally:
+            # Cleanup must run on SKIP_* / exception paths too, not just success.
+            if args.cleanup:
+                cleanup_onnx_artifacts(model_dir)
 
     elapsed = time.monotonic() - t_start
     complete = [r for r in all_results if r.get("status") == "COMPLETE"]

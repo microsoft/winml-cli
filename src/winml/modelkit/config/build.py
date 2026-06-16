@@ -547,7 +547,8 @@ def generate_hf_build_config(
         Tier 3 (LOWEST):  Optimum/HF defaults via loader/export modules
 
     Orchestration Flow:
-        1. loader.resolve_loader_config()   -> (WinMLLoaderConfig, hf_config, resolved_class)
+        1. loader.resolve_loader_config()
+           -> (WinMLLoaderConfig, hf_config, resolved_class, TaskResolution)
            (includes sub-config consolidation for multimodal)
         2. MODEL_BUILD_CONFIGS.get() — registry lookup (may short-circuit step 3)
         3. export._resolve_export_config_from_specs() OR registered export config
@@ -588,7 +589,7 @@ def generate_hf_build_config(
         from ..utils.cli import warn_trust_remote_code
 
         warn_trust_remote_code()
-    loader_config, hf_config, resolved_class = resolve_loader_config(
+    loader_config, hf_config, resolved_class, _resolution = resolve_loader_config(
         model_id,
         task=task,
         model_class=model_class,
