@@ -311,7 +311,7 @@ class PerfBenchmark:
             adapter_luid = self._resolve_adapter_luid()
             gc.collect()
             rss_baseline = get_rss_mb()
-            vram_baseline = get_vram_mb(adapter_luid)
+            vram_local_baseline, vram_shared_baseline = get_vram_mb(adapter_luid)
 
         # [2] Compile session (ORT loads model weights into memory here)
         self._model._session.compile()
@@ -319,7 +319,7 @@ class PerfBenchmark:
         if self.config.memory:
             gc.collect()
             rss_after_compile = get_rss_mb()
-            vram_after_compile = get_vram_mb(adapter_luid)
+            vram_local_compile, vram_shared_compile = get_vram_mb(adapter_luid)
 
         # Print model info before benchmark starts
         _print_model_info(
@@ -343,7 +343,7 @@ class PerfBenchmark:
 
         if self.config.memory:
             rss_after_inference = get_rss_mb()
-            vram_after_inference = get_vram_mb(adapter_luid)
+            vram_local_infer, vram_shared_infer = get_vram_mb(adapter_luid)
             self._memory = {
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
@@ -351,12 +351,18 @@ class PerfBenchmark:
                 "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
                 "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
                 "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
-                "vram_baseline_mb": round(vram_baseline, 2),
-                "vram_after_compile_mb": round(vram_after_compile, 2),
-                "vram_after_inference_mb": round(vram_after_inference, 2),
-                "vram_model_load_delta_mb": round(vram_after_compile - vram_baseline, 2),
-                "vram_inference_delta_mb": round(vram_after_inference - vram_after_compile, 2),
-                "vram_total_delta_mb": round(vram_after_inference - vram_baseline, 2),
+                "vram_local_after_inference_mb": round(vram_local_infer, 2),
+                "vram_shared_after_inference_mb": round(vram_shared_infer, 2),
+                "vram_local_model_load_delta_mb": round(
+                    vram_local_compile - vram_local_baseline, 2
+                ),
+                "vram_local_inference_delta_mb": round(vram_local_infer - vram_local_compile, 2),
+                "vram_local_total_delta_mb": round(vram_local_infer - vram_local_baseline, 2),
+                "vram_shared_model_load_delta_mb": round(
+                    vram_shared_compile - vram_shared_baseline, 2
+                ),
+                "vram_shared_inference_delta_mb": round(vram_shared_infer - vram_shared_compile, 2),
+                "vram_shared_total_delta_mb": round(vram_shared_infer - vram_shared_baseline, 2),
             }
 
         # [4] Collect results
@@ -949,13 +955,17 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
             f"total: {mem['rss_total_delta_mb']:+.1f} MB"
         )
-        vram_total = mem.get("vram_after_inference_mb", 0)
-        if vram_total > 0:
+        vram_local = mem.get("vram_local_after_inference_mb", 0)
+        vram_shared = mem.get("vram_shared_after_inference_mb", 0)
+        if vram_local > 0 or vram_shared > 0:
             console.print(
-                f"  VRAM: {vram_total:.1f} MB -> "
-                f"model load: {mem['vram_model_load_delta_mb']:+.1f} MB  |  "
-                f"inference: {mem['vram_inference_delta_mb']:+.1f} MB  |  "
-                f"total: {mem['vram_total_delta_mb']:+.1f} MB"
+                f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
+                f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
+                f"inference: {mem['vram_local_inference_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_inference_delta_mb']:+.1f} MB  |  "
+                f"total: {mem['vram_local_total_delta_mb']:+.1f}/"
+                f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
             )
 
     console.print()
