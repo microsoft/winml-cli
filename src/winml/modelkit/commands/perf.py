@@ -338,10 +338,11 @@ class PerfBenchmark:
         )
         stats = self._run_benchmark()
 
+        # Device memory queried once at the end — captures peak allocation
+        # after inference (device memory only grows, never shrinks mid-session).
         if self.config.memory:
             rss_after_inference = get_rss_mb()
-            adapter_luid = self._resolve_adapter_luid()
-            device_mb = get_device_memory_mb(adapter_luid)
+            device_mb = get_device_memory_mb(self._resolve_adapter_luid())
             self._memory = {
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
