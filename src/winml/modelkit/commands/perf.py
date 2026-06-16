@@ -306,10 +306,12 @@ class PerfBenchmark:
         # imports, EP DLLs, and build pipeline overhead. Measures only ORT
         # session compilation (model weights loaded into memory).
         if self.config.memory:
-            from ..session.monitor.memory_tracker import get_rss_mb
+            from ..session.monitor.memory_tracker import get_rss_mb, get_vram_mb
 
+            adapter_luid = self._resolve_adapter_luid()
             gc.collect()
             rss_baseline = get_rss_mb()
+            vram_baseline = get_vram_mb(adapter_luid)
 
         # [2] Compile session (ORT loads model weights into memory here)
         self._model._session.compile()
@@ -317,6 +319,7 @@ class PerfBenchmark:
         if self.config.memory:
             gc.collect()
             rss_after_compile = get_rss_mb()
+            vram_after_compile = get_vram_mb(adapter_luid)
 
         # Print model info before benchmark starts
         _print_model_info(
@@ -340,13 +343,20 @@ class PerfBenchmark:
 
         if self.config.memory:
             rss_after_inference = get_rss_mb()
+            vram_after_inference = get_vram_mb(adapter_luid)
             self._memory = {
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
                 "rss_after_inference_mb": round(rss_after_inference, 2),
-                "model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
-                "inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
-                "total_delta_mb": round(rss_after_inference - rss_baseline, 2),
+                "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
+                "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
+                "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
+                "vram_baseline_mb": round(vram_baseline, 2),
+                "vram_after_compile_mb": round(vram_after_compile, 2),
+                "vram_after_inference_mb": round(vram_after_inference, 2),
+                "vram_model_load_delta_mb": round(vram_after_compile - vram_baseline, 2),
+                "vram_inference_delta_mb": round(vram_after_inference - vram_after_compile, 2),
+                "vram_total_delta_mb": round(vram_after_inference - vram_baseline, 2),
             }
 
         # [4] Collect results
@@ -415,6 +425,31 @@ class PerfBenchmark:
             io_config=io_config,
             batch_size=self.config.batch_size,
         )
+
+    def _resolve_adapter_luid(self) -> str | None:
+        """Resolve adapter LUID for VRAM queries."""
+        import sys
+
+        if sys.platform != "win32":
+            return None
+
+        assert self._model is not None
+        device = self._model.device or self.config.device
+        if device == "cpu":
+            return None
+
+        try:
+            from ..sysinfo.pdh_adapters import resolve_adapter_luid
+
+            ep_name = self._model.ep_name
+            for kind in [device] if device in ("npu", "gpu") else ["npu", "gpu"]:
+                luid = resolve_adapter_luid(kind, ep_name=ep_name)
+                if luid:
+                    return luid
+            return None
+        except Exception:
+            logger.debug("Could not resolve adapter LUID", exc_info=True)
+            return None
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing."""
@@ -907,12 +942,20 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     if result.memory_profile:
         mem = result.memory_profile
         console.print()
-        console.print(f"[bold]Memory:[/bold]      {mem['rss_after_inference_mb']:.1f} MB (process)")
+        console.print(f"[bold]Memory:[/bold]      RAM: {mem['rss_after_inference_mb']:.1f} MB")
         console.print(
-            f"  model load: {mem['model_load_delta_mb']:+.1f} MB  |  "
-            f"inference: {mem['inference_delta_mb']:+.1f} MB  |  "
-            f"total: {mem['total_delta_mb']:+.1f} MB"
+            f"  model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
+            f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
+            f"total: {mem['rss_total_delta_mb']:+.1f} MB"
         )
+        vram_total = mem.get("vram_after_inference_mb", 0)
+        if vram_total > 0:
+            console.print(f"               VRAM: {vram_total:.1f} MB")
+            console.print(
+                f"  model load: {mem['vram_model_load_delta_mb']:+.1f} MB  |  "
+                f"inference: {mem['vram_inference_delta_mb']:+.1f} MB  |  "
+                f"total: {mem['vram_total_delta_mb']:+.1f} MB"
+            )
 
     console.print()
 
