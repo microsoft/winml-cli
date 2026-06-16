@@ -253,10 +253,10 @@ class LiveMonitorDisplay:
         # CPU-only mode drops the adapter cell + device-memory cell since we
         # have no live values to populate them with.
         cpu_cell = f"CPU: {cpu_pct:.1f}%"
-        ram_cell = f"Mem: {ram_mb:.0f} MB"
+        ram_cell = f"RAM: {ram_mb:.0f} MB"
         if self._show_adapter:
             adapter_cell = f"{self._adapter_label}: {mean_util:.1f}% avg ({current_util:.1f}% now)"
-            mem_cell = f"Device Mem: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
+            mem_cell = f"VRAM: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
             row2 = f"  {adapter_cell:<30}| {cpu_cell:<12}|  {ram_cell}  |  {mem_cell}"
         else:
             row2 = f"  {cpu_cell:<12}|  {ram_cell}"
