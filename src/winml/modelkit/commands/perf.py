@@ -306,7 +306,7 @@ class PerfBenchmark:
         # imports, EP DLLs, and build pipeline overhead. Measures only ORT
         # session compilation (model weights loaded into memory).
         if self.config.memory:
-            from ..session.monitor.memory_tracker import get_device_memory_mb, get_rss_mb
+            from ..session.monitor.memory_tracker import get_rss_mb
 
             gc.collect()
             rss_baseline = get_rss_mb()
@@ -317,8 +317,6 @@ class PerfBenchmark:
         if self.config.memory:
             gc.collect()
             rss_after_compile = get_rss_mb()
-            adapter_luid = self._resolve_adapter_luid()
-            device_after_compile = get_device_memory_mb(adapter_luid)
 
         # Print model info before benchmark starts
         _print_model_info(
@@ -342,7 +340,6 @@ class PerfBenchmark:
 
         if self.config.memory:
             rss_after_inference = get_rss_mb()
-            device_after_inference = get_device_memory_mb(adapter_luid)
             self._memory = {
                 "rss_baseline_mb": round(rss_baseline, 2),
                 "rss_after_compile_mb": round(rss_after_compile, 2),
@@ -350,8 +347,6 @@ class PerfBenchmark:
                 "model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
                 "inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
                 "total_delta_mb": round(rss_after_inference - rss_baseline, 2),
-                "device_after_compile_mb": round(device_after_compile, 2),
-                "device_after_inference_mb": round(device_after_inference, 2),
             }
 
         # [4] Collect results
@@ -420,32 +415,6 @@ class PerfBenchmark:
             io_config=io_config,
             batch_size=self.config.batch_size,
         )
-
-    def _resolve_adapter_luid(self) -> str | None:
-        """Resolve adapter LUID for device memory queries."""
-        import sys
-
-        if sys.platform != "win32":
-            return None
-
-        assert self._model is not None
-        device = self._model.device or self.config.device
-        if device == "cpu":
-            return None
-
-        try:
-            from ..sysinfo.pdh_adapters import resolve_adapter_luid
-
-            ep_name = self._model.ep_name
-            # For "auto" or unknown, try npu then gpu
-            for kind in [device] if device in ("npu", "gpu") else ["npu", "gpu"]:
-                luid = resolve_adapter_luid(kind, ep_name=ep_name)
-                if luid:
-                    return luid
-            return None
-        except Exception:
-            logger.debug("Could not resolve adapter LUID", exc_info=True)
-            return None
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing."""
@@ -942,23 +911,13 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     # Memory section (only when --memory is enabled)
     if result.memory_profile:
         mem = result.memory_profile
-        dev_compile = mem.get("device_after_compile_mb", 0)
-        dev_inference = mem.get("device_after_inference_mb", 0)
-        dev_str = f" | {dev_inference:.1f} MB (device)" if dev_inference > 0 else ""
         console.print()
-        console.print(
-            f"[bold]Memory:[/bold]      {mem['rss_after_inference_mb']:.1f} MB (process){dev_str}"
-        )
+        console.print(f"[bold]Memory:[/bold]      {mem['rss_after_inference_mb']:.1f} MB (process)")
         console.print(
             f"  [dim]model load: {mem['model_load_delta_mb']:+.1f} MB  |  "
             f"inference: {mem['inference_delta_mb']:+.1f} MB  |  "
             f"total: {mem['total_delta_mb']:+.1f} MB[/dim]"
         )
-        if dev_compile > 0 or dev_inference > 0:
-            console.print(
-                f"  [dim]device: compile {dev_compile:.1f} MB → "
-                f"inference {dev_inference:.1f} MB[/dim]"
-            )
 
     console.print()
 
