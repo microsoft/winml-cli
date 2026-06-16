@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
 
 from ..errors import OptimizationError
 from ..registry import CapabilityDef  # noqa: TC001 (used at runtime)
@@ -53,7 +53,13 @@ class PipeConfig:
     """
 
 
-class BasePipe(ABC):
+# Each pipe is parametrized by its concrete PipeConfig subclass, so that
+# build_config/process/should_process narrow to that subclass without
+# violating the Liskov substitution principle.
+ConfigT = TypeVar("ConfigT", bound=PipeConfig)
+
+
+class BasePipe(ABC, Generic[ConfigT]):
     """Abstract base class for optimization pipes.
 
     A Pipe represents one optimization technology/API. Each pipe:
@@ -71,7 +77,7 @@ class BasePipe(ABC):
 
     @classmethod
     @abstractmethod
-    def build_config(cls, **kwargs: Any) -> PipeConfig:
+    def build_config(cls, **kwargs: Any) -> ConfigT:
         """Build pipe configuration from user kwargs.
 
         This method extracts relevant kwargs for this pipe and constructs
@@ -86,7 +92,7 @@ class BasePipe(ABC):
         ...
 
     @abstractmethod
-    def process(self, model: onnx.ModelProto, config: PipeConfig) -> onnx.ModelProto:
+    def process(self, model: onnx.ModelProto, config: ConfigT) -> onnx.ModelProto:
         """Process ONNX model with given configuration.
 
         This method applies the pipe's optimizations to the model.
@@ -102,7 +108,7 @@ class BasePipe(ABC):
         ...
 
     @classmethod
-    def should_process(cls, config: PipeConfig) -> bool:
+    def should_process(cls, config: ConfigT) -> bool:
         """Check if this pipe should process the model.
 
         Default implementation returns True (always process).

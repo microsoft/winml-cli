@@ -10,7 +10,7 @@ Leverages existing loader, export, and models modules - NO NEW CONFIG LOGIC.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ..loader.task import (
     HF_TASK_DEFAULTS,
@@ -269,7 +269,10 @@ def resolve_exporter(
     # Check MODEL_BUILD_CONFIGS for predefined config
     if model_type_normalized in MODEL_BUILD_CONFIGS:
         config: WinMLBuildConfig = MODEL_BUILD_CONFIGS[model_type_normalized]
+        # MODEL_BUILD_CONFIGS entries are HF export configs; export is None only on
+        # the direct-ONNX build path, which never reaches this registry lookup.
         export_config = config.export
+        assert export_config is not None, "MODEL_BUILD_CONFIGS entries require export"
 
         # Extract input tensors
         input_tensors: list[TensorInfo] = []
@@ -326,8 +329,8 @@ def resolve_exporter(
                 config_name = onnx_config_cls.__name__
 
             # Extract tensor specs via resolve_io_specs (shared with config command)
-            input_tensors: list[TensorInfo] = []
-            output_tensors: list[TensorInfo] = []
+            input_tensors = []
+            output_tensors = []
 
             if hf_config is not None:
                 try:
@@ -695,8 +698,12 @@ def resolve_io_config(
 
     def get_config_attr(
         attr_name: str,
-    ) -> int | tuple[int, int] | list | None:
-        """Get attribute from main config or any nested config."""
+    ) -> Any:
+        """Get attribute from main config or any nested config.
+
+        Returns ``Any``: HF config attributes are dynamically typed (int, tuple,
+        list, str, ...), so each call site narrows to its target field type.
+        """
         value = getattr(config, attr_name, None)
         if value is not None:
             return value
@@ -952,7 +959,7 @@ def _resolve_processor_from_hub_configs(model_id: str) -> _HubConfigResult:
     from pathlib import Path
 
     from huggingface_hub import hf_hub_download
-    from huggingface_hub.utils import EntryNotFoundError, RepositoryNotFoundError
+    from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
 
     processor_class: str | None = None
     tokenizer_class: str | None = None

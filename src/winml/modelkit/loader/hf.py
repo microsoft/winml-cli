@@ -27,7 +27,7 @@ import importlib
 import importlib.util
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from transformers import AutoConfig
 
@@ -82,7 +82,7 @@ def resolve_hf_model_class(class_name: str) -> type:
         cls = getattr(module, class_name, None)
         if cls is not None:
             logger.debug("Resolved '%s' from '%s'", class_name, module_name)
-            return cls
+            return cast("type", cls)
 
     raise ImportError(
         f"Model class '{class_name}' not found in any of: {', '.join(_HF_MODEL_MODULES)}"
@@ -226,6 +226,9 @@ def load_hf_model(
 
     # [2] Task & Model Class Resolution
     if user_script is not None:
+        # model_class is guaranteed non-None here: the validation block above
+        # raises when user_script is set without a model_class.
+        assert model_class is not None
         resolved_class = _load_class_from_script(user_script, model_class)
         logger.info("Using custom model class from script: %s", model_class)
 
@@ -247,7 +250,9 @@ def load_hf_model(
 
     # [4] Model Instantiation
     logger.debug("Loading model with class: %s", resolved_class.__name__)
-    model = resolved_class.from_pretrained(
+    # resolved_class is a dynamically-resolved model class (transformers, timm,
+    # diffusers, ...); from_pretrained is a duck-typed boundary across these libs.
+    model = cast("Any", resolved_class).from_pretrained(
         model_name_or_path,
         trust_remote_code=trust_remote_code,
     )
