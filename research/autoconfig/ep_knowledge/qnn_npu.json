@@ -14,7 +14,12 @@
       "hustvl/yolos-small",
       "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
       "sentence-transformers/all-MiniLM-L6-v2",
-      "deepset/roberta-base-squad2"
+      "deepset/roberta-base-squad2",
+      "facebook/dinov2-base",
+      "microsoft/rad-dino",
+      "facebook/dino-vitb16",
+      "BAAI/bge-small-en-v1.5",
+      "rizvandwiki/gender-classification"
     ],
     "last_updated": "2026-06-17",
     "epistemics_warning": "⚠️ All findings are hypotheses derived from limited models on 1 device (Snapdragon X Elite). Confidence levels reflect how well the mechanism is understood, not how universally applicable the finding is. ALWAYS re-validate on new model architectures before using to prune search space."
@@ -48,7 +53,18 @@
           "facebook/dino-vitb16 (-0.7%, validation sweep 2026-06-16, h1=[19.92,19.97,19.90]ms h3=[20.20,20.07,19.99]ms — NEUTRAL, critical control)",
           "google/vit-base-patch16-224 (-7.4%, original catalog)",
           "hustvl/yolos-small (timeout, no data)",
-          "distilbert, bert/MiniLM, roberta (neutral, NLP)"
+          "rizvandwiki/gender-classification (+3.5% apparent, ranges overlap 13.89/13.92ms, NEUTRAL — plain ViT, CRITICAL: near-identical op counts to DINOv2-small (49 Transpose, 121 Reshape) yet NO benefit)",
+          "distilbert/distilbert-base-uncased-finetuned-sst-2-english (-0.1%, NLP neutral)",
+          "sentence-transformers/all-MiniLM-L6-v2 (-0.7%, NLP neutral)",
+          "deepset/roberta-base-squad2 (+0.1%, NLP neutral)"
+        ],
+        "marginal_inconclusive": [
+          "BAAI/bge-small-en-v1.5 (+7.3%, h0=[10.52,10.32,11.01]ms h3=[10.25,9.33,9.94]ms — ranges barely non-overlapping but CV=0.3; NOT CONFIRMED. Needs 5+ sessions to differentiate from noise. Unusual for BERT architecture; all other NLP models tested at <1%)"
+        ],
+        "not_benchmarked_predicted_neutral": [
+          "openai/clip-vit-base-patch32 — build failed at quantization (feature-extraction task calibration not supported); pure transformer, expected neutral based on all NLP data",
+          "cardiffnlp/twitter-roberta-base-sentiment-latest — not run; RoBERTa architecture, predicted neutral (consistent with roberta-base-squad2 +0.1%)",
+          "distilbert/distilbert-base-cased-distilled-squad — not run; DistilBERT architecture, predicted neutral (consistent with distilbert-base-uncased -0.1%)"
         ],
         "cpu_bound_cannot_test": [
           "microsoft/rad-dino (-0.1%, all hypotheses ~275ms CV<0.022 — model runs on CPU, opset irrelevant)"
@@ -117,12 +133,24 @@
           "h1_opset17_sessions_ms": [0.990, 4.003, 2.716],
           "h3_opset21_sessions_ms": [1.054, 2.175, 4.107],
           "assessment": "UNRELIABLE. Sub-ms model. Session range spans 4x for same config. Reported '+20.2% speedup' (h1 median 2.72ms vs h3 median 2.18ms) is NOT a real signal — the two distributions fully overlap. REMOVED from benefits list."
+        },
+        "gender_classification_vit": {
+          "h0_opset17_sessions_ms": [14.15, 14.94, 13.89],
+          "h3_opset21_sessions_ms": [13.70, 13.92, 13.87],
+          "assessment": "NEUTRAL. Ranges barely not overlapping (h0 min=13.89ms, h3 max=13.92ms). +3.5% is within DVFS noise (CV ~0.35). CRITICAL: this ViT model has IDENTICAL op counts to DINOv2-small (49 Transpose, 121 Reshape, ~72 Gemm) yet shows NO benefit. Confirms npu-001 is not explainable by op-count or general ViT architecture.",
+          "tool": "run_one.py 2026-06-17, quantized.onnx W8A16"
+        },
+        "bge_small_en": {
+          "h0_opset17_sessions_ms": [10.52, 10.32, 11.01],
+          "h3_opset21_sessions_ms": [10.25, 9.33, 9.94],
+          "assessment": "MARGINAL / INCONCLUSIVE. Ranges barely not overlapping but CV ~0.3 means high within-session variance. +7.3% apparent gain — larger than all other NLP models (distilbert -0.1%, MiniLM -0.7%, RoBERTa +0.1%) but may be DVFS noise. Needs 5+ sessions to confirm. Do NOT cite as benefit.",
+          "tool": "run_one.py 2026-06-17, quantized.onnx W8A16, bert model-type"
         }
       },
-      "action_for_autoconfig": "Include opset 21 in search for DINOv2-family models (facebook/dinov2-*). Likely worthwhile for MobileViT-class Conv+attention hybrids. Do NOT apply to plain ViT (dino-vitb16-class), YOLOS, or NLP (BERT-family). For ResNet-class Conv-only: insufficient data. ALWAYS dump optimized graph to compare Transpose counts if speedup is unexpected.",
-      "confidence": "medium-high on empirical observation (DINOv2-small +30.6% and DINOv2-base +24.1% both confirmed with clean 3-session protocol, fresh builds). Low on mechanism — original explanation does not apply to ORT 1.24.x. Mechanism must be re-investigated. Scope: DINOv2 family only until mechanism is understood.",
+      "action_for_autoconfig": "Include opset 21 in search for DINOv2-family models (facebook/dinov2-*). Likely worthwhile for MobileViT-class Conv+attention hybrids. Do NOT apply to plain ViT (dino-vitb16, gender-classification both neutral), YOLOS, or NLP (BERT-family all neutral at ±0.7%). CRITICAL: gender-classification ViT has IDENTICAL op counts to DINOv2-small (49 Transpose, 121 Reshape) but shows NO benefit — the effect is deeper than op counts. For ResNet-class Conv-only: insufficient data. ALWAYS dump optimized graph to compare Transpose counts if speedup is unexpected.",
+      "confidence": "medium-high on empirical observation (DINOv2-small +30.6% and DINOv2-base +24.1% both confirmed with clean 3-session protocol, fresh builds). Low on mechanism — original Transpose-bypass explanation ruled out (Transpose count identical opset17/21), kMaxSupportedOpset>=23 confirmed. Mechanism unknown. Scope: DINOv2 family only until mechanism is understood. 12 models now tested: 3 benefit, 7 neutral, 1 marginal/inconclusive (BGE-small +7.3% with high CV), 1 CPU-bound.",
       "falsified_by": null,
-      "scope": "ORT 1.24.5 (onnxruntime-windowsml). DINOv2-small and DINOv2-base confirmed. MobileViT-small likely. Does NOT apply to plain ViT (dino-vitb16 confirmed NEUTRAL), YOLOS-small, BERT-family, CPU-bound models (rad-dino). ResNet-18 data inconclusive.",
+      "scope": "ORT 1.24.5 (onnxruntime-windowsml). DINOv2-small and DINOv2-base confirmed. MobileViT-small likely. Does NOT apply to plain ViT (dino-vitb16 and rizvandwiki/gender-classification both confirmed NEUTRAL despite identical op counts to DINOv2-small), YOLOS-small, BERT-family NLP, CPU-bound models (rad-dino). ResNet-18 data inconclusive. BGE-small-en +7.3% marginal, inconclusive.",
       "tracked_issue": "#869",
       "perf_gain_validation_gates": {
         "gate1_statistical": "PASSED for DINOv2 (3-session, ranges separate). PARTIALLY for MobileViT (DVFS spike in h1). FAILED for ResNet-18.",
