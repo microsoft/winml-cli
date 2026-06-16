@@ -306,13 +306,19 @@ class PerfBenchmark:
         TYPE_CHECKING-only import also lets the unit tests use lightweight
         duck-typed fakes instead of constructing real torch-backed composites.
         ``sub_models`` is the defining member of the composite base, so it is a
-        reliable marker.
+        reliable marker. The extra ``isinstance(..., dict)`` guard narrows the
+        false-positive surface so a future single-session model that happens to
+        carry an unrelated ``sub_models`` attribute isn't misrouted.
         """
-        return hasattr(self._model, "sub_models")
+        return hasattr(self._model, "sub_models") and isinstance(
+            getattr(self._model, "sub_models", None), dict
+        )
 
+    @property
     def _sub_models(self) -> dict[str, WinMLPreTrainedModel]:
         """Sub-models of a composite model (only valid when ``_is_composite``)."""
-        return cast("WinMLCompositeModel", self._model).sub_models
+        composite: WinMLCompositeModel = cast("WinMLCompositeModel", self._model)
+        return composite.sub_models
 
     @property
     def _single(self) -> WinMLPreTrainedModel:
@@ -356,12 +362,16 @@ class PerfBenchmark:
         keyed by sub-model name for per-component reporting.
         """
         results: dict[str, BenchmarkResult] = {}
-        for name, sub in self._sub_models().items():
+        for name, sub in self._sub_models.items():
             logger.info("Benchmarking sub-model '%s'", name)
             Console(stderr=True).print(f"\n[bold]Sub-model:[/bold] {name}")
             child = PerfBenchmark(self.config)
             child._model = sub
-            results[name] = child._run_single()
+            try:
+                results[name] = child._run_single()
+            except Exception:
+                logger.error("Benchmarking sub-model '%s' failed", name)
+                raise
         return results
 
     def _run_single(self) -> BenchmarkResult:
@@ -1464,6 +1474,11 @@ def perf(
         # session; each sub-model is benchmarked individually and reported as
         # its own row (like --module), not as one aggregate forward() timing.
         if isinstance(result, dict):
+            if op_tracing:
+                console.print(
+                    "[yellow]Warning:[/yellow] --op-tracing is not supported for "
+                    "composite models and will be skipped."
+                )
             report_composite_results(
                 result,
                 console=console,

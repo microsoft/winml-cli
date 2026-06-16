@@ -216,6 +216,16 @@ class TestPerfBenchmarkComposite:
         for result in results.values():
             assert len(result.raw_samples_ms) == 3
 
+    def test_empty_sub_models_returns_empty_dict(self) -> None:
+        # Boundary: a composite with zero sub-models must not crash; it
+        # yields an empty mapping that downstream reporting handles.
+        config = BenchmarkConfig(model_id="empty/composite", device="gpu")
+        bench = PerfBenchmark(config)
+        bench._model = _FakeComposite({})
+
+        assert bench._is_composite is True
+        assert bench._run_sub_models() == {}
+
 
 class TestReportCompositeResults:
     """report_composite_results writes a combined per-component JSON report."""
@@ -262,3 +272,20 @@ class TestReportCompositeResults:
         assert set(payload["components"]) == {"image-encoder", "text-encoder"}
         # File is written regardless of json_mode.
         assert output.exists()
+
+    def test_empty_components_writes_zero_count(self, tmp_path: Path) -> None:
+        # Boundary: zero sub-models produces a valid report with no rows.
+        output = tmp_path / "perf.json"
+
+        report_composite_results(
+            {},
+            console=Console(),
+            json_mode=False,
+            output_path=output,
+            model_id="empty/composite",
+            task="zero-shot-image-classification",
+        )
+
+        data = json.loads(output.read_text())
+        assert data["component_count"] == 0
+        assert data["components"] == {}
