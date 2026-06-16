@@ -164,6 +164,7 @@ class WinMLAutoModel:
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
                 skip_build=skip_build,
+                no_compile=no_compile,
                 session_options=session_options,
                 **kwargs,
             )
@@ -376,6 +377,7 @@ class WinMLAutoModel:
                     config=config,
                     cache_dir=cache_dir,
                     allow_unsupported_nodes=allow_unsupported_nodes,
+                    no_compile=no_compile,
                     **kwargs,
                 )
 
