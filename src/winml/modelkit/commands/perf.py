@@ -537,14 +537,14 @@ class PerfBenchmark:
             return None
 
         assert self._model is not None
-        device = self._model.device or self.config.device
+        device = self._single.device or self.config.device
         if device == "cpu":
             return None
 
         try:
             from ..sysinfo.pdh_adapters import resolve_adapter_luid
 
-            ep_name = self._model.ep_name
+            ep_name = self._single.ep_name
             for kind in [device] if device in ("npu", "gpu") else ["npu", "gpu"]:
                 luid = resolve_adapter_luid(kind, ep_name=ep_name)
                 if luid:
