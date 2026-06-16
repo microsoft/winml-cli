@@ -408,7 +408,7 @@ def resolve_task(
         )
 
     # --- Stage 1: detection -----------------------------------------------
-    opt_task = None
+    # opt_task stays at its hoisted None until a detection sub-stage sets it.
     source: TaskSource | None = None
     resolved = None
 

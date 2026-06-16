@@ -272,7 +272,11 @@ def resolve_exporter(
         # MODEL_BUILD_CONFIGS entries are HF export configs; export is None only on
         # the direct-ONNX build path, which never reaches this registry lookup.
         export_config = config.export
-        assert export_config is not None, "MODEL_BUILD_CONFIGS entries require export"
+        if export_config is None:
+            raise ValueError(
+                f"MODEL_BUILD_CONFIGS entry for {model_type_normalized!r} is missing an "
+                "export config (export is None only on the direct-ONNX build path)."
+            )
 
         # Extract input tensors
         input_tensors: list[TensorInfo] = []

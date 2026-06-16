@@ -76,7 +76,7 @@ class SurgeryPipeConfig(PipeConfig):
 # =============================================================================
 
 
-class SurgeryPipe(BasePipe):
+class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
     """Surgery pipe for precise model modifications.
 
     This pipe performs targeted graph transformations to prepare models

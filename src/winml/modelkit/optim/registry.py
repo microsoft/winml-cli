@@ -16,13 +16,6 @@ The module supports:
 - Configuration validation
 """
 
-# The isinstance() guards in each capability's __post_init__ are unreachable per
-# the (statically-typed) field annotations, but are kept as runtime validation:
-# dataclass construction does not enforce field types, and tests in
-# test_registry_cli.py exercise these TypeError paths. Silence [unreachable] here
-# only; other mypy errors are still reported.
-# mypy: disable-error-code="unreachable"
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -102,7 +95,9 @@ class BoolCapability(CapabilityDef):
     def __post_init__(self) -> None:
         """Validate boolean default."""
         if not isinstance(self.default, bool):
-            msg = f"BoolCapability '{self.name}' must have bool default, got {type(self.default)}"
+            # Unreachable per the typed field, but kept as runtime validation:
+            # dataclasses don't enforce types; exercised by test_registry_cli.py.
+            msg = f"BoolCapability '{self.name}' must have bool default, got {type(self.default)}"  # type: ignore[unreachable]
             raise TypeError(msg)
 
     def cli_flags(self) -> tuple[str, str]:
@@ -129,7 +124,9 @@ class IntCapability(CapabilityDef):
     def __post_init__(self) -> None:
         """Validate integer constraints."""
         if not isinstance(self.default, int):
-            msg = f"IntCapability '{self.name}' must have int default, got {type(self.default)}"
+            # Unreachable per the typed field, but kept as runtime validation:
+            # dataclasses don't enforce types; exercised by test_registry_cli.py.
+            msg = f"IntCapability '{self.name}' must have int default, got {type(self.default)}"  # type: ignore[unreachable]
             raise TypeError(msg)
         if not (self.min_value <= self.default <= self.max_value):
             msg = (
@@ -161,7 +158,9 @@ class ChoiceCapability(CapabilityDef):
     def __post_init__(self) -> None:
         """Validate choice constraints."""
         if not isinstance(self.default, str):
-            msg = f"ChoiceCapability '{self.name}' must have str default, got {type(self.default)}"
+            # Unreachable per the typed field, but kept as runtime validation:
+            # dataclasses don't enforce types; exercised by test_registry_cli.py.
+            msg = f"ChoiceCapability '{self.name}' must have str default, got {type(self.default)}"  # type: ignore[unreachable]
             raise TypeError(msg)
         if not self.choices:
             msg = f"ChoiceCapability '{self.name}' must have at least one choice"
