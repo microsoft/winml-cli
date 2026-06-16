@@ -12,16 +12,12 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 from ...models import ModelTag
 from ...models.information import Action, ActionLevel, Information
 from .base import ModelValidator
 
-
-if TYPE_CHECKING:
-    from ...models.onnx_model import ONNXModel
-    from ...models.runtime_checks import PatternRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -94,19 +90,6 @@ class PatternMatchingValidator(ModelValidator):
             ),
         ),
     ]
-
-    def __init__(
-        self,
-        model: ONNXModel,
-        op_runtime_results: list[PatternRuntime] | None = None,
-    ) -> None:
-        """Initialize validator.
-
-        Args:
-            model: ONNXModel wrapper to validate
-            op_runtime_results: List of PatternRuntime results from runtime checker
-        """
-        super().__init__(model, op_runtime_results)
 
     @property
     def validator_name(self) -> str:

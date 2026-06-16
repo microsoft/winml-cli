@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 SURGERY_CAPABILITIES: dict[str, Any] = caps_dict(
     surgery.CLAMP_CONSTANT_VALUES,
     surgery.REMOVE_ISNAN_IN_ATTENTION_MASK,
+    surgery.UNTIE_CONSTANT_BATCHED_MATMUL,
 )
 
 
@@ -57,6 +58,8 @@ class SurgeryPipeConfig(PipeConfig):
         fix_nan_attention_mask: Replace -inf attention mask with finite value
             and remove Softmax->IsNaN->Where NaN guard patterns
         mask_value: Replacement value for -inf (default: -1e3)
+        untie_constant_batched_matmul: Make a batched MatMul's constant operand
+            runtime-valued so OpenVINO GPU can select a gemm implementation
         verbose: Enable verbose logging
     """
 
@@ -64,6 +67,7 @@ class SurgeryPipeConfig(PipeConfig):
     clamp_min: float = -1e3
     clamp_max: float = 1e3
     remove_isnan_in_attention_mask: bool = False
+    untie_constant_batched_matmul: bool = False
     verbose: bool = False
 
 
@@ -72,7 +76,7 @@ class SurgeryPipeConfig(PipeConfig):
 # =============================================================================
 
 
-class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
+class SurgeryPipe(BasePipe):
     """Surgery pipe for precise model modifications.
 
     This pipe performs targeted graph transformations to prepare models
@@ -106,6 +110,7 @@ class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
             clamp_min=kwargs.get("clamp_min", -1e3),
             clamp_max=kwargs.get("clamp_max", 1e3),
             remove_isnan_in_attention_mask=kwargs.get("remove_isnan_in_attention_mask", False),
+            untie_constant_batched_matmul=kwargs.get("untie_constant_batched_matmul", False),
             verbose=kwargs.get("verbose", False),
         )
 
@@ -119,7 +124,11 @@ class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
         Returns:
             True if any surgery operation is enabled
         """
-        return config.clamp_constant_values or config.remove_isnan_in_attention_mask
+        return (
+            config.clamp_constant_values
+            or config.remove_isnan_in_attention_mask
+            or config.untie_constant_batched_matmul
+        )
 
     def process(self, model: onnx.ModelProto, config: SurgeryPipeConfig) -> onnx.ModelProto:
         """Apply surgery operations to the model.
@@ -148,6 +157,9 @@ class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
 
         if config.remove_isnan_in_attention_mask:
             model_copy = self._remove_isnan_in_attention_mask(model_copy, config.verbose)
+
+        if config.untie_constant_batched_matmul:
+            model_copy = self._untie_constant_batched_matmul(model_copy, config.verbose)
 
         return model_copy
 
@@ -302,9 +314,9 @@ class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
             for i, inp in enumerate(node.input):
                 if inp in rewire_map:
                     node.input[i] = rewire_map[inp]
-        for graph_out in model.graph.output:
-            if graph_out.name in rewire_map:
-                graph_out.name = rewire_map[graph_out.name]
+        for out in model.graph.output:
+            if out.name in rewire_map:
+                out.name = rewire_map[out.name]
 
         # Remove dead nodes
         remove_ids = {id(n) for n in nodes_to_remove}
@@ -317,5 +329,150 @@ class SurgeryPipe(BasePipe[SurgeryPipeConfig]):
                 "SurgeryPipe: remove-isnan-in-attention-mask: %d IsNaN+Where guards removed",
                 guard_count,
             )
+
+        return model
+
+    # -----------------------------------------------------------------
+    # untie-constant-batched-matmul
+    # -----------------------------------------------------------------
+
+    def _untie_constant_batched_matmul(
+        self,
+        model: onnx.ModelProto,
+        verbose: bool = False,
+    ) -> onnx.ModelProto:
+        """Make a batched MatMul's constant operand runtime-valued.
+
+        OpenVINO GPU's oneDNN gemm cannot select an implementation for a batched
+        (rank >= 3) MatMul where an operand is a compile-time constant: the same
+        gemm with a dynamic operand, and 2D constant gemm, both compile fine.
+        Transformer disentangled-attention position terms depend only on weights,
+        so they fold into 3D constants and hit this case.
+
+        Fix: route each such constant operand through ``Add(const, zero)`` where
+        ``zero`` is a runtime ``[1]`` tensor built from the first graph input's
+        *data*: ``Cast(first_input -> float) -> Reshape([-1]) -> Slice([0:1])``
+        yields a single element ``elem``, and ``zero = Sub(elem, elem) == 0.0``.
+        ``zero`` is data-dependent, so OpenVINO's constant folder cannot collapse
+        the Add back into a packed gemm weight, yet ``+ 0`` leaves the values
+        unchanged and the single batched MatMul is preserved (no perf cost).
+
+        Assumption: the first graph input has at least one element at runtime.
+        The ``Slice([0:1])`` is out of bounds for a zero-sized input (e.g. a
+        dynamic batch dimension fed an empty batch), which would raise at
+        inference time rather than produce a zero.
+        """
+        from onnx import TensorProto, helper, numpy_helper
+
+        graph = model.graph
+        initializers = {init.name: init for init in graph.initializer}
+
+        # Collect (matmul_node, operand_index) where the operand is a constant
+        # initializer of rank >= 3. Skip MatMuls whose operands are all constant
+        # (those fold away entirely and never reach gemm impl selection).
+        targets: list[tuple[onnx.NodeProto, int]] = []
+        for node in graph.node:
+            if node.op_type != "MatMul" or len(node.input) != 2:
+                continue
+            const_idx = [i for i, name in enumerate(node.input) if name in initializers]
+            if len(const_idx) != 1:
+                continue
+            idx = const_idx[0]
+            if len(initializers[node.input[idx]].dims) >= 3:
+                targets.append((node, idx))
+
+        if not targets:
+            return model
+
+        if not graph.input:
+            logger.warning(
+                "SurgeryPipe: untie-constant-batched-matmul: no graph input to "
+                "derive a runtime value from; skipping %d MatMul(s)",
+                len(targets),
+            )
+            return model
+
+        prefix = "winml_ovgpu_untie"
+        first_input = graph.input[0].name
+        new_nodes: list[onnx.NodeProto] = []
+        new_inits: list[onnx.TensorProto] = []
+
+        # Build a shape-[1] runtime zero from input *data* (not shape — input
+        # shapes are static and would be folded). Only ubiquitous ops are used
+        # so the static analyzer handles them: a single input element is sliced
+        # out and subtracted from itself. A [1] tensor broadcasts against any
+        # constant operand, regardless of its rank.
+        xf = f"{prefix}_xf"
+        new_nodes.append(
+            helper.make_node("Cast", [first_input], [xf], to=TensorProto.FLOAT, name=xf)
+        )
+        flat = f"{prefix}_flat"
+        new_inits.append(numpy_helper.from_array(np.array([-1], dtype=np.int64), f"{prefix}_m1"))
+        new_nodes.append(helper.make_node("Reshape", [xf, f"{prefix}_m1"], [flat], name=flat))
+        elem = f"{prefix}_elem"
+        # Slice(flat, starts=[0], ends=[1], axes=[0]) -> the first element.
+        # starts and axes are distinct tensors even though both hold [0], so a
+        # future edit to one role cannot silently corrupt the other.
+        starts = f"{prefix}_slice_starts"
+        ends = f"{prefix}_slice_ends"
+        axis = f"{prefix}_slice_axis"
+        new_inits.append(numpy_helper.from_array(np.array([0], dtype=np.int64), starts))
+        new_inits.append(numpy_helper.from_array(np.array([1], dtype=np.int64), ends))
+        new_inits.append(numpy_helper.from_array(np.array([0], dtype=np.int64), axis))
+        new_nodes.append(helper.make_node("Slice", [flat, starts, ends, axis], [elem], name=elem))
+        # zero = elem - elem == 0.0 (data-dependent, so it is not folded away).
+        zero_f32 = f"{prefix}_zero_f32"
+        new_nodes.append(helper.make_node("Sub", [elem, elem], [zero_f32], name=zero_f32))
+
+        # A zero must match each operand's dtype (ONNX has no implicit promotion).
+        zero_by_dtype: dict[int, str] = {int(TensorProto.FLOAT): zero_f32}
+
+        def zero_for(dtype: int) -> str:
+            name = zero_by_dtype.get(dtype)
+            if name is None:
+                name = f"{prefix}_zero_{dtype}"
+                new_nodes.append(helper.make_node("Cast", [zero_f32], [name], to=dtype, name=name))
+                zero_by_dtype[dtype] = name
+            return name
+
+        untied = 0
+        # Index the loop rather than node.name: node names are optional in ONNX
+        # and exporters routinely leave them blank or duplicated, so deriving
+        # `dyn` from the name would collide and produce an invalid graph.
+        for untie_idx, (node, idx) in enumerate(targets):
+            const_name = node.input[idx]
+            dtype = initializers[const_name].data_type
+            if dtype not in (TensorProto.FLOAT, TensorProto.FLOAT16, TensorProto.DOUBLE):
+                continue
+            dyn = f"{prefix}_untied{untie_idx}_in{idx}"
+            new_nodes.append(
+                helper.make_node("Add", [const_name, zero_for(dtype)], [dyn], name=dyn)
+            )
+            node.input[idx] = dyn
+            untied += 1
+            if verbose:
+                logger.info(
+                    "  untie-constant-batched-matmul: %s input[%d] %s -> %s",
+                    node.name,
+                    idx,
+                    const_name,
+                    dyn,
+                )
+
+        if untied == 0:
+            return model
+
+        graph.initializer.extend(new_inits)
+        # Prepend new nodes: their inputs are only graph inputs / initializers,
+        # so placing them first keeps the graph topologically sorted.
+        existing = list(graph.node)
+        del graph.node[:]
+        graph.node.extend(new_nodes + existing)
+
+        logger.info(
+            "SurgeryPipe: untie-constant-batched-matmul: untied %d batched "
+            "MatMul constant operand(s)",
+            untied,
+        )
 
         return model
