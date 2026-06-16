@@ -24,115 +24,141 @@
 
     {
       "id": "npu-001",
-      "title": "opset 21 bypasses NHWC layout transform — beneficial ONLY for Conv+residual architectures",
-      "observation": "ConvNext: opset 21 p50~12ms vs opset 17 p50~54ms (DVFS-dominated, Gates 1+3 not passed). Catalog sweep 2026-06-13: MobileViT +26.5% (opset21), DINOv2-small +30.6% (opset21). ViT: opset21 -7.4% (no benefit). BERT/RoBERTa/DistilBERT: neutral.",
-      "mechanism_confirmed": true,
-      "mechanism_source": "ORT source code investigation (2026-06-10) + catalog sweep validation (2026-06-13)",
-      "architecture_requirement": ["has_conv_ops", "has_residual_connections"],
+      "title": "opset 21 export is faster on QNN NPU for some Conv+attention hybrid models — mechanism UNKNOWN for ORT 1.24.x",
+      "observation": "Catalog sweep 2026-06-13 (ORT 1.24.5): DINOv2-small opset21 median 4.98ms vs opset17 median 7.18ms (+30.6%). MobileViT-small opset21 8.62ms vs opset17 11.72ms (+26.5%, but opset17 has a DVFS spike session). ViT-base: opset21 -7.4% (slower). BERT/RoBERTa/DistilBERT: neutral. ResNet-18: data noise-dominated — unreliable (see below).",
+      "mechanism_confirmed": false,
+      "mechanism_status": "ORIGINAL_MECHANISM_INVALIDATED — must re-investigate",
+      "mechanism_source": "ORT source code investigation (2026-06-10) for ORT < 1.18. Sweep used onnxruntime-windowsml==1.24.5 where this mechanism no longer applies.",
+      "ort_version_critical_note": "The original mechanism (kMaxSupportedOpset gate in IsSupportedOpset()) requires kMaxSupportedOpset < 21. onnxruntime-windowsml==1.24.5 (ORT 1.24.x) has kMaxSupportedOpset >= 22, so BOTH opset17 and opset21 go through the NHWC layout transform. The bypass mechanism does NOT apply to the ORT version used in the sweep. The observed speedup for DINOv2 and MobileViT has an UNKNOWN root cause.",
+      "architecture_requirement": ["empirically: hybrid Conv+attention; pure Conv (ResNet) and pure attention (ViT) show no reliable benefit"],
       "validated_models": {
-        "benefits_from_opset21": ["convnext", "mobilevit", "dinov2"],
-        "no_benefit": ["vit", "yolos"],
-        "neutral": ["distilbert", "bert", "roberta", "mpnet"]
+        "benefits_from_opset21": ["dinov2-small (+30.6%, 3-session consistent)", "mobilevit-small (~20-26%, note: opset17 has DVFS spike inflating its median)"],
+        "no_benefit_or_regression": ["vit-base-patch16-224 (-7.4%)", "yolos-small (timeout, no data)"],
+        "neutral": ["distilbert", "bert/MiniLM", "roberta"],
+        "data_unreliable": ["resnet-18 — sub-ms latency, 3-session range spans 4x; no reliable signal (see data_reliability_notes)"]
       },
-      "mechanism_explanation": {
-        "root_cause": "kMaxSupportedOpset gate in IsSupportedOpset() (onnxruntime/core/optimizer/layout_transformation/layout_transformation.cc). On older ORT where kMaxSupportedOpset < 21, opset 21 models bypass the NCHW→NHWC layout transformer entirely (transform_layout_fn = nullptr in inference_session.cc:1589-1626).",
-        "why_bypass_helps_convnext": "NHWC layout transform inserts Transpose(NCHW→NHWC) and Transpose(NHWC→NCHW) around Conv. For ConvNext, residual connections consume Conv output BEFORE the following ConvNext permute Transpose — so the two Transposes CANNOT be cancelled. Result: opset 17 NHWC graph has MORE Transpose ops on HTP than opset 21 NCHW graph. Bypassing the transform = cleaner graph = faster.",
-        "why_cpu_is_opposite": "CPU relies on TransposeOptimizer to REMOVE existing Transposes. Skipping it (opset > kMaxSupportedOpset) leaves Transposes in place → CPU gets SLOWER. QNN's layout transform ADDS new Transposes that can't be fully eliminated → QNN gets FASTER when bypassed. Same constant, opposite effects.",
+      "original_mechanism_explanation": {
+        "root_cause_for_old_ort": "kMaxSupportedOpset gate in IsSupportedOpset() (onnxruntime/core/optimizer/layout_transformation/layout_transformation.cc). On ORT where kMaxSupportedOpset < 21, opset 21 models bypass the NCHW→NHWC layout transformer entirely.",
+        "why_bypass_helped_convnext": "NHWC layout transform inserts Transpose(NCHW→NHWC) around Conv. For ConvNext, residual connections prevent Transpose cancellation → opset17 graph has MORE Transposes on HTP than opset21 graph.",
+        "why_cpu_is_opposite": "CPU relies on TransposeOptimizer to REMOVE existing Transposes. Skipping the optimizer (opset > kMaxSupportedOpset) leaves Transposes in place → CPU SLOWER. Same gate, opposite effect.",
+        "ort_kMaxSupportedOpset_by_version": {
+          "v1.14.x": 18,
+          "v1.16.x": 19,
+          "v1.17.x": 20,
+          "v1.18.x": 21,
+          "v1.24.x": "unknown, almost certainly >= 22 — VERIFY",
+          "main_HEAD": 26
+        },
         "key_files": [
           "onnxruntime/core/optimizer/transpose_optimization/onnx_transpose_optimization.cc:2724-2746 — MakeOptimizerContext() gate",
           "onnxruntime/core/optimizer/layout_transformation/layout_transformation.cc — IsSupportedOpset()",
-          "onnxruntime/core/session/inference_session.cc:1589-1626 — transform_layout_fn=nullptr path",
-          "onnxruntime/core/optimizer/transpose_optimization/ort_transpose_optimization.cc — EPAwareHandleReshape (QNN-specific)",
-          "onnxruntime/core/providers/qnn/builder/op_builder_factory.cc — NO opset dispatch in QNN EP"
-        ],
-        "confirmed_negative": "QNN EP itself has NO opset-version-based kernel dispatch. All op→QNN mapping is by op_type string only. The speedup is entirely from ORT optimizer behavior, not QNN SDK."
+          "onnxruntime/core/session/inference_session.cc:1589-1626 — transform_layout_fn=nullptr path"
+        ]
       },
-      "critical_caveats": [
-        "ORT VERSION DEPENDENCY: kMaxSupportedOpset=26 on current ORT main branch. On current ORT, BOTH opset 17 and 21 get NHWC layout transform → speedup may NOT exist. Must verify ORT version before claiming this works.",
-        "ARCHITECTURE SPECIFICITY: Only helps models with (1) Conv ops + (2) residual connections + (3) explicit Transpose/permute ops. Pure sequential models (MobileNet) would get SLOWER with opset 21 bypass.",
-        "DVFS NOISE: Current sweep data (50 iters, warm device) is dominated by thermal variance. Gate 1 (iter≥1000 × 3 sessions) not yet passed.",
-        "May disappear on newer ORT versions or QNN SDK versions that handle NCHW Conv more efficiently internally."
+      "alternative_mechanism_hypotheses": [
+        "PyTorch ONNX exporter produces structurally different graph at opset 21 (different op decompositions) → fewer ops for QNN EP to partition",
+        "QNN EP graph partitioner behaves differently with opset 21 op semantics even when NHWC transform fires",
+        "Quantization calibration path differs between opset exports → better quantization quality at opset 21",
+        "NHWC transform at opset 21 still inserts fewer non-cancellable Transposes for Conv+attention hybrids via a different path — needs graph dump to verify"
       ],
-      "action_for_autoconfig": "⚠️ Do NOT treat this as a generic 'try opset 21 first' rule. Correct action: (1) Check if model has Conv ops AND residual connections. (2) If yes: include opset 21 in search. (3) If pure attention (ViT, YOLOS) or pure NLP (BERT-family): opset 21 neutral or harmful — default opset 17. (4) Always check ORT kMaxSupportedOpset at runtime.",
-      "confidence": "medium-high on mechanism; low on perf claim (Gates 1+3 not yet passed)",
+      "data_reliability_notes": {
+        "dinov2_small": {
+          "h1_opset17_sessions_ms": [7.176, 6.392, 9.436],
+          "h3_opset21_sessions_ms": [4.977, 4.876, 6.884],
+          "assessment": "RELIABLE. Ranges barely overlap only at extremes. h3 sessions 1+2 (4.97/4.88ms) are well below entire h1 range. Speedup is real."
+        },
+        "mobilevit_small": {
+          "h1_opset17_sessions_ms": [10.557, 11.721, 27.436],
+          "h3_opset21_sessions_ms": [10.814, 8.625, 8.449],
+          "assessment": "PARTIALLY RELIABLE. h1 session 3 (27.4ms) is a DVFS spike — median inflated to 11.72ms vs true ~11ms. h3 sessions 2+3 (8.6/8.4ms) consistently faster. Actual speedup ~20-26% (not the reported 26.5%)."
+        },
+        "resnet_18": {
+          "h1_opset17_sessions_ms": [0.990, 4.003, 2.716],
+          "h3_opset21_sessions_ms": [1.054, 2.175, 4.107],
+          "assessment": "UNRELIABLE. Sub-ms model. Session range spans 4x for same config. Reported '+20.2% speedup' (h1 median 2.72ms vs h3 median 2.18ms) is NOT a real signal — the two distributions fully overlap. REMOVED from benefits list."
+        }
+      },
+      "action_for_autoconfig": "Include opset 21 in search for Conv+attention hybrid models (dinov2-class, mobilevit-class). Do NOT apply to pure attention (ViT, YOLOS) or NLP (BERT-family). For ResNet-class Conv-only models: insufficient evidence. ALWAYS dump the optimized graph to compare Transpose counts — if opset17 has more Transposes in QNN partition, it explains speedup regardless of mechanism.",
+      "confidence": "medium on empirical observation (DINOv2 speedup is real; MobileViT likely real). Low on mechanism — original explanation does not apply to ORT 1.24.x. Mechanism must be re-investigated.",
       "falsified_by": null,
-      "scope": "Models with Conv + residual connections + explicit Transpose ops (ConvNext, MobileViT, DINOv2). Does NOT apply to pure transformers (ViT, YOLOS) or NLP models (BERT-family).",
+      "scope": "ORT 1.24.5 (onnxruntime-windowsml). DINOv2-small and MobileViT-small confirmed. Mechanism unknown. Does NOT apply to ViT-base, YOLOS-small, BERT-family. ResNet-18 data inconclusive.",
       "tracked_issue": "#869",
       "perf_gain_validation_gates": {
-        "gate1_statistical": "FAILED — need iter>=1000 x 3 independent sessions with cool-down",
-        "gate2_mechanism": "PASSED — confirmed via ORT source code (kMaxSupportedOpset gate + NHWC transform bypass + residual-blocked Transpose cancellation)",
-        "gate3_thermal_control": "FAILED — sequential benchmarks on warm device"
+        "gate1_statistical": "PASSED for DINOv2 (3-session, ranges separate). PARTIALLY for MobileViT (DVFS spike in h1). FAILED for ResNet-18.",
+        "gate2_mechanism": "FAILED — original kMaxSupportedOpset bypass mechanism does not apply to ORT 1.24.x. New mechanism uninvestigated.",
+        "gate3_thermal_control": "PARTIALLY — 3×500-iter with 30s cool-down is better than single-session but DVFS spikes still occur (MobileViT h1, DINOv2 h1 session 3)"
       },
       "follow_up_required": [
-        "Verify ORT version's kMaxSupportedOpset: if >= 21, mechanism no longer applies",
-        "Dump optimized graph for both opsets (sess_options.optimized_model_filepath) — if opset 17 has more Transpose nodes in QNN partition, confirms mechanism",
-        "Run iter=1000 x 3 sessions with cool-down to pass Gate 1",
-        "Test on current ORT head to see if gain persists"
+        "CRITICAL: Verify ORT 1.24.x kMaxSupportedOpset value — run: python -c 'import onnxruntime; print(onnxruntime.__version__)' and check source",
+        "CRITICAL: Dump optimized.onnx for opset17 vs opset21 DINOv2 — count Transpose nodes in QNN-assigned partition. If opset21 has fewer, explains speedup via a different path.",
+        "Run 5+ sessions (not 3) on DINOv2 opset17 vs opset21 to reduce DVFS uncertainty",
+        "Test EfficientNet-B0, MobileNet-V3 to determine if benefit is 'Conv+residual' or 'Conv+attention hybrid' specific",
+        "For ResNet-18: run 3 sessions x 2000 iters to get reliable sub-ms measurements"
       ],
-      "experiments": [
-        {"opset": 17, "p50_ms": 54.2, "p90_ms": 104.5, "min_ms": 9.56, "std_ms": 44.1, "iters": 50, "note": "warm device, DVFS-dominated"},
-        {"opset": 18, "p50_ms": 43.7, "p90_ms": 326.1, "min_ms": 10.5, "std_ms": 153.2, "iters": 50, "note": "bimodal — severe DVFS"},
-        {"opset": 19, "p50_ms": 12.1, "p90_ms": 77.7,  "min_ms": 9.11, "std_ms": 60.0,  "iters": 50},
-        {"opset": 20, "p50_ms": 12.0, "p90_ms": 99.4,  "min_ms": 9.48, "std_ms": 88.5,  "iters": 50},
-        {"opset": 21, "p50_ms": 12.2, "p90_ms": 38.0,  "min_ms": 9.73, "std_ms": 10.1,  "iters": 20, "note": "only 20 iters"},
-        {"opset": 22, "p50_ms": 13.6, "p90_ms": 34.5,  "min_ms": 8.80, "std_ms": 37.2,  "iters": 50}
+      "experiments_convnext_early": [
+        {"opset": 17, "p50_ms": 54.2, "p90_ms": 104.5, "min_ms": 9.56, "std_ms": 44.1, "iters": 50, "note": "warm device, DVFS-dominated, NOT reliable"},
+        {"opset": 19, "p50_ms": 12.1, "p90_ms": 77.7,  "min_ms": 9.11, "std_ms": 60.0,  "iters": 50, "note": "NOT reliable — 50 iters, DVFS"},
+        {"opset": 21, "p50_ms": 12.2, "p90_ms": 38.0,  "min_ms": 9.73, "std_ms": 10.1,  "iters": 20, "note": "only 20 iters — NOT reliable"}
       ]
     },
 
     {
       "id": "npu-002",
-      "title": "W8A16 quantization provides ~1.9x speedup over FP32 on QNN NPU",
-      "observation": "FP32 baseline: p50=19.4ms. W8A16 quantized (minmax, 128 samples): p50=10.29ms.",
+      "title": "W8A16 quantization provides ~1.9x speedup over FP32 on QNN NPU (ConvNext only — not yet generalized)",
+      "observation": "ConvNext FP32 baseline: p50=19.4ms. W8A16 quantized (minmax, 128 samples): p50=10.29ms. 1 model, 1 device.",
       "mechanism_confirmed": true,
       "mechanism_hypothesis": "QNN HTP has native INT8 weight / FP16 activation datapath. W8A16 maps directly to HTP's weight-compressed matmul kernels.",
-      "action_for_autoconfig": "Always quantize for QNN NPU. W8A16 is the starting point for ConvNext-class models.",
-      "confidence": "high — mechanism is well-understood (HTP architecture)",
+      "action_for_autoconfig": "Always quantize for QNN NPU. W8A16 is the starting point. Validate accuracy after quantization.",
+      "confidence": "medium — mechanism is well-understood (HTP architecture), but 1.9x magnitude is from 1 model only. Speedup will vary by architecture.",
       "falsified_by": null,
-      "scope": "General (applies to most vision models on QNN NPU)",
-      "do_not_generalize_to": "Models with unusual op types not supported by QNN W8A16 path"
+      "scope": "ConvNext only — single model validation. The catalog sweep used W8A16 for all 8 models but did not include FP32 baselines for those models, so the 1.9x figure cannot be generalized. Need FP32 baseline runs on at least 3 diverse models before claiming 'most vision models'.",
+      "do_not_generalize_to": "Models with unusual op types not supported by QNN W8A16 path. Magnitude claim (1.9x) is ConvNext-specific."
     },
 
     {
       "id": "npu-003",
-      "title": "winml compile adds ~1.7x speedup on top of quantization for QNN NPU",
-      "observation": "W8A16 quantized: p50=10.29ms. W8A16 + compiled (EPContext): p50=6.01ms.",
+      "title": "winml compile adds ~1.7x speedup on top of quantization for QNN NPU (ConvNext only — not yet generalized)",
+      "observation": "ConvNext W8A16 quantized: p50=10.29ms. W8A16 + compiled (EPContext): p50=6.01ms. 1 model, 1 device.",
       "mechanism_confirmed": true,
       "mechanism_hypothesis": "Compilation pre-builds the QNN binary graph (.bin) and eliminates JIT graph partitioning at session creation time. EPContext model loads the pre-built binary directly.",
       "action_for_autoconfig": "Always run winml compile after finding best quantized config for QNN NPU.",
-      "confidence": "high — mechanism confirmed by QNN SDK documentation",
+      "confidence": "medium — mechanism is well-understood (EPContext documented by QNN SDK). 1.7x magnitude is ConvNext-specific. Simpler models may see less benefit; complex models may see more.",
       "falsified_by": null,
-      "scope": "General (applies to all QNN NPU deployments)"
+      "scope": "ConvNext only — single model validation. Mechanism generalizes; magnitude (1.7x) does not. The catalog sweep results.json baseline p50 values already include the effects of whatever auto-config winml chose (which may or may not include compile) — not directly comparable."
     },
 
     {
       "id": "npu-004",
-      "title": "W8A8 is catastrophic for ConvNext-class models on QNN NPU",
-      "observation": "W8A8 quantization on ConvNext: top-1 accuracy collapses (< 15%). Exact numbers not recorded — aborted early.",
+      "title": "⚠️ ANECDOTE (NO DATA): W8A8 may cause accuracy collapse on models with LN+GELU — UNVALIDATED",
+      "observation": "W8A8 quantization was attempted on ConvNext. The experiment was aborted early — exact accuracy numbers were NOT recorded. The claim 'top-1 < 15%' is a recalled anecdote from the experimenter, not a measured result.",
       "mechanism_confirmed": false,
-      "mechanism_hypothesis": "ConvNext uses LayerNormalization + GELU in every block. Quantizing both weights AND activations to INT8 in these ops introduces severe numerical error. QNN NPU partial support for INT8 activations in LN/GELU may exacerbate this.",
-      "action_for_autoconfig": "If W8A8 top-1 <= 15% on first attempt, skip all W8A8 variants and go directly to W8A16.",
-      "confidence": "medium — top-1 collapse observed; exact mechanism unconfirmed",
+      "mechanism_hypothesis": "ConvNext uses LayerNormalization + GELU in every block. Quantizing both weights AND activations to INT8 in these ops introduces severe numerical error. However, this is a hypothesis — the aborted experiment does not confirm or refute it.",
+      "action_for_autoconfig": "Treat W8A8 as potentially risky for LN+GELU-heavy models. Run accuracy gate (winml eval) before deploying W8A8. If top-1 drops > 5 points vs W8A16, discard W8A8.",
+      "confidence": "very_low — unrecorded anecdote; no numerical evidence. Must re-run the experiment and record results before promoting to 'finding'.",
       "falsified_by": null,
-      "scope": "Models with LN+GELU blocks (ConvNext, ViT variants)",
-      "do_not_generalize_to": "BERT/ResNet models where W8A8 is often fine"
+      "scope": "UNVALIDATED. May apply to models with LN+GELU blocks but this is unconfirmed.",
+      "do_not_generalize_to": "BERT/ResNet models where W8A8 is often fine",
+      "required_experiment": "Run W8A8 quantization on ConvNext-tiny-224, record exact top-1 accuracy (eval on ImageNet-1k, 1000 samples minimum). Compare to W8A16 baseline. If collapse observed, also run with calibration_method=percentile to see if calibration quality is the issue."
     },
 
     {
       "id": "npu-005",
-      "title": "QNN Hub W8A16 model (opset 21, uint16 input) is WORSE on our stack than our own W8A16",
-      "observation": "QNN Hub W8A16 on winml ORT QNN EP: p50=14.82ms, std=8.8ms. Our ORT-quantized W8A16 (opset 17 QDQ): p50=6.01ms stable.",
+      "title": "QNN Hub W8A16 model is slower on ORT QNN EP stack than ORT-quantized W8A16 — but comparison is not fair",
+      "observation": "QNN Hub W8A16 on winml ORT QNN EP: p50=14.82ms, std=8.8ms. ORT-quantized W8A16 (opset 17 QDQ): p50=6.01ms stable.",
       "mechanism_confirmed": false,
-      "mechanism_hypothesis": "QNN Hub uses opset 21 QDQ format with uint16 input tensor — this format is incompatible with ORT QNN EP's expected quantization format. ORT QNN EP expects float32 input + int8/int16 weight QDQ, not uint16 input.",
+      "mechanism_hypothesis": "QNN Hub uses opset 21 QDQ format with uint16 input tensor — this format may be incompatible with ORT QNN EP's expected quantization format.",
+      "fairness_caveat": "⚠️ This is NOT a fair comparison. QNN Hub models are compiled for the qairt native stack (qualcomm AI runtime), not for ORT QNN EP. Running a qairt-compiled model through ORT QNN EP is an unsupported use case. The comparison only shows that you should use ORT-generated quantization when targeting ORT QNN EP — which is obvious.",
       "action_for_autoconfig": "Use ORT-generated W8A16 quantization (winml build), NOT QNN Hub pre-quantized models, when targeting ORT QNN EP stack.",
-      "confidence": "medium — std=8.8ms suggests format mismatch causing CPU fallback for some nodes",
+      "confidence": "low — the finding is trivially true (use the right tool for the right stack) but the experiment doesn't tell us anything useful about relative performance.",
       "falsified_by": null,
-      "scope": "ORT QNN EP stack (not qairt native stack)"
+      "scope": "ORT QNN EP stack only. QNN Hub models on their native qairt stack are likely much faster — that comparison was never made."
     },
 
     {
       "id": "npu-006",
       "title": "Conv fusions (conv-bn/add/activation) cause catastrophic QNN NPU CPU fallback on Conv-dominant models",
-      "observation": "ResNet-18 with conv-bn-fusion+conv-add-fusion+conv-activation-fusion: p50=132ms vs baseline 2.72ms = +4900% regression. MobileViT with same fusions: neutral. BERT-family: neutral (no Conv ops).",
+      "observation": "ResNet-18 with conv-bn-fusion+conv-add-fusion+conv-activation-fusion: 3-session p50s = [132.3, 134.97, 130.67]ms (CV=0.016, extremely stable) vs baseline [0.99, 4.00, 2.72]ms. ~130-135x regression. MobileViT with same fusions: [11.60, 11.36, 10.52]ms — neutral vs baseline [10.56, 11.72, 27.44]ms. BERT-family: neutral (no Conv ops to fuse).",
+      "session_evidence_note": "The h4 sessions for ResNet-18 (132.3, 134.97, 130.67ms) show near-zero variance (CV=0.016) — in stark contrast to all other hypotheses. This is unusual for QNN NPU and strongly suggests deterministic CPU fallback (not DVFS noise). The regression is 50-136x even comparing best sessions.",
       "mechanism_confirmed": false,
       "mechanism_hypothesis": "ORT conv fusion pass (ConvAddActivationFusion, ConvBNFusion) produces fused op types (e.g., Conv+BN fused) that QNN EP cannot map to HTP kernels. These ops fall back to CPU execution, adding PCIe round-trip overhead per-op for a Conv-heavy graph like ResNet.",
       "action_for_autoconfig": "⚠️ CRITICAL: Do NOT apply conv-bn-fusion / conv-add-fusion / conv-activation-fusion for QNN NPU on Conv-dominant models (ResNet, EfficientNet, MobileNet). These passes are beneficial for CPU EP but hazardous for QNN NPU. Always run accuracy + latency gate after applying any Conv fusion. If regression > 5x, disable all conv fusions immediately.",
@@ -169,12 +195,13 @@
 
   "search_space_rules": {
     "opset": {
-      "recommended_order_conv_residual": [21, 17],
+      "recommended_order_conv_attention_hybrid": [21, 17],
       "recommended_order_pure_attention": [17],
       "recommended_order_nlp": [17],
-      "architecture_gate": "Check model topology first: has_conv_ops AND has_residual_connections → try opset 21. Otherwise → opset 17 only.",
-      "rationale": "npu-001 (catalog-validated 2026-06-13): opset 21 +26-31% for Conv+residual. -7% for pure ViT. Neutral for BERT-family.",
-      "dialectical_note": "⚠️ opset 21 benefit requires ORT kMaxSupportedOpset < 21. On newer ORT this may not apply. Always validate."
+      "recommended_order_pure_conv": [17, "21 only if time allows — insufficient data"],
+      "architecture_gate": "Conv+attention hybrid (DINOv2-class, MobileViT-class) → try opset 21 first. Pure attention (ViT, YOLOS) → opset 17 only. NLP (BERT-family) → opset 17 only. Pure Conv (ResNet) → opset 17 (data insufficient for opset21 recommendation).",
+      "rationale": "npu-001 (catalog-validated 2026-06-13): opset 21 +30% for DINOv2, +20-26% for MobileViT. -7% for pure ViT. Neutral for BERT-family. ResNet-18 data is noise-dominated.",
+      "dialectical_note": "⚠️ The original mechanism explanation (kMaxSupportedOpset bypass) does NOT apply to ORT 1.24.x (onnxruntime-windowsml 1.24.5). The speedup for DINOv2/MobileViT is empirically real but mechanistically unexplained. Always validate on the actual ORT version being shipped."
     },
     "quantization": {
       "recommended": "w8a16",
