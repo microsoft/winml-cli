@@ -177,10 +177,10 @@ class TestRunBuildNoQuantInjection:
 def _write_onnx(path: Path, opset: int) -> None:
     """Write a minimal single-node ONNX model at the given opset."""
     import onnx
-    from onnx import TensorProto, helper
 
-    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])
-    y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])
+    helper = onnx.helper
+    x = helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1])
+    y = helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [1])
     graph = helper.make_graph([helper.make_node("Identity", ["x"], ["y"])], "g", [x], [y])
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
     onnx.save(model, str(path))

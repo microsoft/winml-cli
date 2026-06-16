@@ -505,13 +505,11 @@ def _ensure_min_opset(onnx_path: str, model_dir: Path) -> str:
     if current >= _WINML_MIN_OPSET:
         return onnx_path
 
-    from onnx import version_converter
-
     safe_print(
         f"    [onnx] opset {current} < {_WINML_MIN_OPSET} (winml minimum); "
         f"upgrading to opset {_OPSET_UPGRADE_TARGET} ..."
     )
-    upgraded = version_converter.convert_version(model, _OPSET_UPGRADE_TARGET)
+    upgraded = onnx.version_converter.convert_version(model, _OPSET_UPGRADE_TARGET)
     model_dir.mkdir(parents=True, exist_ok=True)
     out_path = model_dir / f"{Path(onnx_path).stem}_op{_OPSET_UPGRADE_TARGET}.onnx"
     onnx.save(upgraded, str(out_path))
