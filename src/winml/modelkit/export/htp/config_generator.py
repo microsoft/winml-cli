@@ -198,92 +198,23 @@ class ExportConfigGenerator:
         batch_size: int,
         input_shape: tuple | None,
     ) -> dict[str, dict[str, Any]]:
-        """Generate input specifications using pattern matching.
+        """Generate input specifications.
 
-        Uses InputSpecGenerator patterns (universal approach).
+        Returns empty specs; callers infer inputs from the ONNX graph directly.
         """
-        try:
-            # Tracked: inference.onnx_config.* doesn't exist; #859 decides delete-vs-restore.
-            from ...inference.onnx_config.input_generator import (  # type: ignore[import-not-found]
-                InputSpecGenerator,
-            )
-
-            # Get input names for this model type
-            input_names = InputSpecGenerator.get_input_names(
-                model_type or "unknown",
-                task or "feature-extraction",
-                config=None,
-            )
-
-            # Generate input specs
-            specs = {}
-            for input_name in input_names:
-                if input_name in ["input_ids", "attention_mask", "token_type_ids"]:
-                    # Text input
-                    seq_length = input_shape[1] if input_shape and len(input_shape) > 1 else 128
-                    specs[input_name] = {
-                        "shape": [batch_size, seq_length],
-                        "dtype": "int",
-                        "range": [0, 30522] if input_name == "input_ids" else None,
-                    }
-                elif input_name == "pixel_values":
-                    # Vision input
-                    if input_shape:
-                        specs[input_name] = {
-                            "shape": list(input_shape),
-                            "dtype": "float",
-                        }
-                    else:
-                        specs[input_name] = {
-                            "shape": [batch_size, 3, 224, 224],
-                            "dtype": "float",
-                        }
-                else:
-                    # Generic input (use default shape)
-                    specs[input_name] = {
-                        "shape": [batch_size, 128],  # Generic sequence
-                        "dtype": "float",
-                    }
-
-            # Remove None ranges
-            for spec in specs.values():
-                if spec.get("range") is None:
-                    spec.pop("range", None)
-
-            return specs
-
-        except Exception as e:
-            logger.warning("Could not generate input specs: %s", e)
-            return {}
+        return {}
 
     @staticmethod
     def _get_output_names(
         model_type: str | None,
         task: str | None,
     ) -> list[str]:
-        """Get output names using pattern matching.
-
-        Uses InputSpecGenerator patterns (universal approach).
-        """
-        try:
-            # Tracked: inference.onnx_config.* doesn't exist; #859 decides delete-vs-restore.
-            from ...inference.onnx_config.patterns import (  # type: ignore[import-not-found]
-                TASK_TO_OUTPUTS,
-            )
-
-            if task and task in TASK_TO_OUTPUTS:
-                return list(TASK_TO_OUTPUTS[task])
-
-            # Default outputs
-            if task and "classification" in task:
-                return ["logits"]
-            if task and "generation" in task:
-                return ["last_hidden_state"]
-            return ["output"]
-
-        except Exception as e:
-            logger.warning("Could not determine output names: %s", e)
-            return ["output"]
+        """Get output names using task-based heuristics."""
+        if task and "classification" in task:
+            return ["logits"]
+        if task and "generation" in task:
+            return ["last_hidden_state"]
+        return ["output"]
 
     @staticmethod
     def generate_for_qnn(model_name_or_path: str, **kwargs: Any) -> ExportConfigTemplate:
