@@ -163,7 +163,8 @@ def build_onnx_model(
         # Skip optimize entirely for pre-quantized models. ORT Level 2
         # optimization fuses QDQ patterns (e.g. DQ→Conv→Q → QLinearConv),
         # which breaks QNN/DML EP compatibility and causes CPU fallback.
-        analyze_iters, analyze_unsupported, analyze_details = 0, 0, {}
+        analyze_iters, analyze_unsupported = 0, 0
+        analyze_details: dict[str, Any] = {}
     else:
         logger.info("Optimizing ONNX model...")
         current_path, opt_elapsed, analyze_iters, analyze_unsupported, analyze_details = (

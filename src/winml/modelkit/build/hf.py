@@ -258,7 +258,8 @@ def build_hf_model(
         # Skip optimize entirely for pre-quantized models. ORT Level 2
         # optimization fuses QDQ patterns (e.g. DQ→Conv→Q → QLinearConv),
         # which breaks QNN/DML EP compatibility and causes CPU fallback.
-        analyze_iterations, analyze_unsupported_nodes, analyze_details = 0, 0, {}
+        analyze_iterations, analyze_unsupported_nodes = 0, 0
+        analyze_details: dict[str, Any] = {}
     else:
         logger.info("Optimizing ONNX model...")
         (
