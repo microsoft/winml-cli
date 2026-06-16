@@ -909,9 +909,9 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         console.print()
         console.print(f"[bold]Memory:[/bold]      {mem['rss_after_inference_mb']:.1f} MB (process)")
         console.print(
-            f"  [dim]model load: {mem['model_load_delta_mb']:+.1f} MB  |  "
+            f"  model load: {mem['model_load_delta_mb']:+.1f} MB  |  "
             f"inference: {mem['inference_delta_mb']:+.1f} MB  |  "
-            f"total: {mem['total_delta_mb']:+.1f} MB[/dim]"
+            f"total: {mem['total_delta_mb']:+.1f} MB"
         )
 
     console.print()
