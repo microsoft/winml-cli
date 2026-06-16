@@ -1,18 +1,15 @@
-"""Qwen3 transformer-only quantization.
+"""Transformer-only w8a16 quantization for Qwen3.
 
-Must be called after the composite Qwen3 model has been built (e.g. by
-``test_qwen 2.py``) so that ``decoder_prefill`` / ``decoder_gen`` ONNX files
-exist in the winml cache.
+Targets the transformer-only ONNX produced by
+``qwen_transformer_only.install() + test_qwen.py``:
 
-Pipeline:
+  - **No embedding/lm_head surgery.** The export already excludes both,
+    so we feed ``WinMLQuantization`` the file directly.
+  - **Transformer-shaped calibration feeds.** ``input_hidden_states`` (FP32),
+    ``past_seq_len`` / ``total_seq_len`` (INT32), ``past_keys_{i}`` /
+    ``past_values_{i}`` (FP16) — names + dtypes match the exported graph.
 
-  1. Apply ``make_transformer_only`` surgery to each sub-model, producing
-     ``*_transformer.onnx`` with ``inputs_embeds`` input and
-     ``output_hidden_states`` output — embeddings and lm_head are stripped
-     out (ignored, not quantized).
-  2. Quantize those transformer-only files via winml-cli's ``quantize_onnx``
-     using a calibration reader that runs ``embed_tokens`` in PyTorch on
-     real text samples.
+Run via ``test_qwen.py``.
 """
 
 from __future__ import annotations
@@ -26,7 +23,6 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from winml.modelkit.models.winml.composite_model import WinMLCompositeModel
-from winml.modelkit.onnx import make_transformer_only
 from winml.modelkit.quant import WinMLQuantizationConfig, quantize_onnx
 
 
@@ -36,31 +32,28 @@ DEFAULT_MODEL_ID = "Qwen/Qwen3-0.6B"
 DEFAULT_MAX_CACHE = 256
 DEFAULT_PREFILL_SEQ = 64
 DEFAULT_GEN_SEQ = 1
-DEFAULT_NUM_SAMPLES = 16
-DEFAULT_PROMPTS = [
-    "Solve: 8 * 7 = ?",
-    "Translate to French: The weather is nice today.",
-    "Write a short poem about the ocean.",
-    "Explain gradient descent in one paragraph.",
-    "What is the capital of Japan?",
-    "List three uses of magnesium.",
-    "Summarize the plot of Hamlet in two sentences.",
-    "Give a Python one-liner to reverse a string.",
-]
+DEFAULT_NUM_SAMPLES = 30
+DEFAULT_CALIB_DATASET = "openai/gsm8k"
+DEFAULT_CALIB_DATASET_CONFIG = "main"
+DEFAULT_CALIB_SPLIT = "train"
+DEFAULT_CALIB_SEED = 42
 
 
-# ---------------------------------------------------------------------------
-# Calibration data reader
-# ---------------------------------------------------------------------------
+def _load_gsm8k_prompts(num_samples: int) -> list[str]:
+    """GSM8K train split, shuffled seed=42 for reproducible calibration."""
+    from datasets import load_dataset
+
+    ds = load_dataset(DEFAULT_CALIB_DATASET, DEFAULT_CALIB_DATASET_CONFIG)
+    split = ds[DEFAULT_CALIB_SPLIT].shuffle(seed=DEFAULT_CALIB_SEED)
+    return [row["question"] for row in split.select(range(num_samples))]
 
 
-class Qwen3TransformerCalibReader:
-    """Yields calibration feeds for the transformer-only Qwen3 ONNX.
+class Qwen3TransformerOnlyCalibReader:
+    """Yields calibration feeds for the transformer-only ONNX.
 
-    Runs HF ``embed_tokens`` in PyTorch to produce ``inputs_embeds`` since the
-    embedding layer was stripped from the ONNX graph. All other inputs
-    (attention_mask, position_ids, past_{i}_key/value) follow the conventions
-    used by winml-cli's ``WinMLQwen3Model`` runtime.
+    Feeds match the exported graph exactly: ``input_hidden_states`` (FP32),
+    ``past_seq_len`` (INT32 ``[1,1]``), ``total_seq_len`` (INT32 ``[1]``),
+    and ``past_keys_{i}`` / ``past_values_{i}`` (FP16, full cache buffer).
     """
 
     def __init__(
@@ -73,7 +66,6 @@ class Qwen3TransformerCalibReader:
         max_cache_len: int,
     ) -> None:
         self.embed = embed_tokens
-        self.cfg = config
         self.seq_len = seq_len
         self.max_cache_len = max_cache_len
         self.num_layers = config.num_hidden_layers
@@ -85,11 +77,8 @@ class Qwen3TransformerCalibReader:
         self._iter: Iterator[dict[str, np.ndarray]] | None = None
         self.rewind()
 
-    def _build_samples(
-        self, token_ids_list: list[torch.Tensor]
-    ) -> Iterator[dict[str, np.ndarray]]:
+    def _build_samples(self, token_ids_list: list[torch.Tensor]) -> Iterator[dict[str, np.ndarray]]:
         for ids in token_ids_list:
-            # Right-truncate / pad to seq_len so we feed the static graph shape.
             ids = ids[:, : self.seq_len]
             real_len = ids.shape[1]
             if real_len < self.seq_len:
@@ -101,25 +90,22 @@ class Qwen3TransformerCalibReader:
             with torch.no_grad():
                 embeds = self.embed(ids).to(torch.float32).cpu().numpy()
 
-            # attention_mask: ones for real prompt positions placed at the
-            # END of the max_cache buffer (sliding-window cache convention),
-            # zeros elsewhere.
-            attn_mask = np.zeros((1, self.max_cache_len), dtype=np.int64)
-            attn_mask[0, -real_len:] = 1
-
-            # position_ids: 0..seq_len-1 (clamped for padding).
-            position_ids = np.arange(self.seq_len, dtype=np.int64)[None, :]
-
             feed: dict[str, np.ndarray] = {
-                "inputs_embeds": embeds.astype(np.float32),
-                "attention_mask": attn_mask,
-                "position_ids": position_ids,
+                "input_hidden_states": embeds.astype(np.float32),
+                # seqlens_k for GQA = (valid context length - 1), i.e.
+                # ``embeddings.shape[1] - 1``. We pad to seq_len, so the query
+                # has seq_len valid positions → past_seq_len = seq_len - 1.
+                # (Using 0 here declares only 1 valid token while feeding a
+                # seq_len-token query, which makes the GQA prefill kernel read
+                # out of bounds → native access violation.)
+                "past_seq_len": np.array([[self.seq_len - 1]], dtype=np.int32),
+                "total_seq_len": np.array([self.max_cache_len], dtype=np.int32),
             }
             kv_shape = (1, self.num_kv_heads, self.max_cache_len, self.head_dim)
-            zeros = np.zeros(kv_shape, dtype=np.float32)
+            zeros = np.zeros(kv_shape, dtype=np.float16)
             for i in range(self.num_layers):
-                feed[f"past_{i}_key"] = zeros
-                feed[f"past_{i}_value"] = zeros
+                feed[f"past_keys_{i}"] = zeros
+                feed[f"past_values_{i}"] = zeros
             yield feed
 
     def get_next(self) -> dict[str, np.ndarray] | None:
@@ -132,16 +118,7 @@ class Qwen3TransformerCalibReader:
         self._iter = iter(self._samples)
 
 
-# ---------------------------------------------------------------------------
-# Pipeline
-# ---------------------------------------------------------------------------
-
-
-def _tokenize_prompts(
-    tokenizer: Any, prompts: list[str], num_samples: int
-) -> list[torch.Tensor]:
-    # Cycle through prompts up to num_samples; apply chat template like the
-    # runtime so calibration distribution matches inference inputs.
+def _tokenize_prompts(tokenizer: Any, prompts: list[str], num_samples: int) -> list[torch.Tensor]:
     out: list[torch.Tensor] = []
     for i in range(num_samples):
         prompt = prompts[i % len(prompts)]
@@ -166,19 +143,15 @@ def quantize_built_model(
     weight_type: str = "uint8",
     activation_type: str = "uint16",
 ) -> dict[str, Path]:
-    """Run surgery + transformer-only quantization on an already-built composite.
+    """Quantize the transformer-only ONNX files in-place.
 
-    Reuses the ONNX files produced by ``WinMLCompositeModel.from_pretrained``
-    so this can be called after a build step without re-exporting.
-
-    Returns: mapping of sub-model name → quantized ONNX path.
+    Returns ``{sub_model_name: quantized_path}``.
     """
+    # Locate the un-compiled ONNX for each sub-model (no surgery — file is
+    # already transformer-only).
     sub_paths: dict[str, Path] = {}
     for name, sub in model.sub_models.items():
         final_path = Path(sub._onnx_path)
-        # ``_model.onnx`` is the *compiled* QNN EPContext blob — surgery needs
-        # the uncompiled fp16 graph.  ``build.hf`` emits ``{cache_key}_optimized.onnx``
-        # alongside it in the same artifacts directory.
         if final_path.name.endswith("_model.onnx"):
             stem = final_path.name[: -len("_model.onnx")]
             optimized = final_path.with_name(f"{stem}_optimized.onnx")
@@ -187,7 +160,7 @@ def quantize_built_model(
                 continue
             print(
                 f"WARNING: {optimized.name} not found next to {final_path.name}; "
-                "falling back to the compiled model (surgery will likely fail)."
+                "falling back to the compiled model."
             )
         sub_paths[name] = final_path
 
@@ -199,7 +172,14 @@ def quantize_built_model(
     hf_model.eval()
     embed_tokens = hf_model.get_input_embeddings()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    token_ids_list = _tokenize_prompts(tokenizer, DEFAULT_PROMPTS, num_samples)
+
+    print(
+        f"=== Loading {num_samples} GSM8K calibration prompts "
+        f"({DEFAULT_CALIB_DATASET}/{DEFAULT_CALIB_DATASET_CONFIG}, "
+        f"split={DEFAULT_CALIB_SPLIT}, seed={DEFAULT_CALIB_SEED}) ==="
+    )
+    prompts = _load_gsm8k_prompts(num_samples)
+    token_ids_list = _tokenize_prompts(tokenizer, prompts, num_samples)
 
     seq_by_sub = {
         "decoder_prefill": prefill_seq,
@@ -213,19 +193,14 @@ def quantize_built_model(
             continue
 
         seq_len = seq_by_sub[sub_name]
-        transformer_path = fused_path.with_name(fused_path.stem + "_transformer.onnx")
-        quant_path = transformer_path.with_name(
-            transformer_path.stem + f"_w{weight_type[-1]}a{activation_type[-2:]}.quant.onnx"
+        quant_path = fused_path.with_name(
+            fused_path.stem + f"_w{weight_type[-1]}a{activation_type[-2:]}.quant.onnx"
         )
 
-        print(f"\n=== Surgery: {sub_name} (seq_len={seq_len}) ===")
+        print(f"\n=== Quantize (transformer-only): {sub_name} (seq_len={seq_len}) ===")
         print(f"  in : {fused_path}")
-        print(f"  out: {transformer_path}")
-        make_transformer_only(fused_path, transformer_path)
-
-        print(f"\n=== Quantize (transformer only): {sub_name} ===")
         print(f"  out: {quant_path}")
-        reader = Qwen3TransformerCalibReader(
+        reader = Qwen3TransformerOnlyCalibReader(
             embed_tokens,
             hf_model.config,
             token_ids_list,
@@ -239,7 +214,7 @@ def quantize_built_model(
             calibration_method="minmax",
             calibration_data=reader,
         )
-        result = quantize_onnx(transformer_path, output_path=quant_path, config=cfg)
+        result = quantize_onnx(fused_path, output_path=quant_path, config=cfg)
         if not result.success:
             print("  FAILED:")
             for err in result.errors:
@@ -253,4 +228,3 @@ def quantize_built_model(
 
     print("\n=== Done ===")
     return quant_paths
-
