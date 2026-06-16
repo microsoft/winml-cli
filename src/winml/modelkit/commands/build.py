@@ -588,11 +588,19 @@ def build(
                 raise click.UsageError("-m/--model is required when -c is not provided.")
             from ..config import generate_build_config
 
-            config_or_configs = generate_build_config(
-                model_id,
-                trust_remote_code=trust_remote_code,
-                device=device,
-            )
+            # Detect ONNX file input and route to generate_onnx_build_config
+            if cli_utils.is_onnx_file_path(model_id):
+                config_or_configs = generate_build_config(
+                    onnx_path=model_id,
+                    device=device,
+                    ep=ep,
+                )
+            else:
+                config_or_configs = generate_build_config(
+                    model_id,
+                    trust_remote_code=trust_remote_code,
+                    device=device,
+                )
             if not quant:
                 config_or_configs.quant = None
             # Auto-generated configs: compile disabled by default unless

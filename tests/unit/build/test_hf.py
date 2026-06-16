@@ -811,7 +811,7 @@ class TestBuildHfPreQuantized:
         assert "quantize" in result.stages_skipped
         assert "optimize" not in result.stages_completed
         assert "quantize" not in result.stages_completed
-        mock_pipeline["optimize"].assert_called_once()
+        mock_pipeline["optimize"].assert_not_called()
         mock_pipeline["quantize"].assert_not_called()
 
     def test_post_export_qdq_still_exports(
@@ -847,7 +847,7 @@ class TestBuildHfPreQuantized:
     def test_post_export_qdq_runs_analyze_only(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
-        """Pre-quantized path runs optimize but skips autoconf (no analyze)."""
+        """Pre-quantized path skips optimize entirely (no analyze either)."""
         mock_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
@@ -856,9 +856,9 @@ class TestBuildHfPreQuantized:
             output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
         )
-        # max_optim_iterations=0 means no analyze loop runs
+        # Pre-quantized models skip both optimize and analyze to preserve QDQ structure
         mock_pipeline["analyze"].assert_not_called()
-        mock_pipeline["optimize"].assert_called_once()
+        mock_pipeline["optimize"].assert_not_called()
 
     def test_skip_optimize_kwarg(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         """skip_optimize=True forces optimize+quantize skip."""
@@ -873,7 +873,7 @@ class TestBuildHfPreQuantized:
         )
         assert "optimize" in result.stages_skipped
         assert "quantize" in result.stages_skipped
-        mock_pipeline["optimize"].assert_called_once()
+        mock_pipeline["optimize"].assert_not_called()
         mock_pipeline["quantize"].assert_not_called()
 
 
