@@ -151,9 +151,14 @@ E2E_DEFAULT_TIMEOUT = 900
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-skip E2E tests unless '-m e2e' is passed; else apply the e2e timeout default."""
-    marker_expr = config.getoption("-m", default="")
-    if "e2e" in str(marker_expr):
+    """Auto-skip E2E tests unless '-m e2e' is passed; else apply the e2e timeout default.
+
+    Additionally, tests marked ``e2e_run`` or ``e2e_serve`` are always skipped
+    unless their marker name appears in the ``-m`` expression (the commands are
+    not yet enabled — see https://github.com/microsoft/winml-cli/issues/892).
+    """
+    marker_expr = str(config.getoption("-m", default=""))
+    if "e2e" in marker_expr:
         # E2E tests are running. Inject the default timeout only when neither a
         # per-test marker nor --timeout is given, so an explicit --timeout on the
         # CLI always takes effect (pytest-timeout precedence: marker > CLI > ini).
@@ -161,6 +166,19 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             for item in items:
                 if "e2e" in item.keywords and item.get_closest_marker("timeout") is None:
                     item.add_marker(pytest.mark.timeout(E2E_DEFAULT_TIMEOUT))
+
+        # Skip e2e_run / e2e_serve unless explicitly opted-in via -m
+        _disabled_commands = {
+            "e2e_run": "winml run is not yet enabled (see #892)",
+            "e2e_serve": "winml serve is not yet enabled (see #892)",
+        }
+        for marker_name, reason in _disabled_commands.items():
+            if marker_name not in marker_expr:
+                skip_marker = pytest.mark.skip(reason=reason)
+                for item in items:
+                    if marker_name in item.keywords:
+                        item.add_marker(skip_marker)
+
         return  # User explicitly requested E2E tests
     skip_e2e = pytest.mark.skip(reason="E2E tests require -m e2e (skipped by default)")
     for item in items:
