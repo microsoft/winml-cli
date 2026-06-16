@@ -401,11 +401,12 @@ class WinMLSession:
         opts = self._session_options_factory()
         if add_ep_for_device(opts, resolved_ep, device_type, self._provider_options):
             logger.info(
-                "Built SessionOptions with EP: %s (%s) device=%s -> %s",
+                "Built SessionOptions with EP: %s (%s) device=%s -> %s provider_options=%s",
                 resolved_ep,
                 self._ep,
                 device,
                 resolved_device,
+                self._provider_options,
             )
             return opts, resolved_device, resolved_ep
 
