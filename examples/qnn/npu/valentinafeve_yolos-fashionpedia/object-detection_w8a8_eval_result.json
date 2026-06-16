@@ -1,0 +1,41 @@
+{
+  "model_id": "valentinafeve/yolos-fashionpedia",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\valentinafeve_yolos-fashionpedia\\object-detection_w8a8_build_artifacts\\model.onnx",
+  "task": "object-detection",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "val",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "detection-datasets/fashionpedia",
+    "columns_mapping": {
+      "annotation_column": "objects",
+      "bbox_key": "bbox",
+      "category_key": "category",
+      "box_format": "xyxy"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\valentinafeve_yolos-fashionpedia\\object-detection_w8a8_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "map": 0.05614800751209259,
+    "map_50": 0.11983849853277206,
+    "map_75": 0.05144703388214111,
+    "num_predictions": 100000,
+    "num_ground_truths": 7551,
+    "num_images": 1000,
+    "map_small": 0.00027061396394856274,
+    "map_medium": 0.01329971943050623,
+    "map_large": 0.07607217878103256,
+    "mar_1": 0.09537087380886078,
+    "mar_10": 0.12925021350383759,
+    "mar_100": 0.13191720843315125,
+    "mar_small": 0.0012339431559666991,
+    "mar_medium": 0.044681619852781296,
+    "mar_large": 0.19324170053005219,
+    "map_per_class": -1.0,
+    "mar_100_per_class": -1.0
+  }
+}

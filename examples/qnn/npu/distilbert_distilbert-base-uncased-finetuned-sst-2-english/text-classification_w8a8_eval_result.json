@@ -1,0 +1,26 @@
+{
+  "model_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+  "model_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_w8a8_build_artifacts\\model.onnx",
+  "task": "text-classification",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "sst2",
+    "columns_mapping": {
+      "input_column": "sentence"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\distilbert_distilbert-base-uncased-finetuned-sst-2-english\\text-classification_w8a8_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "accuracy": 0.5045871559633027,
+    "total_time_in_seconds": 53.584664000001794,
+    "samples_per_second": 16.273312826968006,
+    "latency_in_seconds": 0.06145030275229564
+  }
+}

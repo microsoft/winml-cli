@@ -1,0 +1,27 @@
+{
+  "model_id": "openai/clip-vit-large-patch14",
+  "model_path": {
+    "image-encoder": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\cpu\\openai_clip-vit-large-patch14\\zero-shot-image-classification_build_artifacts\\image-encoder\\model.onnx",
+    "text-encoder": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\cpu\\openai_clip-vit-large-patch14\\zero-shot-image-classification_build_artifacts\\text-encoder\\model.onnx"
+  },
+  "task": "zero-shot-image-classification",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "uoft-cs/cifar100",
+    "columns_mapping": {
+      "input_column": "img",
+      "label_column": "fine_label"
+    }
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\cpu\\openai_clip-vit-large-patch14\\zero-shot-image-classification_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "top1_accuracy": 73.6,
+    "top5_accuracy": 90.2
+  }
+}

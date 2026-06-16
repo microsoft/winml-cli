@@ -1,0 +1,52 @@
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                             ^^^^^^^^^^^^^^^^^^^^^^^^                          
+                               File                                            
+                             "C:\Users\qiowu\source\repos\copilot-worktrees\win
+                             ml-cli\dingmaomaobjtu-expert-system\src\winml\mode
+                             lkit\optim\optimizer.py", line 128, in optimize   
+                                 model = pipe.process(model, config)           
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^           
+                               File                                            
+                             "C:\Users\qiowu\source\repos\copilot-worktrees\win
+                             ml-cli\dingmaomaobjtu-expert-system\src\winml\mode
+                             lkit\optim\pipes\graph.py", line 533, in process  
+                                 save_onnx(model, input_file)                  
+                               File                                            
+                             "C:\Users\qiowu\source\repos\copilot-worktrees\win
+                             ml-cli\dingmaomaobjtu-expert-system\src\winml\mode
+                             lkit\onnx\persistence.py", line 143, in save_onnx 
+                                 onnx.save_model(model, str(path))             
+                               File                                            
+                             "C:\Users\qiowu\source\repos\copilot-worktrees\win
+                             ml-cli\dingmaomaobjtu-expert-system\.venv\Lib\site
+                             -packages\onnx\__init__.py", line 343, in         
+                             save_model                                        
+                                 serialized = _get_serializer(format,          
+                             model_filepath).serialize_proto(proto)            
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                     
+                               File                                            
+                             "C:\Users\qiowu\source\repos\copilot-worktrees\win
+                             ml-cli\dingmaomaobjtu-expert-system\.venv\Lib\site
+                             -packages\onnx\serialization.py", line 103, in    
+                             serialize_proto                                   
+                                 result = proto.SerializeToString()            
+                                          ^^^^^^^^^^^^^^^^^^^^^^^^^            
+                             MemoryError                                       
+✅ Export                                          13.5s
+   Model class:  AutoModelForSequenceClassification
+   Task:         text-classification
+   Input:        input_ids          [1, 512]       int32
+                 attention_mask     [1, 512]       int32
+                 token_type_ids     [1, 512]       int32
+   Output:       logits
+   📦 Artifact:   
+C:\Users\qiowu\source\repos\copilot-worktrees\winml-cli\dingmaomaobjtu-expert-s
+ystem\examples\qnn\gpu\cross-encoder_ms-marco-MiniLM-L4-v2\text-classification_
+fp16_build_artifacts\export.onnx  (73.2 MB)
+[06/03/26 08:40:16] ERROR    ✗ ort_graph failed: Failed to load optimized      
+                             model: Error parsing message with type            
+                             'onnx.ModelProto': Arena alloc failed | Pipe:     
+                             ort_graph | Caused by: Error parsing message with 
+                             type 'onnx.ModelProto': Arena alloc failed        
+⏳ Optimize  Optimizing ONNX graph...Error: Build failed: Failed to load optimized model: Error parsing message with type 'onnx.ModelProto': Arena alloc failed | Pipe: ort_graph | Caused by: Error parsing message with type 'onnx.ModelProto': Arena alloc failed

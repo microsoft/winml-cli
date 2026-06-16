@@ -1,0 +1,14 @@
+
+════════════════════════════════════════════════════════════
+🔧 Setup — HuggingFace
+════════════════════════════════════════════════════════════
+   📦 Model:     amunchet/rorshark-vit-base  (pretrained)
+   📁 Config:    image-classification_fp16_config.json  (autoconf on)
+   📂 Output:    
+C:\Users\qiowu\source\repos\copilot-worktrees\winml-cli\dingmaomaobjtu-expert-s
+ystem\examples\qnn\gpu\amunchet_rorshark-vit-base\image-classification_fp16_bui
+ld_artifacts
+
+════════════════════════════════════════════════════════════
+🎯 Stages
+════════════════════════════════════════════════════════════

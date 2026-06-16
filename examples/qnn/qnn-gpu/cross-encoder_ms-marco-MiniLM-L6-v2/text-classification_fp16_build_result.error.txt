@@ -1,0 +1,20 @@
+
+════════════════════════════════════════════════════════════
+🔧 Setup — HuggingFace
+════════════════════════════════════════════════════════════
+   📦 Model:     cross-encoder/ms-marco-MiniLM-L6-v2  (pretrained)
+   📁 Config:    text-classification_fp16_config.json  (autoconf on)
+   📂 Output:    
+C:\Users\qiowu\source\repos\copilot-worktrees\winml-cli\dingmaomaobjtu-expert-s
+ystem\examples\qnn\gpu\cross-encoder_ms-marco-MiniLM-L6-v2\text-classification_
+fp16_build_artifacts
+
+════════════════════════════════════════════════════════════
+🎯 Stages
+════════════════════════════════════════════════════════════
+[06/03/26 08:41:00] WARNING  ⚠️  ONNX verification failed: Error parsing       
+                             message with type 'onnx.ModelProto': Arena alloc  
+                             failed                                            
+                    WARNING     Export completed but validation encountered    
+                             issues.                                           
+⏳ Export  Exporting to ONNX...Error: Build failed: Error parsing message with type 'onnx.ModelProto': Arena alloc failed
