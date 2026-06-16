@@ -27,6 +27,7 @@ from winml.modelkit.commands.perf import (
     PerfBenchmark,
     report_composite_results,
 )
+from winml.modelkit.models.winml import WinMLCompositeModel
 from winml.modelkit.session.stats import PerfStats
 
 
@@ -96,8 +97,13 @@ class _FakeSubModel:
         return self._session.running_model_path
 
 
-class _FakeComposite:
-    """Stand-in for a WinMLCompositeModel (duck-typed via ``sub_models``)."""
+class _FakeComposite(WinMLCompositeModel):
+    """Stand-in for a WinMLCompositeModel.
+
+    Subclasses the real base so ``PerfBenchmark._is_composite``'s concrete
+    ``isinstance`` check matches, but skips the torch-backed ``__init__`` and
+    just carries the sub-model mapping the benchmark needs.
+    """
 
     def __init__(self, sub_models: dict[str, Any]) -> None:
         self.sub_models = sub_models

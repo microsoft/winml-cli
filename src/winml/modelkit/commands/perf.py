@@ -298,27 +298,26 @@ class PerfBenchmark:
     def _is_composite(self) -> bool:
         """Composite models orchestrate multiple sub-sessions (e.g. CLIP/SigLIP).
 
-        Duck-typed on ``sub_models`` rather than ``isinstance(..., WinMLCompositeModel)``
-        on purpose: an ``isinstance`` check needs a runtime import of
-        ``composite_model``, which imports torch and would blow the
-        ``winml perf --help`` import budget (see tests/cli/test_import_time.py) by
-        pulling torch in at module load. Keeping ``WinMLCompositeModel`` a
-        TYPE_CHECKING-only import also lets the unit tests use lightweight
-        duck-typed fakes instead of constructing real torch-backed composites.
-        ``sub_models`` is the defining member of the composite base, so it is a
-        reliable marker. The extra ``isinstance(..., dict)`` guard narrows the
-        false-positive surface so a future single-session model that happens to
-        carry an unrelated ``sub_models`` attribute isn't misrouted.
+        Uses a concrete ``isinstance(..., WinMLCompositeModel)`` check rather
+        than duck-typing on ``sub_models`` so a future single-session model
+        carrying an unrelated ``sub_models`` attribute can't be misrouted. The
+        import is function-local because ``composite_model`` pulls in torch: a
+        module-level runtime import would blow the ``winml perf --help`` import
+        budget (see tests/cli/test_import_time.py). A function-local import
+        runs only when this property is read — i.e. after a model is loaded, by
+        which point torch is already imported — and never at module load.
         """
-        return hasattr(self._model, "sub_models") and isinstance(
-            getattr(self._model, "sub_models", None), dict
-        )
+        from ..models.winml.composite_model import WinMLCompositeModel
+
+        return isinstance(self._model, WinMLCompositeModel)
 
     @property
     def _sub_models(self) -> dict[str, WinMLPreTrainedModel]:
         """Sub-models of a composite model (only valid when ``_is_composite``)."""
-        composite: WinMLCompositeModel = cast("WinMLCompositeModel", self._model)
-        return composite.sub_models
+        from ..models.winml.composite_model import WinMLCompositeModel
+
+        assert isinstance(self._model, WinMLCompositeModel)
+        return self._model.sub_models
 
     @property
     def _single(self) -> WinMLPreTrainedModel:
