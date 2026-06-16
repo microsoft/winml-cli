@@ -3,7 +3,7 @@
     "ep": "qnn",
     "device": "npu",
     "hardware": "Snapdragon X Elite CRD (Adreno X1-85 / Hexagon HTP)",
-    "ort_version": "1.x (check winml version at experiment time)",
+    "ort_version": "1.24.5 (onnxruntime-windowsml; confirmed kMaxSupportedOpset >= 23)",
     "qnn_sdk_version": "unknown — check QnnSystem.dll version",
     "models_tested": [
       "facebook/convnext-tiny-224",
@@ -16,7 +16,7 @@
       "sentence-transformers/all-MiniLM-L6-v2",
       "deepset/roberta-base-squad2"
     ],
-    "last_updated": "2026-06-16",
+    "last_updated": "2026-06-17",
     "epistemics_warning": "⚠️ All findings are hypotheses derived from limited models on 1 device (Snapdragon X Elite). Confidence levels reflect how well the mechanism is understood, not how universally applicable the finding is. ALWAYS re-validate on new model architectures before using to prune search space."
   },
 
@@ -33,10 +33,10 @@
       "ort_version_critical_note": "The original mechanism (kMaxSupportedOpset gate in IsSupportedOpset()) requires kMaxSupportedOpset < 21. onnxruntime-windowsml==1.24.5 (ORT 1.24.x) has kMaxSupportedOpset >= 22, so BOTH opset17 and opset21 go through the NHWC layout transform. The bypass mechanism does NOT apply to the ORT version used in the sweep. The observed speedup for DINOv2 and MobileViT has an UNKNOWN root cause.",
       "architecture_requirement": ["empirically: DINOv2 family (facebook/dinov2-*) consistently benefits. Plain ViT (dino-vitb16) does NOT. Hybrid Conv+attention (MobileViT) showed speedup in original data. Pure Conv (ResNet) insufficient data. NLP: neutral."],
       "critical_caveats": [
-        "MECHANISM UNKNOWN: The perf gain is observed but not explained. Do NOT cite a mechanism until the optimized graph diff (opset17 vs opset21 Transpose node count) is confirmed.",
+        "MECHANISM UNKNOWN: Transpose count is IDENTICAL in opset17 and opset21 (both 49 nodes on dinov2-small). The original Transpose-elimination hypothesis is RULED OUT. The +48 Reshape nodes in opset21 are the most observable structural difference but why this speeds up QNN NPU is not understood.",
         "RESNET-18 EXCLUDED: apparent +20% is statistical noise — 3 sessions span 4x range at sub-ms latency. Need 3 sessions × 2000 iters for reliable data at this scale.",
         "DVFS NOISE: always use 3 sessions × 500+ iters with cool-down. Single-session CV is meaningless on QNN NPU.",
-        "SCOPE IS DINOVS2-FAMILY NOT GENERAL VIT: dino-vitb16 (same ViT-B size as dinov2-base) shows -0.7% NEUTRAL. The speedup is DINOv2-architecture-specific."
+        "SCOPE IS DINOV2-FAMILY NOT GENERAL VIT: dino-vitb16 (same ViT-B size as dinov2-base) shows -0.7% NEUTRAL. The speedup is DINOv2-architecture-specific."
       ],
       "validated_models": {
         "benefits_from_opset21": [
@@ -64,7 +64,7 @@
           "v1.16.x": 19,
           "v1.17.x": 20,
           "v1.18.x": 21,
-          "v1.24.x": "unknown, almost certainly >= 22 — VERIFY",
+          "v1.24.x": ">= 23 (CONFIRMED: ORT 1.24.4 in C:\\tmp\\autoconfig-demo accepts opset 22 and 23 via InferenceSession with CPUExecutionProvider; opset 24 fails with 'No op registered for ...' not 'Unsupported opset')",
           "main_HEAD": 26
         },
         "key_files": [
@@ -73,11 +73,21 @@
           "onnxruntime/core/session/inference_session.cc:1589-1626 — transform_layout_fn=nullptr path"
         ]
       },
+      "transpose_analysis_2026_06_16": {
+        "method": "onnx.load() on winml-built optimized.onnx and quantized.onnx for h0 (opset17) and h3 (opset21) from catalog_qnn_sweep facebook--dinov2-small. Op counts via collections.Counter on graph.node.",
+        "opset17_optimized": {"total_nodes": 391, "Transpose": 49, "Reshape": 121, "Gemm": 72, "Mul": 48, "Conv": 1},
+        "opset21_optimized": {"total_nodes": 439, "Transpose": 49, "Reshape": 169, "Gemm": 72, "Mul": 48, "Conv": 1},
+        "opset17_quantized": {"total_nodes": 1398, "Transpose": 49, "Reshape": 121, "DequantizeLinear": 615, "QuantizeLinear": 392},
+        "opset21_quantized": {"total_nodes": 1542, "Transpose": 49, "Reshape": 169, "DequantizeLinear": 663, "QuantizeLinear": 440},
+        "key_finding": "Transpose count is IDENTICAL (49 nodes) in both opset17 and opset21. The NHWC Transpose-reduction hypothesis is RULED OUT. opset21 has MORE Reshape nodes (+48), more QDQ pairs (+48 DQ, +48 Q), and more total nodes. Despite more nodes, opset21 runs 30% faster on QNN NPU — mechanism still unknown.",
+        "rules_out": ["NHWC Transpose elimination as speedup cause", "Fewer total ops as explanation"],
+        "consistent_with": ["Different graph structure at opset21 enabling better QNN NPU internal scheduling or graph partitioning, possibly via the +48 Reshape nodes acting as data-layout hints or memory access pattern changes"]
+      },
       "alternative_mechanism_hypotheses": [
-        "PyTorch ONNX exporter produces structurally different graph at opset 21 (different op decompositions) → fewer ops for QNN EP to partition",
-        "QNN EP graph partitioner behaves differently with opset 21 op semantics even when NHWC transform fires",
-        "Quantization calibration path differs between opset exports → better quantization quality at opset 21",
-        "NHWC transform at opset 21 still inserts fewer non-cancellable Transposes for Conv+attention hybrids via a different path — needs graph dump to verify"
+        "QNN EP graph partitioner assigns ops differently when the model has opset21 Reshape semantics — the +48 Reshape nodes may segment the graph into better-aligned HTP subgraphs",
+        "Quantization calibration path differs between opset exports → quantized.onnx has different scale/zero-point distributions at opset21 → better QNN NPU numeric alignment",
+        "PyTorch ONNX exporter produces different intermediate tensor shapes at opset 21 → better memory access locality on QNN NPU HBM",
+        "The +48 Reshape ops in opset21 are 'free' no-ops on QNN NPU (identity reshape with same shape) that happen to trigger a faster QNN internal code path"
       ],
       "data_reliability_notes": {
         "dinov2_small": {
@@ -120,8 +130,9 @@
         "gate3_thermal_control": "PARTIALLY — 3×500-iter with 30s cool-down is better than single-session but DVFS spikes still occur (MobileViT h1, DINOv2 h1 session 3)"
       },
       "follow_up_required": [
-        "CRITICAL: Verify ORT 1.24.x kMaxSupportedOpset value — run: python -c 'import onnxruntime; print(onnxruntime.__version__)' and check source",
-        "CRITICAL: Dump optimized.onnx for opset17 vs opset21 DINOv2 — count Transpose nodes in QNN-assigned partition. If opset21 has fewer, explains speedup via a different path.",
+        "DONE: kMaxSupportedOpset >= 23 confirmed for ORT 1.24.4 (accepts opset 22 and 23 at InferenceSession level)",
+        "DONE: Transpose analysis — opset17 vs opset21 DINOv2-small: IDENTICAL (49 Transpose both). Not the mechanism.",
+        "OPEN: Investigate QNN EP graph partitioning diff for opset17 vs opset21. Why do +48 Reshape nodes help?",
         "Run 5+ sessions (not 3) on DINOv2 opset17 vs opset21 to reduce DVFS uncertainty",
         "Test EfficientNet-B0, MobileNet-V3 to determine if benefit is 'Conv+residual' or 'Conv+attention hybrid' specific",
         "For ResNet-18: run 3 sessions x 2000 iters to get reliable sub-ms measurements"
