@@ -1,6 +1,6 @@
 # WinML CLI Agent Design
 
-> Status: Draft — 2026-06-11  
+> Status: Draft — 2026-06-17 (updated: autoconfig loop V3 changes incorporated)
 > Context: Strategic design for the agent layer of winml-cli
 
 ---
@@ -38,14 +38,45 @@ WinApp developers lack access to a senior ML engineer who:
 
 ## 2. Agent Design Philosophy
 
-### 2.1 The Wrong Design (Current Autoconfig)
+### 2.1 The Improved Loop (autoconfig V3) vs The Agent Layer
 
-The current autoconfig agent runs a **headless search loop**:
+The autoconfig search loop has been significantly improved since the initial draft. As of v3 (`59e7329d`):
+
+**What the improved loop does well:**
+- Statistical significance via `ThroughputOnly` verdict policy: `improvement > max(1% floor, 2× screen_CV)` — noise-level deltas no longer pass as KEEP
+- Screen early exit: if screen improvement < 1%, skip 3× full bench — saves 25–90 min per rejected hypothesis
+- Crash-resume via `session.json`: atomic state persistence, restartable without re-running completed experiments
+- KB-guided search: `ep_knowledge/*.json` confirmed rules prune the search space before any experiment runs
+- DVFS-aware bench protocol: npu-007 CV gate disabled on QNN NPU; 3× 500-iter sessions with cool-down
+- npu-006 guard: Conv% > 20% → hard-block conv fusions before they cause 4900% regression
+
+**What still requires the agent layer:**
+
+The loop is a *computation engine*, not an *intelligence layer*. It needs an agent because:
+
+1. **No architecture-aware hypothesis generation** — hypotheses are hardcoded per EP, not generated from model analysis. An attention-heavy model gets the same hypotheses as a Conv-heavy one.
+2. **No failure explanation** — DISCARD is logged but not explained. Developers can't learn from results without reading raw JSON.
+3. **No cross-device reasoning** — a config found on Snapdragon X Elite has unknown behavior on Intel Meteor Lake. The loop can't tell you that.
+4. **No adaptive stopping** — 30-DISCARD plateau is a static heuristic. An agent would recognize when all architectural levers for this model/EP pair have been exhausted.
+5. **No KB self-update** — KB is manually maintained. An agent with memory extraction (cf. AgenticGPUOptimizer `memory_extractor.py`) would auto-update `ep_knowledge/*.json` after each run.
+
+The revised framing: **autoconfig is a sub-tool that the agent invokes and explains, not a headless replacement for the agent**.
+
+### 2.2 The Wrong Design (Original Autoconfig)
+
+The *original* autoconfig ran a **headless search loop** with no statistical significance, no crash-resume, and no KB-guided pruning:
 Explorer → Optimizer → Reviewer → repeat
 
-**Problems with this approach:**
+**Problems that were present (now fixed in V3):**
 
-- A Python script can do benchmark loops faster, cheaper, and more reliably than an LLM agent
+- No statistical significance — 1% hardcoded floor meant noise-level deltas passed as KEEP
+- No screen early exit — every hypothesis ran 3× full bench regardless of screen result
+- No crash-resume — an interrupted run lost all state
+- All optim keys in kebab-case → `build_config()` silently used snake_case lookups → every hypothesis ran as baseline (critical bug, fixed)
+
+**Remaining problems (require agent layer to fix):**
+
+- A Python script can do benchmark loops faster, cheaper, and more reliably than an LLM agent — the loop is good, the LLM overhead is not worth it
 - Results (config files) are not auditable — developer cannot verify why a config was chosen
 - No explainability — developer doesn't understand what was decided or why
 - Treats developer as absent; no collaborative interaction
