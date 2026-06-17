@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 import click
@@ -840,6 +841,89 @@ def _output_ep_text(eps: dict[str, dict[str, Any]]) -> None:
                 console.print(line)
 
 
+def _gather(
+    *,
+    system: bool = False,
+    devices: bool = False,
+    eps: bool = False,
+    verbose: bool = False,
+    tolerant: bool = False,
+) -> dict[str, Any]:
+    """Build a sysinfo dict containing the requested sections.
+
+    EPs run before devices so :data:`WinMLEPRegistry._registered`
+    populates first — :func:`_gather_device_info`'s ``device_facts``
+    enrichment loop then reads Architecture/Driver off any registered
+    :class:`WinMLDevice`. When ``tolerant=True``, a per-section failure
+    is logged at WARNING and the section is filled with an empty
+    container so downstream renderers still see consistent keys;
+    otherwise the failure is converted to ``click.ClickException``.
+    """
+    info: dict[str, Any] = {}
+    if system:
+        info.update(_gather_system_info(verbose=verbose))
+    if eps:
+        try:
+            info["executionProviders"] = _gather_ep_info()
+        except Exception as e:
+            if not tolerant:
+                logger.exception("Failed to detect execution providers")
+                raise click.ClickException(
+                    f"Error detecting execution providers: {e}"
+                ) from e
+            logger.warning("EP detection failed (tolerant): %s", e)
+            info["executionProviders"] = {}
+    if devices:
+        try:
+            info["devices"] = _gather_device_info()
+        except Exception as e:
+            if not tolerant:
+                logger.exception("Failed to detect devices")
+                raise click.ClickException(f"Error detecting devices: {e}") from e
+            logger.warning("Device detection failed (tolerant): %s", e)
+            info["devices"] = []
+    return info
+
+
+def _render_text(info: dict[str, Any], verbose: bool) -> None:
+    """Rich-console output. Renders whichever sections are present."""
+    if "python" in info:
+        _output_text(info, verbose=verbose)
+        console.print()
+    if "devices" in info:
+        _output_device_text(info["devices"])
+        console.print()
+    if "executionProviders" in info:
+        _output_ep_text(info["executionProviders"])
+
+
+def _render_json(info: dict[str, Any], _verbose: bool) -> None:
+    """JSON dump — keys present in ``info`` determine the payload shape."""
+    _output_json(info)
+
+
+def _render_compact(info: dict[str, Any], _verbose: bool) -> None:
+    """One-line-per-aspect summary."""
+    if "python" in info:
+        _output_compact(info)
+    if "devices" in info:
+        parts = [f"{d['type']}: {d['name'].strip()}" for d in info["devices"]]
+        click.echo(" | ".join(parts) if parts else "No devices found")
+    if "executionProviders" in info:
+        parts = [
+            f"{name}({record['device_types']})"
+            for name, record in info["executionProviders"].items()
+        ]
+        click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
+
+
+_RENDERERS: dict[str, Callable[[dict[str, Any], bool], None]] = {
+    "text": _render_text,
+    "json": _render_json,
+    "compact": _render_compact,
+}
+
+
 @click.command()  # type: ignore[misc]
 @click.option(  # type: ignore[misc]
     "--format",
@@ -924,142 +1008,31 @@ def sysinfo(
     pkg_logger.addHandler(rich_handler)
     pkg_logger.propagate = False
 
+    fmt = output_format.lower()
     try:
-        use_json = output_format.lower() == "json"
-
-        # Handle --list-device and/or --list-ep (combinable)
         if list_device or list_ep:
-            if use_json:
-                # Combine both into a single JSON object so output is always valid JSON.
-                # ``_gather_ep_info`` runs first when both are requested so the
-                # registry is populated before ``_gather_device_info``'s
-                # device_facts enrichment pass runs (see text-path comment).
-                result: dict[str, Any] = {}
-                eps_json: dict[str, dict[str, Any]] | None = None
-                if list_ep:
-                    try:
-                        eps_json = _gather_ep_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-                if list_device:
-                    try:
-                        result["devices"] = _gather_device_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep and eps_json is not None:
-                    result["executionProviders"] = eps_json
-                click.echo(json.dumps(result, indent=2))
-            elif output_format.lower() == "compact":
-                # Same ordering as text/json paths — gather EPs first to
-                # warm the registry for device_facts enrichment.
-                eps_compact: dict[str, dict[str, Any]] | None = None
-                if list_ep:
-                    try:
-                        eps_compact = _gather_ep_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-                if list_device:
-                    try:
-                        devices = _gather_device_info()
-                        parts = [f"{d['type']}: {d['name'].strip()}" for d in devices]
-                        click.echo(" | ".join(parts) if parts else "No devices found")
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep and eps_compact is not None:
-                    parts = [
-                        f"{name}({record['device_types']})"
-                        for name, record in eps_compact.items()
-                    ]
-                    click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
-            else:
-                # When both sections are requested we gather EP info first
-                # (which populates ``WinMLEPRegistry._registered``) so that
-                # ``_gather_device_info``'s device_facts enrichment loop
-                # can read Architecture/Driver off any successfully
-                # registered WinMLDevice. Rendering order stays Devices →
-                # EPs per the design in 4_winml_device.md §4.1.
-                eps: dict[str, dict[str, Any]] | None = None
-                if list_ep:
-                    try:
-                        eps = _gather_ep_info()
-                    except Exception as e:
-                        err_msg = f"[bold red]Error detecting execution providers:[/bold red] {e}"
-                        console.print(err_msg)
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-                if list_device:
-                    try:
-                        devices = _gather_device_info()
-                        _output_device_text(devices)
-                    except Exception as e:
-                        console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep and eps is not None:
-                    _output_ep_text(eps)
-            return
-
-        # Default: full sysinfo including devices and EPs
-        try:
-            info = _gather_system_info(verbose=verbose)
-
-            if use_json:
-                # Add devices and EPs to JSON output. Gather EP info
-                # first so the registry is populated before
-                # ``_gather_device_info``'s device_facts enrichment runs.
-                try:
-                    eps_default_json = _gather_ep_info()
-                except Exception:
-                    eps_default_json = {}
-                try:
-                    info["devices"] = _gather_device_info()
-                except Exception:
-                    info["devices"] = []
-                info["executionProviders"] = eps_default_json
-                _output_json(info)
-            elif output_format.lower() == "compact":
-                _output_compact(info)
-            else:
-                _output_text(info, verbose=verbose)
-                # Gather EPs first so device_facts enrichment in
-                # ``_gather_device_info`` can read off the registry; the
-                # render order stays Devices → EPs.
-                try:
-                    eps_default = _gather_ep_info()
-                except Exception as e:
-                    eps_default = None
-                    logger.warning("EP detection failed: %s", e)
-                console.print()
-                try:
-                    devices = _gather_device_info()
-                    _output_device_text(devices)
-                except Exception as e:
-                    logger.warning("Device detection failed: %s", e)
-                    console.print(
-                        "[yellow]Device detection failed — re-run with "
-                        "[bold]-v[/bold] for the full traceback.[/yellow]"
-                    )
-                console.print()
-                if eps_default is not None:
-                    _output_ep_text(eps_default)
-                else:
-                    console.print(
-                        "[yellow]EP detection failed — re-run with "
-                        "[bold]-v[/bold] for the full traceback.[/yellow]"
-                    )
-
-        except Exception as e:
-            console.print(f"[bold red]Error gathering system information:[/bold red] {e}")
-            logger.exception("Failed to gather system information")
-            raise click.ClickException(f"Error gathering system information: {e}") from e
-
+            # Explicit-section mode: raise on per-section error so the
+            # user knows their pin didn't produce a result.
+            info = _gather(
+                devices=list_device,
+                eps=list_ep,
+                verbose=verbose,
+                tolerant=False,
+            )
+        else:
+            # Default mode: always include system info; sections only
+            # for non-compact formats (compact is a sysinfo overview by
+            # convention); tolerant so a broken section doesn't blank
+            # the whole report.
+            include_sections = fmt != "compact"
+            info = _gather(
+                system=True,
+                devices=include_sections,
+                eps=include_sections,
+                verbose=verbose,
+                tolerant=True,
+            )
+        _RENDERERS[fmt](info, verbose)
     finally:
         pkg_logger.handlers = _saved_handlers
         pkg_logger.setLevel(_saved_level)
