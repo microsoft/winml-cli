@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -31,9 +32,6 @@ IndexBundle = tuple[
     dict[tuple[str, int], list[tuple[str, str]]],
     dict[str, tuple[str, int, str]],
 ]
-
-_GLOBAL_INDEXES: IndexBundle | None = None
-_GLOBAL_INDEXES_SOURCE: tuple[str, str] | None = None
 
 
 def _default_mapping_paths() -> tuple[Path, Path]:
@@ -186,46 +184,18 @@ def _compute_indexes(
     return ep_device_to_key, key_to_ep_device, by_exact, by_name_version, version_key_to_entry
 
 
-def _resolve_mapping_paths(
-    providers_json: str | Path | None,
-    ops_json: str | Path | None,
-) -> tuple[Path, Path]:
+@cache
+def _get_indexes() -> IndexBundle:
+    """Build (and cache) the index bundle from the bundled mapping files.
+
+    The mapping files are fixed and shipped alongside this module; the result is
+    parsed once per process and reused on every call.
+    """
     providers_path, ops_path = _default_mapping_paths()
-    if providers_json is not None:
-        providers_path = Path(providers_json)
-    if ops_json is not None:
-        ops_path = Path(ops_json)
-    return providers_path.resolve(), ops_path.resolve()
+    return _compute_indexes(str(providers_path), str(ops_path))
 
 
-def _get_global_indexes(
-    providers_json: str | Path | None,
-    ops_json: str | Path | None,
-) -> IndexBundle:
-    global _GLOBAL_INDEXES, _GLOBAL_INDEXES_SOURCE
-
-    providers_path, ops_path = _resolve_mapping_paths(providers_json, ops_json)
-    current_source = (str(providers_path), str(ops_path))
-
-    if _GLOBAL_INDEXES is None:
-        _GLOBAL_INDEXES = _compute_indexes(*current_source)
-        _GLOBAL_INDEXES_SOURCE = current_source
-        return _GLOBAL_INDEXES
-
-    if current_source != _GLOBAL_INDEXES_SOURCE:
-        raise ValueError(
-            "Global index cache already initialized with different mapping files: "
-            f"cached={_GLOBAL_INDEXES_SOURCE}, requested={current_source}"
-        )
-
-    return _GLOBAL_INDEXES
-
-
-def encode_file_name_to_4char_key(
-    file_name: str,
-    providers_json: str | Path | None = None,
-    ops_json: str | Path | None = None,
-) -> str:
+def encode_file_name_to_4char_key(file_name: str) -> str:
     """Encode a rule file name into its 4-char case_index key prefix."""
     (
         ep_device_to_key,
@@ -233,10 +203,7 @@ def encode_file_name_to_4char_key(
         by_exact,
         by_name_version,
         _version_key_to_entry,
-    ) = _get_global_indexes(
-        providers_json,
-        ops_json,
-    )
+    ) = _get_indexes()
 
     name, ep, device, domain, version, is_qdq = _parse_file_name(file_name)
 
@@ -265,11 +232,7 @@ def encode_file_name_to_4char_key(
     return f"{ep_device_key}{version_key}{qdq_flag}"
 
 
-def decode_4char_key_to_folder_and_file_name(
-    key_or_case_index: str,
-    providers_json: str | Path | None = None,
-    ops_json: str | Path | None = None,
-) -> DecodedLocation:
+def decode_4char_key_to_folder_and_file_name(key_or_case_index: str) -> DecodedLocation:
     """Decode a 4-char key (or case_index prefix) into its folder and file name."""
     (
         _ep_device_to_key,
@@ -277,10 +240,7 @@ def decode_4char_key_to_folder_and_file_name(
         _by_exact,
         _by_name_version,
         version_key_to_entry,
-    ) = _get_global_indexes(
-        providers_json,
-        ops_json,
-    )
+    ) = _get_indexes()
 
     trimmed = key_or_case_index.strip()
     if len(trimmed) < 4:

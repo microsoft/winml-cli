@@ -732,7 +732,7 @@ def _deduplicate_rule_rows(
                 case_indices.append(case_index_value)
 
             # Keep deterministic order so generated artifacts are stable.
-            row["case_indices"] = tuple(sorted(set(case_indices), key=lambda value: str(value)))
+            row["case_indices"] = tuple(sorted(set(case_indices), key=str))
 
         row["rule_row_count"] = len(group_df)
         dedup_rows.append(row)
