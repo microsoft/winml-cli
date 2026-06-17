@@ -166,12 +166,12 @@
   <div class="user-input">
     <div class="ui-icon">&#128100;</div>
     <div class="ui-text">
-      <strong>User input</strong><br>
-      Model ID &nbsp;+&nbsp; Target EP/device &nbsp;+&nbsp; Objective:
+      <strong>User input</strong> &nbsp;&mdash;&nbsp;
+      Model ID &nbsp;+&nbsp; Target EP &nbsp;+&nbsp; Objective:
       <span class="tag">accuracy-primary</span>
       <span class="tag">latency-primary</span>
       <span class="tag">Pareto</span>
-      &nbsp;+ optional constraints (latency budget, accuracy floor)
+      &nbsp;+ optional budget / accuracy floor
     </div>
   </div>
 
@@ -185,18 +185,16 @@
         <div class="box-title">Inspect</div>
         <ul>
           <li><code>winml inspect</code></li>
-          <li>Validate model supported</li>
-          <li>Check EP availability</li>
-          <li>Load session.json (crash-resume)</li>
+          <li>EP availability check</li>
+          <li>Load <code>session.json</code> (crash-resume)</li>
         </ul>
       </div>
       <div style="color:#aab;font-size:18px">&#8594;</div>
       <div class="box">
         <div class="box-title">Baseline Build</div>
         <ul>
-          <li><code>winml build</code> (default config)</li>
-          <li>opset=17, no quant</li>
-          <li>Output: <code>baseline/model.onnx</code></li>
+          <li><code>winml build</code> (opset17, no quant)</li>
+          <li>Record baseline p50</li>
         </ul>
       </div>
       <div style="color:#aab;font-size:18px">&#8594;</div>
@@ -204,8 +202,7 @@
         <div class="box-title">Correctness Contract</div>
         <ul>
           <li><code>winml eval --mode compare</code></li>
-          <li>Lock cosine = 1.000</li>
-          <li>Record baseline p50 in session.json</li>
+          <li>Lock cosine similarity = 1.000</li>
         </ul>
       </div>
     </div>
@@ -219,40 +216,29 @@
     <div class="phase-body" style="flex-direction:column;gap:14px">
 
       <div style="display:flex;gap:10px;width:100%;align-items:flex-start">
-
         <div class="box" style="flex:1">
           <div class="box-title">Runtime Profile</div>
           <ul>
-            <li><code>winml perf --profile</code></li>
-            <li>ORT per-op kernel time</li>
-            <li>Bottleneck op type + %</li>
-            <li>Canonical vs decomposed ops</li>
-            <li>Layout ops (Reorder) activity</li>
+            <li><code>winml perf --profile</code> (pending #158)</li>
+            <li>Per-op kernel time, bottleneck %</li>
           </ul>
         </div>
-
         <div class="box" style="flex:1">
           <div class="box-title">Static Analyzer</div>
           <ul>
             <li><code>winml analyze --ep &lt;ep&gt;</code></li>
-            <li>Partial-support ops list</li>
-            <li>EP fallback candidates</li>
             <li>Conv% &rarr; npu-006 risk flag</li>
-            <li>FusedConv detection (pending)</li>
+            <li>Partial-support op list</li>
           </ul>
         </div>
-
         <div class="box" style="flex:1">
           <div class="box-title">Graph Analysis</div>
           <ul>
-            <li>ONNX proto inspection</li>
-            <li>Op counts per type</li>
-            <li>Conv% gate for npu-006</li>
+            <li>Op counts by type</li>
             <li>Fusion opportunities</li>
-            <li>Static shape vs dynamic axes</li>
+            <li>Static vs dynamic axes</li>
           </ul>
         </div>
-
       </div>
 
       <div style="display:flex;align-items:center;gap:8px;padding:0 4px">
@@ -263,23 +249,20 @@
 
       <div style="display:flex;gap:10px;width:100%">
         <div class="box" style="flex:1;border-color:#80cbc4;background:#e0f7fa">
-          <div class="box-title" style="color:#004d40">skip_set (passes to prune)</div>
+          <div class="box-title" style="color:#004d40">skip_set (hard blocks)</div>
           <ul style="color:#004d40">
-            <li>EP=QNN NPU + Conv%&gt;20% &rarr; block conv-bn/add/act fusions (npu-006)</li>
-            <li>EP=CPU + opset&gt;17 &rarr; skip high opsets (cpu-001)</li>
-            <li>EP=QNN GPU or DML &rarr; skip nhwc-transformer (gpu-002/dml-002)</li>
-            <li>EP=QNN GPU &rarr; skip all quantization (gpu-004 hang)</li>
-            <li>Model already has Gemm &rarr; skip matmul-add-fusion (cpu-002)</li>
-            <li>Partial-op list empty &rarr; skip nodes_to_exclude trials</li>
+            <li>QNN NPU + Conv%&gt;20% &rarr; no conv fusions</li>
+            <li>CPU + opset&gt;17 &rarr; skip high opsets</li>
+            <li>QNN GPU / DML &rarr; skip nhwc-transformer</li>
+            <li>QNN GPU &rarr; skip all quantization</li>
           </ul>
         </div>
         <div class="box" style="flex:1;border-color:#a5d6a7;background:#f1faf9">
-          <div class="box-title" style="color:#1b5e20">priority_queue (ranked hypotheses)</div>
+          <div class="box-title" style="color:#1b5e20">priority_queue (ranked hints)</div>
           <ul style="color:#1b5e20">
-            <li>EP=QNN NPU + DINOv2-family &rarr; opset 21 first (npu-001, +24-31%)</li>
-            <li>Gemm&gt;50% &rarr; quant precision, calib method first</li>
-            <li>Conv%&gt;20%, Conv-only model &rarr; nchwc trial</li>
-            <li>Decomposed GELU &rarr; gelu-fusion trial (gpu-005: stability+)</li>
+            <li>QNN NPU + DINOv2-family &rarr; opset21 first (+24-31%)</li>
+            <li>Gemm&gt;50% &rarr; quant / calib method first</li>
+            <li>Conv%&gt;20%, Conv-only &rarr; nchwc trial</li>
             <li>Dynamic axes &rarr; static shape export</li>
           </ul>
         </div>
@@ -298,90 +281,74 @@
 
         <div class="loop-agents">
 
-          <!-- Explorer -->
           <div class="loop-agent">
             <div class="agent-title">Explorer</div>
             <ul>
-              <li>Skip iters already in <code>session.json</code> (crash-resume) <span class="new-badge">NEW</span></li>
+              <li>Skip completed iters from <code>session.json</code> <span class="new-badge">NEW</span></li>
               <li>Pop next hypothesis from <code>priority_queue</code></li>
-              <li>Check KB <code>ep_knowledge/&lt;ep&gt;.json</code> confirmed rules &rarr; skip if pruned</li>
-              <li>Build <code>config.json</code> delta (opset / quant / fusions)</li>
-              <li style="color:#e65100"><strong>External research trigger:</strong> 5 DISCARDs same dimension &rarr; read ORT/QNN source</li>
+              <li>Check KB rules &rarr; skip if pruned</li>
+              <li>Build <code>config.json</code> delta</li>
             </ul>
           </div>
 
           <div class="mini-arrow">&#8595;</div>
 
-          <!-- Optimizer -->
           <div class="loop-agent">
             <div class="agent-title">Optimizer</div>
             <ul>
               <li><code>winml build -c config.json</code></li>
-              <li><strong>Phase A — screen</strong> (200 iters, CV = std/p50):</li>
-              <li style="padding-left:8px">CPU/GPU: CV&gt;10% &rarr; UNSTABLE, skip full bench</li>
-              <li style="padding-left:8px">QNN NPU: CV gate DISABLED (npu-007 DVFS normal)</li>
-              <li><strong>Screen early exit</strong> <span class="new-badge">NEW</span>: if baseline known and screen &Delta;p50 &lt; 1% &rarr; <span style="color:#1565c0">DISCARD (early)</span> without full bench</li>
+              <li><strong>Phase A — screen</strong> (200 iters): CV gate for CPU/GPU; <em>disabled</em> for QNN NPU (DVFS)</li>
+              <li><strong>Early exit</strong> <span class="new-badge">NEW</span>: screen &Delta; &lt; 1% &rarr; DISCARD, skip full bench</li>
               <li><strong>Phase B — full bench</strong> (3 &times; 1000 iters, 60s cool-down)</li>
-              <li><code>winml eval --samples 100</code> &rarr; accuracy gate</li>
+              <li><code>winml eval</code> &rarr; accuracy gate</li>
             </ul>
           </div>
 
           <div class="mini-arrow">&#8595;</div>
 
-          <!-- Reviewer / Verdict -->
           <div class="loop-agent">
-            <div class="agent-title">Reviewer &mdash; ThroughputOnly Verdict Policy <span class="new-badge">NEW</span></div>
+            <div class="agent-title">Reviewer &mdash; ThroughputOnly <span class="new-badge">NEW</span></div>
             <ul>
-              <li>Compute: <code>threshold = max(1% floor, 2.0 &times; screen_CV)</code></li>
-              <li>improvement = (baseline &minus; new_p50) / baseline &times; 100%</li>
+              <li><code>threshold = max(1%, 2.0 &times; CV)</code></li>
             </ul>
             <div class="verdict-row">
-              <span class="pill pill-keep">KEEP &gt; 1.5&times;threshold</span>
-              <span class="pill pill-marginal">MARGINAL KEEP 1x&ndash;1.5x</span>
-              <span class="pill pill-discard">DISCARD &lt; threshold</span>
-              <span class="pill pill-early">EARLY DISCARD (screen)</span>
-              <span class="pill pill-crash">ACC_FAIL / BUILD_FAIL</span>
+              <span class="pill pill-keep">KEEP &gt;1.5&times;thr</span>
+              <span class="pill pill-marginal">MARGINAL 1&times;&ndash;1.5&times;</span>
+              <span class="pill pill-discard">DISCARD</span>
+              <span class="pill pill-early">EARLY DISCARD</span>
+              <span class="pill pill-crash">ACC/BUILD FAIL</span>
             </div>
-            <ul style="margin-top:6px">
-              <li>On KEEP: promote baseline_p50 &rarr; cumulative search enabled</li>
-              <li>Write KB draft entry if new mechanism observed (status="draft")</li>
-            </ul>
           </div>
 
-          <!-- State save -->
           <div class="loop-agent" style="border-color:#b2dfdb;background:#f1faf9">
-            <div class="agent-title" style="color:#006064">Crash-Resume: save session.json <span class="new-badge">NEW</span></div>
+            <div class="agent-title" style="color:#006064">Crash-Resume <span class="new-badge">NEW</span></div>
             <ul>
-              <li>Atomically written after every experiment (temp-file + rename)</li>
-              <li>Stores: completed_iters, baseline_p50, best_p50/label, consecutive_discards</li>
-              <li>On next startup: skip completed iters, restore state</li>
+              <li>Atomic write after every experiment</li>
+              <li>Stores: completed iters, baseline/best p50, discard counters</li>
             </ul>
           </div>
 
-          <div class="loop-back">&#8617; loop back to Explorer (until stop condition)</div>
+          <div class="loop-back">&#8617; loop back to Explorer</div>
 
         </div>
 
-        <!-- Side panel -->
         <div class="loop-side">
           <div class="stop-box">
             <div class="stop-title">Stop conditions</div>
             <ul>
-              <li>Objective achieved</li>
-              <li><strong>30</strong> consecutive DISCARDs</li>
-              <li>priority_queue empty</li>
-              <li>User manually stops</li>
+              <li>Objective met</li>
+              <li>30 consecutive DISCARDs</li>
+              <li>Queue empty</li>
+              <li>User stops</li>
             </ul>
           </div>
           <div class="stop-box" style="background:#fffde7;border-color:#ffe082">
             <div class="stop-title" style="color:#f57f17">results.tsv</div>
-            Every experiment:<br>
             config &middot; screen_p50 &middot; median_p50<br>
-            CV &middot; delta_pct &middot; status &middot; dim
+            CV &middot; delta_pct &middot; status
           </div>
           <div class="stop-box" style="background:#f3f4fc;border-color:#c5cae9;margin-top:4px">
             <div class="stop-title" style="color:#3949ab">session.json</div>
-            Crash-resume state:<br>
             completed_iters<br>
             baseline/best p50<br>
             discard counters
@@ -389,8 +356,7 @@
           <div class="stop-box" style="background:#fce4ec;border-color:#f48fb1;margin-top:4px">
             <div class="stop-title" style="color:#880e4f">ep_knowledge/</div>
             New entries as<br>
-            <strong>status="draft"</strong><br>
-            Confirmed after Gate 2
+            <strong>status="draft"</strong>
           </div>
         </div>
 
@@ -407,28 +373,23 @@
       <div class="output-badges">
         <div class="badge">
           <div class="badge-title">Champion Config</div>
-          Best config with provenance metadata
+          Best config + provenance
           <code>config_&lt;ep&gt;_optimal.json</code>
         </div>
         <div class="badge">
           <div class="badge-title">HTML Report</div>
-          Benchmark chart + experiment table + profile section
+          Chart + experiment table
           <code>report.html</code>
         </div>
         <div class="badge">
-          <div class="badge-title">Per-Experiment Artifacts</div>
-          hypothesis / impl / parity / perf / analysis / decision
-          <code>experiments/&lt;n&gt;/experiment.md</code>
+          <div class="badge-title">Experiment Artifacts</div>
+          Per-hypothesis logs
+          <code>experiments/&lt;n&gt;/</code>
         </div>
         <div class="badge">
           <div class="badge-title">KB Draft Entry</div>
-          New findings (status="draft") &mdash; promoted after Gate 2
+          New findings, promoted after Gate 2
           <code>ep_knowledge/&lt;ep&gt;.json</code>
-        </div>
-        <div class="badge">
-          <div class="badge-title">Session State</div>
-          Crash-resume artifact (auto-deleted on success)
-          <code>session.json</code>
         </div>
       </div>
     </div>
@@ -436,44 +397,19 @@
 
   <!-- Footnote -->
   <div style="max-width:900px;width:100%;margin-top:22px;font-size:11px;color:#778;line-height:1.8;border-top:1px dashed #ccd;padding-top:14px">
-
-    <strong>v3 changes (2026-06-17, AgenticGPUOptimizer V2 patterns):</strong>
-    <strong>1) ThroughputOnly verdict policy</strong> &mdash;
-    improvement must exceed max(1% floor, 2&times;screen_CV).
-    Noise-level deltas that previously slipped through as KEEP (delta=1.2%, CV=1%) are now correctly DISCARD.
-    Marginal cases flagged as MARGINAL_KEEP for manual review.
-    &nbsp;
-    <strong>2) Screen early exit</strong> &mdash;
-    if screen p50 improvement &lt; 1% vs baseline, skip 3&times;full-bench immediately.
-    Saves ~25&ndash;90 min per rejected hypothesis.
-    &nbsp;
-    <strong>3) Crash-resume via session.json</strong> &mdash;
-    every experiment atomically committed. On restart, completed iters skipped. No data lost.
-
-    <br><br>
-
-    <strong>Bench protocol:</strong>
-    Phase A: 200-iter screen &mdash; CV gate for CPU/GPU only (10% threshold); disabled for QNN NPU (npu-007 DVFS normal).
-    Phase B: 3&times;1000-iter with 60s cool-down.
-    KEEP only if improvement &gt; statistical threshold.
-
-    <br>
-
-    <strong>Key empirical constraints loaded from ep_knowledge/:</strong>
-    npu-006 (conv fusions &rarr; 4900% regression on ResNet, Conv%&gt;20% gate);
-    npu-007 (DVFS CV gate disabled on NPU);
-    cpu-001 (opset 17 only on CPU);
-    gpu-004 (quantization hangs on QNN GPU);
-    cpu-002 (matmul-add-fusion regresses if Gemm already present).
-
-    <br>
-
-    <strong>Pending features:</strong>
-    <code>winml perf --profile</code> (#158);
-    <code>--precision fp16</code> (#867);
-    FusedConv detection in <code>winml analyze</code> (not yet filed);
-    multi-session bench protocol in winml perf (#155).
-
+    <strong>v3 · 2026-06-17:</strong>
+    ThroughputOnly verdict policy (threshold = max(1%, 2&times;CV));
+    screen early exit (&Delta;&lt;1% skips full bench, saves ~25&ndash;90 min);
+    crash-resume via atomic session.json.
+    &nbsp;&middot;&nbsp;
+    <strong>Key constraints:</strong>
+    npu-006 (Conv%&gt;20% &rarr; block conv fusions);
+    npu-007 (CV gate off on NPU);
+    cpu-001 (opset17 on CPU);
+    gpu-004 (no quant on QNN GPU).
+    &nbsp;&middot;&nbsp;
+    <strong>Pending:</strong>
+    <code>--profile</code> (#158) &middot; <code>--precision fp16</code> (#867) &middot; FusedConv detection &middot; multi-session bench (#155).
   </div>
 
 </div>
