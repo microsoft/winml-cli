@@ -180,8 +180,8 @@
   <!-- PHASE 0 -->
   <div class="phase-row p0">
     <div class="phase-label">Phase 0 · Intake</div>
-    <div class="phase-body">
-      <div class="box">
+    <div class="phase-body" style="flex-wrap:nowrap;align-items:stretch">
+      <div class="box" style="flex:1">
         <div class="box-title">Inspect</div>
         <ul>
           <li><code>winml inspect</code></li>
@@ -189,22 +189,21 @@
           <li>Load <code>session.json</code> (crash-resume)</li>
         </ul>
       </div>
-      <div style="color:#aab;font-size:18px">&#8594;</div>
-      <div class="box">
+      <div style="color:#aab;font-size:18px;display:flex;align-items:center">&#8594;</div>
+      <div class="box" style="flex:1">
         <div class="box-title">Baseline Build</div>
         <ul>
           <li><code>winml build</code> (opset17, no quant)</li>
           <li>Record baseline p50</li>
         </ul>
       </div>
-      <div style="color:#aab;font-size:18px">&#8594;</div>
-      <div class="box">
+      <div style="color:#aab;font-size:18px;display:flex;align-items:center">&#8594;</div>
+      <div class="box" style="flex:1">
         <div class="box-title">Correctness Contract</div>
         <ul>
           <li><code>winml eval --mode compare</code></li>
-          <li>Reference: original ONNX <em>or</em> HF PyTorch model</li>
-          <li>Lock cosine similarity = 1.000 vs reference</li>
-          <li style="color:#c62828">Note: local .pt/.pth reference not yet supported (#<span id="eval-fr">TBD</span>)</li>
+          <li>Reference: original ONNX or HF PyTorch</li>
+          <li>Lock cosine similarity = 1.000</li>
         </ul>
       </div>
     </div>
