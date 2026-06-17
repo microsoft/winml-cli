@@ -72,6 +72,7 @@ SCREEN_CV_MAX = 0.15
 FULL_WARMUP = 50
 FULL_ITERS = 500
 FULL_SESSIONS = 3
+CONFIRM_SESSIONS = 2  # extra sessions for best hypothesis (Phase C confirmation)
 COOL_DOWN_S = 30
 
 MODEL_TIMEOUT_S = 180 * 60  # 3 hours per model — 6 hypotheses × ~30min each
@@ -728,8 +729,127 @@ def sweep_model(
     # ── Step 3: compute summary stats ─────────────────────────────────────────
     print("\n[3/3] Computing summary stats…", flush=True)
     _compute_summary(results)
+
+    # ── Step 3b: Phase C — confirm the best hypothesis with 2 extra sessions ──
+    _run_confirmation_pass_npu(results, model_dir)
+
     _save_results(results, model_dir)
     return results
+
+
+def _run_confirmation_pass_npu(results: dict, model_dir: Path) -> None:
+    """Phase C: run CONFIRM_SESSIONS extra sessions on the best hypothesis.
+
+    For NPU (high DVFS noise), uses range-non-overlap criterion:
+    - All (FULL_SESSIONS + CONFIRM_SESSIONS) p50s < baseline_min → CONFIRMED
+    - Otherwise → MARGINAL_UNCONFIRMED, best_gain_pct flagged as uncertain
+    """
+    best_h_id: str | None = results.get("best_hypothesis")
+    baseline_p50: float | None = results.get("baseline_p50_ms")
+    if not best_h_id or not baseline_p50:
+        return
+
+    best_hyp = results["hypotheses"].get(best_h_id, {})
+    best_gain = results.get("best_gain_pct", 0.0)
+    if best_gain < 5.0:
+        return  # nothing worth confirming
+
+    # Find ONNX
+    hyp_dir = model_dir / best_h_id
+    onnx_path: Path | None = None
+    for candidate in (hyp_dir / "quantized.onnx", hyp_dir / "optimized.onnx"):
+        if candidate.exists():
+            onnx_path = candidate
+            break
+    if onnx_path is None:
+        return
+
+    print(
+        f"\n  ── Phase C: confirming best hypothesis {best_h_id} ({CONFIRM_SESSIONS} extra sessions) ──",
+        flush=True,
+    )
+
+    confirm_p50s: list[float] = []
+    for s in range(1, CONFIRM_SESSIONS + 1):
+        out_json = hyp_dir / f"confirm_s{s}.json"
+        rc, _, _ = run_cmd(
+            [
+                WINML,
+                "perf",
+                "-m",
+                str(onnx_path),
+                "--ep",
+                EP,
+                "--device",
+                DEVICE,
+                "--warmup",
+                str(FULL_WARMUP),
+                "--iterations",
+                str(FULL_ITERS),
+                "-o",
+                str(out_json),
+            ],
+            label=f"confirm s{s}/{CONFIRM_SESSIONS}",
+            timeout=BENCH_TIMEOUT_S,
+        )
+        if rc == 0 and out_json.exists():
+            try:
+                data = json.loads(out_json.read_text())
+                lat = data["latency_ms"]
+                p50 = lat["p50"]
+                print(f"     confirm s{s}: p50={p50:.2f}ms", flush=True)
+                confirm_p50s.append(p50)
+            except Exception as e:
+                print(f"     [warn] confirm s{s} parse error: {e}", flush=True)
+        if s < CONFIRM_SESSIONS:
+            print(f"     cool-down {COOL_DOWN_S}s…", flush=True)
+            time.sleep(COOL_DOWN_S)
+
+    if not confirm_p50s:
+        print(f"  [confirm] {best_h_id}: confirm bench failed, conclusion unchanged", flush=True)
+        return
+
+    # Get all p50s including prior FULL_SESSIONS runs
+    prior_p50s: list[float] = best_hyp.get("full", {}).get("p50s_ms", [])
+    all_p50s = prior_p50s + confirm_p50s
+
+    # Baseline comparison: use h0/h1 p50s for range overlap test
+    baseline_h = None
+    for h_id in ("h0", "h1"):
+        h = results["hypotheses"].get(h_id, {})
+        if h.get("status") in ("OK", "OK_HIGH_CV"):
+            baseline_h = h
+            break
+    baseline_p50s: list[float] = (
+        baseline_h["full"].get("p50s_ms", [baseline_p50]) if baseline_h else [baseline_p50]
+    )
+
+    overall_median = float(sorted(all_p50s)[len(all_p50s) // 2])
+    overall_gain = (baseline_p50 - overall_median) / baseline_p50 * 100
+    # Strict: max of all best-hypothesis sessions must be < min of baseline sessions
+    ranges_confirmed = max(all_p50s) < min(baseline_p50s) if baseline_p50s else False
+
+    best_hyp["confirm_p50s_ms"] = [round(p, 3) for p in confirm_p50s]
+    best_hyp["all_p50s_ms"] = [round(p, 3) for p in all_p50s]
+    best_hyp["confirm_overall_median_ms"] = round(overall_median, 3)
+    best_hyp["confirm_overall_gain_pct"] = round(overall_gain, 2)
+    best_hyp["confirm_ranges_non_overlapping"] = ranges_confirmed
+
+    if ranges_confirmed:
+        best_hyp["confirm_verdict"] = "CONFIRMED"
+        results["best_gain_pct"] = round(overall_gain, 2)
+        print(
+            f"  [CONFIRMED] {best_h_id}: all {len(all_p50s)} p50s < baseline min"
+            f" — gain={overall_gain:+.1f}% (ranges non-overlapping)",
+            flush=True,
+        )
+    else:
+        best_hyp["confirm_verdict"] = "MARGINAL_UNCONFIRMED"
+        print(
+            f"  [MARGINAL_UNCONFIRMED] {best_h_id}: max={max(all_p50s):.1f}ms"
+            f" ≥ baseline min={min(baseline_p50s):.1f}ms — DVFS noise, ranges overlap",
+            flush=True,
+        )
 
 
 def _compute_summary(results: dict) -> None:

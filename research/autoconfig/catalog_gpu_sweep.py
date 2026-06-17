@@ -36,7 +36,10 @@ Hypothesis matrix (per model):
 
 2-phase bench (CV-gated, GPU is stable unlike NPU):
   Phase A: 200-iter screen, CV < 15% required.
-  Phase B: 2 sessions × 300 iters, 5s cool-down.
+  Phase B: 3 sessions × 300 iters, 5s cool-down.
+  Phase C (confirmation): KEEP candidates get 2 additional sessions.
+    All 5 sessions must show improvement → KEEP_CONFIRMED.
+    Fewer than 5/5 → MARGINAL_UNCONFIRMED.
   KEEP criterion: median p50 >= 5% improvement AND CV < 5%.
 
 Results: catalog-gpu-sweep/<model_slug>/results.json
@@ -70,7 +73,8 @@ SCREEN_CV_MAX = 0.15  # GPU is CV-stable, unlike NPU
 
 FULL_WARMUP = 20
 FULL_ITERS = 300
-FULL_SESSIONS = 2
+FULL_SESSIONS = 3  # baseline sessions per hypothesis
+CONFIRM_SESSIONS = 2  # extra sessions for KEEP candidates (Phase C)
 COOL_DOWN_S = 5  # GPU cools faster than NPU HTP
 
 MIN_IMPROVEMENT_PCT = 5.0  # % gain required to declare KEEP
@@ -561,10 +565,118 @@ def sweep_model(
 
         results["hypotheses"][hyp_id] = hyp_data
 
+    # ── Step 2b: Phase C — confirmation runs for KEEP candidates ──────────────
+    _run_confirmation_pass(results, model_dir, baseline_p50)
+
     # ── Step 3: finalise ───────────────────────────────────────────────────
     _post_process(results)
     _save_results(results, model_dir)
     return results
+
+
+def _run_confirmation_pass(results: dict, model_dir: Path, baseline_p50: float | None) -> None:
+    """Phase C: re-run CONFIRM_SESSIONS additional sessions for every KEEP candidate.
+
+    If all (FULL_SESSIONS + CONFIRM_SESSIONS) sessions show >= MIN_IMPROVEMENT_PCT:
+      verdict stays KEEP_CONFIRMED.
+    Otherwise downgrade to MARGINAL_UNCONFIRMED.
+    """
+    if not baseline_p50:
+        return
+    hyps = results.get("hypotheses", {})
+    keep_ids = [hid for hid, h in hyps.items() if h.get("verdict") == "KEEP"]
+    if not keep_ids:
+        return
+
+    print(
+        f"\n  ── Phase C: confirming {keep_ids} ({CONFIRM_SESSIONS} extra sessions each) ──",
+        flush=True,
+    )
+
+    for hyp_id in keep_ids:
+        hyp_data = hyps[hyp_id]
+        onnx_path: Path | None = None
+        hyp_dir = model_dir / hyp_id
+
+        # Find built ONNX from the hypothesis dir
+        for candidate in (hyp_dir / "optimized.onnx", hyp_dir / "quantized.onnx"):
+            if candidate.exists():
+                onnx_path = candidate
+                break
+        if onnx_path is None:
+            print(f"  [confirm] {hyp_id}: no onnx found, skipping", flush=True)
+            continue
+
+        print(f"  [confirm] {hyp_id} ({hyp_data['label']})", flush=True)
+        extra_p50s: list[float] = []
+        for s in range(1, CONFIRM_SESSIONS + 1):
+            out_json = hyp_dir / f"confirm_s{s}.json"
+            rc, _, _ = run_cmd(
+                [
+                    WINML,
+                    "perf",
+                    "-m",
+                    str(onnx_path),
+                    "--ep",
+                    EP,
+                    "--device",
+                    DEVICE,
+                    "--warmup",
+                    str(FULL_WARMUP),
+                    "--iterations",
+                    str(FULL_ITERS),
+                    "--output-json",
+                    str(out_json),
+                ],
+                label=f"confirm s{s}/{CONFIRM_SESSIONS}",
+                timeout=BENCH_TIMEOUT_S,
+            )
+            p50 = _get_p50(out_json) if rc == 0 and out_json.exists() else None
+            if p50:
+                print(f"     confirm s{s}: p50={p50:.2f}ms", flush=True)
+                extra_p50s.append(p50)
+            if s < CONFIRM_SESSIONS:
+                time.sleep(COOL_DOWN_S)
+
+        if not extra_p50s:
+            print(f"  [confirm] {hyp_id}: confirm bench failed, keeping KEEP", flush=True)
+            continue
+
+        all_p50s: list[float] = hyp_data.get("full_p50s_ms", []) + extra_p50s
+        overall_median = sorted(all_p50s)[len(all_p50s) // 2]
+        overall_gain = (baseline_p50 - overall_median) / baseline_p50 * 100
+        wins = sum(
+            1 for p in all_p50s if (baseline_p50 - p) / baseline_p50 * 100 >= MIN_IMPROVEMENT_PCT
+        )
+
+        hyp_data["confirm_p50s_ms"] = extra_p50s
+        hyp_data["all_p50s_ms"] = all_p50s
+        hyp_data["overall_median_p50_ms"] = round(overall_median, 3)
+        hyp_data["overall_gain_pct"] = round(overall_gain, 2)
+        hyp_data["sessions_above_threshold"] = wins
+        hyp_data["total_sessions"] = len(all_p50s)
+
+        if wins == len(all_p50s):
+            hyp_data["verdict"] = "KEEP_CONFIRMED"
+            print(
+                f"  [KEEP_CONFIRMED] {hyp_id}: {wins}/{len(all_p50s)} sessions ≥ {MIN_IMPROVEMENT_PCT}%,"
+                f" overall gain={overall_gain:+.1f}%",
+                flush=True,
+            )
+        else:
+            hyp_data["verdict"] = "MARGINAL_UNCONFIRMED"
+            print(
+                f"  [MARGINAL_UNCONFIRMED] {hyp_id}: only {wins}/{len(all_p50s)} sessions above threshold",
+                flush=True,
+            )
+
+        # Update best_hypothesis tracking
+        if hyp_data["verdict"] == "KEEP_CONFIRMED":
+            best_p50 = results.get("best_p50_ms")
+            if best_p50 is None or overall_median < best_p50:
+                results["best_p50_ms"] = overall_median
+                results["best_hypothesis"] = hyp_id
+                results["best_gain_pct"] = round(overall_gain, 2)
 
 
 def _post_process(results: dict) -> None:
@@ -574,10 +686,18 @@ def _post_process(results: dict) -> None:
     if not baseline_p50:
         return
 
-    keeps = [(hid, h) for hid, h in hyps.items() if h.get("verdict") == "KEEP"]
+    keeps = [(hid, h) for hid, h in hyps.items() if h.get("verdict") in ("KEEP", "KEEP_CONFIRMED")]
+    unconfirmed = [
+        (hid, h) for hid, h in hyps.items() if h.get("verdict") == "MARGINAL_UNCONFIRMED"
+    ]
     if keeps:
-        print(f"\n  ✓ KEEP verdicts: {[h[0] for h in keeps]}", flush=True)
-    else:
+        print(f"\n  ✓ KEEP/KEEP_CONFIRMED: {[h[0] for h in keeps]}", flush=True)
+    if unconfirmed:
+        print(
+            f"  ⚠ MARGINAL_UNCONFIRMED (failed confirmation): {[h[0] for h in unconfirmed]}",
+            flush=True,
+        )
+    if not keeps and not unconfirmed:
         print("\n  No improvements found above 5% threshold.", flush=True)
 
     # gpu-006 summary
@@ -607,7 +727,7 @@ def write_summary(all_results: list[dict]) -> None:
         f"Generated: {datetime.now().isoformat(timespec='seconds')}  ",
         f"EP: `{EP}` / device: `{DEVICE}`  ",
         f"Protocol: screen {SCREEN_ITERS} iters (CV<{SCREEN_CV_MAX * 100:.0f}%),"
-        f" full {FULL_ITERS}×{FULL_SESSIONS} sessions  ",
+        f" full {FULL_ITERS}×{FULL_SESSIONS} sessions + {CONFIRM_SESSIONS} confirm sessions for KEEP  ",
         "Constraints: NO quant (gpu-004), NO compile (gpu-003), NO nhwc (gpu-002)  ",
         "",
         "---",
