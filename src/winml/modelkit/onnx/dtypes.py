@@ -21,7 +21,7 @@ Canonical home for ONNX ↔ numpy ↔ TensorProto type mappings.
 
 import re
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar, cast
 
 import ml_dtypes
 import numpy as np
@@ -61,6 +61,13 @@ class SupportedONNXType(Enum):
     UINT16 = ("UINT16", np.dtype("uint16"), "tensor(uint16)", onnx.TensorProto.UINT16)
     UINT32 = ("UINT32", np.dtype("uint32"), "tensor(uint32)", onnx.TensorProto.UINT32)
     UINT64 = ("UINT64", np.dtype("uint64"), "tensor(uint64)", onnx.TensorProto.UINT64)
+
+    # Lookup maps populated by post_class_definition(). Annotation-only (no value)
+    # so the Enum metaclass does not treat them as members; stringized so the
+    # forward reference to SupportedONNXType resolves for the type checker only.
+    _onnx_type_map: "ClassVar[dict[str, SupportedONNXType]]"
+    _np_type_map: "ClassVar[dict[np.dtype[Any], SupportedONNXType]]"
+    _tensor_proto_type_map: "ClassVar[dict[int, SupportedONNXType]]"
 
     @classmethod
     def post_class_definition(cls) -> None:
@@ -161,7 +168,7 @@ class SupportedONNXType(Enum):
         Returns:
             Type annotation string
         """
-        return self.value[0]
+        return cast("str", self.value[0])
 
     @property
     def onnx_type(self) -> str:
@@ -170,7 +177,7 @@ class SupportedONNXType(Enum):
         Returns:
             ONNX type string
         """
-        return self.value[2]
+        return cast("str", self.value[2])
 
     @property
     def np_type(self) -> "np.dtype[Any]":
@@ -179,7 +186,7 @@ class SupportedONNXType(Enum):
         Returns:
             Numpy dtype
         """
-        return self.value[1]
+        return cast("np.dtype[Any]", self.value[1])
 
     @property
     def tensor_proto_type(self) -> int:
@@ -188,7 +195,7 @@ class SupportedONNXType(Enum):
         Returns:
             ONNX TensorProto data type (e.g., 1 for FLOAT, 9 for BOOL)
         """
-        return self.value[3]
+        return cast("int", self.value[3])
 
     @classmethod
     def normalize_annotation(cls, annotation: str) -> str:

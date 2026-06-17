@@ -18,6 +18,7 @@ E2E tests are auto-skipped unless explicitly selected with:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,6 +31,17 @@ from PIL import Image
 
 if TYPE_CHECKING:
     from click.testing import CliRunner
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Raise the HF download timeout for E2E runs to reduce flaky 408 timeouts.
+
+    Test-only: this sets the env var for the pytest process so streaming parquet
+    fetches from the HF xet CDN get 60s (vs the 10s default) before timing out.
+    Uses ``setdefault`` so an explicit ``HF_HUB_DOWNLOAD_TIMEOUT`` still wins, and
+    it never affects the shipped CLI outside the test harness.
+    """
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
 
 
 # ---------------------------------------------------------------------------
@@ -132,9 +144,12 @@ def test_image(tmp_path_factory: pytest.TempPathFactory) -> str:
 
 @pytest.fixture
 def runner() -> CliRunner:
-    from click.testing import CliRunner
+    # RetryingCliRunner transparently retries invocations that fail with a
+    # transient dataset-download error (e.g. a 408 from the HF xet CDN) so
+    # network blips don't fail e2e runs. Non-transient failures are not retried.
+    from ._retry import RetryingCliRunner
 
-    return CliRunner()
+    return RetryingCliRunner()
 
 
 # ---------------------------------------------------------------------------
