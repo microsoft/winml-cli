@@ -16,6 +16,7 @@ import onnx
 from google.protobuf import json_format
 
 from ...pattern.op_input_gen import normalize_constraint_dict
+from .avalizble_ep_device_ops.case_index_key_codec import encode_file_name_to_4char_key
 
 
 def load_case_indices_from_conflict_file(conflict_file: str | Path) -> list[str]:
@@ -134,9 +135,21 @@ def compute_case_signature(case: dict, *, namespace: str) -> str:
     return "|".join(sig_parts)
 
 
-def hash_case_signature(signature: str) -> str:
-    """Return a stable hash value for a case signature."""
-    return hashlib.sha256(signature.encode("utf-8")).hexdigest()
+def _hash_case_signature(signature: str) -> str:
+    """Return a stable 32-char hash value for case content."""
+    return hashlib.md5(signature.encode("utf-8")).hexdigest()
+
+
+def _compute_case_index_with_namespace_key(case: dict, *, namespace_key: str) -> str:
+    """Compute unified 36-char case_index using 4-char namespace key + 32-char md5."""
+    signature = compute_case_signature(case, namespace="")
+    return f"{namespace_key}{_hash_case_signature(signature)}"
+
+
+def compute_case_index(case: dict, *, namespace: str) -> str:
+    """Compute unified 36-char case_index for a case under the given file namespace."""
+    namespace_key = encode_file_name_to_4char_key(namespace)
+    return _compute_case_index_with_namespace_key(case, namespace_key=namespace_key)
 
 
 class CheckResultWriter:
@@ -178,6 +191,7 @@ class CheckResultWriter:
         self.case_namespace = (
             self.file_path.stem
         )  # File name without extension for case_index namespace
+        self.case_namespace_key = encode_file_name_to_4char_key(self.case_namespace)
         if filter_case_index is None:
             self.filter_case_indices: list[str] | None = None
             self._filter_case_index_set: set[str] | None = None
@@ -233,9 +247,13 @@ class CheckResultWriter:
             True if the case should be skipped.
         """
         sig = compute_case_signature(case, namespace=self.case_namespace)
+        case_index = _compute_case_index_with_namespace_key(
+            case,
+            namespace_key=self.case_namespace_key,
+        )
         if self.filter_case_indices is not None:
             assert self._filter_case_index_set is not None
-            return hash_case_signature(sig) not in self._filter_case_index_set
+            return case_index not in self._filter_case_index_set
 
         if self.delta_only:
             # Only run brand-new cases; skip anything we already have
@@ -260,7 +278,7 @@ class CheckResultWriter:
             return
 
         self._assign_not_run_ids(case)
-        self._set_case_index_signature(case)
+        self._set_case_index_signatures(case)
         self.results.append(case)
         self.output_signatures.add(sig)
         self._increment_pending_and_maybe_save()
@@ -278,9 +296,13 @@ class CheckResultWriter:
             True if existing result was found and reused, False otherwise.
         """
         sig = compute_case_signature(case, namespace=self.case_namespace)
+        case_index = _compute_case_index_with_namespace_key(
+            case,
+            namespace_key=self.case_namespace_key,
+        )
         if self.filter_case_indices is not None:
             assert self._filter_case_index_set is not None
-            if hash_case_signature(sig) not in self._filter_case_index_set:
+            if case_index not in self._filter_case_index_set:
                 return False
 
         existing_case = self.existing_signatures.get(sig)
@@ -295,16 +317,22 @@ class CheckResultWriter:
             # via iter(), so its input_constraints is up-to-date.
             if "input_constraints" in case:
                 existing_case["input_constraints"] = case["input_constraints"]
-            self._set_case_index_signature(existing_case)
+            # Ensure reused cases keep the current model payload contract.
+            if isinstance(case.get("model_bytes_b64"), str):
+                existing_case["model_bytes_b64"] = case["model_bytes_b64"]
+            self._set_case_index_signatures(existing_case)
             self.results.append(existing_case)
             self.output_signatures.add(sig)
             return True
         return False
 
-    def _set_case_index_signature(self, case: dict[str, Any]) -> None:
-        """Set case_index to a stable hash derived from normalized signature."""
-        signature = compute_case_signature(case, namespace=self.case_namespace)
-        case["case_index"] = hash_case_signature(signature)
+    def _set_case_index_signatures(self, case: dict[str, Any]) -> None:
+        """Set unified 36-char case_index derived from namespace key and case content."""
+        case["case_index"] = _compute_case_index_with_namespace_key(
+            case,
+            namespace_key=self.case_namespace_key,
+        )
+        case.pop("case_index_ignore_ep_device", None)
 
     def _contains_not_run_reason(self, case: dict[str, Any]) -> bool:
         """Check whether compile/run reason contains a not_run placeholder."""
@@ -422,7 +450,7 @@ class CheckResultWriter:
 
         for item in output_data["check_results"]:
             if isinstance(item, dict):
-                self._set_case_index_signature(item)
+                self._set_case_index_signatures(item)
 
         # Sort results by case_index to keep deterministic ordering before writing
         output_data["check_results"] = sorted(

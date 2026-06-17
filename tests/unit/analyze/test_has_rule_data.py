@@ -12,6 +12,7 @@ import pytest
 
 from winml.modelkit.analyze.utils import (
     get_devices_with_rule_data,
+    has_any_rule_data,
     has_rule_data_for_ep,
     infer_ihv_from_ep_name,
 )
@@ -96,7 +97,9 @@ class TestHasRuleDataForEP:
 
     def test_returns_false_for_unmatched_ep(self, tmp_path: Path) -> None:
         """Parquet files exist but none match the requested EP+device."""
-        (tmp_path / "Add_OtherEP_GPU_ai.onnx_opset13.parquet").touch()
+        other_dir = tmp_path / "OtherEP_GPU"
+        other_dir.mkdir()
+        (other_dir / "Add_OtherEP_GPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert has_rule_data_for_ep("FakeEP", "NPU") is False
@@ -108,12 +111,12 @@ class TestHasRuleDataForEP:
             mp.setattr(_PATCH_TARGET, lambda: [missing])
             assert has_rule_data_for_ep("QNNExecutionProvider", "NPU") is False
 
-    def test_returns_true_when_parquet_exists_in_flat_layout(self, tmp_path: Path) -> None:
-        """Should return True when a matching parquet file is present in root layout."""
+    def test_returns_false_when_parquet_exists_in_flat_layout(self, tmp_path: Path) -> None:
+        """Flat parquet is ignored; provider subdirectory layout is required."""
         (tmp_path / "Add_FakeEP_NPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
-            assert has_rule_data_for_ep("FakeEP", "NPU") is True
+            assert has_rule_data_for_ep("FakeEP", "NPU") is False
 
     def test_returns_true_when_parquet_exists_in_provider_subdir(self, tmp_path: Path) -> None:
         """Should return True for rules_dir/<EP>_<DEVICE>/*.parquet layout."""
@@ -126,7 +129,9 @@ class TestHasRuleDataForEP:
 
     def test_device_is_case_insensitive(self, tmp_path: Path) -> None:
         """Device is uppercased internally, so 'npu' should match NPU parquet files."""
-        (tmp_path / "Add_FakeEP_NPU_ai.onnx_opset13.parquet").touch()
+        nested = tmp_path / "FakeEP_NPU"
+        nested.mkdir()
+        (nested / "Add_FakeEP_NPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert has_rule_data_for_ep("FakeEP", "npu") is True
@@ -146,21 +151,64 @@ class TestHasRuleDataForEP:
             assert has_rule_data_for_ep("MyEP", "GPU") is True
 
 
+class TestHasAnyRuleData:
+    """Tests for has_any_rule_data()."""
+
+    def test_returns_false_for_empty_search_dir(self, tmp_path: Path) -> None:
+        """No parquet files in supported layouts should return False."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
+            assert has_any_rule_data() is False
+
+    def test_returns_false_for_flat_layout(self, tmp_path: Path) -> None:
+        """Flat parquet under search dir should be ignored."""
+        (tmp_path / "AnyEP_NPU_dummy.parquet").touch()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
+            assert has_any_rule_data() is False
+
+    def test_returns_true_for_provider_subdir_layout(self, tmp_path: Path) -> None:
+        """Provider subdirectory parquet should return True."""
+        provider_dir = tmp_path / "AnyEP_NPU"
+        provider_dir.mkdir()
+        (provider_dir / "Add_AnyEP_NPU_ai.onnx_opset13.parquet").touch()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
+            assert has_any_rule_data() is True
+
+    def test_returns_true_for_non_ep_device_second_level_layout(self, tmp_path: Path) -> None:
+        """Any second-level parquet should count as available data."""
+        unrelated_dir = tmp_path / "nested"
+        unrelated_dir.mkdir()
+        (unrelated_dir / "Add_AnyEP_NPU_ai.onnx_opset13.parquet").touch()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
+            assert has_any_rule_data() is True
+
+
 class TestGetDevicesWithRuleData:
     """Tests for get_devices_with_rule_data()."""
 
     def test_returns_devices_from_rule_data(self, tmp_path: Path) -> None:
         """Should return all devices that have matching parquet rule files."""
-        (tmp_path / "Add_TestEP_NPU_ai.onnx_opset13.parquet").touch()
-        (tmp_path / "Add_TestEP_GPU_ai.onnx_opset13.parquet").touch()
+        npu_dir = tmp_path / "TestEP_NPU"
+        gpu_dir = tmp_path / "TestEP_GPU"
+        npu_dir.mkdir()
+        gpu_dir.mkdir()
+        (npu_dir / "Add_TestEP_NPU_ai.onnx_opset13.parquet").touch()
+        (gpu_dir / "Add_TestEP_GPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert get_devices_with_rule_data("TestEP") == ["NPU", "GPU"]
 
     def test_preserves_priority_order(self, tmp_path: Path) -> None:
         """Devices should be returned in NPU > GPU > CPU order."""
-        (tmp_path / "Add_TestEP_CPU_ai.onnx_opset13.parquet").touch()
-        (tmp_path / "Add_TestEP_NPU_ai.onnx_opset13.parquet").touch()
+        cpu_dir = tmp_path / "TestEP_CPU"
+        npu_dir = tmp_path / "TestEP_NPU"
+        cpu_dir.mkdir()
+        npu_dir.mkdir()
+        (cpu_dir / "Add_TestEP_CPU_ai.onnx_opset13.parquet").touch()
+        (npu_dir / "Add_TestEP_NPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert get_devices_with_rule_data("TestEP") == ["NPU", "CPU"]
@@ -200,7 +248,9 @@ class TestGetDevicesWithRuleData:
     def test_rule_data_takes_precedence_over_ep_device_map(self, tmp_path: Path) -> None:
         """If parquet rule data exists, EP device map should NOT be used."""
         # Imagine DML gets rule data for NPU in the future
-        (tmp_path / "Add_DmlExecutionProvider_NPU_ai.onnx_opset17.parquet").touch()
+        npu_dir = tmp_path / "DmlExecutionProvider_NPU"
+        npu_dir.mkdir()
+        (npu_dir / "Add_DmlExecutionProvider_NPU_ai.onnx_opset17.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             # Rule data says NPU, not the EP device map ["GPU"]

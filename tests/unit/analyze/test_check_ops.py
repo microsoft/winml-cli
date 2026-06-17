@@ -9,8 +9,11 @@ import json
 import numpy as np
 
 from winml.modelkit.analyze.utils import CheckResultWriter
+from winml.modelkit.analyze.utils.avalizble_ep_device_ops.case_index_key_codec import (
+    encode_file_name_to_4char_key,
+)
 from winml.modelkit.analyze.utils.op_utils import compute_case_signature
-from winml.modelkit.pattern.op_input_gen import InputValueConstraint
+from winml.modelkit.pattern.op_input_gen import InputValueConstraint, normalize_constraint_dict
 
 
 class TestComputeCaseSignature:
@@ -149,13 +152,66 @@ class TestComputeCaseSignature:
         )
 
 
+class TestConstraintRoundTrip:
+    """Tests for reversible serialization/deserialization of value constraints."""
+
+    def test_same_value_scalar_bool_roundtrip_preserves_ndarray(self) -> None:
+        """Scalar bool arrays should remain 0-D ndarray after normalization."""
+        original = np.asarray(True, dtype=np.bool_)
+        compact = InputValueConstraint(original).to_dict()
+
+        restored = normalize_constraint_dict(compact)["value"]
+
+        assert isinstance(restored, np.ndarray)
+        assert restored.shape == original.shape
+        assert restored.dtype == original.dtype
+        assert bool(restored.item()) is True
+
+    def test_same_value_dense_array_roundtrip_preserves_dtype_and_shape(self) -> None:
+        """Non-scalar arrays should restore with identical dtype and shape."""
+        original = np.full((2, 3), 7, dtype=np.int16)
+        compact = InputValueConstraint(original).to_dict()
+
+        restored = normalize_constraint_dict(compact)["value"]
+
+        assert isinstance(restored, np.ndarray)
+        assert restored.shape == original.shape
+        assert restored.dtype == original.dtype
+        assert np.array_equal(restored, original)
+
+    def test_scalar_bool_payload_preserves_ndarray(self) -> None:
+        """Scalar arrays keep ndarray payload instead of collapsing to Python scalars."""
+        scalar = np.asarray(True, dtype=np.bool_)
+        compact = InputValueConstraint(scalar).to_dict()
+
+        restored = normalize_constraint_dict(compact)["value"]
+
+        assert isinstance(restored, np.ndarray)
+        assert restored.shape == ()
+        assert restored.dtype == np.bool_
+        assert bool(restored.item()) is True
+
+    def test_dtype_with_scalar_value_keeps_original_payload(self) -> None:
+        """Non-compact value payloads keep their original scalar shape."""
+        serialized = {
+            "type": "value",
+            "value": 1,
+            "dtype": "int64",
+        }
+
+        restored = normalize_constraint_dict(serialized)["value"]
+
+        assert isinstance(restored, int)
+        assert restored == 1
+
+
 class TestReuseExistingResultInputConstraints:
     """Tests that reuse_existing_result upgrades input_constraints to current format."""
 
     @staticmethod
     def _make_writer(existing_cases: list[dict], tmp_path):
         """Create a CheckResultWriter with pre-loaded existing_signatures from cases."""
-        output_file = tmp_path / "test_op.json"
+        output_file = tmp_path / "Abs_QNNExecutionProvider_NPU_ai.onnx_opset13.json"
         output_file.write_text(json.dumps({"check_results": existing_cases}), encoding="utf-8")
         return CheckResultWriter(output_file, sys_info={}, delta_only=True)
 
@@ -243,3 +299,65 @@ class TestReuseExistingResultInputConstraints:
         saved = writer.results[0]
         assert saved["input_constraints"]["X"] == compact
         assert "same_value" in saved["input_constraints"]["X"]
+
+    def test_reuse_preserves_model_bytes_payload(self, tmp_path) -> None:
+        """Reused cases must retain model_bytes_b64 from the current generator payload."""
+        arr = np.ones((2,), dtype=np.float32)
+        compact = InputValueConstraint(arr).to_dict()
+
+        existing_case = {
+            "type_vars": {"T": "FLOAT"},
+            "input_constraints": {"X": compact},
+            "check_result": {
+                "compile": {"result": {"success": True}},
+                "run": {"result": {"success": True}},
+            },
+        }
+
+        with self._make_writer([existing_case], tmp_path) as writer:
+            skipped_case = {
+                "type_vars": {"T": "FLOAT"},
+                "input_constraints": {"X": compact},
+                "model_bytes_b64": "test_payload",
+                "_skipped": True,
+            }
+            reused = writer.reuse_existing_result(skipped_case)
+
+        assert reused
+        saved = writer.results[0]
+        assert saved["model_bytes_b64"] == "test_payload"
+
+    def test_case_index_is_36_chars_and_ep_device_differs_by_first_char(self, tmp_path) -> None:
+        """跨 EP/device 的 case_index 应仅首字符不同，剩余 35 位保持一致。"""
+        case_template = {
+            "type_vars": {"T": "FLOAT"},
+            "input_constraints": {"X": {"type": "shape", "shape": [1], "min_max": None}},
+            "check_result": {
+                "compile": {"result": {"success": True}},
+                "run": {"result": {"success": True}},
+            },
+        }
+
+        qnn_output = tmp_path / "Abs_QNNExecutionProvider_NPU_ai.onnx_opset13.json"
+        ov_output = tmp_path / "Abs_OpenVINOExecutionProvider_CPU_ai.onnx_opset13.json"
+
+        with CheckResultWriter(qnn_output, sys_info={}) as writer_qnn:
+            writer_qnn.append_result(dict(case_template))
+
+        with CheckResultWriter(ov_output, sys_info={}) as writer_ov:
+            writer_ov.append_result(dict(case_template))
+
+        qnn_case = writer_qnn.results[0]
+        ov_case = writer_ov.results[0]
+
+        qnn_case_index = qnn_case["case_index"]
+        ov_case_index = ov_case["case_index"]
+
+        assert len(qnn_case_index) == 36
+        assert len(ov_case_index) == 36
+        assert qnn_case_index[:4] == encode_file_name_to_4char_key(qnn_output.stem)
+        assert ov_case_index[:4] == encode_file_name_to_4char_key(ov_output.stem)
+        assert qnn_case_index[0] != ov_case_index[0]
+        assert qnn_case_index[1:] == ov_case_index[1:]
+        assert "case_index_ignore_ep_device" not in qnn_case
+        assert "case_index_ignore_ep_device" not in ov_case

@@ -63,15 +63,15 @@ def _mock_local_ep_device_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _mock_runtime_rule_parquet_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Provide deterministic non-empty parquet discovery for CLI tests.
+def _mock_any_runtime_rule_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide deterministic non-empty runtime-rule availability for CLI tests.
 
     Most tests validate EP/device selection logic and should not depend on
     machine/environment-specific parquet assets being present on disk.
     """
     monkeypatch.setattr(
-        "winml.modelkit.commands.analyze._discover_runtime_rule_parquet_files",
-        lambda: ([Path("runtime_check_rules")], [Path("runtime_check_rules/dummy.parquet")]),
+        "winml.modelkit.analyze.utils.ep_utils.has_any_rule_data",
+        lambda: True,
     )
 
 
@@ -253,8 +253,8 @@ class TestAnalyzeCommandArguments:
     ) -> None:
         """When no parquet is found in search dirs, analyze should fail fast."""
         monkeypatch.setattr(
-            "winml.modelkit.commands.analyze._discover_runtime_rule_parquet_files",
-            lambda: ([Path("runtime_check_rules")], []),
+            "winml.modelkit.analyze.utils.ep_utils.has_any_rule_data",
+            lambda: False,
         )
 
         model_file = tmp_path / "test.onnx"
@@ -441,16 +441,107 @@ class TestAnalyzeCommandOptions:
         assert call_kwargs["enable_information"] is False
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
-    def test_verbose_flag_enables_debug_logging(
+    def test_debug_flag_enables_runtime_debug(
         self,
         mock_analyzer_class: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
         mock_analyzer_result: Mock,
     ) -> None:
-        """Test that --verbose flag enables debug output."""
+        """Test that --debug writes runtime debug summary JSON near the model."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
+        output_file = tmp_path / "results.json"
+        debug_rules_dir = tmp_path / "rules_debug"
+        debug_rules_subdir = debug_rules_dir / "QNNExecutionProvider_NPU"
+        debug_rules_subdir.mkdir(parents=True, exist_ok=True)
+        (debug_rules_subdir / "placeholder.parquet").write_bytes(b"dummy")
+        monkeypatch.setenv("WINMLCLI_RULES_DIR_FOR_DEBUG", str(debug_rules_dir))
+
+        mock_analyzer_result.to_json.return_value = json.dumps(
+            {
+                "analysis_timestamp": "2025-12-05T12:00:00",
+                "metadata": {
+                    "model_path": "test.onnx",
+                    "opset_version": 13,
+                    "total_operators": 1,
+                    "operator_counts": {"Conv": 1},
+                    "unique_operator_types": 1,
+                },
+                "results": [
+                    {
+                        "ep_type": "QNNExecutionProvider",
+                        "device_type": "NPU",
+                        "runtime_debug_details_summary": {
+                            "supported": {
+                                "node_conv": {
+                                    "case_indices": ["case_7"],
+                                    "table_path": "/tmp/conv.parquet",
+                                    "table_file": "conv.parquet",
+                                }
+                            },
+                            "partial": {},
+                            "unsupported": {},
+                        },
+                    }
+                ],
+            }
+        )
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+                "--debug",
+                "--output",
+                str(output_file),
+            ],
+        )
+
+        # Should complete successfully
+        assert result.exit_code == 0
+        call_kwargs = mock_instance.analyze.call_args.kwargs
+        assert call_kwargs["for_debug"] is True
+
+        debug_file = tmp_path / "test.analyze.QNNExecutionProvider.NPU.debug.json"
+        assert debug_file.exists()
+
+        debug_content = json.loads(debug_file.read_text())
+        assert set(debug_content.keys()) == {"supported", "partial", "unsupported"}
+        assert debug_content["supported"]["node_conv"] == {
+            "case_indices": ["case_7"],
+            "table_path": "/tmp/conv.parquet",
+            "table_file": "conv.parquet",
+        }
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_verbose_flag_no_longer_enables_runtime_debug(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """--verbose should not enable runtime debug without --debug."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+        output_file = tmp_path / "results.json"
+        debug_rules_dir = tmp_path / "rules_debug"
+        debug_rules_subdir = debug_rules_dir / "QNNExecutionProvider_NPU"
+        debug_rules_subdir.mkdir(parents=True, exist_ok=True)
+        (debug_rules_subdir / "placeholder.parquet").write_bytes(b"dummy")
+        monkeypatch.setenv("WINMLCLI_RULES_DIR_FOR_DEBUG", str(debug_rules_dir))
 
         mock_instance = Mock()
         mock_instance.analyze.return_value = mock_analyzer_result
@@ -466,11 +557,84 @@ class TestAnalyzeCommandOptions:
                 "--device",
                 "NPU",
                 "--verbose",
+                "--output",
+                str(output_file),
             ],
         )
 
-        # Should complete successfully
         assert result.exit_code == 0
+        call_kwargs = mock_instance.analyze.call_args.kwargs
+        assert call_kwargs["for_debug"] is False
+
+        debug_file = tmp_path / "test.analyze.QNNExecutionProvider.NPU.debug.json"
+        assert not debug_file.exists()
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_debug_flag_requires_debug_env_with_parquet(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--debug should fail fast when debug env var is missing."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+        monkeypatch.delenv("WINMLCLI_RULES_DIR_FOR_DEBUG", raising=False)
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+                "--debug",
+            ],
+        )
+
+        assert result.exit_code == 2
+        assert "--debug requires" in result.output.lower()
+        assert "winmlcli_rules_dir_for_debug" in result.output.lower()
+        assert not mock_analyzer_class.called
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_debug_flag_requires_second_level_parquet(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--debug should fail when debug dir has no */*.parquet files."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        debug_rules_dir = tmp_path / "rules_debug"
+        debug_rules_dir.mkdir(parents=True, exist_ok=True)
+        # Root-level parquet should not satisfy */*.parquet requirement.
+        (debug_rules_dir / "root.parquet").write_bytes(b"dummy")
+        monkeypatch.setenv("WINMLCLI_RULES_DIR_FOR_DEBUG", str(debug_rules_dir))
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+                "--debug",
+            ],
+        )
+
+        assert result.exit_code == 2
+        assert "--debug requires" in result.output.lower()
+        assert "winmlcli_rules_dir_for_debug" in result.output.lower()
+        assert not mock_analyzer_class.called
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_quiet_flag_suppresses_warnings(
@@ -836,6 +1000,7 @@ class TestAnalyzeCommandIntegration:
         assert call_kwargs["ep"] == "OpenVINOExecutionProvider"
         assert call_kwargs["device"] == "GPU"
         assert call_kwargs["enable_information"] is True
+        assert call_kwargs["for_debug"] is False
 
 
 class TestAnalyzeEPDeviceValidation:

@@ -1,0 +1,1282 @@
+{
+  "total": 118,
+  "opset_range": [
+    12,
+    22
+  ],
+  "ops_ai_onnx": {
+    "Abs": {
+      "version_key_map": {
+        "6": "11",
+        "13": "12"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Acos": {
+      "version_key_map": {
+        "7": "13",
+        "22": "14"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Acosh": {
+      "version_key_map": {
+        "9": "15",
+        "22": "16"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Add": {
+      "version_key_map": {
+        "7": "17",
+        "13": "18",
+        "14": "19"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "And": {
+      "version_key_map": {
+        "7": "1a"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ArgMax": {
+      "version_key_map": {
+        "12": "1b",
+        "13": "1c"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ArgMin": {
+      "version_key_map": {
+        "12": "1d",
+        "13": "1e"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Asin": {
+      "version_key_map": {
+        "7": "1f",
+        "22": "1g"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Asinh": {
+      "version_key_map": {
+        "9": "1h",
+        "22": "1i"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Atan": {
+      "version_key_map": {
+        "7": "1j",
+        "22": "1k"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Atanh": {
+      "version_key_map": {
+        "9": "1l",
+        "22": "1m"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Attention": {
+      "version_key_map": {
+        "99999": "1n"
+      },
+      "start_version": 99999,
+      "valid_for_gene": false
+    },
+    "AveragePool": {
+      "version_key_map": {
+        "11": "1o",
+        "19": "1p",
+        "22": "1q"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "BatchNormalization": {
+      "version_key_map": {
+        "9": "1r",
+        "14": "1s",
+        "15": "1t"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Cast": {
+      "version_key_map": {
+        "9": "1u",
+        "13": "1v",
+        "19": "1w",
+        "21": "1x"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Ceil": {
+      "version_key_map": {
+        "6": "1y",
+        "13": "1z"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Celu": {
+      "version_key_map": {
+        "12": "21"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Clip": {
+      "version_key_map": {
+        "12": "22",
+        "13": "23"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Concat": {
+      "version_key_map": {
+        "11": "24",
+        "13": "25"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ConstantOfShape": {
+      "version_key_map": {
+        "9": "26",
+        "20": "27",
+        "21": "28"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Conv": {
+      "version_key_map": {
+        "11": "29",
+        "22": "2a"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ConvTranspose": {
+      "version_key_map": {
+        "11": "2b",
+        "22": "2c"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Cos": {
+      "version_key_map": {
+        "7": "2d",
+        "22": "2e"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Cosh": {
+      "version_key_map": {
+        "9": "2f",
+        "22": "2g"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "CumSum": {
+      "version_key_map": {
+        "11": "2h",
+        "14": "2i"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Div": {
+      "version_key_map": {
+        "7": "2j",
+        "13": "2k",
+        "14": "2l"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Dropout": {
+      "version_key_map": {
+        "12": "2m",
+        "13": "2n",
+        "22": "2o"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Elu": {
+      "version_key_map": {
+        "6": "2p",
+        "22": "2q"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Equal": {
+      "version_key_map": {
+        "11": "2r",
+        "13": "2s",
+        "19": "2t"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Erf": {
+      "version_key_map": {
+        "9": "2u",
+        "13": "2v"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Exp": {
+      "version_key_map": {
+        "6": "2w",
+        "13": "2x"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Expand": {
+      "version_key_map": {
+        "8": "2y",
+        "13": "2z"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Flatten": {
+      "version_key_map": {
+        "11": "31",
+        "13": "32",
+        "21": "33"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Floor": {
+      "version_key_map": {
+        "6": "34",
+        "13": "35"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Gather": {
+      "version_key_map": {
+        "11": "36",
+        "13": "37"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Gelu": {
+      "version_key_map": {
+        "20": "38"
+      },
+      "start_version": 20,
+      "valid_for_gene": true
+    },
+    "Gemm": {
+      "version_key_map": {
+        "11": "39",
+        "13": "3a"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "GlobalAveragePool": {
+      "version_key_map": {
+        "1": "3b",
+        "22": "3c"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "GlobalMaxPool": {
+      "version_key_map": {
+        "1": "3d",
+        "22": "3e"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Greater": {
+      "version_key_map": {
+        "9": "3f",
+        "13": "3g"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "GreaterOrEqual": {
+      "version_key_map": {
+        "12": "3h",
+        "16": "3i"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "HardSigmoid": {
+      "version_key_map": {
+        "6": "3j",
+        "22": "3k"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "HardSwish": {
+      "version_key_map": {
+        "14": "3l",
+        "22": "3m"
+      },
+      "start_version": 14,
+      "valid_for_gene": true
+    },
+    "Hardmax": {
+      "version_key_map": {
+        "11": "3n",
+        "13": "3o"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Identity": {
+      "version_key_map": {
+        "1": "3p",
+        "13": "3q",
+        "14": "3r",
+        "16": "3s",
+        "19": "3t",
+        "21": "3u"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "InstanceNormalization": {
+      "version_key_map": {
+        "6": "3v",
+        "22": "3w"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "IsInf": {
+      "version_key_map": {
+        "10": "3x",
+        "20": "3y"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "IsNaN": {
+      "version_key_map": {
+        "9": "3z",
+        "13": "41",
+        "20": "42"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "LRN": {
+      "version_key_map": {
+        "1": "43",
+        "13": "44"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "LayerNormalization": {
+      "version_key_map": {
+        "17": "45"
+      },
+      "start_version": 17,
+      "valid_for_gene": true
+    },
+    "LeakyRelu": {
+      "version_key_map": {
+        "6": "46",
+        "16": "47"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Less": {
+      "version_key_map": {
+        "9": "48",
+        "13": "49"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "LessOrEqual": {
+      "version_key_map": {
+        "12": "4a",
+        "16": "4b"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Log": {
+      "version_key_map": {
+        "6": "4c",
+        "13": "4d"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "LogSoftmax": {
+      "version_key_map": {
+        "11": "4e",
+        "13": "4f"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "LpNormalization": {
+      "version_key_map": {
+        "1": "4g",
+        "22": "4h"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "LpPool": {
+      "version_key_map": {
+        "11": "4i",
+        "18": "4j",
+        "22": "4k"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "MatMul": {
+      "version_key_map": {
+        "9": "4l",
+        "13": "4m"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "MaxPool": {
+      "version_key_map": {
+        "12": "4n",
+        "22": "4o"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "MeanVarianceNormalization": {
+      "version_key_map": {
+        "9": "4p",
+        "13": "4q"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Mod": {
+      "version_key_map": {
+        "10": "4r",
+        "13": "4s"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Mul": {
+      "version_key_map": {
+        "7": "4t",
+        "13": "4u",
+        "14": "4v"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Neg": {
+      "version_key_map": {
+        "6": "4w",
+        "13": "4x"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "NonZero": {
+      "version_key_map": {
+        "9": "4y",
+        "13": "4z"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Not": {
+      "version_key_map": {
+        "1": "51"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Or": {
+      "version_key_map": {
+        "7": "52"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "PRelu": {
+      "version_key_map": {
+        "9": "53",
+        "16": "54"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Pad": {
+      "version_key_map": {
+        "11": "55",
+        "13": "56",
+        "18": "57",
+        "19": "58",
+        "21": "59"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Pow": {
+      "version_key_map": {
+        "12": "5a",
+        "13": "5b",
+        "15": "5c"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Reciprocal": {
+      "version_key_map": {
+        "6": "5d",
+        "13": "5e"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceL1": {
+      "version_key_map": {
+        "11": "5f",
+        "13": "5g",
+        "18": "5h"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceL2": {
+      "version_key_map": {
+        "11": "5i",
+        "13": "5j",
+        "18": "5k"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceLogSum": {
+      "version_key_map": {
+        "11": "5l",
+        "13": "5m",
+        "18": "5n"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceLogSumExp": {
+      "version_key_map": {
+        "11": "5o",
+        "13": "5p",
+        "18": "5q"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceMax": {
+      "version_key_map": {
+        "12": "5r",
+        "13": "5s",
+        "18": "5t",
+        "20": "5u"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceMean": {
+      "version_key_map": {
+        "11": "5v",
+        "13": "5w",
+        "18": "5x"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceMin": {
+      "version_key_map": {
+        "12": "5y",
+        "13": "5z",
+        "18": "61",
+        "20": "62"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceProd": {
+      "version_key_map": {
+        "11": "63",
+        "13": "64",
+        "18": "65"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceSum": {
+      "version_key_map": {
+        "11": "66",
+        "13": "67"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ReduceSumSquare": {
+      "version_key_map": {
+        "11": "68",
+        "13": "69",
+        "18": "6a"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Relu": {
+      "version_key_map": {
+        "6": "6b",
+        "13": "6c",
+        "14": "6d"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Reshape": {
+      "version_key_map": {
+        "5": "6e",
+        "13": "6f",
+        "14": "6g",
+        "19": "6h",
+        "21": "6i"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Resize": {
+      "version_key_map": {
+        "11": "6j",
+        "13": "6k",
+        "18": "6l",
+        "19": "6m"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Round": {
+      "version_key_map": {
+        "11": "6n",
+        "22": "6o"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "RMSNormalization": {
+      "version_key_map": {
+        "99999": "6p"
+      },
+      "start_version": 99999,
+      "valid_for_gene": false
+    },
+    "ScatterND": {
+      "version_key_map": {
+        "11": "6q",
+        "13": "6r",
+        "16": "6s",
+        "18": "6t"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Selu": {
+      "version_key_map": {
+        "6": "6u",
+        "22": "6v"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Shape": {
+      "version_key_map": {
+        "1": "6w",
+        "13": "6x",
+        "15": "6y",
+        "19": "6z",
+        "21": "71"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Shrink": {
+      "version_key_map": {
+        "9": "72"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Sigmoid": {
+      "version_key_map": {
+        "6": "73",
+        "13": "74"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Sign": {
+      "version_key_map": {
+        "9": "75",
+        "13": "76"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Sin": {
+      "version_key_map": {
+        "7": "77",
+        "22": "78"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Sinh": {
+      "version_key_map": {
+        "9": "79",
+        "22": "7a"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Softmax": {
+      "version_key_map": {
+        "11": "7b",
+        "13": "7c"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Softplus": {
+      "version_key_map": {
+        "1": "7d",
+        "22": "7e"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Softsign": {
+      "version_key_map": {
+        "1": "7f",
+        "22": "7g"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Split": {
+      "version_key_map": {
+        "11": "7h",
+        "13": "7i",
+        "18": "7j"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Sqrt": {
+      "version_key_map": {
+        "6": "7k",
+        "13": "7l"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Squeeze": {
+      "version_key_map": {
+        "11": "7m",
+        "13": "7n",
+        "21": "7o"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Sub": {
+      "version_key_map": {
+        "7": "7p",
+        "13": "7q",
+        "14": "7r"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Tan": {
+      "version_key_map": {
+        "7": "7s",
+        "22": "7t"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Tanh": {
+      "version_key_map": {
+        "6": "7u",
+        "13": "7v"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "ThresholdedRelu": {
+      "version_key_map": {
+        "10": "7w",
+        "22": "7x"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Transpose": {
+      "version_key_map": {
+        "1": "7y",
+        "13": "7z",
+        "21": "81"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Unsqueeze": {
+      "version_key_map": {
+        "11": "82",
+        "13": "83",
+        "21": "84"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Where": {
+      "version_key_map": {
+        "9": "85",
+        "16": "86"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "GatherElements": {
+      "version_key_map": {
+        "11": "87",
+        "13": "88"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "GatherND": {
+      "version_key_map": {
+        "12": "89",
+        "13": "8a"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "Slice": {
+      "version_key_map": {
+        "11": "8b",
+        "13": "8c"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "BitShift": {
+      "version_key_map": {
+        "11": "8d"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    },
+    "BitwiseAnd": {
+      "version_key_map": {
+        "18": "8e"
+      },
+      "start_version": 18,
+      "valid_for_gene": false
+    },
+    "BitwiseNot": {
+      "version_key_map": {
+        "18": "8f"
+      },
+      "start_version": 18,
+      "valid_for_gene": false
+    },
+    "BitwiseOr": {
+      "version_key_map": {
+        "18": "8g"
+      },
+      "start_version": 18,
+      "valid_for_gene": false
+    },
+    "BitwiseXor": {
+      "version_key_map": {
+        "18": "8h"
+      },
+      "start_version": 18,
+      "valid_for_gene": false
+    },
+    "CastLike": {
+      "version_key_map": {
+        "15": "8i",
+        "19": "8j",
+        "21": "8k"
+      },
+      "start_version": 15,
+      "valid_for_gene": true
+    },
+    "GroupNormalization": {
+      "version_key_map": {
+        "18": "8l",
+        "21": "8m"
+      },
+      "start_version": 18,
+      "valid_for_gene": false
+    },
+    "Mish": {
+      "version_key_map": {
+        "18": "8n",
+        "22": "8o"
+      },
+      "start_version": 18,
+      "valid_for_gene": false
+    },
+    "TopK": {
+      "version_key_map": {
+        "11": "8p"
+      },
+      "start_version": 12,
+      "valid_for_gene": true
+    }
+  },
+  "ops_com_microsoft": {
+    "Gelu": {
+      "version_key_map": {
+        "1": "8q"
+      },
+      "start_version": 1,
+      "valid_for_gene": true
+    }
+  },
+  "patterns": {
+    "ExpandedAttentionPattern": {
+      "ops": [
+        "Transpose",
+        "Mul",
+        "MatMul",
+        "Add",
+        "Softmax"
+      ],
+      "version_key_map": {
+        "11": "8r",
+        "13": "8s",
+        "14": "8t",
+        "21": "8u"
+      }
+    },
+    "TransposeAttentionPattern": {
+      "ops": [
+        "Transpose",
+        "Attention"
+      ],
+      "version_key_map": {
+        "99999": "8v"
+      }
+    },
+    "Conv2DInplaceLinear4DPattern": {
+      "ops": [
+        "Transpose",
+        "Reshape",
+        "Conv"
+      ],
+      "version_key_map": {
+        "11": "8w",
+        "13": "8x",
+        "14": "8y",
+        "19": "8z",
+        "21": "91",
+        "22": "92"
+      }
+    },
+    "Conv2DInplaceLinear3DPattern": {
+      "ops": [
+        "Transpose",
+        "Unsqueeze",
+        "Reshape",
+        "Conv",
+        "Squeeze"
+      ],
+      "version_key_map": {
+        "11": "93",
+        "13": "94",
+        "14": "95",
+        "19": "96",
+        "21": "97",
+        "22": "98"
+      }
+    },
+    "Conv2DInplaceLinear2DPattern": {
+      "ops": [
+        "Reshape",
+        "Transpose",
+        "Conv"
+      ],
+      "version_key_map": {
+        "11": "99",
+        "13": "9a",
+        "14": "9b",
+        "19": "9c",
+        "21": "9d",
+        "22": "9e"
+      }
+    },
+    "Gelu1Pattern": {
+      "ops": [
+        "Div",
+        "Erf",
+        "Add",
+        "Mul"
+      ],
+      "version_key_map": {
+        "9": "9f",
+        "13": "9g",
+        "14": "9h"
+      },
+      "check_for_eps": [
+        "qnn_npu"
+      ]
+    },
+    "Gelu2Pattern": {
+      "ops": [
+        "Div",
+        "Erf",
+        "Add",
+        "Mul"
+      ],
+      "version_key_map": {
+        "9": "9i",
+        "13": "9j",
+        "14": "9k"
+      },
+      "check_for_eps": [
+        "qnn_npu"
+      ]
+    },
+    "Gelu3Pattern": {
+      "ops": [
+        "Div",
+        "Erf",
+        "Add",
+        "Mul"
+      ],
+      "version_key_map": {
+        "9": "9l",
+        "13": "9m",
+        "14": "9n"
+      },
+      "check_for_eps": [
+        "qnn_npu"
+      ]
+    },
+    "Gelu4Pattern": {
+      "ops": [
+        "Mul",
+        "Erf",
+        "Add"
+      ],
+      "version_key_map": {
+        "9": "9o",
+        "13": "9p",
+        "14": "9q"
+      },
+      "check_for_eps": [
+        "qnn_npu"
+      ]
+    },
+    "MatMulAddPattern": {
+      "ops": [
+        "MatMul",
+        "Add"
+      ],
+      "version_key_map": {
+        "9": "9r",
+        "13": "9s",
+        "14": "9t"
+      },
+      "check_for_eps": [
+        "qnn_npu"
+      ]
+    },
+    "ReshapeGemmReshapePattern": {
+      "ops": [
+        "Reshape",
+        "Gemm"
+      ],
+      "version_key_map": {
+        "11": "9u",
+        "13": "9v",
+        "14": "9w",
+        "19": "9x",
+        "21": "9y"
+      },
+      "check_for_eps": [
+        "qnn_npu"
+      ]
+    },
+    "LayerNormalizationPowPattern": {
+      "ops": [
+        "ReduceMean",
+        "Sub",
+        "Pow",
+        "Add",
+        "Sqrt",
+        "Div",
+        "Mul"
+      ],
+      "version_key_map": {
+        "12": "9z",
+        "13": "a1",
+        "14": "a2",
+        "15": "a3",
+        "18": "a4"
+      }
+    },
+    "LayerNormalizationMulPattern": {
+      "ops": [
+        "ReduceMean",
+        "Sub",
+        "Mul",
+        "Add",
+        "Sqrt",
+        "Div"
+      ],
+      "version_key_map": {
+        "11": "a5",
+        "13": "a6",
+        "14": "a7",
+        "18": "a8"
+      }
+    },
+    "TransposedSingleLayerNormalizationPattern": {
+      "ops": [
+        "Transpose",
+        "Reshape",
+        "LayerNormalization"
+      ],
+      "version_key_map": {
+        "17": "a9",
+        "19": "aa",
+        "21": "ab"
+      }
+    },
+    "RMSNormalizationPowPattern": {
+      "ops": [
+        "Pow",
+        "ReduceMean",
+        "Add",
+        "Sqrt",
+        "Div",
+        "Mul"
+      ],
+      "version_key_map": {
+        "12": "ac",
+        "13": "ad",
+        "14": "ae",
+        "15": "af",
+        "18": "ag"
+      }
+    },
+    "RMSNormalizationMulPattern": {
+      "ops": [
+        "Mul",
+        "ReduceMean",
+        "Add",
+        "Sqrt",
+        "Div"
+      ],
+      "version_key_map": {
+        "11": "ah",
+        "13": "ai",
+        "14": "aj",
+        "18": "ak"
+      }
+    },
+    "TransposedSingleRMSNormalizationPattern": {
+      "ops": [
+        "Transpose",
+        "Reshape",
+        "RMSNormalization"
+      ],
+      "version_key_map": {
+        "99999": "al"
+      }
+    },
+    "ReshapeTransposeReshapeOverlyHighDimPattern": {
+      "ops": [
+        "Reshape",
+        "Transpose"
+      ],
+      "version_key_map": {
+        "5": "am",
+        "13": "an",
+        "14": "ao",
+        "19": "ap",
+        "21": "aq"
+      },
+      "check_for_eps": [
+        "ov_npu"
+      ]
+    },
+    "ReshapeTransposeReshapeLowDimPattern": {
+      "ops": [
+        "Reshape",
+        "Transpose"
+      ],
+      "version_key_map": {
+        "5": "ar",
+        "13": "as",
+        "14": "at",
+        "19": "au",
+        "21": "av"
+      },
+      "check_for_eps": [
+        "ov_npu"
+      ]
+    }
+  }
+}

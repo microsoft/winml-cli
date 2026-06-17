@@ -682,6 +682,7 @@ def _deduplicate_rule_rows(
     output_cols: list[str],
     compare_output_cols: list[str] | None = None,
     case_index_col: str = "case_index",
+    aggregate_case_indices: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Deduplicate rows by condition columns and detect conflicts.
 
@@ -723,6 +724,18 @@ def _deduplicate_rule_rows(
             continue
 
         row = group_df.iloc[0].copy()
+        if aggregate_case_indices and case_index_col in group_df.columns:
+            case_indices: list[Any] = []
+            for case_index_value in group_df[case_index_col].tolist():
+                if case_index_value is None:
+                    continue
+                if isinstance(case_index_value, float) and pd.isna(case_index_value):
+                    continue
+                case_indices.append(case_index_value)
+
+            # Keep deterministic order so generated artifacts are stable.
+            row["case_indices"] = tuple(sorted(set(case_indices), key=lambda value: str(value)))
+
         row["rule_row_count"] = len(group_df)
         dedup_rows.append(row)
 
@@ -783,6 +796,26 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        help=(
+            "Generate debug rule artifacts that include case_indices, "
+            "written to --rules-debug-dir and --rules-debug-json-dir."
+        ),
+    )
+    parser.add_argument(
+        "--rules-debug-dir",
+        type=str,
+        default=None,
+        help="Directory where debug parquet rule files are written.",
+    )
+    parser.add_argument(
+        "--rules-debug-json-dir",
+        type=str,
+        default=None,
+        help="Directory where debug JSON rule files are written.",
+    )
+    parser.add_argument(
         "--domains",
         type=str,
         default="ai.onnx,com.microsoft",
@@ -817,6 +850,21 @@ if __name__ == "__main__":
     parquet_dir = Path(args.rules_dir) if args.rules_dir else get_runtime_rules_search_dirs()[0]
     parquet_dir.mkdir(parents=True, exist_ok=True)
 
+    debug_parquet_dir: Path | None = None
+    debug_output_dir: Path | None = None
+    if args.debug:
+        if not args.rules_debug_dir:
+            print("--rules-debug-dir is required when --debug is enabled")
+            sys.exit(1)
+        if not args.rules_debug_json_dir:
+            print("--rules-debug-json-dir is required when --debug is enabled")
+            sys.exit(1)
+
+        debug_parquet_dir = Path(args.rules_debug_dir)
+        debug_output_dir = Path(args.rules_debug_json_dir)
+        debug_parquet_dir.mkdir(parents=True, exist_ok=True)
+        debug_output_dir.mkdir(parents=True, exist_ok=True)
+
     qdq_generator = None
     processed = 0
     skipped = 0
@@ -824,6 +872,7 @@ if __name__ == "__main__":
 
     output_cols = ["compile_run_success"]
     compare_output_cols = ["compile_run_success"]
+    debug_output_cols = ["compile_run_success", "case_indices"]
     internal_cols = ["has_not_run_placeholder_reason", "compile_reason", "run_reason"]
 
     for json_file in sorted(json_files):
@@ -896,12 +945,16 @@ if __name__ == "__main__":
                 for c in rule_df.columns
                 if c not in output_cols and c not in infinite_properties and c != "case_index"
             ]
+            # Keep artifact schema stable across runs/machines regardless of
+            # intermediate dict/set insertion ordering.
+            condition_cols = sorted(condition_cols)
 
             dedup_df, conflict_df = _deduplicate_rule_rows(
                 rule_df,
                 condition_cols,
                 output_cols,
                 compare_output_cols=compare_output_cols,
+                aggregate_case_indices=args.debug,
             )
 
             if conflict_df is not None and not conflict_df.empty:
@@ -922,32 +975,58 @@ if __name__ == "__main__":
 
             parquet_df = dedup_df.loc[:, [*condition_cols, *output_cols]].copy()
 
+            debug_parquet_df: pd.DataFrame | None = None
+            if args.debug:
+                debug_parquet_df = dedup_df.loc[:, [*condition_cols, *debug_output_cols]].copy()
+
             parquet_write_df = _encode_condition_columns_for_parquet(
                 parquet_df,
                 condition_cols,
             )
 
             json_payload = {
-                "format": "per_op_rules_v1",
-                "op_name": op_name,
-                "ep_name": ep_name,
-                "device": device,
-                "domain": domain_str,
-                "opset_version": opset_version,
-                "is_qdq": is_qdq,
-                "condition_columns": condition_cols,
                 "rows": _json_safe_records(parquet_df),
             }
+
+            debug_json_payload: dict[str, Any] | None = None
+            if args.debug and debug_parquet_df is not None:
+                debug_json_payload = {
+                    "rows": _json_safe_records(debug_parquet_df),
+                }
 
             with open(output_json, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
                 json.dump(json_payload, f, indent=2, ensure_ascii=False)
 
+            debug_parquet_file: Path | None = None
+            if args.debug and debug_output_dir is not None and debug_json_payload is not None:
+                debug_output_json = debug_output_dir / json_file.name
+                with open(debug_output_json, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
+                    json.dump(debug_json_payload, f, indent=2, ensure_ascii=False)
+
+                if debug_parquet_dir is not None:
+                    debug_parquet_file = debug_parquet_dir / f"{json_file.stem}.parquet"
+
             try:
                 parquet_write_df.to_parquet(parquet_file, index=False, compression="snappy")
+
+                if (
+                    args.debug
+                    and debug_parquet_df is not None
+                    and debug_parquet_file is not None
+                ):
+                    debug_parquet_write_df = _encode_condition_columns_for_parquet(
+                        debug_parquet_df,
+                        condition_cols,
+                    )
+                    debug_parquet_write_df.to_parquet(
+                        debug_parquet_file,
+                        index=False,
+                        compression="snappy",
+                    )
             except Exception as e:
                 raise RuntimeError(
                     "Failed to write parquet file. Ensure a parquet engine "
-                    "(for example pyarrow) is installed."
+                    "(e.g., pyarrow) is installed."
                 ) from e
 
             processed += 1
@@ -964,6 +1043,11 @@ if __name__ == "__main__":
         f"output_dir={output_dir}"
     )
     print(f"Parquet rule files written to: {parquet_dir}")
+    if args.debug:
+        assert debug_output_dir is not None
+        assert debug_parquet_dir is not None
+        print(f"Debug JSON rule files written to: {debug_output_dir}")
+        print(f"Debug parquet rule files written to: {debug_parquet_dir}")
 
     if conflict_skipped > 0:
         # Exit with a dedicated code so batch scripts can treat conflicts differently
