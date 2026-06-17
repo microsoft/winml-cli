@@ -250,22 +250,12 @@
 
       <div style="display:flex;gap:10px;width:100%">
         <div class="box" style="flex:1;border-color:#80cbc4;background:#e0f7fa">
-          <div class="box-title" style="color:#004d40">skip_set (hard blocks)</div>
-          <ul style="color:#004d40">
-            <li>QNN NPU + Conv%&gt;20% &rarr; no conv fusions</li>
-            <li>CPU + opset&gt;17 &rarr; skip high opsets</li>
-            <li>QNN GPU / DML &rarr; skip nhwc-transformer</li>
-            <li>QNN GPU &rarr; skip all quantization</li>
-          </ul>
+          <div class="box-title" style="color:#004d40">skip_set</div>
+          <div style="font-size:11px;color:#004d40">Hard blocks from KB rules<br><em>e.g. conv fusions on QNN NPU</em></div>
         </div>
         <div class="box" style="flex:1;border-color:#a5d6a7;background:#f1faf9">
-          <div class="box-title" style="color:#1b5e20">priority_queue (ranked hints)</div>
-          <ul style="color:#1b5e20">
-            <li>QNN NPU + DINOv2-family &rarr; opset21 first (+24-31%)</li>
-            <li>Gemm&gt;50% &rarr; quant / calib method first</li>
-            <li>Conv%&gt;20%, Conv-only &rarr; nchwc trial</li>
-            <li>Dynamic axes &rarr; static shape export</li>
-          </ul>
+          <div class="box-title" style="color:#1b5e20">priority_queue</div>
+          <div style="font-size:11px;color:#1b5e20">Ranked hypotheses from profile<br><em>e.g. opset21 for DINOv2-family</em></div>
         </div>
       </div>
 
