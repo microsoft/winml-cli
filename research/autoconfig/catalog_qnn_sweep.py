@@ -495,43 +495,78 @@ def sweep_model(
     task: str,
     model_type: str,
     run_eval_on_baseline: bool,
+    only_hyp_ids: "set[str] | None" = None,
+    reuse_h0_config: bool = False,
 ) -> dict:
-    """Run all 6 hypotheses for one model on QNN NPU. Returns results dict."""
+    """Run hypotheses for one model on QNN NPU. Returns results dict.
+
+    Args:
+        only_hyp_ids: If set, only run these hypothesis IDs (e.g. {'h6','h7'}).
+        reuse_h0_config: If True, load base config from existing h0/build_config.json
+                         instead of calling winml config again.
+    """
     model_slug = model_id.replace("/", "--")
     model_dir = RESULTS_DIR / model_slug
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    results: dict = {
-        "model_id": model_id,
-        "task": task,
-        "model_type": model_type,
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "ep": EP,
-        "device": DEVICE,
-        "baseline_opset": None,
-        "conv_pct": None,  # Conv ops % of total — drives npu-006 risk
-        "npu006_risk": None,  # True if conv_pct > NPU006_CONV_PCT_THRESHOLD
-        "npu006_regression": None,  # True if h4/h5 median >= 10x baseline (catastrophic)
-        "hypotheses": {},
-        "best_hypothesis": None,
-        "baseline_p50_ms": None,
-        "best_p50_ms": None,
-        "best_gain_pct": None,
-        "npu001_generalized": None,  # True/False/"neutral"/None (median-based)
-        "npu001_ranges_non_overlapping": None,  # True/False — stricter range-overlap test
-        "feature_gaps": [],
-        "errors": [],
-    }
+    # When resuming from partial run, load existing results to preserve prior data
+    results_path = model_dir / "results.json"
+    if only_hyp_ids and results_path.exists():
+        try:
+            results = json.loads(results_path.read_text(encoding="utf-8"))
+            print(f"  [resume] loaded existing results from {results_path}", flush=True)
+        except Exception:
+            results = {}
+    else:
+        results = {}
+
+    results.update(
+        {
+            "model_id": model_id,
+            "task": task,
+            "model_type": model_type,
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "ep": EP,
+            "device": DEVICE,
+        }
+    )
+    results.setdefault("baseline_opset", None)
+    results.setdefault("conv_pct", None)
+    results.setdefault("npu006_risk", None)
+    results.setdefault("npu006_regression", None)
+    results.setdefault("hypotheses", {})
+    results.setdefault("best_hypothesis", None)
+    results.setdefault("baseline_p50_ms", None)
+    results.setdefault("best_p50_ms", None)
+    results.setdefault("best_gain_pct", None)
+    results.setdefault("npu001_generalized", None)
+    results.setdefault("npu001_ranges_non_overlapping", None)
+    results.setdefault("feature_gaps", [])
+    results.setdefault("errors", [])
 
     print(f"\n{'=' * 64}", flush=True)
     print(f"  SWEEP: {model_id}  [{task}]", flush=True)
+    if only_hyp_ids:
+        print(f"  (delta sweep — only: {sorted(only_hyp_ids)})", flush=True)
     print(f"{'=' * 64}", flush=True)
 
     model_start = time.time()
 
-    # ── Step 1: generate base config (auto-detect for QNN NPU) ────────────────
+    # ── Step 1: generate base config (or reuse from existing h0) ──────────────
     print("\n[1/3] Generating base config (winml config)…", flush=True)
-    base_config = get_base_config(model_id, task, model_type)
+    base_config = None
+
+    if reuse_h0_config:
+        h0_cfg_path = model_dir / "h0" / "build_config.json"
+        if h0_cfg_path.exists():
+            try:
+                base_config = json.loads(h0_cfg_path.read_text(encoding="utf-8"))
+                print(f"  [reuse] loaded h0 config from {h0_cfg_path}", flush=True)
+            except Exception as e:
+                print(f"  [reuse] failed to load h0 config: {e} — regenerating", flush=True)
+
+    if base_config is None:
+        base_config = get_base_config(model_id, task, model_type)
 
     if base_config is None:
         results["errors"].append("base config generation failed — model may not be supported")
@@ -561,6 +596,9 @@ def sweep_model(
     npu006_risk: bool = False
 
     for hyp_id, label, opset_override, extra_optim in HYPOTHESES:
+        # Hypothesis filter: skip if not in --only-hypotheses list
+        if only_hyp_ids is not None and hyp_id not in only_hyp_ids:
+            continue
         elapsed_total = time.time() - model_start
         if elapsed_total > MODEL_TIMEOUT_S:
             print(
@@ -1041,7 +1079,29 @@ def main() -> None:
         action="store_true",
         help="Skip winml eval accuracy step even for image models",
     )
+    parser.add_argument(
+        "--only-hypotheses",
+        default=None,
+        help=(
+            "Comma-separated list of hypothesis IDs to run, e.g. h6,h7,h8. "
+            "Skips all others. Use with --reuse-h0-config to avoid regenerating base config."
+        ),
+    )
+    parser.add_argument(
+        "--reuse-h0-config",
+        action="store_true",
+        help=(
+            "Reuse the base config from an existing h0/build_config.json instead of "
+            "running winml config again. Requires a previous full sweep to have run."
+        ),
+    )
     args = parser.parse_args()
+
+    # Parse hypothesis filter
+    only_hyp_ids: set[str] | None = None
+    if args.only_hypotheses:
+        only_hyp_ids = {h.strip() for h in args.only_hypotheses.split(",")}
+        print(f"  Running only: {sorted(only_hyp_ids)}", flush=True)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1070,7 +1130,14 @@ def main() -> None:
         if args.skip_eval:
             do_eval = False
         try:
-            result = sweep_model(model_id, task, model_type, do_eval)
+            result = sweep_model(
+                model_id,
+                task,
+                model_type,
+                do_eval,
+                only_hyp_ids=only_hyp_ids,
+                reuse_h0_config=args.reuse_h0_config,
+            )
         except Exception as exc:
             print(f"\n❌ Unexpected error for {model_id}: {exc}", flush=True)
             result = {
