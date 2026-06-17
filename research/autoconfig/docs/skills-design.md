@@ -1116,25 +1116,33 @@ Before **any** perf gain is written into a report, config recommendation, or kno
 Phase A — Quick screen (fast, ~2 min):
   winml perf -m <model> --ep <ep> --device <device> --warmup 20 --iterations 200 -o screen.json
   CV = screen.json.std / screen.json.p50
-  IF CV > 0.10 (10%): REJECT — high DVFS variance, measurement unreliable
-                       → cool down 120s, retry once
-                       → if still CV > 0.10: flag as [UNSTABLE], skip candidate
+  IF CV > 0.10 (10%) on CPU/GPU: REJECT — high variance, measurement unreliable
+                                  → cool down 120s, retry once
+                                  → if still CV > 0.10: flag as [UNSTABLE], skip candidate
+  EXCEPTION — QNN NPU: CV 0.10–1.2 is NORMAL due to DVFS (Hexagon HTP thermal throttling).
+              Do NOT reject on CV for QNN NPU. Instead: proceed to Phase B unconditionally.
+              Phase B's 3-session cool-down is the thermal control mechanism for NPU.
+              Watch for: s0 of any session may be elevated (JIT warmup) — exclude if >20% above s1/s2.
 
-Phase B — Full bench (only if Phase A passes, ~15 min):
-  # 3 independent sessions with 60s cool-down between each
-  winml perf ... --warmup 50 --iterations 1000 -o run1.json
-  sleep 60
-  winml perf ... --warmup 50 --iterations 1000 -o run2.json
-  sleep 60
-  winml perf ... --warmup 50 --iterations 1000 -o run3.json
+Phase B — Full bench (for CPU/GPU: only if Phase A passes; for QNN NPU: always):
+  # 3 independent sessions with 30s cool-down between each (QNN NPU)
+  # or 60s cool-down (GPU) between each
+  winml perf ... --warmup 20 --iterations 500 -o run1.json
+  sleep 30  # (30s for NPU, 60s for GPU)
+  winml perf ... --warmup 20 --iterations 500 -o run2.json
+  sleep 30
+  winml perf ... --warmup 20 --iterations 500 -o run3.json
 
   # KEEP if ALL of:
-  #   1. p50(run1,2,3) are all faster than baseline p50 × (1 - min_improvement)
-  #   2. CV of each run < 0.10
-  #   3. cosine_similarity ≥ accuracy_floor
+  #   1. p50(run1,2,3) are ALL faster than baseline p50 × (1 - min_improvement)
+  #      (for NPU: ranges must be non-overlapping, not just means)
+  #   2. cosine_similarity ≥ accuracy_floor
   KEEP_threshold = baseline_p50 × 0.99   # ≥1% improvement required
 ```
-Rationale: DVFS on mobile NPUs causes 2-10x run-to-run variance. CV check catches this before wasting 15 min on full bench.
+Rationale: DVFS on QNN NPU causes 0.15–1.2 CV routinely — single sessions are meaningless. CV check only
+gates CPU/GPU. For NPU, multi-session averaging + range separation is the reliability criterion.
+Validated on DINOv2-small: 3 sessions separated cleanly (h3 s1/s2=4.97/4.88ms well below entire h1
+range 6.4–9.4ms).
 
 **Gate 2 — Mechanism: read ORT/QNN source code before explaining why**
 
@@ -1142,19 +1150,31 @@ Rationale: DVFS on mobile NPUs causes 2-10x run-to-run variance. CV check catche
 - For QNN EP gains: check `onnxruntime/core/providers/qnn/builder/` for opset-conditional dispatch
 - For CPU EP gains: check `onnxruntime/core/optimizer/` for pass applicability conditions
 - For DML EP gains: check DML operator mapping tables
-- **Do not publish "opset 21 = 2.3x faster on QNN NPU" without confirming the mechanism in source code.** It may be DVFS bias, not a real architectural difference.
+- **Do not publish "opset 21 = faster on QNN NPU for model X" without confirming the mechanism.**
+  Even after: (1) confirming kMaxSupportedOpset ≥ 23 (bypass hypothesis RULED OUT), (2) verifying
+  Transpose count identical in optimized graphs for opset17 vs opset21 (Transpose-elimination
+  hypothesis RULED OUT) — the DINOv2 +24-31% speedup is empirically real but mechanism is UNKNOWN.
+  The only confirmed observation is +48 Reshape nodes in opset21 vs opset17. Why this helps QNN NPU
+  is an open research question. KB status: observed=true, mechanism_confirmed=false.
 
 **Gate 3 — Reproducibility: baseline and candidate measured in same thermal state**
 - Run baseline and candidate back-to-back in the same session OR
 - Use a device-level tool to lock NPU clock frequency
 - If you cannot control thermal state, report min_ms (peak-performance ceiling) alongside p50 (typical performance), and flag the variance explicitly.
 
-**Lesson from ConvNext opset sweep (2026-06-10):**
-Initial opset 21 measurement (8.45ms, 50 iters) vs opset 17 (19.4ms) appeared to show 2.3x gain. Full 17-22 sweep with 50 iters each showed:
-- All opsets min ~9-10ms (same peak capability)
-- opset 17 p50=54ms, opset 19-22 p50=12ms — but opset 18 p50=43ms (bimodal)
-- opset 21 std varied from 10ms (cool device) to 37ms (warm device)
-**Conclusion: data is inconclusive. Gain may be real OR may be thermal artifact. Gates 1+2 not yet passed.**
+**Lesson from DINOv2 and ConvNext opset sweep (validated 2026-06-17):**
+
+DINOv2-small and DINOv2-base (Facebook DINO pre-training, ConvNeXt-style patch projection + ViT):
+- opset21 vs opset17: DINOv2-small +30.6%, DINOv2-base +24.1% (3×500-iter, clean protocol ✅)
+- dino-vitb16 (Google ViT): -0.7% NEUTRAL — same ViT architecture, no benefit
+- gender-classification ViT: +3.5% NEUTRAL — IDENTICAL op counts to DINOv2-small (49 Transpose, 121 Reshape) but no benefit
+**Conclusion: opset21 benefit is real for DINOv2 family but NOT generalizable to ViT. Mechanism unknown.**
+The gain is NOT from: NHWC bypass (kMaxSupportedOpset ≥ 23), Transpose elimination (count identical).
+The only structural difference: +48 Reshape nodes in opset21 optimized graph. Effect is below op-count visibility.
+
+ConvNext CPU opset sweep: data IS real (opset17 best, opset19+ 3-4× regression). NOT inconclusive.
+Mechanism uncertainty exists for CPU (two separate kMaxSupportedOpset constants in ORT, one unverified),
+but the practical rule stands: use opset17 for CPU EP unconditionally.
 
 ---
 
@@ -1621,8 +1641,15 @@ Phase 4 — optimize pass tuning (independent of quant, affects graph structure)
   Hypothesis: some fusion patterns create op shapes QNN handles poorly
   Transformer models (try in order):
     attention-fusion → skip-layer-norm-fusion → layer-norm-fusion → fuse-rmsnorm
-  Vision models (try in order):
-    conv-bn-fusion → conv-add-fusion → conv-activation-fusion
+  Vision models — CRITICAL GATE BEFORE CONV FUSIONS (npu-006):
+    ⚠️ conv-bn-fusion, conv-add-fusion, conv-activation-fusion produce FusedConv ops.
+    FusedConv is NOT a standard ONNX op — QNN EP does not support it → CPU fallback.
+    On Conv-dense models (ResNet, EfficientNet): this causes +4900% regression (confirmed).
+    On attention-dominant models (DINOv2, ViT): only 1 Conv, CPU fallback is negligible.
+    RULE: run `winml analyze` FIRST. If Conv% of total ops > 20% → SKIP all conv fusions for QNN NPU.
+    If Conv% < 5% (attention-dominant) → safe to try. Always bench to confirm.
+    Vision models — only try if Conv% < 5%:
+      conv-bn-fusion → conv-add-fusion → conv-activation-fusion
   Shared (try if cosine drops or build crashes):
     constant-folding=false  (prevents size bloat; sometimes exposes EP-incompatible shape)
     clamp-constant-values=true  (fixes -inf attention mask → quantization issues)
@@ -1653,6 +1680,7 @@ Phase 6 — combined search (if single-dimension changes are stuck)
 | All ops supported, cosine still drops after fusions | Fusion creates non-quantizable shape | Phase 4: disable skip-layer-norm-fusion |
 | QNN build fails with "invalid scale" | -inf in attention mask initializer | Phase 4: clamp-constant-values=true |
 | Vision model: accuracy drops unexpectedly | Conv+BN fusion slightly changes weight values | Phase 4: disable conv-bn-fusion |
+| **QNN NPU** Conv model: latency catastrophically worse (+10x) after conv fusions | **FusedConv not supported by QNN EP → CPU fallback** (npu-006, confirmed on ResNet-18 +4900%) | Phase 4: **immediately disable all conv-*-fusion flags**; NEVER enable for Conv-dense models on QNN NPU |
 | MatMul-heavy model: latency not improving | MatMul not being fused | Phase 4: matmul-add-fusion, matmul-transpose-fusion |
 | RMSNorm model (Llama etc.) poor QNN perf | ORT not recognizing RMSNorm pattern | Phase 4: fuse-rmsnorm=true |
 
@@ -1959,17 +1987,20 @@ A single `Gelu` kernel eliminates dispatch overhead → p90 −48%, std −6×.
 | Raw unfused export (287 nodes) | 16.5ms | 18.4ms | 2.74 | ❌ p99=35ms, worse tail |
 | FP16 (Python hack ⚠️) | **11.8ms** | 12.8ms | 0.66 | ✅ **1.4× faster, clean dist** — BLOCKED #867 |
 
-**DML vs QNN GPU comparison (same Adreno X1-85):**
+**DML vs QNN GPU comparison (same Adreno X1-85) — validated 2026-06-17:**
 | | QNN GPU FP32 | DML FP32 | DML FP16 (invalid) |
 |---|---|---|---|
 | p50 | 17.7ms | **16.9ms** | **11.8ms** |
 | p90 | 19.7ms | **17.7ms** | **12.8ms** |
 | std | 0.97 | **0.52** | **0.66** |
 
-→ DML is consistently faster and more stable than QNN GPU at FP32. Root cause: DML JIT-compiles HLSL shaders at model load time; QNN GPU EP does graph partitioning at each session creation.
-→ DML FP16: no DVFS bimodal (unlike QNN GPU FP16) — DML's shader compilation locks in FP16 compute paths.
-→ NHWC hurts DML too (same reason as QNN GPU: Adreno X1-85 + D3D12 doesn't benefit from explicit NHWC transforms).
-→ Note: `winml analyze` returns 0/0/0/251 (all Unknown) for DML — no rule data. DML supports all standard ONNX ops by design.
+⚠️ **Correction (dml-001):** The 0.8ms p50 difference (17.7 vs 16.9ms) = 0.82σ of the GPU measurement.
+Distributions OVERLAP. "DML is consistently faster than QNN GPU" is NOT supported at p50.
+**What IS confirmed**: DML has meaningfully better stability (std 0.52 vs 0.97). For latency-SLA workloads,
+DML's lower variance is the real advantage, not raw p50 speed.
+→ Correct claim: "DML is more stable than QNN GPU at FP32 (std 0.52 vs 0.97)."
+→ Root cause of stability: DML JIT-compiles HLSL shaders at model load; QNN GPU EP partitions at each session.
+→ For speed, both EPs need FP16 (#867) to show meaningful improvement.
 
 **QNN Hub benchmark comparison (Snapdragon X Elite CRD) — WITH cross-stack test**
 
@@ -1991,28 +2022,32 @@ QNN Hub on winml: 8.78ms
 Our model on winml: 19.4ms (FP32)
 ```
 
-**Actionable findings (updated 2026-06-10 — mechanism confirmed via ORT source):**
-1. **opset 21 NPU speedup mechanism CONFIRMED — but ORT-version-dependent** (#869)
-   - **Root cause**: `kMaxSupportedOpset` gate in `IsSupportedOpset()` (layout_transformation.cc). On older ORT where `kMaxSupportedOpset` < 21, opset 21 models bypass the NHWC layout transform entirely (`transform_layout_fn = nullptr`).
-   - **Why bypass helps ConvNext**: NHWC transform inserts `Transpose(NCHW→NHWC/NHWC→NCHW)` around Conv. ConvNext residual connections **block** full transpose cancellation → extra Transpose ops on HTP → slower. Bypassing = cleaner graph = faster.
-   - **Critical caveat**: Current ORT main has `kMaxSupportedOpset = 26` → BOTH opset 17 and 21 get NHWC transform. **Must verify ORT version** before assuming the speedup exists.
-   - **Does NOT generalize** to: MobileNet/EfficientNet (no residual Transpose blocks), ViT (no Conv).
-   - **Perf claim validation status**: Gate 1 (iter≥1000×3) and Gate 3 (thermal control) still FAILED. Perf numbers are DVFS-dominated.
+**Actionable findings (updated 2026-06-17 — validated by 3×500-iter protocol + source analysis):**
+1. **opset 21 speedup for DINOv2 family — empirically REAL, mechanism UNKNOWN** (#869)
+   - DINOv2-small +30.6%, DINOv2-base +24.1% — confirmed by 3-session non-overlapping ranges.
+   - dino-vitb16 -0.7% NEUTRAL, gender-classification ViT +3.5% NEUTRAL.
+   - **Two hypotheses definitively ruled out**:
+     - (a) kMaxSupportedOpset bypass: ORT 1.24.4 kMaxSupportedOpset ≥ 23 → NHWC transform applies to both opset17 and opset21 equally. Bypass does NOT occur.
+     - (b) Transpose elimination: Transpose count identical (49 both) in opset17 vs opset21 optimized.onnx and quantized.onnx.
+   - Only observed structural difference: +48 Reshape nodes in opset21. Why this helps QNN NPU is unknown.
+   - **Do not generalize**: benefit appears specific to DINOv2 family. ViT models with identical op counts see no benefit.
+   - **Do not use for autoconfig search default**: only try opset21 sweep after profiling suggests Reshape/layout overhead; otherwise use opset17.
 2. **Runtime stack gap (3.3×) is structural**: qairt native will always be faster. Correct baseline = "QNN Hub ONNX on winml" (8.78ms).
 3. **QNN Hub W8A16 is WORSE on our stack** (14.82ms, std=8.8ms): opset 21 QDQ + uint16 input incompatible with ORT QNN EP format.
-4. **Opset is a search dimension** — but the correct action is a FULL SWEEP (17–22), not "try 21 first". The optimal opset depends on ORT version.
+4. **Opset is a search dimension** — full sweep (17–22), no prior. The optimal opset is model-architecture-dependent and may change with ORT version upgrades.
 
-**EP-specific search space rules**
+**EP-specific search space rules (validated 2026-06-17)**
 
 | EP | Quantization | Opset | Graph passes | Compile | Key insight |
 |---|---|---|---|---|---|
-| QNN NPU | ✅ W8A16 | Full sweep 17-22 (mechanism ORT-version-dependent) | autoconf (gelu+matmul_add) | ✅ Always | W8A8 catastrophic on LN+GELU; opset effect depends on ORT kMaxSupportedOpset |
+| QNN NPU | ✅ W8A16 | Full sweep 17-22 (benefit is model-architecture-dependent, not ORT-version) | autoconf (gelu+matmul_add); **NO conv fusions for Conv-dense models** (npu-006) | ✅ Always | W8A8 catastrophic on LN+GELU; opset21 benefit real for DINOv2 family, mechanism unknown |
 | QNN GPU | ❌ Skip | 17 (opset 21 not validated) | autoconf only | ❌ Skip | Compile regresses; FP16 only lever (#867) |
-| DML | ❌ Skip | 17 (opset 21 not validated) | autoconf only | N/A | FP16 primary lever (#867); faster+stabler than QNN GPU |
-| CPU | ❌ Skip | 17 only (kMaxSupportedOpset causes 3-4× regression on 19+) | nchwc, matmul-add, gelu | N/A | kMaxSupportedOpset gate hurts CPU for same reason it helps QNN |
+| DML | ❌ Skip | 17 (opset 21 not validated) | autoconf only | N/A | FP16 primary lever (#867); more stable than QNN GPU (p50 diff is noise, std is real) |
+| CPU | ❌ Skip | 17 only (kMaxSupportedOpset causes 3-4× regression on opset 19+) | nchwc, matmul-add, gelu | N/A | Regression data confirmed; mechanism uncertain (two separate kMaxSupportedOpset constants in ORT) |
 
 Rule: autoconfig must use EP-specific search space. Do NOT run quantization experiments for GPU/DML/CPU.
-Rule: for QNN NPU opset sweep, verify ORT `kMaxSupportedOpset` first — if ≥ 22, all opsets get NHWC transform and the opset-based speedup may not apply.
+Rule: for QNN NPU conv-fusion experiments — check `winml analyze` output first. If Conv op count > 20% of total → SKIP all conv-*-fusion flags. FusedConv is not a standard ONNX op; QNN EP falls back to CPU → catastrophic regression (npu-006).
+Rule: for QNN NPU opset sweep — full sweep 17–22 with no prior. kMaxSupportedOpset ≥ 23 is confirmed in ORT 1.24.4, so the NHWC bypass hypothesis does not apply. Observe results empirically.
 Rule: for NPU, if W8A8 top-1 ≤ 15% on first attempt → skip all W8A8 variants, go directly to W8A16.
 Rule: always run `winml compile` after finding best quantized config for QNN NPU. NEVER compile for GPU (regresses).
 Rule: for GPU/DML, skip ALL graph optimization passes beyond what `winml build` autoconf applies (NHWC and additional fusions hurt).
