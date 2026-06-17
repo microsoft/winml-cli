@@ -23,6 +23,8 @@ import copy
 import json
 import subprocess
 import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 
 # ── Protocol constants (overridable by callers via module-level reassignment) ─
@@ -363,6 +365,179 @@ def ranges_non_overlapping(a: list[float], b: list[float]) -> bool | None:
 
 
 # ── ONNX analysis helpers ─────────────────────────────────────────────────────
+
+
+# ── Verdict policies ─────────────────────────────────────────────────────────
+
+
+@dataclass
+class VerdictInput:
+    """Inputs to a verdict policy.
+
+    improvement_pct: positive = latency improvement
+        = (baseline_p50 - new_p50) / baseline_p50 * 100
+    cv_pct: screen coefficient of variation as percent (e.g., 5.0 for 5%)
+    correctness_pass: True if accuracy/parity check passed
+    build_ok: True if build succeeded
+    """
+
+    improvement_pct: float
+    cv_pct: float
+    correctness_pass: bool
+    build_ok: bool = True
+
+
+@dataclass
+class VerdictOutput:
+    """Output from a verdict policy."""
+
+    verdict: str  # KEEP | MARGINAL_KEEP | DISCARD | ACC_FAIL | BUILD_FAIL
+    reasoning: str
+    marginal: bool = False
+    threshold_pct: float = 0.0
+
+
+class VerdictPolicy(ABC):
+    """Abstract base for verdict policies."""
+
+    def __init__(self, min_improvement_pct: float = 1.0, stat_bar_multiplier: float = 2.0) -> None:
+        self.min_improvement_pct = min_improvement_pct
+        self.stat_bar_multiplier = stat_bar_multiplier
+
+    @abstractmethod
+    def evaluate(self, inp: VerdictInput) -> VerdictOutput: ...
+
+
+class ThroughputOnly(VerdictPolicy):
+    """KEEP iff improvement > max(min_improvement_pct, stat_bar * cv_pct).
+
+    Parameterized statistical significance: forces improvements to exceed
+    measurement noise before being declared real (borrowed from
+    AgenticGPUOptimizer V2). Marks verdicts as 'marginal' when improvement is
+    between 1x and 1.5x the threshold.
+    """
+
+    def evaluate(self, inp: VerdictInput) -> VerdictOutput:
+        if not inp.build_ok:
+            return VerdictOutput("BUILD_FAIL", "Build step failed.")
+        if not inp.correctness_pass:
+            return VerdictOutput("ACC_FAIL", "Accuracy check failed.")
+
+        threshold = max(self.min_improvement_pct, self.stat_bar_multiplier * inp.cv_pct)
+
+        if inp.improvement_pct < threshold:
+            return VerdictOutput(
+                "DISCARD",
+                f"Improvement +{inp.improvement_pct:.1f}% < threshold {threshold:.1f}% "
+                f"(max({self.min_improvement_pct:.0f}% floor, "
+                f"{self.stat_bar_multiplier:.0f}x CV={inp.cv_pct:.1f}%))",
+                threshold_pct=threshold,
+            )
+
+        marginal = inp.improvement_pct < threshold * 1.5
+        return VerdictOutput(
+            "MARGINAL_KEEP" if marginal else "KEEP",
+            f"Improvement +{inp.improvement_pct:.1f}% > threshold {threshold:.1f}%",
+            marginal=marginal,
+            threshold_pct=threshold,
+        )
+
+
+# ── Session manager ───────────────────────────────────────────────────────────
+
+
+class SessionManager:
+    """Crash-resume state manager backed by session.json.
+
+    Writes session state atomically (temp-file + rename) after each experiment
+    so an interrupted run can be resumed from where it left off.
+
+    Usage::
+        sm = SessionManager(WORK_DIR)
+        if sm.has_state:
+            print(f"Resuming: {len(sm.completed_iters)} completed iters")
+        # In the hypothesis loop:
+        if i in sm.completed_iters:
+            continue
+        # ... run experiment ...
+        sm.save(iter_idx=i, verdict=status, baseline_p50=..., ...)
+    """
+
+    def __init__(self, work_dir: Path) -> None:
+        self.path = work_dir / "session.json"
+        self._state: dict = {}
+        if self.path.exists():
+            try:
+                self._state = json.loads(self.path.read_text(encoding="utf-8"))
+                n = len(self.completed_iters)
+                if n > 0:
+                    print(
+                        f"  [session] Resuming: {n} completed iter(s) loaded from {self.path.name}",
+                        flush=True,
+                    )
+            except Exception as e:
+                print(f"  [session] Warning: could not load {self.path.name}: {e}", flush=True)
+
+    @property
+    def has_state(self) -> bool:
+        return bool(self._state)
+
+    @property
+    def completed_iters(self) -> set[int]:
+        return set(self._state.get("completed_iters", []))
+
+    @property
+    def baseline_p50(self) -> float | None:
+        return self._state.get("baseline_p50")
+
+    @property
+    def best_p50(self) -> float:
+        v = self._state.get("best_p50")
+        return float(v) if v is not None else float("inf")
+
+    @property
+    def best_label(self) -> str:
+        return self._state.get("best_label", "")
+
+    @property
+    def consecutive_discards(self) -> int:
+        return int(self._state.get("consecutive_discards", 0))
+
+    @property
+    def discard_by_dimension(self) -> dict[str, int]:
+        return dict(self._state.get("discard_by_dimension", {}))
+
+    def save(
+        self,
+        *,
+        iter_idx: int,
+        verdict: str,
+        baseline_p50: float | None,
+        best_p50: float,
+        best_label: str,
+        consecutive_discards: int,
+        discard_by_dimension: dict[str, int],
+    ) -> None:
+        """Save current state to session.json atomically."""
+        completed = list(self.completed_iters | {iter_idx})
+        self._state.update(
+            {
+                "completed_iters": completed,
+                "last_verdict": verdict,
+                "baseline_p50": baseline_p50,
+                "best_p50": best_p50 if best_p50 < float("inf") else None,
+                "best_label": best_label,
+                "consecutive_discards": consecutive_discards,
+                "discard_by_dimension": discard_by_dimension,
+                "last_iter": iter_idx,
+            }
+        )
+        tmp = self.path.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps(self._state, indent=2), encoding="utf-8")
+            tmp.replace(self.path)
+        except Exception as e:
+            print(f"  [session] Warning: could not save session state: {e}", flush=True)
 
 
 def count_conv_pct(model_onnx: Path) -> tuple[float, int, int]:

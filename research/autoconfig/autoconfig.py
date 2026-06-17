@@ -39,6 +39,9 @@ from bench_utils import (
     FULL_SESSIONS,
     SCREEN_CV_MAX_STD,
     SCREEN_ITERS,
+    SessionManager,
+    ThroughputOnly,
+    VerdictInput,
     bench_full,
     bench_screen,
     median_p50,
@@ -60,6 +63,14 @@ KB_DIR = Path(__file__).parent / "ep_knowledge"
 EVAL_SAMPLES = 50  # for accuracy gate
 ACCURACY_FLOOR = 0.70  # cosine drop below this → discard
 MIN_IMPROVEMENT = 0.01  # require ≥1% p50 improvement to KEEP
+
+# Verdict policy: improvement must exceed max(MIN_IMPROVEMENT, STAT_BAR * screen_cv)
+# Borrowed from AgenticGPUOptimizer V2 (avoids calling noise-level deltas "improvements")
+STAT_BAR_MULTIPLIER = 2.0
+
+# Screen early exit: skip 3x full-bench when screen already shows < this % improvement.
+# Saves ~25-90 min per rejected hypothesis (3 sessions × FULL_ITERS iters).
+SCREEN_PASS_MIN_IMPROVEMENT_PCT = 1.0
 
 # Bench protocol (two-phase, from GPU Optimizer V2)
 SCREEN_WARMUP = 20
@@ -275,6 +286,68 @@ def _run_full(model_path: Path) -> list[float]:
     )
 
 
+def _run_phase_b(
+    out_dir: Path,
+    label: str,
+    exp_info: dict,
+    screen_cv: float,
+    baseline_p50: float | None,
+    best_p50: float,
+    best_label: str,
+    policy: ThroughputOnly,
+) -> tuple[str, dict]:
+    """Run Phase B (full bench + accuracy gate) and evaluate with VerdictPolicy.
+
+    Returns (status_str, updated exp_info). Does not update best_p50/best_label —
+    caller is responsible so champion tracking stays in one place.
+    """
+    full_p50s = _run_full(out_dir / "model.onnx")
+    if not full_p50s:
+        exp_info["analysis"] = "Phase B winml perf returned no data"
+        return "crash (full bench failed)", exp_info
+
+    med_p50 = median_p50(full_p50s)
+    assert med_p50 is not None
+    exp_info["full_p50s"] = [f"{p:.1f}" for p in full_p50s]
+    exp_info["median_p50"] = f"{med_p50:.1f}"
+
+    # Promote baseline from first successful full bench
+    if baseline_p50 is None:
+        baseline_p50 = med_p50
+        exp_info["baseline_p50"] = f"{baseline_p50:.1f}"
+
+    # Accuracy gate
+    accuracy = eval_accuracy(out_dir)
+    exp_info["accuracy"] = f"{accuracy:.4f}" if accuracy is not None else "N/A"
+
+    improvement_pct = (baseline_p50 - med_p50) / baseline_p50 * 100
+    delta_pct = -improvement_pct
+    exp_info["delta_pct"] = f"{delta_pct:+.1f}%"
+
+    correctness_pass = accuracy is None or accuracy >= ACCURACY_FLOOR
+    verdict = policy.evaluate(
+        VerdictInput(
+            improvement_pct=improvement_pct,
+            cv_pct=screen_cv * 100.0,
+            correctness_pass=correctness_pass,
+        )
+    )
+
+    exp_info["analysis"] = verdict.reasoning
+    if verdict.verdict in ("KEEP", "MARGINAL_KEEP"):
+        status = "keep" + (" (marginal)" if verdict.marginal else "")
+        exp_info["analysis"] = (
+            f"Improvement confirmed: p50 {baseline_p50:.1f}ms -> {med_p50:.1f}ms "
+            f"({delta_pct:+.1f}%). {verdict.reasoning}"
+        )
+    elif verdict.verdict == "ACC_FAIL":
+        status = f"discard (accuracy {accuracy:.4f} < floor {ACCURACY_FLOOR})"
+    else:
+        status = f"discard ({verdict.reasoning})"
+
+    return status, exp_info
+
+
 def eval_accuracy(out_dir: Path) -> float | None:
     """Run winml eval; return accuracy (top-1 or cosine). For latency: use bench_*."""
     model_path = out_dir / "model.onnx"
@@ -398,24 +471,44 @@ def main() -> None:
     for note in kb["notes"]:
         print(f"  {note}")
 
+    # Resume from prior session if interrupted
+    session = SessionManager(WORK_DIR)
+
     sep = "=" * 64
     print(f"\n{sep}")
     print(f"  autoconfig search  --  {MODEL_ID}")
     print(f"  EP: {EP}   eval_samples: {EVAL_SAMPLES}   hypotheses: {len(HYPOTHESES)}")
     print(
-        f"  Bench: screen={SCREEN_ITERS} iters (CV<{SCREEN_CV_MAX}) → full={FULL_ITERS}×{FULL_SESSIONS}"
+        f"  Bench: screen={SCREEN_ITERS} iters (CV<{SCREEN_CV_MAX}) -> full={FULL_ITERS}x{FULL_SESSIONS}"
     )
     print(f"  Stop: {STOP_CONSECUTIVE_DISCARDS} consecutive DISCARDs OR budget")
     print(f"  External research trigger: after {EXTERNAL_RESEARCH_TRIGGER} DISCARDs same dimension")
+    print(
+        f"  Verdict: improvement must exceed max({MIN_IMPROVEMENT * 100:.0f}%, {STAT_BAR_MULTIPLIER:.0f}x screen-CV)"
+    )
+    print(
+        f"  Screen early exit: skip full bench if screen improvement < {SCREEN_PASS_MIN_IMPROVEMENT_PCT:.0f}%"
+    )
     print(f"{sep}\n")
 
-    baseline_p50: float | None = None
-    best_p50 = float("inf")
-    best_label = ""
-    consecutive_discards = 0
-    discard_by_dimension: dict[str, int] = {}
+    # Restore state from prior session (if resuming)
+    baseline_p50: float | None = session.baseline_p50
+    best_p50 = session.best_p50
+    best_label = session.best_label
+    consecutive_discards = session.consecutive_discards
+    discard_by_dimension: dict[str, int] = session.discard_by_dimension
+
+    policy = ThroughputOnly(
+        min_improvement_pct=MIN_IMPROVEMENT * 100,
+        stat_bar_multiplier=STAT_BAR_MULTIPLIER,
+    )
 
     for i, (label, patch_fn, dimension) in enumerate(HYPOTHESES):
+        # Skip iters completed in a prior run
+        if i in session.completed_iters:
+            print(f"  [resume] skipping iter {i} ({label}) — already done")
+            continue
+
         iter_start = time.time()
         print(f"\n{'--' * 32}")
         print(f"  iter {i}  |  {label}  [{dimension}]")
@@ -427,7 +520,7 @@ def main() -> None:
             (r for r in kb["skip_passes"] if any(f in flags_preview for f in r.split()[:2])), None
         )
         if skip_reason:
-            print(f"  ⏭️  skipped by KB confirmed rule: {skip_reason}")
+            print(f"  skipped by KB confirmed rule: {skip_reason}")
             continue
 
         cfg = patch_fn(copy.deepcopy(BASELINE))  # type: ignore[operator]
@@ -465,52 +558,59 @@ def main() -> None:
                     f"Phase A rejected: CV={screen_cv:.2f} > {SCREEN_CV_MAX}. "
                     f"Thermal or scheduling noise on {EP.upper()} EP. Cool device and retry."
                 )
-            else:
-                # Phase B: full bench
-                full_p50s = _run_full(out_dir / "model.onnx")
-                if not full_p50s:
-                    status = "crash (full bench failed)"
-                    exp_info["analysis"] = "Phase B winml perf returned no data"
+            elif baseline_p50 is not None:
+                # Screen early exit: skip full bench when screen shows negligible gain.
+                # Saves 3x full-bench time for clearly non-improving configs.
+                screen_improvement_pct = (baseline_p50 - screen_p50) / baseline_p50 * 100
+                if screen_improvement_pct < SCREEN_PASS_MIN_IMPROVEMENT_PCT:
+                    status = (
+                        f"discard (screen early exit: improvement {screen_improvement_pct:+.1f}%"
+                        f" < {SCREEN_PASS_MIN_IMPROVEMENT_PCT:.0f}% — full bench skipped)"
+                    )
+                    exp_info["analysis"] = (
+                        f"Phase A early exit: screen p50={screen_p50:.1f}ms vs baseline "
+                        f"{baseline_p50:.1f}ms ({screen_improvement_pct:+.1f}% improvement) is "
+                        f"below {SCREEN_PASS_MIN_IMPROVEMENT_PCT:.0f}% threshold. "
+                        f"Full bench skipped — not worth 3x{FULL_ITERS} iters."
+                    )
+                    exp_info["delta_pct"] = f"{-screen_improvement_pct:+.1f}% (screen estimate)"
                 else:
-                    med_p50 = median_p50(full_p50s)
-                    assert med_p50 is not None
-                    exp_info["full_p50s"] = [f"{p:.1f}" for p in full_p50s]
-                    exp_info["median_p50"] = f"{med_p50:.1f}"
-
-                    # Set baseline from the first successful full bench (any iteration).
-                    if baseline_p50 is None:
-                        baseline_p50 = med_p50
-                        exp_info["baseline_p50"] = f"{baseline_p50:.1f}"
-
-                    # Accuracy gate
-                    accuracy = eval_accuracy(out_dir)
-                    exp_info["accuracy"] = f"{accuracy:.4f}" if accuracy is not None else "N/A"
-
-                    if accuracy is not None and accuracy < ACCURACY_FLOOR:
-                        status = f"discard (accuracy {accuracy:.4f} < floor {ACCURACY_FLOOR})"
-                        exp_info["analysis"] = "Accuracy regression below floor"
-                    elif baseline_p50 is not None and med_p50 > baseline_p50 * (
-                        1 - MIN_IMPROVEMENT
-                    ):
-                        delta_pct = (med_p50 - baseline_p50) / baseline_p50 * 100
-                        status = f"discard (Δp50={delta_pct:+.1f}% < {MIN_IMPROVEMENT * 100:.0f}% threshold)"
-                        exp_info["delta_pct"] = f"{delta_pct:+.1f}%"
-                        exp_info["analysis"] = (
-                            f"No meaningful improvement: {delta_pct:+.1f}% vs {MIN_IMPROVEMENT * 100:.0f}% threshold"
-                        )
-                    else:
-                        delta_pct = (
-                            (med_p50 - (baseline_p50 or med_p50)) / (baseline_p50 or med_p50) * 100
-                        )
-                        status = "keep"
-                        exp_info["delta_pct"] = f"{delta_pct:+.1f}%"
-                        exp_info["analysis"] = (
-                            f"Improvement confirmed: p50 {baseline_p50:.1f}ms -> {med_p50:.1f}ms ({delta_pct:+.1f}%)"
-                        )
-                        if med_p50 < best_p50:
-                            best_p50 = med_p50
+                    status, exp_info = _run_phase_b(
+                        out_dir,
+                        label,
+                        exp_info,
+                        screen_cv,
+                        baseline_p50,
+                        best_p50,
+                        best_label,
+                        policy,
+                    )
+                    if status.startswith("keep"):
+                        # Update champion tracking
+                        new_p50 = float(exp_info.get("median_p50", best_p50))
+                        if new_p50 < best_p50:
+                            best_p50 = new_p50
                             best_label = label
                             status = "keep *** NEW BEST ***"
+            else:
+                # First iteration: no baseline yet — always run full bench
+                status, exp_info = _run_phase_b(
+                    out_dir, label, exp_info, screen_cv, None, best_p50, best_label, policy
+                )
+                if status.startswith("keep"):
+                    new_p50 = float(exp_info.get("median_p50", best_p50))
+                    if new_p50 < best_p50:
+                        best_p50 = new_p50
+                        best_label = label
+                        status = "keep *** NEW BEST ***"
+
+        # Extract baseline from first successful full bench
+        if baseline_p50 is None and "median_p50" in exp_info:
+            try:
+                baseline_p50 = float(exp_info["median_p50"])
+                exp_info["baseline_p50"] = f"{baseline_p50:.1f}"
+            except (ValueError, TypeError):
+                pass
 
         # Write per-experiment doc (V2 pattern)
         exp_info["status"] = status
@@ -522,13 +622,13 @@ def main() -> None:
             discard_by_dimension[dimension] = discard_by_dimension.get(dimension, 0) + 1
             if discard_by_dimension[dimension] == EXTERNAL_RESEARCH_TRIGGER:
                 print(
-                    f"\n  ⚡ EXTERNAL RESEARCH TRIGGER: {EXTERNAL_RESEARCH_TRIGGER} consecutive DISCARDs in [{dimension}]"
+                    f"\n  EXTERNAL RESEARCH TRIGGER: {EXTERNAL_RESEARCH_TRIGGER} consecutive DISCARDs in [{dimension}]"
                 )
-                print("     → Search ORT/QNN source code for mechanism before continuing")
+                print("     -> Search ORT/QNN source code for mechanism before continuing")
                 print(
-                    "     → Check kMaxSupportedOpset for opset dimension, EP-specific rules for others"
+                    "     -> Check kMaxSupportedOpset for opset dimension, EP-specific rules for others"
                 )
-                print(f"     → File findings in ep_knowledge/{EP}.json as 'draft' entry")
+                print(f"     -> File findings in ep_knowledge/{EP}.json as 'draft' entry")
         else:
             consecutive_discards = 0
             discard_by_dimension[dimension] = 0
@@ -553,13 +653,22 @@ def main() -> None:
             }
         )
 
-        print(f"  → {status}")
+        print(f"  -> {status}")
+
+        # Persist state for crash-resume
+        session.save(
+            iter_idx=i,
+            verdict=status,
+            baseline_p50=baseline_p50,
+            best_p50=best_p50,
+            best_label=best_label,
+            consecutive_discards=consecutive_discards,
+            discard_by_dimension=discard_by_dimension,
+        )
 
         # Stop condition
         if consecutive_discards >= STOP_CONSECUTIVE_DISCARDS:
-            print(
-                f"\n  🛑 STOP: {STOP_CONSECUTIVE_DISCARDS} consecutive DISCARDs — plateau reached"
-            )
+            print(f"\n  STOP: {STOP_CONSECUTIVE_DISCARDS} consecutive DISCARDs — plateau reached")
             break
 
     print(f"\n{sep}")
