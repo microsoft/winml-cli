@@ -78,6 +78,14 @@ def test_resolve_composite_info_none_without_detected_composite():
     assert resolve_composite_info("bert", None) is None
 
 
+def test_resolve_composite_info_none_when_pipeline_tasks_empty(monkeypatch):
+    # Registry-divergence guard: a detected composite whose model_type yields no
+    # pipeline tasks must NOT surface a broken "[composite]" Task row -> return None.
+    # (composite_pipeline_tasks is resolved from the loader package at call time.)
+    monkeypatch.setattr("winml.modelkit.loader.composite_pipeline_tasks", lambda mt: [])
+    assert resolve_composite_info("bart", _BART_COMPONENTS) is None
+
+
 # --- table rendering (Variant 1: pipeline-led) ------------------------------
 
 

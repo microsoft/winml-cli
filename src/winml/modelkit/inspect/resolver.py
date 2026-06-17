@@ -601,8 +601,16 @@ def resolve_composite_info(
 
     from ..loader import composite_pipeline_tasks
 
+    pipeline_tasks = composite_pipeline_tasks(model_type)
+    if not pipeline_tasks:
+        # Registry-divergence guard: the resolver detected a composite but the registry
+        # yields no pipeline tasks for this model_type (e.g. a future registration the
+        # WinMLCompositeModel filter excludes). A CompositeInfo with empty pipeline_tasks
+        # would render a broken "[composite]" Task row, so treat it as non-composite.
+        return None
+
     return CompositeInfo(
-        pipeline_tasks=composite_pipeline_tasks(model_type),
+        pipeline_tasks=pipeline_tasks,
         components=dict(detected_components),
     )
 
