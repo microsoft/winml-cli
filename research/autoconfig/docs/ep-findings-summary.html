@@ -553,29 +553,6 @@
       </div>
     </div>
 
-    <!-- dml-004 -->
-    <div class="finding">
-      <div class="find-id">dml-004</div>
-      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
-      <div class="find-body">
-        <div class="find-title">winml analyze returns 0/0/0/251 (all Unknown) for DML EP &mdash; no rule data loaded</div>
-        <div class="find-detail">
-          <code>winml analyze --ep dml</code> outputs: supported=0, partial=0, unsupported=0, unknown=251.
-          D3D12 supports all standard ONNX ops by design.
-          <code>winml analyze</code> has no DML-specific rule data file &mdash; cosmetic gap only.
-          <div><span class="scope">Scope: DML EP (all models). Cosmetic, not functional.</span></div>
-        </div>
-      </div>
-      <div class="find-action">
-        <div class="action-label">Autoconfig action</div>
-        <div class="action-text">
-          Do NOT use <code>winml analyze</code> to prune search space for DML.
-          Assume all ops supported.
-          Feature request: DML rule data (not yet filed, low priority).
-        </div>
-      </div>
-    </div>
-
   </div>
 </div>
 
@@ -778,23 +755,13 @@
       </tr>
 
       <tr>
-        <td>winml build --report (agent-friendly JSON)<br>
-          Structured output for each pipeline step</td>
+        <td><code>winml build --json</code> (agent-friendly structured output)<br>
+          Per-step status, timing, output paths, exit code</td>
         <td><a class="issue-link" href="#">#443</a></td>
         <td><span class="pri pri-p2">P2</span></td>
-        <td>autoconfig parses winml build stdout to detect failures. Machine-readable JSON output would eliminate fragile string parsing and let autoconfig recover from partial failures precisely.</td>
+        <td>autoconfig parses <code>winml build</code> stdout to detect failures — fragile string parsing. A <code>--json</code> flag should emit a structured JSON to stdout (or a sidecar file) with per-step status (success/fail/skip), elapsed time, output artifact paths, and a top-level exit code. Would let autoconfig detect partial failures precisely and resume from the failed step.</td>
         <td>all EPs</td>
         <td>OPEN</td>
-      </tr>
-
-      <tr>
-        <td>winml analyze: DML EP rule data<br>
-          Currently returns 0/0/0/251 (all Unknown)</td>
-        <td><span class="no-issue">not filed</span></td>
-        <td><span class="pri pri-p3">P3</span></td>
-        <td>dml-004: winml analyze has no DML-specific rules. D3D12 supports all ops by design, so autoconfig treats this as "assume all supported" and skips analysis for DML. Low impact for now but should be fixed for completeness.</td>
-        <td>dml-004</td>
-        <td class="blocked">NEEDS ISSUE (low priority)</td>
       </tr>
 
     </tbody>
