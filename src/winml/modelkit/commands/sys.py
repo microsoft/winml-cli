@@ -435,11 +435,69 @@ def _gather_device_info() -> list[dict[str, Any]]:
             result.append(entry)
             priority += 1
 
+    # Enrich each device entry with WinMLDevice.device_facts() from any
+    # registered EP whose .devices saw this hardware. First successful
+    # match per (device_type, hardware_name) pair wins; later EPs binding
+    # the same device can't override architecture/driver because those
+    # facts are device-intrinsic per docs/design/session/4_winml_device.md
+    # §4.1. ``setdefault`` ensures sysinfo-provided values aren't
+    # clobbered when both sources have the same key (e.g. ``driver``).
+    #
+    # TODO(session-public-surface): reaches into ``registry._registered``,
+    # which is registry-internal. Consider exposing a small public
+    # accessor like ``registered_eps()`` — consistent with the existing
+    # ``_entries``-reach smell in this module.
+    try:
+        from ..session import WinMLEPRegistry
+
+        registry = WinMLEPRegistry.instance()
+        for entry in result:
+            match_type = entry["type"]
+            sysinfo_name = entry["name"]
+            for winml_ep in registry._registered.values():
+                # Match by device_type AND a fuzzy name relation —
+                # exact match fails when OpenVINO appends suffixes like
+                # "(iGPU)" to FULL_DEVICE_NAME that sysinfo's WMI query
+                # doesn't include. Substring-in-either-direction covers
+                # both bias cases.
+                matched = next(
+                    (
+                        d for d in winml_ep.devices
+                        if d.device_type == match_type
+                        and (
+                            d.hardware_name == sysinfo_name
+                            or sysinfo_name in d.hardware_name
+                            or d.hardware_name in sysinfo_name
+                        )
+                    ),
+                    None,
+                )
+                if matched is not None:
+                    # device_facts() yields ``"Label: Value"`` strings;
+                    # split on the first colon so the renderer can merge
+                    # by lowercased key alongside sysinfo's details.
+                    for fact in matched.device_facts():
+                        label, _, value = fact.partition(": ")
+                        if label and value:
+                            entry["details"].setdefault(label.lower(), value)
+                    break
+    except Exception as e:
+        logger.warning("device_facts enrichment failed: %s", e)
+
     return result
 
 
 def _output_device_text(devices: list[dict[str, Any]]) -> None:
-    """Display device list in rich text format."""
+    """Display device list in rich text format.
+
+    Per ``docs/design/session/4_winml_device.md`` §4.1, the *Available
+    Devices* section renders device-intrinsic facts (Architecture +
+    Driver). When :func:`_gather_device_info` enriched the entry from a
+    registered ``WinMLDevice.device_facts()`` call the values land in the
+    same ``details`` dict alongside sysinfo's keys (``driver``, ``manufacturer``,
+    ``cores``, ``threads``, ``architecture``), so we read them
+    uniformly here.
+    """
     console.print("\n[bold blue]Available Devices (priority order)[/bold blue]")
     for dev in devices:
         console.print(
@@ -449,10 +507,13 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
         if "error" in details:
             console.print(f"             [red]Error: {details['error']}[/red]")
         elif dev["type"] in ("NPU", "GPU"):
-            console.print(
-                f"             Driver: {details.get('driver', 'N/A')} | "
-                f"Manufacturer: {details.get('manufacturer', 'N/A')}"
-            )
+            parts = [
+                f"Driver: {details.get('driver', 'N/A')}",
+                f"Manufacturer: {details.get('manufacturer', 'N/A')}",
+            ]
+            if arch := details.get("architecture"):
+                parts.append(f"Architecture: {arch}")
+            console.print(f"             {' | '.join(parts)}")
         elif dev["type"] == "CPU":
             console.print(
                 f"             Cores: {details.get('cores', 'N/A')} | "
@@ -626,7 +687,13 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
                         "device_type": d.device_type,
                         "hardware_name": d.hardware_name,
                         "vendor": d.vendor,
-                        "facts": list(d.facts()),
+                        # Per docs/design/session/4_winml_device.md §4.1:
+                        # the per-source EP rows surface only Memory +
+                        # Capabilities (EP-mediated). Architecture +
+                        # Driver are device-intrinsic and rendered once
+                        # per physical device in the Devices section
+                        # via ``_gather_device_info`` enrichment below.
+                        "facts": list(d.ep_facts()),
                     }
                     for d in winml_ep.devices
                 ]
@@ -846,23 +913,39 @@ def sysinfo(
         # Handle --list-device and/or --list-ep (combinable)
         if list_device or list_ep:
             if use_json:
-                # Combine both into a single JSON object so output is always valid JSON
+                # Combine both into a single JSON object so output is always valid JSON.
+                # ``_gather_ep_info`` runs first when both are requested so the
+                # registry is populated before ``_gather_device_info``'s
+                # device_facts enrichment pass runs (see text-path comment).
                 result: dict[str, Any] = {}
+                eps_json: dict[str, dict[str, Any]] | None = None
+                if list_ep:
+                    try:
+                        eps_json = _gather_ep_info()
+                    except Exception as e:
+                        logger.exception("Failed to detect execution providers")
+                        msg = f"Error detecting execution providers: {e}"
+                        raise click.ClickException(msg) from e
                 if list_device:
                     try:
                         result["devices"] = _gather_device_info()
                     except Exception as e:
                         logger.exception("Failed to detect devices")
                         raise click.ClickException(f"Error detecting devices: {e}") from e
+                if list_ep and eps_json is not None:
+                    result["executionProviders"] = eps_json
+                click.echo(json.dumps(result, indent=2))
+            elif output_format.lower() == "compact":
+                # Same ordering as text/json paths — gather EPs first to
+                # warm the registry for device_facts enrichment.
+                eps_compact: dict[str, dict[str, Any]] | None = None
                 if list_ep:
                     try:
-                        result["executionProviders"] = _gather_ep_info()
+                        eps_compact = _gather_ep_info()
                     except Exception as e:
                         logger.exception("Failed to detect execution providers")
                         msg = f"Error detecting execution providers: {e}"
                         raise click.ClickException(msg) from e
-                click.echo(json.dumps(result, indent=2))
-            elif output_format.lower() == "compact":
                 if list_device:
                     try:
                         devices = _gather_device_info()
@@ -871,19 +954,29 @@ def sysinfo(
                     except Exception as e:
                         logger.exception("Failed to detect devices")
                         raise click.ClickException(f"Error detecting devices: {e}") from e
+                if list_ep and eps_compact is not None:
+                    parts = [
+                        f"{name}({record['device_types']})"
+                        for name, record in eps_compact.items()
+                    ]
+                    click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
+            else:
+                # When both sections are requested we gather EP info first
+                # (which populates ``WinMLEPRegistry._registered``) so that
+                # ``_gather_device_info``'s device_facts enrichment loop
+                # can read Architecture/Driver off any successfully
+                # registered WinMLDevice. Rendering order stays Devices →
+                # EPs per the design in 4_winml_device.md §4.1.
+                eps: dict[str, dict[str, Any]] | None = None
                 if list_ep:
                     try:
                         eps = _gather_ep_info()
-                        parts = [
-                            f"{name}({record['device_types']})"
-                            for name, record in eps.items()
-                        ]
-                        click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
                     except Exception as e:
+                        err_msg = f"[bold red]Error detecting execution providers:[/bold red] {e}"
+                        console.print(err_msg)
                         logger.exception("Failed to detect execution providers")
                         msg = f"Error detecting execution providers: {e}"
                         raise click.ClickException(msg) from e
-            else:
                 if list_device:
                     try:
                         devices = _gather_device_info()
@@ -892,16 +985,8 @@ def sysinfo(
                         console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
                         logger.exception("Failed to detect devices")
                         raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        eps = _gather_ep_info()
-                        _output_ep_text(eps)
-                    except Exception as e:
-                        err_msg = f"[bold red]Error detecting execution providers:[/bold red] {e}"
-                        console.print(err_msg)
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
+                if list_ep and eps is not None:
+                    _output_ep_text(eps)
             return
 
         # Default: full sysinfo including devices and EPs
@@ -909,21 +994,31 @@ def sysinfo(
             info = _gather_system_info(verbose=verbose)
 
             if use_json:
-                # Add devices and EPs to JSON output
+                # Add devices and EPs to JSON output. Gather EP info
+                # first so the registry is populated before
+                # ``_gather_device_info``'s device_facts enrichment runs.
+                try:
+                    eps_default_json = _gather_ep_info()
+                except Exception:
+                    eps_default_json = {}
                 try:
                     info["devices"] = _gather_device_info()
                 except Exception:
                     info["devices"] = []
-                try:
-                    info["executionProviders"] = _gather_ep_info()
-                except Exception:
-                    info["executionProviders"] = []
+                info["executionProviders"] = eps_default_json
                 _output_json(info)
             elif output_format.lower() == "compact":
                 _output_compact(info)
             else:
                 _output_text(info, verbose=verbose)
-                # Append devices and EPs to text output
+                # Gather EPs first so device_facts enrichment in
+                # ``_gather_device_info`` can read off the registry; the
+                # render order stays Devices → EPs.
+                try:
+                    eps_default = _gather_ep_info()
+                except Exception as e:
+                    eps_default = None
+                    logger.warning("EP detection failed: %s", e)
                 console.print()
                 try:
                     devices = _gather_device_info()
@@ -935,11 +1030,9 @@ def sysinfo(
                         "[bold]-v[/bold] for the full traceback.[/yellow]"
                     )
                 console.print()
-                try:
-                    eps = _gather_ep_info()
-                    _output_ep_text(eps)
-                except Exception as e:
-                    logger.warning("EP detection failed: %s", e)
+                if eps_default is not None:
+                    _output_ep_text(eps_default)
+                else:
                     console.print(
                         "[yellow]EP detection failed — re-run with "
                         "[bold]-v[/bold] for the full traceback.[/yellow]"

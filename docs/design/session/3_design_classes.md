@@ -1,8 +1,8 @@
 # Session / EP Module — Canonical Class Reference
 
-**Version**: 1.1
-**Date**: 2026-06-07
-**Status**: Draft — v1.1 renames `WinMLEPRegistry.auto_ep` → `auto_device` (it returns a `WinMLEPDevice` pair, not a `WinMLEP`); collapses `WinMLDevice` ABC + six subclasses into a single concrete class with internal dispatch tables; pins the `WinMLEPDevice` composition invariant (`.device` is one of `.ep.devices`, same object); drops the `_find_entry` helper (absorbed into `auto_device`).
+**Version**: 1.2
+**Date**: 2026-06-16
+**Status**: Draft — v1.2 updates §3.4 `WinMLDevice`'s renderer-consumer example to reflect the v1.5 split of `facts()` into `device_facts()` (Architecture + Driver — *Available Devices* section) and `ep_facts()` (Memory + Capabilities — per-source EP rows), with attribute attribution governed by [`4_winml_device.md`](4_winml_device.md) §4.1. v1.1 renamed `WinMLEPRegistry.auto_ep` → `auto_device` (it returns a `WinMLEPDevice` pair, not a `WinMLEP`); collapsed `WinMLDevice` ABC + six subclasses into a single concrete class with internal dispatch tables; pinned the `WinMLEPDevice` composition invariant (`.device` is one of `.ep.devices`, same object); dropped the `_find_entry` helper (absorbed into `auto_device`).
 **Module**: session
 **Companion-To**:
 - [`1_req.md`](1_req.md) — user-facing requirements
@@ -181,16 +181,22 @@ Why a single class (and not an ABC + per-EP subclasses): zero current `ep_metada
 
 **Lifecycle.** One `WinMLDevice` per `OrtEpDevice` handle. Constructed when the registry calls `wrap_ort_device(...)` inside `register_ep`; lives as long as the containing `WinMLEP` (which is cached in the registry by `entry.dll_path`).
 
-**Typical usage.** The renderer (`commands/sys.py`'s `--list-ep`) is the primary consumer:
+**Typical usage.** The renderer (`commands/sys.py`'s `--list-ep`) is the primary consumer; it reads `WinMLDevice` once per section, with attribute attribution split per [`4_winml_device.md`](4_winml_device.md) §4.1:
 
 ```python
-for ort_dev in handles_from_register_ep:
-    dev = wrap_ort_device(ort_dev)
-    facts = dev.facts()                  # tuple[str, ...] for pipe-join display
-    metadata_dump = dev.available_metadata()    # raw ep_metadata for --verbose
+# Available Devices section — device-intrinsic facts (Architecture +
+# Driver) read from any one WinMLDevice that covers this hardware:
+device_facts = dev.device_facts()      # ('Architecture: 4000', 'Driver: ...')
+
+# Available Execution Providers section — EP-mediated facts (Memory +
+# Capabilities) read per (EP, source, device) row:
+ep_facts = dev.ep_facts()              # ('Memory: 16.0 GiB', 'Capabilities: ...')
+
+# --verbose dump — raw ep_metadata for power users:
+metadata_dump = dev.available_metadata()
 ```
 
-**More detail.** Single-class spec, internal dispatch tables (per-EP schemas), and the trivial `wrap_ort_device` factory in [`4_winml_device.md`](4_winml_device.md).
+**More detail.** Single-class spec, internal dispatch tables (per-EP schemas), the device-vs-EP attribute split, and the trivial `wrap_ort_device` factory in [`4_winml_device.md`](4_winml_device.md).
 
 ### 3.5 `WinMLEP`
 

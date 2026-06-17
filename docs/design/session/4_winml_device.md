@@ -1,8 +1,8 @@
 # WinMLDevice — Vendor-Normalized Runtime Device Abstraction
 
-**Version**: 1.4
-**Date**: 2026-06-07
-**Status**: Draft — design only; implementation deferred. v1.4 collapses the `WinMLDevice` ABC + per-EP subclass hierarchy (`OpenVINODevice` / `QNNDevice` / `DmlDevice` / `CpuDevice` / `AzureDevice` / `UnknownDevice`) into a **single concrete class** with internal dispatch tables keyed on `self._ort.ep_name`; the prior six-subclass design was over-engineered for v1 (zero current `ep_metadata` consumers in `src/`; one future consumer = `--list-ep` renderer; one speculative = `EPDoctor`). Also renames the registry compound method `auto_ep` → `auto_device` (the return is a `WinMLEPDevice` pair, not a `WinMLEP`), and drops the internal `_find_entry` tag-decode helper (absorbed into `auto_device`). v1.3 updated §3 flow + §8 file-location map for the `WinMLSession.build` drop (the user-facing tail is now the direct `WinMLSession(onnx_path, ep_device, ...)` constructor with an optional `ep_monitor` kwarg). v1.2 originally aligned with the six-class taxonomy locked in `2_coreloop.md` v2.1 (the `EPDeviceTarget` / `EPEntry` / `WinMLEP` / `WinMLEPDevice`-pair shape; the `WinMLEPRegistry.register_ep`-only surface).
+**Version**: 1.5
+**Date**: 2026-06-16
+**Status**: Draft — v1.5 splits the single-tuple `facts()` display helper into **`device_facts()`** (Architecture + Driver — device-intrinsic, surfaces in *Available Devices*) and **`ep_facts()`** (Memory + Capabilities — EP-mediated, surfaces in per-source EP rows). `compiler_version` stays as a public property but is dropped from default render (available via `available_metadata()` for `--verbose`). Aligned with `console_mockup.py` v3 attribute split: device-intrinsic stays once per physical device; EP-mediated repeats per (EP, source) row. v1.4 collapsed the `WinMLDevice` ABC + per-EP subclass hierarchy (`OpenVINODevice` / `QNNDevice` / `DmlDevice` / `CpuDevice` / `AzureDevice` / `UnknownDevice`) into a **single concrete class** with internal dispatch tables keyed on `self._ort.ep_name`; the prior six-subclass design was over-engineered for v1 (zero current `ep_metadata` consumers in `src/`; one future consumer = `--list-ep` renderer; one speculative = `EPDoctor`). Also renamed the registry compound method `auto_ep` → `auto_device` (the return is a `WinMLEPDevice` pair, not a `WinMLEP`), and dropped the internal `_find_entry` tag-decode helper (absorbed into `auto_device`). v1.3 updated §3 flow + §8 file-location map for the `WinMLSession.build` drop (the user-facing tail is now the direct `WinMLSession(onnx_path, ep_device, ...)` constructor with an optional `ep_monitor` kwarg). v1.2 originally aligned with the six-class taxonomy locked in `2_coreloop.md` v2.1 (the `EPDeviceTarget` / `EPEntry` / `WinMLEP` / `WinMLEPDevice`-pair shape; the `WinMLEPRegistry.register_ep`-only surface).
 **Module**: session
 **Companion-To**:
 - [`3_design_classes.md`](3_design_classes.md) — **canonical class reference** (read this first)
@@ -188,29 +188,80 @@ class WinMLDevice:
         """Raw ep_metadata mapping — for --verbose / debug dumps."""
         return dict(self._ort.ep_metadata)
 
-    # ---- display helper -------------------------------------------------
+    # ---- display helpers ------------------------------------------------
+    # Split into two methods that mirror the two sections of
+    # `winml sys --list-ep` per `console_mockup.py` v3:
+    #
+    #   - device_facts() → invariant per (hardware, kernel) — surfaces in
+    #     the *Available Devices* section, once per physical device.
+    #   - ep_facts()     → varies per (EP, source) for the same device —
+    #     surfaces in the *Available Execution Providers* section, once
+    #     per per-source row.
+    #
+    # Why split?
+    #   - Architecture (uarch) and driver_version reflect the silicon +
+    #     kernel driver. They don't change because OpenVINO 1.4.1
+    #     replaces 1.8.79.0 on the same NPU. Belong in Devices.
+    #   - memory_bytes and capabilities reflect the EP runtime's view
+    #     of the device — OpenVINO's allocator reports a different
+    #     pool size than DML's; the FP16/INT8 capability set depends
+    #     on what the EP version supports. Belong in EP-section per
+    #     source.
+    #   - compiler_version (OpenVINO NPU compiler build) is per-EP
+    #     metadata that varies by EP version. Carry as a property but
+    #     defer from default render to `--verbose`.
 
-    def facts(self) -> tuple[str, ...]:
-        """Render-ready facts for one-line-per-device display.
+    def device_facts(self) -> tuple[str, ...]:
+        """Device-intrinsic facts for the *Available Devices* section.
 
-        Joins memory / architecture / driver / compiler / capabilities into
-        a tuple of strings ready for ``'  |  '.join(...)``.
+        Returns Architecture + Driver — values keyed off the underlying
+        silicon and kernel driver, invariant across the EPs that bind
+        to the device. Empty entries are skipped.
         """
         out: list[str] = []
-        if (m := self.memory_bytes) is not None:
-            out.append(f"Memory: {_format_bytes(m)}")
         if (a := self.architecture) is not None:
             out.append(f"Architecture: {a}")
         if (d := self.driver_version) is not None:
             out.append(f"Driver: {d}")
-        if (c := self.compiler_version) is not None:
-            out.append(f"Compiler: {c}")
+        return tuple(out)
+
+    def ep_facts(self) -> tuple[str, ...]:
+        """EP-mediated facts for the *Available Execution Providers* section.
+
+        Returns Memory + Capabilities — values keyed off this specific
+        EP runtime's view of the device, which can differ between
+        sources of the same EP (e.g. OpenVINO 1.4.1 vs 1.8.79.0
+        report different addressable memory) and between different EPs
+        on the same hardware (OpenVINO vs DML on the iGPU). Empty
+        entries are skipped.
+        """
+        out: list[str] = []
+        if (m := self.memory_bytes) is not None:
+            out.append(f"Memory: {_format_bytes(m)}")
         if caps := self.capabilities:
             out.append(f"Capabilities: {', '.join(caps)}")
         return tuple(out)
 ```
 
+`compiler_version` stays as a public property (e.g. OpenVINO's NPU compiler build); it is surfaced via `available_metadata()` for `--verbose` debug dumps but **not** included in either default-render method — the value is high-cardinality and rarely actionable for users without deep EP context.
+
 `_format_bytes` is a private utility (e.g., `17179869184 → "16.0 GiB"`).
+
+### 4.1 Attribute attribution — which field goes in which `--list-ep` section
+
+| `WinMLDevice` property | `device_facts()` (Devices section) | `ep_facts()` (EP section) | Surfaced via `--verbose` only |
+|---|---|---|---|
+| `device_type` (NPU/GPU/CPU) | rendered as section header tag | reused as sub-row tag (`NPU:` / `GPU:` / `CPU:`) | — |
+| `hardware_name` | ✓ | (omitted — would duplicate Devices) | — |
+| `vendor` | ✓ (right-justified) | (omitted) | — |
+| `architecture` | **✓** | — | — |
+| `driver_version` | **✓** | — | — |
+| `memory_bytes` | — | **✓** | — |
+| `capabilities` | — | **✓** | — |
+| `compiler_version` | — | — | **✓** (via `available_metadata()`) |
+| `library_path` | — | rendered in the source row's `Path:` line | — |
+
+CPU-specific kernel facts (cores / threads) are gathered separately via the `sysinfo.CPU` enumerator — not part of `WinMLDevice` because they predate the EP layer and don't require ORT registration to query.
 
 Why a single class? Concretely: zero current `ep_metadata` consumers exist in `src/` today; the one near-future consumer is the `--list-ep` renderer in `commands/sys.py`; one speculative consumer is `EPDoctor`. The six-subclass design was carrying weight (test surface, import structure, factory dispatch) for a per-EP-method-override contract that nothing in the codebase actually consumes. A single concrete class with module-level dispatch tables preserves the empirical schemas where they were going to live anyway (as the bodies of `OpenVINODevice.memory_bytes` etc.) and removes the polymorphism overhead.
 
@@ -310,21 +361,31 @@ The factory is intentionally trivial under the single-class design. It exists fo
 
 ### `winml sys --list-ep` renderer
 
-Today's renderer reaches into `OrtEpDevice.device.type.name` and `OrtEpDevice.ep_metadata` directly. After this refactor it consumes `WinMLDevice`:
+Today's renderer reaches into `OrtEpDevice.device.type.name` and `OrtEpDevice.ep_metadata` directly. After this refactor it consumes `WinMLDevice` and splits attribute reads by section per §4.1:
 
 ```python
-for ort_dev in handles_for_ep:
-    dev = wrap_ort_device(ort_dev)
-    # device_tag = dev.device_type            # 'NPU' / 'GPU' / 'CPU'
-    # hardware    = dev.hardware_name         # 'Intel(R) AI Boost'
-    # facts       = dev.facts()               # tuple of strings, pipe-join for display
+# Available Devices section — once per physical device.
+# Pick any one WinMLDevice handle that covers this hardware (e.g.,
+# the primary EP's NPU handle). Architecture + Driver are invariant
+# across EP sources, so reading from one handle suffices.
+for dev in primary_devices_by_type:
+    # device_tag    = dev.device_type            # 'NPU' / 'GPU' / 'CPU'
+    # hardware_name = dev.hardware_name          # 'Intel(R) AI Boost'
+    # vendor        = dev.vendor                 # 'Intel Corporation'
+    # device_facts  = dev.device_facts()         # ('Architecture: 4000', 'Driver: ...')
+
+# Available Execution Providers section — once per (EP, source, device).
+for source_row in source_rows_for_ep:
+    for dev in source_row.winml_ep.devices:
+        # dev.device_type → sub-row label (NPU: / GPU: / CPU:)
+        # facts          = dev.ep_facts()        # ('Memory: 16.0 GiB', 'Capabilities: ...')
 ```
 
-The renderer no longer knows about `NPU_DEVICE_TOTAL_MEM_SIZE` or `GPU_DEVICE_TOTAL_MEM_SIZE`. Adding a new EP means adding a `WinMLDevice` subclass + a factory entry — no renderer change.
+The renderer no longer knows about `NPU_DEVICE_TOTAL_MEM_SIZE` or `GPU_DEVICE_TOTAL_MEM_SIZE`. Adding a new EP means adding rows to the §5 dispatch tables — no renderer change.
 
 ### `EPDoctor.diagnose(ep_device, ort_device)` (future Tier 3)
 
-`EPDoctorReport` can carry a `device_facts: tuple[str, ...]` field populated from `wrap_ort_device(ort_device).facts()`. Per-(ep, device) smoke-test results then surface human-readable hardware context without re-extracting metadata.
+`EPDoctorReport` can carry both a `device_facts: tuple[str, ...]` and an `ep_facts: tuple[str, ...]` populated from `wrap_ort_device(ort_device).device_facts()` and `.ep_facts()`. Per-(ep, device) smoke-test results then surface human-readable hardware context without re-extracting metadata.
 
 ### `--verbose` mode
 

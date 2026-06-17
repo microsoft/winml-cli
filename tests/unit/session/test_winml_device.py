@@ -357,10 +357,36 @@ class TestAvailableMetadata:
         assert dict(wrap_ort_device(handle).available_metadata()) == {}
 
 
-class TestFacts:
-    """facts() returns a tuple of pipe-join-ready strings."""
+class TestDeviceFacts:
+    """device_facts() returns Architecture + Driver only (device-intrinsic).
 
-    def test_openvino_npu_facts_include_memory_driver_compiler(self) -> None:
+    Per ``docs/design/session/4_winml_device.md`` §4 + §4.1, these are the
+    facts that surface in the *Available Devices* section of
+    ``winml sys --list-ep`` — values keyed off the underlying silicon
+    and kernel driver, invariant across the EPs that bind to the device.
+    Memory and Capabilities live on :meth:`ep_facts` instead.
+    """
+
+    def test_openvino_npu_device_facts_include_driver(self) -> None:
+        handle = make_fake_ort_ep_device(
+            ep_name="OpenVINOExecutionProvider",
+            device_type="NPU",
+            ep_metadata={"NPU_DRIVER_VERSION": "32.0.100"},
+        )
+        facts = wrap_ort_device(handle).device_facts()
+        assert any("Driver: 32.0.100" in f for f in facts)
+
+    def test_openvino_gpu_device_facts_include_architecture(self) -> None:
+        handle = make_fake_ort_ep_device(
+            ep_name="OpenVINOExecutionProvider",
+            device_type="GPU",
+            ep_metadata={"DEVICE_ARCHITECTURE": "GPU: vendor=0x8086 arch=v20.4.4"},
+        )
+        facts = wrap_ort_device(handle).device_facts()
+        assert any("Architecture: v20.4.4" in f for f in facts)
+
+    def test_device_facts_returns_architecture_and_driver_only(self) -> None:
+        """Memory + Capabilities + Compiler must NOT appear in device_facts."""
         handle = make_fake_ort_ep_device(
             ep_name="OpenVINOExecutionProvider",
             device_type="NPU",
@@ -368,53 +394,129 @@ class TestFacts:
                 "NPU_DEVICE_TOTAL_MEM_SIZE": str(1024**3),  # 1 GiB
                 "NPU_DRIVER_VERSION": "32.0.100",
                 "NPU_COMPILER_VERSION": "5.13.0",
+                "DEVICE_ARCHITECTURE": "uarch4000",
+                "OPTIMIZATION_CAPABILITIES": "FP32 FP16",
             },
         )
-        facts = wrap_ort_device(handle).facts()
-        assert any("Memory: 1.0 GiB" in f for f in facts)
-        assert any("Driver: 32.0.100" in f for f in facts)
-        assert any("Compiler: 5.13.0" in f for f in facts)
+        facts = wrap_ort_device(handle).device_facts()
+        joined = " | ".join(facts)
+        assert "Architecture:" in joined
+        assert "Driver:" in joined
+        # The EP-mediated facts must NOT leak into the device section.
+        assert "Memory:" not in joined
+        assert "Capabilities:" not in joined
+        assert "Compiler:" not in joined
 
-    def test_openvino_gpu_facts_include_architecture_and_capabilities(self) -> None:
+    def test_device_facts_empty_when_no_metadata(self) -> None:
+        """A WinMLDevice with no architecture/driver returns empty tuple."""
+        handle = make_fake_ort_ep_device(
+            ep_name="OpenVINOExecutionProvider", device_type="NPU"
+        )
+        assert wrap_ort_device(handle).device_facts() == ()
+
+    def test_device_facts_returns_tuple_of_strings(self) -> None:
+        handle = make_fake_ort_ep_device(
+            ep_name="OpenVINOExecutionProvider",
+            device_type="NPU",
+            ep_metadata={"NPU_DRIVER_VERSION": "32.0.100"},
+        )
+        facts = wrap_ort_device(handle).device_facts()
+        assert isinstance(facts, tuple)
+        assert all(isinstance(f, str) for f in facts)
+
+    def test_unknown_ep_device_facts_is_empty(self) -> None:
+        """An EP with no per-EP dispatch contributes no device_facts."""
+        handle = make_fake_ort_ep_device(
+            ep_name="UnknownEP", device_type="NPU"
+        )
+        assert wrap_ort_device(handle).device_facts() == ()
+
+
+class TestEpFacts:
+    """ep_facts() returns Memory + Capabilities only (EP-mediated).
+
+    Per ``docs/design/session/4_winml_device.md`` §4 + §4.1, these are the
+    facts that surface in the per-source EP rows of
+    ``winml sys --list-ep`` — values keyed off this specific EP runtime's
+    view of the device. Architecture/Driver live on :meth:`device_facts`
+    instead; ``compiler_version`` is deferred to ``--verbose``.
+    """
+
+    def test_openvino_npu_ep_facts_include_memory(self) -> None:
+        handle = make_fake_ort_ep_device(
+            ep_name="OpenVINOExecutionProvider",
+            device_type="NPU",
+            ep_metadata={"NPU_DEVICE_TOTAL_MEM_SIZE": str(1024**3)},  # 1 GiB
+        )
+        facts = wrap_ort_device(handle).ep_facts()
+        assert any("Memory: 1.0 GiB" in f for f in facts)
+
+    def test_openvino_gpu_ep_facts_include_memory_and_capabilities(self) -> None:
         handle = make_fake_ort_ep_device(
             ep_name="OpenVINOExecutionProvider",
             device_type="GPU",
             ep_metadata={
                 "GPU_DEVICE_TOTAL_MEM_SIZE": str(2 * 1024**3),  # 2 GiB
-                "DEVICE_ARCHITECTURE": "GPU: vendor=0x8086 arch=v20.4.4",
                 "OPTIMIZATION_CAPABILITIES": "FP32 FP16",
             },
         )
-        facts = wrap_ort_device(handle).facts()
+        facts = wrap_ort_device(handle).ep_facts()
         joined = " | ".join(facts)
         assert "Memory: 2.0 GiB" in joined
-        assert "Architecture: v20.4.4" in joined
         assert "Capabilities: FP32, FP16" in joined
 
-    def test_facts_returns_tuple_of_strings(self) -> None:
+    def test_ep_facts_returns_memory_and_capabilities_only(self) -> None:
+        """Architecture + Driver + Compiler must NOT appear in ep_facts."""
+        handle = make_fake_ort_ep_device(
+            ep_name="OpenVINOExecutionProvider",
+            device_type="NPU",
+            ep_metadata={
+                "NPU_DEVICE_TOTAL_MEM_SIZE": str(1024**3),
+                "NPU_DRIVER_VERSION": "32.0.100",
+                "NPU_COMPILER_VERSION": "5.13.0",
+                "DEVICE_ARCHITECTURE": "uarch4000",
+            },
+        )
+        facts = wrap_ort_device(handle).ep_facts()
+        joined = " | ".join(facts)
+        assert "Memory:" in joined
+        # The device-intrinsic facts must NOT leak into the EP section.
+        assert "Architecture:" not in joined
+        assert "Driver:" not in joined
+        # compiler_version is deferred to --verbose.
+        assert "Compiler:" not in joined
+
+    def test_ep_facts_empty_when_no_metadata(self) -> None:
+        """A WinMLDevice with no memory/capabilities returns empty tuple."""
         handle = make_fake_ort_ep_device(
             ep_name="OpenVINOExecutionProvider", device_type="NPU"
         )
-        facts = wrap_ort_device(handle).facts()
+        assert wrap_ort_device(handle).ep_facts() == ()
+
+    def test_ep_facts_returns_tuple_of_strings(self) -> None:
+        handle = make_fake_ort_ep_device(
+            ep_name="OpenVINOExecutionProvider", device_type="NPU"
+        )
+        facts = wrap_ort_device(handle).ep_facts()
         assert isinstance(facts, tuple)
         assert all(isinstance(f, str) for f in facts)
 
-    def test_facts_pipe_join_ready(self) -> None:
+    def test_ep_facts_pipe_join_ready(self) -> None:
         handle = make_fake_ort_ep_device(
             ep_name="OpenVINOExecutionProvider",
             device_type="NPU",
             ep_metadata={"NPU_DEVICE_TOTAL_MEM_SIZE": str(1024**3)},
         )
-        # Caller documented usage: '  |  '.join(facts())
-        joined = "  |  ".join(wrap_ort_device(handle).facts())
+        # Caller documented usage: '  |  '.join(ep_facts())
+        joined = "  |  ".join(wrap_ort_device(handle).ep_facts())
         assert "Memory:" in joined
 
-    def test_unknown_ep_facts_is_empty(self) -> None:
-        """An EP with no per-EP dispatch contributes no facts."""
+    def test_unknown_ep_ep_facts_is_empty(self) -> None:
+        """An EP with no per-EP dispatch contributes no ep_facts."""
         handle = make_fake_ort_ep_device(
             ep_name="UnknownEP", device_type="NPU"
         )
-        assert wrap_ort_device(handle).facts() == ()
+        assert wrap_ort_device(handle).ep_facts() == ()
 
 
 class TestFormatBytesHelper:
@@ -432,12 +534,12 @@ class TestFormatBytesHelper:
     def test_format_bytes(self) -> None:
         assert _format_bytes(512) == "512 B"
 
-    def test_format_via_facts(self) -> None:
-        """Sanity: facts() ties memory_bytes to _format_bytes correctly."""
+    def test_format_via_ep_facts(self) -> None:
+        """Sanity: ep_facts() ties memory_bytes to _format_bytes correctly."""
         handle = make_fake_ort_ep_device(
             ep_name="OpenVINOExecutionProvider",
             device_type="NPU",
             ep_metadata={"NPU_DEVICE_TOTAL_MEM_SIZE": str(8 * 1024**3)},
         )
-        facts = wrap_ort_device(handle).facts()
+        facts = wrap_ort_device(handle).ep_facts()
         assert any("Memory: 8.0 GiB" in f for f in facts)

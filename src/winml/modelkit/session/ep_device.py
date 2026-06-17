@@ -700,21 +700,42 @@ class WinMLDevice:
         """Raw ep_metadata mapping - for --verbose / debug dumps."""
         return dict(self._ort.ep_metadata)
 
-    def facts(self) -> tuple[str, ...]:
-        """Render-ready facts for one-line-per-device display.
+    def device_facts(self) -> tuple[str, ...]:
+        """Device-intrinsic facts for the *Available Devices* section.
 
-        Joins memory / architecture / driver / compiler / capabilities into
-        a tuple of strings ready for '  |  '.join(...).
+        Returns Architecture + Driver — values keyed off the underlying
+        silicon and kernel driver, invariant across the EPs that bind to
+        the device. Empty entries are skipped.
+
+        Contrast with :meth:`ep_facts` (Memory + Capabilities), which
+        reflect this specific EP runtime's view of the device and can
+        differ between sources of the same EP and between different EPs
+        on the same hardware. See ``docs/design/session/4_winml_device.md``
+        §4 + §4.1 for the attribute-attribution table.
         """
         out: list[str] = []
-        if (m := self.memory_bytes) is not None:
-            out.append(f"Memory: {_format_bytes(m)}")
         if (a := self.architecture) is not None:
             out.append(f"Architecture: {a}")
         if (d := self.driver_version) is not None:
             out.append(f"Driver: {d}")
-        if (c := self.compiler_version) is not None:
-            out.append(f"Compiler: {c}")
+        return tuple(out)
+
+    def ep_facts(self) -> tuple[str, ...]:
+        """EP-mediated facts for the *Available Execution Providers* section.
+
+        Returns Memory + Capabilities — values keyed off this specific
+        EP runtime's view of the device, which can differ between
+        sources of the same EP (e.g. OpenVINO 1.4.1 vs 1.8.79.0 report
+        different addressable memory) and between different EPs on the
+        same hardware (OpenVINO vs DML on the iGPU). Empty entries are
+        skipped.
+
+        ``compiler_version`` stays as a public property but is deferred
+        from default render to ``--verbose`` via :meth:`available_metadata`.
+        """
+        out: list[str] = []
+        if (m := self.memory_bytes) is not None:
+            out.append(f"Memory: {_format_bytes(m)}")
         if caps := self.capabilities:
             out.append(f"Capabilities: {', '.join(caps)}")
         return tuple(out)
