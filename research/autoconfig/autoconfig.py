@@ -34,6 +34,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from analyze_insight import build_insight
 from bench_utils import (
     FULL_ITERS,
     FULL_SESSIONS,
@@ -47,6 +48,7 @@ from bench_utils import (
     median_p50,
     run_cmd,
 )
+from report_gen import generate_report
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
@@ -340,6 +342,16 @@ def _run_phase_b(
             f"Improvement confirmed: p50 {baseline_p50:.1f}ms -> {med_p50:.1f}ms "
             f"({delta_pct:+.1f}%). {verdict.reasoning}"
         )
+        # Auto-write KB draft entry for notable improvements
+        if not verdict.marginal:
+            write_kb_draft(
+                ep=EP,
+                label=label,
+                improvement_pct=improvement_pct,
+                cv=screen_cv,
+                model_id=MODEL_ID,
+                dimension=exp_info.get("dimension", "unknown"),
+            )
     elif verdict.verdict == "ACC_FAIL":
         status = f"discard (accuracy {accuracy:.4f} < floor {ACCURACY_FLOOR})"
     else:
@@ -429,6 +441,55 @@ Timestamp: {datetime.now().isoformat(timespec="seconds")}
     (exp_dir / "experiment.md").write_text(doc, encoding="utf-8")
 
 
+def write_kb_draft(
+    ep: str, label: str, improvement_pct: float, cv: float, model_id: str, dimension: str
+) -> None:
+    """Append a draft finding to ep_knowledge/<ep>.json when improvement > 10%.
+
+    The entry gets status='draft' — a human must review and promote to 'confirmed'
+    after Gate 2 validation (>=2 independent models, mechanism understood).
+    """
+    if improvement_pct < 10.0:
+        return
+    kb_path = KB_DIR / f"{ep}.json"
+    if not kb_path.exists():
+        return
+    try:
+        kb = json.loads(kb_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    findings = kb.setdefault("findings", [])
+    # Auto-generate a draft ID: ep-draft-<timestamp>
+    draft_id = f"{ep}-draft-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    # Don't duplicate if same label+model already drafted
+    for f in findings:
+        if (
+            f.get("status") == "draft"
+            and f.get("model_id") == model_id
+            and f.get("title", "").startswith(label[:30])
+        ):
+            return
+
+    draft = {
+        "id": draft_id,
+        "status": "draft",
+        "title": f"[DRAFT] {label} — {improvement_pct:+.1f}% on {model_id}",
+        "model_id": model_id,
+        "dimension": dimension,
+        "improvement_pct": round(improvement_pct, 2),
+        "cv": round(cv, 3),
+        "mechanism_confirmed": False,
+        "note": "Auto-generated draft. Requires Gate 2: >=2 models, mechanism understood.",
+        "action_for_autoconfig": "investigate",
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+    }
+    findings.append(draft)
+    kb_path.write_text(json.dumps(kb, indent=2), encoding="utf-8")
+    print(f"  [KB draft] Wrote draft entry {draft_id}: {label} ({improvement_pct:+.1f}%)")
+
+
 def log(row: dict) -> None:
     fields = [
         "iter",
@@ -503,7 +564,28 @@ def main() -> None:
         stat_bar_multiplier=STAT_BAR_MULTIPLIER,
     )
 
-    for i, (label, patch_fn, dimension) in enumerate(HYPOTHESES):
+    # ── Phase 1: Insight Engine ────────────────────────────────────────────────
+    # Run AFTER baseline build so we have a real ONNX to analyse.
+    # The baseline ONNX is expected at WORK_DIR/iter_00/model.onnx once h0 has run.
+    # On first run the baseline may not exist yet — insight falls back gracefully.
+    baseline_onnx = WORK_DIR / "iter_00" / "model.onnx"
+    insight = build_insight(
+        onnx_path=baseline_onnx,
+        winml=WINML,
+        ep=EP,
+        device=DEVICE,
+        hypotheses=HYPOTHESES,
+        kb=kb,
+    )
+
+    # Reorder HYPOTHESES by priority boost (highest first), keeping stable sort
+    def _sort_key(item: tuple) -> float:
+        lbl = item[0]
+        return -insight.priority_boosts.get(lbl, 0.0)
+
+    active_hypotheses = sorted(HYPOTHESES, key=_sort_key)
+
+    for i, (label, patch_fn, dimension) in enumerate(active_hypotheses):
         # Skip iters completed in a prior run
         if i in session.completed_iters:
             print(f"  [resume] skipping iter {i} ({label}) — already done")
@@ -521,6 +603,11 @@ def main() -> None:
         )
         if skip_reason:
             print(f"  skipped by KB confirmed rule: {skip_reason}")
+            continue
+
+        # Check insight skip_set (Phase 1 analysis-derived rules)
+        if label in insight.skip_set:
+            print(f"  skipped by Insight Engine: {label}")
             continue
 
         cfg = patch_fn(copy.deepcopy(BASELINE))  # type: ignore[operator]
@@ -677,6 +764,20 @@ def main() -> None:
     print(f"  Best p50: {best_p50:.1f}ms" if best_p50 < float("inf") else "  No improvement found")
     print(f"  Results: {RESULTS_TSV}")
     print(f"  Experiments: {WORK_DIR / 'experiments'}")
+
+    # ── Phase 3: Generate HTML report ─────────────────────────────────────────
+    try:
+        report_path = generate_report(
+            results_tsv=RESULTS_TSV,
+            work_dir=WORK_DIR,
+            model_id=MODEL_ID,
+            ep=EP,
+            insight_notes=insight.notes,
+        )
+        print(f"  Report:    {report_path}")
+    except Exception as e:
+        print(f"  [warn] Report generation failed: {e}")
+
     print(f"{sep}\n")
 
 
