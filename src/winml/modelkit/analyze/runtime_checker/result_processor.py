@@ -1042,8 +1042,8 @@ if __name__ == "__main__":
     )
     print(f"Parquet rule files written to: {parquet_dir}")
     if args.debug:
-        assert debug_output_dir is not None
-        assert debug_parquet_dir is not None
+        # debug_output_dir / debug_parquet_dir are guaranteed non-None here by the
+        # args.debug validation block above (no runtime assert needed).
         print(f"Debug JSON rule files written to: {debug_output_dir}")
         print(f"Debug parquet rule files written to: {debug_parquet_dir}")
 

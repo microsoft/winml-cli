@@ -226,16 +226,19 @@ class InputValueConstraint(InputConstraint):
 
 
 def normalize_constraint_dict(c: dict) -> dict:
-    """Expand same_value/same_value_shape back to the canonical value list form.
+    """Expand same_value/same_value_shape back to the canonical value array form.
 
     Converts the compact representation produced by InputValueConstraint.to_dict()
-    when all values are equal, back to the full nested value list. Use this when
+    when all values are equal, back to the full nested value array. Use this when
     consuming serialized constraint dicts to ensure consistent handling regardless
     of which representation was saved.
     """
     if "same_value" in c and "same_value_shape" in c:
         normalized = {k: v for k, v in c.items() if k not in ("same_value", "same_value_shape")}
         dtype = np.dtype(c["dtype"]) if "dtype" in c else None
+        # Keep the ndarray (do NOT call .tolist()): .tolist() coerces numpy scalars
+        # to Python types (e.g. numpy bool_ -> bool), which loses the original dtype
+        # and breaks faithful restoration of the input value.
         normalized["value"] = np.full(c["same_value_shape"], c["same_value"], dtype=dtype)
 
         return normalized
