@@ -191,15 +191,20 @@ def run_cmd(cmd: list[str], label: str = "", timeout: int = 600) -> tuple[int, s
 def _get_p50(perf_json: Path) -> float | None:
     try:
         d = json.loads(perf_json.read_text(encoding="utf-8"))
-        return float(d.get("p50_ms") or d.get("p50") or 0) or None
+        lat = d.get("latency_ms", d)
+        return float(lat.get("p50") or 0) or None
     except Exception:
         return None
 
 
 def _get_cv(perf_json: Path) -> float | None:
+    """Return CV (std/p50). Returns None on parse error."""
     try:
         d = json.loads(perf_json.read_text(encoding="utf-8"))
-        return float(d.get("cv_pct") or d.get("cv") or d.get("std_ms", 0)) or None
+        lat = d.get("latency_ms", d)
+        p50 = float(lat.get("p50") or 0)
+        std = float(lat.get("std") or 0)
+        return std / p50 if p50 > 0 else None
     except Exception:
         return None
 
@@ -318,7 +323,7 @@ def run_perf_screen(onnx_path: Path, out_json: Path) -> tuple[float | None, floa
             str(SCREEN_WARMUP),
             "--iterations",
             str(SCREEN_ITERS),
-            "--output-json",
+            "--output",
             str(out_json),
         ],
         label="perf screen (200 iters)",
@@ -352,7 +357,7 @@ def run_perf_full(onnx_path: Path, hyp_dir: Path) -> list[float]:
                 str(FULL_WARMUP),
                 "--iterations",
                 str(FULL_ITERS),
-                "--output-json",
+                "--output",
                 str(out_json),
             ],
             label=f"perf full s{s}/{FULL_SESSIONS} ({FULL_ITERS} iters)",
@@ -625,7 +630,7 @@ def _run_confirmation_pass(results: dict, model_dir: Path, baseline_p50: float |
                     str(FULL_WARMUP),
                     "--iterations",
                     str(FULL_ITERS),
-                    "--output-json",
+                    "--output",
                     str(out_json),
                 ],
                 label=f"confirm s{s}/{CONFIRM_SESSIONS}",
