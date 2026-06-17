@@ -1470,16 +1470,35 @@ The ablation experiment ran 22 experiments over multiple days. Had the profiler 
 # Step 1: verify the model is supported
 winml inspect -m <model-id> --format json
 
-# Step 2: baseline build (default config, opset=17)
+# Step 2: graph analysis — extract structural flags before any experiment
+winml analyze -m <model-id> --ep <ep> --format json -o analyze_out/
+# Parse analyze_out/analysis.json:
+#   conv_op_count   = count of "Conv" in op_distribution
+#   total_op_count  = sum of all op counts
+#   conv_pct        = conv_op_count / total_op_count * 100
+#
+# Set EP-specific flags (used throughout Phase 2 loop):
+#   conv_fusions_blocked = (ep == "qnn" AND device == "npu" AND conv_pct > 20)
+#                          [npu-006: FusedConv not supported by QNN EP → CPU fallback]
+#   nhwc_blocked         = (ep in ["qnn_gpu", "dml"])
+#                          [dml-002: NHWC increases p90 variance on Adreno+D3D12]
+#   opset_sweep_blocked  = (ep == "cpu")
+#                          [cpu-001: opset 19+ causes 3-4× regression on CPU EP]
+#   bench_protocol       = "npu" if (ep == "qnn" AND device == "npu") else "standard"
+#                          [npu-007: QNN NPU CV 0.15-1.2 normal; always use 3-session]
+
+# Step 3: baseline build (default config, opset=17)
 winml export -m <model-id> -o baseline/
 winml build -c config_baseline.json -m <model-id> -o baseline_built/
 
-# Step 3: correctness contract
+# Step 4: correctness contract
 winml eval --mode compare -m baseline_built/model.onnx --model-id <model-id> --format json
 # Expected: cosine=1.0 (FP32 self-comparison)
 
-# Step 4: baseline perf
-winml perf -m baseline_built/model.onnx --ep <ep> --warmup 10 --iterations 50 --format json
+# Step 5: baseline perf (using EP-appropriate protocol)
+# standard: winml perf -m baseline_built/model.onnx --ep <ep> --warmup 20 --iterations 200
+# npu:      full 3-session bench (see Phase 2 PERF step)
+winml perf -m baseline_built/model.onnx --ep <ep> --warmup 20 --iterations 200 --format json
 # Record: baseline_p50_ms
 ```
 
@@ -1520,11 +1539,27 @@ BUILD skip_set (passes not worth trying):
   IF Transpose pct > 10% AND opset >= 19:
                                    flag as [KNOWN_TRADEOFF]; add to report
 
+  # EP-specific hard blocks (from Phase 0 flags):
+  IF conv_fusions_blocked:         # npu-006: FusedConv → QNN EP CPU fallback
+    skip_set.add(conv-bn-fusion, conv-add-fusion, conv-mul-fusion,
+                 conv-activation-fusion, conv-add-activation-fusion)
+    log "BLOCKED conv-*-fusion: npu-006 FusedConv risk (Conv% = {conv_pct:.0f}%)"
+
+  IF nhwc_blocked:                 # dml-002: NHWC worsens p90/std on Adreno+D3D12
+    skip_set.add(nhwc-transformer)
+    log "BLOCKED nhwc-transformer: dml-002 variance increase on GPU EP"
+
+  IF opset_sweep_blocked:          # cpu-001: opset 19+ regresses 3-4× on CPU EP
+    skip_set.add(opset_sweep)      # opset is FIXED at 17 for CPU; never sweep
+    log "BLOCKED opset sweep: cpu-001, using opset=17 only"
+
 BUILD priority_queue (hypotheses in evidence-based order):
   IF top_bottleneck == "Gemm" OR "MatMul":
     queue: [quant_precision, calib_method, calib_samples, matmul_fusions, per_channel]
   IF top_bottleneck == "Conv":
-    queue: [nchwc (if not in skip_set), conv_fusions, quant_precision]
+    # Only add conv_fusions if not blocked by npu-006
+    conv_fusions_entry = [] if conv_fusions_blocked else [conv_fusions]
+    queue: [nchwc (if not in skip_set)] + conv_fusions_entry + [quant_precision]
   IF top_bottleneck == "Attention":
     queue: [quant_precision, nodes_to_exclude (Attention), calib_method]
   DEFAULT:
@@ -1544,7 +1579,9 @@ LOOP FOREVER (until user stops or convergence):
 
 2. HYPOTHESIZE: build config.json delta based on hypothesis
    Hypothesis rules (profile-informed, in priority order):
-   a. If first loop: start with full W8A8/W8A16, all ops quantized
+   a. If first loop: start with W8A16 (NOT W8A8), all ops quantized
+      Rationale: W8A8 is high-risk on models with LN/GELU (catastrophic on QNN NPU).
+      Try W8A16 first; only escalate to W8A8 after W8A16 establishes a valid baseline.
    b. If cosine < floor: add worst partial_op to nodes_to_exclude (one at a time)
    c. If cosine ≥ floor but latency > budget: try W8A8 instead of W8A16,
       or reduce calibration_samples, or add per_channel=true
@@ -1579,14 +1616,43 @@ LOOP FOREVER (until user stops or convergence):
     → top1_accuracy (image-classification), f1 (text), mAP (detection), etc.
     This is the authoritative accuracy metric for Reviewer verdict.
 
+    W8A8 EARLY EXIT (save 3+ wasted bench sessions):
+    IF precision == "w8a8" AND top1_accuracy ≤ 0.15 (near-random):
+      → log "W8A8 EARLY EXIT: top-1 ≤15%, quantization collapsed"
+      → skip_set.add(all W8A8 variants)    # never try W8A8 again for this model/EP
+      → discard this config immediately (skip step 6 PERF)
+      → next hypothesis: try W8A16 with nodes_to_exclude for sensitive op types
+
     Why cosine alone is not sufficient:
     - High cosine (0.97) but top-1 drops 5%: logit magnitudes preserved but relative ranking shifted
     - Low cosine (0.92) but same top-1: relative ranking unchanged despite numeric difference
     → Only task accuracy tells you whether the model still does its job
 
-6. PERF: winml perf -m out_<iteration>/artifact.onnx \
-         --device <target> --ep <ep> --warmup 10 --iterations 50 --format json
-   → p50_ms, p90_ms
+6. PERF: bench protocol depends on bench_protocol flag set in Phase 0
+
+   standard (CPU / GPU / DML):
+     winml perf -m out_<iteration>/artifact.onnx \
+                --device <target> --ep <ep> --warmup 20 --iterations 200 --format json
+     CV = std / p50
+     IF CV > 0.10: log [UNSTABLE], cool down 120s, retry once; if still >0.10 → skip/discard
+     IF CV ≤ 0.10: proceed to full bench (3×500-iter, 60s cool-down for GPU)
+
+   npu (QNN NPU only) — always use 3-session protocol (npu-007):
+     # High CV (0.15-1.2) is NORMAL for Hexagon HTP. Never reject on CV alone.
+     winml perf ... --warmup 20 --iterations 500 -o run1.json
+     sleep 30
+     winml perf ... --warmup 20 --iterations 500 -o run2.json
+     sleep 30
+     winml perf ... --warmup 20 --iterations 500 -o run3.json
+
+     # s0 JIT exclusion: if any run's first 50 iters (inferred via warmup behavior) are
+     # elevated, it reflects JIT compilation, not steady-state. When run1/2/3 disagree:
+     #   candidate_p50 = median(run1.p50, run2.p50, run3.p50)
+     # If run1.p50 > median(run2.p50, run3.p50) × 1.20 → suspect JIT; use run2+run3 median.
+
+     # KEEP only if: ALL of run1/2/3 p50 < baseline best × (1 - min_improvement)
+     # (ranges must not overlap — median alone is insufficient for noisy NPU measurements)
+   → record: candidate_p50_ms, bench_sessions_used
 
 7. REVIEWER: cross-experiment verdict
    keep    if task_accuracy ≥ accuracy_floor  AND  p50_ms ≤ latency_budget
@@ -1610,6 +1676,21 @@ LOOP FOREVER (until user stops or convergence):
 - cosine ≥ target floor AND p50_ms ≤ latency budget: objective achieved
 - 5 consecutive discards with no improvement: report best so far
 - User manually stops the agent
+
+**Post-convergence: mandatory finalization for QNN NPU**
+
+```bash
+# For QNN NPU only: always compile the best-found quantized model
+# compile adds ~1.7× speedup on top of quantization (validated on ConvNext: 10.3ms → 6.0ms)
+IF bench_protocol == "npu":
+  winml compile -m best_config/model.onnx --device npu --ep qnn -o best_compiled/
+  # Re-bench compiled model (same 3-session protocol)
+  # compiled latency replaces quantized latency in report
+
+# For GPU/DML: NEVER run winml compile — it regresses latency on Adreno X1-85
+IF ep in ["qnn_gpu", "dml"]:
+  log "compile step skipped: GPU compile regresses latency (validated -34% on ConvNext QNN GPU)"
+```
 
 ---
 
@@ -1654,8 +1735,11 @@ Phase 4 — optimize pass tuning (independent of quant, affects graph structure)
     constant-folding=false  (prevents size bloat; sometimes exposes EP-incompatible shape)
     clamp-constant-values=true  (fixes -inf attention mask → quantization issues)
     remove-isnan-in-attention-mask=true  (use after clamp; cleans dead IsNaN guards)
-  Try opset_version: 17 → 18 → 19
-    (Higher opsets expose newer op types that may have better EP support)
+  Try opset_version (only if opset_sweep NOT blocked):
+    CPU EP:     SKIP entirely — opset_sweep_blocked=True (cpu-001: opset 19+ regresses 3-4×)
+    QNN GPU/DML: SKIP — not validated beyond opset 17
+    QNN NPU:    full sweep 17 → 18 → 19 → 20 → 21 (architecture-dependent benefit;
+                opset21 confirmed +24-31% for DINOv2 family, NEUTRAL for general ViT)
 
 Phase 5 — selective node exclusion (when analyze shows partial ops)
   Read winml analyze --format json → partial_ops list
