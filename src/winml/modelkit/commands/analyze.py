@@ -918,8 +918,8 @@ def analyze(
             if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
                 continue
             execution_pairs.extend(
-            (candidate_ep, candidate_device)
-            for candidate_device in devices
+                (candidate_ep, candidate_device)
+                for candidate_device in devices
                 if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
             )
         execution_pairs = _sort_ep_device_pairs(execution_pairs)
@@ -1278,8 +1278,6 @@ def analyze(
                 run_unknown_op_for_ep = _resolve_run_unknown_op(
                     target_ep, target_device, run_unknown_op, local_pairs
                 )
-                current_device = target_device
-                current_ep_device_pair = None
 
                 result = analyzer.analyze(
                     model_path=str(model),

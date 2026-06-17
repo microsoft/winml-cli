@@ -247,12 +247,12 @@ class CheckResultWriter:
             True if the case should be skipped.
         """
         sig = compute_case_signature(case, namespace=self.case_namespace)
-        case_index = _compute_case_index_with_namespace_key(
-            case,
-            namespace_key=self.case_namespace_key,
-        )
         if self.filter_case_indices is not None:
             assert self._filter_case_index_set is not None
+            case_index = _compute_case_index_with_namespace_key(
+                case,
+                namespace_key=self.case_namespace_key,
+            )
             return case_index not in self._filter_case_index_set
 
         if self.delta_only:
@@ -296,12 +296,12 @@ class CheckResultWriter:
             True if existing result was found and reused, False otherwise.
         """
         sig = compute_case_signature(case, namespace=self.case_namespace)
-        case_index = _compute_case_index_with_namespace_key(
-            case,
-            namespace_key=self.case_namespace_key,
-        )
         if self.filter_case_indices is not None:
             assert self._filter_case_index_set is not None
+            case_index = _compute_case_index_with_namespace_key(
+                case,
+                namespace_key=self.case_namespace_key,
+            )
             if case_index not in self._filter_case_index_set:
                 return False
 

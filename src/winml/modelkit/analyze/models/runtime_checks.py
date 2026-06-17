@@ -17,15 +17,6 @@ from .ihv_type import IHVType
 from .support_level import SupportLevel
 
 
-class RuntimeDebugStep(TypedDict):
-    """Single step in parquet debug filtering trace."""
-
-    column: str
-    value: Any
-    rows_before: int
-    rows_after: int
-
-
 class RuntimeDebugDetails(TypedDict):
     """Typed payload for runtime debug details.
 
