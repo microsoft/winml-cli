@@ -12,12 +12,15 @@ from winml.modelkit.utils.logging import configure_logging
 
 
 @pytest.fixture(autouse=True)
-def _restore_optimum_level():
-    """configure_logging mutates global logger state; restore it after each test."""
-    logger = logging.getLogger("optimum")
-    before = logger.level
+def _restore_logger_levels():
+    """configure_logging mutates global logger state (root + the noisy library loggers);
+    restore both after each test so verbosity changes don't leak across tests."""
+    root = logging.getLogger()
+    optimum = logging.getLogger("optimum")
+    root_before, optimum_before = root.level, optimum.level
     yield
-    logger.setLevel(before)
+    root.setLevel(root_before)
+    optimum.setLevel(optimum_before)
 
 
 def test_library_loggers_floored_at_error_in_normal_mode():

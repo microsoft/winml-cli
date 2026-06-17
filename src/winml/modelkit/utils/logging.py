@@ -91,7 +91,8 @@ def configure_logging(
     # Keep noisy third-party library chatter out of normal output. Their loggers float
     # up to the CLI level only when the user opts into verbosity (-v/-vv); otherwise they
     # are pinned at ERROR so library notices never leak into / interleave with output.
-    library_level = log_level if (verbosity > 0 or verbose) else logging.ERROR
+    # (verbose=True is folded into verbosity above, so verbosity > 0 covers it.)
+    library_level = log_level if verbosity > 0 else logging.ERROR
     for name in _NOISY_LIBRARY_LOGGERS:
         logging.getLogger(name).setLevel(library_level)
 
