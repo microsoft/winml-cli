@@ -34,8 +34,37 @@
   .gpu  .ep-header { background: #fff3e0; color: #e65100; border: 1.5px solid #ffcc80; border-bottom: none; }
   .gpu  .ep-body   { border: 1.5px solid #ffcc80; border-top: none; }
 
-  /* ── Finding rows ── */
-  .finding {
+  /* ── Single-model hiding ── */
+  .single-model { display: none; }
+  body.show-single .single-model { display: grid; }
+  .single-model .find-id { color: #c5cae9; }
+
+  .sm-divider {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 16px;
+    background: #fafafa; border-top: 1px solid #eef;
+    font-size: 10px; color: #aab;
+  }
+  .sm-divider .sm-count {
+    background: #f0f2f5; color: #778; border-radius: 8px;
+    padding: 1px 7px; font-weight: 700;
+  }
+  /* hide the divider when already showing single-model rows */
+  body.show-single .sm-divider { display: none; }
+  /* also hide divider when there are no hidden rows (EP has none) */
+
+  /* toggle button */
+  .toggle-bar {
+    display: flex; align-items: center; gap: 12px;
+    max-width: 900px; margin: 0 0 20px 0;
+  }
+  .toggle-btn {
+    padding: 6px 14px; border-radius: 20px; border: 1.5px solid #9fa8da;
+    background: #e8eaf6; color: #3949ab; font-size: 11px; font-weight: 700;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .toggle-btn:hover { background: #c5cae9; }
+  .toggle-note { font-size: 11px; color: #aab; }
     display: grid;
     grid-template-columns: 28px 70px 1fr auto;
     gap: 0;
@@ -157,9 +186,8 @@
 
 <div class="stats-bar">
   <div class="stat"><div class="stat-n">17</div><div class="stat-l">total findings</div></div>
-  <div class="stat"><div class="stat-n" style="color:#1b5e20">9</div><div class="stat-l">high confidence</div></div>
-  <div class="stat"><div class="stat-n" style="color:#f57f17">6</div><div class="stat-l">medium confidence</div></div>
-  <div class="stat"><div class="stat-n" style="color:#880e4f">2</div><div class="stat-l">low / single-run</div></div>
+  <div class="stat"><div class="stat-n" style="color:#1b5e20">6</div><div class="stat-l">visible (multi-model)</div></div>
+  <div class="stat"><div class="stat-n" style="color:#9fa8da">11</div><div class="stat-l">hidden (single-model)</div></div>
   <div class="stat"><div class="stat-n">14</div><div class="stat-l">models tested (NPU)</div></div>
   <div class="stat"><div class="stat-n">7</div><div class="stat-l">feature requests</div></div>
 </div>
@@ -169,6 +197,13 @@
   CPU/DML/GPU findings are from 1 model only (facebook/convnext-tiny-224).
   QNN NPU findings cover 14 models. Always re-validate on new model architectures before using to prune search space.
   Confidence levels reflect mechanism certainty, not universal applicability.
+</div>
+
+<div class="toggle-bar">
+  <button class="toggle-btn" onclick="document.body.classList.toggle('show-single');this.textContent=document.body.classList.contains('show-single')?'Hide single-model findings':'Show single-model findings'">
+    Show single-model findings
+  </button>
+  <span class="toggle-note">Showing only multi-model / universal findings by default. Single-model findings (1 model tested) are hidden.</span>
 </div>
 
 <!-- ════════════ QNN NPU ════════════ -->
@@ -257,7 +292,11 @@
     </div>
 
     <!-- npu-002 -->
-    <div class="finding">
+    <div class="sm-divider">
+      <span class="sm-count">3 single-model findings hidden (npu-002/003/004 — ConvNext only)</span>
+      <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
+    </div>
+    <div class="finding single-model">
       <div class="find-id">npu-002</div>
       <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>1 model</span></div>
       <div class="find-body">
@@ -280,7 +319,7 @@
     </div>
 
     <!-- npu-003 -->
-    <div class="finding">
+    <div class="finding single-model">
       <div class="find-id">npu-003</div>
       <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>1 model</span></div>
       <div class="find-body">
@@ -300,7 +339,7 @@
     </div>
 
     <!-- npu-004 -->
-    <div class="finding">
+    <div class="finding single-model">
       <div class="find-id">npu-004</div>
       <div class="find-conf"><span class="conf conf-low">LOW<br>anecdote</span></div>
       <div class="find-body">
@@ -334,7 +373,11 @@
   <div class="ep-body">
 
     <!-- cpu-001 -->
-    <div class="finding">
+    <div class="sm-divider">
+      <span class="sm-count">3 single-model findings hidden (cpu-001/002/005 — ConvNext only)</span>
+      <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
+    </div>
+    <div class="finding single-model">
       <div class="find-id">cpu-001</div>
       <div class="find-conf"><span class="conf conf-high">HIGH<br>empirical</span></div>
       <div class="find-body">
@@ -358,7 +401,7 @@
     </div>
 
     <!-- cpu-002 -->
-    <div class="finding">
+    <div class="finding single-model">
       <div class="find-id">cpu-002</div>
       <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
       <div class="find-body">
@@ -380,7 +423,7 @@
     </div>
 
     <!-- cpu-005 -->
-    <div class="finding">
+    <div class="finding single-model">
       <div class="find-id">cpu-005</div>
       <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
       <div class="find-body">
@@ -437,7 +480,11 @@
   <div class="ep-body">
 
     <!-- dml-001 -->
-    <div class="finding">
+    <div class="sm-divider">
+      <span class="sm-count">3 single-model findings hidden (dml-001/002/003 — ConvNext only)</span>
+      <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
+    </div>
+    <div class="finding single-model">
       <div class="find-id">dml-001</div>
       <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>stability</span></div>
       <div class="find-body">
@@ -459,7 +506,7 @@
     </div>
 
     <!-- dml-002 -->
-    <div class="finding">
+    <div class="finding single-model">
       <div class="find-id">dml-002</div>
       <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>1 run</span></div>
       <div class="find-body">
@@ -481,7 +528,7 @@
     </div>
 
     <!-- dml-003 -->
-    <div class="finding">
+    <div class="finding single-model">
       <div class="find-id">dml-003</div>
       <div class="find-conf"><span class="conf conf-low">LOW<br>CLI gap</span></div>
       <div class="find-body">
@@ -538,7 +585,11 @@
   <div class="ep-body">
 
     <!-- gpu-001 -->
-    <div class="finding">
+    <div class="sm-divider">
+      <span class="sm-count">4 single-model findings hidden (gpu-001/002/003/005 — ConvNext only)</span>
+      <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
+    </div>
+    <div class="finding single-model">
       <div class="find-id">gpu-001</div>
       <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
       <div class="find-body">
@@ -561,7 +612,7 @@
     </div>
 
     <!-- gpu-002 -->
-    <div class="finding">
+    <div class="finding single-model">
       <div class="find-id">gpu-002</div>
       <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>consistent</span></div>
       <div class="find-body">
@@ -605,7 +656,7 @@
     </div>
 
     <!-- gpu-005 -->
-    <div class="finding">
+    <div class="finding single-model">
       <div class="find-id">gpu-005</div>
       <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
       <div class="find-body">
@@ -628,7 +679,7 @@
     </div>
 
     <!-- gpu-003 -->
-    <div class="finding">
+    <div class="finding single-model">
       <div class="find-id">gpu-003</div>
       <div class="find-conf"><span class="conf conf-low">LOW<br>1 run</span></div>
       <div class="find-body">
