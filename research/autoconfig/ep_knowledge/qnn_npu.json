@@ -67,7 +67,7 @@
           "distilbert/distilbert-base-cased-distilled-squad — not run; DistilBERT architecture, predicted neutral (consistent with distilbert-base-uncased -0.1%)"
         ],
         "cpu_bound_cannot_test": [
-          "microsoft/rad-dino (-0.1%, all hypotheses ~275ms CV<0.022 — model runs on CPU, opset irrelevant)"
+          "microsoft/rad-dino (-0.1% on CPU EP, all hypotheses ~275ms CV<0.022 — model runs on CPU, opset irrelevant; QNN NPU BUILD_FAIL 2026-06-17, see npu-008)"
         ],
         "data_unreliable": ["resnet-18 — sub-ms latency, 3-session range spans 4x; no reliable signal (see data_reliability_notes)"]
       },
@@ -261,6 +261,27 @@
         "signal": "median p50 across sessions",
         "noise_floor": ">10% gain required to declare improvement"
       }
+    }
+
+  ,
+
+    {
+      "id": "npu-008",
+      "title": "microsoft/rad-dino fails to build on QNN NPU across all opset variants (winml crash rc=0xC0000005)",
+      "observation": "catalog_qnn_sweep run 2026-06-17: all 6 hypotheses for microsoft/rad-dino (opset 17/19/21, with/without conv fusions) returned rc=3221225794 (0xC0000005, access violation) in <2s. No stderr captured — winml process crashed before producing any output. This is distinct from a build error: it is a hard crash of the winml CLI itself.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "rad-dino is a ViT encoder with a non-standard DINOv2 variant (larger heads, custom CLS token handling). Likely contains one or more ONNX operators or graph shapes that trigger an unguarded null-dereference or out-of-bounds access in the QNN EP quantization or compilation path (winml build calls QNN SDK compilation under the hood). Could also be a model size / dynamic axis issue.",
+      "action_for_autoconfig": "Skip QNN NPU for microsoft/rad-dino. If QNN NPU is required, file a bug with the crash dump and test with winml analyze first to identify unsupported ops before attempting build.",
+      "confidence": "high on observation (reproducible across all 6 hypotheses in same run); low on mechanism (no stack trace available)",
+      "falsified_by": null,
+      "scope": "microsoft/rad-dino only (confirmed). DINOv2-family models in general (facebook/dinov2-small, facebook/dinov2-base) are NOT affected — they build and run on QNN NPU successfully.",
+      "severity": "blocker — model is incompatible with QNN NPU build",
+      "follow_up_required": [
+        "Run winml analyze --ep qnn on rad-dino ONNX to check unsupported ops",
+        "Capture crash dump (ProcDump) to get stack trace",
+        "Compare ONNX graph structure of rad-dino vs facebook/dinov2-small to isolate differentiating ops"
+      ],
+      "date_observed": "2026-06-17"
     }
 
   ],

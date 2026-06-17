@@ -11,8 +11,19 @@ Hypothesis matrix (per model):
   h1: opset 17 explicit (explicit opset, same optim as baseline)
   h2: opset 19
   h3: opset 21  <- tests npu-001 generalization
+
+  Conv fusions (npu-006 hazard on Conv-dense models):
   h4: opset 17 + conv fusions (conv-bn, conv-add, conv-activation)
   h5: opset 21 + conv fusions
+
+  Attention/transformer fusions (graph-analysis-driven; 2026-06-17):
+  h6: opset 21 + matmul_transpose_fusion  (24-36× detected on all transformer models)
+  h7: opset 21 + bias_softmax_fusion      (12× on BERT-family: roberta, bge, MiniLM)
+  h8: opset 21 + attention_fusion         (12× Softmax nodes across all transformers)
+
+  Rewrite hypotheses (graph-analysis-driven; 2026-06-17):
+  h9: opset 21 + highdimRTR_lowdimRTR     (12× Reshape-Transpose-Reshape on MobileViT)
+  h10: opset 17 + conv_add_fusion only    (11× on ResNet; safe subset of npu-006 convoy)
 
 2-phase bench protocol (npu-007):
   Phase A: 200-iter screen — high CV is NORMAL on QNN NPU (DVFS), always proceed to Phase B.
@@ -78,6 +89,7 @@ HYPOTHESES = [
     ("h1", "opset 17 explicit", 17, None),
     ("h2", "opset 19", 19, None),
     ("h3", "opset 21 (tests npu-001 bypass)", 21, None),
+    # ── conv fusions (npu-006) ──────────────────────────────────────────────
     (
         "h4",
         "opset 17 + conv fusions",
@@ -97,6 +109,52 @@ HYPOTHESES = [
             "conv_add_fusion": True,
             "conv_activation_fusion": True,
         },
+    ),
+    # ── attention/transformer fusions (graph-analysis-driven, 2026-06-17) ──
+    # matmul_transpose_fusion: 24-36× patterns detected on all transformer
+    # models (dinov2, roberta, bge, mobilevit). Tests whether fusing
+    # Transpose↔MatMul pairs helps QNN NPU dispatch.
+    (
+        "h6",
+        "opset 21 + matmul_transpose_fusion",
+        21,
+        {"matmul_transpose_fusion": True},
+    ),
+    # bias_softmax_fusion: 12× Add→Softmax patterns in BERT-family models
+    # (roberta, bge, MiniLM). Attention mask is added before softmax —
+    # fusing may help QNN NPU kernel scheduling.
+    (
+        "h7",
+        "opset 21 + bias_softmax_fusion",
+        21,
+        {"bias_softmax_fusion": True},
+    ),
+    # attention_fusion: 9-12× Softmax nodes across all transformers.
+    # Full QK^T V attention fusion into a single op.
+    (
+        "h8",
+        "opset 21 + attention_fusion",
+        21,
+        {"attention_fusion": True},
+    ),
+    # ── rewrite hypotheses (graph-analysis-driven, 2026-06-17) ─────────────
+    # highdimRTR_lowdimRTR: 12× Reshape→Transpose→Reshape detected on
+    # MobileViT. Reduces high-rank RTR chains to lower-rank equivalents,
+    # potentially reducing Transpose overhead on QNN NPU.
+    (
+        "h9",
+        "opset 21 + highdimRTR_lowdimRTR",
+        21,
+        {"highdimRTR_lowdimRTR": True},
+    ),
+    # conv_add_fusion only (safe subset of npu-006 convoy): 11× Conv→Add
+    # on ResNet. Distinct from conv_add_activation_fusion (FusedConv) —
+    # only fuses the Conv+bias Add, not the full 3-node chain.
+    (
+        "h10",
+        "opset 17 + conv_add_fusion only",
+        17,
+        {"conv_add_fusion": True},
     ),
 ]
 
