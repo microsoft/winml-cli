@@ -764,6 +764,16 @@
         <td>OPEN</td>
       </tr>
 
+      <tr>
+        <td><code>winml eval --mode compare</code> — support local PyTorch model as reference<br>
+          Currently requires <code>--model-id</code> (HF hub only)</td>
+        <td><span class="no-issue">not filed</span></td>
+        <td><span class="pri pri-p2">P2</span></td>
+        <td>autoconfig correctness contract compares optimized ONNX vs a reference model. Currently <code>winml eval --mode compare</code> requires a HuggingFace model ID as the golden reference — local <code>.pt</code> / <code>.pth</code> files are not supported. For models not on HF Hub, or custom fine-tunes, there is no way to establish a cosine-similarity correctness gate.</td>
+        <td>all EPs</td>
+        <td>NEEDS ISSUE</td>
+      </tr>
+
     </tbody>
   </table>
 </div>

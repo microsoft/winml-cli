@@ -202,7 +202,9 @@
         <div class="box-title">Correctness Contract</div>
         <ul>
           <li><code>winml eval --mode compare</code></li>
-          <li>Lock cosine similarity = 1.000</li>
+          <li>Reference: original ONNX <em>or</em> HF PyTorch model</li>
+          <li>Lock cosine similarity = 1.000 vs reference</li>
+          <li style="color:#c62828">Note: local .pt/.pth reference not yet supported (#<span id="eval-fr">TBD</span>)</li>
         </ul>
       </div>
     </div>
@@ -397,7 +399,8 @@
           <code style="background:#fff8e1;color:#bf360c">#158</code> perf --profile<br>
           <code style="background:#fff8e1;color:#bf360c">#443</code> build --json<br>
           <code style="background:#fff8e1;color:#bf360c">#867</code> --precision fp16<br>
-          <code style="background:#fff8e1;color:#bf360c">?</code> FusedConv detection
+          <code style="background:#fff8e1;color:#bf360c">?</code> FusedConv detection<br>
+          <code style="background:#fff8e1;color:#bf360c">?</code> eval local .pt reference
         </div>
       </div>
     </div>
