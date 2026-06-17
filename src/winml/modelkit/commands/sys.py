@@ -631,28 +631,24 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
             )
             failures.append((entry, e))
 
-    # --- Group by ep_name; derive status fresh per §7.1 (ignore
-    # EPEntry.status — that's discovery-time, not registration outcome).
-    ep_records: dict[str, list[tuple[EPEntry, WinMLEP | None, Exception | None, str]]] = {}
-    primary_seen: set[str] = set()
+    # --- Group by ep_name. Successes first (preserving walk order),
+    # then failures. Status derivation is deferred to the build loop
+    # below so all three rules (L1 "failed", L2 "incompatible", and
+    # precedence-based primary/shadowed) live in one place per §7.1.2.
+    ep_records: dict[str, list[tuple[EPEntry, WinMLEP | None, Exception | None]]] = {}
     for winml_ep in results:
-        entry = winml_ep.source
-        status = "shadowed" if entry.ep_name in primary_seen else "primary"
-        primary_seen.add(entry.ep_name)
-        ep_records.setdefault(entry.ep_name, []).append(
-            (entry, winml_ep, None, status)
+        ep_records.setdefault(winml_ep.source.ep_name, []).append(
+            (winml_ep.source, winml_ep, None)
         )
     for entry, err in failures:
-        ep_records.setdefault(entry.ep_name, []).append(
-            (entry, None, err, "incompatible")
-        )
+        ep_records.setdefault(entry.ep_name, []).append((entry, None, err))
 
     # --- Tag DLL paths that came via WinMLCatalogSource (for the
     # "(catalog default)" annotation in the renderer).
     catalog_default_paths: set[Path] = {
         entry.dll_path
         for rows in ep_records.values()
-        for entry, _, _, _ in rows
+        for entry, _, _ in rows
         if isinstance(entry.source, WinMLCatalogSource)
     }
 
@@ -670,14 +666,18 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
             compatible = True
 
         entries_out: list[dict[str, Any]] = []
-        for entry, winml_ep, err, derived_status in rows:
+        # ``primary_seen`` is per-ep_name (matches §7.1.2 spec literally
+        # — first successful, vendor-compatible row wins ``primary``).
+        primary_seen = False
+        for entry, winml_ep, err in rows:
             desc = _describe_source(entry)
-            # Two independent failure layers per 2_coreloop.md §7.1.1:
-            #   L1 = register_ep raised        -> status "failed"
-            #   L2 = EP-level vendor rule says wrong hardware
-            #        (source.is_compatible() returned False, but the DLL
-            #        loaded with a generic fallback) -> "incompatible"
-            # L1 wins when both fire.
+            # Status derivation per 2_coreloop.md §7.1.1 — three rules
+            # in strict precedence:
+            #   L1: register_ep raised       -> "failed"  (carries error)
+            #   L2: EP-level vendor rule     -> "incompatible"
+            #       (source.is_compatible() returned False, but the DLL
+            #        loaded with a generic fallback)
+            #   §7.1.2 precedence: first ok  -> "primary", later -> "shadowed"
             if err is not None:
                 desc["status"] = "failed"
                 desc["compatible"] = False
@@ -686,7 +686,8 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
                 desc["status"] = "incompatible"
                 desc["compatible"] = False
             else:
-                desc["status"] = derived_status
+                desc["status"] = "primary" if not primary_seen else "shadowed"
+                primary_seen = True
                 desc["compatible"] = True
             desc["dll_path"] = str(entry.dll_path)
             if entry.dll_path in catalog_default_paths:
