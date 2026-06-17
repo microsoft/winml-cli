@@ -10,13 +10,21 @@ Hypothesis matrix (per model):
   h0: baseline (auto-config, default winml build for QNN NPU + W8A16)
   h1: opset 17 explicit (explicit opset, same optim as baseline)
   h2: opset 19
-  h3: opset 21  ← tests npu-001 generalization
+  h3: opset 21  <- tests npu-001 generalization
   h4: opset 17 + conv fusions (conv-bn, conv-add, conv-activation)
   h5: opset 21 + conv fusions
 
-2-phase bench protocol:
-  Phase A: 200-iter screen — reject if CV >= 15%
-  Phase B: 3 independent sessions × 500 iters, 30 s cool-down between sessions
+2-phase bench protocol (npu-007):
+  Phase A: 200-iter screen — high CV is NORMAL on QNN NPU (DVFS), always proceed to Phase B.
+  Phase B: 3 independent sessions x 500 iters, 30 s cool-down between sessions.
+  KEEP criterion: all 3 sessions faster than baseline, ranges must not overlap.
+
+Validated constraints applied:
+  npu-006: conv fusions (conv-bn/add/activation) produce FusedConv ops that QNN EP cannot
+    dispatch -> CPU fallback -> catastrophic regression on Conv-dense models. h4/h5 are
+    annotated with npu006_expected_regression=True when Conv% of total ops > 20%.
+  npu-001: opset21 speedup is architecture-specific. npu001_generalized uses range-overlap
+    check (max(h3_p50s) < min(h1_p50s)), not just median comparison.
 
 Results: catalog-qnn-sweep/<model_slug>/results.json
 Summary: catalog-qnn-sweep/SUMMARY.md
@@ -33,6 +41,11 @@ from pathlib import Path
 
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
+# npu-006 guard: conv fusions produce FusedConv (ORT private op) that QNN EP cannot dispatch.
+# On Conv-dense models (Conv% > this threshold), h4/h5 will catastrophically regress.
+# Validated: ResNet-18 (Conv-dense) +4900%, DINOv2-base (1 Conv total) benign.
+NPU006_CONV_PCT_THRESHOLD = 20.0  # percent of total ops; above this = high npu-006 risk
 
 # ── constants ─────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
@@ -134,6 +147,27 @@ def run_cmd(cmd: list[str], label: str = "", timeout: int = 600) -> tuple[int, s
         elapsed = time.time() - t0
         print(f"     TIMEOUT after {elapsed:.0f}s", flush=True)
         return -999, f"TIMEOUT after {timeout}s", elapsed
+
+
+def _count_conv_pct(model_onnx: Path) -> tuple[float, int, int]:
+    """Count Conv ops in a built ONNX model. Returns (conv_pct, conv_count, total_count).
+    Used to assess npu-006 risk before running conv-fusion hypotheses.
+    Falls back to (0.0, 0, 0) if onnx is not importable or file missing.
+    """
+    if not model_onnx.exists():
+        return 0.0, 0, 0
+    try:
+        import onnx  # noqa: PLC0415
+
+        model = onnx.load(str(model_onnx))
+        ops = [n.op_type for n in model.graph.node]
+        total = len(ops)
+        conv_count = sum(1 for o in ops if o == "Conv")
+        pct = conv_count / total * 100 if total > 0 else 0.0
+        return round(pct, 1), conv_count, total
+    except Exception as e:
+        print(f"  [warn] Conv% analysis failed: {e}", flush=True)
+        return 0.0, 0, 0
 
 
 # ── winml wrappers ────────────────────────────────────────────────────────────
@@ -406,12 +440,16 @@ def sweep_model(
         "ep": EP,
         "device": DEVICE,
         "baseline_opset": None,
+        "conv_pct": None,  # Conv ops % of total — drives npu-006 risk
+        "npu006_risk": None,  # True if conv_pct > NPU006_CONV_PCT_THRESHOLD
+        "npu006_regression": None,  # True if h4/h5 median >= 10x baseline (catastrophic)
         "hypotheses": {},
         "best_hypothesis": None,
         "baseline_p50_ms": None,
         "best_p50_ms": None,
         "best_gain_pct": None,
-        "npu001_generalized": None,  # True/False/"neutral"/None
+        "npu001_generalized": None,  # True/False/"neutral"/None (median-based)
+        "npu001_ranges_non_overlapping": None,  # True/False — stricter range-overlap test
         "feature_gaps": [],
         "errors": [],
     }
@@ -448,6 +486,10 @@ def sweep_model(
 
     # ── Step 2: per-hypothesis loop ───────────────────────────────────────────
     print(f"\n[2/3] Running {len(HYPOTHESES)} hypotheses…", flush=True)
+
+    # conv_pct is filled in after h0 succeeds (used to annotate npu-006 risk for h4/h5)
+    conv_pct: float = 0.0
+    npu006_risk: bool = False
 
     for hyp_id, label, opset_override, extra_optim in HYPOTHESES:
         elapsed_total = time.time() - model_start
@@ -523,12 +565,46 @@ def sweep_model(
                 )
                 continue
 
+        # After h0: analyze Conv% to assess npu-006 risk for h4/h5
+        if hyp_id == "h0" and onnx_path.exists():
+            conv_pct, conv_count, total_count = _count_conv_pct(onnx_path)
+            npu006_risk = conv_pct > NPU006_CONV_PCT_THRESHOLD
+            results["conv_pct"] = conv_pct
+            results["npu006_risk"] = npu006_risk
+            if npu006_risk:
+                print(
+                    f"  [npu-006] Conv%={conv_pct:.1f}% ({conv_count}/{total_count} ops)"
+                    f" > {NPU006_CONV_PCT_THRESHOLD:.0f}% threshold",
+                    flush=True,
+                )
+                print(
+                    "  [npu-006] h4/h5 (conv fusions) EXPECTED to catastrophically regress"
+                    " — FusedConv not supported by QNN EP -> CPU fallback",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"  [npu-006] Conv%={conv_pct:.1f}% ({conv_count}/{total_count} ops)"
+                    f" <= {NPU006_CONV_PCT_THRESHOLD:.0f}% — h4/h5 low risk",
+                    flush=True,
+                )
+
+        # Annotate h4/h5 with npu-006 risk BEFORE running bench
+        if hyp_id in ("h4", "h5") and npu006_risk:
+            print(
+                f"  [npu-006] WARNING: {hyp_id} uses conv fusions on Conv-dense model"
+                f" (Conv%={conv_pct:.1f}%) — expect catastrophic regression",
+                flush=True,
+            )
+
         # Only run eval for h0 (baseline) on image-classification models
         do_eval = run_eval_on_baseline and hyp_id == "h0" and task == "image-classification"
 
         bench = _perf_result(onnx_path, model_id, task, do_eval)
         bench["label"] = label
         bench["opset"] = opset_used
+        if hyp_id in ("h4", "h5"):
+            bench["npu006_expected_regression"] = npu006_risk
         results["hypotheses"][hyp_id] = bench
 
         if bench["status"] == "UNSTABLE":
@@ -542,7 +618,7 @@ def sweep_model(
 
 
 def _compute_summary(results: dict) -> None:
-    """Fill in baseline_p50, best_hypothesis, best_gain, npu001_generalized."""
+    """Fill in baseline_p50, best_hypothesis, best_gain, npu001_generalized, npu006_regression."""
     hyps = results["hypotheses"]
 
     # Baseline p50: prefer h0, fall back to h1
@@ -571,33 +647,84 @@ def _compute_summary(results: dict) -> None:
         gain_pct = (baseline_p50 - best_p50) / baseline_p50 * 100
         results["best_gain_pct"] = round(gain_pct, 2)
 
-    # npu-001 generalization: does h3 (opset 21) beat h1 (opset 17) by ≥5%?
+    # ── npu-001: opset21 vs opset17 (h3 vs h1) ──────────────────────────────
+    # Criterion 1 (median): h3 p50 < h1 p50 by >=5%
+    # Criterion 2 (range-overlap, stricter): max(h3_p50s) < min(h1_p50s)
+    # Both must agree for "True"; either failing gives "neutral"
     h1 = hyps.get("h1", {})
     h3 = hyps.get("h3", {})
     if h1.get("status") in ("OK", "OK_HIGH_CV") and h3.get("status") in ("OK", "OK_HIGH_CV"):
         p50_h1 = h1["full"].get("median_p50_ms", float("inf"))
         p50_h3 = h3["full"].get("median_p50_ms", float("inf"))
-        if p50_h3 < p50_h1 * 0.95:  # ≥5% improvement for h3
+        h1_p50s: list[float] = h1["full"].get("p50s_ms", [p50_h1])
+        h3_p50s: list[float] = h3["full"].get("p50s_ms", [p50_h3])
+
+        # Median-based test (>=5% improvement)
+        median_gain = p50_h3 < p50_h1 * 0.95
+        median_loss = p50_h1 < p50_h3 * 0.95
+
+        # Range-overlap test (non-overlapping = more reliable for DVFS-noisy NPU)
+        ranges_non_overlapping = max(h3_p50s) < min(h1_p50s) if h3_p50s and h1_p50s else None
+        results["npu001_ranges_non_overlapping"] = ranges_non_overlapping
+
+        if median_gain and ranges_non_overlapping:
             results["npu001_generalized"] = True
             gain = (p50_h1 - p50_h3) / p50_h1 * 100
             print(
-                f"  ✓ npu-001 GENERALIZES: opset21={p50_h3:.1f}ms vs opset17={p50_h1:.1f}ms (+{gain:.1f}%)",
+                f"  [npu-001] CONFIRMED: opset21={p50_h3:.1f}ms vs opset17={p50_h1:.1f}ms"
+                f" (+{gain:.1f}%, ranges non-overlapping)",
                 flush=True,
             )
-        elif p50_h1 < p50_h3 * 0.95:  # opset 17 is better
+        elif median_gain and not ranges_non_overlapping:
+            results["npu001_generalized"] = "median_only"
+            gain = (p50_h1 - p50_h3) / p50_h1 * 100
+            print(
+                f"  [npu-001] MARGINAL: opset21 median {gain:.1f}% faster but ranges OVERLAP"
+                f" (h3 max={max(h3_p50s):.1f}ms > h1 min={min(h1_p50s):.1f}ms) -- DVFS noise",
+                flush=True,
+            )
+        elif median_loss:
             results["npu001_generalized"] = False
             print(
-                f"  ✗ npu-001 does NOT generalize: opset17={p50_h1:.1f}ms < opset21={p50_h3:.1f}ms",
+                f"  [npu-001] NEGATIVE: opset17={p50_h1:.1f}ms < opset21={p50_h3:.1f}ms",
                 flush=True,
             )
         else:
             results["npu001_generalized"] = "neutral"
             print(
-                f"  ~ npu-001 neutral: opset17={p50_h1:.1f}ms ≈ opset21={p50_h3:.1f}ms", flush=True
+                f"  [npu-001] NEUTRAL: opset17={p50_h1:.1f}ms ~ opset21={p50_h3:.1f}ms",
+                flush=True,
             )
     else:
-        missing = [h for h, d in [("h1", h1), ("h3", h3)] if d.get("status") != "OK"]
+        missing = [
+            h for h, d in [("h1", h1), ("h3", h3)] if d.get("status") not in ("OK", "OK_HIGH_CV")
+        ]
         results["npu001_generalized"] = f"N/A ({', '.join(missing)} not OK)"
+        results["npu001_ranges_non_overlapping"] = None
+
+    # ── npu-006: detect catastrophic conv-fusion regression (h4/h5) ──────────
+    # "Catastrophic" = h4 or h5 median p50 >= 5x baseline (CPU fallback signature)
+    npu006_regression = False
+    for h_id in ("h4", "h5"):
+        h = hyps.get(h_id, {})
+        if h.get("status") in ("OK", "OK_HIGH_CV") and baseline_p50:
+            p50_fused = h["full"].get("median_p50_ms")
+            if p50_fused and p50_fused >= baseline_p50 * 5.0:
+                npu006_regression = True
+                ratio = p50_fused / baseline_p50
+                print(
+                    f"  [npu-006] CATASTROPHIC REGRESSION confirmed on {h_id}:"
+                    f" {p50_fused:.1f}ms vs baseline {baseline_p50:.1f}ms ({ratio:.0f}x slower)"
+                    f" -- FusedConv CPU fallback",
+                    flush=True,
+                )
+        elif h.get("status") == "BENCH_FAIL" and h.get("npu006_expected_regression"):
+            # Bench failure on expected-regression hypothesis is also a signal
+            print(
+                f"  [npu-006] {h_id} bench FAILED on conv-dense model -- possible CPU fallback timeout",
+                flush=True,
+            )
+    results["npu006_regression"] = npu006_regression
 
 
 def _save_results(results: dict, model_dir: Path) -> None:
@@ -617,41 +744,52 @@ def write_summary(all_results: list[dict]) -> None:
         "",
         f"Generated: {datetime.now().isoformat(timespec='seconds')}  ",
         f"EP: `{EP}` / device: `{DEVICE}`  ",
-        f"Bench protocol: Phase-A {SCREEN_ITERS} iters (CV<{SCREEN_CV_MAX * 100:.0f}%),"
-        f" Phase-B {FULL_ITERS}×{FULL_SESSIONS} sessions  ",
+        f"Bench protocol: Phase-A {SCREEN_ITERS} iters (high CV expected on QNN NPU — DVFS),"
+        f" Phase-B {FULL_ITERS}x{FULL_SESSIONS} sessions, 30s cool-down  ",
+        "npu-001 criterion: median >=5% gain AND ranges non-overlapping  ",
+        "npu-006 criterion: Conv% of ops; h4/h5 marked catastrophic if >=5x baseline  ",
         "",
         "---",
         "",
         "## Per-Model Results",
         "",
-        "| Model | Task | Baseline p50 | Best p50 | Best config | Gain% | opset-21 helps? | Notes |",
-        "|-------|------|-------------|----------|-------------|-------|-----------------|-------|",
+        "| Model | Conv% | Baseline p50 | Best p50 | Best config | Gain% | npu-001? | npu-006 regression? | Notes |",
+        "|-------|-------|-------------|----------|-------------|-------|----------|---------------------|-------|",
     ]
 
     for r in all_results:
         model_id = r["model_id"]
-        task = r.get("task", "?")
+        conv_pct = r.get("conv_pct")
+        conv_str = f"{conv_pct:.0f}%" if conv_pct is not None else "N/A"
+        if r.get("npu006_risk"):
+            conv_str += " ⚠️"
         baseline = f"{r['baseline_p50_ms']:.1f} ms" if r.get("baseline_p50_ms") else "N/A"
         best = f"{r['best_p50_ms']:.1f} ms" if r.get("best_p50_ms") else "N/A"
         best_h = r.get("best_hypothesis") or "N/A"
-        # Annotate best_h with label
-        best_label = ""
         if best_h != "N/A":
             h_data = r.get("hypotheses", {}).get(best_h, {})
             best_label = h_data.get("label", "")
+        else:
+            best_label = ""
         gain = f"{r['best_gain_pct']:.1f}%" if r.get("best_gain_pct") is not None else "N/A"
         npu001 = r.get("npu001_generalized")
+        non_overlap = r.get("npu001_ranges_non_overlapping")
         if npu001 is True:
-            npu001_str = "✓ YES"
+            npu001_str = "CONFIRMED (ranges sep.)" if non_overlap else "YES (median)"
         elif npu001 is False:
-            npu001_str = "✗ NO"
+            npu001_str = "NO"
+        elif npu001 == "median_only":
+            npu001_str = "MARGINAL (overlap)"
         elif npu001 == "neutral":
-            npu001_str = "~ neutral"
+            npu001_str = "neutral"
         else:
-            npu001_str = f"N/A ({npu001})"
-        errors = "; ".join(r.get("errors", []))[:100] or "none"
+            npu001_str = "N/A"
+        npu006 = (
+            "YES ⚠️" if r.get("npu006_regression") else ("risk" if r.get("npu006_risk") else "no")
+        )
+        errors = "; ".join(r.get("errors", []))[:80] or "none"
         lines.append(
-            f"| `{model_id}` | {task} | {baseline} | {best} | {best_h} ({best_label}) | {gain} | {npu001_str} | {errors} |"
+            f"| `{model_id}` | {conv_str} | {baseline} | {best} | {best_h} ({best_label}) | {gain} | {npu001_str} | {npu006} | {errors} |"
         )
 
     # Per-model hypothesis breakdown
