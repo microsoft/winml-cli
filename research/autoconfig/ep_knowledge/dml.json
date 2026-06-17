@@ -5,7 +5,7 @@
     "hardware": "Snapdragon X Elite CRD (Adreno X1-85 / DirectML via D3D12)",
     "ort_version": "1.x with onnxruntime-directml package",
     "model": "facebook/convnext-tiny-224 (ALL findings from this model only)",
-    "last_updated": "2026-06-10",
+    "last_updated": "2026-06-17",
     "epistemics_warning": "⚠️ DML experiments required swapping onnxruntime-directml for onnxruntime (Python package conflict). Results reflect DML EP behavior via winml's DML DLL, not the Python onnxruntime-directml package directly. Re-validate if package setup changes."
   },
 
@@ -13,27 +13,27 @@
 
     {
       "id": "dml-001",
-      "title": "DML FP32 is faster and more stable than QNN GPU FP32 on the same Adreno X1-85",
-      "observation": "DML FP32: p50=16.9ms, p90=17.7ms, std=0.52. QNN GPU FP32: p50=17.7ms, p90=19.7ms, std=0.97.",
+      "title": "DML FP32 is more stable than QNN GPU FP32 — p50 difference is within noise",
+      "observation": "DML FP32: p50=16.9ms, p90=17.7ms, std=0.52. QNN GPU FP32: p50=17.7ms, p90=19.7ms, std=0.97. p50 diff = 0.8ms = 0.82σ of QNN GPU measurement — distributions OVERLAP. NOT a separable performance difference. DML is meaningfully more stable (std 0.52 vs 0.97, CV 3% vs 5.5%).",
       "mechanism_confirmed": false,
-      "mechanism_hypothesis": "DML JIT-compiles HLSL shaders at model load time — shader compilation is done once, producing stable execution. QNN GPU EP does graph partitioning at each session creation — more overhead and jitter.",
-      "action_for_autoconfig": "Prefer DML over QNN GPU for GPU inference (faster + more stable). DML is the primary GPU EP to optimize.",
-      "confidence": "medium — consistent in 3 runs each; mechanism is plausible but not confirmed by profiling",
-      "falsified_by": null,
-      "scope": "Adreno X1-85, ConvNext-class models",
+      "mechanism_hypothesis": "DML JIT-compiles HLSL shaders at model load time — shader compilation done once, producing stable execution. QNN GPU EP does graph partitioning at each session creation — more overhead and jitter.",
+      "action_for_autoconfig": "CORRECTED: Do NOT claim DML is faster than QNN GPU based on this data — the 0.8ms difference is within noise. DML IS more stable (lower CV). Prefer DML for lower tail latency (p90) and variance. p50 advantage is unconfirmed.",
+      "confidence": "low on p50 speedup (not statistically separable). Medium on stability advantage (std 0.52 vs 0.97 is real difference even if p50 overlaps).",
+      "falsified_by": "Statistical analysis: 0.8ms diff < 1σ of GPU measurement. Removed from 'DML is faster' claims.",
+      "scope": "Adreno X1-85, ConvNext-class models, 3-run comparison (insufficient for definitive p50 ranking)",
       "do_not_generalize_to": "NVIDIA/Intel GPUs (QNN GPU not available there anyway)"
     },
 
     {
       "id": "dml-002",
-      "title": "NHWC transformer hurts DML (same as QNN GPU)",
-      "observation": "DML NHWC: p50=16.5ms, p90=21.0ms (+19% p90), std=1.89 (3.6x worse than FP32 baseline).",
+      "title": "NHWC transformer increases latency variance on DML — p50 is neutral or marginally better",
+      "observation": "DML NHWC: p50=16.5ms (-0.4ms vs baseline 16.9ms), p90=21.0ms (+19% vs baseline 17.7ms), std=1.89 (3.6x worse than FP32 baseline 0.52). NOTE: p50 is marginally BETTER with NHWC, not worse. The regression is in tail latency and variance.",
       "mechanism_confirmed": false,
-      "mechanism_hypothesis": "D3D12 on Adreno X1-85 does not benefit from explicit NHWC layout transforms. DML handles tensor layouts internally via HLSL; adding ORT NHWC Transposes creates overhead.",
-      "action_for_autoconfig": "Do NOT apply nhwc-transformer for DML EP.",
-      "confidence": "medium — single run comparison; consistent direction",
+      "mechanism_hypothesis": "D3D12 on Adreno X1-85 handles tensor layouts internally via HLSL shaders. Adding explicit ORT NHWC Transposes does not improve memory alignment for DML but adds dispatch overhead that occasionally causes scheduling jitter, inflating p90 and std.",
+      "action_for_autoconfig": "Do NOT apply nhwc-transformer for DML EP if tail latency stability matters. p50 may be marginally better but p90 is 19% worse and std is 3.6x worse. For applications sensitive to worst-case latency, NHWC is harmful.",
+      "confidence": "low — single run comparison, different baselines (run_count unspecified). Direction for variance is clear; p50 benefit is marginal and unreliable.",
       "falsified_by": null,
-      "scope": "Adreno X1-85 + DML",
+      "scope": "Adreno X1-85 + DML, ConvNext",
       "do_not_generalize_to": "NVIDIA GPUs (NHWC may help with CUDNN)"
     },
 

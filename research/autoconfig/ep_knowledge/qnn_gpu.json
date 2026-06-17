@@ -6,7 +6,7 @@
     "ort_version": "1.x (check winml version at experiment time)",
     "qnn_sdk_version": "unknown — check QnnSystem.dll version",
     "model": "facebook/convnext-tiny-224 (ALL findings from this model only)",
-    "last_updated": "2026-06-10",
+    "last_updated": "2026-06-17",
     "epistemics_warning": "⚠️ All findings are hypotheses derived from 1 model on 1 device. Confidence levels reflect mechanism understanding, not universal applicability. GPU EP behavior varies significantly by model architecture and Adreno driver version."
   },
 
@@ -40,12 +40,12 @@
 
     {
       "id": "gpu-003",
-      "title": "winml compile HURTS QNN GPU (~34% regression)",
-      "observation": "FP32 + compile: p50=23.7ms vs baseline 17.7ms. compile is opposite of NPU: regresses on GPU.",
+      "title": "winml compile appears to hurt QNN GPU (~34% regression) — SINGLE EXPERIMENT, LOW CONFIDENCE",
+      "observation": "FP32 + compile: p50=23.7ms vs baseline 17.7ms (+34%). Single experiment only.",
       "mechanism_confirmed": false,
       "mechanism_hypothesis": "QNN GPU EP compile (EPContext) is designed for NPU (HTP). On GPU EP, the compilation path may force a different dispatch mode that bypasses the optimized GPU shader path. QNN SDK likely has a GPU-specific compilation flow that winml compile doesn't trigger correctly.",
-      "action_for_autoconfig": "NEVER run winml compile for QNN GPU EP. This is the opposite of NPU behavior.",
-      "confidence": "medium — single experiment, consistent direction (34% is large signal); mechanism unconfirmed",
+      "action_for_autoconfig": "AVOID winml compile for QNN GPU EP. Direction (regression) is consistent with mechanism hypothesis and 34% is a large signal, but this is a single experiment. Until replicated, treat as likely harmful but not confirmed.",
+      "confidence": "low — single experiment. 34% gap is above DVFS noise level (CV ~0.05 → noise ~1ms, gap is 6ms). Direction probably real but magnitude uncertain.",
       "falsified_by": null,
       "scope": "QNN GPU EP",
       "do_not_generalize_to": "QNN NPU EP (compile always helps NPU)"

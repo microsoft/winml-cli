@@ -5,7 +5,7 @@
     "hardware": "Snapdragon X Elite CRD (Oryon CPU)",
     "ort_version": "1.x (check winml version at experiment time)",
     "model": "facebook/convnext-tiny-224 (ALL findings from this model only)",
-    "last_updated": "2026-06-10",
+    "last_updated": "2026-06-17",
     "epistemics_warning": "⚠️ All findings from rigorous 3-run ablation. However, still 1 model, 1 device. CPU behavior can differ significantly between x86 and ARM (Oryon). Check architecture before applying rules."
   },
 
@@ -13,19 +13,21 @@
 
     {
       "id": "cpu-001",
-      "title": "opset 19+ causes severe regression on CPU EP (3-4x slowdown)",
-      "observation": "opset 17: p50=43.7ms. opset 19: p50=160ms (3.7x). opset 20: p50=131ms (3.0x). opset 21: p50=170ms (3.9x). opset 22: p50=85ms (1.9x). All runs consistent — not noise.",
-      "mechanism_confirmed": true,
-      "mechanism_hypothesis": "ORT C++ Transpose Optimizer has kMaxSupportedOpset gate. If model opset > kMaxSupportedOpset, the entire Transpose Optimizer is skipped silently. ConvNext has 42 Transpose nodes — without optimization, each executes as a full memory-layout copy. Code: onnxruntime/core/optimizer/transpose_optimization/optimizer_api.h. kMaxSupportedOpset is bumped with each ORT release.",
-      "action_for_autoconfig": "For CPU EP: default to opset 17. Do NOT try opset 19+ unless you first verify that the shipping ORT version's kMaxSupportedOpset >= target_opset.",
-      "confidence": "high — mechanism confirmed by source code + ORT session opt-level experiment (ENABLE_ALL removes the regression)",
+      "title": "opset 19+ causes severe regression on CPU EP (3-4x slowdown) — data confirmed, mechanism uncertain",
+      "observation": "opset 17: p50=43.7ms. opset 19: p50=160ms (3.7x). opset 20: p50=131ms (3.0x). opset 21: p50=170ms (3.9x). opset 22: p50=85ms (1.9x). All runs consistent — not noise. Pattern is non-monotonic: opset 22 partially recovers but remains 1.9x slower than opset 17.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "Original hypothesis: ORT C++ Transpose Optimizer has a kMaxSupportedOpset gate (optimizer_api.h). If model opset > kMaxSupportedOpset, Transpose Optimizer is skipped silently. ConvNext has 42 Transpose nodes — without optimization, each executes as a full memory-layout copy. HOWEVER: the non-monotonic recovery at opset 22 (85ms vs 160-170ms at opset 19-21) is inconsistent with a simple binary gate. If the gate fires for opset > N, opset 22 should behave identically to opset 19. The actual mechanism is more complex. Additionally, ORT 1.24.x has kMaxSupportedOpset >= 23 confirmed (separate NHWC gate) — the Transpose Optimizer gate threshold may differ but is unverified.",
+      "action_for_autoconfig": "For CPU EP: default to opset 17. The empirical data (1 model, consistent across opsets) is unambiguous — opset 17 is the best option. Do NOT try opset 19+. The mechanism reason is uncertain but the practical conclusion is solid.",
+      "confidence": "high on empirical observation (consistent data across opsets for 1 model). Low on mechanism — the gate hypothesis does not fully explain the non-monotonic opset 22 partial recovery.",
       "falsified_by": null,
-      "scope": "Models with many Transpose nodes (ConvNext, ViT, vision transformers). Models with few Transposes (BERT) may be less affected.",
+      "scope": "ConvNext on Oryon CPU, ORT 1.24.x. Models with few Transpose nodes (BERT) likely unaffected.",
       "ort_kMaxSupportedOpset_by_version": {
+        "note": "These values are for the NHWC layout_transformation gate, NOT the Transpose Optimizer gate. The two constants may differ within the same ORT release.",
         "v1.14.x": 18,
         "v1.16.x": 19,
         "v1.17.x": 20,
         "v1.18.x": 21,
+        "v1.24.x": ">= 23 (confirmed for NHWC gate; Transpose Optimizer gate unknown)",
         "main_HEAD": 26
       },
       "do_not_generalize_to": "QNN NPU EP or DML EP — kMaxSupportedOpset is a CPU-only ORT optimizer gate. These EPs have their own kernel dispatch unaffected by this."
@@ -85,11 +87,11 @@
     {
       "id": "cpu-006",
       "title": "CPU EP opset 21 is 3.9x SLOWER — opposite of QNN NPU behavior",
-      "observation": "CPU opset 21: p50=170ms. CPU opset 17: p50=43.7ms. QNN NPU opset 21: p50=8.45ms (2.3x FASTER).",
-      "mechanism_confirmed": true,
-      "mechanism_hypothesis": "Same kMaxSupportedOpset gate as cpu-001. CPU and QNN NPU have completely different optimizer paths. CPU regression from Transpose Optimizer bypass. QNN NPU speedup from better kernel dispatch (mechanism under research).",
+      "observation": "CPU opset 21: p50=170ms. CPU opset 17: p50=43.7ms. QNN NPU opset 21 (DINOv2): p50=26ms (~24% FASTER than opset 17 at 34ms). Note: the NPU and CPU experiments used DIFFERENT models (CPU=ConvNext, NPU=DINOv2) — the comparison is directional only, not quantitative.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "CPU regression from Transpose Optimizer bypass (see cpu-001 — mechanism uncertain). QNN NPU speedup from unknown cause (original Transpose bypass hypothesis invalidated; Transpose counts identical in opset17/21 graphs). The key insight is that CPU and QNN NPU respond oppositely to opset changes, regardless of the root cause.",
       "action_for_autoconfig": "EP ISOLATION: CPU opset findings MUST NOT influence QNN NPU search space, and vice versa. Always validate per EP independently.",
-      "confidence": "high — both directions confirmed empirically",
+      "confidence": "high on empirical observation. Low on mechanism for both directions.",
       "falsified_by": null,
       "scope": "ALL — this is a meta-rule about EP isolation, not model-specific"
     }
