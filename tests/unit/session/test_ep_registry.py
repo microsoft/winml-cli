@@ -39,10 +39,15 @@ def _ep_entry(ep_name: str, dll: str = "C:/fake/qnn.dll") -> EPEntry:
 
 @pytest.fixture
 def fresh_registry() -> WinMLEPRegistry:
-    """Singleton with stubbed cache + cleared registration caches."""
+    """Singleton with stubbed cache + cleared registration caches.
+
+    Resets every mutable field — including ``_registration_count`` — so
+    arg0 suffix tests start at 0 regardless of prior test order.
+    """
     reg = WinMLEPRegistry.instance()
     reg._entries = [_ep_entry("QNNExecutionProvider")]
     reg._registered = {}
+    reg._registration_count = {}
     return reg
 
 
@@ -162,7 +167,7 @@ def test_register_ep_yields_zero_devices_raises(fresh_registry: WinMLEPRegistry)
         # Empty post-registration enumeration — guaranteed zero matches.
         mock_ort.get_ep_devices.return_value = []
         mock_ort.register_execution_provider_library = MagicMock()
-        with pytest.raises(WinMLEPRegistrationFailed, match="no\\s+OrtEpDevices"):
+        with pytest.raises(WinMLEPRegistrationFailed, match=r"no\s+OrtEpDevices"):
             fresh_registry.register_ep(entry)
 
 

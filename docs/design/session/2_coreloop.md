@@ -1,8 +1,8 @@
 # Session Core Loops — Scenarios, Classes, APIs, and Two Paths
 
-**Version**: 2.6
+**Version**: 2.7
 **Date**: 2026-06-09
-**Status**: Draft — v2.6 aligns §5.3 + §5.8 with the post-refactor implementation: resolve_device is now pure deduction (no source validation, no registry I/O); WinMLEPRegistry singleton state moved into a ClassVar; registry holds a discovery cache (_entries) + ORT built-ins snapshot (_builtin_eps); source-tag validation lives entirely in auto_device (§5.6). v2.5 promotes the Tier 1/2/3 model from an inline terminology paragraph to a first-class §3; renumbers §3-§10 → §4-§11 accordingly; corrects back-references to 3_design_ep.md that wrongly claimed it owns the Tier model (it uses Stage 1 / Stage 2 partition instead). v2.4 reorganized the doc so the reader meets scenarios first, then class taxonomy, then APIs (each with pseudocode), then the Path A/B walkthroughs that tie them together. Also fixed `resolve_device(target: EPDeviceTarget) -> EPDeviceTarget` — the function keeps its original name but takes the typed intent (prior drafts inconsistently called it `resolve` in the doc and `resolve_device(ep, device, source)` in code). v2.3 renamed `WinMLEPRegistry.auto_ep` → `auto_device`; dropped the `_find_entry` tag-decode helper; collapsed `WinMLDevice` to a single concrete class with internal dispatch tables (see [`4_winml_device.md`](4_winml_device.md) v1.4); pinned the `WinMLEPDevice` composition invariant (`.device` is one of `.ep.devices`). v2.2 dropped `WinMLSession.build` in favor of the direct constructor; added the Scenario-B exception trio (`UnknownListingPick`, `IncompatibleListingPick`, `AmbiguousListingPick`); split Path A walkthroughs by scenario class. v2.1 originally locked in the six-type taxonomy, the registry's `register_ep`-only registrar surface, and §10's class inventory.
+**Status**: Draft — v2.7 splits the §7.1 `--list-ep` status taxonomy into two independent layers: L1 `[failed]` (registration outcome — `register_ep` raised) vs L2 `[incompatible]` (vendor compatibility rule — `is_compatible()` returned False; the DLL may have loaded with a generic fallback). Previously both collapsed to `[incompatible]`, hiding the distinction (e.g., QNN on Intel — DLL loads with a CPU fallback, but the vendor rule overrides). New §7.1.1 documents the two layers; §7.1.2 updates the status-derivation pseudocode; failed entries now carry an `error` field while incompatible entries surface `WinMLEP.devices` for transparency. v2.6 aligned §5.3 + §5.8 with the post-refactor implementation: resolve_device is now pure deduction (no source validation, no registry I/O); WinMLEPRegistry singleton state moved into a ClassVar; registry holds a discovery cache (_entries) + ORT built-ins snapshot (_builtin_eps); source-tag validation lives entirely in auto_device (§5.6). v2.5 promotes the Tier 1/2/3 model from an inline terminology paragraph to a first-class §3; renumbers §3-§10 → §4-§11 accordingly; corrects back-references to 3_design_ep.md that wrongly claimed it owns the Tier model (it uses Stage 1 / Stage 2 partition instead). v2.4 reorganized the doc so the reader meets scenarios first, then class taxonomy, then APIs (each with pseudocode), then the Path A/B walkthroughs that tie them together. Also fixed `resolve_device(target: EPDeviceTarget) -> EPDeviceTarget` — the function keeps its original name but takes the typed intent (prior drafts inconsistently called it `resolve` in the doc and `resolve_device(ep, device, source)` in code). v2.3 renamed `WinMLEPRegistry.auto_ep` → `auto_device`; dropped the `_find_entry` tag-decode helper; collapsed `WinMLDevice` to a single concrete class with internal dispatch tables (see [`4_winml_device.md`](4_winml_device.md) v1.4); pinned the `WinMLEPDevice` composition invariant (`.device` is one of `.ep.devices`). v2.2 dropped `WinMLSession.build` in favor of the direct constructor; added the Scenario-B exception trio (`UnknownListingPick`, `IncompatibleListingPick`, `AmbiguousListingPick`); split Path A walkthroughs by scenario class. v2.1 originally locked in the six-type taxonomy, the registry's `register_ep`-only registrar surface, and §10's class inventory.
 **Module**: session
 **Companion-To**:
 - [`3_design_classes.md`](3_design_classes.md) — **canonical class reference** (read this first for the class taxonomy)
@@ -804,28 +804,56 @@ The `register_ep` idempotency cache (keyed by `entry.dll_path`) means that if a 
 
 Consumer: [`commands/sys.py`](../../../src/winml/modelkit/commands/sys.py). The render takes the loop's `(results, failures)` output and produces one numbered entry per `(ep_name, source)` pair, grouped under an EP heading.
 
-Status derivation (render-time only; no `status` field exists on `WinMLEP`, though `EPEntry.status` carries the discovery-time `"primary"` / `"shadowed"` value):
+#### 7.1.1 Two independent failure layers
+
+A row can end up "not a usable target" for two semantically distinct reasons. The renderer treats them as separate statuses so the user can tell them apart:
+
+| Layer | What it checks | Mechanism | User-visible status |
+|---|---|---|---|
+| **L1 — Registration outcome** | Did ORT actually load the DLL and expose at least one matching device? | `register_ep(entry)` raised `WinMLEPRegistrationFailed` | `[failed]` (with `error` field) |
+| **L2 — Vendor compatibility rule** | Does the host hardware match what the EP targets? | `entry.source.is_compatible()` returned `False` for the EP-level first-entry source | `[incompatible]` |
+
+The two layers are **independent** and can disagree. Common cases:
+
+- **L1 fails, L2 doesn't:** OpenVINO DLL has an ABI mismatch on Linux; `register_ep` raises; rule says nothing. Tag: `[failed]`.
+- **L1 passes, L2 fails:** QNN on Intel — `register_ep` succeeds (QNN ships a CPU fallback that loads on any host), but `EP_CATALOG.vendor_requirements_for("QNNExecutionProvider")` declares Qualcomm hardware, which sysinfo doesn't detect → `is_compatible()` returns False. The DLL loaded and `WinMLEP.devices` contains a CPU handle, but the vendor rule overrides to `[incompatible]` because the EP is fundamentally targeting silicon that isn't here.
+- **Both fail:** rare but possible (incompatible AND the DLL can't even load) — L1 wins because it's the more concrete failure; the row renders as `[failed]`.
+- **Both pass:** normal — row renders as `[primary]` or `[shadowed]` per the precedence walk below.
+
+#### 7.1.2 Status derivation
+
+Render-time only; no `status` field exists on `WinMLEP`. The discovery-time `EPEntry.status` carries `"primary"` / `"shadowed"` from precedence position, but the renderer ignores it because it reflects source-list ordering, not registration outcome.
 
 ```
 For each ep_name appearing in results or failures:
+  # L2 evaluated once per EP, from first row's source.
+  ep_compatible = first_row.entry.source.is_compatible()
+
   primary_seen = False
-  for entry in EP_PATH precedence order:
-    if entry -> WinMLEP in results:
-      status = "primary" if not primary_seen else "shadowed"
-      primary_seen = True
-    elif (entry, exception) in failures:
-      status = "incompatible"
+  for entry in walk order:
+    if (entry, exception) in failures:
+      status = "failed"              # L1 wins
+      error_field = exception
+    elif entry -> WinMLEP in results:
+      if not ep_compatible:
+        status = "incompatible"      # L2 vendor rule
+      else:
+        status = "primary" if not primary_seen else "shadowed"
+        primary_seen = True
 ```
 
 In plain English:
 
-- **Primary** — first source under this EP name that produced a `WinMLEP`.
-- **Shadowed** — subsequent source under the same EP name that also produced a `WinMLEP`. Available for Scenario B (`--ep <name>@<that-source-tag>`) but not what Scenario A's deduction picks.
-- **Incompatible** — the EP DLL was discovered but failed to register, or registered but contributed zero devices.
+- **Primary** — first source under this EP name that produced a `WinMLEP` AND the host satisfies the vendor rule.
+- **Shadowed** — subsequent successful source under the same EP name that also satisfies the vendor rule. Available for Scenario B (`--ep <name>@<that-source-tag>`) but not what Scenario A's deduction picks.
+- **Failed** — `register_ep` raised. The DLL didn't load (driver missing, ABI mismatch, native crash inside `register_execution_provider_library`) or loaded but ORT enumerated zero matching devices. Carries an `error` field with the exception class + message.
+- **Incompatible** — `register_ep` succeeded but the EP-level `is_compatible()` rule returned False (the EP targets hardware vendors not detected on this host). The `WinMLEP.devices` may contain a generic fallback handle (e.g. QNN's CPU fallback on Intel) but the row is opinionated: this EP is not the right target for this machine.
+
+#### 7.1.3 What stays unchanged
 
 The locked-in semantic is the "Intel NPU/GPU/CPU lie" fix from [`3_design_ep.md`](3_design_ep.md) §6.5: `--list-ep` does not show static `EP_DEVICE_SPECS` declarations of devices that aren't actually present. A row appears only when grounded by either a `WinMLEP.devices` entry (real handle) or an `EPEntry` (real on-disk DLL), never by a catalog claim alone.
 
-The render-time DTOs (`EntryRow`, `DeviceRow`, `EpBlock`) live in [`console_mockup.py`](console_mockup.py). The mockup consumes a list of `WinMLEP` for the success groups and a list of `(EPEntry, Exception)` for the incompatible entries.
+The render-time DTOs (`EntryRow`, `DeviceRow`, `EpBlock`) live in [`console_mockup.py`](console_mockup.py). The mockup consumes a list of `WinMLEP` for the success groups and a list of `(EPEntry, Exception)` for the failed entries; `[incompatible]` rows are sourced from the success list but flagged via the EP-level compat boolean.
 
 ### 7.2 `--doctor` validation smoke-test
 

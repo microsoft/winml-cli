@@ -671,13 +671,22 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
         entries_out: list[dict[str, Any]] = []
         for entry, winml_ep, err, derived_status in rows:
             desc = _describe_source(entry)
+            # Two independent failure layers per 2_coreloop.md §7.1.1:
+            #   L1 = register_ep raised        -> status "failed"
+            #   L2 = EP-level vendor rule says wrong hardware
+            #        (source.is_compatible() returned False, but the DLL
+            #        loaded with a generic fallback) -> "incompatible"
+            # L1 wins when both fire.
             if err is not None:
-                desc["status"] = "incompatible"
+                desc["status"] = "failed"
                 desc["compatible"] = False
                 desc["error"] = f"{type(err).__name__}: {err}"
+            elif not compatible:
+                desc["status"] = "incompatible"
+                desc["compatible"] = False
             else:
-                desc["status"] = "incompatible" if not compatible else derived_status
-                desc["compatible"] = compatible
+                desc["status"] = derived_status
+                desc["compatible"] = True
             desc["dll_path"] = str(entry.dll_path)
             if entry.dll_path in catalog_default_paths:
                 desc["is_catalog_default"] = True
@@ -768,7 +777,9 @@ def _output_ep_text(eps: dict[str, dict[str, Any]]) -> None:
 
     for ep_name, record in eps.items():
         # Rich treats square brackets as markup; escape the literal status
-        # tags with backslashes so [primary] / [incompatible] render as text.
+        # tags with backslashes so [primary] / [failed] etc. render as text.
+        # See 2_coreloop.md §7.1.1 for the L1 (failed) vs L2 (incompatible)
+        # split — the EP-level tag here is L2 only.
         compat_tag = (
             "" if record["compatible"]
             else r"  [bold red]\[incompatible][/bold red]"
@@ -779,9 +790,15 @@ def _output_ep_text(eps: dict[str, dict[str, Any]]) -> None:
         for entry in record["entries"]:
             status = entry.get("status", "?")
             kind = entry.get("source_kind", "?")
+            # Status colour mirrors §7.1.2:
+            #   primary       — green  (this EP's precedence-winner)
+            #   shadowed      — yellow (registered cleanly; not Scenario A's pick)
+            #   failed        — red    (register_ep raised; carries error field)
+            #   incompatible  — red    (vendor rule overrides a successful register)
             status_color = {
                 "primary": "green",
                 "shadowed": "yellow",
+                "failed": "red",
                 "incompatible": "red",
             }.get(status, "white")
             tag = f"[{status_color}]\\[{status}][/{status_color}]"
