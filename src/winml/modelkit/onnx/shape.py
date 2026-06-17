@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import tempfile
 from pathlib import Path
+from typing import cast
 
 import onnx
 
@@ -69,12 +70,15 @@ def _run_inference(model: onnx.ModelProto) -> onnx.ModelProto:
     try:
         from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
 
-        return SymbolicShapeInference.infer_shapes(
-            model,
-            int_max=2**31 - 1,
-            auto_merge=False,
-            guess_output_rank=False,
-            verbose=0,
+        return cast(
+            "onnx.ModelProto",
+            SymbolicShapeInference.infer_shapes(
+                model,
+                int_max=2**31 - 1,
+                auto_merge=False,
+                guess_output_rank=False,
+                verbose=0,
+            ),
         )
     except Exception as e:
         logger.debug("Symbolic shape inference failed: %s", e)
