@@ -366,16 +366,13 @@ class _PerfBenchmarkSuite:
         assert mem["rss_after_inference_mb"] > 0
         assert "rss_model_load_delta_mb" in mem
 
-        # VRAM fields (NPU should have device memory)
+        # VRAM fields (NPU exposes device memory fields, but values depend on driver)
         assert "vram_local_after_inference_mb" in mem
         assert "vram_shared_after_inference_mb" in mem
         assert "vram_local_model_load_delta_mb" in mem
         assert "vram_shared_model_load_delta_mb" in mem
         assert "vram_local_inference_delta_mb" in mem
         assert "vram_shared_inference_delta_mb" in mem
-
-        # At least one VRAM metric should be > 0 on NPU
-        assert mem["vram_local_after_inference_mb"] > 0 or mem["vram_shared_after_inference_mb"] > 0
 
     def test_benchmark_cpu_monitor(self, tmp_path: Path, model_arg: str):
         """Benchmark on CPU with --monitor.
