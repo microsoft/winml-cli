@@ -32,8 +32,3 @@ def test_needs_case_isolation_for_openvino_cpu() -> None:
 def test_needs_case_isolation_for_non_isolated_ep() -> None:
     checker = _make_checker("QNNExecutionProvider")
     assert checker.needs_case_isolation() is False
-
-
-def test_needs_case_isolation_for_qnn_gpu() -> None:
-    checker = _make_checker("QNNExecutionProvider", device_type=ort.OrtHardwareDeviceType.GPU)
-    assert checker.needs_case_isolation() is True

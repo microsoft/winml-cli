@@ -2032,7 +2032,9 @@ class RuntimeCheckerQuery:
         )
         load_table_ms = _elapsed_ms(load_table_start)
         parquet_file = parquet_path.name if parquet_path is not None else None
-        parquet_path_norm = _normalize_table_path(parquet_path) if parquet_path is not None else None
+        parquet_path_norm = (
+            _normalize_table_path(parquet_path) if parquet_path is not None else None
+        )
 
         if table_df is None:
             if run_unknown_op:
@@ -2237,7 +2239,7 @@ class RuntimeCheckerQuery:
             matched_row.get("case_indices") if hasattr(matched_row, "get") else None
         )
 
-        debug_details: RuntimeDebugDetails | None = None
+        debug_details = None
         if for_debug:
             debug_details = {
                 "node_stable_key": node_stable_key,

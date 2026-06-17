@@ -84,8 +84,7 @@ def _normalize_case_indices_for_summary(case_indices: Any) -> list[Any] | None:
 def _iter_runtime_test_results(pattern_runtime: PatternRuntime) -> list[RuntimeTestResult]:
     """Iterate all RuntimeTestResult objects reachable from PatternRuntime."""
     results = [pattern_runtime.result]
-    for alternative in pattern_runtime.alternatives:
-        results.append(alternative.result)
+    results.extend(alternative.result for alternative in pattern_runtime.alternatives)
     return results
 
 
@@ -822,7 +821,9 @@ class ONNXStaticAnalyzer:
         # Step 2: Check runtime support for each EP
         check_op_results: dict[EPName, list[PatternRuntime]] = {}
         information_list: dict[EPName, list[Information]] = {}
-        runtime_debug_details_summary: dict[str, dict[str, dict[str, RuntimeDebugSummaryEntry]]] = {}
+        runtime_debug_details_summary: dict[
+            str, dict[str, dict[str, RuntimeDebugSummaryEntry]]
+        ] = {}
         ep_runtime_timing: dict[str, int] = {}
         ep_info_timing: dict[str, int] = {}
         for current_ep in eps_to_analyze:

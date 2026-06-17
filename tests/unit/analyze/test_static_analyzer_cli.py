@@ -16,12 +16,16 @@ Tests verify:
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
 from rich.console import Console
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from winml.modelkit.commands.analyze import analyze
 
@@ -477,7 +481,7 @@ class TestAnalyzeCommandOptions:
                             "supported": {
                                 "node_conv": {
                                     "case_indices": ["case_7"],
-                                    "table_path": "/tmp/conv.parquet",
+                                    "table_path": "rules/conv.parquet",
                                     "table_file": "conv.parquet",
                                 }
                             },
@@ -520,7 +524,7 @@ class TestAnalyzeCommandOptions:
         assert set(debug_content.keys()) == {"supported", "partial", "unsupported"}
         assert debug_content["supported"]["node_conv"] == {
             "case_indices": ["case_7"],
-            "table_path": "/tmp/conv.parquet",
+            "table_path": "rules/conv.parquet",
             "table_file": "conv.parquet",
         }
 

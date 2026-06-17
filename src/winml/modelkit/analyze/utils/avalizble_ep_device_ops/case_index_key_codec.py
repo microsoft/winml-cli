@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 from __future__ import annotations
 
 import json
@@ -6,12 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+
 ALPHABET = set("123456789abcdefghijklmnopqrstuvwxyz")
 DEVICE_SET = {"CPU", "GPU", "NPU"}
 
 
 @dataclass(frozen=True)
 class DecodedLocation:
+    """Decoded folder/file location for a case_index key prefix."""
+
     folder_name: str
     file_name: str
 
@@ -38,7 +46,7 @@ def _load_json_object(path: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"File not found: {path}")
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise ValueError(f"Invalid JSON root object: {path}")
+        raise TypeError(f"Invalid JSON root object: {path}")
     return payload
 
 
@@ -204,7 +212,7 @@ def _get_global_indexes(
         _GLOBAL_INDEXES_SOURCE = current_source
         return _GLOBAL_INDEXES
 
-    if _GLOBAL_INDEXES_SOURCE != current_source:
+    if current_source != _GLOBAL_INDEXES_SOURCE:
         raise ValueError(
             "Global index cache already initialized with different mapping files: "
             f"cached={_GLOBAL_INDEXES_SOURCE}, requested={current_source}"
@@ -218,7 +226,14 @@ def encode_file_name_to_4char_key(
     providers_json: str | Path | None = None,
     ops_json: str | Path | None = None,
 ) -> str:
-    ep_device_to_key, _key_to_ep_device, by_exact, by_name_version, _version_key_to_entry = _get_global_indexes(
+    """Encode a rule file name into its 4-char case_index key prefix."""
+    (
+        ep_device_to_key,
+        _key_to_ep_device,
+        by_exact,
+        by_name_version,
+        _version_key_to_entry,
+    ) = _get_global_indexes(
         providers_json,
         ops_json,
     )
@@ -237,9 +252,13 @@ def encode_file_name_to_4char_key(
         elif not candidates:
             raise KeyError(f"No version key found for {name} version {version} domain {domain}")
         else:
-            text = ", ".join(f"{candidate_domain}:{candidate_key}" for candidate_domain, candidate_key in candidates)
+            text = ", ".join(
+                f"{candidate_domain}:{candidate_key}"
+                for candidate_domain, candidate_key in candidates
+            )
             raise KeyError(
-                f"Ambiguous version key for {name} version {version} domain {domain}; candidates: {text}"
+                f"Ambiguous version key for {name} version {version} domain {domain}; "
+                f"candidates: {text}"
             )
 
     qdq_flag = "1" if is_qdq else "0"
@@ -251,7 +270,14 @@ def decode_4char_key_to_folder_and_file_name(
     providers_json: str | Path | None = None,
     ops_json: str | Path | None = None,
 ) -> DecodedLocation:
-    _ep_device_to_key, key_to_ep_device, _by_exact, _by_name_version, version_key_to_entry = _get_global_indexes(
+    """Decode a 4-char key (or case_index prefix) into its folder and file name."""
+    (
+        _ep_device_to_key,
+        key_to_ep_device,
+        _by_exact,
+        _by_name_version,
+        version_key_to_entry,
+    ) = _get_global_indexes(
         providers_json,
         ops_json,
     )

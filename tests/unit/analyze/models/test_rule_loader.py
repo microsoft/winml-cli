@@ -22,19 +22,19 @@ from pathlib import Path
 import pytest
 
 from winml.modelkit.analyze import IHVType, RuleLoader
-from winml.modelkit.analyze.utils.avalizble_ep_device_ops.case_index_key_codec import (
-    decode_4char_key_to_folder_and_file_name,
-    encode_file_name_to_4char_key,
-)
 from winml.modelkit.analyze.utils import (
     get_runtime_rules_search_dirs,
     resolve_rule_parquet_path,
 )
+from winml.modelkit.analyze.utils.avalizble_ep_device_ops.case_index_key_codec import (
+    decode_4char_key_to_folder_and_file_name,
+    encode_file_name_to_4char_key,
+)
 from winml.modelkit.analyze.utils.rule_loader import (
-    WINMLCLI_RULES_DIR_ENV,
-    WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
     _DEFAULT_RUNTIME_RULES_DIR,
     _RULE_LOADER_DIR,
+    WINMLCLI_RULES_DIR_ENV,
+    WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
     get_runtime_rules_debug_search_dirs,
 )
 
@@ -539,9 +539,9 @@ class TestRuntimeRules4CharKeyRoundTrip:
         for rules_dir in search_dirs:
             if not rules_dir.exists():
                 continue
-            for file_path in rules_dir.rglob("*"):
-                if file_path.is_file():
-                    discovered_files.append(file_path)
+            discovered_files.extend(
+                file_path for file_path in rules_dir.rglob("*") if file_path.is_file()
+            )
 
         assert discovered_files, "Expected at least one runtime-rule file to validate"
 

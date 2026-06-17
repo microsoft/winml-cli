@@ -19,7 +19,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
 from rich.console import Console
@@ -826,14 +826,14 @@ def analyze(
             logger.error("ONNX model file not found: %s", model)
             sys.exit(2)
 
+        from ..analyze.utils.ep_utils import (
+            has_any_rule_data,
+            has_rule_data_for_ep,
+        )
         from ..analyze.utils.rule_loader import (
             WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
             get_runtime_rules_debug_search_dirs,
             get_runtime_rules_search_dirs,
-        )
-        from ..analyze.utils.ep_utils import (
-            has_any_rule_data,
-            has_rule_data_for_ep,
         )
 
         for_debug = debug

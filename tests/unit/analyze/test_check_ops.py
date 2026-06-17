@@ -328,7 +328,7 @@ class TestReuseExistingResultInputConstraints:
         assert saved["model_bytes_b64"] == "test_payload"
 
     def test_case_index_is_36_chars_and_ep_device_differs_by_first_char(self, tmp_path) -> None:
-        """跨 EP/device 的 case_index 应仅首字符不同，剩余 35 位保持一致。"""
+        """case_index should differ only in the first char across EP/device; last 35 stay equal."""
         case_template = {
             "type_vars": {"T": "FLOAT"},
             "input_constraints": {"X": {"type": "shape", "shape": [1], "min_max": None}},

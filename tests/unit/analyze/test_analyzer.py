@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, Mock, patch
 import onnx
 import pytest
 
-from winml.modelkit.analyze.analyzer import _build_runtime_debug_details_summary
 from winml.modelkit.analyze import (
     Action,
     ActionItem,
@@ -26,6 +25,7 @@ from winml.modelkit.analyze import (
     SupportLevel,
     infer_ihv_from_ep_name,
 )
+from winml.modelkit.analyze.analyzer import _build_runtime_debug_details_summary
 from winml.modelkit.analyze.models.runtime_checks import PatternRuntime, RuntimeTestResult
 from winml.modelkit.optim import WinMLOptimizationConfig
 
@@ -733,7 +733,7 @@ class TestRuntimeDebugDetailsSummary:
                         debug_details={
                             "node_stable_key": "node_conv",
                             "case_indices": ("case_1", "case_2"),
-                            "table_path": "/tmp/conv.parquet",
+                            "table_path": "rules/conv.parquet",
                             "table_file": "conv.parquet",
                         },
                     ),
@@ -746,7 +746,7 @@ class TestRuntimeDebugDetailsSummary:
                         debug_details={
                             "node_stable_key": "node_resize",
                             "case_indices": ["case_3"],
-                            "table_path": "/tmp/resize.parquet",
+                            "table_path": "rules/resize.parquet",
                             "table_file": "resize.parquet",
                         },
                     ),
@@ -760,7 +760,7 @@ class TestRuntimeDebugDetailsSummary:
                         debug_details={
                             "node_stable_key": "node_unknown",
                             "case_indices": ["case_4"],
-                            "table_path": "/tmp/unknown.parquet",
+                            "table_path": "rules/unknown.parquet",
                             "table_file": "unknown.parquet",
                         },
                     ),
@@ -775,7 +775,7 @@ class TestRuntimeDebugDetailsSummary:
                         debug_details={
                             "node_stable_key": "node_subgraph",
                             "case_indices": ["case_5"],
-                            "table_path": "/tmp/subgraph.parquet",
+                            "table_path": "rules/subgraph.parquet",
                             "table_file": "subgraph.parquet",
                         },
                     ),
@@ -788,17 +788,17 @@ class TestRuntimeDebugDetailsSummary:
         assert summary is not None
         assert set(summary.keys()) == {"supported", "partial", "unsupported"}
 
-        assert summary["supported"]["node_conv"]["case_indices"] == ["case_1", "case_2"]
-        assert summary["supported"]["node_conv"]["table_path"] == "/tmp/conv.parquet"
-        assert summary["supported"]["node_conv"]["table_file"] == "conv.parquet"
+        assert summary["supported"]["node_conv"].case_indices == ["case_1", "case_2"]
+        assert summary["supported"]["node_conv"].table_path == "rules/conv.parquet"
+        assert summary["supported"]["node_conv"].table_file == "conv.parquet"
 
-        assert summary["partial"]["node_resize"]["case_indices"] == ["case_3"]
-        assert summary["partial"]["node_resize"]["table_path"] == "/tmp/resize.parquet"
-        assert summary["partial"]["node_resize"]["table_file"] == "resize.parquet"
+        assert summary["partial"]["node_resize"].case_indices == ["case_3"]
+        assert summary["partial"]["node_resize"].table_path == "rules/resize.parquet"
+        assert summary["partial"]["node_resize"].table_file == "resize.parquet"
 
-        assert summary["unsupported"]["node_subgraph"]["case_indices"] == ["case_5"]
-        assert summary["unsupported"]["node_subgraph"]["table_path"] == "/tmp/subgraph.parquet"
-        assert summary["unsupported"]["node_subgraph"]["table_file"] == "subgraph.parquet"
+        assert summary["unsupported"]["node_subgraph"].case_indices == ["case_5"]
+        assert summary["unsupported"]["node_subgraph"].table_path == "rules/subgraph.parquet"
+        assert summary["unsupported"]["node_subgraph"].table_file == "subgraph.parquet"
 
         assert "node_unknown" not in summary["supported"]
         assert "node_unknown" not in summary["partial"]
@@ -815,7 +815,7 @@ class TestRuntimeDebugDetailsSummary:
                         run=True,
                         debug_details={
                             "node_stable_key": "node_conv",
-                            "table_path": "/tmp/conv.parquet",
+                            "table_path": "rules/conv.parquet",
                         },
                     ),
                 ),
@@ -839,9 +839,9 @@ class TestRuntimeDebugDetailsSummary:
 
         assert summary is not None
         node_entry = summary["supported"]["node_conv"]
-        assert node_entry["table_path"] == "/tmp/conv.parquet"
-        assert node_entry["table_file"] == "conv.parquet"
-        assert node_entry["case_indices"] == ["case_42"]
+        assert node_entry.table_path == "rules/conv.parquet"
+        assert node_entry.table_file == "conv.parquet"
+        assert node_entry.case_indices == ["case_42"]
 
 
 class TestONNXStaticAnalyzer:
@@ -1014,7 +1014,7 @@ class TestONNXStaticAnalyzer:
                         debug_details={
                             "node_stable_key": "node_conv",
                             "case_indices": ("case_7",),
-                            "table_path": "/tmp/conv.parquet",
+                            "table_path": "rules/conv.parquet",
                             "table_file": "conv.parquet",
                         },
                     ),
@@ -1028,7 +1028,7 @@ class TestONNXStaticAnalyzer:
                         debug_details={
                             "node_stable_key": "node_unknown",
                             "case_indices": ["case_9"],
-                            "table_path": "/tmp/relu.parquet",
+                            "table_path": "rules/relu.parquet",
                             "table_file": "relu.parquet",
                         },
                     ),
@@ -1054,11 +1054,10 @@ class TestONNXStaticAnalyzer:
 
         ep_result = result.output.results[0]
         assert ep_result.runtime_debug_details_summary is not None
-        assert ep_result.runtime_debug_details_summary["supported"]["node_conv"] == {
-            "case_indices": ["case_7"],
-            "table_path": "/tmp/conv.parquet",
-            "table_file": "conv.parquet",
-        }
+        node_conv_entry = ep_result.runtime_debug_details_summary["supported"]["node_conv"]
+        assert node_conv_entry.case_indices == ["case_7"]
+        assert node_conv_entry.table_path == "rules/conv.parquet"
+        assert node_conv_entry.table_file == "conv.parquet"
         assert ep_result.runtime_debug_details_summary["partial"] == {}
         assert ep_result.runtime_debug_details_summary["unsupported"] == {}
         assert "node_unknown" not in ep_result.runtime_debug_details_summary["supported"]

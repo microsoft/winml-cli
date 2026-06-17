@@ -137,7 +137,7 @@ def compute_case_signature(case: dict, *, namespace: str) -> str:
 
 def _hash_case_signature(signature: str) -> str:
     """Return a stable 32-char hash value for case content."""
-    return hashlib.md5(signature.encode("utf-8")).hexdigest()
+    return hashlib.md5(signature.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def _compute_case_index_with_namespace_key(case: dict, *, namespace_key: str) -> str:

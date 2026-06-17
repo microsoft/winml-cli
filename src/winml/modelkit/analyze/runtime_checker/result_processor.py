@@ -727,9 +727,7 @@ def _deduplicate_rule_rows(
         if aggregate_case_indices and case_index_col in group_df.columns:
             case_indices: list[Any] = []
             for case_index_value in group_df[case_index_col].tolist():
-                if case_index_value is None:
-                    continue
-                if isinstance(case_index_value, float) and pd.isna(case_index_value):
+                if case_index_value is None or pd.isna(case_index_value):
                     continue
                 case_indices.append(case_index_value)
 
