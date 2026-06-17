@@ -8,26 +8,42 @@
 Demo: facebook/convnext-tiny-224, CPU EP, FP32
 
 Loop: hypothesize → winml build → quick-screen bench (CV gate) →
-      full bench (iter=1000×3) → eval → keep/discard → repeat
+      full bench (3 sessions) → eval → keep/discard → repeat
 
 Key design principles (from GPU Optimizer V2 + ConvNext lessons):
-  1. Two-phase bench: 200-iter CV screen FIRST, full bench only if CV < 10%
+  1. Two-phase bench: 200-iter CV screen FIRST, full bench only if CV < threshold
+     (CPU/GPU) — or unconditionally for QNN NPU (npu-007: DVFS makes CV unreliable)
   2. Use winml perf (NOT winml eval) for latency — eval includes HF preprocessing
   3. Mandatory external-research after 5 consecutive DISCARDs in same dimension
   4. Load ep_knowledge/*.json (only "confirmed" entries) to prune search space
   5. Per-experiment structured output: hypothesis/impl/parity/perf/analysis/decision
   6. Stop condition: 30 consecutive DISCARDs (not 5)
+
+Hypothesis design — ISOLATED mode (each hypothesis is independent):
+  Each hypothesis is applied to a fresh copy of BASELINE. The labels "+" prefix
+  is cosmetic; no state is accumulated across hypotheses. This allows independent
+  attribution: "does gelu-fusion alone help?" rather than "does gelu help on top
+  of conv fusions?". To run a cumulative search, chain patch functions explicitly.
 """
 
 import copy
 import csv
 import json
-import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
+from bench_utils import (
+    FULL_ITERS,
+    FULL_SESSIONS,
+    SCREEN_CV_MAX_STD,
+    SCREEN_ITERS,
+    bench_full,
+    bench_screen,
+    median_p50,
+    run_cmd,
+)
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
@@ -129,77 +145,84 @@ BASELINE: dict = {
 
 
 # ── hypothesis sequence ───────────────────────────────────────────────────────
+# Each function receives a FRESH copy of BASELINE (isolated mode).
+# Hypotheses are independent — no state is accumulated across them.
+# Use "+" in labels only when the function explicitly inherits optim from prior
+# state. Here all hypotheses start from baseline optim={}, so labels are flat.
+
+
 def h0_baseline(cfg: dict) -> dict:
-    """FP32 export, no extra fusions — reference point"""
+    """FP32 export, no extra fusions — reference point."""
     cfg["optim"] = {}
     return cfg
 
 
 def h1_conv_fusions(cfg: dict) -> dict:
-    cfg["optim"] = {"conv-bn-fusion": True, "conv-add-fusion": True, "conv-activation-fusion": True}
+    """Conv+BN+Add+Activation fusions in isolation.
+
+    NOTE: These are ORT graph-level fusions (conv_bn_fusion etc.) that create FusedConv ops.
+    On QNN NPU, FusedConv causes CPU fallback → catastrophic regression (npu-006).
+    Only run on CPU/DML EPs. Use count_conv_pct() before enabling on QNN.
+    """
+    cfg["optim"] = {
+        "conv_bn_fusion": True,
+        "conv_add_fusion": True,
+        "conv_activation_fusion": True,
+    }
     return cfg
 
 
 def h2_gelu_fusion(cfg: dict) -> dict:
-    cfg["optim"] = {**cfg["optim"], "gelu-fusion": True}
+    """Gelu fusion in isolation (no conv fusions)."""
+    cfg["optim"] = {"gelu_fusion": True}
     return cfg
 
 
-def h3_add_layernorm(cfg: dict) -> dict:
-    cfg["optim"] = {**cfg["optim"], "layer-norm-fusion": True}
+def h3_layernorm_fusion(cfg: dict) -> dict:
+    """LayerNorm fusion in isolation."""
+    cfg["optim"] = {"layer_norm_fusion": True}
     return cfg
 
 
-def h4_add_matmul(cfg: dict) -> dict:
-    cfg["optim"] = {**cfg["optim"], "matmul-add-fusion": True}
+def h4_matmul_add(cfg: dict) -> dict:
+    """MatMul+Add fusion in isolation (MLP block bottleneck)."""
+    cfg["optim"] = {"matmul_add_fusion": True}
     return cfg
 
 
 def h5_transpose_opt(cfg: dict) -> dict:
-    cfg["optim"] = {**cfg["optim"], "transpose-optimizer": True}
+    """Transpose optimizer in isolation."""
+    cfg["optim"] = {"transpose_optimizer": True}
     return cfg
 
 
 def h6_opset21(cfg: dict) -> dict:
-    """Try opset 21 — may trigger kMaxSupportedOpset bypass on older ORT (see npu-001).
-    NOTE: This is a research hypothesis, not a confirmed optimization. Gate 2 required.
+    """Opset 21 research hypothesis — model-architecture-dependent benefit (npu-001).
+    NOTE: Mechanism unknown. Not a confirmed optimization. Gate 2 required before KB.
     """
     cfg["export"]["opset_version"] = 21
-    cfg["optim"] = {**cfg["optim"], "transpose-optimizer": True}
     return cfg
 
 
 HYPOTHESES: list[tuple[str, object, str]] = [
     # (label, patch_fn, search_dimension)
-    ("baseline: no fusions (FP32 reference)", h0_baseline, "baseline"),
+    ("baseline (FP32, no fusions)", h0_baseline, "baseline"),
     ("conv fusions: bn+add+activation", h1_conv_fusions, "graph_pass"),
-    ("+ gelu-fusion", h2_gelu_fusion, "graph_pass"),
-    ("+ layer-norm-fusion", h3_add_layernorm, "graph_pass"),
-    ("+ matmul-add-fusion (MLP blocks)", h4_add_matmul, "graph_pass"),
-    ("+ transpose-optimizer", h5_transpose_opt, "graph_pass"),
-    ("opset=21 (kMaxSupportedOpset research)", h6_opset21, "opset"),
+    ("gelu-fusion only", h2_gelu_fusion, "graph_pass"),
+    ("layer-norm-fusion only", h3_layernorm_fusion, "graph_pass"),
+    ("matmul-add-fusion (MLP blocks)", h4_matmul_add, "graph_pass"),
+    ("transpose-optimizer only", h5_transpose_opt, "graph_pass"),
+    ("opset=21 (npu-001 research)", h6_opset21, "opset"),
 ]
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-
-
-def run(cmd: list[str], label: str = "") -> tuple[int, str, float]:
-    t0 = time.time()
-    print(f"  >> {label or cmd[1]}")
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    elapsed = time.time() - t0
-    status = "ok" if result.returncode == 0 else f"rc={result.returncode}"
-    print(f"     done in {elapsed:.0f}s  [{status}]")
-    if result.returncode != 0:
-        print(f"     stderr: {(result.stderr or result.stdout or '')[-400:]}")
-    return result.returncode, result.stdout + result.stderr, elapsed
 
 
 def build(cfg: dict, out_dir: Path) -> tuple[bool, str]:
     out_dir.mkdir(parents=True, exist_ok=True)
     cfg_path = out_dir / "config.json"
     cfg_path.write_text(json.dumps(cfg, indent=2))
-    rc, out, _ = run(
+    rc, out, _ = run_cmd(
         [
             WINML,
             "build",
@@ -221,85 +244,35 @@ def build(cfg: dict, out_dir: Path) -> tuple[bool, str]:
     return rc == 0, out
 
 
-def bench_phase_a(model_path: Path) -> tuple[float | None, float]:
-    """Phase A quick screen: 200 iters, check CV < SCREEN_CV_MAX.
-    Returns (p50_ms, cv). p50_ms=None means unstable (reject).
-    """
-    out_json = model_path.parent / "screen_perf.json"
-    rc, _, _ = run(
-        [
-            WINML,
-            "perf",
-            "-m",
-            str(model_path),
-            "--ep",
-            EP,
-            "--device",
-            DEVICE,
-            "--warmup",
-            str(SCREEN_WARMUP),
-            "--iterations",
-            str(SCREEN_ITERS),
-            "-o",
-            str(out_json),
-        ],
-        label=f"winml perf (screen, iter={SCREEN_ITERS})",
-    )
-    if rc != 0 or not out_json.exists():
-        return None, 999.0
-    try:
-        data = json.loads(out_json.read_text())
-        lat = data["latency_ms"]
-        p50 = lat["p50"]
-        std = lat["std"]
-        cv = std / p50 if p50 > 0 else 999.0
-        print(f"     screen: p50={p50:.1f}ms  std={std:.1f}ms  CV={cv:.2f}")
-        if cv > SCREEN_CV_MAX:
-            print(f"     ⚠️  CV={cv:.2f} > {SCREEN_CV_MAX} — UNSTABLE, rejecting candidate")
-            return None, cv
-        return p50, cv
-    except Exception as e:
-        print(f"     [warn] parse error: {e}")
-        return None, 999.0
+def _run_screen(model_path: Path) -> tuple[float | None, float]:
+    """Phase A: 200-iter screen with CV gate.
 
-
-def bench_phase_b(model_path: Path, label: str) -> list[float]:
-    """Phase B full bench: 3 independent sessions × 1000 iters with cool-down.
-    Returns list of p50_ms values (one per session).
+    For CPU EP, high CV means thermal/scheduling noise — reject and retry later.
+    Returns (p50_ms, cv). p50_ms=None means unstable or command failed.
     """
-    p50s = []
-    for session in range(1, FULL_SESSIONS + 1):
-        out_json = model_path.parent / f"full_perf_s{session}.json"
-        rc, _, _ = run(
-            [
-                WINML,
-                "perf",
-                "-m",
-                str(model_path),
-                "--ep",
-                EP,
-                "--device",
-                DEVICE,
-                "--warmup",
-                str(FULL_WARMUP),
-                "--iterations",
-                str(FULL_ITERS),
-                "-o",
-                str(out_json),
-            ],
-            label=f"winml perf (full s{session}/{FULL_SESSIONS}, iter={FULL_ITERS})",
+    sr = bench_screen(winml=WINML, model_path=model_path, ep=EP, device=DEVICE)
+    if sr.hard_failed:
+        return None, 999.0
+    if sr.cv is not None and sr.cv > SCREEN_CV_MAX:
+        print(
+            f"     Phase A rejected: CV={sr.cv:.2f} > {SCREEN_CV_MAX}"
+            f" (thermal/scheduling noise on {EP.upper()} — cool device and retry)"
         )
-        if rc == 0 and out_json.exists():
-            data = json.loads(out_json.read_text())
-            p50 = data["latency_ms"]["p50"]
-            std = data["latency_ms"]["std"]
-            cv = std / p50 if p50 > 0 else 999.0
-            print(f"     full s{session}: p50={p50:.1f}ms  std={std:.1f}ms  CV={cv:.2f}")
-            p50s.append(p50)
-        if session < FULL_SESSIONS:
-            print(f"     cooling down {COOL_DOWN_S}s …")
-            time.sleep(COOL_DOWN_S)
-    return p50s
+        return None, sr.cv
+    return sr.p50_ms, sr.cv or 0.0
+
+
+def _run_full(model_path: Path) -> list[float]:
+    """Phase B: 3 sessions × FULL_ITERS with cool-down. Returns p50 per session."""
+    return bench_full(
+        winml=WINML,
+        model_path=model_path,
+        ep=EP,
+        device=DEVICE,
+        out_prefix="full",
+        iters=FULL_ITERS,
+        cool_down_s=COOL_DOWN_S,
+    )
 
 
 def eval_accuracy(out_dir: Path) -> float | None:
@@ -308,7 +281,7 @@ def eval_accuracy(out_dir: Path) -> float | None:
     if not model_path.exists():
         return None
     result_json = out_dir / "eval_result.json"
-    rc, _, _ = run(
+    rc, _, _ = run_cmd(
         [
             WINML,
             "eval",
@@ -482,28 +455,31 @@ def main() -> None:
             exp_info["analysis"] = "winml build failed — check build log"
         else:
             # Phase A: quick screen
-            screen_p50, screen_cv = bench_phase_a(out_dir / "model.onnx")
+            screen_p50, screen_cv = _run_screen(out_dir / "model.onnx")
             exp_info["screen_p50"] = f"{screen_p50:.1f}" if screen_p50 else "UNSTABLE"
             exp_info["screen_cv"] = f"{screen_cv:.3f}"
 
             if screen_p50 is None:
                 status = "discard (unstable — CV too high)"
                 exp_info["analysis"] = (
-                    f"Phase A rejected: CV={screen_cv:.2f} > {SCREEN_CV_MAX}. Likely DVFS noise. Cool device and retry."
+                    f"Phase A rejected: CV={screen_cv:.2f} > {SCREEN_CV_MAX}. "
+                    f"Thermal or scheduling noise on {EP.upper()} EP. Cool device and retry."
                 )
             else:
                 # Phase B: full bench
-                full_p50s = bench_phase_b(out_dir / "model.onnx", label)
+                full_p50s = _run_full(out_dir / "model.onnx")
                 if not full_p50s:
                     status = "crash (full bench failed)"
                     exp_info["analysis"] = "Phase B winml perf returned no data"
                 else:
-                    median_p50 = sorted(full_p50s)[len(full_p50s) // 2]
+                    med_p50 = median_p50(full_p50s)
+                    assert med_p50 is not None
                     exp_info["full_p50s"] = [f"{p:.1f}" for p in full_p50s]
-                    exp_info["median_p50"] = f"{median_p50:.1f}"
+                    exp_info["median_p50"] = f"{med_p50:.1f}"
 
-                    if baseline_p50 is None and i == 0:
-                        baseline_p50 = median_p50
+                    # Set baseline from the first successful full bench (any iteration).
+                    if baseline_p50 is None:
+                        baseline_p50 = med_p50
                         exp_info["baseline_p50"] = f"{baseline_p50:.1f}"
 
                     # Accuracy gate
@@ -513,10 +489,10 @@ def main() -> None:
                     if accuracy is not None and accuracy < ACCURACY_FLOOR:
                         status = f"discard (accuracy {accuracy:.4f} < floor {ACCURACY_FLOOR})"
                         exp_info["analysis"] = "Accuracy regression below floor"
-                    elif baseline_p50 is not None and median_p50 > baseline_p50 * (
+                    elif baseline_p50 is not None and med_p50 > baseline_p50 * (
                         1 - MIN_IMPROVEMENT
                     ):
-                        delta_pct = (median_p50 - baseline_p50) / baseline_p50 * 100
+                        delta_pct = (med_p50 - baseline_p50) / baseline_p50 * 100
                         status = f"discard (Δp50={delta_pct:+.1f}% < {MIN_IMPROVEMENT * 100:.0f}% threshold)"
                         exp_info["delta_pct"] = f"{delta_pct:+.1f}%"
                         exp_info["analysis"] = (
@@ -524,17 +500,15 @@ def main() -> None:
                         )
                     else:
                         delta_pct = (
-                            (median_p50 - (baseline_p50 or median_p50))
-                            / (baseline_p50 or median_p50)
-                            * 100
+                            (med_p50 - (baseline_p50 or med_p50)) / (baseline_p50 or med_p50) * 100
                         )
                         status = "keep"
                         exp_info["delta_pct"] = f"{delta_pct:+.1f}%"
                         exp_info["analysis"] = (
-                            f"Improvement confirmed: p50 {baseline_p50:.1f}ms → {median_p50:.1f}ms ({delta_pct:+.1f}%)"
+                            f"Improvement confirmed: p50 {baseline_p50:.1f}ms -> {med_p50:.1f}ms ({delta_pct:+.1f}%)"
                         )
-                        if median_p50 < best_p50:
-                            best_p50 = median_p50
+                        if med_p50 < best_p50:
+                            best_p50 = med_p50
                             best_label = label
                             status = "keep *** NEW BEST ***"
 
@@ -595,406 +569,6 @@ def main() -> None:
     print(f"  Results: {RESULTS_TSV}")
     print(f"  Experiments: {WORK_DIR / 'experiments'}")
     print(f"{sep}\n")
-
-
-if __name__ == "__main__":
-    main()
-
-
-import sys
-from pathlib import Path
-
-
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
-
-# ── settings ─────────────────────────────────────────────────────────────────
-MODEL_ID = "facebook/convnext-tiny-224"
-TASK = "image-classification"
-EP = "cpu"
-DEVICE = "cpu"
-WINML = str(Path(__file__).parent / ".venv" / "Scripts" / "winml.exe")
-WORK_DIR = Path(__file__).parent / "convnext-search"
-RESULTS_TSV = WORK_DIR / "results.tsv"
-
-EVAL_SAMPLES = 50  # small for demo speed (~12s per eval)
-ACCURACY_FLOOR = 0.70  # drop below this → discard (FP32 baseline ~78%)
-LATENCY_FLOOR = 1.0  # seconds — more than this means regression
-
-# ── baseline config ───────────────────────────────────────────────────────────
-BASELINE: dict = {
-    "export": {
-        "opset_version": 17,
-        "batch_size": 1,
-        "do_constant_folding": True,
-        "dynamo": False,
-        "input_tensors": [
-            {
-                "name": "pixel_values",
-                "dtype": "float32",
-                "shape": [1, 3, 224, 224],
-                "value_range": [0, 1],
-            }
-        ],
-        "output_tensors": [{"name": "logits"}],
-    },
-    "optim": {},  # will be patched per hypothesis
-    "loader": {
-        "task": TASK,
-        "model_class": "AutoModelForImageClassification",
-        "model_type": "convnext",
-    },
-    "eval": {
-        "task": TASK,
-        "dataset": {"path": "timm/mini-imagenet", "split": "test", "samples": EVAL_SAMPLES},
-    },
-}
-
-# ── hypothesis sequence ───────────────────────────────────────────────────────
-# ConvNext-tiny architecture:
-#   Stem: Conv 4x4 + LN → 4 stages of ConvNext blocks
-#   Each block: DW-Conv → LN → Linear (=Gemm) → GELU → Linear
-#   Skip connections: pointwise Add
-#
-# Relevant fusions:
-#   conv-bn-fusion      — conv+BatchNorm folding (stem/downsample layers)
-#   conv-add-fusion     — conv+bias add (ConvNext uses DepthwiseConv with bias)
-#   gelu-fusion         — fuse decomposed GELU → com.microsoft/Gelu
-#   layer-norm-fusion   — fuse LN subgraph (ConvNext uses LayerNorm heavily)
-#   matmul-add-fusion   — fuse Gemm+bias (the inverted bottleneck MLPs)
-#   transpose-optimizer — eliminate redundant transposes around reshape ops
-#   constant-folding    — pre-fold constant subgraphs (on by default in export,
-#                         but also at optim stage via ORT)
-
-
-def h0_baseline(cfg: dict) -> dict:
-    """FP32 export, no extra fusions — reference point"""
-    cfg["optim"] = {}
-    return cfg
-
-
-def h1_conv_fusions(cfg: dict) -> dict:
-    """Enable all conv fusions — ConvNext stem uses Conv+BN, blocks use DW-Conv+bias"""
-    cfg["optim"] = {
-        "conv-bn-fusion": True,
-        "conv-add-fusion": True,
-        "conv-activation-fusion": True,
-    }
-    return cfg
-
-
-def h2_gelu_fusion(cfg: dict) -> dict:
-    """Add GELU fusion — ConvNext MLP blocks use GELU activation"""
-    cfg["optim"] = {
-        "conv-bn-fusion": True,
-        "conv-add-fusion": True,
-        "conv-activation-fusion": True,
-        "gelu-fusion": True,
-    }
-    return cfg
-
-
-def h3_add_layernorm(cfg: dict) -> dict:
-    """Add LayerNorm fusion — ConvNext uses LN (not BN) in blocks"""
-    cfg["optim"] = {
-        "conv-bn-fusion": True,
-        "conv-add-fusion": True,
-        "conv-activation-fusion": True,
-        "gelu-fusion": True,
-        "layer-norm-fusion": True,
-    }
-    return cfg
-
-
-def h4_add_matmul(cfg: dict) -> dict:
-    """Add MatMul+Add fusion — ConvNext MLP uses Gemm (collapsed MatMul+bias)"""
-    cfg["optim"] = {
-        "conv-bn-fusion": True,
-        "conv-add-fusion": True,
-        "conv-activation-fusion": True,
-        "gelu-fusion": True,
-        "layer-norm-fusion": True,
-        "matmul-add-fusion": True,
-    }
-    return cfg
-
-
-def h5_transpose_opt(cfg: dict) -> dict:
-    """Add transpose optimizer — ConvNext has many Transpose ops (NCHW reshapes)"""
-    cfg["optim"] = {
-        "conv-bn-fusion": True,
-        "conv-add-fusion": True,
-        "conv-activation-fusion": True,
-        "gelu-fusion": True,
-        "layer-norm-fusion": True,
-        "matmul-add-fusion": True,
-        "transpose-optimizer": True,
-    }
-    return cfg
-
-
-def h6_opset18(cfg: dict) -> dict:
-    """Try opset 18 with all fusions — GroupNorm introduced in opset18"""
-    cfg["export"]["opset_version"] = 18
-    cfg["optim"] = {
-        "conv-bn-fusion": True,
-        "conv-add-fusion": True,
-        "conv-activation-fusion": True,
-        "gelu-fusion": True,
-        "layer-norm-fusion": True,
-        "matmul-add-fusion": True,
-        "transpose-optimizer": True,
-    }
-    return cfg
-
-
-def h7_surgery(cfg: dict) -> dict:
-    """Add clamp-constant-values — prevents -inf attention mask quant issues"""
-    cfg["export"]["opset_version"] = 17
-    cfg["optim"] = {
-        "conv-bn-fusion": True,
-        "conv-add-fusion": True,
-        "conv-activation-fusion": True,
-        "gelu-fusion": True,
-        "layer-norm-fusion": True,
-        "matmul-add-fusion": True,
-        "transpose-optimizer": True,
-        "clamp-constant-values": True,
-    }
-    return cfg
-
-
-HYPOTHESES: list[tuple[str, object]] = [
-    ("baseline: no fusions (FP32 reference)", h0_baseline),
-    ("conv fusions: bn+add+activation", h1_conv_fusions),
-    ("+ gelu-fusion", h2_gelu_fusion),
-    ("+ layer-norm-fusion", h3_add_layernorm),
-    ("+ matmul-add-fusion (MLP blocks)", h4_add_matmul),
-    ("+ transpose-optimizer", h5_transpose_opt),
-    ("opset=18 + all fusions", h6_opset18),
-    ("back to opset=17 + surgery: clamp-constant-values", h7_surgery),
-]
-
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-
-def run(cmd: list[str], label: str = "") -> tuple[int, str, float]:
-    t0 = time.time()
-    print(f"  >> {label or cmd[1]}")
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    elapsed = time.time() - t0
-    status = "ok" if result.returncode == 0 else f"rc={result.returncode}"
-    print(f"     done in {elapsed:.0f}s  [{status}]")
-    if result.returncode != 0:
-        tail = (result.stderr or result.stdout or "")[-600:]
-        print(f"     stderr: {tail}")
-    return result.returncode, result.stdout + result.stderr, elapsed
-
-
-def build(cfg: dict, out_dir: Path) -> tuple[bool, str]:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    cfg_path = out_dir / "config.json"
-    cfg_path.write_text(json.dumps(cfg, indent=2))
-    rc, out, _ = run(
-        [
-            WINML,
-            "build",
-            "-c",
-            str(cfg_path),
-            "-m",
-            MODEL_ID,
-            "-o",
-            str(out_dir),
-            "--ep",
-            EP,
-            "--device",
-            DEVICE,
-            "--no-quant",
-            "--no-compile",
-        ],
-        label="winml build",
-    )
-    return rc == 0, out
-
-
-def eval_onnx(out_dir: Path) -> tuple[float | None, float | None]:
-    """Eval model.onnx; return (accuracy, latency_s)."""
-    model_path = out_dir / "model.onnx"
-    if not model_path.exists():
-        print("     [warn] model.onnx not found")
-        return None, None
-
-    result_json = out_dir / "eval_result.json"
-    rc, _, _ = run(
-        [
-            WINML,
-            "eval",
-            "-m",
-            str(model_path),
-            "--model-id",
-            MODEL_ID,
-            "--task",
-            TASK,
-            "--ep",
-            EP,
-            "--device",
-            DEVICE,
-            "--samples",
-            str(EVAL_SAMPLES),
-            "-o",
-            str(result_json),
-        ],
-        label="winml eval",
-    )
-    if rc != 0 or not result_json.exists():
-        return None, None
-    try:
-        data = json.loads(result_json.read_text())
-        metrics = data.get("metrics", data)
-        accuracy = metrics.get("accuracy")
-        latency = metrics.get("latency_in_seconds")
-        return (
-            float(accuracy) if accuracy is not None else None,
-            float(latency) if latency is not None else None,
-        )
-    except Exception as e:
-        print(f"     [warn] parse error: {e}")
-        return None, None
-
-
-def log(row: dict) -> None:
-    fields = [
-        "iter",
-        "label",
-        "optim_flags",
-        "opset",
-        "accuracy",
-        "latency_ms",
-        "delta_acc",
-        "delta_lat_ms",
-        "status",
-        "elapsed_s",
-        "timestamp",
-    ]
-    is_new = not RESULTS_TSV.exists()
-    with RESULTS_TSV.open("a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fields, delimiter="\t", extrasaction="ignore")
-        if is_new:
-            w.writeheader()
-        w.writerow(row)
-
-
-def optim_flags(cfg: dict) -> str:
-    flags = [k for k, v in cfg.get("optim", {}).items() if v is True]
-    return ",".join(flags) if flags else "(none)"
-
-
-# ── main loop ─────────────────────────────────────────────────────────────────
-
-
-def main() -> None:
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
-
-    sep = "=" * 62
-    print(f"\n{sep}")
-    print(f"  autoconfig search  --  {MODEL_ID}")
-    print(f"  EP: {EP}   eval_samples: {EVAL_SAMPLES}   hypotheses: {len(HYPOTHESES)}")
-    print(f"  Objective: maximize accuracy  (floor={ACCURACY_FLOOR})")
-    print("  Search space: WinMLOptimizationConfig capability flags")
-    print(f"{sep}\n")
-
-    baseline_acc: float | None = None
-    baseline_lat: float | None = None
-    best_acc = 0.0
-    best_lat = float("inf")
-    best_label = ""
-    total_start = time.time()
-
-    for i, (label, patch_fn) in enumerate(HYPOTHESES):
-        iter_start = time.time()
-        print(f"\n{'--' * 31}")
-        print(f"  iter {i}  |  {label}")
-        print(f"{'--' * 31}")
-
-        cfg = patch_fn(copy.deepcopy(BASELINE))  # type: ignore[operator]
-        flags = optim_flags(cfg)
-        opset = cfg["export"]["opset_version"]
-        print(f"  optim: {flags}")
-        print(f"  opset: {opset}")
-
-        out_dir = WORK_DIR / f"iter_{i:02d}"
-        ok, _ = build(cfg, out_dir)
-        if not ok:
-            status = "crash"
-            accuracy = latency = None
-        else:
-            accuracy, latency = eval_onnx(out_dir)
-            if accuracy is None:
-                status = "eval_error"
-            elif accuracy < ACCURACY_FLOOR:
-                status = "discard (accuracy < floor)"
-            elif latency is not None and latency > LATENCY_FLOOR:
-                status = "discard (latency regression)"
-            else:
-                status = "keep"
-                if accuracy > best_acc or (accuracy == best_acc and (latency or 999) < best_lat):
-                    best_acc = accuracy
-                    best_lat = latency or float("inf")
-                    best_label = label
-                    status = "keep *** NEW BEST ***"
-
-        # Print result
-        if accuracy is not None:
-            lat_ms = f"{(latency or 0) * 1000:.0f}ms" if latency else "N/A"
-            print(f"  accuracy={accuracy:.4f}  latency={lat_ms}  -> {status}")
-            if baseline_acc is None and i == 0:
-                baseline_acc = accuracy
-                baseline_lat = latency
-            if baseline_acc is not None and i > 0:
-                d_acc = accuracy - baseline_acc
-                d_lat = ((latency or 0) - (baseline_lat or 0)) * 1000
-                sign_acc = "+" if d_acc >= 0 else ""
-                sign_lat = "+" if d_lat >= 0 else ""
-                print(f"  vs baseline: acc {sign_acc}{d_acc:.4f}  lat {sign_lat}{d_lat:.0f}ms")
-        else:
-            print(f"  -> {status}")
-
-        elapsed = time.time() - iter_start
-        delta_acc = (
-            f"{accuracy - baseline_acc:+.4f}"
-            if (accuracy is not None and baseline_acc is not None)
-            else "N/A"
-        )
-        delta_lat = (
-            f"{((latency or 0) - (baseline_lat or 0)) * 1000:+.0f}"
-            if (latency is not None and baseline_lat is not None)
-            else "N/A"
-        )
-        log(
-            {
-                "iter": i,
-                "label": label,
-                "optim_flags": flags,
-                "opset": opset,
-                "accuracy": f"{accuracy:.4f}" if accuracy is not None else "N/A",
-                "latency_ms": f"{(latency or 0) * 1000:.0f}" if latency is not None else "N/A",
-                "delta_acc": delta_acc,
-                "delta_lat_ms": delta_lat,
-                "status": status,
-                "elapsed_s": f"{elapsed:.0f}",
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-            }
-        )
-
-    total = time.time() - total_start
-    print(f"\n{sep}")
-    print(f"  SEARCH COMPLETE  |  {total / 60:.1f} min total")
-    print(f"  Best config: {best_label}")
-    print(f"  Best accuracy: {best_acc:.4f}   latency: {best_lat * 1000:.0f}ms")
-    print(f"  Results: {RESULTS_TSV}")
-    print(f"{sep}\n")
-
-    if RESULTS_TSV.exists():
-        print(RESULTS_TSV.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

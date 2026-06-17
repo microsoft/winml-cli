@@ -346,7 +346,11 @@ def run_model(model_id, task, model_type, run_h4):
             continue
 
         p50_screen, cv, stable = bench_screen(model_path)
-        if p50_screen is None:
+        # npu-007: For QNN NPU, screen failure (rc!=0, empty output) must NOT gate Phase B.
+        # DVFS thermal noise can cause transient subprocess failures on first inference.
+        # Only skip Phase B if screen hard-failed AND the EP is not QNN NPU.
+        is_npu = EP == "qnn" and DEVICE == "npu"
+        if p50_screen is None and not is_npu:
             result["hypotheses"][hid] = {
                 "status": "BENCH_FAIL",
                 "label": label,
@@ -355,12 +359,14 @@ def run_model(model_id, task, model_type, run_h4):
             continue
 
         p50s, median = bench_full(model_path)
-        status = "OK" if cv < 0.15 else "OK_HIGH_CV"
+        status = "OK" if (cv is None or cv < 0.15) else "OK_HIGH_CV"
+        if not p50s:
+            status = "BENCH_FAIL"
         result["hypotheses"][hid] = {
             "status": status,
             "screen": {
-                "p50_ms": round(p50_screen, 3),
-                "cv": round(cv, 4),
+                "p50_ms": round(p50_screen, 3) if p50_screen is not None else None,
+                "cv": round(cv, 4) if cv is not None else None,
                 "stable": stable,
                 "note": "DVFS noise — high CV expected on QNN NPU" if not stable else None,
             },
@@ -368,8 +374,10 @@ def run_model(model_id, task, model_type, run_h4):
             "label": label,
             "opset": opset_override or "auto",
         }
+        screen_str = f"{p50_screen:.2f}ms" if p50_screen is not None else "N/A"
+        cv_str = f"{cv:.3f}" if cv is not None else "N/A"
         print(
-            f"  [RESULT {hid}] screen p50={p50_screen:.2f}ms CV={cv:.3f}  full_median={median}ms  sessions={p50s}",
+            f"  [RESULT {hid}] screen p50={screen_str} CV={cv_str}  full_median={median}ms  sessions={p50s}",
             flush=True,
         )
 

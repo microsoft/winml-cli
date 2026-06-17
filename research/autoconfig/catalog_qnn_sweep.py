@@ -63,7 +63,7 @@ FULL_ITERS = 500
 FULL_SESSIONS = 3
 COOL_DOWN_S = 30
 
-MODEL_TIMEOUT_S = 20 * 60  # 20 min per model total
+MODEL_TIMEOUT_S = 180 * 60  # 3 hours per model — 6 hypotheses × ~30min each
 BUILD_TIMEOUT_S = 8 * 60  # 8 min per individual build
 BENCH_TIMEOUT_S = 8 * 60  # 8 min per bench run
 EVAL_TIMEOUT_S = 6 * 60  # 6 min for accuracy eval
@@ -153,12 +153,23 @@ def _count_conv_pct(model_onnx: Path) -> tuple[float, int, int]:
     """Count Conv ops in a built ONNX model. Returns (conv_pct, conv_count, total_count).
     Used to assess npu-006 risk before running conv-fusion hypotheses.
     Falls back to (0.0, 0, 0) if onnx is not importable or file missing.
+
+    WARNING: (0.0, 0, 0) means UNKNOWN, not SAFE. The caller must treat a zero
+    result as unknown and emit a warning rather than silently skipping the guard.
     """
     if not model_onnx.exists():
         return 0.0, 0, 0
     try:
         import onnx  # noqa: PLC0415
-
+    except ImportError:
+        print(
+            "  [ERROR] onnx package not installed — cannot assess npu-006 risk for conv fusions.\n"
+            "          Install it: pip install onnx\n"
+            "          Conv-fusion hypotheses (h4/h5) will be annotated as UNKNOWN risk.",
+            flush=True,
+        )
+        return 0.0, 0, 0
+    try:
         model = onnx.load(str(model_onnx))
         ops = [n.op_type for n in model.graph.node]
         total = len(ops)
@@ -568,10 +579,18 @@ def sweep_model(
         # After h0: analyze Conv% to assess npu-006 risk for h4/h5
         if hyp_id == "h0" and onnx_path.exists():
             conv_pct, conv_count, total_count = _count_conv_pct(onnx_path)
-            npu006_risk = conv_pct > NPU006_CONV_PCT_THRESHOLD
-            results["conv_pct"] = conv_pct
+            # Treat (0.0, 0, 0) as UNKNOWN (not safe) — onnx may be unavailable.
+            conv_unknown = conv_pct == 0.0 and total_count == 0
+            npu006_risk = conv_pct > NPU006_CONV_PCT_THRESHOLD or conv_unknown
+            results["conv_pct"] = None if conv_unknown else conv_pct
             results["npu006_risk"] = npu006_risk
-            if npu006_risk:
+            if conv_unknown:
+                print(
+                    "  [npu-006] Conv% analysis returned UNKNOWN (onnx unavailable or file missing)"
+                    " — treating h4/h5 as HIGH RISK to be safe",
+                    flush=True,
+                )
+            elif npu006_risk:
                 print(
                     f"  [npu-006] Conv%={conv_pct:.1f}% ({conv_count}/{total_count} ops)"
                     f" > {NPU006_CONV_PCT_THRESHOLD:.0f}% threshold",
