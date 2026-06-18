@@ -143,6 +143,30 @@
       color: #7c5b00;
       font-size: 12px;
     }
+    .flag-pill {
+      display: inline-block;
+      background: #e3f2fd;
+      color: #1565c0;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 700;
+      margin: 1px 2px 1px 0;
+    }
+    .runs-val {
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 10.5px;
+      color: #546e7a;
+      white-space: nowrap;
+    }
+    .hyp-detail-table .label-cell { font-size: 11.5px; max-width: 220px; }
+    .hyp-detail-table .opset-cell { text-align: center; font-weight: 700; color: #3949ab; font-size: 12px; }
+    .hyp-detail-table .flags-cell { min-width: 140px; }
+    .hyp-detail-table .p50-cell { font-family: "Cascadia Code","Consolas",monospace; font-size: 12px; white-space: nowrap; }
+    .hyp-detail-table .sessions-cell { min-width: 160px; }
+    .hyp-detail-table .conf-cell { font-size: 11px; color: #546e7a; }
+    .verdict-keep { color: #2e7d32; font-weight: 700; }
+    .verdict-discard { color: #c62828; font-weight: 700; }
     .footer {
       margin-top: 16px;
       color: #7b8794;
@@ -215,6 +239,100 @@ status=OK_HIGH_CV  verdict=—
 p50=11.36 ms  gain=+5.9%</title><rect x="0" y="208.0" width="748" height="40" class="row-bg" /><text x="8" y="224.0" class="hyp-label">h4</text><text x="8" y="237.0" class="hyp-sub">opset 17 + conv fusions</text><rect x="410.0" y="216.0" width="7.7" height="24" fill="#43a047" stroke="none" stroke-width="0" rx="4" /><text x="425.7" y="232.0" text-anchor="start" class="value-text">+5.9%</text></g><g><title>h5: opset 21 + conv fusions
 status=OK_HIGH_CV  verdict=—
 p50=9.99 ms  gain=+17.2%</title><rect x="0" y="248.0" width="748" height="40" class="row-bg" /><text x="8" y="264.0" class="hyp-label">h5</text><text x="8" y="277.0" class="hyp-sub">opset 21 + conv fusions</text><rect x="410.0" y="256.0" width="22.4" height="24" fill="#43a047" stroke="none" stroke-width="0" rx="4" /><text x="440.4" y="272.0" text-anchor="start" class="value-text">+17.2%</text></g></svg>
+      </div>
+    </section>
+
+
+    <section class="section-card">
+      <div class="section-title">🔬 All Hypotheses — Full Detail</div>
+      <div style="overflow-x:auto">
+      <table class="report-table hyp-detail-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Config Label</th>
+            <th>Opset</th>
+            <th>Extra Flags</th>
+            <th>Median p50</th>
+            <th>Session p50s (ms)</th>
+            <th>Gain %</th>
+            <th>Verdict</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+
+        <tr class="">
+          <td><span class="hyp-pill">h0</span></td>
+          <td class="label-cell">baseline (auto-config, W8A16)</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">12.07 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[12.07 · 10.31 · 12.95]</span></td>
+          <td><span class="">+0.0%</span></td>
+          <td><span class="">OK_HIGH_CV</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h1</span></td>
+          <td class="label-cell">opset 17 explicit</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">11.72 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[10.56 · 11.72 · 27.44]</span></td>
+          <td><span class="gain-pos">+2.9%</span></td>
+          <td><span class="">OK_HIGH_CV</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h2</span></td>
+          <td class="label-cell">opset 19</td>
+          <td class="opset-cell">19</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">10.52 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[11.54 · 10.51 · 10.52]</span></td>
+          <td><span class="gain-pos">+12.9%</span></td>
+          <td><span class="">OK_HIGH_CV</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="champion-row">
+          <td><span class="hyp-pill">h3</span> <span style="color:#1976d2;font-weight:900">★</span></td>
+          <td class="label-cell">opset 21 (tests npu-001 bypass)</td>
+          <td class="opset-cell">21</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">8.62 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[10.81 · 8.62 · 8.45]</span></td>
+          <td><span class="gain-pos">+28.6%</span></td>
+          <td><span class="">OK_HIGH_CV</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h4</span></td>
+          <td class="label-cell">opset 17 + conv fusions</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">11.36 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[11.60 · 11.36 · 10.52]</span></td>
+          <td><span class="gain-pos">+5.9%</span></td>
+          <td><span class="">OK_HIGH_CV</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h5</span></td>
+          <td class="label-cell">opset 21 + conv fusions</td>
+          <td class="opset-cell">21</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">9.99 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[11.08 · 9.41 · 9.99]</span></td>
+          <td><span class="gain-pos">+17.2%</span></td>
+          <td><span class="">OK_HIGH_CV</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        </tbody>
+      </table>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:#7b8794">
+        ★ = champion hypothesis &nbsp;·&nbsp; Session p50s are individual bench sessions (median used for comparison)
       </div>
     </section>
 

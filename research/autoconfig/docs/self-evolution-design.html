@@ -158,6 +158,28 @@
   }
   .note strong { color: #f57f17; }
 
+  /* ── Tabs ── */
+  .tabs {
+    display: flex; gap: 4px; margin-bottom: 8px;
+    border-bottom: 2px solid #e0e4ef; max-width: 900px;
+  }
+  .tab-btn {
+    appearance: none; border: none; background: none; cursor: pointer;
+    font-family: inherit; font-size: 12px; font-weight: 700;
+    color: #888; padding: 9px 16px; border-radius: 8px 8px 0 0;
+    border-bottom: 2px solid transparent; margin-bottom: -2px;
+    letter-spacing: 0.3px;
+  }
+  .tab-btn:hover { color: #3949ab; background: #eef0f8; }
+  .tab-btn.active { color: #3949ab; border-bottom-color: #3949ab; background: #fff; }
+  .tab-btn .badge {
+    display: inline-block; background: #e8eaf6; color: #3949ab;
+    border-radius: 10px; padding: 0 6px; font-size: 10px; margin-left: 6px;
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .tab-panel > h2:first-child { margin-top: 18px; }
+
   @media (max-width: 720px) {
     .card-grid-2, .card-grid-3, .card-grid-4 { grid-template-columns: 1fr; }
   }
@@ -166,59 +188,61 @@
 <body>
 
 <h1>autoconfig Skill — Self-Evolution Design</h1>
-<p class="subtitle">How the autoconfig sweep loop learns, stabilizes, and improves itself over time</p>
+<p class="subtitle">How the sweep loop learns, stabilizes, and improves itself over time</p>
 <span class="tag tag-design">DESIGN</span>
 <span class="tag tag-status">POC → V2 ROADMAP</span>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="overview">Overview &amp; Roadmap</button>
+  <button class="tab-btn" data-tab="fixes">The 5 Fixes<span class="badge">code</span></button>
+</div>
+
+<!-- ═══════════════════ TAB: OVERVIEW (part A) ═══════════════════ -->
+<div class="tab-panel active" data-tab="overview">
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2>1 · Problem Statement</h2>
 
-<p style="margin-bottom:14px; color:#444;">The autoconfig sweep loop produces <strong>unreliable conclusions</strong> because of performance measurement noise. Even with the Phase A/B/C protocol, results vary run-to-run — leading to false promotions into the knowledge base and wasted sweep time on un-reproducible hypotheses.</p>
+<p style="margin-bottom:14px; color:#444;">Performance noise makes sweep conclusions <strong>unreliable</strong> — results vary run-to-run, causing false KB promotions and wasted sweep time.</p>
 
 <table>
-  <thead><tr><th>Pain Point</th><th>Root Cause</th><th>Severity</th><th>Current Mitigation</th><th>Gap</th></tr></thead>
+  <thead><tr><th>Pain Point</th><th>Root Cause</th><th>Severity</th><th>Gap</th></tr></thead>
   <tbody>
     <tr>
       <td><strong>DVFS thermal noise</strong></td>
-      <td>QNN NPU frequency scales with device temperature; same model can be 2× slower when hot</td>
+      <td>NPU frequency scales with temp; same model 2× slower when hot</td>
       <td><span class="sev-high">CRITICAL</span></td>
-      <td>30s cool-down, 3×500 iters</td>
-      <td>Cool-down is fixed; doesn't adapt to actual device temperature</td>
+      <td>Fixed 30s cool-down ignores actual temperature</td>
     </tr>
     <tr>
       <td><strong>Sequence bias</strong></td>
-      <td>h0 (baseline) runs on cold device; h10 runs on hot device — not a fair comparison</td>
+      <td>Baseline runs cold, late hypotheses run hot — unfair</td>
       <td><span class="sev-high">HIGH</span></td>
-      <td>❌ None</td>
-      <td>Every multi-hypothesis sweep has systematic order bias</td>
+      <td>Systematic order bias, no mitigation</td>
     </tr>
     <tr>
       <td><strong>No paired comparison</strong></td>
-      <td>Baseline and hypothesis measured at different thermal moments → delta includes thermal drift, not just optimization gain</td>
+      <td>Baseline & hypothesis measured at different thermal moments</td>
       <td><span class="sev-high">HIGH</span></td>
-      <td>❌ None</td>
-      <td>Core statistical flaw: unpaired measurements</td>
+      <td>Delta confounds drift with gain (unpaired)</td>
     </tr>
     <tr>
       <td><strong>Fixed sample size</strong></td>
-      <td>3 sessions regardless of variance — noisy models under-sampled, stable models over-sampled</td>
+      <td>3 sessions regardless of variance</td>
       <td><span class="sev-med">MEDIUM</span></td>
-      <td>Phase C confirmation pass</td>
-      <td>Phase C only runs on winner; doesn't adapt sample size during sweep</td>
+      <td>No adaptive sampling during sweep</td>
     </tr>
     <tr>
       <td><strong>Manual KB promotion</strong></td>
-      <td>Findings are written by hand after inspecting results — slow, error-prone, not reproducible</td>
+      <td>Findings written by hand from logs</td>
       <td><span class="sev-med">MEDIUM</span></td>
-      <td>❌ None</td>
       <td>KB grows only when a human reads logs</td>
     </tr>
     <tr>
-      <td><strong>No hypothesis prioritization</strong></td>
-      <td>All 14 hypotheses run for every model, even when graph analysis says most are irrelevant</td>
+      <td><strong>No prioritization</strong></td>
+      <td>All 14 hypotheses run per model, even irrelevant ones</td>
       <td><span class="sev-low">LOW-MED</span></td>
-      <td>analyze_insight.py hints (partial)</td>
-      <td>Sweep scripts don't yet consume skip_set from graph analysis</td>
+      <td>Sweeps don't consume skip_set yet</td>
     </tr>
   </tbody>
 </table>
@@ -226,7 +250,7 @@
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2>2 · Confidence-Gated Promotion (L1 → L5)</h2>
 
-<p style="margin-bottom:14px; color:#444;">Findings are promoted through confidence levels. The KB only contains L3+ entries. Each level has a quantitative gate — no manual judgement required.</p>
+<p style="margin-bottom:14px; color:#444;">Findings climb confidence levels via quantitative gates — no manual judgement. KB holds L3+ only.</p>
 
 <div class="ladder">
 
@@ -234,47 +258,47 @@
     <div class="rung-level l1">L1</div>
     <div class="rung-body l1-body">
       <div class="rung-name">Observed — Single Model, Single Run</div>
-      <div class="rung-desc">A hypothesis beats baseline in one model sweep. Stored in <code>results.json</code> only.</div>
-      <div class="rung-gate">Gate: median gain &gt; 5%. No range check.</div>
+      <div class="rung-desc">Beats baseline in one sweep. Stored in <code>results.json</code>.</div>
+      <div class="rung-gate">Gate: median gain &gt; 5%.</div>
     </div>
   </div>
 
   <div class="ladder-rung" style="height:14px;">
     <div class="ladder-connector">↓</div>
     <div style="flex:1; display:flex; align-items:center; padding-left:10px; font-size:10px; color:#888; font-style:italic;">
-      Paired A/B bench → range non-overlap criterion
+      Paired A/B bench → range non-overlap
     </div>
   </div>
 
   <div class="ladder-rung">
     <div class="rung-level l2">L2</div>
     <div class="rung-body l2-body">
-      <div class="rung-name">Confirmed — Single Model, Statistically Robust</div>
-      <div class="rung-desc">All (N_full + N_confirm) p50s beat ALL baseline p50s (ranges don't overlap). 95% CI on gain excludes 0.</div>
-      <div class="rung-gate">Gate: max(hyp_p50s) &lt; min(baseline_p50s). Stored as L2 candidate in results.json.</div>
+      <div class="rung-name">Confirmed — Statistically Robust</div>
+      <div class="rung-desc">All hypothesis p50s beat all baseline p50s; 95% CI excludes 0.</div>
+      <div class="rung-gate">Gate: max(hyp_p50s) &lt; min(baseline_p50s).</div>
     </div>
   </div>
 
   <div class="ladder-rung" style="height:14px;">
     <div class="ladder-connector">↓</div>
     <div style="flex:1; display:flex; align-items:center; padding-left:10px; font-size:10px; color:#888; font-style:italic;">
-      promote_findings.py — same flags confirmed on 2+ models of same arch class
+      promote_findings.py — same flags on 2+ models, same arch
     </div>
   </div>
 
   <div class="ladder-rung">
     <div class="rung-level l3">L3</div>
     <div class="rung-body l3-body">
-      <div class="rung-name">Generalized — Architecture-Level Rule</div>
-      <div class="rung-desc">Same optimization flags produce L2-quality gains on ≥2 models of the same architecture class (e.g., pure-ViT, ResNet, BERT). Automatically written to <code>ep_knowledge/&lt;ep&gt;.json</code>.</div>
-      <div class="rung-gate">Gate: ≥2 L2 confirmations with same (flags, arch_class). Finding scope: "applies_to_arch".</div>
+      <div class="rung-name">Generalized — Architecture Rule</div>
+      <div class="rung-desc">Same flags give L2 gains on ≥2 models of one arch class. Written to <code>ep_knowledge/&lt;ep&gt;.json</code>.</div>
+      <div class="rung-gate">Gate: ≥2 L2 with same (flags, arch_class).</div>
     </div>
   </div>
 
   <div class="ladder-rung" style="height:14px;">
     <div class="ladder-connector">↓</div>
     <div style="flex:1; display:flex; align-items:center; padding-left:10px; font-size:10px; color:#888; font-style:italic;">
-      promote_findings.py — confirmed across architecture classes
+      promote_findings.py — confirmed across arch classes
     </div>
   </div>
 
@@ -282,15 +306,15 @@
     <div class="rung-level l4">L4</div>
     <div class="rung-body l4-body">
       <div class="rung-name">Cross-Cutting Rule</div>
-      <div class="rung-desc">Same optimization applies across ≥3 different model architecture classes. The finding's <code>applies_to</code> scope broadens from arch-specific to EP-wide (e.g., "all transformer models on QNN NPU").</div>
-      <div class="rung-gate">Gate: ≥3 L2 confirmations across ≥3 different arch_class values.</div>
+      <div class="rung-desc">Applies across ≥3 arch classes; scope broadens to EP-wide.</div>
+      <div class="rung-gate">Gate: ≥3 L2 across ≥3 arch_class values.</div>
     </div>
   </div>
 
   <div class="ladder-rung" style="height:14px;">
     <div class="ladder-connector">↓</div>
     <div style="flex:1; display:flex; align-items:center; padding-left:10px; font-size:10px; color:#888; font-style:italic;">
-      analyze_insight.py predicts outcome from graph fingerprint alone
+      analyze_insight.py predicts from graph fingerprint
     </div>
   </div>
 
@@ -298,93 +322,84 @@
     <div class="rung-level l5">L5</div>
     <div class="rung-body l5-body">
       <div class="rung-name">Predictive — No Sweep Required</div>
-      <div class="rung-desc">The graph fingerprint (from <code>analyze_insight.py</code>) predicts whether an optimization will help or hurt <em>before running</em>. The sweep loop skips this hypothesis and directly generates the optimal config.</div>
-      <div class="rung-gate">Gate: L4 rule + graph analysis pattern match with &lt;5% false-positive rate on held-out models.</div>
+      <div class="rung-desc">Graph fingerprint predicts help/hurt before running; sweep skips it and emits the optimal config.</div>
+      <div class="rung-gate">Gate: L4 rule + pattern match, &lt;5% false-positive on held-out models.</div>
     </div>
   </div>
 
 </div>
 
 <div class="note" style="max-width:860px; margin-top:16px;">
-  <strong>Current state (2026-06-18):</strong> Most findings are manually promoted at L2. npu-001 and npu-007 have enough multi-model evidence to be L3. The L1→L5 promotion pipeline (<code>promote_findings.py</code>) does not yet exist. L5 prediction is not yet implemented.
+  <strong>Current state (2026-06-18):</strong> Most findings sit at L2 (manual). npu-001 & npu-007 have L3-grade evidence. <code>promote_findings.py</code> and L5 prediction are not yet built.
 </div>
 
+</div><!-- end overview part A -->
+
+<!-- ═══════════════════ TAB: THE 5 FIXES ═══════════════════ -->
+<div class="tab-panel" data-tab="fixes">
+
+<p style="margin:14px 0; color:#444; max-width:900px;">Each fix resolves a pain point from §1. <strong>#1</strong> kills thermal noise + sequence bias + unpaired comparison · <strong>#2</strong> fixed sample size · <strong>#3</strong> no prioritization · <strong>#4</strong> manual KB promotion · <strong>#5</strong> thermal noise (calibration backstop).</p>
+
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h2>3 · Fix #1 — Paired A/B Bench Protocol</h2>
+<h2>Fix #1 — Paired A/B Bench Protocol</h2>
 
 <div class="card-grid card-grid-2" style="margin-bottom:14px;">
   <div class="card red">
     <div class="card-title">❌ Current: Sequential (Biased)</div>
-    <p>All baseline sessions → then all hypothesis sessions. Baseline runs when device is cold; hypothesis runs when device is warm. The "gain" includes thermal drift, not just optimization benefit.</p>
-    <pre><code><span class="c-cm"># Sessions over time (device heats up →)</span>
-h0: [base_1] [base_2] [base_3]
-h6: [hyp_1]  [hyp_2]  [hyp_3]
-<span class="c-cm"># baseline measured at T=cool, hyp at T=warm</span>
-<span class="c-cm"># delta = optimization + thermal drift (confounded)</span></code></pre>
+    <p>All baseline runs, then all hypothesis runs. Baseline cold, hypothesis warm — "gain" includes thermal drift.</p>
+    <pre><code><span class="c-cm"># device heats up →</span>
+h0: [base] [base] [base]   <span class="c-cm"># cool</span>
+h6: [hyp]  [hyp]  [hyp]    <span class="c-cm"># warm</span>
+<span class="c-cm"># delta = optimization + drift (confounded)</span></code></pre>
   </div>
   <div class="card green">
     <div class="card-title">✅ New: Paired A/B (Unbiased)</div>
-    <p>For each pair: run baseline, then hypothesis, in the same thermal window. Take the within-pair ratio. Average ratios across N pairs. Thermal drift cancels out.</p>
-    <pre><code><span class="c-cm"># Each pair is one thermal window</span>
-pair_1: [base] → [hyp]   <span class="c-cm"># ratio_1 = (base-hyp)/base</span>
-pair_2: [base] → [hyp]   <span class="c-cm"># ratio_2</span>
-pair_3: [base] → [hyp]   <span class="c-cm"># ratio_3</span>
-gain = mean(ratio_1..3) ± 95% CI
-<span class="c-cm"># thermal drift appears equally in base & hyp → cancels</span></code></pre>
+    <p>Each pair runs baseline then hypothesis in one thermal window. Average the within-pair ratios — drift cancels.</p>
+    <pre><code>pair_n: [base] → [hyp]   <span class="c-cm"># ratio = (base-hyp)/base</span>
+gain = mean(ratios) ± 95% CI
+<span class="c-cm"># drift appears in both → cancels</span></code></pre>
   </div>
 </div>
 
-<pre><code><span class="c-kw">def</span> <span class="c-fn">paired_ab_bench</span>(
-    baseline_path: Path, hyp_path: Path,
-    n_pairs: <span class="c-tp">int</span> = <span class="c-nu">3</span>, iters: <span class="c-tp">int</span> = <span class="c-nu">500</span>, cool_down_s: <span class="c-tp">float</span> = <span class="c-nu">30</span>
-) -> <span class="c-tp">dict</span>:
-    <span class="c-cm">"""Interleaved A/B bench. Returns gains_pct list + CI."""</span>
+<pre><code><span class="c-kw">def</span> <span class="c-fn">paired_ab_bench</span>(baseline, hyp, n_pairs=<span class="c-nu">3</span>, iters=<span class="c-nu">500</span>, cool_down_s=<span class="c-nu">30</span>) -> <span class="c-tp">dict</span>:
+    <span class="c-cm">"""Interleaved A/B bench → gains_pct list + CI + verdict."""</span>
     gains = []
     <span class="c-kw">for</span> i <span class="c-kw">in</span> <span class="c-fn">range</span>(n_pairs):
-        base_p50 = <span class="c-fn">run_perf_session</span>(baseline_path, iters)
-        hyp_p50  = <span class="c-fn">run_perf_session</span>(hyp_path,      iters)
-        <span class="c-kw">if</span> base_p50 <span class="c-kw">and</span> hyp_p50:
-            gains.append((base_p50 - hyp_p50) / base_p50 * <span class="c-nu">100</span>)
-        <span class="c-kw">if</span> i &lt; n_pairs - <span class="c-nu">1</span>:
-            time.sleep(cool_down_s)
-    <span class="c-kw">if not</span> gains:
-        <span class="c-kw">return</span> {<span class="c-st">"verdict"</span>: <span class="c-st">"BENCH_FAIL"</span>}
-    mean_gain = statistics.mean(gains)
-    ci_half   = <span class="c-nu">1.96</span> * statistics.stdev(gains) / math.sqrt(len(gains)) <span class="c-kw">if</span> len(gains) > <span class="c-nu">1</span> <span class="c-kw">else</span> <span class="c-nu">999</span>
-    <span class="c-kw">return</span> {
-        <span class="c-st">"gains_pct"</span>:   gains,
-        <span class="c-st">"mean_gain_pct"</span>: <span class="c-fn">round</span>(mean_gain, <span class="c-nu">2</span>),
-        <span class="c-st">"ci_half_95"</span>:  <span class="c-fn">round</span>(ci_half, <span class="c-nu">2</span>),
-        <span class="c-st">"verdict"</span>: (
-            <span class="c-st">"KEEP_CONFIRMED"</span>  <span class="c-kw">if</span> mean_gain - ci_half > <span class="c-nu">5.0</span>   <span class="c-kw">else</span>
-            <span class="c-st">"DISCARD"</span>         <span class="c-kw">if</span> mean_gain + ci_half &lt; -<span class="c-nu">2.0</span>  <span class="c-kw">else</span>
-            <span class="c-st">"MARGINAL"</span>
-        ),
-    }</code></pre>
+        b = <span class="c-fn">run_perf_session</span>(baseline, iters)
+        h = <span class="c-fn">run_perf_session</span>(hyp, iters)
+        <span class="c-kw">if</span> b <span class="c-kw">and</span> h: gains.append((b - h) / b * <span class="c-nu">100</span>)
+        <span class="c-kw">if</span> i &lt; n_pairs - <span class="c-nu">1</span>: time.sleep(cool_down_s)
+    <span class="c-kw">if not</span> gains: <span class="c-kw">return</span> {<span class="c-st">"verdict"</span>: <span class="c-st">"BENCH_FAIL"</span>}
+    mean = statistics.mean(gains)
+    ci   = <span class="c-nu">1.96</span> * statistics.stdev(gains) / math.sqrt(len(gains)) <span class="c-kw">if</span> len(gains) > <span class="c-nu">1</span> <span class="c-kw">else</span> <span class="c-nu">999</span>
+    verdict = (<span class="c-st">"KEEP_CONFIRMED"</span> <span class="c-kw">if</span> mean - ci > <span class="c-nu">5</span> <span class="c-kw">else</span>
+               <span class="c-st">"DISCARD"</span> <span class="c-kw">if</span> mean + ci &lt; -<span class="c-nu">2</span> <span class="c-kw">else</span> <span class="c-st">"MARGINAL"</span>)
+    <span class="c-kw">return</span> {<span class="c-st">"gains_pct"</span>: gains, <span class="c-st">"mean_gain_pct"</span>: <span class="c-fn">round</span>(mean, <span class="c-nu">2</span>),
+            <span class="c-st">"ci_half_95"</span>: <span class="c-fn">round</span>(ci, <span class="c-nu">2</span>), <span class="c-st">"verdict"</span>: verdict}</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h2>4 · Fix #2 — Adaptive n_sessions</h2>
+<h2>Fix #2 — Adaptive n_sessions</h2>
 
-<p style="margin-bottom:10px; color:#444;">Instead of always running exactly N pairs, keep sampling until the 95% confidence interval is tight enough to make a decision — or the budget runs out.</p>
+<p style="margin-bottom:10px; color:#444;">Keep sampling until the 95% CI is decisive — or budget runs out — instead of a fixed N.</p>
 
 <div class="card-grid card-grid-2">
   <div class="card blue">
     <div class="card-title">Stopping Criterion</div>
-    <p><strong>Stop early</strong> when: <code>CI_lower &gt; +5%</code> (definitely KEEP) or <code>CI_upper &lt; -2%</code> (definitely DISCARD).</p>
-    <p><strong>Force stop</strong> at <code>MAX_PAIRS = 8</code> regardless. Report MARGINAL with uncertainty flag.</p>
-    <p>Benefit: stable models finish in 3 pairs; noisy models (MobileViT DVFS) automatically get more samples.</p>
+    <p><strong>Stop early:</strong> <code>CI_lower &gt; +5%</code> (KEEP) or <code>CI_upper &lt; -2%</code> (DISCARD).</p>
+    <p><strong>Force stop</strong> at <code>MAX_PAIRS = 8</code> → MARGINAL.</p>
+    <p>Stable models finish in 3 pairs; noisy ones get more automatically.</p>
   </div>
   <div class="card blue">
     <div class="card-title">Budget Allocation</div>
-    <p><strong>Priority queue</strong>: test highest-prior hypotheses first (from architecture pruning). If a KEEP_CONFIRMED is found early, reduce budget for remaining hypotheses.</p>
-    <p>E.g., if h6 (matmul_transpose) is KEEP_CONFIRMED at pair 3, remaining hypotheses get only 2 pairs each (quick reject/confirm).</p>
+    <p><strong>Priority queue:</strong> test highest-prior hypotheses first.</p>
+    <p>Once a KEEP_CONFIRMED is found, remaining hypotheses get fewer pairs (quick reject/confirm).</p>
   </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h2>5 · Fix #3 — Architecture-Based Hypothesis Pruning</h2>
+<h2>Fix #3 — Architecture-Based Hypothesis Pruning</h2>
 
-<p style="margin-bottom:10px; color:#444;"><code>analyze_insight.py</code> already detects graph patterns. The sweep scripts should consume these hints to skip irrelevant or known-harmful hypotheses before running — reducing 14 hypotheses to 4–5 per model.</p>
+<p style="margin-bottom:10px; color:#444;">Sweeps consume <code>analyze_insight.py</code> graph patterns to skip irrelevant/harmful hypotheses — cutting 14 to 4–5 per model.</p>
 
 <table>
   <thead><tr><th>Architecture Class</th><th>Graph Fingerprint</th><th>Skip (known harmful)</th><th>Prioritize (likely helpful)</th></tr></thead>
@@ -422,34 +437,19 @@ gain = mean(ratio_1..3) ± 95% CI
   </tbody>
 </table>
 
-<pre style="margin-top:12px;"><code><span class="c-cm"># In analyze_insight.py — new function</span>
-<span class="c-kw">def</span> <span class="c-fn">get_hypothesis_skip_set</span>(model_type: <span class="c-tp">str</span>, candidates: <span class="c-tp">list</span>[FusionCandidate]) -> <span class="c-tp">set</span>[<span class="c-tp">str</span>]:
-    <span class="c-st">"""Return hypothesis IDs to skip based on architecture fingerprint + KB rules."""</span>
-    skip = <span class="c-fn">set</span>()
-    tags = {c.tag <span class="c-kw">for</span> c <span class="c-kw">in</span> candidates}
-
-    <span class="c-cm"># npu-006: conv fusions → FusedConv → QNN CPU fallback</span>
-    <span class="c-kw">if</span> <span class="c-st">"conv_dense"</span> <span class="c-kw">in</span> tags:
-        skip |= {<span class="c-st">"h4"</span>, <span class="c-st">"h5"</span>}
-
-    <span class="c-cm"># npu-010 / gpu-008: highdimRTR harmful on CNN-ViT hybrid</span>
-    <span class="c-kw">if</span> <span class="c-st">"gemm_reshape_transpose_unfold"</span> <span class="c-kw">in</span> tags:
-        skip.add(<span class="c-st">"h9"</span>)  <span class="c-cm"># highdimRTR</span>
-
-    <span class="c-cm"># cpu-008: layer_norm_fusion harmful on CNN-ViT hybrid</span>
-    <span class="c-kw">if</span> model_type == <span class="c-st">"mobilevit"</span> <span class="c-kw">and</span> <span class="c-st">"ep"</span> == <span class="c-st">"cpu"</span>:
-        skip.add(<span class="c-st">"h6"</span>)   <span class="c-cm"># layer_norm_fusion</span>
-
-    <span class="c-cm"># cpu-001: opset19/21 harmful on dense-Transpose models (CPU only)</span>
-    <span class="c-kw">if</span> <span class="c-st">"dense_transpose"</span> <span class="c-kw">in</span> tags <span class="c-kw">and</span> <span class="c-st">"ep"</span> == <span class="c-st">"cpu"</span>:
-        skip |= {<span class="c-st">"h2"</span>, <span class="c-st">"h3"</span>}  <span class="c-cm"># opset19, opset21</span>
-
+<pre style="margin-top:12px;"><code><span class="c-kw">def</span> <span class="c-fn">get_hypothesis_skip_set</span>(model_type, candidates) -> <span class="c-tp">set</span>[<span class="c-tp">str</span>]:
+    <span class="c-st">"""Skip hypotheses by arch fingerprint + KB rules."""</span>
+    skip, tags = <span class="c-fn">set</span>(), {c.tag <span class="c-kw">for</span> c <span class="c-kw">in</span> candidates}
+    <span class="c-kw">if</span> <span class="c-st">"conv_dense"</span> <span class="c-kw">in</span> tags:                  skip |= {<span class="c-st">"h4"</span>, <span class="c-st">"h5"</span>}   <span class="c-cm"># npu-006</span>
+    <span class="c-kw">if</span> <span class="c-st">"gemm_reshape_transpose_unfold"</span> <span class="c-kw">in</span> tags: skip.add(<span class="c-st">"h9"</span>)       <span class="c-cm"># npu-010 highdimRTR</span>
+    <span class="c-kw">if</span> model_type == <span class="c-st">"mobilevit"</span>:             skip.add(<span class="c-st">"h6"</span>)       <span class="c-cm"># cpu-008 layer_norm</span>
+    <span class="c-kw">if</span> <span class="c-st">"dense_transpose"</span> <span class="c-kw">in</span> tags:             skip |= {<span class="c-st">"h2"</span>, <span class="c-st">"h3"</span>}   <span class="c-cm"># cpu-001 opset19/21</span>
     <span class="c-kw">return</span> skip</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h2>6 · Fix #4 — promote_findings.py</h2>
+<h2>Fix #4 — promote_findings.py</h2>
 
-<p style="margin-bottom:10px; color:#444;">A standalone post-processing script that runs after sweeps complete. Reads all <code>results.json</code> files, applies the confidence ladder, and auto-updates the KB.</p>
+<p style="margin-bottom:10px; color:#444;">Post-processing script: reads all <code>results.json</code>, applies the confidence ladder, auto-updates the KB.</p>
 
 <div class="flow">
   <div class="flow-box">
@@ -473,57 +473,50 @@ gain = mean(ratio_1..3) ± 95% CI
   </div>
 </div>
 
-<pre style="margin-top:12px;"><code><span class="c-cm"># promote_findings.py — core logic sketch</span>
-
-<span class="c-kw">def</span> <span class="c-fn">collect_l2_candidates</span>(sweep_dirs: <span class="c-tp">list</span>[Path]) -> <span class="c-tp">list</span>[<span class="c-tp">dict</span>]:
-    <span class="c-st">"""L1→L2: range non-overlap confirmed for a single model."""</span>
-    candidates = []
+<pre style="margin-top:12px;"><code><span class="c-kw">def</span> <span class="c-fn">collect_l2_candidates</span>(sweep_dirs):
+    <span class="c-st">"""L1→L2: range non-overlap for a single model."""</span>
+    out = []
     <span class="c-kw">for</span> d <span class="c-kw">in</span> sweep_dirs:
         r = json.loads((d / <span class="c-st">"results.json"</span>).read_text())
-        baseline_p50s = r[<span class="c-st">"hypotheses"</span>][<span class="c-st">"h0"</span>][<span class="c-st">"full"</span>][<span class="c-st">"p50s_ms"</span>]
+        base = r[<span class="c-st">"hypotheses"</span>][<span class="c-st">"h0"</span>][<span class="c-st">"full"</span>][<span class="c-st">"p50s_ms"</span>]
         <span class="c-kw">for</span> h_id, h <span class="c-kw">in</span> r[<span class="c-st">"hypotheses"</span>].items():
-            <span class="c-kw">if</span> h.get(<span class="c-st">"verdict"</span>) == <span class="c-st">"KEEP_CONFIRMED"</span>:
-                hyp_p50s = h[<span class="c-st">"full"</span>][<span class="c-st">"p50s_ms"</span>]
-                <span class="c-kw">if</span> <span class="c-fn">max</span>(hyp_p50s) &lt; <span class="c-fn">min</span>(baseline_p50s):  <span class="c-cm"># L2 gate</span>
-                    candidates.append({
-                        <span class="c-st">"model_id"</span>: r[<span class="c-st">"model_id"</span>], <span class="c-st">"arch"</span>: r[<span class="c-st">"model_type"</span>],
-                        <span class="c-st">"ep"</span>: r[<span class="c-st">"ep"</span>], <span class="c-st">"h_id"</span>: h_id,
-                        <span class="c-st">"flags"</span>: h.get(<span class="c-st">"extra_optim"</span>, {}),
-                        <span class="c-st">"gain_pct"</span>: h[<span class="c-st">"mean_gain_pct"</span>],
-                    })
-    <span class="c-kw">return</span> candidates
+            <span class="c-kw">if</span> h.get(<span class="c-st">"verdict"</span>) == <span class="c-st">"KEEP_CONFIRMED"</span> <span class="c-kw">and</span> <span class="c-fn">max</span>(h[<span class="c-st">"full"</span>][<span class="c-st">"p50s_ms"</span>]) &lt; <span class="c-fn">min</span>(base):
+                out.append({<span class="c-st">"arch"</span>: r[<span class="c-st">"model_type"</span>], <span class="c-st">"ep"</span>: r[<span class="c-st">"ep"</span>],
+                            <span class="c-st">"flags"</span>: h.get(<span class="c-st">"extra_optim"</span>, {}), <span class="c-st">"gain_pct"</span>: h[<span class="c-st">"mean_gain_pct"</span>]})
+    <span class="c-kw">return</span> out
 
-<span class="c-kw">def</span> <span class="c-fn">promote_to_l3</span>(l2s: <span class="c-tp">list</span>[<span class="c-tp">dict</span>]) -> <span class="c-tp">list</span>[<span class="c-tp">dict</span>]:
-    <span class="c-st">"""L2→L3: same flags confirmed on ≥2 models of same arch class."""</span>
-    grouped = <span class="c-fn">defaultdict</span>(<span class="c-tp">list</span>)
+<span class="c-kw">def</span> <span class="c-fn">promote_to_l3</span>(l2s):
+    <span class="c-st">"""L2→L3: same flags on ≥2 models of one arch class."""</span>
+    g = <span class="c-fn">defaultdict</span>(<span class="c-tp">list</span>)
     <span class="c-kw">for</span> c <span class="c-kw">in</span> l2s:
-        key = (c[<span class="c-st">"ep"</span>], <span class="c-fn">frozenset</span>(c[<span class="c-st">"flags"</span>].items()), c[<span class="c-st">"arch"</span>])
-        grouped[key].append(c)
-    <span class="c-kw">return</span> [
-        {<span class="c-st">"ep"</span>: ep, <span class="c-st">"flags"</span>: <span class="c-fn">dict</span>(flags), <span class="c-st">"arch"</span>: arch,
-         <span class="c-st">"evidence"</span>: g, <span class="c-st">"mean_gain"</span>: statistics.mean(x[<span class="c-st">"gain_pct"</span>] <span class="c-kw">for</span> x <span class="c-kw">in</span> g)}
-        <span class="c-kw">for</span> (ep, flags, arch), g <span class="c-kw">in</span> grouped.items() <span class="c-kw">if</span> len(g) >= <span class="c-nu">2</span>  <span class="c-cm"># L3 gate</span>
-    ]</code></pre>
+        g[(c[<span class="c-st">"ep"</span>], <span class="c-fn">frozenset</span>(c[<span class="c-st">"flags"</span>].items()), c[<span class="c-st">"arch"</span>])].append(c)
+    <span class="c-kw">return</span> [{<span class="c-st">"ep"</span>: ep, <span class="c-st">"flags"</span>: <span class="c-fn">dict</span>(f), <span class="c-st">"arch"</span>: a, <span class="c-st">"evidence"</span>: ev}
+            <span class="c-kw">for</span> (ep, f, a), ev <span class="c-kw">in</span> g.items() <span class="c-kw">if</span> len(ev) >= <span class="c-nu">2</span>]</code></pre>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h2>7 · Fix #5 — Thermal Reference Model (P2)</h2>
+<h2>Fix #5 — Thermal Reference Model (P2)</h2>
 
 <div class="card-grid card-grid-2">
   <div class="card orange">
     <div class="card-title">Concept</div>
-    <p>Before each sweep session, run a fixed tiny model (e.g., a 3-layer MLP exported to ONNX) for 100 iters. Its latency is a proxy for current device thermal state.</p>
-    <p>Store as <code>thermal_ref_p50_ms</code> in each session result. Post-hoc: normalize per-session gains by thermal_ref to make cross-day / cross-run comparisons valid.</p>
+    <p>Run a fixed tiny model (100 iters) before each session — its latency proxies device thermal state.</p>
+    <p>Store <code>thermal_ref_p50_ms</code>; normalize gains by it for valid cross-run comparison.</p>
   </div>
   <div class="card orange">
     <div class="card-title">When to Use</div>
-    <p><strong>Cool enough</strong> (thermal_ref ≤ 1.05 × cold_baseline): proceed normally.</p>
-    <p><strong>Too hot</strong> (thermal_ref &gt; 1.3 × cold_baseline): wait 60s and retry. Max 3 retries, then flag session as "HOT_RUN".</p>
-    <p>HOT_RUN sessions are excluded from L2 promotion but kept for informational display.</p>
+    <p><strong>Cool</strong> (≤ 1.05× cold): proceed.</p>
+    <p><strong>Hot</strong> (&gt; 1.3× cold): wait 60s, retry up to 3×, then flag "HOT_RUN".</p>
+    <p>HOT_RUN sessions excluded from L2 promotion.</p>
   </div>
 </div>
 
+</div><!-- end fixes panel -->
+
+<!-- ═══════════════════ TAB: OVERVIEW (part B) ═══════════════════ -->
+<div class="tab-panel active" data-tab="overview">
+
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h2>8 · Full Self-Evolution Loop</h2>
+<h2>3 · Full Self-Evolution Loop</h2>
 
 <div style="background:#fff; border-radius:10px; border:1px solid #e0e4ef; padding:20px; max-width:900px; margin-top:4px;">
 <div style="display:flex; flex-direction:column; gap:6px;">
@@ -574,7 +567,7 @@ gain = mean(ratio_1..3) ± 95% CI
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
-<h2>9 · Implementation Plan</h2>
+<h2>4 · Implementation Plan</h2>
 
 <table>
   <thead><tr><th>Priority</th><th>Component</th><th>File(s)</th><th>Status</th><th>Key change</th></tr></thead>
@@ -653,11 +646,27 @@ gain = mean(ratio_1..3) ± 95% CI
 </table>
 
 <div class="note" style="max-width:900px; margin-top:16px;">
-  <strong>Key insight:</strong> Once Paired A/B + promote_findings.py are in place, the system will self-correct — every new sweep adds L2 candidates, which either reinforce existing KB rules or surface new ones. Over time, analyze_insight.py's skip_set gets richer, sweeps get shorter, and the results get more reliable. The skill "learns" without requiring human intervention between runs.
+  <strong>Key insight:</strong> Once Paired A/B + promote_findings.py exist, the system self-corrects — each sweep adds L2 candidates that reinforce or surface KB rules. skip_set grows richer, sweeps get shorter and more reliable, with no human in the loop between runs.
 </div>
+
+</div><!-- end overview part B -->
 
 <br><br>
 <div style="font-size:10px; color:#aaa; text-align:right;">Generated 2026-06-18 · research/autoconfig/docs/self-evolution-design.html</div>
+
+<script>
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tab = btn.dataset.tab;
+      document.querySelectorAll('.tab-btn').forEach(function (b) {
+        b.classList.toggle('active', b === btn);
+      });
+      document.querySelectorAll('.tab-panel').forEach(function (p) {
+        p.classList.toggle('active', p.dataset.tab === tab);
+      });
+    });
+  });
+</script>
 
 </body>
 </html>

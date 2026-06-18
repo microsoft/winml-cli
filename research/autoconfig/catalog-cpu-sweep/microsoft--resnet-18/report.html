@@ -143,6 +143,30 @@
       color: #7c5b00;
       font-size: 12px;
     }
+    .flag-pill {
+      display: inline-block;
+      background: #e3f2fd;
+      color: #1565c0;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 700;
+      margin: 1px 2px 1px 0;
+    }
+    .runs-val {
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 10.5px;
+      color: #546e7a;
+      white-space: nowrap;
+    }
+    .hyp-detail-table .label-cell { font-size: 11.5px; max-width: 220px; }
+    .hyp-detail-table .opset-cell { text-align: center; font-weight: 700; color: #3949ab; font-size: 12px; }
+    .hyp-detail-table .flags-cell { min-width: 140px; }
+    .hyp-detail-table .p50-cell { font-family: "Cascadia Code","Consolas",monospace; font-size: 12px; white-space: nowrap; }
+    .hyp-detail-table .sessions-cell { min-width: 160px; }
+    .hyp-detail-table .conf-cell { font-size: 11px; color: #546e7a; }
+    .verdict-keep { color: #2e7d32; font-weight: 700; }
+    .verdict-discard { color: #c62828; font-weight: 700; }
     .footer {
       margin-top: 16px;
       color: #7b8794;
@@ -231,6 +255,188 @@ status=OK  verdict=KEEP_CONFIRMED
 p50=36.91 ms  gain=+84.5%</title><rect x="0" y="528.0" width="748" height="40" class="row-bg" /><text x="8" y="544.0" class="hyp-label">h12</text><text x="8" y="557.0" class="hyp-sub">opset 17 + transpose_opti…</text><rect x="410.0" y="536.0" width="109.8" height="24" fill="#43a047" stroke="none" stroke-width="0" rx="4" /><text x="527.8" y="552.0" text-anchor="start" class="value-text">+84.5%</text></g><g><title>h13: opset 17 + gelu_fusion explicit
 status=OK  verdict=KEEP_CONFIRMED
 p50=26.39 ms  gain=+88.9%</title><rect x="0" y="568.0" width="748" height="40" class="row-bg" /><text x="8" y="584.0" class="hyp-label">h13</text><text x="8" y="597.0" class="hyp-sub">opset 17 + gelu_fusion ex…</text><rect x="410.0" y="576.0" width="115.6" height="24" fill="#43a047" stroke="none" stroke-width="0" rx="4" /><text x="533.6" y="592.0" text-anchor="start" class="value-text">+88.9%</text></g></svg>
+      </div>
+    </section>
+
+
+    <section class="section-card">
+      <div class="section-title">🔬 All Hypotheses — Full Detail</div>
+      <div style="overflow-x:auto">
+      <table class="report-table hyp-detail-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Config Label</th>
+            <th>Opset</th>
+            <th>Extra Flags</th>
+            <th>Median p50</th>
+            <th>Session p50s (ms)</th>
+            <th>Gain %</th>
+            <th>Verdict</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+
+        <tr class="">
+          <td><span class="hyp-pill">h0</span></td>
+          <td class="label-cell">baseline (opset 17, autoconf defaults)</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">237.47 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[237.47 · 230.21 · 238.44]</span></td>
+          <td><span class="">+0.0%</span></td>
+          <td><span class="">BASELINE</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h1</span></td>
+          <td class="label-cell">opset 17 explicit</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">244.96 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[221.85 · 252.22 · 244.96]</span></td>
+          <td><span class="gain-neg">-3.1%</span></td>
+          <td><span class="verdict-discard">DISCARD</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h2</span></td>
+          <td class="label-cell">opset 19 (cpu-001 risk — transformer test)</td>
+          <td class="opset-cell">19</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">231.69 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[209.29 · 231.69 · 238.07]</span></td>
+          <td><span class="gain-pos">+2.4%</span></td>
+          <td><span class="">MARGINAL</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h3</span></td>
+          <td class="label-cell">opset 21 (cpu-001 risk — transformer test)</td>
+          <td class="opset-cell">21</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">226.69 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[218.89 · 226.69 · 230.42]</span></td>
+          <td><span class="gain-pos">+4.5%</span></td>
+          <td><span class="">MARGINAL</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h4</span></td>
+          <td class="label-cell">opset 17 + attention_fusion</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><span class="flag-pill">attention_fusion</span></td>
+          <td class="p50-cell">231.07 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[209.43 · 231.07 · 235.40]</span></td>
+          <td><span class="gain-pos">+2.7%</span></td>
+          <td><span class="">MARGINAL</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h5</span></td>
+          <td class="label-cell">opset 17 + skip_layer_norm_fusion</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><span class="flag-pill">skip_layer_norm_fusion</span></td>
+          <td class="p50-cell">226.59 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[207.97 · 226.59 · 227.74]</span></td>
+          <td><span class="gain-pos">+4.6%</span></td>
+          <td><span class="">MARGINAL</span></td>
+          <td class="conf-cell">ranges separated</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h6</span></td>
+          <td class="label-cell">opset 17 + layer_norm_fusion</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><span class="flag-pill">layer_norm_fusion</span></td>
+          <td class="p50-cell">212.70 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[200.31 · 212.70 · 215.09 · 40.37 · 24.96]</span></td>
+          <td><span class="gain-pos">+15.7%</span></td>
+          <td><span class="verdict-keep">KEEP_CONFIRMED</span></td>
+          <td class="conf-cell">5/5 sessions confirm</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h7</span></td>
+          <td class="label-cell">opset 17 + bias_softmax_fusion</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><span class="flag-pill">bias_softmax_fusion</span></td>
+          <td class="p50-cell">227.78 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[222.57 · 245.29 · 227.78]</span></td>
+          <td><span class="gain-pos">+4.1%</span></td>
+          <td><span class="">MARGINAL</span></td>
+          <td class="conf-cell">ranges overlap</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h8</span></td>
+          <td class="label-cell">opset 17 + matmul_add_fusion (cpu-002 guarded)</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><em style="color:#bbb">not stored</em></td>
+          <td class="p50-cell">—</td>
+          <td class="sessions-cell">—</td>
+          <td>—</td>
+          <td><span class="">SKIPPED_CPU002</span></td>
+          <td class="conf-cell">guarded skip</td>
+        </tr>
+        <tr class="champion-row">
+          <td><span class="hyp-pill">h9</span> <span style="color:#1976d2;font-weight:900">★</span></td>
+          <td class="label-cell">opset 17 + matmul_transpose_fusion</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><span class="flag-pill">matmul_transpose_fusion</span></td>
+          <td class="p50-cell">17.80 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[24.22 · 11.52 · 17.80 · 186.46 · 197.36]</span></td>
+          <td><span class="gain-pos">+89.8%</span></td>
+          <td><span class="verdict-keep">KEEP_CONFIRMED</span></td>
+          <td class="conf-cell">5/5 sessions confirm</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h10</span></td>
+          <td class="label-cell">opset 17 + attention + skip_layer_norm + layer_norm</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><span class="flag-pill">attention_fusion</span>, <span class="flag-pill">skip_layer_norm_fusion</span>, <span class="flag-pill">layer_norm_fusion</span></td>
+          <td class="p50-cell">20.09 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[20.09 · 14.91 · 43.27 · 18.86 · 39.40]</span></td>
+          <td><span class="gain-pos">+91.5%</span></td>
+          <td><span class="verdict-keep">KEEP_CONFIRMED</span></td>
+          <td class="conf-cell">5/5 sessions confirm</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h11</span></td>
+          <td class="label-cell">opset 17 + nchwc_transformer (Conv-heavy models)</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><span class="flag-pill">nchwc_transformer</span></td>
+          <td class="p50-cell">40.87 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[30.78 · 40.87 · 230.91 · 36.88 · 27.17]</span></td>
+          <td><span class="gain-pos">+84.5%</span></td>
+          <td><span class="">MARGINAL_UNCONFIRMED</span></td>
+          <td class="conf-cell">4/5 sessions confirm</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h12</span></td>
+          <td class="label-cell">opset 17 + transpose_optimizer</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><span class="flag-pill">transpose_optimizer</span></td>
+          <td class="p50-cell">36.91 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[36.91 · 21.65 · 40.88 · 26.59 · 38.94]</span></td>
+          <td><span class="gain-pos">+84.5%</span></td>
+          <td><span class="verdict-keep">KEEP_CONFIRMED</span></td>
+          <td class="conf-cell">5/5 sessions confirm</td>
+        </tr>
+        <tr class="">
+          <td><span class="hyp-pill">h13</span></td>
+          <td class="label-cell">opset 17 + gelu_fusion explicit</td>
+          <td class="opset-cell">17</td>
+          <td class="flags-cell"><span class="flag-pill">gelu_fusion</span></td>
+          <td class="p50-cell">26.39 ms</td>
+          <td class="sessions-cell"><span class="runs-val">[219.22 · 26.39 · 20.94 · 18.75 · 215.34]</span></td>
+          <td><span class="gain-pos">+88.9%</span></td>
+          <td><span class="verdict-keep">KEEP_CONFIRMED</span></td>
+          <td class="conf-cell">5/5 sessions confirm</td>
+        </tr>
+        </tbody>
+      </table>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:#7b8794">
+        ★ = champion hypothesis &nbsp;·&nbsp; Session p50s are individual bench sessions (median used for comparison)
       </div>
     </section>
 

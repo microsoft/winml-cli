@@ -377,6 +377,119 @@ def _render_chart(
     """
 
 
+def _render_all_hypotheses(
+    hyps: list[tuple[str, dict]],
+    baseline_p50_ms: float | None,
+    champion_hyp: str | None,
+) -> str:
+    """Full hypothesis table with opset, flags, all session p50s, and verdict."""
+    baseline_runs = _get_runs(dict(hyps).get("h0", {}))
+    rows: list[str] = []
+
+    for hyp_id, hyp in hyps:
+        status = str(hyp.get("status", ""))
+        verdict = str(hyp.get("verdict") or hyp.get("confirm_verdict") or status or "—")
+        label = hyp.get("label", "")
+        opset = hyp.get("opset", "—")
+        extra_optim = hyp.get("extra_optim")
+        gain_pct = _get_gain_pct(hyp_id, hyp, baseline_p50_ms)
+        p50 = _get_p50(hyp)
+        all_runs = _get_runs(hyp)
+
+        is_champion = hyp_id == champion_hyp
+        row_class = "champion-row" if is_champion else ""
+
+        # Format extra_optim flags
+        if extra_optim:
+            enabled = [k for k, v in extra_optim.items() if v]
+            flags_str = (
+                ", ".join(f'<span class="flag-pill">{_escape(f)}</span>' for f in enabled)
+                if enabled
+                else '<em style="color:#aaa">none</em>'
+            )
+        else:
+            # Not stored — parse from label as fallback
+            flags_str = '<em style="color:#bbb">not stored</em>'
+
+        # Format all session p50s
+        if all_runs:
+            runs_html = " · ".join(f"{r:.2f}" for r in all_runs)
+            runs_cell = f'<span class="runs-val">[{runs_html}]</span>'
+        elif status.startswith("BUILD"):
+            runs_cell = f'<span style="color:#c62828;font-weight:700">{_escape(status)}</span>'
+        else:
+            runs_cell = "—"
+
+        # p50 cell
+        p50_cell = _fmt_ms(p50) if p50 else ("—" if not status.startswith("BUILD") else status)
+
+        # gain cell
+        if gain_pct is not None:
+            gain_class = "gain-pos" if gain_pct > 0 else ("gain-neg" if gain_pct < 0 else "")
+            gain_cell = f'<span class="{gain_class}">{_fmt_pct(gain_pct)}</span>'
+        else:
+            gain_cell = "—"
+
+        # verdict / confidence
+        verdict_class = (
+            "verdict-keep"
+            if "KEEP" in verdict.upper()
+            else "verdict-discard"
+            if (
+                "DISCARD" in verdict.upper()
+                or "BUILD" in verdict.upper()
+                or "FAIL" in verdict.upper()
+            )
+            else ""
+        )
+        conf = _confidence_text(hyp_id, hyp, baseline_runs)
+        champion_star = (
+            ' <span style="color:#1976d2;font-weight:900">★</span>' if is_champion else ""
+        )
+
+        rows.append(f"""
+        <tr class="{row_class}">
+          <td><span class="hyp-pill">{_escape(hyp_id)}</span>{champion_star}</td>
+          <td class="label-cell">{_escape(label)}</td>
+          <td class="opset-cell">{_escape(str(opset))}</td>
+          <td class="flags-cell">{flags_str}</td>
+          <td class="p50-cell">{_escape(p50_cell)}</td>
+          <td class="sessions-cell">{runs_cell}</td>
+          <td>{gain_cell}</td>
+          <td><span class="{verdict_class}">{_escape(verdict)}</span></td>
+          <td class="conf-cell">{_escape(conf)}</td>
+        </tr>""")
+
+    return f"""
+    <section class="section-card">
+      <div class="section-title">🔬 All Hypotheses — Full Detail</div>
+      <div style="overflow-x:auto">
+      <table class="report-table hyp-detail-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Config Label</th>
+            <th>Opset</th>
+            <th>Extra Flags</th>
+            <th>Median p50</th>
+            <th>Session p50s (ms)</th>
+            <th>Gain %</th>
+            <th>Verdict</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {"".join(rows)}
+        </tbody>
+      </table>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:#7b8794">
+        ★ = champion hypothesis &nbsp;·&nbsp; Session p50s are individual bench sessions (median used for comparison)
+      </div>
+    </section>
+    """
+
+
 def _render_feature_gaps(results: dict) -> str:
     feature_gaps = results.get("feature_gaps") or []
     if not feature_gaps:
@@ -587,6 +700,30 @@ def generate_model_report(results: dict, output_path: Path) -> None:
       color: #7c5b00;
       font-size: 12px;
     }}
+    .flag-pill {{
+      display: inline-block;
+      background: #e3f2fd;
+      color: #1565c0;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 700;
+      margin: 1px 2px 1px 0;
+    }}
+    .runs-val {{
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 10.5px;
+      color: #546e7a;
+      white-space: nowrap;
+    }}
+    .hyp-detail-table .label-cell {{ font-size: 11.5px; max-width: 220px; }}
+    .hyp-detail-table .opset-cell {{ text-align: center; font-weight: 700; color: #3949ab; font-size: 12px; }}
+    .hyp-detail-table .flags-cell {{ min-width: 140px; }}
+    .hyp-detail-table .p50-cell {{ font-family: "Cascadia Code","Consolas",monospace; font-size: 12px; white-space: nowrap; }}
+    .hyp-detail-table .sessions-cell {{ min-width: 160px; }}
+    .hyp-detail-table .conf-cell {{ font-size: 11px; color: #546e7a; }}
+    .verdict-keep {{ color: #2e7d32; font-weight: 700; }}
+    .verdict-discard {{ color: #c62828; font-weight: 700; }}
     .footer {{
       margin-top: 16px;
       color: #7b8794;
@@ -636,6 +773,7 @@ def generate_model_report(results: dict, output_path: Path) -> None:
 
   {_render_characteristics(results)}
   {_render_chart(hyps, baseline_p50_ms, champion_hyp)}
+  {_render_all_hypotheses(hyps, baseline_p50_ms, champion_hyp)}
   {_render_table("Effective Optimizations", "✅", keep_rows, champion_hyp)}
   {_render_table("Ineffective or Harmful", "❌", discard_rows, champion_hyp)}
   {_render_table("Neutral / Build Fail", "⚪", neutral_rows, champion_hyp)}
