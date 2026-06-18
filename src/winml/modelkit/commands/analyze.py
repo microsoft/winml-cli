@@ -906,7 +906,11 @@ def analyze(
         from ..sysinfo import resolve_device, resolve_eps
 
         # Only a pinned (concrete) EP can constrain device auto-resolution.
-        ep_hint = ep if ep not in ("auto", "all") else None
+        # ``ep`` is a concrete EP/alias here unless it is the "auto"/"all"
+        # sentinel; the cast drops those sentinels from the type for resolve_*.
+        ep_hint: EPNameOrAlias | None = (
+            None if ep in ("auto", "all") or ep is None else cast("EPNameOrAlias", ep)
+        )
 
         devices: list[str]
         if device == "all":
