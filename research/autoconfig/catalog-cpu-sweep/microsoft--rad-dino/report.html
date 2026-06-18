@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CPU CPU Optimization Report — microsoft/rad-dino</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f4f6f9;
+      color: #1a1a2e;
+      padding: 28px 24px 40px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    h1 { font-size: 24px; font-weight: 800; margin-bottom: 6px; color: #102a43; }
+    .subtitle { color: #5f6c80; font-size: 12px; margin-bottom: 24px; }
+    .section-card {
+      background: #ffffff;
+      border: 1.5px solid #dbe5f0;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(16, 42, 67, 0.06);
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      border: 1.5px solid #dbe5f0;
+      border-radius: 12px;
+      padding: 16px;
+      min-height: 120px;
+    }
+    .kpi-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #6b7c93;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .kpi-value {
+      font-size: 23px;
+      font-weight: 800;
+      color: #102a43;
+      line-height: 1.15;
+      margin-bottom: 6px;
+      word-break: break-word;
+    }
+    .kpi-card.good .kpi-value { color: #2e7d32; }
+    .kpi-card.bad .kpi-value { color: #c62828; }
+    .kpi-sub { color: #6b7c93; font-size: 11px; }
+    .section-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #102a43;
+      margin-bottom: 14px;
+    }
+    .characteristics-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .characteristics-table th,
+    .characteristics-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #ebf1f6;
+      text-align: left;
+      vertical-align: top;
+    }
+    .characteristics-table th {
+      width: 180px;
+      color: #5f6c80;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+    .report-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .report-table th {
+      text-align: left;
+      padding: 9px 10px;
+      background: #eef4fb;
+      color: #486581;
+      border-bottom: 2px solid #d9e2ec;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+    .report-table td {
+      padding: 10px;
+      border-bottom: 1px solid #ebf1f6;
+      vertical-align: top;
+    }
+    .report-table tr:hover td { background: #f8fbff; }
+    .champion-row td { background: #e8f1fd; }
+    .hyp-pill {
+      display: inline-block;
+      background: #102a43;
+      color: white;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .gain-pos { color: #2e7d32; font-weight: 700; }
+    .gain-neg { color: #c62828; font-weight: 700; }
+    .chart-wrap {
+      overflow-x: auto;
+      border: 1px solid #e6edf5;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 10px;
+    }
+    .chart-svg { width: 100%; min-width: 760px; display: block; }
+    .axis-label { fill: #486581; font-size: 11px; font-weight: 700; }
+    .tick-label { fill: #7b8794; font-size: 10px; }
+    .tick-line { stroke: #d9e2ec; stroke-width: 1; }
+    .center-line { stroke: #1e88e5; stroke-width: 2; stroke-dasharray: 4 4; }
+    .row-bg { fill: transparent; }
+    .hyp-label { fill: #102a43; font-size: 12px; font-weight: 800; }
+    .hyp-sub { fill: #7b8794; font-size: 10px; }
+    .baseline-bar { stroke: #546e7a; stroke-width: 3; }
+    .value-text { fill: #102a43; font-size: 11px; font-weight: 700; }
+    .build-fail-text { fill: #37474f; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; }
+    .gap-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+    }
+    .gap-card {
+      background: #fff8e1;
+      border: 1.5px solid #ffe082;
+      border-radius: 10px;
+      padding: 12px 14px;
+      color: #7c5b00;
+      font-size: 12px;
+    }
+    .footer {
+      margin-top: 16px;
+      color: #7b8794;
+      font-size: 11px;
+      text-align: center;
+    }
+    @media (max-width: 1200px) {
+      .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .kpi-grid { grid-template-columns: 1fr; }
+      body { padding: 18px 14px 28px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>CPU CPU Optimization Report — microsoft/rad-dino</h1>
+  <div class="subtitle">dinov2 arch · 2026-06-18 · 0 hypotheses tested</div>
+
+  <section class="kpi-grid">
+    <div class="kpi-card neutral">
+      <div class="kpi-label">Best Gain %</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">Champion: —</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Baseline → Champion ms</div>
+      <div class="kpi-value">— → —</div>
+      <div class="kpi-sub">Latency reduction: —</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">EP + Device</div>
+      <div class="kpi-value">CPU / CPU</div>
+      <div class="kpi-sub">Baseline opset —</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Champion Config</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">—</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total experiments</div>
+      <div class="kpi-value">0</div>
+      <div class="kpi-sub">0 KEEP / 0 DISCARD</div>
+    </div>
+  </section>
+
+
+    <section class="section-card">
+      <div class="section-title">Model Characteristics</div>
+      <table class="characteristics-table">
+        <tr><th>Model ID</th><td>microsoft/rad-dino</td></tr><tr><th>Task</th><td>image-feature-extraction</td></tr><tr><th>Arch type</th><td>dinov2</td></tr><tr><th>Baseline opset</th><td>—</td></tr><tr><th>EP</th><td>cpu</td></tr><tr><th>Device</th><td>cpu</td></tr>
+      </table>
+    </section>
+
+
+    <section class="section-card">
+      <div class="section-title">Hypothesis Gain Chart</div>
+      <div class="chart-wrap">
+        <svg class="chart-svg" viewBox="0 0 748 74" role="img" aria-label="Hypothesis gain chart"><defs><pattern id="buildFailPattern" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#cfd8dc"></rect><rect width="3" height="8" fill="#90a4ae"></rect></pattern></defs><text x="0" y="20" class="axis-label">Hypothesis</text><text x="150" y="20" class="axis-label">Gain vs baseline (%)</text><line x1="410.0" y1="40" x2="410.0" y2="48" class="center-line" /><line x1="150.0" y1="44" x2="150.0" y2="48" class="tick-line" /><text x="150.0" y="68" text-anchor="middle" class="tick-label">-200%</text><line x1="280.0" y1="44" x2="280.0" y2="48" class="tick-line" /><text x="280.0" y="68" text-anchor="middle" class="tick-label">-100%</text><line x1="410.0" y1="44" x2="410.0" y2="48" class="tick-line" /><text x="410.0" y="68" text-anchor="middle" class="tick-label">0%</text><line x1="540.0" y1="44" x2="540.0" y2="48" class="tick-line" /><text x="540.0" y="68" text-anchor="middle" class="tick-label">100%</text><line x1="670.0" y1="44" x2="670.0" y2="48" class="tick-line" /><text x="670.0" y="68" text-anchor="middle" class="tick-label">200%</text></svg>
+      </div>
+    </section>
+
+
+
+
+
+
+  <div class="footer">Generated by gen_model_report.py · research/autoconfig</div>
+</body>
+</html>

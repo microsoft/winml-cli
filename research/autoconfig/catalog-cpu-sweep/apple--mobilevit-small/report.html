@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CPU CPU Optimization Report — apple/mobilevit-small</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f4f6f9;
+      color: #1a1a2e;
+      padding: 28px 24px 40px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    h1 { font-size: 24px; font-weight: 800; margin-bottom: 6px; color: #102a43; }
+    .subtitle { color: #5f6c80; font-size: 12px; margin-bottom: 24px; }
+    .section-card {
+      background: #ffffff;
+      border: 1.5px solid #dbe5f0;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(16, 42, 67, 0.06);
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      border: 1.5px solid #dbe5f0;
+      border-radius: 12px;
+      padding: 16px;
+      min-height: 120px;
+    }
+    .kpi-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #6b7c93;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .kpi-value {
+      font-size: 23px;
+      font-weight: 800;
+      color: #102a43;
+      line-height: 1.15;
+      margin-bottom: 6px;
+      word-break: break-word;
+    }
+    .kpi-card.good .kpi-value { color: #2e7d32; }
+    .kpi-card.bad .kpi-value { color: #c62828; }
+    .kpi-sub { color: #6b7c93; font-size: 11px; }
+    .section-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #102a43;
+      margin-bottom: 14px;
+    }
+    .characteristics-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .characteristics-table th,
+    .characteristics-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #ebf1f6;
+      text-align: left;
+      vertical-align: top;
+    }
+    .characteristics-table th {
+      width: 180px;
+      color: #5f6c80;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+    .report-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .report-table th {
+      text-align: left;
+      padding: 9px 10px;
+      background: #eef4fb;
+      color: #486581;
+      border-bottom: 2px solid #d9e2ec;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+    .report-table td {
+      padding: 10px;
+      border-bottom: 1px solid #ebf1f6;
+      vertical-align: top;
+    }
+    .report-table tr:hover td { background: #f8fbff; }
+    .champion-row td { background: #e8f1fd; }
+    .hyp-pill {
+      display: inline-block;
+      background: #102a43;
+      color: white;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .gain-pos { color: #2e7d32; font-weight: 700; }
+    .gain-neg { color: #c62828; font-weight: 700; }
+    .chart-wrap {
+      overflow-x: auto;
+      border: 1px solid #e6edf5;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 10px;
+    }
+    .chart-svg { width: 100%; min-width: 760px; display: block; }
+    .axis-label { fill: #486581; font-size: 11px; font-weight: 700; }
+    .tick-label { fill: #7b8794; font-size: 10px; }
+    .tick-line { stroke: #d9e2ec; stroke-width: 1; }
+    .center-line { stroke: #1e88e5; stroke-width: 2; stroke-dasharray: 4 4; }
+    .row-bg { fill: transparent; }
+    .hyp-label { fill: #102a43; font-size: 12px; font-weight: 800; }
+    .hyp-sub { fill: #7b8794; font-size: 10px; }
+    .baseline-bar { stroke: #546e7a; stroke-width: 3; }
+    .value-text { fill: #102a43; font-size: 11px; font-weight: 700; }
+    .build-fail-text { fill: #37474f; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; }
+    .gap-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+    }
+    .gap-card {
+      background: #fff8e1;
+      border: 1.5px solid #ffe082;
+      border-radius: 10px;
+      padding: 12px 14px;
+      color: #7c5b00;
+      font-size: 12px;
+    }
+    .footer {
+      margin-top: 16px;
+      color: #7b8794;
+      font-size: 11px;
+      text-align: center;
+    }
+    @media (max-width: 1200px) {
+      .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .kpi-grid { grid-template-columns: 1fr; }
+      body { padding: 18px 14px 28px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>CPU CPU Optimization Report — apple/mobilevit-small</h1>
+  <div class="subtitle">mobilevit arch · 2026-06-18 · 14 hypotheses tested</div>
+
+  <section class="kpi-grid">
+    <div class="kpi-card good">
+      <div class="kpi-label">Best Gain %</div>
+      <div class="kpi-value">+12.3%</div>
+      <div class="kpi-sub">Champion: h7</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Baseline → Champion ms</div>
+      <div class="kpi-value">73.17 ms → 64.14 ms</div>
+      <div class="kpi-sub">Latency reduction: 9.03 ms</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">EP + Device</div>
+      <div class="kpi-value">CPU / CPU</div>
+      <div class="kpi-sub">Baseline opset 17</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Champion Config</div>
+      <div class="kpi-value">h7</div>
+      <div class="kpi-sub">opset 17 + bias_softmax_fusion</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total experiments</div>
+      <div class="kpi-value">14</div>
+      <div class="kpi-sub">0 KEEP / 12 DISCARD</div>
+    </div>
+  </section>
+
+
+    <section class="section-card">
+      <div class="section-title">Model Characteristics</div>
+      <table class="characteristics-table">
+        <tr><th>Model ID</th><td>apple/mobilevit-small</td></tr><tr><th>Task</th><td>image-classification</td></tr><tr><th>Arch type</th><td>mobilevit</td></tr><tr><th>Baseline opset</th><td>17</td></tr><tr><th>EP</th><td>cpu</td></tr><tr><th>Device</th><td>cpu</td></tr>
+      </table>
+    </section>
+
+
+    <section class="section-card">
+      <div class="section-title">Hypothesis Gain Chart</div>
+      <div class="chart-wrap">
+        <svg class="chart-svg" viewBox="0 0 748 634" role="img" aria-label="Hypothesis gain chart"><defs><pattern id="buildFailPattern" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#cfd8dc"></rect><rect width="3" height="8" fill="#90a4ae"></rect></pattern></defs><text x="0" y="20" class="axis-label">Hypothesis</text><text x="150" y="20" class="axis-label">Gain vs baseline (%)</text><line x1="410.0" y1="40" x2="410.0" y2="608" class="center-line" /><line x1="150.0" y1="44" x2="150.0" y2="608" class="tick-line" /><text x="150.0" y="628" text-anchor="middle" class="tick-label">-200%</text><line x1="280.0" y1="44" x2="280.0" y2="608" class="tick-line" /><text x="280.0" y="628" text-anchor="middle" class="tick-label">-100%</text><line x1="410.0" y1="44" x2="410.0" y2="608" class="tick-line" /><text x="410.0" y="628" text-anchor="middle" class="tick-label">0%</text><line x1="540.0" y1="44" x2="540.0" y2="608" class="tick-line" /><text x="540.0" y="628" text-anchor="middle" class="tick-label">100%</text><line x1="670.0" y1="44" x2="670.0" y2="608" class="tick-line" /><text x="670.0" y="628" text-anchor="middle" class="tick-label">200%</text><g><title>h0: baseline (opset 17, autoconf defaults)
+status=OK  verdict=BASELINE
+p50=73.17 ms  gain=+0.0%</title><rect x="0" y="48.0" width="748" height="40" class="row-bg" /><text x="8" y="64.0" class="hyp-label">h0</text><text x="8" y="77.0" class="hyp-sub">baseline (opset 17, autoc…</text><line x1="410.0" y1="56.0" x2="410.0" y2="80.0" class="baseline-bar" /><text x="418.0" y="72.0" text-anchor="start" class="value-text">0.0%</text></g><g><title>h1: opset 17 explicit
+status=OK  verdict=DISCARD
+p50=87.48 ms  gain=-19.6%</title><rect x="0" y="88.0" width="748" height="40" class="row-bg" /><text x="8" y="104.0" class="hyp-label">h1</text><text x="8" y="117.0" class="hyp-sub">opset 17 explicit</text><rect x="384.6" y="96.0" width="25.4" height="24" fill="#e53935" stroke="none" stroke-width="0" rx="4" /><text x="376.6" y="112.0" text-anchor="end" class="value-text">-19.6%</text></g><g><title>h2: opset 19 (cpu-001 risk — transformer test)
+status=OK  verdict=DISCARD
+p50=79.83 ms  gain=-9.1%</title><rect x="0" y="128.0" width="748" height="40" class="row-bg" /><text x="8" y="144.0" class="hyp-label">h2</text><text x="8" y="157.0" class="hyp-sub">opset 19 (cpu-001 risk — …</text><rect x="398.2" y="136.0" width="11.8" height="24" fill="#e53935" stroke="none" stroke-width="0" rx="4" /><text x="390.2" y="152.0" text-anchor="end" class="value-text">-9.1%</text></g><g><title>h3: opset 21 (cpu-001 risk — transformer test)
+status=OK  verdict=DISCARD
+p50=78.59 ms  gain=-7.4%</title><rect x="0" y="168.0" width="748" height="40" class="row-bg" /><text x="8" y="184.0" class="hyp-label">h3</text><text x="8" y="197.0" class="hyp-sub">opset 21 (cpu-001 risk — …</text><rect x="400.4" y="176.0" width="9.6" height="24" fill="#e53935" stroke="none" stroke-width="0" rx="4" /><text x="392.4" y="192.0" text-anchor="end" class="value-text">-7.4%</text></g><g><title>h4: opset 17 + attention_fusion
+status=OK  verdict=DISCARD
+p50=77.77 ms  gain=-6.3%</title><rect x="0" y="208.0" width="748" height="40" class="row-bg" /><text x="8" y="224.0" class="hyp-label">h4</text><text x="8" y="237.0" class="hyp-sub">opset 17 + attention_fusi…</text><rect x="401.8" y="216.0" width="8.2" height="24" fill="#e53935" stroke="none" stroke-width="0" rx="4" /><text x="393.8" y="232.0" text-anchor="end" class="value-text">-6.3%</text></g><g><title>h5: opset 17 + skip_layer_norm_fusion
+status=OK  verdict=DISCARD
+p50=80.51 ms  gain=-10.0%</title><rect x="0" y="248.0" width="748" height="40" class="row-bg" /><text x="8" y="264.0" class="hyp-label">h5</text><text x="8" y="277.0" class="hyp-sub">opset 17 + skip_layer_nor…</text><rect x="396.9" y="256.0" width="13.1" height="24" fill="#e53935" stroke="none" stroke-width="0" rx="4" /><text x="388.9" y="272.0" text-anchor="end" class="value-text">-10.0%</text></g><g><title>h6: opset 17 + layer_norm_fusion
+status=OK  verdict=DISCARD
+p50=803.22 ms  gain=-997.8%</title><rect x="0" y="288.0" width="748" height="40" class="row-bg" /><text x="8" y="304.0" class="hyp-label">h6</text><text x="8" y="317.0" class="hyp-sub">opset 17 + layer_norm_fus…</text><rect x="150.0" y="296.0" width="260.0" height="24" fill="#e53935" stroke="none" stroke-width="0" rx="4" /><text x="142.0" y="312.0" text-anchor="end" class="value-text">-997.8%</text></g><g><title>h7: opset 17 + bias_softmax_fusion
+status=OK  verdict=MARGINAL_UNCONFIRMED
+p50=64.14 ms  gain=-63.4%</title><rect x="0" y="328.0" width="748" height="40" class="row-bg" /><text x="8" y="344.0" class="hyp-label">h7</text><text x="8" y="357.0" class="hyp-sub">opset 17 + bias_softmax_f…</text><rect x="327.6" y="336.0" width="82.4" height="24" fill="#e53935" stroke="#1e88e5" stroke-width="4" rx="4" /><text x="319.6" y="352.0" text-anchor="end" class="value-text">-63.4%</text></g><g><title>h8: opset 17 + matmul_add_fusion (cpu-002 guarded)
+status=SKIPPED_CPU002  verdict=—
+p50=—  gain=—</title><rect x="0" y="368.0" width="748" height="40" class="row-bg" /><text x="8" y="384.0" class="hyp-label">h8</text><text x="8" y="397.0" class="hyp-sub">opset 17 + matmul_add_fus…</text></g><g><title>h9: opset 17 + matmul_transpose_fusion
+status=OK  verdict=DISCARD
+p50=194.19 ms  gain=-165.4%</title><rect x="0" y="408.0" width="748" height="40" class="row-bg" /><text x="8" y="424.0" class="hyp-label">h9</text><text x="8" y="437.0" class="hyp-sub">opset 17 + matmul_transpo…</text><rect x="195.0" y="416.0" width="215.0" height="24" fill="#e53935" stroke="none" stroke-width="0" rx="4" /><text x="187.0" y="432.0" text-anchor="end" class="value-text">-165.4%</text></g><g><title>h10: opset 17 + attention + skip_layer_norm + layer_norm
+status=OK  verdict=DISCARD
+p50=193.64 ms  gain=-164.7%</title><rect x="0" y="448.0" width="748" height="40" class="row-bg" /><text x="8" y="464.0" class="hyp-label">h10</text><text x="8" y="477.0" class="hyp-sub">opset 17 + attention + sk…</text><rect x="195.9" y="456.0" width="214.1" height="24" fill="#e53935" stroke="none" stroke-width="0" rx="4" /><text x="187.9" y="472.0" text-anchor="end" class="value-text">-164.7%</text></g><g><title>h11: opset 17 + nchwc_transformer (Conv-heavy models)
+status=BUILD_FAIL  verdict=—
+p50=—  gain=—</title><rect x="0" y="488.0" width="748" height="40" class="row-bg" /><text x="8" y="504.0" class="hyp-label">h11</text><text x="8" y="517.0" class="hyp-sub">opset 17 + nchwc_transfor…</text><rect x="364.0" y="496.0" width="92" height="24" fill="url(#buildFailPattern)" stroke="#78909c" stroke-width="1.5" rx="4" /><text x="410.0" y="512.0" text-anchor="middle" class="build-fail-text">BUILD_FAIL</text></g><g><title>h12: opset 17 + transpose_optimizer
+status=BUILD_FAIL  verdict=—
+p50=—  gain=—</title><rect x="0" y="528.0" width="748" height="40" class="row-bg" /><text x="8" y="544.0" class="hyp-label">h12</text><text x="8" y="557.0" class="hyp-sub">opset 17 + transpose_opti…</text><rect x="364.0" y="536.0" width="92" height="24" fill="url(#buildFailPattern)" stroke="#78909c" stroke-width="1.5" rx="4" /><text x="410.0" y="552.0" text-anchor="middle" class="build-fail-text">BUILD_FAIL</text></g><g><title>h13: opset 17 + gelu_fusion explicit
+status=BUILD_FAIL  verdict=—
+p50=—  gain=—</title><rect x="0" y="568.0" width="748" height="40" class="row-bg" /><text x="8" y="584.0" class="hyp-label">h13</text><text x="8" y="597.0" class="hyp-sub">opset 17 + gelu_fusion ex…</text><rect x="364.0" y="576.0" width="92" height="24" fill="url(#buildFailPattern)" stroke="#78909c" stroke-width="1.5" rx="4" /><text x="410.0" y="592.0" text-anchor="middle" class="build-fail-text">BUILD_FAIL</text></g></svg>
+      </div>
+    </section>
+
+
+
+    <section class="section-card">
+      <div class="section-title">❌ Ineffective or Harmful</div>
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Hypothesis</th>
+            <th>Label</th>
+            <th>Gain %</th>
+            <th>Verdict</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+
+            <tr class="">
+              <td><span class="hyp-pill">h1</span></td>
+              <td>opset 17 explicit</td>
+              <td class="gain-neg">-19.6%</td>
+              <td>DISCARD</td>
+              <td>ranges overlap</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h2</span></td>
+              <td>opset 19 (cpu-001 risk — transformer test)</td>
+              <td class="gain-neg">-9.1%</td>
+              <td>DISCARD</td>
+              <td>ranges overlap</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h3</span></td>
+              <td>opset 21 (cpu-001 risk — transformer test)</td>
+              <td class="gain-neg">-7.4%</td>
+              <td>DISCARD</td>
+              <td>ranges overlap</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h4</span></td>
+              <td>opset 17 + attention_fusion</td>
+              <td class="gain-neg">-6.3%</td>
+              <td>DISCARD</td>
+              <td>ranges overlap</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h5</span></td>
+              <td>opset 17 + skip_layer_norm_fusion</td>
+              <td class="gain-neg">-10.0%</td>
+              <td>DISCARD</td>
+              <td>ranges overlap</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h6</span></td>
+              <td>opset 17 + layer_norm_fusion</td>
+              <td class="gain-neg">-997.8%</td>
+              <td>DISCARD</td>
+              <td>ranges separated</td>
+            </tr>
+
+            <tr class="champion-row">
+              <td><span class="hyp-pill">h7</span></td>
+              <td>opset 17 + bias_softmax_fusion</td>
+              <td class="gain-neg">-63.4%</td>
+              <td>MARGINAL_UNCONFIRMED</td>
+              <td>2/5 sessions confirm</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h9</span></td>
+              <td>opset 17 + matmul_transpose_fusion</td>
+              <td class="gain-neg">-165.4%</td>
+              <td>DISCARD</td>
+              <td>ranges separated</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h10</span></td>
+              <td>opset 17 + attention + skip_layer_norm + layer_norm</td>
+              <td class="gain-neg">-164.7%</td>
+              <td>DISCARD</td>
+              <td>ranges separated</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h11</span></td>
+              <td>opset 17 + nchwc_transformer (Conv-heavy models)</td>
+              <td class="gain-pos">—</td>
+              <td>BUILD_FAIL</td>
+              <td>build failed</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h12</span></td>
+              <td>opset 17 + transpose_optimizer</td>
+              <td class="gain-pos">—</td>
+              <td>BUILD_FAIL</td>
+              <td>build failed</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h13</span></td>
+              <td>opset 17 + gelu_fusion explicit</td>
+              <td class="gain-pos">—</td>
+              <td>BUILD_FAIL</td>
+              <td>build failed</td>
+            </tr>
+
+        </tbody>
+      </table>
+    </section>
+
+
+    <section class="section-card">
+      <div class="section-title">⚪ Neutral / Build Fail</div>
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Hypothesis</th>
+            <th>Label</th>
+            <th>Gain %</th>
+            <th>Verdict</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+
+            <tr class="">
+              <td><span class="hyp-pill">h0</span></td>
+              <td>baseline (opset 17, autoconf defaults)</td>
+              <td class="gain-pos">+0.0%</td>
+              <td>BASELINE</td>
+              <td>ranges overlap</td>
+            </tr>
+
+            <tr class="">
+              <td><span class="hyp-pill">h8</span></td>
+              <td>opset 17 + matmul_add_fusion (cpu-002 guarded)</td>
+              <td class="gain-pos">—</td>
+              <td>SKIPPED_CPU002</td>
+              <td>guarded skip</td>
+            </tr>
+
+        </tbody>
+      </table>
+    </section>
+
+
+
+  <div class="footer">Generated by gen_model_report.py · research/autoconfig</div>
+</body>
+</html>
