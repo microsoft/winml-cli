@@ -16,16 +16,12 @@ def _make_checker(
 
 
 def test_needs_case_isolation_for_openvino_npu() -> None:
-    checker = _make_checker(
-        "OpenVINOExecutionProvider", device_type=ort.OrtHardwareDeviceType.NPU
-    )
+    checker = _make_checker("OpenVINOExecutionProvider", device_type=ort.OrtHardwareDeviceType.NPU)
     assert checker.needs_case_isolation() is True
 
 
 def test_needs_case_isolation_for_openvino_cpu() -> None:
-    checker = _make_checker(
-        "OpenVINOExecutionProvider", device_type=ort.OrtHardwareDeviceType.CPU
-    )
+    checker = _make_checker("OpenVINOExecutionProvider", device_type=ort.OrtHardwareDeviceType.CPU)
     assert checker.needs_case_isolation() is False
 
 
