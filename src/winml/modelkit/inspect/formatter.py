@@ -18,7 +18,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from .types import InspectResult, ModuleInfo, SupportLevel
+from .types import HierarchyInfo, InspectResult, ModuleInfo, SupportLevel
 
 
 # Status icons
@@ -574,7 +574,7 @@ def output_json(result: InspectResult, verbose: bool = False) -> str:
     return json.dumps(data, indent=2)
 
 
-def _hierarchy_to_dict(hierarchy) -> dict[str, Any]:
+def _hierarchy_to_dict(hierarchy: HierarchyInfo) -> dict[str, Any]:
     """Convert HierarchyInfo to dictionary.
 
     Args:

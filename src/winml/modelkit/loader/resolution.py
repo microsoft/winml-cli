@@ -20,7 +20,7 @@ import importlib
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from .task import (
     HF_TASK_DEFAULTS,
@@ -123,7 +123,7 @@ def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
 
     try:
         transformers_module = importlib.import_module("transformers")
-        return getattr(transformers_module, arch_name)
+        return cast("type", getattr(transformers_module, arch_name))
     except AttributeError as e:
         raise ValueError(
             f"Cannot import {arch_name} from transformers. Please specify task explicitly."
@@ -145,7 +145,7 @@ def _detect_task_from_model_class(model_class: type) -> str:
     """
     from optimum.exporters.tasks import TasksManager
 
-    return TasksManager.infer_task_from_model(model_class)
+    return cast("str", TasksManager.infer_task_from_model(model_class))
 
 
 def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
@@ -196,6 +196,8 @@ def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
     except ValueError:
         return task
     main_input = getattr(model_class, "main_input_name", None)
+    if main_input is None:
+        return task
     return _FEATURE_MODALITY_BY_MAIN_INPUT.get(main_input, task)
 
 
@@ -230,7 +232,7 @@ def _get_custom_model_class(model_type: str, task: str) -> type | None:
     if task in HF_TASK_DEFAULTS:
         import transformers
 
-        return getattr(transformers, HF_TASK_DEFAULTS[task])
+        return cast("type", getattr(transformers, HF_TASK_DEFAULTS[task]))
 
     return None
 
@@ -335,7 +337,7 @@ def _composite_components_for_task(model_type: str, task: str) -> CompositeCompo
 
     from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-    distinct: dict[tuple, type] = {}
+    distinct: dict[tuple, type[WinMLCompositeModel]] = {}
     for (m_type, reg_task), cls in COMPOSITE_MODEL_REGISTRY.items():
         if m_type != model_type:
             continue
@@ -368,6 +370,10 @@ def resolve_task(
     model_type = getattr(config, "model_type", None)
     model_type_norm = model_type.lower().replace("_", "-") if model_type else ""
     model_id = getattr(config, "_name_or_path", "") or None
+
+    # Declared once up front so the Stage-0 branches (which assign a concrete str)
+    # and the Stage-1 detection (which starts at None) share one str | None type.
+    opt_task: str | None = None
 
     # --- Stage 0: user override (short-circuits detection) ----------------
     if model_class is not None:
@@ -421,7 +427,7 @@ def resolve_task(
         )
 
     # --- Stage 1: detection -----------------------------------------------
-    opt_task: str | None = None
+    # opt_task stays at its hoisted None until a detection sub-stage sets it.
     source: TaskSource | None = None
     resolved = None
 

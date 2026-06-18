@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
@@ -266,7 +266,7 @@ def _create_hf_config_from_model_class(model_class: type) -> PretrainedConfig:
         )
     hf_config = config_cls()
     hf_config.architectures = [model_class.__name__]
-    return hf_config
+    return cast("PretrainedConfig", hf_config)
 
 
 def _resolve_hf_config_for_class(

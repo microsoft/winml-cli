@@ -25,6 +25,8 @@ Note:
     See docs/design/loader/hf.md for design details.
 """
 
+from typing import Any
+
 from .config import WinMLLoaderConfig, resolve_loader_config
 from .resolution import (
     TaskResolution,
@@ -72,7 +74,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load heavy exports (hf.py imports transformers)."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]
