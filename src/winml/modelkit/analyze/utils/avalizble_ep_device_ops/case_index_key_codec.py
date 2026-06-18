@@ -269,5 +269,3 @@ def decode_4char_key_to_folder_and_file_name(key_or_case_index: str) -> DecodedL
     qdq_suffix = "_qdq" if qdq_flag == "1" else ""
     file_name = f"{name}_{ep}_{device}_{domain}_opset{version}{qdq_suffix}"
     return DecodedLocation(folder_name=folder_name, file_name=file_name)
-
-
