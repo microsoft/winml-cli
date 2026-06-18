@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>autoconfig Skill — Self-Evolution Design</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f4f6f9;
+    padding: 32px 24px;
+    color: #1a1a2e;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* ── Header ── */
+  h1 { font-size: 20px; font-weight: 700; color: #1a1a2e; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #666; margin-bottom: 6px; }
+  .tag {
+    display: inline-block; border-radius: 4px; padding: 2px 8px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px; margin-right: 6px; margin-bottom: 24px;
+  }
+  .tag-design { background: #e8eaf6; color: #3949ab; }
+  .tag-status { background: #fff3e0; color: #e65100; }
+
+  /* ── Section headers ── */
+  h2 {
+    font-size: 13px; font-weight: 700; color: #1a1a2e;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin: 32px 0 14px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #e0e4ef;
+  }
+  h3 { font-size: 13px; font-weight: 700; color: #3949ab; margin-bottom: 8px; }
+
+  /* ── Cards ── */
+  .card-grid {
+    display: grid; gap: 12px;
+  }
+  .card-grid-2 { grid-template-columns: 1fr 1fr; }
+  .card-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .card-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card {
+    background: #fff; border-radius: 10px;
+    padding: 16px 18px;
+    border: 1px solid #e0e4ef;
+  }
+  .card.red    { border-left: 4px solid #ef5350; }
+  .card.orange { border-left: 4px solid #ff9800; }
+  .card.green  { border-left: 4px solid #43a047; }
+  .card.blue   { border-left: 4px solid #1976d2; }
+  .card.purple { border-left: 4px solid #7b1fa2; }
+  .card.grey   { border-left: 4px solid #90a4ae; }
+
+  .card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+  .card.red    .card-title { color: #c62828; }
+  .card.orange .card-title { color: #e65100; }
+  .card.green  .card-title { color: #2e7d32; }
+  .card.blue   .card-title { color: #0d47a1; }
+  .card.purple .card-title { color: #6a1b9a; }
+  .card.grey   .card-title { color: #546e7a; }
+
+  .card p { font-size: 12px; color: #444; margin-bottom: 6px; }
+  .card p:last-child { margin-bottom: 0; }
+
+  /* ── Confidence Ladder ── */
+  .ladder { display: flex; flex-direction: column; gap: 0; max-width: 860px; }
+  .ladder-rung {
+    display: flex; align-items: stretch;
+  }
+  .rung-level {
+    width: 52px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 900; border-radius: 10px 0 0 10px;
+    color: #fff;
+  }
+  .rung-body {
+    flex: 1; padding: 12px 16px; border-radius: 0 10px 10px 0;
+    border: 1px solid transparent; border-left: none;
+  }
+  .rung-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
+  .rung-desc { font-size: 12px; color: #444; margin-top: 3px; }
+  .rung-gate { font-size: 11px; font-style: italic; color: #666; margin-top: 3px; }
+  .ladder-connector {
+    width: 52px; flex-shrink: 0; display: flex; justify-content: center;
+    align-items: center; color: #bbb; font-size: 18px; height: 18px; margin: -1px 0;
+  }
+
+  .l1 { background: #90a4ae; }  .l1-body { background: #f5f7f8; border-color: #cfd8dc; }
+  .l2 { background: #42a5f5; }  .l2-body { background: #e3f2fd; border-color: #bbdefb; }
+  .l3 { background: #66bb6a; }  .l3-body { background: #e8f5e9; border-color: #c8e6c9; }
+  .l4 { background: #ffa726; }  .l4-body { background: #fff8e1; border-color: #ffe082; }
+  .l5 { background: #ab47bc; }  .l5-body { background: #f3e5f5; border-color: #e1bee7; }
+
+  /* ── Pain point table ── */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: #e8eaf6; color: #3949ab; font-weight: 700; text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 8px 12px; border-bottom: 1px solid #e0e4ef; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: #f9fafc; }
+
+  .sev-high { color: #c62828; font-weight: 700; }
+  .sev-med  { color: #e65100; font-weight: 700; }
+  .sev-low  { color: #2e7d32; font-weight: 700; }
+
+  /* ── Code blocks ── */
+  pre {
+    background: #1e1e2e; color: #cdd6f4;
+    border-radius: 8px; padding: 14px 16px;
+    font-size: 11.5px; line-height: 1.6;
+    overflow-x: auto; margin-top: 8px;
+  }
+  code { font-family: "Cascadia Code", "Fira Code", "Consolas", monospace; }
+  .c-kw { color: #cba6f7; }   /* keyword */
+  .c-fn { color: #89b4fa; }   /* function */
+  .c-st { color: #a6e3a1; }   /* string */
+  .c-cm { color: #6c7086; font-style: italic; }  /* comment */
+  .c-nu { color: #fab387; }   /* number */
+  .c-tp { color: #f5c2e7; }   /* type */
+
+  /* ── Flow diagram ── */
+  .flow { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin-top: 10px; }
+  .flow-box {
+    background: #fff; border: 1px solid #c5cae9; border-radius: 8px;
+    padding: 10px 14px; font-size: 11px; text-align: center; min-width: 120px;
+  }
+  .flow-box strong { display: block; font-size: 11px; color: #1a1a2e; }
+  .flow-box span { font-size: 10px; color: #666; display: block; margin-top: 2px; }
+  .flow-box.new { border-color: #42a5f5; background: #e3f2fd; }
+  .flow-box.new strong { color: #0d47a1; }
+  .flow-arrow { font-size: 18px; color: #9fa8da; padding: 0 6px; }
+  .flow-label { font-size: 10px; color: #666; text-align: center; margin-top: 4px; }
+
+  /* ── Priority table ── */
+  .p0 { background: #ffebee; color: #c62828; font-weight: 700; border-radius: 4px; padding: 2px 6px; font-size: 10px; }
+  .p1 { background: #fff8e1; color: #e65100; font-weight: 700; border-radius: 4px; padding: 2px 6px; font-size: 10px; }
+  .p2 { background: #e8f5e9; color: #2e7d32; font-weight: 700; border-radius: 4px; padding: 2px 6px; font-size: 10px; }
+
+  .check { color: #43a047; font-weight: 700; }
+  .cross  { color: #e53935; font-weight: 700; }
+  .wip    { color: #fb8c00; font-weight: 700; }
+
+  /* ── Inline labels ── */
+  .pill {
+    display: inline-block; border-radius: 20px; padding: 1px 8px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+  }
+  .pill-new    { background: #e3f2fd; color: #1565c0; }
+  .pill-exist  { background: #e8f5e9; color: #2e7d32; }
+  .pill-mod    { background: #fff3e0; color: #e65100; }
+
+  .note {
+    background: #fff9c4; border-left: 3px solid #f9a825;
+    border-radius: 0 8px 8px 0; padding: 10px 14px;
+    font-size: 12px; color: #555; margin-top: 12px;
+  }
+  .note strong { color: #f57f17; }
+
+  @media (max-width: 720px) {
+    .card-grid-2, .card-grid-3, .card-grid-4 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>autoconfig Skill — Self-Evolution Design</h1>
+<p class="subtitle">How the autoconfig sweep loop learns, stabilizes, and improves itself over time</p>
+<span class="tag tag-design">DESIGN</span>
+<span class="tag tag-status">POC → V2 ROADMAP</span>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2>1 · Problem Statement</h2>
+
+<p style="margin-bottom:14px; color:#444;">The autoconfig sweep loop produces <strong>unreliable conclusions</strong> because of performance measurement noise. Even with the Phase A/B/C protocol, results vary run-to-run — leading to false promotions into the knowledge base and wasted sweep time on un-reproducible hypotheses.</p>
+
+<table>
+  <thead><tr><th>Pain Point</th><th>Root Cause</th><th>Severity</th><th>Current Mitigation</th><th>Gap</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>DVFS thermal noise</strong></td>
+      <td>QNN NPU frequency scales with device temperature; same model can be 2× slower when hot</td>
+      <td><span class="sev-high">CRITICAL</span></td>
+      <td>30s cool-down, 3×500 iters</td>
+      <td>Cool-down is fixed; doesn't adapt to actual device temperature</td>
+    </tr>
+    <tr>
+      <td><strong>Sequence bias</strong></td>
+      <td>h0 (baseline) runs on cold device; h10 runs on hot device — not a fair comparison</td>
+      <td><span class="sev-high">HIGH</span></td>
+      <td>❌ None</td>
+      <td>Every multi-hypothesis sweep has systematic order bias</td>
+    </tr>
+    <tr>
+      <td><strong>No paired comparison</strong></td>
+      <td>Baseline and hypothesis measured at different thermal moments → delta includes thermal drift, not just optimization gain</td>
+      <td><span class="sev-high">HIGH</span></td>
+      <td>❌ None</td>
+      <td>Core statistical flaw: unpaired measurements</td>
+    </tr>
+    <tr>
+      <td><strong>Fixed sample size</strong></td>
+      <td>3 sessions regardless of variance — noisy models under-sampled, stable models over-sampled</td>
+      <td><span class="sev-med">MEDIUM</span></td>
+      <td>Phase C confirmation pass</td>
+      <td>Phase C only runs on winner; doesn't adapt sample size during sweep</td>
+    </tr>
+    <tr>
+      <td><strong>Manual KB promotion</strong></td>
+      <td>Findings are written by hand after inspecting results — slow, error-prone, not reproducible</td>
+      <td><span class="sev-med">MEDIUM</span></td>
+      <td>❌ None</td>
+      <td>KB grows only when a human reads logs</td>
+    </tr>
+    <tr>
+      <td><strong>No hypothesis prioritization</strong></td>
+      <td>All 14 hypotheses run for every model, even when graph analysis says most are irrelevant</td>
+      <td><span class="sev-low">LOW-MED</span></td>
+      <td>analyze_insight.py hints (partial)</td>
+      <td>Sweep scripts don't yet consume skip_set from graph analysis</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2>2 · Confidence-Gated Promotion (L1 → L5)</h2>
+
+<p style="margin-bottom:14px; color:#444;">Findings are promoted through confidence levels. The KB only contains L3+ entries. Each level has a quantitative gate — no manual judgement required.</p>
+
+<div class="ladder">
+
+  <div class="ladder-rung">
+    <div class="rung-level l1">L1</div>
+    <div class="rung-body l1-body">
+      <div class="rung-name">Observed — Single Model, Single Run</div>
+      <div class="rung-desc">A hypothesis beats baseline in one model sweep. Stored in <code>results.json</code> only.</div>
+      <div class="rung-gate">Gate: median gain &gt; 5%. No range check.</div>
+    </div>
+  </div>
+
+  <div class="ladder-rung" style="height:14px;">
+    <div class="ladder-connector">↓</div>
+    <div style="flex:1; display:flex; align-items:center; padding-left:10px; font-size:10px; color:#888; font-style:italic;">
+      Paired A/B bench → range non-overlap criterion
+    </div>
+  </div>
+
+  <div class="ladder-rung">
+    <div class="rung-level l2">L2</div>
+    <div class="rung-body l2-body">
+      <div class="rung-name">Confirmed — Single Model, Statistically Robust</div>
+      <div class="rung-desc">All (N_full + N_confirm) p50s beat ALL baseline p50s (ranges don't overlap). 95% CI on gain excludes 0.</div>
+      <div class="rung-gate">Gate: max(hyp_p50s) &lt; min(baseline_p50s). Stored as L2 candidate in results.json.</div>
+    </div>
+  </div>
+
+  <div class="ladder-rung" style="height:14px;">
+    <div class="ladder-connector">↓</div>
+    <div style="flex:1; display:flex; align-items:center; padding-left:10px; font-size:10px; color:#888; font-style:italic;">
+      promote_findings.py — same flags confirmed on 2+ models of same arch class
+    </div>
+  </div>
+
+  <div class="ladder-rung">
+    <div class="rung-level l3">L3</div>
+    <div class="rung-body l3-body">
+      <div class="rung-name">Generalized — Architecture-Level Rule</div>
+      <div class="rung-desc">Same optimization flags produce L2-quality gains on ≥2 models of the same architecture class (e.g., pure-ViT, ResNet, BERT). Automatically written to <code>ep_knowledge/&lt;ep&gt;.json</code>.</div>
+      <div class="rung-gate">Gate: ≥2 L2 confirmations with same (flags, arch_class). Finding scope: "applies_to_arch".</div>
+    </div>
+  </div>
+
+  <div class="ladder-rung" style="height:14px;">
+    <div class="ladder-connector">↓</div>
+    <div style="flex:1; display:flex; align-items:center; padding-left:10px; font-size:10px; color:#888; font-style:italic;">
+      promote_findings.py — confirmed across architecture classes
+    </div>
+  </div>
+
+  <div class="ladder-rung">
+    <div class="rung-level l4">L4</div>
+    <div class="rung-body l4-body">
+      <div class="rung-name">Cross-Cutting Rule</div>
+      <div class="rung-desc">Same optimization applies across ≥3 different model architecture classes. The finding's <code>applies_to</code> scope broadens from arch-specific to EP-wide (e.g., "all transformer models on QNN NPU").</div>
+      <div class="rung-gate">Gate: ≥3 L2 confirmations across ≥3 different arch_class values.</div>
+    </div>
+  </div>
+
+  <div class="ladder-rung" style="height:14px;">
+    <div class="ladder-connector">↓</div>
+    <div style="flex:1; display:flex; align-items:center; padding-left:10px; font-size:10px; color:#888; font-style:italic;">
+      analyze_insight.py predicts outcome from graph fingerprint alone
+    </div>
+  </div>
+
+  <div class="ladder-rung">
+    <div class="rung-level l5">L5</div>
+    <div class="rung-body l5-body">
+      <div class="rung-name">Predictive — No Sweep Required</div>
+      <div class="rung-desc">The graph fingerprint (from <code>analyze_insight.py</code>) predicts whether an optimization will help or hurt <em>before running</em>. The sweep loop skips this hypothesis and directly generates the optimal config.</div>
+      <div class="rung-gate">Gate: L4 rule + graph analysis pattern match with &lt;5% false-positive rate on held-out models.</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="note" style="max-width:860px; margin-top:16px;">
+  <strong>Current state (2026-06-18):</strong> Most findings are manually promoted at L2. npu-001 and npu-007 have enough multi-model evidence to be L3. The L1→L5 promotion pipeline (<code>promote_findings.py</code>) does not yet exist. L5 prediction is not yet implemented.
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2>3 · Fix #1 — Paired A/B Bench Protocol</h2>
+
+<div class="card-grid card-grid-2" style="margin-bottom:14px;">
+  <div class="card red">
+    <div class="card-title">❌ Current: Sequential (Biased)</div>
+    <p>All baseline sessions → then all hypothesis sessions. Baseline runs when device is cold; hypothesis runs when device is warm. The "gain" includes thermal drift, not just optimization benefit.</p>
+    <pre><code><span class="c-cm"># Sessions over time (device heats up →)</span>
+h0: [base_1] [base_2] [base_3]
+h6: [hyp_1]  [hyp_2]  [hyp_3]
+<span class="c-cm"># baseline measured at T=cool, hyp at T=warm</span>
+<span class="c-cm"># delta = optimization + thermal drift (confounded)</span></code></pre>
+  </div>
+  <div class="card green">
+    <div class="card-title">✅ New: Paired A/B (Unbiased)</div>
+    <p>For each pair: run baseline, then hypothesis, in the same thermal window. Take the within-pair ratio. Average ratios across N pairs. Thermal drift cancels out.</p>
+    <pre><code><span class="c-cm"># Each pair is one thermal window</span>
+pair_1: [base] → [hyp]   <span class="c-cm"># ratio_1 = (base-hyp)/base</span>
+pair_2: [base] → [hyp]   <span class="c-cm"># ratio_2</span>
+pair_3: [base] → [hyp]   <span class="c-cm"># ratio_3</span>
+gain = mean(ratio_1..3) ± 95% CI
+<span class="c-cm"># thermal drift appears equally in base & hyp → cancels</span></code></pre>
+  </div>
+</div>
+
+<pre><code><span class="c-kw">def</span> <span class="c-fn">paired_ab_bench</span>(
+    baseline_path: Path, hyp_path: Path,
+    n_pairs: <span class="c-tp">int</span> = <span class="c-nu">3</span>, iters: <span class="c-tp">int</span> = <span class="c-nu">500</span>, cool_down_s: <span class="c-tp">float</span> = <span class="c-nu">30</span>
+) -> <span class="c-tp">dict</span>:
+    <span class="c-cm">"""Interleaved A/B bench. Returns gains_pct list + CI."""</span>
+    gains = []
+    <span class="c-kw">for</span> i <span class="c-kw">in</span> <span class="c-fn">range</span>(n_pairs):
+        base_p50 = <span class="c-fn">run_perf_session</span>(baseline_path, iters)
+        hyp_p50  = <span class="c-fn">run_perf_session</span>(hyp_path,      iters)
+        <span class="c-kw">if</span> base_p50 <span class="c-kw">and</span> hyp_p50:
+            gains.append((base_p50 - hyp_p50) / base_p50 * <span class="c-nu">100</span>)
+        <span class="c-kw">if</span> i &lt; n_pairs - <span class="c-nu">1</span>:
+            time.sleep(cool_down_s)
+    <span class="c-kw">if not</span> gains:
+        <span class="c-kw">return</span> {<span class="c-st">"verdict"</span>: <span class="c-st">"BENCH_FAIL"</span>}
+    mean_gain = statistics.mean(gains)
+    ci_half   = <span class="c-nu">1.96</span> * statistics.stdev(gains) / math.sqrt(len(gains)) <span class="c-kw">if</span> len(gains) > <span class="c-nu">1</span> <span class="c-kw">else</span> <span class="c-nu">999</span>
+    <span class="c-kw">return</span> {
+        <span class="c-st">"gains_pct"</span>:   gains,
+        <span class="c-st">"mean_gain_pct"</span>: <span class="c-fn">round</span>(mean_gain, <span class="c-nu">2</span>),
+        <span class="c-st">"ci_half_95"</span>:  <span class="c-fn">round</span>(ci_half, <span class="c-nu">2</span>),
+        <span class="c-st">"verdict"</span>: (
+            <span class="c-st">"KEEP_CONFIRMED"</span>  <span class="c-kw">if</span> mean_gain - ci_half > <span class="c-nu">5.0</span>   <span class="c-kw">else</span>
+            <span class="c-st">"DISCARD"</span>         <span class="c-kw">if</span> mean_gain + ci_half &lt; -<span class="c-nu">2.0</span>  <span class="c-kw">else</span>
+            <span class="c-st">"MARGINAL"</span>
+        ),
+    }</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2>4 · Fix #2 — Adaptive n_sessions</h2>
+
+<p style="margin-bottom:10px; color:#444;">Instead of always running exactly N pairs, keep sampling until the 95% confidence interval is tight enough to make a decision — or the budget runs out.</p>
+
+<div class="card-grid card-grid-2">
+  <div class="card blue">
+    <div class="card-title">Stopping Criterion</div>
+    <p><strong>Stop early</strong> when: <code>CI_lower &gt; +5%</code> (definitely KEEP) or <code>CI_upper &lt; -2%</code> (definitely DISCARD).</p>
+    <p><strong>Force stop</strong> at <code>MAX_PAIRS = 8</code> regardless. Report MARGINAL with uncertainty flag.</p>
+    <p>Benefit: stable models finish in 3 pairs; noisy models (MobileViT DVFS) automatically get more samples.</p>
+  </div>
+  <div class="card blue">
+    <div class="card-title">Budget Allocation</div>
+    <p><strong>Priority queue</strong>: test highest-prior hypotheses first (from architecture pruning). If a KEEP_CONFIRMED is found early, reduce budget for remaining hypotheses.</p>
+    <p>E.g., if h6 (matmul_transpose) is KEEP_CONFIRMED at pair 3, remaining hypotheses get only 2 pairs each (quick reject/confirm).</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2>5 · Fix #3 — Architecture-Based Hypothesis Pruning</h2>
+
+<p style="margin-bottom:10px; color:#444;"><code>analyze_insight.py</code> already detects graph patterns. The sweep scripts should consume these hints to skip irrelevant or known-harmful hypotheses before running — reducing 14 hypotheses to 4–5 per model.</p>
+
+<table>
+  <thead><tr><th>Architecture Class</th><th>Graph Fingerprint</th><th>Skip (known harmful)</th><th>Prioritize (likely helpful)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Pure ViT</strong><br><small>DINOv2, ViT-B, YOLOS</small></td>
+      <td>Dense Transpose (≥49), no Gemm-unfold blocks</td>
+      <td>conv fusions (h4/h5/h10), layer_norm_fusion</td>
+      <td>opset21 (npu-001), highdimRTR (L4), bias_softmax</td>
+    </tr>
+    <tr>
+      <td><strong>Pure CNN</strong><br><small>ResNet-18, EfficientNet</small></td>
+      <td>Conv% &gt; 20%, sparse Transpose</td>
+      <td>attention_fusion, highdimRTR, bias_softmax</td>
+      <td>matmul_transpose_fusion (cpu-007), opset19/21 safe</td>
+    </tr>
+    <tr>
+      <td><strong>CNN-ViT Hybrid</strong><br><small>MobileViT, EfficientFormer</small></td>
+      <td>Gemm→Reshape→Transpose unfold blocks present</td>
+      <td>highdimRTR <span style="color:#c62828">⚠ -19% NPU</span>, layer_norm_fusion <span style="color:#c62828">⚠ -997% CPU</span>, matmul_transpose CPU</td>
+      <td>opset21 + matmul_transpose_fusion (NPU h6: +42%)</td>
+    </tr>
+    <tr>
+      <td><strong>BERT / NLP Encoder</strong><br><small>BERT, RoBERTa, DistilBERT, MiniLM</small></td>
+      <td>Attention pattern, sparse Transpose, Add→Softmax</td>
+      <td>conv fusions, layer_norm_fusion (BERT LN≠CV LN), opset21 (cpu-001 on dense-Transpose subclass)</td>
+      <td>attention_fusion, bias_softmax_fusion (npu-009 +14%)</td>
+    </tr>
+    <tr>
+      <td><strong>Dense-Transpose ViT</strong><br><small>ConvNext, DINOv2-style</small></td>
+      <td>Transpose count ≥ 49 AND Gemm-unfold absent</td>
+      <td>opset19/21 on CPU <span style="color:#c62828">⚠ cpu-001 10x slowdown</span></td>
+      <td>opset17 explicit (baseline), highdimRTR</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre style="margin-top:12px;"><code><span class="c-cm"># In analyze_insight.py — new function</span>
+<span class="c-kw">def</span> <span class="c-fn">get_hypothesis_skip_set</span>(model_type: <span class="c-tp">str</span>, candidates: <span class="c-tp">list</span>[FusionCandidate]) -> <span class="c-tp">set</span>[<span class="c-tp">str</span>]:
+    <span class="c-st">"""Return hypothesis IDs to skip based on architecture fingerprint + KB rules."""</span>
+    skip = <span class="c-fn">set</span>()
+    tags = {c.tag <span class="c-kw">for</span> c <span class="c-kw">in</span> candidates}
+
+    <span class="c-cm"># npu-006: conv fusions → FusedConv → QNN CPU fallback</span>
+    <span class="c-kw">if</span> <span class="c-st">"conv_dense"</span> <span class="c-kw">in</span> tags:
+        skip |= {<span class="c-st">"h4"</span>, <span class="c-st">"h5"</span>}
+
+    <span class="c-cm"># npu-010 / gpu-008: highdimRTR harmful on CNN-ViT hybrid</span>
+    <span class="c-kw">if</span> <span class="c-st">"gemm_reshape_transpose_unfold"</span> <span class="c-kw">in</span> tags:
+        skip.add(<span class="c-st">"h9"</span>)  <span class="c-cm"># highdimRTR</span>
+
+    <span class="c-cm"># cpu-008: layer_norm_fusion harmful on CNN-ViT hybrid</span>
+    <span class="c-kw">if</span> model_type == <span class="c-st">"mobilevit"</span> <span class="c-kw">and</span> <span class="c-st">"ep"</span> == <span class="c-st">"cpu"</span>:
+        skip.add(<span class="c-st">"h6"</span>)   <span class="c-cm"># layer_norm_fusion</span>
+
+    <span class="c-cm"># cpu-001: opset19/21 harmful on dense-Transpose models (CPU only)</span>
+    <span class="c-kw">if</span> <span class="c-st">"dense_transpose"</span> <span class="c-kw">in</span> tags <span class="c-kw">and</span> <span class="c-st">"ep"</span> == <span class="c-st">"cpu"</span>:
+        skip |= {<span class="c-st">"h2"</span>, <span class="c-st">"h3"</span>}  <span class="c-cm"># opset19, opset21</span>
+
+    <span class="c-kw">return</span> skip</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2>6 · Fix #4 — promote_findings.py</h2>
+
+<p style="margin-bottom:10px; color:#444;">A standalone post-processing script that runs after sweeps complete. Reads all <code>results.json</code> files, applies the confidence ladder, and auto-updates the KB.</p>
+
+<div class="flow">
+  <div class="flow-box">
+    <strong>results.json × N models</strong>
+    <span>catalog-*-sweep/*/results.json</span>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box new">
+    <strong>promote_findings.py</strong>
+    <span>L1→L2: range non-overlap<br>L2→L3: 2+ models same arch</span>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box new">
+    <strong>ep_knowledge/*.json</strong>
+    <span>auto-generated findings<br>with evidence list</span>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box new">
+    <strong>analyze_insight.py</strong>
+    <span>reads KB → skip_set<br>for next sweep</span>
+  </div>
+</div>
+
+<pre style="margin-top:12px;"><code><span class="c-cm"># promote_findings.py — core logic sketch</span>
+
+<span class="c-kw">def</span> <span class="c-fn">collect_l2_candidates</span>(sweep_dirs: <span class="c-tp">list</span>[Path]) -> <span class="c-tp">list</span>[<span class="c-tp">dict</span>]:
+    <span class="c-st">"""L1→L2: range non-overlap confirmed for a single model."""</span>
+    candidates = []
+    <span class="c-kw">for</span> d <span class="c-kw">in</span> sweep_dirs:
+        r = json.loads((d / <span class="c-st">"results.json"</span>).read_text())
+        baseline_p50s = r[<span class="c-st">"hypotheses"</span>][<span class="c-st">"h0"</span>][<span class="c-st">"full"</span>][<span class="c-st">"p50s_ms"</span>]
+        <span class="c-kw">for</span> h_id, h <span class="c-kw">in</span> r[<span class="c-st">"hypotheses"</span>].items():
+            <span class="c-kw">if</span> h.get(<span class="c-st">"verdict"</span>) == <span class="c-st">"KEEP_CONFIRMED"</span>:
+                hyp_p50s = h[<span class="c-st">"full"</span>][<span class="c-st">"p50s_ms"</span>]
+                <span class="c-kw">if</span> <span class="c-fn">max</span>(hyp_p50s) &lt; <span class="c-fn">min</span>(baseline_p50s):  <span class="c-cm"># L2 gate</span>
+                    candidates.append({
+                        <span class="c-st">"model_id"</span>: r[<span class="c-st">"model_id"</span>], <span class="c-st">"arch"</span>: r[<span class="c-st">"model_type"</span>],
+                        <span class="c-st">"ep"</span>: r[<span class="c-st">"ep"</span>], <span class="c-st">"h_id"</span>: h_id,
+                        <span class="c-st">"flags"</span>: h.get(<span class="c-st">"extra_optim"</span>, {}),
+                        <span class="c-st">"gain_pct"</span>: h[<span class="c-st">"mean_gain_pct"</span>],
+                    })
+    <span class="c-kw">return</span> candidates
+
+<span class="c-kw">def</span> <span class="c-fn">promote_to_l3</span>(l2s: <span class="c-tp">list</span>[<span class="c-tp">dict</span>]) -> <span class="c-tp">list</span>[<span class="c-tp">dict</span>]:
+    <span class="c-st">"""L2→L3: same flags confirmed on ≥2 models of same arch class."""</span>
+    grouped = <span class="c-fn">defaultdict</span>(<span class="c-tp">list</span>)
+    <span class="c-kw">for</span> c <span class="c-kw">in</span> l2s:
+        key = (c[<span class="c-st">"ep"</span>], <span class="c-fn">frozenset</span>(c[<span class="c-st">"flags"</span>].items()), c[<span class="c-st">"arch"</span>])
+        grouped[key].append(c)
+    <span class="c-kw">return</span> [
+        {<span class="c-st">"ep"</span>: ep, <span class="c-st">"flags"</span>: <span class="c-fn">dict</span>(flags), <span class="c-st">"arch"</span>: arch,
+         <span class="c-st">"evidence"</span>: g, <span class="c-st">"mean_gain"</span>: statistics.mean(x[<span class="c-st">"gain_pct"</span>] <span class="c-kw">for</span> x <span class="c-kw">in</span> g)}
+        <span class="c-kw">for</span> (ep, flags, arch), g <span class="c-kw">in</span> grouped.items() <span class="c-kw">if</span> len(g) >= <span class="c-nu">2</span>  <span class="c-cm"># L3 gate</span>
+    ]</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2>7 · Fix #5 — Thermal Reference Model (P2)</h2>
+
+<div class="card-grid card-grid-2">
+  <div class="card orange">
+    <div class="card-title">Concept</div>
+    <p>Before each sweep session, run a fixed tiny model (e.g., a 3-layer MLP exported to ONNX) for 100 iters. Its latency is a proxy for current device thermal state.</p>
+    <p>Store as <code>thermal_ref_p50_ms</code> in each session result. Post-hoc: normalize per-session gains by thermal_ref to make cross-day / cross-run comparisons valid.</p>
+  </div>
+  <div class="card orange">
+    <div class="card-title">When to Use</div>
+    <p><strong>Cool enough</strong> (thermal_ref ≤ 1.05 × cold_baseline): proceed normally.</p>
+    <p><strong>Too hot</strong> (thermal_ref &gt; 1.3 × cold_baseline): wait 60s and retry. Max 3 retries, then flag session as "HOT_RUN".</p>
+    <p>HOT_RUN sessions are excluded from L2 promotion but kept for informational display.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2>8 · Full Self-Evolution Loop</h2>
+
+<div style="background:#fff; border-radius:10px; border:1px solid #e0e4ef; padding:20px; max-width:900px; margin-top:4px;">
+<div style="display:flex; flex-direction:column; gap:6px;">
+
+  <div style="display:flex; align-items:center; gap:8px;">
+    <div style="width:180px; background:#e8eaf6; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
+      <strong style="color:#3949ab;">analyze_insight.py</strong><br>
+      <span style="color:#666;">graph fingerprint<br>→ skip_set + priority</span>
+    </div>
+    <div style="font-size:20px; color:#9fa8da;">→</div>
+    <div style="width:200px; background:#e8f5e9; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
+      <strong style="color:#2e7d32;">catalog_*_sweep.py</strong><br>
+      <span style="color:#666;">Paired A/B · adaptive n<br>4-5 hyps (pruned)</span>
+    </div>
+    <div style="font-size:20px; color:#9fa8da;">→</div>
+    <div style="width:180px; background:#e3f2fd; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
+      <strong style="color:#0d47a1;">results.json</strong><br>
+      <span style="color:#666;">verdict · CI · gain<br>extra_optim stored</span>
+    </div>
+    <div style="font-size:20px; color:#9fa8da;">→</div>
+    <div style="width:190px; background:#fce4ec; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
+      <strong style="color:#880e4f;">promote_findings.py</strong><br>
+      <span style="color:#666;">L1→L2→L3→L4<br>auto-updates KB</span>
+    </div>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:8px; padding-left:20px;">
+    <div style="font-size:13px; color:#bbb; margin-left:180px;">↑ skip_set feeds back</div>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:8px;">
+    <div style="width:180px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0; opacity:0;">placeholder</div>
+    <div style="font-size:20px; color:#9fa8da; opacity:0;">→</div>
+    <div style="width:200px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0; opacity:0;">placeholder</div>
+    <div style="font-size:20px; color:#9fa8da; opacity:0;">→</div>
+    <div style="width:180px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0; opacity:0;">placeholder</div>
+    <div style="font-size:20px; color:#9fa8da;">→</div>
+    <div style="width:190px; background:#f3e5f5; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
+      <strong style="color:#6a1b9a;">ep_knowledge/*.json</strong><br>
+      <span style="color:#666;">L3+ findings<br>config_optimal.json</span>
+    </div>
+  </div>
+
+  <div style="margin-top:6px; font-size:11px; color:#666; padding-left:4px;">
+    Feedback: ep_knowledge → analyze_insight.py reads KB rules → next sweep skips known-harmful hypotheses automatically (L5 prediction)
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2>9 · Implementation Plan</h2>
+
+<table>
+  <thead><tr><th>Priority</th><th>Component</th><th>File(s)</th><th>Status</th><th>Key change</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="p0">P0</span></td>
+      <td>Paired A/B bench primitive</td>
+      <td><code>sweep_utils.py</code> <span class="pill pill-new">NEW</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td><code>paired_ab_bench(baseline_path, hyp_path, n_pairs, iters)</code> → verdict + CI</td>
+    </tr>
+    <tr>
+      <td><span class="p0">P0</span></td>
+      <td>Adaptive n_sessions</td>
+      <td><code>sweep_utils.py</code> <span class="pill pill-new">NEW</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Stop when CI_lower &gt; 5% or CI_upper &lt; -2%, max 8 pairs</td>
+    </tr>
+    <tr>
+      <td><span class="p0">P0</span></td>
+      <td>promote_findings.py</td>
+      <td><code>promote_findings.py</code> <span class="pill pill-new">NEW</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>L1→L2→L3→L4 gates, auto-write to ep_knowledge/*.json</td>
+    </tr>
+    <tr>
+      <td><span class="p0">P0</span></td>
+      <td>Champion config output</td>
+      <td>All 3 sweep scripts <span class="pill pill-mod">MOD</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>After sweep: write <code>config_&lt;ep&gt;_&lt;device&gt;_optimal.json</code> from best hypothesis</td>
+    </tr>
+    <tr>
+      <td><span class="p1">P1</span></td>
+      <td>Architecture hypothesis pruning</td>
+      <td><code>analyze_insight.py</code> <span class="pill pill-mod">MOD</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td><code>get_hypothesis_skip_set(model_type, candidates)</code> → set of h_ids to skip</td>
+    </tr>
+    <tr>
+      <td><span class="p1">P1</span></td>
+      <td>Wire Paired A/B into QNN sweep</td>
+      <td><code>catalog_qnn_sweep.py</code> <span class="pill pill-mod">MOD</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Replace <code>bench_full()</code> with <code>paired_ab_bench()</code>; add <code>PAIRED_AB=True</code> flag</td>
+    </tr>
+    <tr>
+      <td><span class="p1">P1</span></td>
+      <td>Wire Paired A/B into GPU + CPU sweeps</td>
+      <td><code>catalog_gpu_sweep.py</code>, <code>catalog_cpu_sweep.py</code> <span class="pill pill-mod">MOD</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Same as QNN; import from sweep_utils</td>
+    </tr>
+    <tr>
+      <td><span class="p1">P1</span></td>
+      <td>Feature gaps issue log</td>
+      <td><code>docs/feature-gaps/issues.md</code> <span class="pill pill-new">NEW</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Persistent log of all research-derived GitHub issues with context + date</td>
+    </tr>
+    <tr>
+      <td><span class="p2">P2</span></td>
+      <td>Thermal reference model</td>
+      <td><code>sweep_utils.py</code> <span class="pill pill-new">NEW</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td><code>thermal_calibrate(ep, device)</code> → thermal_ref_p50_ms, HOT_RUN detection</td>
+    </tr>
+    <tr>
+      <td><span class="p2">P2</span></td>
+      <td>L5 prediction in analyze_insight</td>
+      <td><code>analyze_insight.py</code> <span class="pill pill-mod">MOD</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Read L4 KB rules → predict winner before sweep; emit champion config directly</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note" style="max-width:900px; margin-top:16px;">
+  <strong>Key insight:</strong> Once Paired A/B + promote_findings.py are in place, the system will self-correct — every new sweep adds L2 candidates, which either reinforce existing KB rules or surface new ones. Over time, analyze_insight.py's skip_set gets richer, sweeps get shorter, and the results get more reliable. The skill "learns" without requiring human intervention between runs.
+</div>
+
+<br><br>
+<div style="font-size:10px; color:#aaa; text-align:right;">Generated 2026-06-18 · research/autoconfig/docs/self-evolution-design.html</div>
+
+</body>
+</html>
