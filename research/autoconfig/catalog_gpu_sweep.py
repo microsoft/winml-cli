@@ -57,6 +57,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from gen_model_report import generate_model_report
+except Exception:
+    generate_model_report = None
+
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
@@ -66,6 +71,7 @@ WINML = str(BASE_DIR / ".venv" / "Scripts" / "winml.exe")
 EP = "qnn"
 DEVICE = "gpu"
 RESULTS_DIR = BASE_DIR / "catalog-gpu-sweep"
+CHAMPION_DIR = BASE_DIR / "champion-configs"
 
 SCREEN_WARMUP = 20
 SCREEN_ITERS = 200
@@ -445,6 +451,7 @@ def sweep_model(
     if base_config is None:
         results["errors"].append("base config generation failed")
         _save_results(results, model_dir)
+        _emit_model_artifacts(results, model_dir)
         return results
 
     baseline_opset = (base_config.get("export") or {}).get("opset_version", "?")
@@ -527,7 +534,7 @@ def sweep_model(
             "status": "OK",
             "label": label,
             "opset": opset_used,
-            "extra_optim": extra_optim,
+            "extra_optim": extra_optim or {},
             "screen_p50_ms": screen_p50,
             "screen_cv": screen_cv,
             "full_p50s_ms": p50s,
@@ -577,6 +584,7 @@ def sweep_model(
     # ── Step 3: finalise ───────────────────────────────────────────────────
     _post_process(results)
     _save_results(results, model_dir)
+    _emit_model_artifacts(results, model_dir)
     return results
 
 
@@ -721,6 +729,59 @@ def _save_results(results: dict, model_dir: Path) -> None:
     out = model_dir / "results.json"
     out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"  Results: {out}", flush=True)
+
+
+def emit_champion_config(results: dict, model_dir: Path) -> None:
+    """Write champion config to champion-configs/<slug>_<ep>_<device>_optimal.json."""
+    best_h_id = results.get("best_hypothesis")
+    if not best_h_id:
+        return
+    best_hyp = results.get("hypotheses", {}).get(best_h_id, {})
+
+    cfg_path = model_dir / best_h_id / "build_config.json"
+    build_config = None
+    if cfg_path.exists():
+        try:
+            build_config = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    model_slug = results["model_id"].replace("/", "--")
+    ep = results.get("ep", "unknown")
+    device = results.get("device", "unknown")
+
+    CHAMPION_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = CHAMPION_DIR / f"{model_slug}_{ep}_{device}_optimal.json"
+
+    champion = {
+        "model_id": results["model_id"],
+        "ep": ep,
+        "device": device,
+        "champion_hypothesis": best_h_id,
+        "champion_label": best_hyp.get("label", ""),
+        "opset": best_hyp.get("opset"),
+        "extra_optim": best_hyp.get("extra_optim", {}),
+        "perf": {
+            "baseline_p50_ms": results.get("baseline_p50_ms"),
+            "champion_p50_ms": results.get("best_p50_ms"),
+            "gain_pct": results.get("best_gain_pct"),
+        },
+        "build_config": build_config,
+        "sweep_timestamp": results.get("timestamp"),
+        "generated_by": Path(__file__).name,
+    }
+    out_path.write_text(json.dumps(champion, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"  Champion config: {out_path}", flush=True)
+
+
+def _emit_model_artifacts(results: dict, model_dir: Path) -> None:
+    emit_champion_config(results, model_dir)
+    try:
+        if generate_model_report is None:
+            raise RuntimeError("gen_model_report import unavailable")
+        generate_model_report(results, model_dir / "report.html")
+    except Exception as e:
+        print(f"  [warn] report generation failed: {e}", flush=True)
 
 
 # ── summary writer ────────────────────────────────────────────────────────────
