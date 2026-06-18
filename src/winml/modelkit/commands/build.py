@@ -470,6 +470,9 @@ def _validate_loader_tasks_for_model(
     include_auto=True,
     optional_message="Default: auto-detect.",
 )
+@cli_utils.precision_option(
+    optional_message="With -c, applied only when --device or --precision is passed.",
+)
 @click.option(
     "--analyze/--no-analyze",
     "analyze",
@@ -509,6 +512,7 @@ def build(
     optimize: bool,
     ep: EPNameOrAlias | None,
     device: str,
+    precision: str,
     analyze: bool,
     max_optim_iterations: int | None,
     allow_unsupported_nodes: bool,
@@ -531,6 +535,12 @@ def build(
 
         # Full pipeline with explicit config
         winml build -c config.json -m microsoft/resnet-50 -o output/
+
+        # Device-aware auto precision (npu->w8a16, gpu/cpu->fp16)
+        winml build -m microsoft/resnet-50 -o output/ --device npu --precision auto
+
+        # Force fp16 (skips quantization)
+        winml build -m bert-base-uncased -o output/ --device gpu --precision fp16
 
         # Build from pre-exported ONNX file
         winml build -c config.json -m model.onnx -o output/
@@ -592,6 +602,7 @@ def build(
                 model_id,
                 trust_remote_code=trust_remote_code,
                 device=device,
+                precision=precision,
             )
             if not quant:
                 config_or_configs.quant = None
@@ -602,15 +613,17 @@ def build(
             if no_compile:
                 config_or_configs.compile = None
 
-        # If --device was explicitly provided, patch compile config and clear
-        # quant for CPU/GPU (neither device uses quantization by default).
-        if cli_utils.is_cli_provided(ctx, "device") and device:
+        # If --device or --precision was explicitly provided, patch quant/compile
+        # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.
+        if cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision"):
             from ..compiler.configs import WinMLCompileConfig
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
-                resolved_quant, _ = resolve_quant_compile_config(device=device, ep=ep)
+                resolved_quant, _ = resolve_quant_compile_config(
+                    device=device, precision=precision, ep=ep
+                )
                 if not quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
