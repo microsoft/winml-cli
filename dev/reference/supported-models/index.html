@@ -2486,10 +2486,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#object-detection" class="md-nav__link">
+  <a href="#image-segmentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Object Detection
+        Image Segmentation
       
     </span>
   </a>
@@ -2497,10 +2497,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#depth-estimation" class="md-nav__link">
+  <a href="#image-to-text" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Depth Estimation
+        Image-to-Text
       
     </span>
   </a>
@@ -2891,10 +2891,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#object-detection" class="md-nav__link">
+  <a href="#image-segmentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Object Detection
+        Image Segmentation
       
     </span>
   </a>
@@ -2902,10 +2902,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#depth-estimation" class="md-nav__link">
+  <a href="#image-to-text" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Depth Estimation
+        Image-to-Text
       
     </span>
   </a>
@@ -2976,11 +2976,14 @@
 
 
 <h1 id="supported-models">Supported Models<a class="headerlink" href="#supported-models" title="Permanent link">&para;</a></h1>
+<p>Windows ML CLI has validated a set of models for compatibility across all
+Execution Providers (EPs)—see the full
+<a href="https://microsoft.github.io/winml-cli/reports/model_compatibility_report.html">model compatibility report</a>.</p>
 <p>winml-cli supports a wide range of model architectures and tasks. This page
 lists what's validated and how to discover model support.</p>
 <hr />
 <h2 id="discovery-commands">Discovery Commands<a class="headerlink" href="#discovery-commands" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Browse the curated catalog (57 validated models)</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Browse the curated catalog (64 validated models)</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>run<span class="w"> </span>winml<span class="w"> </span>catalog
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Filter by task</span>
@@ -3129,18 +3132,6 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </thead>
 <tbody>
 <tr>
-<td><code>AdamCodd/vit-base-nsfw-detector</code></td>
-<td>ViT</td>
-</tr>
-<tr>
-<td><code>Falconsai/nsfw_image_detection</code></td>
-<td>ViT</td>
-</tr>
-<tr>
-<td><code>amunchet/rorshark-vit-base</code></td>
-<td>ViT</td>
-</tr>
-<tr>
 <td><code>apple/mobilevit-small</code></td>
 <td>MobileViT</td>
 </tr>
@@ -3149,12 +3140,24 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 <td>ViT</td>
 </tr>
 <tr>
+<td><code>facebook/convnext-tiny-224</code></td>
+<td>ConvNeXt</td>
+</tr>
+<tr>
 <td><code>google/vit-base-patch16-224</code></td>
 <td>ViT</td>
 </tr>
 <tr>
 <td><code>microsoft/resnet-18</code></td>
 <td>ResNet</td>
+</tr>
+<tr>
+<td><code>microsoft/resnet-50</code></td>
+<td>ResNet</td>
+</tr>
+<tr>
+<td><code>microsoft/swin-large-patch4-window7-224</code></td>
+<td>Swin</td>
 </tr>
 <tr>
 <td><code>rizvandwiki/gender-classification</code></td>
@@ -3180,24 +3183,12 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 <td>ViT</td>
 </tr>
 <tr>
-<td><code>facebook/dinov2-base</code></td>
-<td>DINOv2</td>
-</tr>
-<tr>
-<td><code>facebook/dinov2-large</code></td>
-<td>DINOv2</td>
-</tr>
-<tr>
 <td><code>facebook/dinov2-small</code></td>
 <td>DINOv2</td>
 </tr>
 <tr>
 <td><code>google/vit-base-patch16-224-in21k</code></td>
 <td>ViT</td>
-</tr>
-<tr>
-<td><code>microsoft/rad-dino</code></td>
-<td>DINOv2</td>
 </tr>
 </tbody>
 </table>
@@ -3210,6 +3201,26 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>BAAI/bge-base-en-v1.5</code></td>
+<td>BERT</td>
+</tr>
+<tr>
+<td><code>BAAI/bge-m3</code></td>
+<td>XLM-RoBERTa</td>
+</tr>
+<tr>
+<td><code>BAAI/bge-small-en-v1.5</code></td>
+<td>BERT</td>
+</tr>
+<tr>
+<td><code>google-bert/bert-base-multilingual-cased</code></td>
+<td>BERT</td>
+</tr>
+<tr>
+<td><code>Intel/bert-base-uncased-mrpc</code></td>
+<td>BERT</td>
+</tr>
 <tr>
 <td><code>laion/CLIP-ViT-B-32-laion2B-s34B-b79K</code></td>
 <td>CLIP</td>
@@ -3234,6 +3245,10 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 <td><code>sentence-transformers/multi-qa-mpnet-base-dot-v1</code></td>
 <td>MPNet</td>
 </tr>
+<tr>
+<td><code>sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2</code></td>
+<td>BERT</td>
+</tr>
 </tbody>
 </table>
 <h3 id="sentence-similarity">Sentence Similarity<a class="headerlink" href="#sentence-similarity" title="Permanent link">&para;</a></h3>
@@ -3246,8 +3261,16 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </thead>
 <tbody>
 <tr>
+<td><code>BAAI/bge-base-en-v1.5</code></td>
+<td>BERT</td>
+</tr>
+<tr>
 <td><code>BAAI/bge-large-en-v1.5</code></td>
 <td>BERT</td>
+</tr>
+<tr>
+<td><code>BAAI/bge-m3</code></td>
+<td>XLM-RoBERTa</td>
 </tr>
 <tr>
 <td><code>BAAI/bge-small-en-v1.5</code></td>
@@ -3285,16 +3308,20 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </thead>
 <tbody>
 <tr>
+<td><code>distilbert/distilbert-base-uncased</code></td>
+<td>DistilBERT</td>
+</tr>
+<tr>
 <td><code>FacebookAI/roberta-base</code></td>
+<td>RoBERTa</td>
+</tr>
+<tr>
+<td><code>FacebookAI/roberta-large</code></td>
 <td>RoBERTa</td>
 </tr>
 <tr>
 <td><code>FacebookAI/xlm-roberta-base</code></td>
 <td>XLM-RoBERTa</td>
-</tr>
-<tr>
-<td><code>distilbert/distilbert-base-uncased</code></td>
-<td>DistilBERT</td>
 </tr>
 <tr>
 <td><code>google-bert/bert-base-multilingual-cased</code></td>
@@ -3307,14 +3334,6 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 <tr>
 <td><code>google-bert/bert-base-uncased</code></td>
 <td>BERT</td>
-</tr>
-<tr>
-<td><code>sentence-transformers/all-mpnet-base-v2</code></td>
-<td>MPNet</td>
-</tr>
-<tr>
-<td><code>sentence-transformers/multi-qa-mpnet-base-dot-v1</code></td>
-<td>MPNet</td>
 </tr>
 </tbody>
 </table>
@@ -3332,16 +3351,16 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 <td>RoBERTa</td>
 </tr>
 <tr>
-<td><code>cross-encoder/ms-marco-MiniLM-L4-v2</code></td>
-<td>BERT</td>
-</tr>
-<tr>
-<td><code>cross-encoder/ms-marco-MiniLM-L6-v2</code></td>
-<td>BERT</td>
-</tr>
-<tr>
 <td><code>distilbert/distilbert-base-uncased-finetuned-sst-2-english</code></td>
 <td>DistilBERT</td>
+</tr>
+<tr>
+<td><code>Intel/bert-base-uncased-mrpc</code></td>
+<td>BERT</td>
+</tr>
+<tr>
+<td><code>ProsusAI/finbert</code></td>
+<td>BERT</td>
 </tr>
 </tbody>
 </table>
@@ -3355,16 +3374,20 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </thead>
 <tbody>
 <tr>
+<td><code>Babelscape/wikineural-multilingual-ner</code></td>
+<td>BERT</td>
+</tr>
+<tr>
+<td><code>dbmdz/bert-large-cased-finetuned-conll03-english</code></td>
+<td>BERT</td>
+</tr>
+<tr>
+<td><code>dslim/bert-base-NER</code></td>
+<td>BERT</td>
+</tr>
+<tr>
 <td><code>Isotonic/distilbert_finetuned_ai4privacy_v2</code></td>
 <td>DistilBERT</td>
-</tr>
-<tr>
-<td><code>Jean-Baptiste/camembert-ner-with-dates</code></td>
-<td>CamemBERT</td>
-</tr>
-<tr>
-<td><code>kredor/punctuate-all</code></td>
-<td>XLM-RoBERTa</td>
 </tr>
 <tr>
 <td><code>w11wo/indonesian-roberta-base-posp-tagger</code></td>
@@ -3381,10 +3404,6 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><code>ahotrod/electra_large_discriminator_squad2_512</code></td>
-<td>Electra</td>
-</tr>
 <tr>
 <td><code>deepset/bert-large-uncased-whole-word-masking-squad2</code></td>
 <td>BERT</td>
@@ -3406,8 +3425,8 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 <td>DistilBERT</td>
 </tr>
 <tr>
-<td><code>monologg/koelectra-small-v2-distilled-korquad-384</code></td>
-<td>Electra</td>
+<td><code>google-bert/bert-large-uncased-whole-word-masking-finetuned-squad</code></td>
+<td>BERT</td>
 </tr>
 </tbody>
 </table>
@@ -3421,8 +3440,8 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </thead>
 <tbody>
 <tr>
-<td><code>lxyuan/distilbert-base-multilingual-cased-sentiments-student</code></td>
-<td>DistilBERT</td>
+<td><code>joeddav/xlm-roberta-large-xnli</code></td>
+<td>XLM-RoBERTa</td>
 </tr>
 </tbody>
 </table>
@@ -3436,12 +3455,12 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </thead>
 <tbody>
 <tr>
-<td><code>laion/CLIP-ViT-B-32-laion2B-s34B-b79K</code></td>
+<td><code>openai/clip-vit-base-patch16</code></td>
 <td>CLIP</td>
 </tr>
 </tbody>
 </table>
-<h3 id="object-detection">Object Detection<a class="headerlink" href="#object-detection" title="Permanent link">&para;</a></h3>
+<h3 id="image-segmentation">Image Segmentation<a class="headerlink" href="#image-segmentation" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -3451,16 +3470,24 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </thead>
 <tbody>
 <tr>
-<td><code>hustvl/yolos-small</code></td>
-<td>YOLOS</td>
+<td><code>mattmdjaga/segformer_b2_clothes</code></td>
+<td>Segformer</td>
 </tr>
 <tr>
-<td><code>valentinafeve/yolos-fashionpedia</code></td>
-<td>YOLOS</td>
+<td><code>nvidia/segformer-b1-finetuned-ade-512-512</code></td>
+<td>Segformer</td>
+</tr>
+<tr>
+<td><code>nvidia/segformer-b2-finetuned-ade-512-512</code></td>
+<td>Segformer</td>
+</tr>
+<tr>
+<td><code>nvidia/segformer-b5-finetuned-ade-640-640</code></td>
+<td>Segformer</td>
 </tr>
 </tbody>
 </table>
-<h3 id="depth-estimation">Depth Estimation<a class="headerlink" href="#depth-estimation" title="Permanent link">&para;</a></h3>
+<h3 id="image-to-text">Image-to-Text<a class="headerlink" href="#image-to-text" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -3470,8 +3497,16 @@ testing. Use <code>winml catalog</code> to browse the full list interactively.</
 </thead>
 <tbody>
 <tr>
-<td><code>Intel/dpt-hybrid-midas</code></td>
-<td>DPT</td>
+<td><code>microsoft/trocr-base-handwritten</code></td>
+<td>VisionEncoderDecoder</td>
+</tr>
+<tr>
+<td><code>microsoft/trocr-base-printed</code></td>
+<td>VisionEncoderDecoder</td>
+</tr>
+<tr>
+<td><code>microsoft/trocr-large-handwritten</code></td>
+<td>VisionEncoderDecoder</td>
 </tr>
 </tbody>
 </table>
