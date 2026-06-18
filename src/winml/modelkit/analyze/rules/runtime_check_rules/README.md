@@ -68,13 +68,13 @@ Multiple directories are supported using `os.pathsep` (`;` on Windows, `:` on Un
 
 ## Rule lookup order
 
-The analyzer searches directories in this order:
+`WINMLCLI_RULES_DIR` overrides — it does not augment — the embedded default:
 
-1. Directories listed in `WINMLCLI_RULES_DIR` (left to right)
-2. Embedded default directory: `src/winml/modelkit/analyze/rules/runtime_check_rules/`
-
-`WINMLCLI_RULES_DIR` takes precedence over the embedded default when the same parquet file
-exists in multiple locations.
+- If `WINMLCLI_RULES_DIR` is set, only the directories it lists are searched (left to right).
+  The embedded default directory is **not** consulted, so those directories must contain every
+  parquet rule you need.
+- If `WINMLCLI_RULES_DIR` is unset or empty, only the embedded default directory is searched:
+  `src/winml/modelkit/analyze/rules/runtime_check_rules/`.
 
 ## What happens if parquet rules are missing
 
