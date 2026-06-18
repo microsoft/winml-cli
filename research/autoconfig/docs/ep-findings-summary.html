@@ -178,13 +178,13 @@
 <p class="meta">
   Hardware: Snapdragon X Elite CRD &nbsp;|&nbsp; ORT: 1.24.5 (onnxruntime-windowsml) &nbsp;|&nbsp;
   QNN SDK: Hexagon HTP (NPU) + Adreno X1-85 (GPU) &nbsp;|&nbsp;
-  Last updated: 2026-06-18 &nbsp;|&nbsp; 15 models (QNN NPU), 8 models (QNN GPU), CPU sweep in progress
+  Last updated: 2026-06-18 &nbsp;|&nbsp; 15 models (QNN NPU), 8 models (QNN GPU), 4 models (CPU partial)
 </p>
 
 <div class="stats-bar">
-  <div class="stat"><div class="stat-n">28</div><div class="stat-l">total findings</div></div>
-  <div class="stat"><div class="stat-n" style="color:#1b5e20">9</div><div class="stat-l">visible (multi-model / cross-EP)</div></div>
-  <div class="stat"><div class="stat-n" style="color:#9fa8da">19</div><div class="stat-l">hidden (single-model)</div></div>
+  <div class="stat"><div class="stat-n">31</div><div class="stat-l">total findings</div></div>
+  <div class="stat"><div class="stat-n" style="color:#1b5e20">11</div><div class="stat-l">visible (multi-model / cross-EP)</div></div>
+  <div class="stat"><div class="stat-n" style="color:#9fa8da">20</div><div class="stat-l">hidden (single-model)</div></div>
   <div class="stat"><div class="stat-n">15</div><div class="stat-l">NPU models tested</div></div>
   <div class="stat"><div class="stat-n">8</div><div class="stat-l">GPU models tested</div></div>
   <div class="stat"><div class="stat-n">8</div><div class="stat-l">feature requests</div></div>
@@ -194,7 +194,7 @@
   <strong>Scope warning:</strong> All findings from 1 hardware device (Snapdragon X Elite CRD, Oryon CPU + Adreno X1-85 + Hexagon HTP NPU).
   DML EP not available on this device (package conflict with onnxruntime-windowsml).
   QNN NPU: 15 models tested (8 catalog + 3 recipe + 4 validation). QNN GPU: 8 models (full catalog sweep 2026-06-18).
-  CPU: sweep in progress (catalog_cpu_sweep.py launched 2026-06-18, early results only).
+  CPU: partial sweep (4/8 models done; ResNet-18/MobileViT/DINOv2/rad-dino; BERT/NLP in progress 2026-06-18).
   Always re-validate on new model architectures before using findings to prune search space.
 </div>
 
@@ -411,20 +411,22 @@
 <div class="ep-section cpu">
   <div class="ep-header">
     CPU EP &nbsp;&mdash;&nbsp; Oryon CPU (Snapdragon X Elite)
-    &nbsp;<span style="font-weight:400;font-size:11px;color:#5c6bc0">ConvNext confirmed; catalog sweep in progress (2026-06-18) | 3&times;300-iter sessions, CV&lt;10%</span>
+    &nbsp;<span style="font-weight:400;font-size:11px;color:#5c6bc0">4 models done (ResNet/MobileViT/DINOv2/rad-dino); BERT/NLP in progress | 3&times;300-iter sessions, Phase C</span>
   </div>
   <div class="ep-body">
 
+    <!-- cpu-006: cross-EP opset isolation -->
     <div class="finding">
       <div class="find-id">cpu-006</div>
       <div class="find-conf"><span class="conf conf-high">HIGH<br>empirical</span></div>
       <div class="find-body">
         <div class="find-title">CPU EP, QNN GPU, and QNN NPU respond DIFFERENTLY to opset changes &mdash; EP isolation is mandatory</div>
         <div class="find-detail">
-          CPU opset17 vs 21: <span class="warn">3.9x SLOWER at opset21 (ConvNext: 43.7ms &rarr; 170ms).</span>
-          QNN GPU opset17 vs 21: <span class="data">neutral-to-slightly-negative (&minus;5.4% to +3.3%)</span> across 7 models (gpu-006).
+          CPU opset17 vs 21 (ConvNext): <span class="warn">3.9x SLOWER at opset21.</span>
+          CPU opset17 vs 21 (DINOv2): <span class="warn">~10x SLOWER at opset21 (cpu-001/cpu-009).</span>
+          QNN GPU opset17 vs 21: <span class="data">neutral-to-slightly-negative (&minus;5.4% to +3.3%)</span> across 7 models.
           QNN NPU opset17 vs 21 (DINOv2): <span class="data">+24% FASTER.</span>
-          Same opset change, three different outcomes on the same chip.
+          Same opset change, three different outcomes on the same chip. DINOv2 goes +24% on NPU but &minus;10x on CPU.
           <div><span class="scope">Scope: Meta-rule about EP isolation. Applies to all models.</span></div>
         </div>
       </div>
@@ -438,35 +440,102 @@
       </div>
     </div>
 
+    <!-- cpu-007: HUGE win on ResNet, VISIBLE -->
+    <div class="finding">
+      <div class="find-id">cpu-007</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>KEEP_CONFIRMED<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">matmul_transpose_fusion gives +92% speedup on ResNet-18 CPU EP (237ms &rarr; 17.8ms) &mdash; baseline config is severely suboptimal</div>
+        <div class="find-detail">
+          ResNet-18 h9 (<code>matmul_transpose_fusion</code>): <span class="data">17.8ms vs auto-config baseline 237ms = +92.51% KEEP_CONFIRMED</span> (all 5 Phase C sessions passed).
+          Also confirmed: h12 (<code>transpose_optimizer</code>) +84.46%, h13 (<code>gelu_fusion</code>) +88.89%, h10 (bundle) +91.54%, h6 (<code>layer_norm_fusion</code>) +10.43%.
+          <span class="warn">237ms baseline = severely suboptimal auto-config for ResNet-18 on CPU. matmul_transpose_fusion enables BLAS-level transposed GEMM dispatch that ORT cannot reach with unfused MatMul+Transpose pairs.</span>
+          <div><span class="scope">Scope: ResNet-18 confirmed. Models with unfused MatMul+Transpose chains likely benefit. DINOv2: NOT applicable (all fusion flags regress DINOv2 on CPU via cpu-001 interference).</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          For ResNet-class on CPU: apply <code>matmul_transpose_fusion + transpose_optimizer + gelu_fusion</code> bundle.
+          <strong>Critical</strong>: verify whether auto-config baseline is always this suboptimal for ResNet.
+          Needs re-test with fresh config to confirm finding is reproducible.
+        </div>
+      </div>
+    </div>
+
+    <!-- cpu-008: MobileViT layer_norm catastrophe, VISIBLE -->
+    <div class="finding">
+      <div class="find-id">cpu-008</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">layer_norm_fusion causes &minus;997% regression on MobileViT CPU EP (73ms &rarr; 803ms) &mdash; wrong LN pattern match</div>
+        <div class="find-detail">
+          MobileViT h6 (<code>layer_norm_fusion</code>): <span class="warn">803ms vs baseline 73ms = &minus;997% DISCARD.</span>
+          Also: matmul_transpose_fusion &minus;165%, attention_fusion bundle &minus;164%, skip_layer_norm_fusion &minus;10%.
+          Only <code>bias_softmax_fusion</code> helps: <span class="data">64ms (+12.3% MARGINAL_UNCONFIRMED)</span>.
+          Mechanism: MobileViT places LayerNorm after Conv2D outputs (CNN-ViT hybrid). layer_norm_fusion expects pure transformer LN (post-MLP). Fusing the wrong pattern creates an op the CPU runtime cannot dispatch to an optimized kernel.
+          <div><span class="scope">Scope: CNN-ViT hybrid models (MobileViT). Pure transformers (BERT/ViT) are expected safe.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          Block <code>layer_norm_fusion</code>, <code>matmul_transpose_fusion</code>, and <code>attention_fusion</code> for CNN-ViT hybrid models on CPU.
+          <code>analyze_insight.py</code> must detect CNN-ViT hybrid architecture and skip these fusions.
+        </div>
+      </div>
+    </div>
+
     <div style="padding:10px 16px;background:#fff;border-bottom:1px solid #eef;">
       <div class="in-progress-banner">
-        &#x1F50D; <strong>CPU catalog sweep in progress (2026-06-18)</strong> &mdash; 14 hypotheses across 8 models (catalog_cpu_sweep.py).
-        Early result on ResNet-18: <strong>h6 bias_softmax_fusion +12.3%</strong> (73.2ms &rarr; 64.1ms; awaiting Phase C confirmation).
-        h8 matmul_add_fusion auto-skipped via cpu-002 Gemm guard.
-        Key open question: does cpu-001 (opset regression) fire on transformer models or is it ConvNext-specific?
+        &#x1F50D; <strong>CPU sweep: BERT/NLP models in progress (2026-06-18)</strong> &mdash; roberta-base-squad2, tinyroberta, bge-small, MiniLM-L6-v2.
+        Key open question: does cpu-001 (opset regression) fire on pure-BERT models (sparse Transpose) or is it only Transpose-heavy architectures?
+        Expected finding: BERT is safe at opset19/21; attention_fusion may help BERT significantly.
       </div>
     </div>
 
     <div class="sm-divider">
-      <span class="sm-count">3 single-model findings hidden (cpu-001/002/005 &mdash; ConvNext only)</span>
+      <span class="sm-count">5 single-model findings hidden (cpu-001/002/005/009 &mdash; single-arch, + cpu-004 anecdote)</span>
       <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
     </div>
 
     <div class="finding single-model">
       <div class="find-id">cpu-001</div>
-      <div class="find-conf"><span class="conf conf-high">HIGH<br>empirical</span></div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed<br>ConvNext+DINOv2</span></div>
       <div class="find-body">
-        <div class="find-title">opset 19+ causes 3&ndash;4x slowdown on ConvNext CPU &mdash; scope under investigation for transformer models</div>
+        <div class="find-title">opset 19+ causes 3&ndash;10x slowdown on models with dense Transpose graphs &mdash; NOT ConvNext-specific</div>
         <div class="find-detail">
-          ConvNext: <span class="data">opset17: 43.7ms.</span> <span class="warn">opset19: 160ms (3.7x). opset21: 170ms (3.9x).</span>
-          Non-monotonic: opset22 partially recovers to 85ms (1.9x).
-          <strong>Open question:</strong> catalog_cpu_sweep.py (2026-06-18) tests opset variants on BERT/ViT. Expected: cpu-001 is ConvNext-specific (Transpose-heavy path); transformer models likely unaffected.
-          <div><span class="scope">Scope: ConvNext confirmed. BERT/ViT under investigation.</span></div>
+          ConvNext: <span class="warn">opset19=160ms (3.7x), opset21=170ms (3.9x)</span> vs baseline 43.7ms.
+          DINOv2-small: <span class="warn">opset19=1106ms (9.8x), opset21=1095ms (9.7x)</span> vs baseline 112ms &mdash; <code>CPU001_REGRESSION</code> verdict.
+          ResNet-18: <span class="data">opset19=231ms (+2.4% neutral), opset21=227ms (+4.5% neutral)</span> &mdash; NOT affected.
+          MobileViT: opset19=&minus;9.1% (mild, not catastrophic).
+          Pattern: models with &ge;49 Transpose nodes (ConvNext, DINOv2) hit cpu-001; sparse-Transpose models (ResNet) do not.
+          BERT/NLP pending (expected neutral based on Transformer LN-dominant graph with few Transposes).
+          <div><span class="scope">Scope: Dense-Transpose models confirmed (ConvNext, DINOv2). ResNet confirmed safe. BERT/NLP pending.</span></div>
         </div>
       </div>
       <div class="find-action">
         <div class="action-label">Autoconfig action</div>
-        <div class="action-text">Default to opset17 for CPU EP until scope is clarified.</div>
+        <div class="action-text">Default to opset17 for CPU EP. For DINOv2/ConvNext: hard-block opset19+. For ResNet: opset is safely neutral.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">cpu-009</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">DINOv2 CPU EP is constrained to auto-config only &mdash; ANY explicit flag causes catastrophic regression</div>
+        <div class="find-detail">
+          DINOv2-small: auto-config baseline=112ms. h1 opset17-explicit: <span class="warn">762ms (&minus;577%)</span>.
+          h2/h3 opset19/21: <span class="warn">~1100ms (&minus;880% CPU001_REGRESSION)</span>.
+          h4 attention_fusion: <span class="warn">1083ms (&minus;862%)</span>. h7 bias_softmax_fusion: <span class="warn">1121ms (&minus;896%)</span>.
+          Even <em>forcing opset17 explicitly</em> (h1) regresses &minus;577% vs auto-config &mdash; the auto-config default must use a specific graph optimization path that is disrupted by any explicit override.
+          <div><span class="scope">Scope: DINOv2-small confirmed. Likely generalizes to all pure-ViT models with dense Transpose graphs on CPU.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">For DINOv2/ViT-class on CPU: use auto-config ONLY. Do not force any opset. Do not apply any fusion flags. All deviations regress.</div>
       </div>
     </div>
 
@@ -476,8 +545,8 @@
       <div class="find-body">
         <div class="find-title">matmul_add_fusion regresses CPU +87% on models where ORT L2 already produced Gemm nodes</div>
         <div class="find-detail">
-          ConvNext: <span class="warn">matmul_add_fusion p50=81.7ms vs baseline 43.7ms (+87%).</span>
-          ORT L2 already converts MatMul+Add &rarr; Gemm (37 Gemm nodes at baseline). Applying fusion on top conflicts.
+          ConvNext: <span class="warn">p50=81.7ms vs baseline 43.7ms (+87%).</span>
+          ORT L2 already converts MatMul+Add &rarr; Gemm at baseline. Applying fusion on top conflicts.
           <code>catalog_cpu_sweep.py</code> auto-skips via <code>_model_has_gemm()</code> guard.
           <div><span class="scope">Scope: Models where ORT L2 baseline already has Gemm nodes.</span></div>
         </div>
@@ -496,12 +565,12 @@
         <div class="find-detail">
           22-experiment ablation: no flag improved p50 beyond noise. Baseline at 43.7ms is floor.
           ORT L2 already applies gelu_fusion and MatMul&rarr;Gemm.
-          <div><span class="scope">Scope: ConvNext-class. Transformer models may benefit from attention_fusion &mdash; catalog sweep will clarify.</span></div>
+          <div><span class="scope">Scope: ConvNext-class. Transformer: awaiting CPU catalog sweep completion.</span></div>
         </div>
       </div>
       <div class="find-action">
         <div class="action-label">Autoconfig action</div>
-        <div class="action-text">For CPU + ConvNext: skip graph pass sweep. For transformers: await catalog sweep results.</div>
+        <div class="action-text">For CPU + ConvNext: skip graph pass sweep. ResNet: apply matmul_transpose_fusion (cpu-007).</div>
       </div>
     </div>
 
