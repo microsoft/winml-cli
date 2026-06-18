@@ -445,6 +445,10 @@ class GemmPatternInputGenerator(PatternInputGenerator):
             item["C_dim"] = len(item["C_shape"])
         else:
             item["C_dim"] = 0
+
+        # Distinguish fixed-value bias constraints from shape-only constraints.
+        # This is finite (bool) and derives directly from existing row/query fields.
+        item["C_is_value_constraint"] = "C_value" in item and item["C_value"] is not None
         return item
 
     def get_infinite_property_names(self) -> list[str]:

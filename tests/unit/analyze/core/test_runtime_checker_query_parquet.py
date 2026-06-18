@@ -34,25 +34,38 @@ def _build_add_model(opset: int = 13):
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
 
 
-def _write_parquet_rules(rules_dir: Path) -> Path:
+def _write_parquet_rules(
+    rules_dir: Path,
+    compile_run_success: tuple[bool, bool] = (True, False),
+    extra_columns: dict[str, object] | None = None,
+) -> Path:
     """Write parquet artifact equivalent to one Add rule row."""
-    parquet_path = rules_dir / "Add_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet"
-    rule_df = pd.DataFrame(
-        [
-            {
-                "T_Add": encode_rule_condition_value_for_parquet("FLOAT"),
-                "input_dim": encode_rule_condition_value_for_parquet(4),
-                "compile_run_success": (True, False),
-            }
-        ]
+    parquet_path = (
+        rules_dir
+        / "QNNExecutionProvider_NPU"
+        / "Add_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet"
     )
+    parquet_path.parent.mkdir(parents=True, exist_ok=True)
+    row: dict[str, object] = {
+        "T_Add": encode_rule_condition_value_for_parquet("FLOAT"),
+        "input_dim": encode_rule_condition_value_for_parquet(4),
+        "compile_run_success": compile_run_success,
+    }
+    if extra_columns:
+        row.update(extra_columns)
+    rule_df = pd.DataFrame([row])
     rule_df.to_parquet(parquet_path, index=False)
     return parquet_path
 
 
 def _write_legacy_parquet_rules_with_row_index(rules_dir: Path) -> Path:
     """Write legacy parquet artifact that still includes row_index column."""
-    parquet_path = rules_dir / "Add_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet"
+    parquet_path = (
+        rules_dir
+        / "QNNExecutionProvider_NPU"
+        / "Add_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet"
+    )
+    parquet_path.parent.mkdir(parents=True, exist_ok=True)
     rule_df = pd.DataFrame(
         [
             {
@@ -97,6 +110,12 @@ def clear_global_parquet_cache():
     runtime_checker_query_module._clear_global_parquet_table_cache()
 
 
+@pytest.fixture(autouse=True)
+def clear_debug_rules_env(monkeypatch: pytest.MonkeyPatch):
+    """Prevent host env debug rules dir from leaking into tests."""
+    monkeypatch.delenv("WINMLCLI_RULES_DIR_FOR_DEBUG", raising=False)
+
+
 class TestRuntimeCheckerQueryParquet:
     """Validate parquet runtime rule lookup."""
 
@@ -123,6 +142,69 @@ class TestRuntimeCheckerQueryParquet:
         assert result_parquet.result.compile is True
         assert result_parquet.result.run is False
         assert str(result_parquet.result.debug_details.get("table_file", "")).endswith(".parquet")
+
+    def test_parquet_lookup_omits_debug_details_without_for_debug(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        patched_query_conditions,
+    ):
+        """debug_details should be omitted unless for_debug is explicitly enabled."""
+        del patched_query_conditions
+
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
+        _write_parquet_rules(tmp_path)
+
+        model = _build_add_model()
+        node = model.graph.node[0]
+
+        query_parquet = RuntimeCheckerQuery(model, "QNNExecutionProvider", "NPU")
+        query_parquet.node_checkers = []
+        result_parquet = query_parquet.run_for_node(node, for_debug=False, run_unknown_op=False)
+
+        assert result_parquet.result.no_data is False
+        assert result_parquet.result.compile is True
+        assert result_parquet.result.run is False
+        assert result_parquet.result.debug_details is None
+
+    def test_parquet_lookup_prefers_debug_dir_when_for_debug(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        patched_query_conditions,
+    ):
+        """for_debug should resolve rules from WINMLCLI_RULES_DIR_FOR_DEBUG first."""
+        del patched_query_conditions
+
+        base_rules_dir = tmp_path / "rules"
+        debug_rules_dir = tmp_path / "rules_debug"
+        base_rules_dir.mkdir(parents=True, exist_ok=True)
+        debug_rules_dir.mkdir(parents=True, exist_ok=True)
+
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(base_rules_dir))
+        monkeypatch.setenv("WINMLCLI_RULES_DIR_FOR_DEBUG", str(debug_rules_dir))
+
+        _write_parquet_rules(base_rules_dir, compile_run_success=(True, False))
+        _write_parquet_rules(
+            debug_rules_dir,
+            compile_run_success=(False, True),
+            extra_columns={"case_indices": ["case_42", "case_43"]},
+        )
+
+        model = _build_add_model()
+        node = model.graph.node[0]
+
+        query_parquet = RuntimeCheckerQuery(model, "QNNExecutionProvider", "NPU")
+        query_parquet.node_checkers = []
+        result_parquet = query_parquet.run_for_node(node, for_debug=True, run_unknown_op=False)
+
+        assert result_parquet.result.no_data is False
+        assert result_parquet.result.compile is False
+        assert result_parquet.result.run is True
+        debug_details = result_parquet.result.debug_details
+        assert isinstance(debug_details, dict)
+        assert "rules_debug" in str(debug_details.get("table_path", ""))
+        assert debug_details.get("case_indices") == ("case_42", "case_43")
 
     def test_parquet_global_cache_reused_across_instances(
         self,
