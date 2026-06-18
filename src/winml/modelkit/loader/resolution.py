@@ -298,14 +298,12 @@ def composite_pipeline_tasks(model_type: str) -> list[str]:
     """
     import winml.modelkit.models.hf  # noqa: F401  # trigger composite registrations
 
-    from ..models.winml import WinMLCompositeModel
     from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-    return sorted(
-        task
-        for (mt, task), cls in COMPOSITE_MODEL_REGISTRY.items()
-        if mt == model_type and issubclass(cls, WinMLCompositeModel)
-    )
+    # Every registry entry is a WinMLCompositeModel (enforced by
+    # register_composite_model), so trust the registry directly — this keeps the
+    # function consistent with resolve_composite() / _composite_components_for_task.
+    return sorted(task for (mt, task) in COMPOSITE_MODEL_REGISTRY if mt == model_type)
 
 
 # Optimum-canonical generation task that detect-path seq2seq models surface;
@@ -335,12 +333,11 @@ def _composite_components_for_task(model_type: str, task: str) -> CompositeCompo
     """
     import winml.modelkit.models.hf  # noqa: F401
 
-    from ..models.winml import WinMLCompositeModel
     from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
     distinct: dict[tuple, type] = {}
     for (m_type, reg_task), cls in COMPOSITE_MODEL_REGISTRY.items():
-        if m_type != model_type or not issubclass(cls, WinMLCompositeModel):
+        if m_type != model_type:
             continue
         if task in (reg_task, _SEQ2SEQ_GENERATION_TASK):
             distinct[tuple(sorted(cls._SUB_MODEL_CONFIG.items()))] = cls

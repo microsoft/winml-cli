@@ -86,6 +86,19 @@ def test_resolve_composite_info_none_when_pipeline_tasks_empty(monkeypatch):
     assert resolve_composite_info("bart", _BART_COMPONENTS) is None
 
 
+def test_resolve_composite_info_empty_components_not_suppressed(monkeypatch):
+    # `{}` is not None: an empty dict means the composite path WAS taken (detection
+    # succeeded) but yielded no component breakdown — it must NOT be suppressed the
+    # way None is. The pipeline_tasks guard, not the falsiness of components, governs.
+    monkeypatch.setattr(
+        "winml.modelkit.loader.composite_pipeline_tasks", lambda mt: ["summarization"]
+    )
+    info = resolve_composite_info("bart", {})
+    assert info is not None
+    assert info.components == {}
+    assert info.pipeline_tasks == ["summarization"]
+
+
 # --- table rendering (Variant 1: pipeline-led) ------------------------------
 
 
@@ -107,6 +120,16 @@ def test_non_composite_table_unchanged():
     assert "[composite]" not in out  # no composite tag on the Task row
     assert "encoder: feature-extraction" not in out  # no Export row breakdown
     assert "fill-mask" in out  # granular task shown as-is
+
+
+def test_composite_with_empty_pipeline_tasks_renders_plain_task():
+    # output_table is public: a directly-constructed CompositeInfo with empty
+    # pipeline_tasks must fall back to the plain Task row (no bare " [composite]")
+    # and skip the Composite Pipeline panel — robust independent of the resolver guard.
+    out = _render(_make_result(CompositeInfo([], _BART_COMPONENTS), task="text2text-generation"))
+    assert "[composite]" not in out
+    assert "Composite Pipeline" not in out
+    assert "text2text-generation" in out  # plain task shown as-is
 
 
 # --- JSON output (additive; machine `task` unchanged) -----------------------

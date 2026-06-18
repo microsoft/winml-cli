@@ -596,7 +596,10 @@ def resolve_composite_info(
     ``pipeline_tasks`` (the higher-level pipelines the model_type serves) come from the
     live composite registry; ``components`` is the resolver's detected breakdown.
     """
-    if not detected_components:
+    # `is None` (not falsy): only the un-set case means "composite path not taken".
+    # An empty dict would be a genuine (if currently unproduced) composite with no
+    # component breakdown — the pipeline_tasks guard below still protects rendering.
+    if detected_components is None:
         return None
 
     from ..loader import composite_pipeline_tasks

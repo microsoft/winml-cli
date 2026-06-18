@@ -260,7 +260,10 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
     model_table.add_column("Value")
 
     model_table.add_row("Model Type", result.model_type)
-    if result.composite:
+    # Guard on pipeline_tasks too: output_table is public, so a directly-constructed
+    # InspectResult with an empty-pipeline_tasks CompositeInfo must not render a
+    # bare " [composite]" Task row — fall back to the plain task in that case.
+    if result.composite and result.composite.pipeline_tasks:
         # Variant 1 (Pipeline-led): the Task row surfaces the pipeline tasks the
         # model_type serves, and an Export row shows the granular component tasks.
         pipelines = " · ".join(result.composite.pipeline_tasks)
@@ -278,8 +281,8 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
 
     console.print(Panel(model_table, title="Model Information", border_style="dim"))
 
-    # Composite Pipeline panel (only for composite model_types)
-    if result.composite:
+    # Composite Pipeline panel (only for composite model_types with pipeline tasks)
+    if result.composite and result.composite.pipeline_tasks:
         _output_composite_panel(console, result)
 
     # Loader Configuration table
