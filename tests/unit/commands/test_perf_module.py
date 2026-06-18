@@ -316,6 +316,108 @@ class TestPerfModuleParameterForwarding:
         assert instance["running_model_path"] == str(running_model_path)
 
 
+class TestPerfModuleMonitor:
+    """--monitor must drive the live HW utilization chart in --module mode.
+
+    Regression guard for #654: previously the module path created an
+    HWMonitor and dumped metrics to JSON but never rendered the live chart
+    (via _run_monitored_loop), so --monitor appeared to do nothing.
+    """
+
+    def test_monitor_drives_live_chart_per_module(self, tmp_path: Path) -> None:
+        fake_cfg = MagicMock()
+        fake_cfg.loader.model_type = "bert"
+        fake_cfg.loader.module_path = "encoder.layer.0"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        fake_stats = MagicMock()
+        for attr in ("mean_ms", "p50_ms", "p90_ms", "p95_ms", "p99_ms", "min_ms", "max_ms"):
+            setattr(fake_stats, attr, 1.0)
+        fake_stats.samples_ms = [1.0, 1.0]
+
+        fake_session = MagicMock()
+        fake_session.perf.return_value.__enter__.return_value = fake_stats
+        fake_session.running_model_path = tmp_path / "model_cpu_ctx.onnx"
+
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        # HWMonitor instance: context-managed, with a JSON-serializable to_dict().
+        fake_hw = MagicMock()
+        fake_hw.__enter__.return_value = fake_hw
+        fake_hw.to_dict.return_value = {"monitor": "HWMonitor", "device_kind": None}
+        fake_hw_cls = MagicMock()
+        fake_hw_cls.is_available.return_value = True
+        fake_hw_cls.return_value = fake_hw
+
+        out_path = tmp_path / "out.json"
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[fake_cfg],
+            ),
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ),
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+            patch(
+                "winml.modelkit.commands.perf.generate_random_inputs",
+                return_value={},
+            ),
+            patch(
+                "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
+                fake_hw_cls,
+            ),
+            patch(
+                "winml.modelkit.commands.perf._run_monitored_loop",
+            ) as mock_loop,
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--monitor",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(out_path),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        # The live-chart loop must be driven once for the single module instance.
+        mock_loop.assert_called_once()
+        # And the collected HW metrics still land in the JSON report.
+        report = json.loads(out_path.read_text(encoding="utf-8"))
+        assert report["instances"][0]["hw_monitor"]["monitor"] == "HWMonitor"
+
+
 class TestPerfModuleQuantCompileToggles:
     """--no-quantize and --compile/--no-compile clear cfg.quant / cfg.compile
     independently in the per-module build (mirrors the single-model path)."""

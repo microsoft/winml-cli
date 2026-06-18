@@ -876,9 +876,20 @@ def _perf_modules(
                         )
 
                 if hw_ctx:
+                    # Drive the same live chart single-model mode uses so
+                    # --monitor renders a per-module HW utilization chart
+                    # instead of silently dumping metrics to JSON (issue #654).
                     with session.perf(warmup=warmup) as stats, hw_ctx as hw:
-                        for _ in range(total_iters):
-                            session.run(inputs)
+                        _run_monitored_loop(
+                            session,
+                            inputs,
+                            stats,
+                            hw,
+                            total_iterations=total_iters,
+                            warmup=warmup,
+                            model_id=label,
+                            device=resolved_device,
+                        )
                         hw_metrics = hw.to_dict()
                 else:
                     with session.perf(warmup=warmup) as stats:
