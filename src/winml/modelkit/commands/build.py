@@ -615,9 +615,7 @@ def build(
 
         # If --device or --precision was explicitly provided, patch quant/compile
         # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.
-        if (
-            cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision")
-        ) and device:
+        if cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision"):
             from ..compiler.configs import WinMLCompileConfig
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:

@@ -83,7 +83,8 @@ logger = logging.getLogger(__name__)
 )
 @cli_utils.ep_option(required=False)
 @cli_utils.precision_option(
-    optional_message="Ignored for pre-built ONNX inputs (precision is already baked in).",
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs "
+    "(precision is already baked in).",
 )
 @click.option(
     "--samples",
