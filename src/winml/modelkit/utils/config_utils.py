@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import dataclasses
 import typing
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
+
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
 
 T = TypeVar("T")
@@ -45,17 +49,18 @@ def merge_config(base: T, overrides: dict[str, Any] | T | None) -> T:
     if overrides is None:
         return base
 
-    # Convert overrides to dict if it's a config object
+    # Convert overrides to a plain dict if it's a config object.
+    overrides_dict: dict[str, Any]
     if hasattr(overrides, "to_dict"):
-        overrides = overrides.to_dict()
+        overrides_dict = overrides.to_dict()
     elif dataclasses.is_dataclass(overrides) and not isinstance(overrides, type):
-        overrides = dataclasses.asdict(overrides)
+        overrides_dict = dataclasses.asdict(overrides)
     elif isinstance(overrides, dict):
-        overrides = dict(overrides)  # Copy to avoid mutation
+        overrides_dict = dict(overrides)  # Copy to avoid mutation
     else:
         raise TypeError(f"overrides must be dict or config, got {type(overrides)}")
 
-    return _merge_into(base, overrides)
+    return _merge_into(base, overrides_dict)
 
 
 def _merge_into(base: T, overrides: dict[str, Any]) -> T:
@@ -66,9 +71,9 @@ def _merge_into(base: T, overrides: dict[str, Any]) -> T:
 
     if isinstance(base, dict):
         # Handle dict-like config (e.g., WinMLOptimizationConfig)
-        result = type(base)(**base)  # type: ignore[call-arg]
+        result = type(base)(**base)
         result.update(overrides)
-        return result  # type: ignore[return-value]
+        return result
 
     # Primitive or unknown type - just return override
     return base
@@ -78,7 +83,9 @@ def _merge_dataclass(base: T, overrides: dict[str, Any]) -> T:
     """Merge overrides into a dataclass, handling nested configs."""
     # Get current field values
     current = {}
-    for f in dataclasses.fields(base):
+    # base is a dataclass instance by precondition (caller checks is_dataclass);
+    # cast for the fields() reflection call without widening base's T elsewhere.
+    for f in dataclasses.fields(cast("DataclassInstance", base)):
         current[f.name] = getattr(base, f.name)
 
     # Apply overrides recursively
@@ -117,7 +124,7 @@ def _merge_dataclass(base: T, overrides: dict[str, Any]) -> T:
             current[key] = value
 
     # Create new instance
-    return type(base)(**current)  # type: ignore[return-value]
+    return type(base)(**current)
 
 
 def _get_field_type(obj: Any, field_name: str) -> type | None:
@@ -151,5 +158,5 @@ def _get_field_type(obj: Any, field_name: str) -> type | None:
         # It's an Optional/Union with None — extract the non-None type
         for arg in args:
             if arg is not type(None):
-                return arg  # type: ignore[return-value]
+                return cast("type", arg)
     return resolved if isinstance(resolved, type) else None
