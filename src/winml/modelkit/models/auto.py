@@ -289,7 +289,7 @@ class WinMLAutoModel:
             device: Target device ("auto", "npu", "gpu", "cpu").
                 "auto" detects available hardware (NPU > GPU > CPU).
             precision: Target precision ("auto", "fp32", "fp16", "int8", "int16").
-                "auto" selects based on device (npu->int8, gpu->fp16, cpu->fp16).
+                "auto" selects based on device (npu->w8a16, gpu->fp16, cpu->fp16).
             provider_options: Runtime EP provider options (e.g. QNN
                 ``htp_performance_mode``) forwarded to the inference session.
             cache_dir: Directory for caching. If None, uses default cache dir.

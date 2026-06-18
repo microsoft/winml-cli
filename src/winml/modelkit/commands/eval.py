@@ -82,14 +82,8 @@ logger = logging.getLogger(__name__)
     help="Device to run on. 'auto' detects the best available device.",
 )
 @cli_utils.ep_option(required=False)
-@click.option(
-    "--precision",
-    type=str,
-    default="auto",
-    show_default=True,
-    help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
-    "Applied during model build (fp16/fp32 skip quantization). "
-    "Ignored for pre-built ONNX inputs (precision is already baked in).",
+@cli_utils.precision_option(
+    optional_message="Ignored for pre-built ONNX inputs (precision is already baked in).",
 )
 @click.option(
     "--samples",

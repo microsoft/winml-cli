@@ -1305,13 +1305,7 @@ def _run_simple_loop(
     help="Number of warmup iterations (excluded from statistics; must be >= 0)",
 )
 @cli_utils.device_option(required=False, default="auto", include_auto=True)
-@click.option(
-    "--precision",
-    type=str,
-    default="auto",
-    show_default=True,
-    help="Precision mode: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16).",
-)
+@cli_utils.precision_option()
 @cli_utils.ep_option(
     required=False,
     optional_message="Overrides device-to-provider mapping.",

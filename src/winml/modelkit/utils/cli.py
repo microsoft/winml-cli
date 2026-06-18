@@ -294,6 +294,48 @@ def device_option(
     )
 
 
+def precision_option(
+    default: str = "auto",
+    optional_message: str | None = None,
+    include_short: bool = True,
+) -> Callable[[F], F]:
+    """Add --precision option to a Click command.
+
+    Shared across ``build``, ``config``, ``eval``, and ``perf`` so the accepted
+    values and help text stay consistent. Uses ``type=str`` (not
+    ``click.Choice``) so the ``w{x}a{y}`` mixed-precision format (e.g. ``w8a16``)
+    is accepted; invalid values are rejected downstream by ``resolve_precision``.
+
+    Args:
+        default: Default precision value (default: "auto").
+        optional_message: Command-specific note appended after the base help
+            text (e.g., "Ignored for pre-built ONNX inputs.").
+        include_short: Whether to also register the ``-p`` short alias
+            (default: True).
+
+    Returns:
+        Decorator function.
+    """
+    help_text = (
+        "Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
+        "auto resolves from --device (npu->w8a16, gpu/cpu->fp16); "
+        "fp16/fp32 skip quantization"
+    )
+    if optional_message:
+        help_text = f"{help_text}. {optional_message}"
+
+    param_decls = ["--precision", "precision"]
+    if include_short:
+        param_decls.insert(0, "-p")
+    return click.option(
+        *param_decls,
+        type=str,
+        default=default,
+        show_default=True,
+        help=help_text,
+    )
+
+
 def verbosity_options() -> Callable[[F], F]:
     """Add verbose and quiet logging options to a Click command.
 

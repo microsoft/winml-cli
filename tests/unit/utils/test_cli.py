@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import click
 import pytest
+from click.testing import CliRunner
 
-from winml.modelkit.utils.cli import parse_ep_options
+from winml.modelkit.utils.cli import parse_ep_options, precision_option
 
 
 class TestParseEpOptions:
@@ -54,3 +55,57 @@ class TestParseEpOptions:
     def test_empty_key_raises(self) -> None:
         with pytest.raises(click.BadParameter):
             parse_ep_options(("=value",))
+
+
+class TestPrecisionOption:
+    """Tests for the shared precision_option() decorator."""
+
+    @staticmethod
+    def _make_cmd(**kwargs: object) -> click.Command:
+        @click.command()
+        @precision_option(**kwargs)  # type: ignore[arg-type]
+        def cmd(precision: str) -> None:
+            click.echo(precision)
+
+        return cmd
+
+    def test_default_is_auto(self) -> None:
+        """No --precision yields the default 'auto'."""
+        result = CliRunner().invoke(self._make_cmd(), [])
+        assert result.exit_code == 0
+        assert result.output.strip() == "auto"
+
+    def test_short_flag_p(self) -> None:
+        """-p is registered by default and maps to the precision param."""
+        result = CliRunner().invoke(self._make_cmd(), ["-p", "fp16"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "fp16"
+
+    def test_long_flag(self) -> None:
+        """--precision sets the value."""
+        result = CliRunner().invoke(self._make_cmd(), ["--precision", "w8a16"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "w8a16"
+
+    def test_include_short_false_drops_p(self) -> None:
+        """include_short=False removes the -p alias but keeps --precision."""
+        cmd = self._make_cmd(include_short=False)
+        assert CliRunner().invoke(cmd, ["-p", "fp16"]).exit_code != 0
+        assert CliRunner().invoke(cmd, ["--precision", "fp16"]).exit_code == 0
+
+    def test_custom_default(self) -> None:
+        """default overrides the resolved value when flag is omitted."""
+        result = CliRunner().invoke(self._make_cmd(default="int8"), [])
+        assert result.output.strip() == "int8"
+
+    def test_optional_message_appended_to_help(self) -> None:
+        """optional_message is appended after the base help text."""
+        result = CliRunner().invoke(self._make_cmd(optional_message="Extra note."), ["--help"])
+        assert "w8a16" in result.output  # base help present
+        assert "Extra note." in result.output
+
+    def test_accepts_arbitrary_string(self) -> None:
+        """type=str: validation is deferred downstream, so any string parses."""
+        result = CliRunner().invoke(self._make_cmd(), ["--precision", "bf16"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "bf16"
