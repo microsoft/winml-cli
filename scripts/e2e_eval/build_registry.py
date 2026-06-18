@@ -128,7 +128,11 @@ def load_optimum_types() -> set[str]:
 
 
 def load_curated_entries(curated_path: Path) -> list[dict]:
-    """Load curated entries (hf_id + task + group + priority) from source JSON."""
+    """Load curated entries (hf_id + task + group + priority) from source JSON.
+
+    ``onnx_file`` is carried through when present so Phase 2 can stamp it onto
+    the generated row (pre-exported ONNX models; see the eval harness).
+    """
     with curated_path.open(encoding="utf-8") as f:
         entries = json.load(f)
     return [
@@ -137,6 +141,7 @@ def load_curated_entries(curated_path: Path) -> list[dict]:
             "task": e.get("task") or "",
             "group": e.get("group", "P0"),
             "priority": e.get("priority", "P0"),
+            **({"onnx_file": e["onnx_file"]} if e.get("onnx_file") else {}),
         }
         for e in entries
         if "hf_id" in e
@@ -234,7 +239,7 @@ def build_registry(
     # Soft filter: prioritize Optimum-supported models, then fill remaining slots
     if top_n == 0:
         safe_print("\n  top_n=0 — skipping HF top-N queries")
-    for task in (tasks if top_n > 0 else []):
+    for task in tasks if top_n > 0 else []:
         safe_print(f"\n  Task: {task}")
         # Fetch extra candidates to allow Optimum-first selection
         candidates = get_models_for_task(task, top_n * 3)
@@ -380,6 +385,9 @@ def build_registry(
                     existing["priority"] = priority
                     existing["group"] = group
                     safe_print(f"    [{priority}] {model_id} / {task} — updated (group={group})")
+                # Sync curated onnx_file (pre-exported ONNX models) onto the row.
+                if c.get("onnx_file"):
+                    existing["onnx_file"] = c["onnx_file"]
                 continue
 
             # New curated entry — fetch metadata if not already loaded
@@ -399,6 +407,9 @@ def build_registry(
                 "last_update_time": metadata["last_modified"],
                 "optimum_supported": is_optimum,
             }
+            # Carry through pre-exported ONNX filename when the curated row sets it.
+            if c.get("onnx_file"):
+                entry["onnx_file"] = c["onnx_file"]
 
             seen.add(key)
             entry_lookup[key] = entry
