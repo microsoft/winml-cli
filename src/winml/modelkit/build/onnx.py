@@ -160,17 +160,11 @@ def build_onnx_model(
             "Skipping optimize + quantize, running analyze-only."
         )
         stages_skipped.append("optimize")
-        # Optimize+analyze only, no autoconf re-optimization
-        current_path, _, analyze_iters, analyze_unsupported, analyze_details = (
-            run_optimize_analyze_loop(
-                model_path=current_path,
-                optimized_path=optimized_path,
-                config=config,
-                ep=ep,
-                device=device,
-                **onnx_kwargs,
-            )
-        )
+        # Skip optimize entirely for pre-quantized models. ORT Level 2
+        # optimization fuses QDQ patterns (e.g. DQ→Conv→Q → QLinearConv),
+        # which breaks QNN/DML EP compatibility and causes CPU fallback.
+        analyze_iters, analyze_unsupported = 0, 0
+        analyze_details: dict[str, Any] = {}
     else:
         logger.info("Optimizing ONNX model...")
         current_path, opt_elapsed, analyze_iters, analyze_unsupported, analyze_details = (
