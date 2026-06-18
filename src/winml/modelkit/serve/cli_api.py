@@ -27,7 +27,7 @@ import json
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -212,7 +212,10 @@ def _extract_json_from_stdout(stdout: str) -> dict[str, Any] | list[Any] | None:
                 if start == -1:
                     break
                 try:
-                    return json.loads(stdout[start : end + 1])
+                    return cast(
+                        "dict[str, Any] | list[Any] | None",
+                        json.loads(stdout[start : end + 1]),
+                    )
                 except json.JSONDecodeError:
                     continue
             pos = end  # try next (earlier) end_char
