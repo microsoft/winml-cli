@@ -451,27 +451,39 @@ gain = mean(ratios) ± 95% CI
 
 <p style="margin-bottom:10px; color:#444;">Post-processing script: reads all <code>results.json</code>, applies the confidence ladder, auto-updates the KB.</p>
 
-<div class="flow">
-  <div class="flow-box">
-    <strong>results.json × N models</strong>
-    <span>catalog-*-sweep/*/results.json</span>
-  </div>
-  <div class="flow-arrow">→</div>
-  <div class="flow-box new">
-    <strong>promote_findings.py</strong>
-    <span>L1→L2: range non-overlap<br>L2→L3: 2+ models same arch</span>
-  </div>
-  <div class="flow-arrow">→</div>
-  <div class="flow-box new">
-    <strong>ep_knowledge/*.json</strong>
-    <span>auto-generated findings<br>with evidence list</span>
-  </div>
-  <div class="flow-arrow">→</div>
-  <div class="flow-box new">
-    <strong>analyze_insight.py</strong>
-    <span>reads KB → skip_set<br>for next sweep</span>
-  </div>
-</div>
+<svg width="860" height="110" viewBox="0 0 860 110" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="max-width:100%;display:block;margin-top:10px;">
+  <defs>
+    <marker id="arr-pf" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#7986cb"/>
+    </marker>
+  </defs>
+  <!-- Box 1: results.json -->
+  <rect x="10" y="15" width="170" height="72" rx="8" fill="#f5f7f8" stroke="#cfd8dc" stroke-width="1.5"/>
+  <text x="95" y="43" text-anchor="middle" font-size="11.5" font-weight="700" fill="#37474f">results.json × N</text>
+  <text x="95" y="58" text-anchor="middle" font-size="10.5" fill="#666">catalog-*-sweep/</text>
+  <text x="95" y="72" text-anchor="middle" font-size="10.5" fill="#666">*/results.json</text>
+  <!-- Arrow 1→2 -->
+  <line x1="180" y1="51" x2="218" y2="51" stroke="#7986cb" stroke-width="1.5" marker-end="url(#arr-pf)"/>
+  <!-- Box 2: promote_findings.py -->
+  <rect x="220" y="15" width="190" height="72" rx="8" fill="#e3f2fd" stroke="#90caf9" stroke-width="1.5"/>
+  <text x="315" y="40" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0d47a1">promote_findings.py</text>
+  <text x="315" y="56" text-anchor="middle" font-size="10.5" fill="#1565c0">L1→L2: range non-overlap</text>
+  <text x="315" y="70" text-anchor="middle" font-size="10.5" fill="#1565c0">L2→L3: 2+ models, same arch</text>
+  <!-- Arrow 2→3 -->
+  <line x1="410" y1="51" x2="448" y2="51" stroke="#7986cb" stroke-width="1.5" marker-end="url(#arr-pf)"/>
+  <!-- Box 3: ep_knowledge -->
+  <rect x="450" y="15" width="175" height="72" rx="8" fill="#e8f5e9" stroke="#a5d6a7" stroke-width="1.5"/>
+  <text x="537" y="40" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1b5e20">ep_knowledge/*.json</text>
+  <text x="537" y="56" text-anchor="middle" font-size="10.5" fill="#2e7d32">auto-generated findings</text>
+  <text x="537" y="70" text-anchor="middle" font-size="10.5" fill="#2e7d32">with evidence list</text>
+  <!-- Arrow 3→4 -->
+  <line x1="625" y1="51" x2="663" y2="51" stroke="#7986cb" stroke-width="1.5" marker-end="url(#arr-pf)"/>
+  <!-- Box 4: analyze_insight -->
+  <rect x="665" y="15" width="185" height="72" rx="8" fill="#e8eaf6" stroke="#9fa8da" stroke-width="1.5"/>
+  <text x="757" y="40" text-anchor="middle" font-size="11.5" font-weight="700" fill="#283593">analyze_insight.py</text>
+  <text x="757" y="56" text-anchor="middle" font-size="10.5" fill="#3949ab">reads KB → skip_set</text>
+  <text x="757" y="70" text-anchor="middle" font-size="10.5" fill="#3949ab">for next sweep</text>
+</svg>
 
 <pre style="margin-top:12px;"><code><span class="c-kw">def</span> <span class="c-fn">collect_l2_candidates</span>(sweep_dirs):
     <span class="c-st">"""L1→L2: range non-overlap for a single model."""</span>
@@ -518,53 +530,67 @@ gain = mean(ratios) ± 95% CI
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2>3 · Full Self-Evolution Loop</h2>
 
-<div style="background:#fff; border-radius:10px; border:1px solid #e0e4ef; padding:20px; max-width:900px; margin-top:4px;">
-<div style="display:flex; flex-direction:column; gap:6px;">
+<svg width="900" height="190" viewBox="0 0 900 190" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="max-width:100%;display:block;margin-top:4px;">
+  <defs>
+    <marker id="arr-evo" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#7986cb"/>
+    </marker>
+    <marker id="arr-evo-up" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto">
+      <polygon points="8 0,0 3,8 6" fill="#7986cb"/>
+    </marker>
+  </defs>
 
-  <div style="display:flex; align-items:center; gap:8px;">
-    <div style="width:180px; background:#e8eaf6; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
-      <strong style="color:#3949ab;">analyze_insight.py</strong><br>
-      <span style="color:#666;">graph fingerprint<br>→ skip_set + priority</span>
-    </div>
-    <div style="font-size:20px; color:#9fa8da;">→</div>
-    <div style="width:200px; background:#e8f5e9; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
-      <strong style="color:#2e7d32;">catalog_*_sweep.py</strong><br>
-      <span style="color:#666;">Paired A/B · adaptive n<br>4-5 hyps (pruned)</span>
-    </div>
-    <div style="font-size:20px; color:#9fa8da;">→</div>
-    <div style="width:180px; background:#e3f2fd; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
-      <strong style="color:#0d47a1;">results.json</strong><br>
-      <span style="color:#666;">verdict · CI · gain<br>extra_optim stored</span>
-    </div>
-    <div style="font-size:20px; color:#9fa8da;">→</div>
-    <div style="width:190px; background:#fce4ec; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
-      <strong style="color:#880e4f;">promote_findings.py</strong><br>
-      <span style="color:#666;">L1→L2→L3→L4<br>auto-updates KB</span>
-    </div>
-  </div>
+  <!-- Box 1: analyze_insight.py -->
+  <rect x="10" y="15" width="155" height="80" rx="8" fill="#e8eaf6" stroke="#9fa8da" stroke-width="1.5"/>
+  <text x="87" y="40" text-anchor="middle" font-size="11" font-weight="700" fill="#283593">analyze_insight.py</text>
+  <text x="87" y="56" text-anchor="middle" font-size="10" fill="#3949ab">graph fingerprint</text>
+  <text x="87" y="69" text-anchor="middle" font-size="10" fill="#3949ab">→ skip_set + priority</text>
 
-  <div style="display:flex; align-items:center; gap:8px; padding-left:20px;">
-    <div style="font-size:13px; color:#bbb; margin-left:180px;">↑ skip_set feeds back</div>
-  </div>
+  <!-- Arrow 1→2 -->
+  <line x1="165" y1="55" x2="200" y2="55" stroke="#7986cb" stroke-width="1.5" marker-end="url(#arr-evo)"/>
 
-  <div style="display:flex; align-items:center; gap:8px;">
-    <div style="width:180px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0; opacity:0;">placeholder</div>
-    <div style="font-size:20px; color:#9fa8da; opacity:0;">→</div>
-    <div style="width:200px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0; opacity:0;">placeholder</div>
-    <div style="font-size:20px; color:#9fa8da; opacity:0;">→</div>
-    <div style="width:180px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0; opacity:0;">placeholder</div>
-    <div style="font-size:20px; color:#9fa8da;">→</div>
-    <div style="width:190px; background:#f3e5f5; border-radius:6px; padding:8px 10px; font-size:11px; text-align:center; flex-shrink:0;">
-      <strong style="color:#6a1b9a;">ep_knowledge/*.json</strong><br>
-      <span style="color:#666;">L3+ findings<br>config_optimal.json</span>
-    </div>
-  </div>
+  <!-- Box 2: catalog_*_sweep.py -->
+  <rect x="202" y="15" width="163" height="80" rx="8" fill="#e8f5e9" stroke="#a5d6a7" stroke-width="1.5"/>
+  <text x="283" y="40" text-anchor="middle" font-size="11" font-weight="700" fill="#1b5e20">catalog_*_sweep.py</text>
+  <text x="283" y="56" text-anchor="middle" font-size="10" fill="#2e7d32">Paired A/B · adaptive n</text>
+  <text x="283" y="69" text-anchor="middle" font-size="10" fill="#2e7d32">4–5 hyps (pruned)</text>
 
-  <div style="margin-top:6px; font-size:11px; color:#666; padding-left:4px;">
-    Feedback: ep_knowledge → analyze_insight.py reads KB rules → next sweep skips known-harmful hypotheses automatically (L5 prediction)
-  </div>
-</div>
-</div>
+  <!-- Arrow 2→3 -->
+  <line x1="365" y1="55" x2="400" y2="55" stroke="#7986cb" stroke-width="1.5" marker-end="url(#arr-evo)"/>
+
+  <!-- Box 3: results.json -->
+  <rect x="402" y="15" width="152" height="80" rx="8" fill="#f5f7f8" stroke="#cfd8dc" stroke-width="1.5"/>
+  <text x="478" y="40" text-anchor="middle" font-size="11" font-weight="700" fill="#37474f">results.json</text>
+  <text x="478" y="56" text-anchor="middle" font-size="10" fill="#546e7a">verdict · CI · gain</text>
+  <text x="478" y="69" text-anchor="middle" font-size="10" fill="#546e7a">extra_optim stored</text>
+
+  <!-- Arrow 3→4 -->
+  <line x1="554" y1="55" x2="589" y2="55" stroke="#7986cb" stroke-width="1.5" marker-end="url(#arr-evo)"/>
+
+  <!-- Box 4: promote_findings.py -->
+  <rect x="591" y="15" width="165" height="80" rx="8" fill="#e3f2fd" stroke="#90caf9" stroke-width="1.5"/>
+  <text x="673" y="40" text-anchor="middle" font-size="11" font-weight="700" fill="#0d47a1">promote_findings.py</text>
+  <text x="673" y="56" text-anchor="middle" font-size="10" fill="#1565c0">L1→L2→L3→L4</text>
+  <text x="673" y="69" text-anchor="middle" font-size="10" fill="#1565c0">auto-updates KB</text>
+
+  <!-- Arrow 4→5 -->
+  <line x1="756" y1="55" x2="791" y2="55" stroke="#7986cb" stroke-width="1.5" marker-end="url(#arr-evo)"/>
+
+  <!-- Box 5: ep_knowledge -->
+  <rect x="793" y="15" width="97" height="80" rx="8" fill="#f3e5f5" stroke="#ce93d8" stroke-width="1.5"/>
+  <text x="841" y="40" text-anchor="middle" font-size="10.5" font-weight="700" fill="#4a148c">ep_knowledge/</text>
+  <text x="841" y="54" text-anchor="middle" font-size="10" fill="#6a1b9a">*.json</text>
+  <text x="841" y="68" text-anchor="middle" font-size="10" fill="#6a1b9a">L3+ findings</text>
+  <text x="841" y="81" text-anchor="middle" font-size="10" fill="#6a1b9a">config_optimal</text>
+
+  <!-- Feedback arrow: bottom of box5 → bottom of box1 -->
+  <path d="M 841,95 L 841,148 L 87,148 L 87,95"
+        stroke="#7986cb" stroke-width="1.5" stroke-dasharray="5,3"
+        fill="none" marker-end="url(#arr-evo-up)"/>
+  <!-- Feedback label -->
+  <rect x="330" y="138" width="240" height="18" rx="4" fill="#ede7f6"/>
+  <text x="450" y="151" text-anchor="middle" font-size="10" fill="#4527a0" font-style="italic">skip_set feeds back → sweeps get shorter</text>
+</svg>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <h2>4 · Implementation Plan</h2>

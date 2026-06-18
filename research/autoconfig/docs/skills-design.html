@@ -325,27 +325,85 @@ defined by the two ranked tables above; implementation sequencing (risk/dependen
 <a href="#priority-order-for-implementation">Priority order for implementation</a>.</p>
 </blockquote>
 <h3 id="user-skill-dependency-graph">User skill dependency graph<a class="headerlink" href="#user-skill-dependency-graph" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><code>check-model-feasibility ──► autoconfig ──────────► ship-to-winapp
-  find a supported model      optimize the model      validate (L1–L5 gates)
-  + confirm EP/device runs     (automated autoresearch  + package multi-EP artifacts
-                               loop OR manual framework)  + manifest + runtime EP selection
-          │                         │                          ▲
-          └──────────► debug-accuracy-drop ───────────────────┘
-                       (diagnose accuracy drops at any stage)
-
-use-winml-cli ── general command reference; underpins every step above
-</code></pre></div>
+<svg width="800" height="268" viewBox="0 0 800 268" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="display:block;max-width:100%;margin:12px 0;">
+  <defs>
+    <marker id="sk-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#7986cb"/>
+    </marker>
+  </defs>
+  <!-- check-model-feasibility -->
+  <rect x="10" y="15" width="192" height="88" rx="8" fill="#e8eaf6" stroke="#7986cb" stroke-width="1.5"/>
+  <text x="106" y="37" text-anchor="middle" font-size="10" font-weight="700" fill="#283593">check-model-feasibility</text>
+  <text x="106" y="52" text-anchor="middle" font-size="9.5" fill="#3949ab">find a supported model</text>
+  <text x="106" y="66" text-anchor="middle" font-size="9.5" fill="#3949ab">confirm EP/device runs</text>
+  <!-- Arrow CMF→autoconfig -->
+  <line x1="202" y1="59" x2="290" y2="59" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr)"/>
+  <!-- autoconfig -->
+  <rect x="292" y="15" width="170" height="88" rx="8" fill="#e8f5e9" stroke="#81c784" stroke-width="1.5"/>
+  <text x="377" y="37" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1b5e20">autoconfig</text>
+  <text x="377" y="52" text-anchor="middle" font-size="9.5" fill="#2e7d32">optimize the model</text>
+  <text x="377" y="66" text-anchor="middle" font-size="9.5" fill="#2e7d32">automated sweep</text>
+  <!-- Arrow autoconfig→ship -->
+  <line x1="462" y1="59" x2="588" y2="59" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr)"/>
+  <!-- ship-to-winapp -->
+  <rect x="590" y="15" width="196" height="88" rx="8" fill="#fff3e0" stroke="#ffb74d" stroke-width="1.5"/>
+  <text x="688" y="36" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e65100">ship-to-winapp</text>
+  <text x="688" y="51" text-anchor="middle" font-size="9.5" fill="#bf360c">validate (L1–L5 gates)</text>
+  <text x="688" y="65" text-anchor="middle" font-size="9.5" fill="#bf360c">package multi-EP artifacts</text>
+  <text x="688" y="79" text-anchor="middle" font-size="9.5" fill="#bf360c">manifest + runtime EP select</text>
+  <!-- CMF → debug-accuracy-drop (elbow) -->
+  <polyline points="202,72 247,72 247,183 292,183" stroke="#90a4ae" stroke-width="1.5" fill="none" stroke-dasharray="4,2" marker-end="url(#sk-arr)"/>
+  <!-- autoconfig → debug-accuracy-drop (down) -->
+  <line x1="377" y1="103" x2="377" y2="148" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr)"/>
+  <!-- debug-accuracy-drop -->
+  <rect x="292" y="150" width="170" height="65" rx="8" fill="#fce4ec" stroke="#f48fb1" stroke-width="1.5"/>
+  <text x="377" y="172" text-anchor="middle" font-size="10.5" font-weight="700" fill="#880e4f">debug-accuracy-drop</text>
+  <text x="377" y="188" text-anchor="middle" font-size="9.5" fill="#ad1457">diagnose drops at any stage</text>
+  <!-- debug-accuracy-drop → ship-to-winapp (elbow up) -->
+  <polyline points="462,183 542,183 542,72 588,72" stroke="#90a4ae" stroke-width="1.5" fill="none" stroke-dasharray="4,2" marker-end="url(#sk-arr)"/>
+  <!-- use-winml-cli bar -->
+  <rect x="10" y="234" width="776" height="26" rx="6" fill="#e8eaf6" stroke="#9fa8da" stroke-width="1.5"/>
+  <text x="398" y="251" text-anchor="middle" font-size="10.5" font-weight="600" fill="#283593">use-winml-cli — general command reference · underpins every step above</text>
+</svg>
 
 <h3 id="contributor-research-skill">Contributor research skill<a class="headerlink" href="#contributor-research-skill" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><code>optimization-research ──► [GitHub issues / winml backlog]
-  (deep search: ORT source + Olive + ONNX ecosystem + native stack models
-   → find better solutions → diagnose winml gaps → produce work items)
-</code></pre></div>
+<svg width="600" height="96" viewBox="0 0 600 96" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="display:block;max-width:100%;margin:12px 0;">
+  <defs>
+    <marker id="sk-arr2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#7986cb"/>
+    </marker>
+  </defs>
+  <rect x="10" y="10" width="215" height="76" rx="8" fill="#ede7f6" stroke="#b39ddb" stroke-width="1.5"/>
+  <text x="117" y="34" text-anchor="middle" font-size="10.5" font-weight="700" fill="#4a148c">optimization-research</text>
+  <text x="117" y="50" text-anchor="middle" font-size="9.5" fill="#6a1b9a">deep search: ORT · Olive</text>
+  <text x="117" y="64" text-anchor="middle" font-size="9.5" fill="#6a1b9a">ONNX ecosystem + native models</text>
+  <line x1="225" y1="48" x2="296" y2="48" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr2)"/>
+  <rect x="298" y="10" width="210" height="76" rx="8" fill="#e3f2fd" stroke="#90caf9" stroke-width="1.5"/>
+  <text x="403" y="34" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0d47a1">GitHub issues / winml backlog</text>
+  <text x="403" y="50" text-anchor="middle" font-size="9.5" fill="#1565c0">find better solutions</text>
+  <text x="403" y="64" text-anchor="middle" font-size="9.5" fill="#1565c0">diagnose gaps → work items</text>
+</svg>
 
 <h3 id="contributor-skill-dependency-graph">Contributor skill dependency graph<a class="headerlink" href="#contributor-skill-dependency-graph" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><code>adding-model-support ──► contributing-a-skill
-adding-ep-support    ──► contributing-a-skill
-</code></pre></div>
+<svg width="540" height="112" viewBox="0 0 540 112" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="display:block;max-width:100%;margin:12px 0;">
+  <defs>
+    <marker id="sk-arr3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#7986cb"/>
+    </marker>
+  </defs>
+  <!-- adding-model-support -->
+  <rect x="10" y="10" width="195" height="40" rx="7" fill="#e8f5e9" stroke="#81c784" stroke-width="1.5"/>
+  <text x="107" y="35" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1b5e20">adding-model-support</text>
+  <!-- adding-ep-support -->
+  <rect x="10" y="62" width="195" height="40" rx="7" fill="#e3f2fd" stroke="#90caf9" stroke-width="1.5"/>
+  <text x="107" y="87" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0d47a1">adding-ep-support</text>
+  <!-- Arrows (both → contributing-a-skill) -->
+  <line x1="205" y1="30" x2="308" y2="50" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr3)"/>
+  <line x1="205" y1="82" x2="308" y2="62" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr3)"/>
+  <!-- contributing-a-skill -->
+  <rect x="310" y="36" width="200" height="40" rx="7" fill="#fff3e0" stroke="#ffb74d" stroke-width="1.5"/>
+  <text x="410" y="61" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e65100">contributing-a-skill</text>
+</svg>
 
 <hr />
 <h2 id="design-principle-skills-as-agentic-workflows">Design principle: Skills as agentic workflows<a class="headerlink" href="#design-principle-skills-as-agentic-workflows" title="Permanent link">&para;</a></h2>
@@ -1926,72 +1984,84 @@ Running the profiler <em>before</em> the search loop would have shown Gemm=57.7%
 immediately ruling out layout-pass experiments (Transpose only 2.6%, already fused Gelu already
 canonical). Profile-first makes the Explorer smarter and the search shorter.</p>
 <p><strong>New 4-phase structure:</strong></p>
-<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────────────────────────────────┐
-│ PHASE 0 — INTAKE                                                    │
-│   winml inspect → validate model is supported                       │
-│   winml build (baseline config) → get model.onnx                   │
-│   winml eval --mode compare → lock FP32 correctness baseline        │
-│   winml perf (baseline) → establish latency floor                   │
-└────────────────────────────┬────────────────────────────────────────┘
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ PHASE 1 — PROFILE  (runs ONCE, before any search)                   │
-│   winml perf -m baseline/model.onnx --ep &lt;ep&gt; --profile             │
-│   Parse bottleneck.json:                                            │
-│     - top_bottleneck: op type with highest % of kernel time         │
-│     - top3_concentration_pct: how concentrated the compute is       │
-│     - headroom_hints: actionable pass recommendations               │
-│   Classify each bottleneck op type:                                 │
-│     - &quot;compute&quot; (Gemm, Conv, Attention) → quant/kernel matters      │
-│     - &quot;layout&quot; (Transpose, Reshape) → graph pass matters            │
-│     - &quot;already_canonical&quot; (op shows as fused type) → fusion N/A    │
-│   Output: prioritized_hypothesis_queue (ordered by profile evidence)│
-└────────────────────────────┬────────────────────────────────────────┘
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ PHASE 2 — PROFILE-GUIDED OPTIMIZATION LOOP                          │
-│                                                                     │
-│  ┌──────────────┐    ┌──────────────┐    ┌─────────────────────┐  │
-│  │   EXPLORER   │───►│  OPTIMIZER   │───►│      REVIEWER       │  │
-│  │              │    │              │    │                     │  │
-│  │ Pops next    │    │ Runs ONE     │    │ Cross-exp verdict:  │  │
-│  │ hypothesis   │    │ experiment:  │    │ - CV gate Phase A   │  │
-│  │ from queue,  │    │ build +      │    │ - full bench Gate 1 │  │
-│  │ motivated by │    │ quick-screen │    │ - keep / discard    │  │
-│  │ profile data │    │ → full bench │    │ - detect plateau    │  │
-│  │              │    │ → eval       │    │ - stop condition    │  │
-│  └──────────────┘    └──────────────┘    │ - write KB draft   │  │
-│         ▲                               └─────────────────────┘  │
-│  mandatory external-research triggers (adopted from V2):           │
-│    • after 5 consecutive DISCARDs in same search dimension         │
-│      → search ORT/QNN SDK source code for mechanism               │
-│    • after every KEEP that changes precision or EP                 │
-│      → re-read ep_knowledge for updated constraints                │
-│    • before declaring search_space_exhausted                       │
-│      → ORT source sweep: opset gates, EP-specific dispatch rules   │
-│                                                                     │
-│  Explorer prunes via bottleneck.json (only &quot;confirmed&quot; KB rules):  │
-│    IF top_bottleneck == &quot;Gemm&quot; (&gt;50%):                              │
-│      → SKIP layout passes (transpose-optimizer, nchwc, nhwc)        │
-│      → FOCUS on: quant precision, calibration, matmul fusions       │
-│    IF top_bottleneck == &quot;Transpose&quot; (&gt;10%):                         │
-│      → CHECK kMaxSupportedOpset for current ORT version FIRST       │
-│    IF top_bottleneck == &quot;Conv&quot; (&gt;20%):                              │
-│      → try nchwc-transformer, conv-activation-fusion               │
-│    IF &quot;Gelu&quot;/&quot;LayerNormalization&quot; op_type (already canonical):      │
-│      → SKIP corresponding fusion flags                              │
-└────────────────────────────┬────────────────────────────────────────┘
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ PHASE 3 — REPORT                                                    │
-│   config_&lt;ep&gt;_optimal.json  ← champion config with _autoconfig_meta│
-│   report.html               ← full benchmark + profile section      │
-│   experiments/&lt;n&gt;/          ← per-exp: hypothesis/impl/parity/     │
-│                                perf/analysis/decision (V2 pattern)  │
-│   kb_entry.json             ← status=&quot;draft&quot;; promoted to          │
-│     &quot;confirmed&quot; only after mechanism confirmed (Gate 2)             │
-└─────────────────────────────────────────────────────────────────────┘
-</code></pre></div>
+<svg width="700" height="600" viewBox="0 0 700 600" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="display:block;max-width:100%;margin:12px 0;">
+  <defs>
+    <marker id="sk-ph" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#7986cb"/>
+    </marker>
+    <marker id="sk-ph-up" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto">
+      <polygon points="8 0,0 3,8 6" fill="#90caf9"/>
+    </marker>
+  </defs>
+
+  <!-- ── PHASE 0 — INTAKE ── -->
+  <rect x="10" y="0" width="680" height="105" rx="8" fill="#eef1fc" stroke="#7986cb" stroke-width="1.5"/>
+  <rect x="10" y="0" width="680" height="28" rx="8" fill="#3949ab"/>
+  <rect x="10" y="18" width="680" height="10" fill="#3949ab"/>
+  <text x="350" y="20" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">PHASE 0 — INTAKE</text>
+  <text x="28" y="48" font-size="10.5" fill="#1a237e">●  winml inspect  →  validate model is supported</text>
+  <text x="28" y="63" font-size="10.5" fill="#1a237e">●  winml build (baseline config)  →  get model.onnx</text>
+  <text x="28" y="78" font-size="10.5" fill="#1a237e">●  winml eval --mode compare  →  lock FP32 correctness baseline</text>
+  <text x="28" y="93" font-size="10.5" fill="#1a237e">●  winml perf (baseline)  →  establish latency floor</text>
+
+  <!-- Arrow 0→1 -->
+  <line x1="350" y1="105" x2="350" y2="128" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-ph)"/>
+
+  <!-- ── PHASE 1 — PROFILE ── -->
+  <rect x="10" y="130" width="680" height="125" rx="8" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
+  <rect x="10" y="130" width="680" height="28" rx="8" fill="#1976d2"/>
+  <rect x="10" y="148" width="680" height="10" fill="#1976d2"/>
+  <text x="350" y="150" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">PHASE 1 — PROFILE  (runs once, before search)</text>
+  <text x="28" y="176" font-size="10.5" fill="#0d47a1">●  winml perf -m baseline/model.onnx --ep &lt;ep&gt; --profile  →  bottleneck.json</text>
+  <text x="28" y="191" font-size="10.5" fill="#0d47a1">●  Classify bottleneck:  compute (Gemm/Conv/Attention)  vs  layout (Transpose/Reshape)</text>
+  <text x="28" y="206" font-size="10.5" fill="#0d47a1">●  "already_canonical" (fused op type)  →  skip corresponding fusion flag</text>
+  <text x="28" y="221" font-size="10.5" fill="#0d47a1">●  Output: prioritized_hypothesis_queue (ordered by profile evidence)</text>
+  <text x="28" y="242" font-size="10" fill="#1565c0" font-style="italic">headroom_hints: actionable pass recommendations from profile data</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="350" y1="255" x2="350" y2="278" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-ph)"/>
+
+  <!-- ── PHASE 2 — OPTIMIZATION LOOP ── -->
+  <rect x="10" y="280" width="680" height="220" rx="8" fill="#e8f5e9" stroke="#388e3c" stroke-width="1.5"/>
+  <rect x="10" y="280" width="680" height="28" rx="8" fill="#388e3c"/>
+  <rect x="10" y="298" width="680" height="10" fill="#388e3c"/>
+  <text x="350" y="300" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">PHASE 2 — PROFILE-GUIDED OPTIMIZATION LOOP</text>
+  <!-- Sub-boxes: EXPLORER / OPTIMIZER / REVIEWER -->
+  <rect x="28" y="318" width="170" height="80" rx="6" fill="#fff" stroke="#a5d6a7" stroke-width="1.5"/>
+  <text x="113" y="337" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1b5e20">EXPLORER</text>
+  <text x="113" y="352" text-anchor="middle" font-size="9.5" fill="#2e7d32">Pop next hypothesis</text>
+  <text x="113" y="366" text-anchor="middle" font-size="9.5" fill="#2e7d32">from queue; prune via</text>
+  <text x="113" y="380" text-anchor="middle" font-size="9.5" fill="#2e7d32">bottleneck.json KB rules</text>
+  <line x1="198" y1="358" x2="256" y2="358" stroke="#388e3c" stroke-width="1.5" marker-end="url(#sk-ph)"/>
+  <rect x="258" y="318" width="170" height="80" rx="6" fill="#fff" stroke="#a5d6a7" stroke-width="1.5"/>
+  <text x="343" y="337" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1b5e20">OPTIMIZER</text>
+  <text x="343" y="352" text-anchor="middle" font-size="9.5" fill="#2e7d32">winml build + eval</text>
+  <text x="343" y="366" text-anchor="middle" font-size="9.5" fill="#2e7d32">quick-screen → full bench</text>
+  <text x="343" y="380" text-anchor="middle" font-size="9.5" fill="#2e7d32">→ perf measurement</text>
+  <line x1="428" y1="358" x2="486" y2="358" stroke="#388e3c" stroke-width="1.5" marker-end="url(#sk-ph)"/>
+  <rect x="488" y="318" width="175" height="80" rx="6" fill="#fff" stroke="#a5d6a7" stroke-width="1.5"/>
+  <text x="575" y="337" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1b5e20">REVIEWER</text>
+  <text x="575" y="352" text-anchor="middle" font-size="9.5" fill="#2e7d32">Cross-exp verdict:</text>
+  <text x="575" y="366" text-anchor="middle" font-size="9.5" fill="#2e7d32">keep / discard / plateau</text>
+  <text x="575" y="380" text-anchor="middle" font-size="9.5" fill="#2e7d32">write KB draft entry</text>
+  <!-- Loop arrow: REVIEWER → EXPLORER -->
+  <path d="M 575,398 L 575,422 L 113,422 L 113,398" stroke="#90caf9" stroke-width="1.5" stroke-dasharray="5,3" fill="none" marker-end="url(#sk-ph-up)"/>
+  <text x="344" y="436" text-anchor="middle" font-size="9.5" fill="#1565c0" font-style="italic">↺  loop until convergence / budget / search_space_exhausted</text>
+  <!-- Pruning note -->
+  <text x="28" y="460" font-size="9.5" fill="#33691e">Explorer prunes: Gemm&gt;50% → skip layout passes · Transpose&gt;10% → check opset gate · Conv&gt;20% → try nchwc/conv-activation-fusion</text>
+  <text x="28" y="475" font-size="9.5" fill="#33691e">External-research triggers: 5× DISCARD → ORT source sweep · every KEEP+EP-change → re-read ep_knowledge</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="350" y1="500" x2="350" y2="523" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-ph)"/>
+
+  <!-- ── PHASE 3 — REPORT ── -->
+  <rect x="10" y="525" width="680" height="70" rx="8" fill="#fff3e0" stroke="#f57c00" stroke-width="1.5"/>
+  <rect x="10" y="525" width="680" height="28" rx="8" fill="#f57c00"/>
+  <rect x="10" y="543" width="680" height="10" fill="#f57c00"/>
+  <text x="350" y="545" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">PHASE 3 — REPORT</text>
+  <text x="28" y="568" font-size="10.5" fill="#bf360c">config_&lt;ep&gt;_optimal.json  ·  report.html  ·  experiments/&lt;n&gt;/  ·  kb_entry.json (status="draft")</text>
+  <text x="28" y="583" font-size="10" fill="#bf360c" font-style="italic">KB "draft" → "confirmed" only after mechanism confirmed via ORT/QNN source (Gate 2)</text>
+</svg>
 
 <p><strong>ep_knowledge draft/confirmed lifecycle (Gap 3 fix):</strong></p>
 <div class="codehilite"><pre><span></span><code>KB entry states:
@@ -2789,61 +2859,66 @@ Rule: W8A8 QDQ on GPU EP hangs — skip quantization immediately for GPU targets
 3. <strong>GitHub issues</strong> — one per identified gap, filed against winml-cli with: repro steps, expected vs actual, what ORT/Olive/ecosystem already does, proposed fix direction</p>
 <hr />
 <h3 id="design-deep-search-process">Design: Deep Search Process<a class="headerlink" href="#design-deep-search-process" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><code>┌──────────────────────────────────────────────────────────────────┐
-│ PHASE 1 — BASELINE                                               │
-│   winml autoconfig best result for this model/EP                 │
-│   (or provided by user if already run)                           │
-└─────────────────────────┬────────────────────────────────────────┘
-                          ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ PHASE 2 — EXTERNAL BENCHMARK                                     │
-│   Run same model through:                                        │
-│     A. ORT optimizer directly (onnxruntime.tools.transformers)   │
-│     B. Olive (olive-ai) with ep-specific recipe                  │
-│     C. onnxsim + onnxoptimizer (static graph simplification)     │
-│     D. neural-compressor (Intel) for quantization comparison     │
-│   Record: best latency, accuracy, config used                    │
-└─────────────────────────┬────────────────────────────────────────┘
-                          ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ PHASE 3 — GAP DIAGNOSIS                                          │
-│   For each gap (external better than winml):                     │
-│     a. Diff the ONNX graphs (what ops/patterns differ?)          │
-│     b. Read ORT optimizer source to understand what it does      │
-│     c. Check winml&#39;s capability registry — is this pass missing? │
-│        disabled by default? wired incorrectly?                   │
-│     d. Check Olive recipe — what flags/params does it use?       │
-│   Classify gap as one of:                                        │
-│     [MISSING_CAPABILITY]   — pass exists in ORT, not in winml   │
-│     [WRONG_DEFAULT]        — pass exists but wrong default/order │
-│     [BUG]                  — pass exists but produces wrong graph│
-│     [CALIBRATION_DATA]     — accuracy gap from calibration set   │
-│     [EP_LIMITATION]        — EP itself can&#39;t do this, not winml  │
-│     [KNOWN_TRADEOFF]       — intentional: winml trades X for Y   │
-└─────────────────────────┬────────────────────────────────────────┘
-                          ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ PHASE 4 — NATIVE STACK VALIDATION                                │
-│   Check existing reference models in winml-cli test suite:       │
-│     - Are there models of this architecture in tests/models/?    │
-│     - Do their expected results match what we see?               │
-│   Check Windows AI Studio / WinML model zoo:                     │
-│     - Is this architecture listed? At what performance?          │
-│   Check QNN SDK reference benchmarks (if QNN EP):               │
-│     - Does QNN vendor claim better numbers for this model?       │
-└─────────────────────────┬────────────────────────────────────────┘
-                          ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ PHASE 5 — WORK ITEMS                                             │
-│   For each [MISSING_CAPABILITY] or [WRONG_DEFAULT] gap:          │
-│     - Draft GitHub issue with: title, body, repro, expected,     │
-│       actual, proposed fix, ORT source pointer                   │
-│     - Estimate implementation complexity (S/M/L/XL)             │
-│   For [BUG]: file with full repro script                         │
-│   For [CALIBRATION_DATA]: suggest dataset and eval protocol      │
-│   For [EP_LIMITATION]: file with QNN/DML SDK reference           │
-└──────────────────────────────────────────────────────────────────┘
-</code></pre></div>
+<svg width="700" height="530" viewBox="0 0 700 530" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="display:block;max-width:100%;margin:12px 0;">
+  <defs>
+    <marker id="sk-res" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#7986cb"/>
+    </marker>
+  </defs>
+  <!-- PHASE 1 — BASELINE -->
+  <rect x="10" y="0" width="680" height="70" rx="8" fill="#eef1fc" stroke="#7986cb" stroke-width="1.5"/>
+  <rect x="10" y="0" width="680" height="26" rx="8" fill="#3949ab"/>
+  <rect x="10" y="16" width="680" height="10" fill="#3949ab"/>
+  <text x="350" y="18" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">PHASE 1 — BASELINE</text>
+  <text x="28" y="44" font-size="10.5" fill="#1a237e">●  winml autoconfig best result for this model / EP</text>
+  <text x="28" y="59" font-size="10.5" fill="#1a237e">●  (or provided by user if already run)</text>
+  <!-- Arrow 1→2 -->
+  <line x1="350" y1="70" x2="350" y2="92" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-res)"/>
+  <!-- PHASE 2 — EXTERNAL BENCHMARK -->
+  <rect x="10" y="94" width="680" height="98" rx="8" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
+  <rect x="10" y="94" width="680" height="26" rx="8" fill="#1976d2"/>
+  <rect x="10" y="110" width="680" height="10" fill="#1976d2"/>
+  <text x="350" y="112" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">PHASE 2 — EXTERNAL BENCHMARK</text>
+  <text x="28" y="138" font-size="10.5" fill="#0d47a1">A.  ORT optimizer directly (onnxruntime.tools.transformers)</text>
+  <text x="28" y="153" font-size="10.5" fill="#0d47a1">B.  Olive (olive-ai) with EP-specific recipe</text>
+  <text x="28" y="168" font-size="10.5" fill="#0d47a1">C.  onnxsim + onnxoptimizer (static graph simplification)</text>
+  <text x="28" y="183" font-size="10.5" fill="#0d47a1">D.  neural-compressor (Intel) for quantization comparison  →  record best latency, accuracy, config</text>
+  <!-- Arrow 2→3 -->
+  <line x1="350" y1="192" x2="350" y2="214" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-res)"/>
+  <!-- PHASE 3 — GAP DIAGNOSIS -->
+  <rect x="10" y="216" width="680" height="115" rx="8" fill="#e8f5e9" stroke="#388e3c" stroke-width="1.5"/>
+  <rect x="10" y="216" width="680" height="26" rx="8" fill="#388e3c"/>
+  <rect x="10" y="232" width="680" height="10" fill="#388e3c"/>
+  <text x="350" y="234" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">PHASE 3 — GAP DIAGNOSIS</text>
+  <text x="28" y="260" font-size="10.5" fill="#1b5e20">For each gap (external better than winml): diff ONNX graphs · read ORT source · check capability registry · check Olive recipe</text>
+  <text x="28" y="278" font-size="10" fill="#2e7d32">Classify as one of:</text>
+  <!-- Gap type pills -->
+  <rect x="28" y="286" width="130" height="18" rx="4" fill="#ffebee"/><text x="93" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#c62828">MISSING_CAPABILITY</text>
+  <rect x="168" y="286" width="110" height="18" rx="4" fill="#fff3e0"/><text x="223" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#e65100">WRONG_DEFAULT</text>
+  <rect x="288" y="286" width="50" height="18" rx="4" fill="#fce4ec"/><text x="313" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#880e4f">BUG</text>
+  <rect x="348" y="286" width="120" height="18" rx="4" fill="#e8f5e9"/><text x="408" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#1b5e20">CALIBRATION_DATA</text>
+  <rect x="478" y="286" width="105" height="18" rx="4" fill="#e8eaf6"/><text x="530" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#283593">EP_LIMITATION</text>
+  <rect x="593" y="286" width="95" height="18" rx="4" fill="#f3e5f5"/><text x="640" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#4a148c">KNOWN_TRADEOFF</text>
+  <text x="28" y="322" font-size="10" fill="#1b5e20" font-style="italic">a. Diff graphs  b. ORT source  c. winml capability registry (missing? disabled? wired wrong?)  d. Olive recipe flags/params</text>
+  <!-- Arrow 3→4 -->
+  <line x1="350" y1="331" x2="350" y2="353" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-res)"/>
+  <!-- PHASE 4 — NATIVE STACK VALIDATION -->
+  <rect x="10" y="355" width="680" height="90" rx="8" fill="#fff3e0" stroke="#f57c00" stroke-width="1.5"/>
+  <rect x="10" y="355" width="680" height="26" rx="8" fill="#f57c00"/>
+  <rect x="10" y="371" width="680" height="10" fill="#f57c00"/>
+  <text x="350" y="373" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">PHASE 4 — NATIVE STACK VALIDATION</text>
+  <text x="28" y="399" font-size="10.5" fill="#bf360c">●  winml-cli test suite: any reference models of this arch in tests/models/?</text>
+  <text x="28" y="414" font-size="10.5" fill="#bf360c">●  Windows AI Studio / WinML model zoo: listed? at what performance?</text>
+  <text x="28" y="429" font-size="10.5" fill="#bf360c">●  QNN SDK reference benchmarks (if QNN EP): does vendor claim better numbers?</text>
+  <!-- Arrow 4→5 -->
+  <line x1="350" y1="445" x2="350" y2="467" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-res)"/>
+  <!-- PHASE 5 — WORK ITEMS -->
+  <rect x="10" y="469" width="680" height="56" rx="8" fill="#ede7f6" stroke="#7b1fa2" stroke-width="1.5"/>
+  <rect x="10" y="469" width="680" height="26" rx="8" fill="#7b1fa2"/>
+  <rect x="10" y="485" width="680" height="10" fill="#7b1fa2"/>
+  <text x="350" y="487" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">PHASE 5 — WORK ITEMS</text>
+  <text x="28" y="511" font-size="10.5" fill="#4a148c">MISSING_CAPABILITY / WRONG_DEFAULT → GitHub issue (title · repro · fix · ORT pointer · complexity S/M/L/XL) · BUG → repro script · EP_LIMITATION → SDK reference</text>
+</svg>
 
 <hr />
 <h3 id="key-external-tools-to-invoke">Key external tools to invoke<a class="headerlink" href="#key-external-tools-to-invoke" title="Permanent link">&para;</a></h3>
