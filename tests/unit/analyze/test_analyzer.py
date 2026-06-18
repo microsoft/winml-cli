@@ -721,8 +721,8 @@ class TestAnalysisResult:
 class TestRuntimeDebugDetailsSummary:
     """Tests for runtime debug_details summary aggregation."""
 
-    def test_build_runtime_debug_details_summary_groups_and_filters_unknown(self) -> None:
-        """Should group by support level and filter unknown results."""
+    def test_build_runtime_debug_details_summary_groups_and_records_unknown(self) -> None:
+        """Should group by support level and record unknown nodes as a key list."""
         runtime_summary = {
             "op_runtime_check_result": [
                 PatternRuntime(
@@ -786,7 +786,9 @@ class TestRuntimeDebugDetailsSummary:
         summary = _build_runtime_debug_details_summary(runtime_summary)
 
         assert summary is not None
-        assert set(summary.keys()) == {"supported", "partial", "unsupported"}
+        assert set(summary.keys()) == {"unknown", "supported", "partial", "unsupported"}
+        # "unknown" must be the first key in output order.
+        assert next(iter(summary)) == "unknown"
 
         assert summary["supported"]["node_conv"].case_indices == ["case_1", "case_2"]
         assert summary["supported"]["node_conv"].table_path == "rules/conv.parquet"
@@ -800,6 +802,8 @@ class TestRuntimeDebugDetailsSummary:
         assert summary["unsupported"]["node_subgraph"].table_path == "rules/subgraph.parquet"
         assert summary["unsupported"]["node_subgraph"].table_file == "subgraph.parquet"
 
+        # Unknown nodes are recorded as a plain list of node keys (no case data).
+        assert summary["unknown"] == ["node_unknown"]
         assert "node_unknown" not in summary["supported"]
         assert "node_unknown" not in summary["partial"]
         assert "node_unknown" not in summary["unsupported"]
@@ -1060,6 +1064,7 @@ class TestONNXStaticAnalyzer:
         assert node_conv_entry.table_file == "conv.parquet"
         assert ep_result.runtime_debug_details_summary["partial"] == {}
         assert ep_result.runtime_debug_details_summary["unsupported"] == {}
+        assert ep_result.runtime_debug_details_summary["unknown"] == ["node_unknown"]
         assert "node_unknown" not in ep_result.runtime_debug_details_summary["supported"]
 
     @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)

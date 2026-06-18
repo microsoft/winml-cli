@@ -76,11 +76,15 @@ class EPSupport(BaseModel):
     information: list[Information] = Field(
         default_factory=list, description="Available information"
     )
-    runtime_debug_details_summary: dict[str, dict[str, RuntimeDebugSummaryEntry]] | None = Field(
+    runtime_debug_details_summary: (
+        dict[str, list[str] | dict[str, RuntimeDebugSummaryEntry]] | None
+    ) = Field(
         default=None,
         description=(
-            "Optional runtime debug summary grouped by support level "
-            "(supported/partial/unsupported) and node_stable_key."
+            "Optional runtime debug summary grouped by support level. "
+            "The 'unknown' level is a list of node_stable_key values (no case "
+            "data); 'supported'/'partial'/'unsupported' map node_stable_key to "
+            "detail entries."
         ),
     )
 

@@ -611,18 +611,31 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     return f"{ep_name} ({device_name.upper()})"
 
 
-def _empty_runtime_debug_summary_payload() -> dict[str, dict[str, dict[str, object | None]]]:
-    """Create empty runtime debug summary payload with fixed top-level keys."""
-    return {level: {} for level in _RUNTIME_DEBUG_LEVELS}
+def _empty_runtime_debug_summary_payload() -> dict[str, Any]:
+    """Create empty runtime debug summary payload with fixed top-level keys.
+
+    ``unknown`` is intentionally the first key and holds a list of node keys
+    (no case_indices); the remaining levels map node keys to detail entries.
+    """
+    payload: dict[str, Any] = {"unknown": []}
+    payload.update({level: {} for level in _RUNTIME_DEBUG_LEVELS})
+    return payload
 
 
 def _normalize_runtime_debug_summary_payload(
     summary_payload: object,
-) -> dict[str, dict[str, dict[str, object | None]]]:
+) -> dict[str, Any]:
     """Normalize runtime debug summary payload to fixed JSON schema."""
     normalized = _empty_runtime_debug_summary_payload()
     if not isinstance(summary_payload, dict):
         return normalized
+
+    raw_unknown = summary_payload.get("unknown")
+    if isinstance(raw_unknown, list):
+        normalized["unknown"] = [str(node) for node in raw_unknown]
+    elif isinstance(raw_unknown, dict):
+        # Tolerate a dict-shaped unknown payload by keeping node keys only.
+        normalized["unknown"] = [str(node) for node in raw_unknown]
 
     for level in _RUNTIME_DEBUG_LEVELS:
         raw_level_entries = summary_payload.get(level)
@@ -649,7 +662,7 @@ def _extract_runtime_debug_summary_payload_for_pair(
     run_result: Any,
     ep_name: str,
     device_name: str,
-) -> dict[str, dict[str, dict[str, object | None]]]:
+) -> dict[str, Any]:
     """Extract runtime debug summary payload for one EP/device pair."""
     empty_payload = _empty_runtime_debug_summary_payload()
 

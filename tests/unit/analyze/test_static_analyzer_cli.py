@@ -478,6 +478,7 @@ class TestAnalyzeCommandOptions:
                         "ep_type": "QNNExecutionProvider",
                         "device_type": "NPU",
                         "runtime_debug_details_summary": {
+                            "unknown": ["node_customop"],
                             "supported": {
                                 "node_conv": {
                                     "case_indices": ["case_7"],
@@ -521,7 +522,10 @@ class TestAnalyzeCommandOptions:
         assert debug_file.exists()
 
         debug_content = json.loads(debug_file.read_text())
-        assert set(debug_content.keys()) == {"supported", "partial", "unsupported"}
+        assert set(debug_content.keys()) == {"unknown", "supported", "partial", "unsupported"}
+        # "unknown" must be the first key in the written debug.json.
+        assert next(iter(debug_content)) == "unknown"
+        assert debug_content["unknown"] == ["node_customop"]
         assert debug_content["supported"]["node_conv"] == {
             "case_indices": ["case_7"],
             "table_path": "rules/conv.parquet",

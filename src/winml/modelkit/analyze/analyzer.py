@@ -90,23 +90,24 @@ def _iter_runtime_test_results(pattern_runtime: PatternRuntime) -> list[RuntimeT
 
 def _build_runtime_debug_details_summary(
     runtime_summary: dict[str, list[PatternRuntime]],
-) -> dict[str, dict[str, RuntimeDebugSummaryEntry]] | None:
+) -> dict[str, list[str] | dict[str, RuntimeDebugSummaryEntry]] | None:
     """Build debug_details summary grouped by support level and node stable key.
 
-    The returned dict always uses level keys ``unsupported``, ``partial``, and
-    ``supported`` (in this output order). ``unknown`` results are intentionally
-    filtered out.
+    The returned dict always starts with the ``unknown`` key (in output order),
+    followed by ``unsupported``, ``partial``, and ``supported``. ``unknown``
+    nodes have no matched rule case data, so they are recorded as a plain list
+    of ``node_stable_key`` values; the other levels map ``node_stable_key`` to a
+    :class:`RuntimeDebugSummaryEntry`.
     """
-    summary: dict[str, dict[str, RuntimeDebugSummaryEntry]] = {
+    leveled_summary: dict[str, dict[str, RuntimeDebugSummaryEntry]] = {
         level.value: {} for level in _RUNTIME_DEBUG_SUMMARY_LEVELS
     }
+    unknown_nodes: set[str] = set()
 
     for runtime_key in ("op_runtime_check_result", "subgraph_runtime_check_result"):
         for pattern_runtime in runtime_summary.get(runtime_key, []):
             for test_result in _iter_runtime_test_results(pattern_runtime):
                 level = test_result.classification
-                if level not in _RUNTIME_DEBUG_SUMMARY_LEVELS:
-                    continue
 
                 debug_details = test_result.debug_details
                 if not debug_details:
@@ -114,6 +115,15 @@ def _build_runtime_debug_details_summary(
 
                 node_stable_key = debug_details.get("node_stable_key")
                 if not node_stable_key:
+                    continue
+
+                if level == SupportLevel.UNKNOWN:
+                    # Unknown nodes carry no rule case data; record the
+                    # de-duplicated node key only.
+                    unknown_nodes.add(node_stable_key)
+                    continue
+
+                if level not in _RUNTIME_DEBUG_SUMMARY_LEVELS:
                     continue
 
                 candidate_entry = RuntimeDebugSummaryEntry(
@@ -124,7 +134,7 @@ def _build_runtime_debug_details_summary(
                     table_file=debug_details.get("table_file"),
                 )
 
-                level_bucket = summary[level.value]
+                level_bucket = leveled_summary[level.value]
                 existing_entry = level_bucket.get(node_stable_key)
                 if existing_entry is None:
                     level_bucket[node_stable_key] = candidate_entry
@@ -142,9 +152,17 @@ def _build_runtime_debug_details_summary(
                 if existing_entry.table_file is None and candidate_entry.table_file is not None:
                     existing_entry.table_file = candidate_entry.table_file
 
-    has_any_entry = any(summary[level.value] for level in _RUNTIME_DEBUG_SUMMARY_LEVELS)
+    has_any_entry = bool(unknown_nodes) or any(
+        leveled_summary[level.value] for level in _RUNTIME_DEBUG_SUMMARY_LEVELS
+    )
     if not has_any_entry:
         return None
+
+    # "unknown" is intentionally the first key in output order.
+    summary: dict[str, list[str] | dict[str, RuntimeDebugSummaryEntry]] = {
+        "unknown": sorted(unknown_nodes)
+    }
+    summary.update(leveled_summary)
     return summary
 
 
@@ -822,7 +840,7 @@ class ONNXStaticAnalyzer:
         check_op_results: dict[EPName, list[PatternRuntime]] = {}
         information_list: dict[EPName, list[Information]] = {}
         runtime_debug_details_summary: dict[
-            str, dict[str, dict[str, RuntimeDebugSummaryEntry]]
+            str, dict[str, list[str] | dict[str, RuntimeDebugSummaryEntry]]
         ] = {}
         ep_runtime_timing: dict[str, int] = {}
         ep_info_timing: dict[str, int] = {}

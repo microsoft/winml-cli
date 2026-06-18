@@ -2410,6 +2410,13 @@ class RuntimeCheckerQuery:
         except ValueError:
             domain_resolve_ms = _elapsed_ms(domain_resolve_start)
             # Unknown domain (e.g., custom ops) — report as no_data
+            unsupported_domain_debug_details: RuntimeDebugDetails | None = None
+            if for_debug:
+                unsupported_domain_debug_details = {
+                    "op_type": node.op_type,
+                    "node_stable_key": node_key,
+                    "domain": node.domain,
+                }
             return _finish(
                 PatternRuntime(
                     pattern_id=pattern_match.pattern.pattern_id,
@@ -2418,7 +2425,7 @@ class RuntimeCheckerQuery:
                         compile=False,
                         no_data=True,
                         reason=f"unsupported_domain:{node.domain}",
-                        debug_details=None,
+                        debug_details=unsupported_domain_debug_details,
                     ),
                     alternatives=self.alternatives,
                     pattern_match=pattern_match,
