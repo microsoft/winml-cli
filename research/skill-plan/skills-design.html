@@ -89,6 +89,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 <p class="toc-title">Contents</p>
 <div class="toc">
 <ul>
+<li><a href="#problem-statement">Problem statement</a></li>
 <li><a href="#overview">Overview</a><ul>
 <li><a href="#user-skills-ranked-by-importance">User skills — ranked by importance</a></li>
 <li><a href="#contributor-skills-ranked-by-importance">Contributor skills — ranked by importance</a></li>
@@ -223,6 +224,75 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 </nav>
 <main>
 <h1 id="winml-cli-skills-design-doc">WinML CLI Skills Design Doc<a class="headerlink" href="#winml-cli-skills-design-doc" title="Permanent link">&para;</a></h1>
+<h2 id="problem-statement">Problem statement<a class="headerlink" href="#problem-statement" title="Permanent link">&para;</a></h2>
+<p>Getting a model to run <strong>well</strong> on Windows is expert work that doesn't scale. A developer or ISV who
+wants to ship a model has to answer a chain of hard questions by hand: <em>Will this model even run on my
+hardware? Which execution provider (CPU / DirectML / QNN NPU) should I target? What precision —
+FP32, FP16, W8A16, W8A8 — hits my latency budget without breaking accuracy? Why did accuracy drop
+after quantization, and at which stage? Is this artifact actually safe to ship?</em> Each answer requires
+deep knowledge of ONNX, the EP landscape, quantization, and hardware-specific quirks (opset ceilings,
+conv-fusion fallbacks, EPs that hang on certain configs). Today that knowledge is tribal and scattered;
+the workflow is manual, slow, and easy to get wrong, which is exactly what blocks the long-tail model
+coverage the team needs (scenarios <strong>S1–S5</strong>: LLM fast-support, ISV non-LLM onboarding, cross-EP parity,
+"customer ONNX can't run", and PyTorch/HF Hub coverage).</p>
+<p><code>winml-cli</code> already exposes the right primitives (<code>inspect</code>, <code>analyze</code>, <code>build</code>, <code>eval</code>, <code>perf</code>,
+<code>compile</code>, <code>package</code>), but a CLI alone doesn't encode <em>judgment</em> — knowing which command to run next,
+how to read its output, and what to conclude. <strong>Skills close that gap.</strong> Each skill packages the
+decision logic for one recurring task as an agentic workflow on top of those commands, so the
+non-expert path produces the same artifact an expert would — a <code>config.json</code>, <code>manifest.json</code>, or
+report — without the developer needing to hold the whole EP/precision/quantization model in their head.
+The goal: turn "weeks of expert tuning" into a repeatable, reproducible, CLI-driven flow.</p>
+<p>These skills are not a loose toolbox — <strong>each one is anchored to a stage of the model lifecycle</strong>, from
+choosing a model that will run, through build/optimize, to shipping it inside a WinApp. <code>winml-cli</code> today
+owns the build pipeline up to <code>artifact.onnx</code> and stops there; the skills both encode the judgment
+<em>within</em> that pipeline and extend past the current break into deployment, so the whole path from a source
+model to a working AI feature on the user's device is covered.</p>
+<style>
+.lcd { border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin:18px 0; overflow-x:auto; }
+.lcd-flow { display:flex; flex-wrap:wrap; align-items:center; gap:8px 6px; font-size:14px; }
+.lcd-band { font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+.lcd-band.b { color:#2563eb; } .lcd-band.s { color:#b45309; }
+.lcd-pill { padding:5px 11px; border-radius:7px; font-weight:600; white-space:nowrap; }
+.lcd-build { background:#dbeafe; color:#1e40af; }
+.lcd-ship  { background:#fef3c7; color:#92400e; }
+.lcd-ai    { background:#dcfce7; color:#166534; }
+.lcd-arr   { color:#9ca3af; font-weight:700; }
+.lcd-break { color:#dc2626; font-weight:800; font-size:18px; padding:0 4px; }
+.lcd-note  { margin:11px 0 0; font-size:13px; color:var(--muted); }
+.lcd-note b { color:#dc2626; }
+.lcd-legend { margin-top:14px; display:grid; gap:7px; font-size:13.5px; }
+.lcd-row { display:flex; align-items:center; gap:9px; }
+.lcd-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+.lcd-skill { font-family:"SF Mono","Cascadia Code",Consolas,monospace; font-weight:600; }
+.lcd-stage { color:var(--muted); }
+</style>
+<div class="lcd">
+  <div class="lcd-flow">
+    <span class="lcd-band b">winml-cli · build</span>
+    <span class="lcd-pill lcd-build">Source model</span><span class="lcd-arr">→</span>
+    <span class="lcd-pill lcd-build">export</span><span class="lcd-arr">→</span>
+    <span class="lcd-pill lcd-build">optimize</span><span class="lcd-arr">→</span>
+    <span class="lcd-pill lcd-build">quantize</span><span class="lcd-arr">→</span>
+    <span class="lcd-pill lcd-build">compile</span><span class="lcd-arr">→</span>
+    <span class="lcd-pill lcd-build">artifact.onnx</span>
+    <span class="lcd-break" title="winml-cli stops here">┆</span>
+    <span class="lcd-band s">WinApp · ship</span>
+    <span class="lcd-pill lcd-ship">package</span><span class="lcd-arr">→</span>
+    <span class="lcd-pill lcd-ship">load (C++/C#)</span><span class="lcd-arr">→</span>
+    <span class="lcd-pill lcd-ship">EP + fallback</span><span class="lcd-arr">→</span>
+    <span class="lcd-pill lcd-ai">✓ AI feature on device</span>
+  </div>
+  <p class="lcd-note"><b>✕ today winml-cli stops at <code>artifact.onnx</code></b> — everything past the break is the deployment gap.</p>
+  <div class="lcd-legend">
+    <div class="lcd-row"><span class="lcd-dot" style="background:#2563eb"></span><span class="lcd-skill">check-model-feasibility</span><span class="lcd-stage">— before build: pick a model &amp; EP</span></div>
+    <div class="lcd-row"><span class="lcd-dot" style="background:#16a34a"></span><span class="lcd-skill">autoconfig</span><span class="lcd-stage">— export → compile: find the best config</span></div>
+    <div class="lcd-row"><span class="lcd-dot" style="background:#ea580c"></span><span class="lcd-skill">debug-accuracy-drop</span><span class="lcd-stage">— whenever accuracy drops</span></div>
+    <div class="lcd-row"><span class="lcd-dot" style="background:#7c3aed"></span><span class="lcd-skill">ship-to-winapp</span><span class="lcd-stage">— artifact → device: package &amp; run (bridges the gap)</span></div>
+    <div class="lcd-row"><span class="lcd-dot" style="background:#64748b"></span><span class="lcd-skill">use-winml-cli</span><span class="lcd-stage">— underpins every stage</span></div>
+  </div>
+  <p class="lcd-note">contributor: <span class="lcd-skill">adding-model-support</span> → export · <span class="lcd-skill">adding-ep-support</span> → compile · <span class="lcd-skill">optimization-research</span> → finds gaps</p>
+</div>
+
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <p>This document defines the design for 9 skills to be added to <code>skills/</code> in winml-cli.
 Skills are split into <strong>two categories by the single question: does the task require editing repo code?</strong></p>
@@ -245,6 +315,7 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 <tr>
 <th>Rank</th>
 <th>Skill</th>
+<th>Priority</th>
 <th>Why it ranks here</th>
 <th>Output (no code)</th>
 </tr>
@@ -252,33 +323,38 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 <tbody>
 <tr>
 <td>1</td>
-<td><code>autoconfig</code></td>
-<td>Flagship. Autonomously searches the config space and delivers the optimal <code>config.json</code> per EP. Also hosts the <strong>manual optimize path</strong> (precision-ladder + latency/accuracy-budget decision framework + hardware table) for users who want to choose by hand or have no target hardware. Maps to all five user scenarios (S1–S5).</td>
-<td><code>config_&lt;ep&gt;_optimal.json</code> + <code>report.html</code></td>
+<td><code>use-winml-cli</code></td>
+<td>P0</td>
+<td>General tool-scoped onboarding reference (existing). The foundational command layer that underpins every task-scoped skill — every step above runs <code>winml</code> commands it documents.</td>
+<td>command reference</td>
 </tr>
 <tr>
 <td>2</td>
+<td><code>autoconfig</code></td>
+<td>P0</td>
+<td>Flagship. Autonomously searches the config space and delivers the optimal <code>config.json</code> per EP. Also hosts the <strong>manual optimize path</strong> (precision-ladder + latency/accuracy-budget decision framework + hardware table) for users who want to choose by hand or have no target hardware. Maps to all five user scenarios (S1–S5).</td>
+<td><code>config_&lt;ep&gt;_optimal.json</code> + <code>report.html</code> + <code>feature_requests.md</code></td>
+</tr>
+<tr>
+<td>3</td>
 <td><code>check-model-feasibility</code></td>
+<td>P0</td>
 <td>Pre-build front door, merging model discovery + EP/device compatibility: "find me a <em>supported</em> model from my constraints, then confirm it runs on my hardware." The single "what do I run, and will it run?" gate (<code>inspect</code> → <code>sys</code> → <code>analyze</code>). Highest frequency — every user hits it before building.</td>
 <td>model shortlist + go/no-go + fallback EP</td>
 </tr>
 <tr>
-<td>3</td>
-<td><code>debug-accuracy-drop</code></td>
-<td>Closes the most acute pain point: accuracy dropped, cause unknown. High-frequency diagnostic need with the clearest existing tooling (<code>eval --mode compare</code>).</td>
-<td>stage + root cause + fix</td>
-</tr>
-<tr>
 <td>4</td>
 <td><code>ship-to-winapp</code></td>
+<td>P1</td>
 <td>Ship-time skill, merging validation + packaging: L1–L5 Definition-of-Done gates <strong>plus</strong> multi-EP artifact layout, <code>manifest.json</code>, and runtime EP selection. Everything between "the model is good" and "it's running in the app."</td>
 <td>pass/fail report + <code>manifest.json</code></td>
 </tr>
 <tr>
 <td>5</td>
-<td><code>use-winml-cli</code></td>
-<td>General tool-scoped onboarding reference (existing). Foundational but low differentiation vs the task-scoped skills above.</td>
-<td>command reference</td>
+<td><code>debug-accuracy-drop</code></td>
+<td>P2</td>
+<td>Closes the most acute pain point: accuracy dropped, cause unknown. High-frequency diagnostic need with the clearest existing tooling (<code>eval --mode compare</code>).</td>
+<td>stage + root cause + fix</td>
 </tr>
 </tbody>
 </table>
@@ -288,6 +364,7 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 <tr>
 <th>Rank</th>
 <th>Skill</th>
+<th>Priority</th>
 <th>Why it ranks here</th>
 <th>Code touched</th>
 </tr>
@@ -296,24 +373,28 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 <tr>
 <td>1</td>
 <td><code>adding-model-support</code></td>
+<td>P0</td>
 <td>Directly grows model coverage — the core long-tail business problem (ISV onboarding, S2/S5). Highest contribution frequency.</td>
 <td>new exporter + recipe</td>
 </tr>
 <tr>
 <td>2</td>
 <td><code>optimization-research</code></td>
+<td>P1</td>
 <td>High leverage: deep-searches ORT/Olive/ecosystem to find gaps and file the backlog that drives every other contributor skill. Internal, but sets the roadmap.</td>
 <td>files issues + repro (drives code changes)</td>
 </tr>
 <tr>
 <td>3</td>
 <td><code>adding-ep-support</code></td>
+<td>P1</td>
 <td>Onboards a new execution-provider backend. Infrequent, but high value the moment a new NPU vendor lands.</td>
 <td>compile backend + EP registry</td>
 </tr>
 <tr>
 <td>4</td>
 <td><code>contributing-a-skill</code></td>
+<td>P2</td>
 <td>Meta-tooling: how to author, lint, and eval a SKILL.md. Sustains the ecosystem but is supporting infrastructure, not a direct model/EP/perf deliverable.</td>
 <td><code>SKILL.md</code> + evals</td>
 </tr>
@@ -336,14 +417,12 @@ defined by the two ranked tables above; implementation sequencing (risk/dependen
   <text x="106" y="37" text-anchor="middle" font-size="10" font-weight="700" fill="#283593">check-model-feasibility</text>
   <text x="106" y="52" text-anchor="middle" font-size="9.5" fill="#3949ab">find a supported model</text>
   <text x="106" y="66" text-anchor="middle" font-size="9.5" fill="#3949ab">confirm EP/device runs</text>
-  <!-- Arrow CMF→autoconfig -->
   <line x1="202" y1="59" x2="290" y2="59" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr)"/>
   <!-- autoconfig -->
   <rect x="292" y="15" width="170" height="88" rx="8" fill="#e8f5e9" stroke="#81c784" stroke-width="1.5"/>
   <text x="377" y="37" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1b5e20">autoconfig</text>
   <text x="377" y="52" text-anchor="middle" font-size="9.5" fill="#2e7d32">optimize the model</text>
   <text x="377" y="66" text-anchor="middle" font-size="9.5" fill="#2e7d32">automated sweep</text>
-  <!-- Arrow autoconfig→ship -->
   <line x1="462" y1="59" x2="588" y2="59" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr)"/>
   <!-- ship-to-winapp -->
   <rect x="590" y="15" width="196" height="88" rx="8" fill="#fff3e0" stroke="#ffb74d" stroke-width="1.5"/>
@@ -351,15 +430,15 @@ defined by the two ranked tables above; implementation sequencing (risk/dependen
   <text x="688" y="51" text-anchor="middle" font-size="9.5" fill="#bf360c">validate (L1–L5 gates)</text>
   <text x="688" y="65" text-anchor="middle" font-size="9.5" fill="#bf360c">package multi-EP artifacts</text>
   <text x="688" y="79" text-anchor="middle" font-size="9.5" fill="#bf360c">manifest + runtime EP select</text>
-  <!-- CMF → debug-accuracy-drop (elbow) -->
+  <!-- CMF → debug (elbow) -->
   <polyline points="202,72 247,72 247,183 292,183" stroke="#90a4ae" stroke-width="1.5" fill="none" stroke-dasharray="4,2" marker-end="url(#sk-arr)"/>
-  <!-- autoconfig → debug-accuracy-drop (down) -->
+  <!-- autoconfig → debug (down) -->
   <line x1="377" y1="103" x2="377" y2="148" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr)"/>
   <!-- debug-accuracy-drop -->
   <rect x="292" y="150" width="170" height="65" rx="8" fill="#fce4ec" stroke="#f48fb1" stroke-width="1.5"/>
   <text x="377" y="172" text-anchor="middle" font-size="10.5" font-weight="700" fill="#880e4f">debug-accuracy-drop</text>
   <text x="377" y="188" text-anchor="middle" font-size="9.5" fill="#ad1457">diagnose drops at any stage</text>
-  <!-- debug-accuracy-drop → ship-to-winapp (elbow up) -->
+  <!-- debug → ship (elbow up) -->
   <polyline points="462,183 542,183 542,72 588,72" stroke="#90a4ae" stroke-width="1.5" fill="none" stroke-dasharray="4,2" marker-end="url(#sk-arr)"/>
   <!-- use-winml-cli bar -->
   <rect x="10" y="234" width="776" height="26" rx="6" fill="#e8eaf6" stroke="#9fa8da" stroke-width="1.5"/>
@@ -391,16 +470,12 @@ defined by the two ranked tables above; implementation sequencing (risk/dependen
       <polygon points="0 0,8 3,0 6" fill="#7986cb"/>
     </marker>
   </defs>
-  <!-- adding-model-support -->
   <rect x="10" y="10" width="195" height="40" rx="7" fill="#e8f5e9" stroke="#81c784" stroke-width="1.5"/>
   <text x="107" y="35" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1b5e20">adding-model-support</text>
-  <!-- adding-ep-support -->
   <rect x="10" y="62" width="195" height="40" rx="7" fill="#e3f2fd" stroke="#90caf9" stroke-width="1.5"/>
   <text x="107" y="87" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0d47a1">adding-ep-support</text>
-  <!-- Arrows (both → contributing-a-skill) -->
   <line x1="205" y1="30" x2="308" y2="50" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr3)"/>
   <line x1="205" y1="82" x2="308" y2="62" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr3)"/>
-  <!-- contributing-a-skill -->
   <rect x="310" y="36" width="200" height="40" rx="7" fill="#fff3e0" stroke="#ffb74d" stroke-width="1.5"/>
   <text x="410" y="61" text-anchor="middle" font-size="10.5" font-weight="700" fill="#e65100">contributing-a-skill</text>
 </svg>
@@ -1993,8 +2068,7 @@ canonical). Profile-first makes the Explorer smarter and the search shorter.</p>
       <polygon points="8 0,0 3,8 6" fill="#90caf9"/>
     </marker>
   </defs>
-
-  <!-- ── PHASE 0 — INTAKE ── -->
+  <!-- PHASE 0 — INTAKE -->
   <rect x="10" y="0" width="680" height="105" rx="8" fill="#eef1fc" stroke="#7986cb" stroke-width="1.5"/>
   <rect x="10" y="0" width="680" height="28" rx="8" fill="#3949ab"/>
   <rect x="10" y="18" width="680" height="10" fill="#3949ab"/>
@@ -2003,11 +2077,9 @@ canonical). Profile-first makes the Explorer smarter and the search shorter.</p>
   <text x="28" y="63" font-size="10.5" fill="#1a237e">●  winml build (baseline config)  →  get model.onnx</text>
   <text x="28" y="78" font-size="10.5" fill="#1a237e">●  winml eval --mode compare  →  lock FP32 correctness baseline</text>
   <text x="28" y="93" font-size="10.5" fill="#1a237e">●  winml perf (baseline)  →  establish latency floor</text>
-
   <!-- Arrow 0→1 -->
   <line x1="350" y1="105" x2="350" y2="128" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-ph)"/>
-
-  <!-- ── PHASE 1 — PROFILE ── -->
+  <!-- PHASE 1 — PROFILE -->
   <rect x="10" y="130" width="680" height="125" rx="8" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
   <rect x="10" y="130" width="680" height="28" rx="8" fill="#1976d2"/>
   <rect x="10" y="148" width="680" height="10" fill="#1976d2"/>
@@ -2017,16 +2089,14 @@ canonical). Profile-first makes the Explorer smarter and the search shorter.</p>
   <text x="28" y="206" font-size="10.5" fill="#0d47a1">●  "already_canonical" (fused op type)  →  skip corresponding fusion flag</text>
   <text x="28" y="221" font-size="10.5" fill="#0d47a1">●  Output: prioritized_hypothesis_queue (ordered by profile evidence)</text>
   <text x="28" y="242" font-size="10" fill="#1565c0" font-style="italic">headroom_hints: actionable pass recommendations from profile data</text>
-
   <!-- Arrow 1→2 -->
   <line x1="350" y1="255" x2="350" y2="278" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-ph)"/>
-
-  <!-- ── PHASE 2 — OPTIMIZATION LOOP ── -->
+  <!-- PHASE 2 — OPTIMIZATION LOOP -->
   <rect x="10" y="280" width="680" height="220" rx="8" fill="#e8f5e9" stroke="#388e3c" stroke-width="1.5"/>
   <rect x="10" y="280" width="680" height="28" rx="8" fill="#388e3c"/>
   <rect x="10" y="298" width="680" height="10" fill="#388e3c"/>
   <text x="350" y="300" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">PHASE 2 — PROFILE-GUIDED OPTIMIZATION LOOP</text>
-  <!-- Sub-boxes: EXPLORER / OPTIMIZER / REVIEWER -->
+  <!-- Sub: EXPLORER / OPTIMIZER / REVIEWER -->
   <rect x="28" y="318" width="170" height="80" rx="6" fill="#fff" stroke="#a5d6a7" stroke-width="1.5"/>
   <text x="113" y="337" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1b5e20">EXPLORER</text>
   <text x="113" y="352" text-anchor="middle" font-size="9.5" fill="#2e7d32">Pop next hypothesis</text>
@@ -2044,17 +2114,14 @@ canonical). Profile-first makes the Explorer smarter and the search shorter.</p>
   <text x="575" y="352" text-anchor="middle" font-size="9.5" fill="#2e7d32">Cross-exp verdict:</text>
   <text x="575" y="366" text-anchor="middle" font-size="9.5" fill="#2e7d32">keep / discard / plateau</text>
   <text x="575" y="380" text-anchor="middle" font-size="9.5" fill="#2e7d32">write KB draft entry</text>
-  <!-- Loop arrow: REVIEWER → EXPLORER -->
+  <!-- Loop arrow -->
   <path d="M 575,398 L 575,422 L 113,422 L 113,398" stroke="#90caf9" stroke-width="1.5" stroke-dasharray="5,3" fill="none" marker-end="url(#sk-ph-up)"/>
   <text x="344" y="436" text-anchor="middle" font-size="9.5" fill="#1565c0" font-style="italic">↺  loop until convergence / budget / search_space_exhausted</text>
-  <!-- Pruning note -->
-  <text x="28" y="460" font-size="9.5" fill="#33691e">Explorer prunes: Gemm&gt;50% → skip layout passes · Transpose&gt;10% → check opset gate · Conv&gt;20% → try nchwc/conv-activation-fusion</text>
-  <text x="28" y="475" font-size="9.5" fill="#33691e">External-research triggers: 5× DISCARD → ORT source sweep · every KEEP+EP-change → re-read ep_knowledge</text>
-
+  <text x="28" y="460" font-size="9.5" fill="#33691e">Pruning: Gemm&gt;50% → skip layout passes · Transpose&gt;10% → check opset gate · Conv&gt;20% → try nchwc/conv-activation-fusion</text>
+  <text x="28" y="475" font-size="9.5" fill="#33691e">Triggers: 5× DISCARD → ORT source sweep · every KEEP+EP-change → re-read ep_knowledge</text>
   <!-- Arrow 2→3 -->
   <line x1="350" y1="500" x2="350" y2="523" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-ph)"/>
-
-  <!-- ── PHASE 3 — REPORT ── -->
+  <!-- PHASE 3 — REPORT -->
   <rect x="10" y="525" width="680" height="70" rx="8" fill="#fff3e0" stroke="#f57c00" stroke-width="1.5"/>
   <rect x="10" y="525" width="680" height="28" rx="8" fill="#f57c00"/>
   <rect x="10" y="543" width="680" height="10" fill="#f57c00"/>
@@ -2872,7 +2939,6 @@ Rule: W8A8 QDQ on GPU EP hangs — skip quantization immediately for GPU targets
   <text x="350" y="18" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">PHASE 1 — BASELINE</text>
   <text x="28" y="44" font-size="10.5" fill="#1a237e">●  winml autoconfig best result for this model / EP</text>
   <text x="28" y="59" font-size="10.5" fill="#1a237e">●  (or provided by user if already run)</text>
-  <!-- Arrow 1→2 -->
   <line x1="350" y1="70" x2="350" y2="92" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-res)"/>
   <!-- PHASE 2 — EXTERNAL BENCHMARK -->
   <rect x="10" y="94" width="680" height="98" rx="8" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
@@ -2883,7 +2949,6 @@ Rule: W8A8 QDQ on GPU EP hangs — skip quantization immediately for GPU targets
   <text x="28" y="153" font-size="10.5" fill="#0d47a1">B.  Olive (olive-ai) with EP-specific recipe</text>
   <text x="28" y="168" font-size="10.5" fill="#0d47a1">C.  onnxsim + onnxoptimizer (static graph simplification)</text>
   <text x="28" y="183" font-size="10.5" fill="#0d47a1">D.  neural-compressor (Intel) for quantization comparison  →  record best latency, accuracy, config</text>
-  <!-- Arrow 2→3 -->
   <line x1="350" y1="192" x2="350" y2="214" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-res)"/>
   <!-- PHASE 3 — GAP DIAGNOSIS -->
   <rect x="10" y="216" width="680" height="115" rx="8" fill="#e8f5e9" stroke="#388e3c" stroke-width="1.5"/>
@@ -2892,7 +2957,6 @@ Rule: W8A8 QDQ on GPU EP hangs — skip quantization immediately for GPU targets
   <text x="350" y="234" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">PHASE 3 — GAP DIAGNOSIS</text>
   <text x="28" y="260" font-size="10.5" fill="#1b5e20">For each gap (external better than winml): diff ONNX graphs · read ORT source · check capability registry · check Olive recipe</text>
   <text x="28" y="278" font-size="10" fill="#2e7d32">Classify as one of:</text>
-  <!-- Gap type pills -->
   <rect x="28" y="286" width="130" height="18" rx="4" fill="#ffebee"/><text x="93" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#c62828">MISSING_CAPABILITY</text>
   <rect x="168" y="286" width="110" height="18" rx="4" fill="#fff3e0"/><text x="223" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#e65100">WRONG_DEFAULT</text>
   <rect x="288" y="286" width="50" height="18" rx="4" fill="#fce4ec"/><text x="313" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#880e4f">BUG</text>
@@ -2900,7 +2964,6 @@ Rule: W8A8 QDQ on GPU EP hangs — skip quantization immediately for GPU targets
   <rect x="478" y="286" width="105" height="18" rx="4" fill="#e8eaf6"/><text x="530" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#283593">EP_LIMITATION</text>
   <rect x="593" y="286" width="95" height="18" rx="4" fill="#f3e5f5"/><text x="640" y="299" text-anchor="middle" font-size="9" font-weight="700" fill="#4a148c">KNOWN_TRADEOFF</text>
   <text x="28" y="322" font-size="10" fill="#1b5e20" font-style="italic">a. Diff graphs  b. ORT source  c. winml capability registry (missing? disabled? wired wrong?)  d. Olive recipe flags/params</text>
-  <!-- Arrow 3→4 -->
   <line x1="350" y1="331" x2="350" y2="353" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-res)"/>
   <!-- PHASE 4 — NATIVE STACK VALIDATION -->
   <rect x="10" y="355" width="680" height="90" rx="8" fill="#fff3e0" stroke="#f57c00" stroke-width="1.5"/>
@@ -2910,7 +2973,6 @@ Rule: W8A8 QDQ on GPU EP hangs — skip quantization immediately for GPU targets
   <text x="28" y="399" font-size="10.5" fill="#bf360c">●  winml-cli test suite: any reference models of this arch in tests/models/?</text>
   <text x="28" y="414" font-size="10.5" fill="#bf360c">●  Windows AI Studio / WinML model zoo: listed? at what performance?</text>
   <text x="28" y="429" font-size="10.5" fill="#bf360c">●  QNN SDK reference benchmarks (if QNN EP): does vendor claim better numbers?</text>
-  <!-- Arrow 4→5 -->
   <line x1="350" y1="445" x2="350" y2="467" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-res)"/>
   <!-- PHASE 5 — WORK ITEMS -->
   <rect x="10" y="469" width="680" height="56" rx="8" fill="#ede7f6" stroke="#7b1fa2" stroke-width="1.5"/>
