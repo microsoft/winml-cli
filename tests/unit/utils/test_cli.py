@@ -109,3 +109,22 @@ class TestPrecisionOption:
         result = CliRunner().invoke(self._make_cmd(), ["--precision", "bf16"])
         assert result.exit_code == 0
         assert result.output.strip() == "bf16"
+
+    def test_default_none(self) -> None:
+        """default=None (e.g. quantize) yields no value when the flag is omitted."""
+        result = CliRunner().invoke(self._make_cmd(default=None), [])
+        assert result.exit_code == 0
+        assert result.output.strip() == ""
+
+    def test_help_text_override_replaces_base(self) -> None:
+        """help_text replaces the default float+int help; optional_message still appends."""
+        cmd = self._make_cmd(
+            help_text="Quantization precision: int8, int16",
+            optional_message="Overridden by --weight-type",
+        )
+        result = CliRunner().invoke(cmd, ["--help"])
+        # Collapse whitespace so wrapped help lines compare as one string.
+        flat = " ".join(result.output.split())
+        assert "Quantization precision: int8, int16" in flat
+        assert "Overridden by --weight-type" in flat
+        assert "fp16" not in flat  # base float help is gone
