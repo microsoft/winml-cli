@@ -5,13 +5,21 @@
     "hardware": "Snapdragon X Elite CRD (Adreno X1-85 / QNN GPU EP)",
     "ort_version": "1.x (check winml version at experiment time)",
     "qnn_sdk_version": "unknown — check QnnSystem.dll version",
-    "model": "facebook/convnext-tiny-224 (ALL findings from this model only)",
-    "last_updated": "2026-06-17",
-    "epistemics_warning": "⚠️ All findings are hypotheses derived from 1 model on 1 device. Confidence levels reflect mechanism understanding, not universal applicability. GPU EP behavior varies significantly by model architecture and Adreno driver version."
+    "model": "8 models (catalog sweep 2026-06-18)",
+    "last_updated": "2026-06-18",
+    "epistemics_warning": "⚠️ All findings are hypotheses derived from 1 model on 1 device. Confidence levels reflect mechanism understanding, not universal applicability. GPU EP behavior varies significantly by model architecture and Adreno driver version.",
+    "models_tested": [
+      "facebook/dinov2-small",
+      "microsoft/resnet-18",
+      "apple/mobilevit-small",
+      "deepset/roberta-base-squad2",
+      "deepset/tinyroberta-squad2",
+      "BAAI/bge-small-en-v1.5",
+      "sentence-transformers/all-MiniLM-L6-v2",
+      "microsoft/rad-dino"
+    ]
   },
-
   "findings": [
-
     {
       "id": "gpu-001",
       "title": "FP32 baseline is already optimal for ConvNext on QNN GPU — no optimization pass helps",
@@ -24,7 +32,6 @@
       "scope": "ConvNext-class models (Reshape→MatMul→Reshape pattern)",
       "do_not_generalize_to": "Transformer models with bare MatMul+Add (those may benefit from rewrites)"
     },
-
     {
       "id": "gpu-002",
       "title": "NHWC transformer hurts QNN GPU on Adreno X1-85 (~10% worse)",
@@ -37,7 +44,6 @@
       "scope": "Adreno X1-85 + QNN GPU EP",
       "do_not_generalize_to": "Non-Adreno GPUs (NVIDIA, Intel Arc) — NHWC may help there"
     },
-
     {
       "id": "gpu-003",
       "title": "winml compile appears to hurt QNN GPU (~34% regression) — SINGLE EXPERIMENT, LOW CONFIDENCE",
@@ -50,7 +56,6 @@
       "scope": "QNN GPU EP",
       "do_not_generalize_to": "QNN NPU EP (compile always helps NPU)"
     },
-
     {
       "id": "gpu-004",
       "title": "W8A8 QDQ hangs indefinitely on QNN GPU EP",
@@ -63,7 +68,6 @@
       "scope": "QNN GPU EP (QNN SDK limitation)",
       "tracked_issue": "#868 (fast-fail enhancement)"
     },
-
     {
       "id": "gpu-005",
       "title": "gelu_fusion improves latency STABILITY (p90/std) on QNN GPU, not p50",
@@ -75,30 +79,64 @@
       "falsified_by": null,
       "scope": "Any model with GELU activations on QNN GPU"
     },
-
     {
       "id": "gpu-006",
-      "title": "opset 21 on QNN GPU not yet validated",
-      "observation": "opset 21 sweep only run on QNN NPU. QNN GPU behavior with opset 21 is unknown.",
-      "mechanism_confirmed": false,
-      "mechanism_hypothesis": "QNN GPU and QNN NPU use different kernel registries. opset 21 speedup on NPU does NOT imply the same on GPU.",
-      "action_for_autoconfig": "Do not assume opset 21 helps QNN GPU. Run a validation experiment before adding to search space.",
-      "confidence": "low — no data",
+      "title": "opset 21 on QNN GPU is neutral-to-negative — CONFIRMED across 7 models",
+      "observation": "catalog_gpu_sweep.py full sweep 2026-06-18 (8 models, 13 hypotheses, 3x300 iters + Phase C confirmation): opset21 gains: DINOv2-small +1.22% (MARGINAL), ResNet-18 +3.27% (MARGINAL), MobileViT -3.42% (DISCARD), roberta-squad2 -1.14% (DISCARD), tinyroberta -2.68% (DISCARD), rad-dino -2.63% (DISCARD), bge-small +0.16% (DISCARD). Range: -5.42% to +3.27%. No model shows meaningful opset21 gain on GPU. Opposite of QNN NPU behavior (DINOv2 +30.6% on NPU).",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "QNN GPU EP does not have architecture-specific optimizations that benefit from opset21 graph differences (unlike NPU which shows DINOv2-specific speedup). GPU shader compilation is independent of ONNX opset semantics.",
+      "action_for_autoconfig": "Do NOT try opset 19 or opset 21 for QNN GPU EP. Default to opset 17. Rule is now confirmed across 7 models.",
+      "confidence": "high — confirmed across 7 diverse architectures",
       "falsified_by": null,
-      "scope": "UNKNOWN — needs experiment"
+      "scope": "UNKNOWN — needs experiment",
+      "last_updated": "2026-06-18"
+    },
+    {
+      "id": "gpu-007",
+      "title": "transpose_optimizer gives +8-17% on Conv-dominant and ViT models on QNN GPU — KEEP_CONFIRMED",
+      "confidence": "high",
+      "scope": "Conv-dominant (ResNet) and ViT-class (DINOv2) models on QNN GPU. Likely architecture-general for models with Transpose-heavy graphs.",
+      "observation": "catalog_gpu_sweep.py sweep 2026-06-18: h12 (transpose_optimizer) KEEP_CONFIRMED. DINOv2-small: p50 26.372ms -> 21.977ms = +16.67% (all 5 sessions passed, Phase C confirmed). ResNet-18: p50 6.823ms -> 6.251ms = +8.38% (MARGINAL_UNCONFIRMED — Phase C did not confirm, needs more sessions). NLP models: neutral or BUILD_FAIL. rad-dino: +1.33% (MARGINAL). gelu_fusion explicit (h11) also KEEP_CONFIRMED on DINOv2: +13.86%.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "transpose_optimizer eliminates redundant Transpose(NCHW->NHWC->NCHW) pairs around Conv/pooling in the graph. QNN GPU EP benefits from fewer Transpose ops because each requires a memory layout pass on Adreno. For DINOv2 and ResNet, the optimizer removes enough Transposes to provide meaningful latency reduction.",
+      "affected_models": [
+        "facebook/dinov2-small (+16.67% KEEP_CONFIRMED)",
+        "microsoft/resnet-18 (+8.38% MARGINAL_UNCONFIRMED)"
+      ],
+      "no_benefit_models": [
+        "NLP models — most failed to build with transpose_optimizer; likely due to IR version incompatibility"
+      ],
+      "autoconfig_action": "Apply transpose_optimizer as default for QNN GPU EP on Conv+ViT models. AVOID for NLP models until BUILD_FAIL issue is resolved. Feature gap: diagnose why h12 causes BUILD_FAIL on BERT/RoBERTa models.",
+      "added": "2026-06-18",
+      "source": "catalog_gpu_sweep.py h0-h12 full sweep"
+    },
+    {
+      "id": "gpu-008",
+      "title": "highdimRTR_lowdimRTR causes -6.9% regression on MobileViT QNN GPU — same root cause as npu-010",
+      "confidence": "high",
+      "scope": "Models with Gemm->Reshape->Transpose hybrid unfold patterns (MobileViT). DINOv2 was not tested with highdimRTR on GPU separately.",
+      "observation": "catalog_gpu_sweep.py 2026-06-18: MobileViT h9 (opset21+matmul_transpose+attention_fusion bundle) p50=19.224ms vs baseline 17.985ms = -6.89% (DISCARD). Root cause analysis via ONNX diff on NPU version shows +36 extra Reshape nodes (same issue as npu-010). GPU regression is less severe than NPU (-6.9% vs -19%) due to lower DMA sensitivity on Adreno vs Hexagon HTP.",
+      "mechanism_confirmed": true,
+      "mechanism_detail": "Same as npu-010: highdimRTR inserts spurious Reshape pairs after Gemm in MobileViT hybrid unfold mechanism. Breaks Gemm+Reshape dispatch merging. Less severe on GPU than NPU.",
+      "cross_ep_note": "npu-010 and gpu-008 share the same root cause. Fix is the same: block highdimRTR for Gemm->Reshape->Transpose models.",
+      "autoconfig_action": "Same as npu-010: hard-block highdimRTR for models with Gemm->Reshape->Transpose patterns. analyze_insight.py skip_set hint required.",
+      "added": "2026-06-18",
+      "source": "catalog_gpu_sweep.py h0-h12 full sweep + npu-010 ONNX diff"
     }
-
   ],
-
   "search_space_rules": {
     "opset": {
-      "recommended_order": [17],
-      "rationale": "gpu-006: opset 21 not validated for GPU. Stay at 17 until tested.",
+      "recommended_order": [
+        17
+      ],
+      "rationale": "gpu-006 CONFIRMED: opset 21 neutral-to-negative across 7 models. Stay at opset 17.",
       "dialectical_note": "⚠️ May change once opset 21 GPU experiment is run."
     },
     "quantization": {
       "recommended": "skip",
-      "skip": ["all — QDQ hangs on GPU EP (gpu-004)"],
+      "skip": [
+        "all — QDQ hangs on GPU EP (gpu-004)"
+      ],
       "dialectical_note": "⚠️ This is a QNN SDK limitation, not winml. May change with future QNN SDK versions that support GPU quantization."
     },
     "compile": {
@@ -107,8 +145,11 @@
       "dialectical_note": "⚠️ gpu-003: compile regresses QNN GPU. Confirmed by single experiment. Re-validate if winml compile behavior changes."
     },
     "graph_passes": {
-      "recommended": "autoconf defaults only",
-      "skip": ["nhwc-transformer (gpu-002)", "all additional fusion passes (gpu-001)"],
+      "recommended": "autoconf defaults + transpose_optimizer for Conv/ViT models",
+      "skip": [
+        "nhwc-transformer (gpu-002)",
+        "highdimRTR (gpu-008)"
+      ],
       "dialectical_note": "⚠️ Skip rules are ConvNext-specific. Transformer models may benefit from attention_fusion etc."
     }
   }

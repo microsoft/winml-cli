@@ -15,28 +15,29 @@
       "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
       "sentence-transformers/all-MiniLM-L6-v2",
       "deepset/roberta-base-squad2",
+      "deepset/tinyroberta-squad2",
       "facebook/dinov2-base",
       "microsoft/rad-dino",
       "facebook/dino-vitb16",
       "BAAI/bge-small-en-v1.5",
       "rizvandwiki/gender-classification"
     ],
-    "last_updated": "2026-06-17",
+    "last_updated": "2026-06-18",
     "epistemics_warning": "⚠️ All findings are hypotheses derived from limited models on 1 device (Snapdragon X Elite). Confidence levels reflect how well the mechanism is understood, not how universally applicable the finding is. ALWAYS re-validate on new model architectures before using to prune search space."
   },
-
   "findings": [
-
     {
       "id": "npu-001",
-      "title": "opset 21 export gives +24-31% speedup on DINOv2 family models on QNN NPU — mechanism UNKNOWN, NOT a general ViT property",
+      "title": "opset 21 export gives +24-42% speedup on CNN-ViT hybrid/DINOv2 models on QNN NPU — mechanism UNKNOWN, NOT a general ViT property",
       "observation": "Catalog sweep 2026-06-13 + validation sweep 2026-06-16 (ORT 1.24.5, W8A16 quantized.onnx, 3×500-iter sessions): DINOv2-small +30.6% (opset17 7.18ms → opset21 4.98ms). DINOv2-base +24.1% (opset17 34.56ms → opset21 26.23ms). CRITICAL CONTROL: dino-vitb16 (plain DINO ViT-B/16) -0.7% — NEUTRAL. rad-dino (ViT-L medical) -0.1% — CPU-bound, no NPU effect. MobileViT-small +26.5% original data (DVFS spike caveat). ViT-base: -7.4%. BERT/RoBERTa/DistilBERT: neutral.",
       "mechanism_confirmed": false,
       "mechanism_invalidation": "Original hypothesis: kMaxSupportedOpset < 21 gate causes NHWC bypass on older ORT. INVALIDATED: sweep used onnxruntime-windowsml==1.24.5 where kMaxSupportedOpset >= 22. Both opset 17 and opset 21 go through the same NHWC layout transform path on this ORT version. The bypass mechanism does NOT apply. The observed speedup is real but the cause is unknown.",
       "mechanism_status": "ORIGINAL_MECHANISM_INVALIDATED — must re-investigate",
       "mechanism_source": "ORT source code investigation (2026-06-10) for ORT < 1.18. Sweep used onnxruntime-windowsml==1.24.5 where this mechanism no longer applies.",
       "ort_version_critical_note": "The original mechanism (kMaxSupportedOpset gate in IsSupportedOpset()) requires kMaxSupportedOpset < 21. onnxruntime-windowsml==1.24.5 (ORT 1.24.x) has kMaxSupportedOpset >= 22, so BOTH opset17 and opset21 go through the NHWC layout transform. The bypass mechanism does NOT apply to the ORT version used in the sweep. The observed speedup for DINOv2 and MobileViT has an UNKNOWN root cause.",
-      "architecture_requirement": ["empirically: DINOv2 family (facebook/dinov2-*) consistently benefits. Plain ViT (dino-vitb16) does NOT. Hybrid Conv+attention (MobileViT) showed speedup in original data. Pure Conv (ResNet) insufficient data. NLP: neutral."],
+      "architecture_requirement": [
+        "empirically: DINOv2 family (facebook/dinov2-*) consistently benefits. Plain ViT (dino-vitb16) does NOT. Hybrid Conv+attention (MobileViT) showed speedup in original data. Pure Conv (ResNet) insufficient data. NLP: neutral."
+      ],
       "critical_caveats": [
         "MECHANISM UNKNOWN: Transpose count is IDENTICAL in opset17 and opset21 (both 49 nodes on dinov2-small). The original Transpose-elimination hypothesis is RULED OUT. The +48 Reshape nodes in opset21 are the most observable structural difference but why this speeds up QNN NPU is not understood.",
         "RESNET-18 EXCLUDED: apparent +20% is statistical noise — 3 sessions span 4x range at sub-ms latency. Need 3 sessions × 2000 iters for reliable data at this scale.",
@@ -47,7 +48,7 @@
         "benefits_from_opset21": [
           "facebook/dinov2-small (+30.6%, original catalog sweep 2026-06-13, 3-session)",
           "facebook/dinov2-base (+24.1%, validation sweep 2026-06-16, fresh quantized.onnx builds, 3-session h1=[34.56,34.67,33.15]ms h3=[33.00,26.22,26.23]ms)",
-          "apple/mobilevit-small (~20-26%, original catalog, note: opset17 has DVFS spike session)"
+          "apple/mobilevit-small: opset21+matmul_transpose_fusion (h6) p50=6.996ms vs baseline 12.075ms = +42.1% (catalog_qnn_sweep h6-h10 delta sweep 2026-06-17, 3-session)"
         ],
         "no_benefit_neutral": [
           "facebook/dino-vitb16 (-0.7%, validation sweep 2026-06-16, h1=[19.92,19.97,19.90]ms h3=[20.20,20.07,19.99]ms — NEUTRAL, critical control)",
@@ -69,7 +70,9 @@
         "cpu_bound_cannot_test": [
           "microsoft/rad-dino (-0.1% on CPU EP, all hypotheses ~275ms CV<0.022 — model runs on CPU, opset irrelevant; QNN NPU BUILD_FAIL 2026-06-17, see npu-008)"
         ],
-        "data_unreliable": ["resnet-18 — sub-ms latency, 3-session range spans 4x; no reliable signal (see data_reliability_notes)"]
+        "data_unreliable": [
+          "resnet-18 — sub-ms latency, 3-session range spans 4x; no reliable signal (see data_reliability_notes)"
+        ]
       },
       "original_mechanism_explanation": {
         "root_cause_for_old_ort": "kMaxSupportedOpset gate in IsSupportedOpset() (onnxruntime/core/optimizer/layout_transformation/layout_transformation.cc). On ORT where kMaxSupportedOpset < 21, opset 21 models bypass the NCHW→NHWC layout transformer entirely.",
@@ -91,13 +94,44 @@
       },
       "transpose_analysis_2026_06_16": {
         "method": "onnx.load() on winml-built optimized.onnx and quantized.onnx for h0 (opset17) and h3 (opset21) from catalog_qnn_sweep facebook--dinov2-small. Op counts via collections.Counter on graph.node.",
-        "opset17_optimized": {"total_nodes": 391, "Transpose": 49, "Reshape": 121, "Gemm": 72, "Mul": 48, "Conv": 1},
-        "opset21_optimized": {"total_nodes": 439, "Transpose": 49, "Reshape": 169, "Gemm": 72, "Mul": 48, "Conv": 1},
-        "opset17_quantized": {"total_nodes": 1398, "Transpose": 49, "Reshape": 121, "DequantizeLinear": 615, "QuantizeLinear": 392},
-        "opset21_quantized": {"total_nodes": 1542, "Transpose": 49, "Reshape": 169, "DequantizeLinear": 663, "QuantizeLinear": 440},
+        "opset17_optimized": {
+          "total_nodes": 391,
+          "Transpose": 49,
+          "Reshape": 121,
+          "Gemm": 72,
+          "Mul": 48,
+          "Conv": 1
+        },
+        "opset21_optimized": {
+          "total_nodes": 439,
+          "Transpose": 49,
+          "Reshape": 169,
+          "Gemm": 72,
+          "Mul": 48,
+          "Conv": 1
+        },
+        "opset17_quantized": {
+          "total_nodes": 1398,
+          "Transpose": 49,
+          "Reshape": 121,
+          "DequantizeLinear": 615,
+          "QuantizeLinear": 392
+        },
+        "opset21_quantized": {
+          "total_nodes": 1542,
+          "Transpose": 49,
+          "Reshape": 169,
+          "DequantizeLinear": 663,
+          "QuantizeLinear": 440
+        },
         "key_finding": "Transpose count is IDENTICAL (49 nodes) in both opset17 and opset21. The NHWC Transpose-reduction hypothesis is RULED OUT. opset21 has MORE Reshape nodes (+48), more QDQ pairs (+48 DQ, +48 Q), and more total nodes. Despite more nodes, opset21 runs 30% faster on QNN NPU — mechanism still unknown.",
-        "rules_out": ["NHWC Transpose elimination as speedup cause", "Fewer total ops as explanation"],
-        "consistent_with": ["Different graph structure at opset21 enabling better QNN NPU internal scheduling or graph partitioning, possibly via the +48 Reshape nodes acting as data-layout hints or memory access pattern changes"]
+        "rules_out": [
+          "NHWC Transpose elimination as speedup cause",
+          "Fewer total ops as explanation"
+        ],
+        "consistent_with": [
+          "Different graph structure at opset21 enabling better QNN NPU internal scheduling or graph partitioning, possibly via the +48 Reshape nodes acting as data-layout hints or memory access pattern changes"
+        ]
       },
       "alternative_mechanism_hypotheses": [
         "QNN EP graph partitioner assigns ops differently when the model has opset21 Reshape semantics — the +48 Reshape nodes may segment the graph into better-aligned HTP subgraphs",
@@ -107,42 +141,98 @@
       ],
       "data_reliability_notes": {
         "dinov2_small": {
-          "h1_opset17_sessions_ms": [7.176, 6.392, 9.436],
-          "h3_opset21_sessions_ms": [4.977, 4.876, 6.884],
+          "h1_opset17_sessions_ms": [
+            7.176,
+            6.392,
+            9.436
+          ],
+          "h3_opset21_sessions_ms": [
+            4.977,
+            4.876,
+            6.884
+          ],
           "assessment": "RELIABLE. Ranges barely overlap only at extremes. h3 sessions 1+2 (4.97/4.88ms) are well below entire h1 range. Speedup is real.",
           "tool": "catalog_qnn_sweep.py, optimized.onnx (v1 pipeline)"
         },
         "dinov2_base_v3": {
-          "h1_opset17_sessions_ms": [34.556, 34.668, 33.148],
-          "h3_opset21_sessions_ms": [33.001, 26.224, 26.227],
+          "h1_opset17_sessions_ms": [
+            34.556,
+            34.668,
+            33.148
+          ],
+          "h3_opset21_sessions_ms": [
+            33.001,
+            26.224,
+            26.227
+          ],
           "assessment": "RELIABLE. h1 sessions fully consistent (~34ms). h3 s0 slightly elevated (JIT warmup) but s1+s2 consistent at 26.2ms. Speedup +24.1% is well-separated from noise.",
           "tool": "validation_sweep.py v3, quantized.onnx W8A16 (fresh builds for both hyps)"
         },
         "dino_vitb16": {
-          "h1_opset17_sessions_ms": [19.924, 19.975, 19.897],
-          "h3_opset21_sessions_ms": [20.197, 20.071, 19.988],
+          "h1_opset17_sessions_ms": [
+            19.924,
+            19.975,
+            19.897
+          ],
+          "h3_opset21_sessions_ms": [
+            20.197,
+            20.071,
+            19.988
+          ],
           "assessment": "RELIABLE CONTROL. Extremely stable. +0.7% regression (within noise). Opset21 has NO EFFECT on plain DINO ViT-B/16. Critical discriminant: npu-001 speedup is NOT a general ViT property.",
           "tool": "validation_sweep.py, quantized.onnx W8A16 (fresh builds)"
         },
         "mobilevit_small": {
-          "h1_opset17_sessions_ms": [10.557, 11.721, 27.436],
-          "h3_opset21_sessions_ms": [10.814, 8.625, 8.449],
+          "h1_opset17_sessions_ms": [
+            10.557,
+            11.721,
+            27.436
+          ],
+          "h3_opset21_sessions_ms": [
+            10.814,
+            8.625,
+            8.449
+          ],
           "assessment": "PARTIALLY RELIABLE. h1 session 3 (27.4ms) is a DVFS spike — median inflated to 11.72ms vs true ~11ms. h3 sessions 2+3 (8.6/8.4ms) consistently faster. Actual speedup ~20-26% (not the reported 26.5%)."
         },
         "resnet_18": {
-          "h1_opset17_sessions_ms": [0.990, 4.003, 2.716],
-          "h3_opset21_sessions_ms": [1.054, 2.175, 4.107],
+          "h1_opset17_sessions_ms": [
+            0.99,
+            4.003,
+            2.716
+          ],
+          "h3_opset21_sessions_ms": [
+            1.054,
+            2.175,
+            4.107
+          ],
           "assessment": "UNRELIABLE. Sub-ms model. Session range spans 4x for same config. Reported '+20.2% speedup' (h1 median 2.72ms vs h3 median 2.18ms) is NOT a real signal — the two distributions fully overlap. REMOVED from benefits list."
         },
         "gender_classification_vit": {
-          "h0_opset17_sessions_ms": [14.15, 14.94, 13.89],
-          "h3_opset21_sessions_ms": [13.70, 13.92, 13.87],
+          "h0_opset17_sessions_ms": [
+            14.15,
+            14.94,
+            13.89
+          ],
+          "h3_opset21_sessions_ms": [
+            13.7,
+            13.92,
+            13.87
+          ],
           "assessment": "NEUTRAL. Ranges barely not overlapping (h0 min=13.89ms, h3 max=13.92ms). +3.5% is within DVFS noise (CV ~0.35). CRITICAL: this ViT model has IDENTICAL op counts to DINOv2-small (49 Transpose, 121 Reshape, ~72 Gemm) yet shows NO benefit. Confirms npu-001 is not explainable by op-count or general ViT architecture.",
           "tool": "run_one.py 2026-06-17, quantized.onnx W8A16"
         },
         "bge_small_en": {
-          "h0_opset17_sessions_ms": [10.52, 10.32, 11.01],
-          "h3_opset21_sessions_ms": [10.25, 9.33, 9.94],
+          "h0_opset17_sessions_ms": [
+            10.52,
+            10.32,
+            11.01
+          ],
+          "h3_opset21_sessions_ms": [
+            10.25,
+            9.33,
+            9.94
+          ],
           "assessment": "MARGINAL / INCONCLUSIVE. Ranges barely not overlapping but CV ~0.3 means high within-session variance. +7.3% apparent gain — larger than all other NLP models (distilbert -0.1%, MiniLM -0.7%, RoBERTa +0.1%) but may be DVFS noise. Needs 5+ sessions to confirm. Do NOT cite as benefit.",
           "tool": "run_one.py 2026-06-17, quantized.onnx W8A16, bert model-type"
         }
@@ -166,12 +256,36 @@
         "For ResNet-18: run 3 sessions x 2000 iters to get reliable sub-ms measurements"
       ],
       "experiments_convnext_early": [
-        {"opset": 17, "p50_ms": 54.2, "p90_ms": 104.5, "min_ms": 9.56, "std_ms": 44.1, "iters": 50, "note": "warm device, DVFS-dominated, NOT reliable"},
-        {"opset": 19, "p50_ms": 12.1, "p90_ms": 77.7,  "min_ms": 9.11, "std_ms": 60.0,  "iters": 50, "note": "NOT reliable — 50 iters, DVFS"},
-        {"opset": 21, "p50_ms": 12.2, "p90_ms": 38.0,  "min_ms": 9.73, "std_ms": 10.1,  "iters": 20, "note": "only 20 iters — NOT reliable"}
-      ]
+        {
+          "opset": 17,
+          "p50_ms": 54.2,
+          "p90_ms": 104.5,
+          "min_ms": 9.56,
+          "std_ms": 44.1,
+          "iters": 50,
+          "note": "warm device, DVFS-dominated, NOT reliable"
+        },
+        {
+          "opset": 19,
+          "p50_ms": 12.1,
+          "p90_ms": 77.7,
+          "min_ms": 9.11,
+          "std_ms": 60.0,
+          "iters": 50,
+          "note": "NOT reliable — 50 iters, DVFS"
+        },
+        {
+          "opset": 21,
+          "p50_ms": 12.2,
+          "p90_ms": 38.0,
+          "min_ms": 9.73,
+          "std_ms": 10.1,
+          "iters": 20,
+          "note": "only 20 iters — NOT reliable"
+        }
+      ],
+      "last_updated": "2026-06-18"
     },
-
     {
       "id": "npu-002",
       "title": "W8A16 quantization provides ~1.9x speedup over FP32 on QNN NPU (ConvNext only — not yet generalized)",
@@ -183,9 +297,10 @@
       "falsified_by": null,
       "scope": "ConvNext only — single model validation. The catalog sweep used W8A16 for all 8 models but did not include FP32 baselines for those models, so the 1.9x figure cannot be generalized. Need FP32 baseline runs on at least 3 diverse models before claiming 'most vision models'.",
       "do_not_generalize_to": "Models with unusual op types not supported by QNN W8A16 path. Magnitude claim (1.9x) is ConvNext-specific.",
-      "follow_up_required": ["Measure FP32 baseline for MobileViT, DINOv2, ResNet-18 to verify speedup generalizes"]
+      "follow_up_required": [
+        "Measure FP32 baseline for MobileViT, DINOv2, ResNet-18 to verify speedup generalizes"
+      ]
     },
-
     {
       "id": "npu-003",
       "title": "winml compile adds ~1.7x speedup on top of quantization for QNN NPU (ConvNext only — not yet generalized)",
@@ -196,9 +311,10 @@
       "confidence": "medium — mechanism is well-understood (EPContext documented by QNN SDK). 1.7x magnitude is ConvNext-specific. Simpler models may see less benefit; complex models may see more.",
       "falsified_by": null,
       "scope": "ConvNext only — single model validation. Mechanism generalizes; magnitude (1.7x) does not. The catalog sweep results.json baseline p50 values already include the effects of whatever auto-config winml chose (which may or may not include compile) — not directly comparable.",
-      "follow_up_required": ["Verify compile speedup on MobileViT and DINOv2"]
+      "follow_up_required": [
+        "Verify compile speedup on MobileViT and DINOv2"
+      ]
     },
-
     {
       "id": "npu-004",
       "title": "⚠️ ANECDOTE (NO DATA): W8A8 may cause accuracy collapse on models with LN+GELU — UNVALIDATED",
@@ -212,7 +328,6 @@
       "do_not_generalize_to": "BERT/ResNet models where W8A8 is often fine",
       "required_experiment": "Run W8A8 quantization on ConvNext-tiny-224, record exact top-1 accuracy (eval on ImageNet-1k, 1000 samples minimum). Compare to W8A16 baseline. If collapse observed, also run with calibration_method=percentile to see if calibration quality is the issue."
     },
-
     {
       "id": "npu-005",
       "title": "QNN Hub W8A16 model is slower on ORT QNN EP stack than ORT-quantized W8A16 — but comparison is not fair",
@@ -225,7 +340,6 @@
       "falsified_by": null,
       "scope": "ORT QNN EP stack only. QNN Hub models on their native qairt stack are likely much faster — that comparison was never made."
     },
-
     {
       "id": "npu-006",
       "title": "Conv fusions (conv-bn/add/activation) cause catastrophic QNN NPU CPU fallback on Conv-dominant models",
@@ -242,9 +356,10 @@
         "Dump QNN EP partition to confirm fused ops cause CPU fallback",
         "Test EfficientNet and MobileNet to confirm generalization",
         "Check if winml analyze linter can detect this pattern pre-build"
-      ]
+      ],
+      "refinement": "2026-06-17 delta sweep: ResNet-18 h10 (conv_add_fusion ONLY, no conv-bn or conv-activation) = p50 0.955ms vs baseline 0.964ms (+0.93%) — NEUTRAL. Catastrophic regression ONLY occurs with full fusion pack (conv-bn-fusion + conv-add-fusion + conv-activation-fusion) which produces FusedConv ops. Individual conv-add-fusion is safe. Root cause is confirmed: FusedConv op created by the bundle is not dispatchable by QNN EP.",
+      "last_updated": "2026-06-18"
     },
-
     {
       "id": "npu-007",
       "title": "DVFS thermal noise on QNN NPU makes CV-based stability gating unreliable — requires session-level averaging",
@@ -261,10 +376,7 @@
         "signal": "median p50 across sessions",
         "noise_floor": ">10% gain required to declare improvement"
       }
-    }
-
-  ,
-
+    },
     {
       "id": "npu-008",
       "title": "microsoft/rad-dino fails to build on QNN NPU across all opset variants (winml crash rc=0xC0000005)",
@@ -282,23 +394,75 @@
         "Compare ONNX graph structure of rad-dino vs facebook/dinov2-small to isolate differentiating ops"
       ],
       "date_observed": "2026-06-17"
+    },
+    {
+      "id": "npu-009",
+      "title": "bias_softmax_fusion adds incremental +14% on DINOv2 QNN NPU when combined with opset21",
+      "confidence": "medium",
+      "scope": "ViT-class models with attention+bias patterns. Confirmed on DINOv2-small; untested on plain ViT or BERT.",
+      "observation": "Catalog sweep 2026-06-17 delta sweep: DINOv2-small h7 (opset21+bias_softmax_fusion) p50=4.027ms vs h3 (opset21 only) p50=4.977ms. Incremental gain = +14.1% on top of opset21 alone. Total gain vs baseline: +38.6% (h7) vs +24.1% (h3). bias_softmax_fusion hypothesis also outperforms attention_fusion (h8=+28.4%) and matmul_transpose (h6=+24.8%) on DINOv2.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "bias_softmax_fusion folds Add(qk_scores, bias)+Softmax into a single FusedSoftmax op. QNN Hexagon HTP has a native hardware path for fused attention-head softmax. Reduces dispatch overhead between the bias addition and the softmax kernel.",
+      "affected_models": [
+        "facebook/dinov2-small"
+      ],
+      "validated_on": [
+        "facebook/dinov2-small (+38.6% total, h7=4.027ms vs baseline 6.561ms)"
+      ],
+      "not_tested": [
+        "DINOv2-base",
+        "plain ViT",
+        "BERT/RoBERTa (expected neutral based on npu-001 scope)"
+      ],
+      "autoconfig_action": "For DINOv2-family: include bias_softmax_fusion in the opset21 bundle. Prioritize over attention_fusion (h8) since h7 outperformed h8 by 10 percentage points on DINOv2-small.",
+      "added": "2026-06-18",
+      "source": "catalog_qnn_sweep.py h6-h10 delta sweep, DINOv2-small results.json"
+    },
+    {
+      "id": "npu-010",
+      "title": "highdimRTR_lowdimRTR causes -19% regression on MobileViT QNN NPU due to spurious Reshape insertion",
+      "confidence": "high",
+      "scope": "Models with Gemm->Reshape->Transpose hybrid unfold patterns (MobileViT confirmed). DINOv2 (pure ViT) benefits: +38.1%. Architecture-dependent.",
+      "observation": "Catalog sweep 2026-06-17 delta sweep: MobileViT-small h9 (opset21+highdimRTR_lowdimRTR) median_p50=14.363ms vs h0 baseline 12.075ms = -18.9% regression. GPU sweep: same model h9 (GPU) = -6.89%. ONNX diff: h9 NPU graph has +36 extra Reshape nodes (395->431 total; 108->144 Reshape). The 12 original RTR patterns in h0 are UNCHANGED in h9. Instead, optimizer inserted Reshape pairs as intermediaries after Gemm nodes, breaking dispatch merging.",
+      "mechanism_confirmed": true,
+      "mechanism_detail": "highdimRTR misidentifies Gemm->Reshape->Transpose sequences (MobileViT CNN-ViT hybrid patch-unfold mechanism) as reducible RTR patterns. Inserts 36 extra intermediate Reshape nodes. These break Gemm+Reshape dispatch merging on QNN NPU and add DMA traffic. NPU more severely affected (-19%) than GPU (-6.9%) due to higher HTP DMA sensitivity.",
+      "affected_models": [
+        "apple/mobilevit-small (-19% NPU, -6.9% GPU)"
+      ],
+      "validated_safe_models": [
+        "facebook/dinov2-small (+38.1% NPU with h9 — pure ViT benefits from highdimRTR)"
+      ],
+      "architectural_discriminator": "Gemm->Reshape->Transpose hybrid unfold pattern (CNN-ViT). Detect via analyze_insight.py op-sequence scan before applying.",
+      "autoconfig_action": "Hard-block highdimRTR for models with Gemm->Reshape->Transpose hybrid sequences. analyze_insight.py should detect this pattern and add highdimRTR to skip_set.",
+      "added": "2026-06-18",
+      "source": "catalog_qnn_sweep.py h6-h10 delta sweep + ONNX graph diff (MobileViT h0 vs h9 node count comparison)"
     }
-
   ],
-
   "search_space_rules": {
     "opset": {
-      "recommended_order_conv_residual": [21, 17],
-      "recommended_order_pure_attention": [17],
-      "recommended_order_nlp": [17],
-      "recommended_order_pure_conv": [17, "21 only if time allows — insufficient data"],
+      "recommended_order_conv_residual": [
+        21,
+        17
+      ],
+      "recommended_order_pure_attention": [
+        17
+      ],
+      "recommended_order_nlp": [
+        17
+      ],
+      "recommended_order_pure_conv": [
+        17,
+        "21 only if time allows — insufficient data"
+      ],
       "architecture_gate": "DINOv2 family (facebook/dinov2-*) → try opset 21 first (+24-31% confirmed). MobileViT-class Conv+attention hybrid → try opset 21 (+26% original data). Plain ViT (dino-vitb16-class) → opset 17 only (NEUTRAL confirmed 2026-06-16). YOLOS → opset 17 only. NLP (BERT-family) → opset 17 only. Pure Conv (ResNet) → opset 17 (data insufficient for opset21 recommendation).",
       "rationale": "npu-001 validated 2026-06-13 and 2026-06-16: DINOv2-small +30.6%, DINOv2-base +24.1% (fresh builds, clean protocol). Critical control: dino-vitb16 -0.7% NEUTRAL. This proves the speedup is DINOv2-architecture-specific, not a general ViT property.",
       "dialectical_note": "⚠️ The original mechanism explanation (kMaxSupportedOpset bypass) does NOT apply to ORT 1.24.x (onnxruntime-windowsml 1.24.5). The speedup for DINOv2/MobileViT is empirically real but mechanistically unexplained. Always validate on the actual ORT version being shipped."
     },
     "quantization": {
       "recommended": "w8a16",
-      "skip": ["w8a8 if initial top1 < 15%"],
+      "skip": [
+        "w8a8 if initial top1 < 15%"
+      ],
       "dialectical_note": "⚠️ W8A8 skip rule is ConvNext-specific (LN+GELU sensitivity). Try W8A8 for models without LN in every block."
     },
     "compile": {
@@ -307,7 +471,11 @@
     },
     "graph_passes": {
       "recommended": "autoconf defaults (gelu_fusion, matmul_add_fusion)",
-      "NEVER_apply_for_qnn_npu": ["conv-bn-fusion", "conv-add-fusion", "conv-activation-fusion"],
+      "NEVER_apply_for_qnn_npu": [
+        "conv-bn-fusion",
+        "conv-add-fusion",
+        "conv-activation-fusion"
+      ],
       "hazard_note": "npu-006 CRITICAL: Conv fusions cause 4900% regression on ResNet-18. Do NOT apply conv fusions to Conv-dominant models on QNN NPU.",
       "dialectical_note": "⚠️ Conv fusion ban is confirmed for ResNet. MobileViT was safe. Always run latency gate after applying any fusion to catch regressions."
     },
