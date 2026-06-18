@@ -9,6 +9,7 @@ Benchmarks model inference performance using WinMLAutoModel and WinMLSession.
 Usage:
     winml perf -m microsoft/resnet-50
     winml perf -m microsoft/resnet-50 --device npu --iterations 100
+    winml perf -m microsoft/resnet-50 --module ResNetConvLayer
     winml perf -m bert-base-uncased --task text-classification
 """
 
