@@ -283,7 +283,7 @@ def make_hypothesis_config(
 
 
 def run_build(model_id: str, cfg_path: Path, out_dir: Path) -> tuple[bool, str]:
-    """winml build --no-quant --no-compile. Returns (ok, output)."""
+    """winml build --no-quant --no-compile --rebuild. Returns (ok, output)."""
     rc, out, _ = run_cmd(
         [
             WINML,
@@ -300,6 +300,7 @@ def run_build(model_id: str, cfg_path: Path, out_dir: Path) -> tuple[bool, str]:
             DEVICE,
             "--no-quant",
             "--no-compile",
+            "--rebuild",
         ],
         label="winml build",
         timeout=BUILD_TIMEOUT_S,
