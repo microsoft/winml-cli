@@ -47,14 +47,11 @@ console = Console()
     help="Input ONNX model file",
 )
 @cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
-@click.option(
-    "--precision",
-    "-p",
-    type=str,
+@cli_utils.precision_option(
     default=None,
-    help="Quantization precision. Accepted: auto, int8, int16, or w{x}a{y} "
-    "where x,y in {8,16} (e.g., w8a8, w8a16, w16a16). "
-    "Overridden by explicit --weight-type/--activation-type.",
+    help_text="Quantization precision: auto, int8, int16, or w{x}a{y} where "
+    "x,y in {8,16} (e.g., w8a8, w8a16, w16a16)",
+    optional_message="Overridden by explicit --weight-type/--activation-type",
 )
 @click.option(
     "--samples",

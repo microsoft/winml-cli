@@ -226,17 +226,20 @@ class InputValueConstraint(InputConstraint):
 
 
 def normalize_constraint_dict(c: dict) -> dict:
-    """Expand same_value/same_value_shape back to the canonical value list form.
+    """Expand same_value/same_value_shape back to the canonical value array form.
 
     Converts the compact representation produced by InputValueConstraint.to_dict()
-    when all values are equal, back to the full nested value list. Use this when
+    when all values are equal, back to the full nested value array. Use this when
     consuming serialized constraint dicts to ensure consistent handling regardless
     of which representation was saved.
     """
     if "same_value" in c and "same_value_shape" in c:
         normalized = {k: v for k, v in c.items() if k not in ("same_value", "same_value_shape")}
         dtype = np.dtype(c["dtype"]) if "dtype" in c else None
-        normalized["value"] = np.full(c["same_value_shape"], c["same_value"], dtype=dtype).tolist()
+        # Keep the ndarray (do NOT call .tolist()): .tolist() coerces numpy scalars
+        # to Python types (e.g. numpy bool_ -> bool), which loses the original dtype
+        # and breaks faithful restoration of the input value.
+        normalized["value"] = np.full(c["same_value_shape"], c["same_value"], dtype=dtype)
 
         return normalized
     return c
@@ -1550,11 +1553,16 @@ class OpInputGenerator(ABC):
                 print("Running", kwargs_summary)
 
                 for onnx_model, final_tags in self.iter_const_and_dynamic_models(kwargs, tags):
-                    # Check if we should skip this case based on signature (delta/rerun mode)
+                    # Check if we should skip this case based on signature (delta/rerun mode).
+                    # The skip signature does not depend on model_bytes_b64, so serializing
+                    # the model is deferred until we know the case is not discarded.
                     if skip_signature_fn is not None:
                         if skip_signature_fn(final_tags):
                             if yield_skipped:
-                                # Yield skipped case with marker so caller can reuse existing result
+                                # Reused cases still need the model payload for replay.
+                                final_tags["model_bytes_b64"] = model_bytes_to_b64(
+                                    onnx_model.SerializeToString()
+                                )
                                 final_tags["_skipped"] = True
                                 yield final_tags
                             continue
@@ -1564,9 +1572,8 @@ class OpInputGenerator(ABC):
                         continue
 
                     model_bytes = onnx_model.SerializeToString()
-                    if dry_run:
-                        # For dry_run, stash the model bytes in base64 for JSON output/replay.
-                        final_tags["model_bytes_b64"] = model_bytes_to_b64(model_bytes)
+                    # Keep model payload by default so every persisted case can be replayed.
+                    final_tags["model_bytes_b64"] = model_bytes_to_b64(model_bytes)
 
                     qdq_types = final_tags.get(self.qdq_types_key, None)
                     ep_checker_inputs = self.create_input_dict(kwargs, qdq_types=qdq_types)
@@ -1574,7 +1581,7 @@ class OpInputGenerator(ABC):
                     def _dry_run_result() -> dict[str, Any]:
                         return {
                             "result": {
-                                "success": True,
+                                "success": False,
                                 "reason": "not_run",
                             },
                             "stdout": "not run",

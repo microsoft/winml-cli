@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
 from rich.console import Console
@@ -67,26 +68,8 @@ _COLORS = {
 }
 
 
-def _discover_runtime_rule_parquet_files() -> tuple[list[Path], list[Path]]:
-    """Return runtime-rule search directories and discovered parquet files.
-
-    The runtime checker supports both flat and one-level nested layouts.
-    """
-    from ..analyze.utils.rule_loader import get_runtime_rules_search_dirs
-
-    search_dirs = get_runtime_rules_search_dirs()
-    parquet_files: list[Path] = []
-
-    for search_dir in search_dirs:
-        if not search_dir.is_dir():
-            continue
-        parquet_files.extend(sorted(search_dir.glob("*.parquet")))
-        parquet_files.extend(sorted(search_dir.glob("*/*.parquet")))
-
-    return search_dirs, parquet_files
-
-
 _TRAILING_PAREN_RE = re.compile(r" \([^()]*\)$")
+_RUNTIME_DEBUG_LEVELS = ("unsupported", "partial", "supported")
 
 
 def _display_name(pattern_id: str) -> str:
@@ -628,6 +611,106 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     return f"{ep_name} ({device_name.upper()})"
 
 
+def _empty_runtime_debug_summary_payload() -> dict[str, Any]:
+    """Create empty runtime debug summary payload with fixed top-level keys.
+
+    ``unknown`` is intentionally the first key and holds a list of node keys
+    (no case_indices); the remaining levels map node keys to detail entries.
+    """
+    payload: dict[str, Any] = {"unknown": []}
+    payload.update({level: {} for level in _RUNTIME_DEBUG_LEVELS})
+    return payload
+
+
+def _normalize_runtime_debug_summary_payload(
+    summary_payload: object,
+) -> dict[str, Any]:
+    """Normalize runtime debug summary payload to fixed JSON schema."""
+    normalized = _empty_runtime_debug_summary_payload()
+    if not isinstance(summary_payload, dict):
+        return normalized
+
+    raw_unknown = summary_payload.get("unknown")
+    if isinstance(raw_unknown, list):
+        normalized["unknown"] = [str(node) for node in raw_unknown]
+    elif isinstance(raw_unknown, dict):
+        # Tolerate a dict-shaped unknown payload by keeping node keys only.
+        normalized["unknown"] = [str(node) for node in raw_unknown]
+
+    for level in _RUNTIME_DEBUG_LEVELS:
+        raw_level_entries = summary_payload.get(level)
+        if not isinstance(raw_level_entries, dict):
+            continue
+
+        level_entries: dict[str, dict[str, object | None]] = {}
+        for node_stable_key, raw_entry in raw_level_entries.items():
+            if not isinstance(raw_entry, dict):
+                continue
+
+            level_entries[str(node_stable_key)] = {
+                "case_indices": raw_entry.get("case_indices"),
+                "table_path": raw_entry.get("table_path"),
+                "table_file": raw_entry.get("table_file"),
+            }
+
+        normalized[level] = level_entries
+
+    return normalized
+
+
+def _extract_runtime_debug_summary_payload_for_pair(
+    run_result: Any,
+    ep_name: str,
+    device_name: str,
+) -> dict[str, Any]:
+    """Extract runtime debug summary payload for one EP/device pair."""
+    empty_payload = _empty_runtime_debug_summary_payload()
+
+    try:
+        result_json = json.loads(run_result.to_json())
+    except Exception:
+        logger.debug("Failed to deserialize run_result for runtime debug payload", exc_info=True)
+        return empty_payload
+
+    raw_results = result_json.get("results")
+    if not isinstance(raw_results, list):
+        return empty_payload
+
+    target_device = str(device_name).upper()
+
+    # Prefer exact EP/device match first.
+    for ep_result in raw_results:
+        if not isinstance(ep_result, dict):
+            continue
+        if ep_result.get("ep_type") != ep_name:
+            continue
+
+        result_device = str(ep_result.get("device_type") or "").upper()
+        if result_device and result_device != target_device:
+            continue
+
+        return _normalize_runtime_debug_summary_payload(
+            ep_result.get("runtime_debug_details_summary")
+        )
+
+    # Fallback: first available runtime_debug_details_summary in this run.
+    for ep_result in raw_results:
+        if not isinstance(ep_result, dict):
+            continue
+        if "runtime_debug_details_summary" in ep_result:
+            return _normalize_runtime_debug_summary_payload(
+                ep_result.get("runtime_debug_details_summary")
+            )
+
+    return empty_payload
+
+
+def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name: str) -> Path:
+    """Build debug summary output path near the model file."""
+    filename = f"{model_path.stem}.analyze.{ep_name}.{str(device_name).upper()}.debug.json"
+    return model_path.parent / filename
+
+
 # ── Click command ─────────────────────────────────────────────────────────
 
 
@@ -677,6 +760,15 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     help="Run unknown operators on local machine if possible (default: disabled)",
 )
 @click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help=(
+        "Enable runtime debug mode. Requires WINMLCLI_RULES_DIR_FOR_DEBUG "
+        "to point to a rules_debug directory containing */*.parquet files."
+    ),
+)
+@click.option(
     "--save-node",
     multiple=True,
     type=click.Choice(["partial", "unsupported"], case_sensitive=False),
@@ -703,6 +795,7 @@ def analyze(
     config_file: Path | None,
     htp_metadata: Path | None,
     run_unknown_op: bool,
+    debug: bool,
     save_node: tuple[str, ...],
     optim_config: Path | None,
 ) -> None:
@@ -746,17 +839,63 @@ def analyze(
             logger.error("ONNX model file not found: %s", model)
             sys.exit(2)
 
-        search_dirs, parquet_files = _discover_runtime_rule_parquet_files()
-        if not parquet_files:
+        from ..analyze.utils.ep_utils import (
+            has_any_rule_data,
+            has_rule_data_for_ep,
+        )
+        from ..analyze.utils.rule_loader import (
+            WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+            get_runtime_rules_debug_search_dirs,
+            get_runtime_rules_search_dirs,
+        )
+
+        for_debug = debug
+        if for_debug:
+            debug_search_dirs = get_runtime_rules_debug_search_dirs()
+            has_debug_parquet = any(
+                debug_dir.is_dir() and any(debug_dir.glob("*/*.parquet"))
+                for debug_dir in debug_search_dirs
+            )
+            if not has_debug_parquet:
+                configured_debug_dir = os.environ.get(WINMLCLI_RULES_DIR_FOR_DEBUG_ENV, "").strip()
+                logger.error(
+                    "--debug requires %s to be configured and point to a rules_debug "
+                    "directory containing */*.parquet files; otherwise --debug cannot "
+                    "take effect.",
+                    WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                )
+                logger.error(
+                    "%s configured: %s",
+                    WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                    "yes" if configured_debug_dir else "no",
+                )
+                if configured_debug_dir:
+                    logger.error(
+                        "Configured %s raw value: %s",
+                        WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                        configured_debug_dir,
+                    )
+                    if debug_search_dirs:
+                        logger.error(
+                            "Resolved absolute path(s) from %s:",
+                            WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                        )
+                        for resolved_debug_dir in debug_search_dirs:
+                            logger.error("  - %s", resolved_debug_dir)
+                    else:
+                        logger.error(
+                            "Resolved absolute path(s) from %s: (none)",
+                            WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                        )
+                sys.exit(2)
+
+        search_dirs = get_runtime_rules_search_dirs()
+        if not has_any_rule_data():
             searched = ", ".join(str(p) for p in search_dirs) if search_dirs else "(none)"
             logger.error("No runtime rule parquet files were found.")
             logger.error("Please reinstall winml-cli, or manually download rule parquet files.")
             logger.error("Searched directories: %s", searched)
             sys.exit(2)
-
-        from ..analyze.utils.ep_utils import (
-            has_rule_data_for_ep,
-        )
 
         devices: list[str]
         if device == "auto":
@@ -1099,6 +1238,7 @@ def analyze(
                         device=target_device,
                         enable_information=information,
                         htp_metadata_path=str(htp_metadata) if htp_metadata else None,
+                        for_debug=for_debug,
                         run_unknown_op=run_unknown_op_for_ep,
                         save_node_types=save_node_types,
                         on_node_result=on_node_result,
@@ -1158,6 +1298,7 @@ def analyze(
                     device=target_device,
                     enable_information=information,
                     htp_metadata_path=str(htp_metadata) if htp_metadata else None,
+                    for_debug=for_debug,
                     run_unknown_op=run_unknown_op_for_ep,
                     save_node_types=save_node_types,
                 )
@@ -1184,6 +1325,33 @@ def analyze(
             except Exception as e:
                 logger.error("Failed to serialize results to JSON: %s", e)
                 logger.debug("JSON serialization traceback:", exc_info=True)
+
+        # Save runtime debug summary JSON next to model when debug mode is enabled.
+        if for_debug:
+            try:
+                for (target_ep, target_device), run_result in zip(
+                    execution_pairs, analysis_results, strict=True
+                ):
+                    debug_payload = _extract_runtime_debug_summary_payload_for_pair(
+                        run_result=run_result,
+                        ep_name=target_ep,
+                        device_name=target_device,
+                    )
+                    debug_output = _build_runtime_debug_output_path(
+                        model_path=model,
+                        ep_name=target_ep,
+                        device_name=target_device,
+                    )
+                    debug_output.write_text(
+                        json.dumps(debug_payload, indent=2),
+                        encoding="utf-8",
+                    )
+                    logger.info("Runtime debug summary saved to: %s", debug_output)
+            except OSError as e:
+                logger.error("Failed to write runtime debug summary file: %s", e)
+            except Exception as e:
+                logger.error("Failed to prepare runtime debug summary JSON: %s", e)
+                logger.debug("Runtime debug summary traceback:", exc_info=True)
 
         # Save optimization config if requested
         if optim_config:

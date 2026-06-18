@@ -106,26 +106,29 @@ def get_devices_with_rule_data(ep_name: EPName) -> list[str]:
 
 
 def has_any_rule_data() -> bool:
-    """Return True if any parquet rule file exists in any search directory.
+    """Return True if any parquet exists under one-level subdirectories.
 
     Used to distinguish "no data at all" (needs setup) from "data exists
     but not for this specific EP/device combination".
+
+    This intentionally uses a minimal filesystem probe pattern.
     """
     from .rule_loader import get_runtime_rules_search_dirs
 
     for search_dir in get_runtime_rules_search_dirs():
-        if search_dir.is_dir() and any(search_dir.rglob("*.parquet")):
+        if not search_dir.is_dir():
+            continue
+
+        if any(search_dir.glob("*/*.parquet")):
             return True
+
     return False
 
 
 def has_rule_data_for_ep(ep_name: EPName, device: str) -> bool:
     """Check whether runtime check rule data exists for a given EP and device.
 
-        Probes runtime-rule search directories for parquet files in either layout:
-        - flat files under search dir:
-            ``*_{ep_name}_{device}_*.parquet``
-        - provider subdirectory layout:
+        Probes runtime-rule search directories for provider subdirectory layout only:
             ``<search_dir>/{ep_name}_{device}/*.parquet``
 
         This is a fast filesystem check and does not parse parquet contents.
@@ -142,13 +145,7 @@ def has_rule_data_for_ep(ep_name: EPName, device: str) -> bool:
 
     def _has_parquet_in_search_dir(search_dir: Path, ep: EPName, device_upper: str) -> bool:
         provider_dir = search_dir / f"{ep}_{device_upper}"
-        if provider_dir.is_dir() and any(provider_dir.glob("*.parquet")):
-            return True
-
-        if any(search_dir.glob(f"*_{ep}_{device_upper}_*.parquet")):
-            return True
-
-        return any(search_dir.glob(f"{ep}_{device_upper}_*.parquet"))
+        return provider_dir.is_dir() and any(provider_dir.glob("*.parquet"))
 
     device_upper = device.upper()
     for search_dir in get_runtime_rules_search_dirs():

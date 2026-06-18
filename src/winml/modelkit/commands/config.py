@@ -109,15 +109,7 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     optional_message="Overrides device-to-provider mapping. "
     "When used without --device, device is inferred from EP.",
 )
-@click.option(
-    "-p",
-    "--precision",
-    "precision",
-    type=str,
-    default="auto",
-    help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
-    "Default: auto (based on device when device is specified).",
-)
+@cli_utils.precision_option()
 @cli_utils.output_option("Output JSON file path (default: stdout)")
 @click.option(
     "--library",

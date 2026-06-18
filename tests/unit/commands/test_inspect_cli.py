@@ -43,6 +43,7 @@ def mock_inspect_result() -> MagicMock:
     result.cache = None
     result.processor = None
     result.io_config = None
+    result.composite = None
     result.loader = MagicMock(
         hf_model_class="BertForMaskedLM",
         hf_model_class_source="task_defaults",

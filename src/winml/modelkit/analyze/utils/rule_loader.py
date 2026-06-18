@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 #: Use ``os.pathsep`` (`;` on Windows, `:` on Unix) to separate multiple paths.
 WINMLCLI_RULES_DIR_ENV = "WINMLCLI_RULES_DIR"
 
+#: Environment variable for additional runtime debug rule directories.
+#: Use ``os.pathsep`` (`;` on Windows, `:` on Unix) to separate multiple paths.
+WINMLCLI_RULES_DIR_FOR_DEBUG_ENV = "WINMLCLI_RULES_DIR_FOR_DEBUG"
+
 # Directory containing this module file. Relative env-var entries are resolved from here.
 _RULE_LOADER_DIR: Path = Path(__file__).resolve().parent
 
@@ -42,6 +46,18 @@ def _resolve_env_rules_dir_entry(entry: str) -> Path:
     return (_RULE_LOADER_DIR / entry_path).resolve()
 
 
+def _get_env_rules_dirs(env_name: str) -> list[Path]:
+    """Parse ``os.pathsep``-separated env var values into absolute paths."""
+    dirs: list[Path] = []
+    env_val = os.environ.get(env_name, "").strip()
+    if env_val:
+        for entry in env_val.split(os.pathsep):
+            entry = entry.strip()
+            if entry:
+                dirs.append(_resolve_env_rules_dir_entry(entry))
+    return dirs
+
+
 def get_runtime_rules_search_dirs() -> list[Path]:
     """Return ordered list of directories to search for runtime rule artifacts.
 
@@ -54,27 +70,30 @@ def get_runtime_rules_search_dirs() -> list[Path]:
     Returns:
         List of directory Paths (may include non-existent ones; callers filter).
     """
-    dirs: list[Path] = []
-    env_val = os.environ.get(WINMLCLI_RULES_DIR_ENV, "").strip()
-    if env_val:
-        for entry in env_val.split(os.pathsep):
-            entry = entry.strip()
-            if entry:
-                dirs.append(_resolve_env_rules_dir_entry(entry))
+    dirs = _get_env_rules_dirs(WINMLCLI_RULES_DIR_ENV)
     dirs.append(_DEFAULT_RUNTIME_RULES_DIR)
     return dirs
 
 
-def resolve_rule_parquet_path(parquet_filename: str) -> Path:
-    """Resolve a parquet runtime-rule artifact by searching known directories.
+def get_runtime_rules_debug_search_dirs() -> list[Path]:
+    """Return ordered debug-rule directories from env var only.
+
+    Unlike :func:`get_runtime_rules_search_dirs`, this intentionally has no
+    embedded default fallback directory.
+    """
+    return _get_env_rules_dirs(WINMLCLI_RULES_DIR_FOR_DEBUG_ENV)
+
+
+def resolve_rule_parquet_path(parquet_filename: str, for_debug: bool = False) -> Path | None:
+    """Resolve a parquet runtime-rule artifact from ``<EP>_<DEVICE>/`` subdirs.
 
     Args:
         parquet_filename: Bare file name, e.g.
             ``Split_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet``
 
     Returns:
-        Resolved Path to the parquet file if found. If not found, returns the
-        path under the first search directory to preserve deterministic debug output.
+        Resolved Path to the parquet file if found in provider subdirectories;
+        otherwise ``None``.
     """
 
     def _infer_ep_device_subdir(filename: str) -> str | None:
@@ -88,28 +107,22 @@ def resolve_rule_parquet_path(parquet_filename: str) -> Path:
             return None
         return f"{match.group('ep')}_{match.group('device')}"
 
-    search_dirs = get_runtime_rules_search_dirs()
     ep_device_subdir = _infer_ep_device_subdir(parquet_filename)
+    if ep_device_subdir is None:
+        return None
 
-    for search_dir in search_dirs:
-        candidate = search_dir / parquet_filename
-        if candidate.exists():
-            return candidate
-
-        if ep_device_subdir is not None:
-            candidate_in_subdir = search_dir / ep_device_subdir / parquet_filename
+    if for_debug:
+        for debug_dir in get_runtime_rules_debug_search_dirs():
+            candidate_in_subdir = debug_dir / ep_device_subdir / parquet_filename
             if candidate_in_subdir.exists():
                 return candidate_in_subdir
 
-        # Backward-compatible fallback for any one-level nested layout.
-        nested_matches = sorted(search_dir.glob(f"*/{parquet_filename}"))
-        if nested_matches:
-            return nested_matches[0]
+    for search_dir in get_runtime_rules_search_dirs():
+        candidate_in_subdir = search_dir / ep_device_subdir / parquet_filename
+        if candidate_in_subdir.exists():
+            return candidate_in_subdir
 
-    if search_dirs:
-        return search_dirs[0] / parquet_filename
-
-    return _DEFAULT_RUNTIME_RULES_DIR / parquet_filename
+    return None
 
 
 class RuleLoader:

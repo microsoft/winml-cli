@@ -34,6 +34,12 @@ _HANDLER_MARKER = "_winml_cli_handler"
 _LOG_FORMAT = "[%(asctime)s %(levelname)-7s %(name)s] %(message)s"
 _DATE_FORMAT = "%H:%M:%S"
 
+# Third-party loggers whose INFO/WARNING chatter is noise for CLI users and can
+# interleave with rich progress output (e.g. optimum's "No model type passed for the
+# task ..." notice when a task maps to several loader classes). They are floored at
+# ERROR in normal output and only follow the CLI level once the user passes -v/-vv.
+_NOISY_LIBRARY_LOGGERS = ("optimum",)
+
 
 def configure_logging(
     verbosity: int = 0,
@@ -81,6 +87,14 @@ def configure_logging(
     # to avoid a redundant double-filter at the same threshold. This mirrors
     # the prior ``logging.basicConfig`` behavior, which never set a handler level.
     root.setLevel(log_level)
+
+    # Keep noisy third-party library chatter out of normal output. Their loggers float
+    # up to the CLI level only when the user opts into verbosity (-v/-vv); otherwise they
+    # are pinned at ERROR so library notices never leak into / interleave with output.
+    # (verbose=True is folded into verbosity above, so verbosity > 0 covers it.)
+    library_level = log_level if verbosity > 0 else logging.ERROR
+    for name in _NOISY_LIBRARY_LOGGERS:
+        logging.getLogger(name).setLevel(library_level)
 
 
 def flush_ort_startup_logs() -> None:

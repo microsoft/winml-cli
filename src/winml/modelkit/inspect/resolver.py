@@ -27,6 +27,7 @@ from ..models import (
 from .types import (
     CacheInfo,
     CacheStageInfo,
+    CompositeInfo,
     ExporterInfo,
     IOConfigInfo,
     LoaderInfo,
@@ -585,6 +586,42 @@ def resolve_cache(model_id: str) -> CacheInfo:
         stages=stages,
         total_cached=total_cached,
         total_size_mb=round(total_size_mb, 2),
+    )
+
+
+def resolve_composite_info(
+    model_type: str, detected_components: dict[str, str] | None = None
+) -> CompositeInfo | None:
+    """Composite pipeline structure for a *resolved* model, or ``None``.
+
+    Returns ``None`` unless the model's resolved task bridges to a composite — i.e.
+    ``detected_components`` (from :attr:`TaskResolution.composite`) is set. This scopes
+    the composite view to genuine multi-component / non-runnable-half exports (a seq2seq
+    decoder, etc.) and avoids flagging every model_type that merely *could* serve a
+    composite pipeline (e.g. a CLIP inspected for plain feature-extraction).
+
+    ``pipeline_tasks`` (the higher-level pipelines the model_type serves) come from the
+    live composite registry; ``components`` is the resolver's detected breakdown.
+    """
+    # `is None` (not falsy): only the un-set case means "composite path not taken".
+    # An empty dict would be a genuine (if currently unproduced) composite with no
+    # component breakdown — the pipeline_tasks guard below still protects rendering.
+    if detected_components is None:
+        return None
+
+    from ..loader import composite_pipeline_tasks
+
+    pipeline_tasks = composite_pipeline_tasks(model_type)
+    if not pipeline_tasks:
+        # Registry-divergence guard: the resolver detected a composite but the registry
+        # yields no pipeline tasks for this model_type (e.g. a future registration the
+        # WinMLCompositeModel filter excludes). A CompositeInfo with empty pipeline_tasks
+        # would render a broken "[composite]" Task row, so treat it as non-composite.
+        return None
+
+    return CompositeInfo(
+        pipeline_tasks=pipeline_tasks,
+        components=dict(detected_components),
     )
 
 
