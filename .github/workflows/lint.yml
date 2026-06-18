@@ -13,7 +13,7 @@ concurrency:
 jobs:
   lint:
     runs-on: windows-latest
-    # Bumped from 5: combined mypy on 19 packages cold-starts at ~3-4 min on
+    # Bumped from 5: combined mypy on 22 packages cold-starts at ~3-4 min on
     # Windows runners; the original 5-min ceiling cancelled mid-run.
     timeout-minutes: 10
 
@@ -67,3 +67,6 @@ jobs:
           -p winml.modelkit.optracing
           -p winml.modelkit.quant
           -p winml.modelkit.serve
+          -p winml.modelkit.session
+          -p winml.modelkit.sysinfo
+          -p winml.modelkit.telemetry

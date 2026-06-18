@@ -327,6 +327,16 @@ class WinMLSession:
         if self._session is None:
             self.compile()
 
+        # compile() populates self._session or raises; bind a non-None local so
+        # the narrowing survives into the lambda / comprehension below (mypy drops
+        # self-attribute narrowing inside nested scopes).
+        session = self._session
+        if session is None:
+            raise InferenceError(
+                message="Session not available after compile",
+                context={},
+            )
+
         if self._state == SessionState.ERROR:
             raise InferenceError(
                 message="Session in error state",
@@ -340,16 +350,16 @@ class WinMLSession:
             self._validate_inputs(inputs)
 
             # Prepare inputs (convert to numpy, enforce dtype)
-            ort_inputs = self._prepare_inputs(inputs, self._session)
+            ort_inputs = self._prepare_inputs(inputs, session)
 
             # Run inference (with optional perf tracking)
-            output_names = [o.name for o in self._session.get_outputs()]
+            output_names = [o.name for o in session.get_outputs()]
             if self._perf_stats:
                 outputs = self._perf_stats.record(
-                    lambda: self._session.run(output_names, ort_inputs)
+                    lambda: session.run(output_names, ort_inputs)
                 )
             else:
-                outputs = self._session.run(output_names, ort_inputs)
+                outputs = session.run(output_names, ort_inputs)
 
             # Build result dict
             return dict(zip(output_names, outputs, strict=True))
@@ -396,6 +406,8 @@ class WinMLSession:
 
         resolved_device, _ = resolve_device(device, ep=self._ep)
         resolved_ep = normalize_ep_name(self._ep) if self._ep else resolve_eps(resolved_device)[0]
+        if resolved_ep is None:
+            raise ValueError(f"Unknown execution provider: {self._ep!r}")
         device_type = DEVICE_TO_DEVICE_TYPE.get(resolved_device.upper())
 
         opts = self._session_options_factory()

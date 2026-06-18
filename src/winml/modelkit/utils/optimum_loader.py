@@ -12,7 +12,7 @@ import logging
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .hub_utils import load_hf_components_from_onnx
 
@@ -135,7 +135,7 @@ class OptimumONNXModel:
             "feature-extraction": ORTModelForFeatureExtraction,
         }
 
-        return task_to_model.get(task, ORTModel)
+        return cast("type[Any]", task_to_model.get(task, ORTModel))
 
 
 def load_optimum_model(

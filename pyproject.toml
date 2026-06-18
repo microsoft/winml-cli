@@ -497,8 +497,20 @@ module = [
   "sklearn.*",       # used in eval/metrics; no community stubs
   "evaluate",        # HF evaluate, used in eval/; no community stubs
   "evaluate.*",
+  # QAIRT (Qualcomm AI Runtime) SDK — imported only inside compile_qairt_bin.py,
+  # which runs in a separate venv-winml subprocess where the SDK is installed.
+  # Not a dependency of the main/CI environment, so it has no stubs here.
+  "qairt",
+  "qairt.*",
 ]
 ignore_missing_imports = true
+
+# windowsml ships no py.typed marker, but its source is installed and usable —
+# analyze it directly (PEP 561 opt-in) so its inline annotations are honored
+# instead of collapsing every symbol to Any.
+[[tool.mypy.overrides]]
+module = [ "windowsml", "windowsml.*" ]
+follow_untyped_imports = true
 
 # Relaxed modules: tests and WIP code
 

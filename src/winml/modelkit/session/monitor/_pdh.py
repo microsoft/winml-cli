@@ -178,22 +178,24 @@ class PdhQuery:
                 continue
 
             if entry.fmt == _PDH_FMT_DOUBLE:
-                val = _PdhFmtDouble()
+                dval = _PdhFmtDouble()
                 s = _pdh.PdhGetFormattedCounterValue(
                     entry.handle,
                     _PDH_FMT_DOUBLE | _PDH_FMT_NOCAP100,
                     ctypes.byref(ct),
-                    ctypes.byref(val),
+                    ctypes.byref(dval),
                 )
                 values[entry.name] = (
-                    val.doubleValue if _pdh_ok(s) and _pdh_ok(val.CStatus) else None
+                    dval.doubleValue if _pdh_ok(s) and _pdh_ok(dval.CStatus) else None
                 )
             else:
-                val = _PdhFmtLarge()
+                lval = _PdhFmtLarge()
                 s = _pdh.PdhGetFormattedCounterValue(
-                    entry.handle, _PDH_FMT_LARGE, ctypes.byref(ct), ctypes.byref(val)
+                    entry.handle, _PDH_FMT_LARGE, ctypes.byref(ct), ctypes.byref(lval)
                 )
-                values[entry.name] = val.largeValue if _pdh_ok(s) and _pdh_ok(val.CStatus) else None
+                values[entry.name] = (
+                    lval.largeValue if _pdh_ok(s) and _pdh_ok(lval.CStatus) else None
+                )
 
         return values
 
@@ -403,16 +405,17 @@ class PdhPoller:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._util_samples: list[float] = []
-        self._memory_local_bytes: list[int] = []
-        self._memory_shared_bytes: list[int] = []
+        # PDH counters arrive as float|int (double vs large format), so store as float.
+        self._memory_local_bytes: list[float] = []
+        self._memory_shared_bytes: list[float] = []
         self._cpu_samples: list[float] = []
-        self._ram_used_bytes: list[int] = []
+        self._ram_used_bytes: list[float] = []
         # Per-engtype snapshots of the monotonic Running Time counter. Stored
         # as dicts because an adapter exposes multiple engines (e.g. several
         # Compute_* on an NPU; 3D + Compute_* on a GPU) and the total adapter
         # time is the sum of per-engine deltas.
-        self._running_time_start_ns: dict[str, int] = {}
-        self._running_time_end_ns: dict[str, int] = {}
+        self._running_time_start_ns: dict[str, float] = {}
+        self._running_time_end_ns: dict[str, float] = {}
 
     def start(self) -> None:
         """Resolve target device, register PDH counters, start background thread.
@@ -532,8 +535,11 @@ class PdhPoller:
         # normalize so cpu_pct stays 0..100 across machines.
         cpu_divisor = float(os.cpu_count() or 1)
         while not self._stop_event.is_set():
+            query = self._query
+            if query is None:
+                break
             try:
-                values = self._query._collect_once()
+                values = query._collect_once()
                 # util_* counters are per-engine ratios over the same sample
                 # window, so max reports the most-loaded engine on the adapter.
                 # Don't sum — that would exceed 100% and duplicate what the
@@ -739,7 +745,7 @@ class PdhPoller:
             start = self._running_time_start_ns.get(key)
             if start is None:
                 continue
-            total += max(0, end - start)
+            total += int(max(0, end - start))
         return total
 
     @staticmethod

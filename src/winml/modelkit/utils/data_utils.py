@@ -51,7 +51,10 @@ def pad_inputs(
                 # Dynamic ONNX dims may be None or a string symbol; emit a
                 # (0, 0) pair so later pairs stay aligned with their dim index.
                 if not isinstance(exp, int):
-                    pad.extend([0, 0])
+                    # Forward-looking: expected is typed list[int] today, but ONNX
+                    # dynamic dims (None / str symbol) are a planned input (see TODO
+                    # above). Keep the guard until the signature widens for them.
+                    pad.extend([0, 0])  # type: ignore[unreachable]
                     continue
                 deficit = max(exp - val.shape[dim], 0)
                 if mode == "right":
