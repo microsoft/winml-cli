@@ -12,9 +12,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from rich.console import Console  # noqa: TC002 - used at runtime
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 from rich.tree import Tree
 
 from .types import HierarchyInfo, InspectResult, ModuleInfo, SupportLevel
@@ -198,6 +199,44 @@ def _output_cache_table(console: Console, result: InspectResult) -> None:
     console.print(Panel(cache_table, title="Cache Status", border_style="dim"))
 
 
+def _output_composite_panel(console: Console, result: InspectResult) -> None:
+    """Render the Composite Pipeline panel (Variant 1) for composite model_types.
+
+    Explains that the Loader / Exporter panels below describe a single exported
+    component, lists the component -> export-task breakdown, and shows which
+    pipeline tasks the model_type serves plus how to build one.
+    """
+    composite = result.composite
+    if composite is None:  # defensive; callers guard on result.composite
+        return
+
+    intro = Text.from_markup(
+        f"Composite model — the Loader / Exporter panels below describe a single "
+        f"exported component ([cyan]{result.task}[/cyan]). The runnable model is a "
+        f"multi-component pipeline:"
+    )
+
+    comp_table = Table(show_header=True, box=None, padding=(0, 2), header_style="bold")
+    comp_table.add_column("Component", style="cyan")
+    comp_table.add_column("Export Task")
+    for name, task in composite.components.items():
+        comp_table.add_row(name, task)
+
+    pipelines = " · ".join(composite.pipeline_tasks)
+    footer = Text.from_markup(
+        f"[bold]Serves pipelines:[/bold] {pipelines}\n"
+        f"[bold]Build one:[/bold] [cyan]winml config -m <model> --task <pipeline>[/cyan]"
+    )
+
+    console.print(
+        Panel(
+            Group(intro, "", comp_table, "", footer),
+            title="Composite Pipeline",
+            border_style="dim",
+        )
+    )
+
+
 def output_table(console: Console, result: InspectResult, verbose: bool = False) -> None:
     """Output result as rich table.
 
@@ -221,12 +260,30 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
     model_table.add_column("Value")
 
     model_table.add_row("Model Type", result.model_type)
-    model_table.add_row("Task", f"{result.task} [dim](via {result.task_source})[/dim]")
+    # Guard on pipeline_tasks too: output_table is public, so a directly-constructed
+    # InspectResult with an empty-pipeline_tasks CompositeInfo must not render a
+    # bare " [composite]" Task row — fall back to the plain task in that case.
+    if result.composite and result.composite.pipeline_tasks:
+        # Variant 1 (Pipeline-led): the Task row surfaces the pipeline tasks the
+        # model_type serves, and an Export row shows the granular component tasks.
+        pipelines = " · ".join(result.composite.pipeline_tasks)
+        model_table.add_row("Task", f"{pipelines} [magenta]\\[composite][/magenta]")
+        components = ", ".join(
+            f"{name}: {task}" for name, task in result.composite.components.items()
+        )
+        if components:
+            model_table.add_row("Export", f"{components} [dim](via {result.task_source})[/dim]")
+    else:
+        model_table.add_row("Task", f"{result.task} [dim](via {result.task_source})[/dim]")
     archs = ", ".join(result.architectures) if result.architectures else "-"
     model_table.add_row("Architectures", archs)
     model_table.add_row("Overall Support", STATUS_LABELS[result.overall_support])
 
     console.print(Panel(model_table, title="Model Information", border_style="dim"))
+
+    # Composite Pipeline panel (only for composite model_types with pipeline tasks)
+    if result.composite and result.composite.pipeline_tasks:
+        _output_composite_panel(console, result)
 
     # Loader Configuration table
     loader_table = Table(show_header=False, box=None, padding=(0, 2))
@@ -397,6 +454,18 @@ def output_json(result: InspectResult, verbose: bool = False) -> str:
         "architectures": result.architectures,
         "task": result.task,
         "task_source": result.task_source,
+        # task stays the granular machine task (e.g. text2text-generation); the
+        # composite/pipeline view is additive so machine consumers are unaffected.
+        # pipeline_tasks is a flat convenience alias of composite.pipeline_tasks.
+        "pipeline_tasks": (result.composite.pipeline_tasks if result.composite else None),
+        "composite": (
+            {
+                "pipeline_tasks": result.composite.pipeline_tasks,
+                "components": result.composite.components,
+            }
+            if result.composite
+            else None
+        ),
         "overall_support": result.overall_support.value,
         "support_notes": result.support_notes,
         "loader": {

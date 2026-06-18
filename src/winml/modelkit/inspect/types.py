@@ -144,6 +144,24 @@ class CacheInfo:
 
 
 @dataclass
+class CompositeInfo:
+    """Composite (multi-component pipeline) structure of a model_type.
+
+    Populated only when the model_type is registered as a composite — i.e. it
+    serves one or more higher-level pipeline tasks built from multiple sub-models
+    (encoder-decoder seq2seq, dual-encoder CLIP, etc.).
+
+    ``pipeline_tasks`` are the pipelines the model_type can serve, sorted and
+    config-indistinguishable (e.g. ``["summarization", "table-question-answering"]``
+    for any bart checkpoint). ``components`` maps each sub-model component to its
+    export task (e.g. ``{"encoder": "feature-extraction", "decoder": "text2text-generation"}``).
+    """
+
+    pipeline_tasks: list[str]
+    components: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class InspectResult:
     """Complete inspection result for a model."""
 
@@ -177,3 +195,6 @@ class InspectResult:
 
     # IO configuration from model config
     io_config: IOConfigInfo | None = None
+
+    # Composite pipeline structure (only set for composite model_types)
+    composite: CompositeInfo | None = None

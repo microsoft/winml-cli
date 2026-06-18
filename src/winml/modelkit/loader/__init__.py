@@ -28,7 +28,13 @@ Note:
 from typing import Any
 
 from .config import WinMLLoaderConfig, resolve_loader_config
-from .resolution import TaskResolution, TaskSource, resolve_composite, resolve_task
+from .resolution import (
+    TaskResolution,
+    TaskSource,
+    composite_pipeline_tasks,
+    resolve_composite,
+    resolve_task,
+)
 from .task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
@@ -48,6 +54,7 @@ __all__ = [
     "TaskResolution",
     "TaskSource",
     "WinMLLoaderConfig",
+    "composite_pipeline_tasks",
     "get_supported_tasks",
     "get_task_abbrev",
     "load_hf_model",
