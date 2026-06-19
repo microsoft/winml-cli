@@ -228,8 +228,8 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 <p>Getting a model to run <strong>well</strong> on Windows is expert work that doesn't scale. A developer or ISV who
 wants to ship a model has to answer a chain of hard questions by hand: <em>Will this model even run on my
 hardware? Which execution provider (CPU / DirectML / QNN NPU) should I target? What precision —
-FP32, FP16, W8A16, W8A8 — hits my latency budget without breaking accuracy? Why did accuracy drop
-after quantization, and at which stage? Is this artifact actually safe to ship?</em> Each answer requires
+FP32, FP16, W8A16, W8A8 — hits my latency budget without breaking accuracy? How should quality
+regressions after optimization/quantization be handled? Is this artifact actually safe to ship?</em> Each answer requires
 deep knowledge of ONNX, the EP landscape, quantization, and hardware-specific quirks (opset ceilings,
 conv-fusion fallbacks, EPs that hang on certain configs). Today that knowledge is tribal and scattered;
 the workflow is manual, slow, and easy to get wrong, which is exactly what blocks the long-tail model
@@ -248,49 +248,55 @@ owns the build pipeline up to <code>artifact.onnx</code> and stops there; the sk
 <em>within</em> that pipeline and extend past the current break into deployment, so the whole path from a source
 model to a working AI feature on the user's device is covered.</p>
 <style>
-.lcd { border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin:18px 0; overflow-x:auto; }
-.lcd-flow { display:flex; flex-wrap:wrap; align-items:center; gap:8px 6px; font-size:14px; }
-.lcd-band { font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
-.lcd-band.b { color:#2563eb; } .lcd-band.s { color:#b45309; }
-.lcd-pill { padding:5px 11px; border-radius:7px; font-weight:600; white-space:nowrap; }
-.lcd-build { background:#dbeafe; color:#1e40af; }
-.lcd-ship  { background:#fef3c7; color:#92400e; }
-.lcd-ai    { background:#dcfce7; color:#166534; }
-.lcd-arr   { color:#9ca3af; font-weight:700; }
-.lcd-break { color:#dc2626; font-weight:800; font-size:18px; padding:0 4px; }
-.lcd-note  { margin:11px 0 0; font-size:13px; color:var(--muted); }
-.lcd-note b { color:#dc2626; }
-.lcd-legend { margin-top:14px; display:grid; gap:7px; font-size:13.5px; }
-.lcd-row { display:flex; align-items:center; gap:9px; }
-.lcd-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
-.lcd-skill { font-family:"SF Mono","Cascadia Code",Consolas,monospace; font-weight:600; }
-.lcd-stage { color:var(--muted); }
+.mlc-wrap { border:1px solid var(--border); border-radius:10px; padding:16px 16px 12px; margin:18px 0; overflow-x:auto; }
+.mlc-note { margin:10px 0 0; font-size:13px; color:var(--muted); }
+.mlc-note b { color:#2563eb; }
+.mlc-legend { margin-top:12px; display:grid; gap:6px; font-size:13.5px; }
+.mlc-row { display:flex; align-items:center; gap:9px; }
+.mlc-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+.mlc-skill { font-family:"SF Mono","Cascadia Code",Consolas,monospace; font-weight:600; }
 </style>
-<div class="lcd">
-  <div class="lcd-flow">
-    <span class="lcd-band b">winml-cli · build</span>
-    <span class="lcd-pill lcd-build">Source model</span><span class="lcd-arr">→</span>
-    <span class="lcd-pill lcd-build">export</span><span class="lcd-arr">→</span>
-    <span class="lcd-pill lcd-build">optimize</span><span class="lcd-arr">→</span>
-    <span class="lcd-pill lcd-build">quantize</span><span class="lcd-arr">→</span>
-    <span class="lcd-pill lcd-build">compile</span><span class="lcd-arr">→</span>
-    <span class="lcd-pill lcd-build">artifact.onnx</span>
-    <span class="lcd-break" title="winml-cli stops here">┆</span>
-    <span class="lcd-band s">WinApp · ship</span>
-    <span class="lcd-pill lcd-ship">package</span><span class="lcd-arr">→</span>
-    <span class="lcd-pill lcd-ship">load (C++/C#)</span><span class="lcd-arr">→</span>
-    <span class="lcd-pill lcd-ship">EP + fallback</span><span class="lcd-arr">→</span>
-    <span class="lcd-pill lcd-ai">✓ AI feature on device</span>
+<div class="mlc-wrap">
+  <svg width="980" height="290" viewBox="0 0 980 290" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="display:block;max-width:100%;">
+    <defs>
+      <marker id="mlc-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0,8 3,0 6" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <rect x="10" y="14" width="112" height="42" rx="7" fill="#dbeafe" stroke="#93c5fd"/><text x="66" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#1d4ed8">1. Model</text><text x="66" y="45" text-anchor="middle" font-size="10" fill="#1e3a8a">discovery</text>
+    <line x1="122" y1="35" x2="150" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="152" y="14" width="112" height="42" rx="7" fill="#dbeafe" stroke="#93c5fd"/><text x="208" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#1d4ed8">2. Model</text><text x="208" y="45" text-anchor="middle" font-size="10" fill="#1e3a8a">onboarding</text>
+    <line x1="264" y1="35" x2="292" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="294" y="14" width="112" height="42" rx="7" fill="#fee2e2" stroke="#fca5a5"/><text x="350" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#b91c1c">3. Validation</text><text x="350" y="45" text-anchor="middle" font-size="10" fill="#7f1d1d">&amp; debug</text>
+    <line x1="406" y1="35" x2="434" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="436" y="14" width="112" height="42" rx="7" fill="#dcfce7" stroke="#86efac"/><text x="492" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">4. Optimize</text><text x="492" y="45" text-anchor="middle" font-size="10" fill="#14532d">(multi-EP)</text>
+    <line x1="548" y1="35" x2="576" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="578" y="14" width="112" height="42" rx="7" fill="#dcfce7" stroke="#86efac"/><text x="634" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">5. Compile /</text><text x="634" y="45" text-anchor="middle" font-size="10" fill="#14532d">artifact generation</text>
+    <line x1="690" y1="35" x2="718" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="720" y="14" width="112" height="42" rx="7" fill="#dcfce7" stroke="#86efac"/><text x="776" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">6. Evaluation</text>
+    <line x1="832" y1="35" x2="860" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="862" y="14" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="918" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">7. Packaging</text>
+    <polyline points="918,56 918,84 918,84 908,84" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#mlc-arr)"/>
+    <rect x="862" y="96" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="918" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">8. Distribution</text><text x="918" y="127" text-anchor="middle" font-size="10" fill="#854d0e">(catalog/CDN/local)</text>
+    <line x1="862" y1="117" x2="834" y2="117" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="720" y="96" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="776" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">9. Versioning</text>
+    <line x1="720" y1="117" x2="692" y2="117" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="578" y="96" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="634" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">10. Deployment /</text><text x="634" y="127" text-anchor="middle" font-size="10" fill="#854d0e">rollout</text>
+    <line x1="578" y1="117" x2="550" y2="117" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="436" y="96" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="492" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">11. Runtime</text><text x="492" y="127" text-anchor="middle" font-size="10" fill="#854d0e">execution</text>
+    <line x1="436" y1="117" x2="408" y2="117" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
+    <rect x="294" y="96" width="112" height="42" rx="7" fill="#ede9fe" stroke="#c4b5fd"/><text x="350" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#6d28d9">12. Monitoring /</text><text x="350" y="127" text-anchor="middle" font-size="10" fill="#5b21b6">feedback loop</text>
+    <path d="M 294 117 L 170 117 L 170 170 L 66 170 L 66 56" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="5,3" fill="none" marker-end="url(#mlc-arr)"/>
+    <text x="176" y="162" font-size="10" fill="#6d28d9" font-style="italic">feedback drives next model discovery</text>
+  </svg>
+  <p class="mlc-note"><b>Local model lifecycle (end-to-end)</b>: from discovery to runtime and monitoring, with explicit feedback into the next iteration.</p>
+  <div class="mlc-legend">
+    <div class="mlc-row"><span class="mlc-dot" style="background:#2563eb"></span><span class="mlc-skill">check-model-feasibility</span> — stages 1–2 (model/EP selection and onboarding)</div>
+    <div class="mlc-row"><span class="mlc-dot" style="background:#16a34a"></span><span class="mlc-skill">autoconfig</span> — stages 4–6 (optimize, compile, evaluate)</div>
+    <div class="mlc-row"><span class="mlc-dot" style="background:#ea580c"></span><span class="mlc-skill">debug-accuracy-drop</span> — stage 3 support (exploratory diagnostics; advisory guidance)</div>
+    <div class="mlc-row"><span class="mlc-dot" style="background:#7c3aed"></span><span class="mlc-skill">ship-to-winapp</span> — stages 7–11 (package, distribute, deploy, run)</div>
+    <div class="mlc-row"><span class="mlc-dot" style="background:#64748b"></span><span class="mlc-skill">use-winml-cli</span> — underpins every stage</div>
   </div>
-  <p class="lcd-note"><b>✕ today winml-cli stops at <code>artifact.onnx</code></b> — everything past the break is the deployment gap.</p>
-  <div class="lcd-legend">
-    <div class="lcd-row"><span class="lcd-dot" style="background:#2563eb"></span><span class="lcd-skill">check-model-feasibility</span><span class="lcd-stage">— before build: pick a model &amp; EP</span></div>
-    <div class="lcd-row"><span class="lcd-dot" style="background:#16a34a"></span><span class="lcd-skill">autoconfig</span><span class="lcd-stage">— export → compile: find the best config</span></div>
-    <div class="lcd-row"><span class="lcd-dot" style="background:#ea580c"></span><span class="lcd-skill">debug-accuracy-drop</span><span class="lcd-stage">— whenever accuracy drops</span></div>
-    <div class="lcd-row"><span class="lcd-dot" style="background:#7c3aed"></span><span class="lcd-skill">ship-to-winapp</span><span class="lcd-stage">— artifact → device: package &amp; run (bridges the gap)</span></div>
-    <div class="lcd-row"><span class="lcd-dot" style="background:#64748b"></span><span class="lcd-skill">use-winml-cli</span><span class="lcd-stage">— underpins every stage</span></div>
-  </div>
-  <p class="lcd-note">contributor: <span class="lcd-skill">adding-model-support</span> → export · <span class="lcd-skill">adding-ep-support</span> → compile · <span class="lcd-skill">optimization-research</span> → finds gaps</p>
 </div>
 
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
@@ -353,8 +359,8 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 <td>5</td>
 <td><code>debug-accuracy-drop</code></td>
 <td>P2</td>
-<td>Closes the most acute pain point: accuracy dropped, cause unknown. High-frequency diagnostic need with the clearest existing tooling (<code>eval --mode compare</code>).</td>
-<td>stage + root cause + fix</td>
+<td>Exploratory diagnostic workflow for accuracy regressions. Current output is advisory and best-effort, not a guaranteed optimization recipe.</td>
+<td>suspected stage + likely causes + suggestions</td>
 </tr>
 </tbody>
 </table>
