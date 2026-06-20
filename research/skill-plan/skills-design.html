@@ -276,27 +276,23 @@ model to a working AI feature on the user's device is covered.</p>
     <line x1="566" y1="35" x2="574" y2="35" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#mlc-arr)"/>
     <rect x="574" y="18" width="72" height="34" rx="7" fill="#f1f5f9" stroke="#cbd5e1"/><text x="610" y="32" text-anchor="middle" font-size="9.5" font-weight="700" fill="#334155">8</text><text x="610" y="44" text-anchor="middle" font-size="9" fill="#475569">Distribute</text>
     <line x1="646" y1="35" x2="654" y2="35" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#mlc-arr)"/>
-    <rect x="654" y="18" width="72" height="34" rx="7" fill="#f1f5f9" stroke="#cbd5e1"/><text x="690" y="32" text-anchor="middle" font-size="9.5" font-weight="700" fill="#334155">9</text><text x="690" y="44" text-anchor="middle" font-size="9" fill="#475569">Version</text>
+    <rect x="654" y="18" width="72" height="34" rx="7" fill="#f1f5f9" stroke="#cbd5e1"/><text x="690" y="32" text-anchor="middle" font-size="9.5" font-weight="700" fill="#334155">9</text><text x="690" y="44" text-anchor="middle" font-size="9" fill="#475569">Deploy</text>
     <line x1="726" y1="35" x2="734" y2="35" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#mlc-arr)"/>
-    <rect x="734" y="18" width="72" height="34" rx="7" fill="#f1f5f9" stroke="#cbd5e1"/><text x="770" y="32" text-anchor="middle" font-size="9.5" font-weight="700" fill="#334155">10</text><text x="770" y="44" text-anchor="middle" font-size="9" fill="#475569">Deploy</text>
+    <rect x="734" y="18" width="72" height="34" rx="7" fill="#f1f5f9" stroke="#cbd5e1"/><text x="770" y="32" text-anchor="middle" font-size="9.5" font-weight="700" fill="#334155">10</text><text x="770" y="44" text-anchor="middle" font-size="9" fill="#475569">Run</text>
     <line x1="806" y1="35" x2="814" y2="35" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#mlc-arr)"/>
-    <rect x="814" y="18" width="72" height="34" rx="7" fill="#f1f5f9" stroke="#cbd5e1"/><text x="850" y="32" text-anchor="middle" font-size="9.5" font-weight="700" fill="#334155">11</text><text x="850" y="44" text-anchor="middle" font-size="9" fill="#475569">Run</text>
-    <line x1="886" y1="35" x2="894" y2="35" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#mlc-arr)"/>
-    <rect x="894" y="18" width="72" height="34" rx="7" fill="#f1f5f9" stroke="#cbd5e1"/><text x="930" y="32" text-anchor="middle" font-size="9.5" font-weight="700" fill="#334155">12</text><text x="930" y="44" text-anchor="middle" font-size="9" fill="#475569">Monitor</text>
+    <rect x="814" y="18" width="72" height="34" rx="7" fill="#f1f5f9" stroke="#cbd5e1"/><text x="850" y="32" text-anchor="middle" font-size="9.5" font-weight="700" fill="#334155">11</text><text x="850" y="44" text-anchor="middle" font-size="9" fill="#475569">Monitor</text>
 
-    <rect x="14" y="76" width="552" height="22" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-dasharray="6,4"/>
-    <text x="290" y="91" text-anchor="middle" font-size="10" font-weight="700" fill="#1d4ed8">WinML CLI scope (stages 1–7)</text>
-    <rect x="574" y="76" width="72" height="22" rx="9" fill="#fffbeb" stroke="#d97706" stroke-dasharray="4,4"/>
-    <text x="610" y="91" text-anchor="middle" font-size="10" font-weight="700" fill="#b45309">Shared (8)</text>
-    <rect x="654" y="76" width="312" height="22" rx="9" fill="#fff7ed" stroke="#a16207" stroke-dasharray="6,4"/>
-    <text x="810" y="91" text-anchor="middle" font-size="10" font-weight="700" fill="#92400e">WinML scope (stages 9–12)</text>
+    <rect x="14" y="76" width="632" height="22" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-dasharray="6,4"/>
+    <text x="330" y="91" text-anchor="middle" font-size="10" font-weight="700" fill="#1d4ed8">WinML CLI scope (stages 1–8)</text>
+    <rect x="654" y="76" width="232" height="22" rx="9" fill="#fff7ed" stroke="#a16207" stroke-dasharray="6,4"/>
+    <text x="770" y="91" text-anchor="middle" font-size="10" font-weight="700" fill="#92400e">WinML scope (stages 9–11)</text>
 
     <path d="M 450 52 L 450 120 L 290 120 L 290 52" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="5,3" fill="none" marker-end="url(#mlc-arr)"/>
     <text x="320" y="132" font-size="9.5" fill="#6d28d9" font-style="italic">iteration loop: evaluate → optimize</text>
-    <path d="M 930 52 L 930 150 L 50 150 L 50 52" stroke="#6d28d9" stroke-width="1.8" stroke-dasharray="5,3" fill="none" marker-end="url(#mlc-arr)"/>
+    <path d="M 850 52 L 850 150 L 50 150 L 50 52" stroke="#6d28d9" stroke-width="1.8" stroke-dasharray="5,3" fill="none" marker-end="url(#mlc-arr)"/>
     <text x="370" y="164" font-size="10" fill="#5b21b6" font-style="italic">feedback loop: monitor → next discovery cycle</text>
   </svg>
-  <p class="mlc-note"><b>Lifecycle + ownership only:</b> one left-to-right flow, explicit stage ownership, and two key iteration loops.</p>
+  <p class="mlc-note"><b>Lifecycle + ownership only:</b> one left-to-right flow, explicit stage ownership (WinML CLI 1–8, WinML 9–11), and two key iteration loops.</p>
 </div>
 
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
