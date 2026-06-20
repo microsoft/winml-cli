@@ -257,41 +257,47 @@ model to a working AI feature on the user's device is covered.</p>
 .mlc-skill { font-family:"SF Mono","Cascadia Code",Consolas,monospace; font-weight:600; }
 </style>
 <div class="mlc-wrap">
-  <svg width="980" height="290" viewBox="0 0 980 290" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="display:block;max-width:100%;">
+  <svg width="980" height="300" viewBox="0 0 980 300" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="display:block;max-width:100%;">
     <defs>
       <marker id="mlc-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
         <polygon points="0 0,8 3,0 6" fill="#94a3b8"/>
       </marker>
     </defs>
-    <rect x="6" y="10" width="830" height="50" rx="9" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,4"/>
-    <text x="12" y="72" font-size="10" fill="#1d4ed8" font-weight="700">Dashed scope: WinML CLI covers model discovery / convert / debug path (stages 1–6)</text>
-    <rect x="432" y="92" width="404" height="50" rx="9" fill="none" stroke="#a16207" stroke-width="1.5" stroke-dasharray="6,4"/>
-    <text x="438" y="154" font-size="10" fill="#a16207" font-weight="700">Dashed scope: WinML covers runtime / EP-related path (stages 9–11)</text>
-    <rect x="10" y="14" width="112" height="42" rx="7" fill="#dbeafe" stroke="#93c5fd"/><text x="66" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#1d4ed8">1. Model</text><text x="66" y="45" text-anchor="middle" font-size="10" fill="#1e3a8a">discovery</text>
+    <rect x="4" y="10" width="972" height="58" rx="10" fill="#f8fbff" stroke="#dbeafe"/>
+    <rect x="286" y="92" width="688" height="58" rx="10" fill="#fffaf0" stroke="#fde68a"/>
+
+    <rect x="10" y="14" width="112" height="42" rx="8" fill="#dbeafe" stroke="#93c5fd"/><text x="66" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#1d4ed8">1. Model</text><text x="66" y="45" text-anchor="middle" font-size="10" fill="#1e3a8a">discovery</text>
     <line x1="122" y1="35" x2="150" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="152" y="14" width="112" height="42" rx="7" fill="#dbeafe" stroke="#93c5fd"/><text x="208" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#1d4ed8">2. Model</text><text x="208" y="45" text-anchor="middle" font-size="10" fill="#1e3a8a">onboarding</text>
+    <rect x="152" y="14" width="112" height="42" rx="8" fill="#dbeafe" stroke="#93c5fd"/><text x="208" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#1d4ed8">2. Model</text><text x="208" y="45" text-anchor="middle" font-size="10" fill="#1e3a8a">onboarding</text>
     <line x1="264" y1="35" x2="292" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="294" y="14" width="112" height="42" rx="7" fill="#fee2e2" stroke="#fca5a5"/><text x="350" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#b91c1c">3. Validation</text><text x="350" y="45" text-anchor="middle" font-size="10" fill="#7f1d1d">&amp; debug</text>
+    <rect x="294" y="14" width="112" height="42" rx="8" fill="#fee2e2" stroke="#fca5a5"/><text x="350" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#b91c1c">3. Validation</text><text x="350" y="45" text-anchor="middle" font-size="10" fill="#7f1d1d">&amp; debug</text>
     <line x1="406" y1="35" x2="434" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="436" y="14" width="112" height="42" rx="7" fill="#dcfce7" stroke="#86efac"/><text x="492" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">4. Optimize</text><text x="492" y="45" text-anchor="middle" font-size="10" fill="#14532d">(multi-EP)</text>
+    <rect x="436" y="14" width="112" height="42" rx="8" fill="#dcfce7" stroke="#86efac"/><text x="492" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">4. Optimize</text><text x="492" y="45" text-anchor="middle" font-size="10" fill="#14532d">(multi-EP)</text>
     <line x1="548" y1="35" x2="576" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="578" y="14" width="112" height="42" rx="7" fill="#dcfce7" stroke="#86efac"/><text x="634" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">5. Compile /</text><text x="634" y="45" text-anchor="middle" font-size="10" fill="#14532d">artifact generation</text>
+    <rect x="578" y="14" width="112" height="42" rx="8" fill="#dcfce7" stroke="#86efac"/><text x="634" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">5. Compile /</text><text x="634" y="45" text-anchor="middle" font-size="10" fill="#14532d">artifact generation</text>
     <line x1="690" y1="35" x2="718" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="720" y="14" width="112" height="42" rx="7" fill="#dcfce7" stroke="#86efac"/><text x="776" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">6. Evaluation</text>
+    <rect x="720" y="14" width="112" height="42" rx="8" fill="#dcfce7" stroke="#86efac"/><text x="776" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">6. Evaluation</text>
     <line x1="832" y1="35" x2="860" y2="35" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="862" y="14" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="918" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">7. Packaging</text>
+    <rect x="862" y="14" width="112" height="42" rx="8" fill="#fef3c7" stroke="#fcd34d"/><text x="918" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">7. Packaging</text>
+
     <polyline points="918,56 918,84 918,84 908,84" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#mlc-arr)"/>
-    <rect x="862" y="96" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="918" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">8. Distribution</text><text x="918" y="127" text-anchor="middle" font-size="10" fill="#854d0e">(catalog/CDN/local)</text>
+    <rect x="862" y="96" width="112" height="42" rx="8" fill="#fef3c7" stroke="#fcd34d"/><text x="918" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">8. Distribution</text><text x="918" y="127" text-anchor="middle" font-size="10" fill="#854d0e">(catalog/CDN/local)</text>
     <line x1="862" y1="117" x2="834" y2="117" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="720" y="96" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="776" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">9. Versioning</text>
+    <rect x="720" y="96" width="112" height="42" rx="8" fill="#fef3c7" stroke="#fcd34d"/><text x="776" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">9. Versioning</text>
     <line x1="720" y1="117" x2="692" y2="117" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="578" y="96" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="634" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">10. Deployment /</text><text x="634" y="127" text-anchor="middle" font-size="10" fill="#854d0e">rollout</text>
+    <rect x="578" y="96" width="112" height="42" rx="8" fill="#fef3c7" stroke="#fcd34d"/><text x="634" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">10. Deployment /</text><text x="634" y="127" text-anchor="middle" font-size="10" fill="#854d0e">rollout</text>
     <line x1="578" y1="117" x2="550" y2="117" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="436" y="96" width="112" height="42" rx="7" fill="#fef3c7" stroke="#fcd34d"/><text x="492" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">11. Runtime</text><text x="492" y="127" text-anchor="middle" font-size="10" fill="#854d0e">execution</text>
+    <rect x="436" y="96" width="112" height="42" rx="8" fill="#fef3c7" stroke="#fcd34d"/><text x="492" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#a16207">11. Runtime</text><text x="492" y="127" text-anchor="middle" font-size="10" fill="#854d0e">execution</text>
     <line x1="436" y1="117" x2="408" y2="117" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#mlc-arr)"/>
-    <rect x="294" y="96" width="112" height="42" rx="7" fill="#ede9fe" stroke="#c4b5fd"/><text x="350" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#6d28d9">12. Monitoring /</text><text x="350" y="127" text-anchor="middle" font-size="10" fill="#5b21b6">feedback loop</text>
-    <path d="M 294 117 L 170 117 L 170 170 L 66 170 L 66 56" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="5,3" fill="none" marker-end="url(#mlc-arr)"/>
-    <text x="176" y="174" font-size="10" fill="#6d28d9" font-style="italic">feedback drives next model discovery</text>
+    <rect x="294" y="96" width="112" height="42" rx="8" fill="#ede9fe" stroke="#c4b5fd"/><text x="350" y="113" text-anchor="middle" font-size="10" font-weight="700" fill="#6d28d9">12. Monitoring /</text><text x="350" y="127" text-anchor="middle" font-size="10" fill="#5b21b6">feedback loop</text>
+
+    <rect x="6" y="10" width="972" height="50" rx="10" fill="none" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="6,4"/>
+    <rect x="14" y="4" width="214" height="16" rx="8" fill="#2563eb"/><text x="121" y="16" text-anchor="middle" font-size="9.5" font-weight="700" fill="#ffffff">WinML CLI scope (stages 1–7)</text>
+    <rect x="432" y="92" width="404" height="50" rx="10" fill="none" stroke="#a16207" stroke-width="1.6" stroke-dasharray="6,4"/>
+    <rect x="438" y="86" width="195" height="16" rx="8" fill="#a16207"/><text x="535" y="98" text-anchor="middle" font-size="9.5" font-weight="700" fill="#ffffff">WinML scope (stages 9–11)</text>
+
+    <path d="M 294 117 L 170 117 L 170 176 L 66 176 L 66 56" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="5,3" fill="none" marker-end="url(#mlc-arr)"/>
+    <text x="176" y="186" font-size="10" fill="#6d28d9" font-style="italic">feedback drives next model discovery</text>
   </svg>
   <p class="mlc-note"><b>Local model lifecycle (end-to-end)</b>: from discovery to runtime and monitoring, with explicit feedback into the next iteration.</p>
   <div class="mlc-legend">
