@@ -251,10 +251,6 @@ model to a working AI feature on the user's device is covered.</p>
 .mlc-wrap { border:1px solid var(--border); border-radius:10px; padding:16px 16px 12px; margin:18px 0; overflow-x:auto; }
 .mlc-note { margin:10px 0 0; font-size:13px; color:var(--muted); }
 .mlc-note b { color:#2563eb; }
-.mlc-legend { margin-top:12px; display:grid; gap:6px; font-size:13.5px; }
-.mlc-row { display:flex; align-items:center; gap:9px; }
-.mlc-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
-.mlc-skill { font-family:"SF Mono","Cascadia Code",Consolas,monospace; font-weight:600; }
 </style>
 <div class="mlc-wrap">
   <svg width="980" height="300" viewBox="0 0 980 300" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" style="display:block;max-width:100%;">
@@ -300,13 +296,6 @@ model to a working AI feature on the user's device is covered.</p>
     <text x="176" y="186" font-size="10" fill="#6d28d9" font-style="italic">feedback drives next model discovery</text>
   </svg>
   <p class="mlc-note"><b>Local model lifecycle (end-to-end)</b>: from discovery to runtime and monitoring, with explicit feedback into the next iteration.</p>
-  <div class="mlc-legend">
-    <div class="mlc-row"><span class="mlc-dot" style="background:#2563eb"></span><span class="mlc-skill">check-model-feasibility</span> — stages 1–2 (model/EP selection and onboarding)</div>
-    <div class="mlc-row"><span class="mlc-dot" style="background:#16a34a"></span><span class="mlc-skill">autoconfig</span> — stages 4–6 (optimize, compile, evaluate)</div>
-    <div class="mlc-row"><span class="mlc-dot" style="background:#ea580c"></span><span class="mlc-skill">debug-accuracy-drop</span> — stage 3 support (exploratory diagnostics; advisory guidance)</div>
-    <div class="mlc-row"><span class="mlc-dot" style="background:#7c3aed"></span><span class="mlc-skill">ship-to-winapp</span> — stages 7–11 (package, distribute, deploy, run)</div>
-    <div class="mlc-row"><span class="mlc-dot" style="background:#64748b"></span><span class="mlc-skill">use-winml-cli</span> — underpins every stage</div>
-  </div>
 </div>
 
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
