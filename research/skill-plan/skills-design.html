@@ -187,8 +187,14 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 <li><a href="#measurement-methodology-correction-winml-eval-vs-winml-perf">Measurement methodology correction (winml eval vs winml perf)</a></li>
 <li><a href="#key-insight-for-autoconfig-skill">Key insight for autoconfig skill</a></li>
 <li><a href="#winml-analyze-gaps-discovered">winml analyze gaps discovered</a></li>
-<li><a href="#why-skill-eval-matters">Why skill eval matters</a></li>
-<li><a href="#two-eval-dimensions">Two eval dimensions</a></li>
+</ul>
+</li>
+<li><a href="#skill-evaluation">Skill evaluation</a><ul>
+<li><a href="#skill-trigger-eval">Skill trigger eval</a></li>
+<li><a href="#skill-execution-eval">Skill execution eval</a></li>
+<li><a href="#skill-result-eval">Skill result eval</a></li>
+<li><a href="#intermediate-step-eval">Intermediate-step eval</a></li>
+<li><a href="#robust-eval">Robust eval</a></li>
 <li><a href="#winml-skill-new-cli-subcommand">winml skill — new CLI subcommand</a></li>
 <li><a href="#directory-layout">Directory layout</a></li>
 <li><a href="#evalyaml-format-promptfoo">eval.yaml format (PromptFoo)</a></li>
@@ -3373,34 +3379,56 @@ constexpr int64_t kMaxSupportedOpset = 18;  // ORT v1.14.x — bumped each ORT r
 - <code>winml analyze</code> reports <code>OP/ai.onnx/MatMul</code> without semantic classification
 - <strong>Fix:</strong> analyze could detect MatMul role heuristically (shapes: attention = square-ish, MLP = wide fan-out)</p>
 <hr />
-<h3 id="why-skill-eval-matters">Why skill eval matters<a class="headerlink" href="#why-skill-eval-matters" title="Permanent link">&para;</a></h3>
-<p>Mobius has no skill eval mechanism — it tests models but not skills themselves. This is a gap.
-A SKILL.md can have correct content but still cause the agent to give wrong guidance if the
-trigger description is poorly written or the structure is confusing. Skill eval catches this.</p>
-<h3 id="two-eval-dimensions">Two eval dimensions<a class="headerlink" href="#two-eval-dimensions" title="Permanent link">&para;</a></h3>
+<h2 id="skill-evaluation">Skill evaluation<a class="headerlink" href="#skill-evaluation" title="Permanent link">&para;</a></h2>
+<p>Skill quality is evaluated across <strong>routing correctness</strong> and <strong>execution correctness</strong>. A skill
+must pass both: triggering the right skill is necessary, and executing it reliably is mandatory.</p>
+<h3 id="skill-trigger-eval">Skill trigger eval<a class="headerlink" href="#skill-trigger-eval" title="Permanent link">&para;</a></h3>
+<p>Goal: verify the agent chooses the correct skill for the user intent (high precision + high recall).</p>
 <table>
 <thead>
 <tr>
-<th>Dimension</th>
-<th>What it checks</th>
-<th>When to run</th>
+<th>Check</th>
+<th>Method</th>
+<th>Pass criteria</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Static (content quality)</strong></td>
-<td>description trigger phrases, command accuracy, cross-reference validity</td>
-<td>Every PR that modifies a SKILL.md</td>
+<td>Intent-skill mapping</td>
+<td>Curated prompt set per intent family; assert selected skill</td>
+<td>Top-1 routing accuracy meets target (e.g., ≥95%)</td>
 </tr>
 <tr>
-<td><strong>Dynamic (agent behavior)</strong></td>
-<td>Given a user scenario + skill injected, does the agent produce the right commands and diagnosis?</td>
-<td>On significant content changes; periodically</td>
+<td>Boundary disambiguation</td>
+<td>Near-neighbor prompts (e.g., <code>debug-model</code> vs <code>auto-config</code>)</td>
+<td>Confusion matrix bounded by policy threshold</td>
+</tr>
+<tr>
+<td>False-trigger control</td>
+<td>Negative prompts that should remain in generic mode</td>
+<td>Low false-positive trigger rate</td>
 </tr>
 </tbody>
 </table>
-<p>Static eval = the review checklist in <code>contributing-a-skill</code>.
-Dynamic eval = test cases in <code>evals/eval.yaml</code> per skill, run with <code>winml skill eval</code>.</p>
+<h3 id="skill-execution-eval">Skill execution eval<a class="headerlink" href="#skill-execution-eval" title="Permanent link">&para;</a></h3>
+<p>Goal: once triggered, validate quality of the full workflow: final outputs, intermediate reasoning
+artifacts, and behavior under perturbation.</p>
+<h4 id="skill-result-eval">Skill result eval<a class="headerlink" href="#skill-result-eval" title="Permanent link">&para;</a></h4>
+<p>Checks the end artifact against task objectives (correctness, completeness, policy compliance, and
+reproducibility). Examples: config validity, report schema completeness, and recommendation quality.</p>
+<h4 id="intermediate-step-eval">Intermediate-step eval<a class="headerlink" href="#intermediate-step-eval" title="Permanent link">&para;</a></h4>
+<p>Evaluates whether critical internal steps were executed in the correct order with sufficient evidence,
+including command selection, key observations captured, and decision gates applied (not just the final answer).</p>
+<h4 id="robust-eval">Robust eval<a class="headerlink" href="#robust-eval" title="Permanent link">&para;</a></h4>
+<p>Stress-tests stability under realistic noise: partial command failures, missing fields, stale metadata,
+ambiguous prompts, and distribution shift across models/devices/EPs. The skill should degrade gracefully
+and preserve safe actionability.</p>
+<p><strong>Recommended execution cadence</strong></p>
+<ol>
+<li>Trigger eval on every skill text update.</li>
+<li>Result/intermediate eval on every behavior-affecting change.</li>
+<li>Robust eval in scheduled suites and pre-release gates.</li>
+</ol>
 <h3 id="winml-skill-new-cli-subcommand"><code>winml skill</code> — new CLI subcommand<a class="headerlink" href="#winml-skill-new-cli-subcommand" title="Permanent link">&para;</a></h3>
 <p>The eval system is built into winml-cli itself as a new <code>skill</code> subcommand.
 This keeps the toolchain self-contained and enables CI integration without external dependencies.</p>
