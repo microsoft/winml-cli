@@ -81,99 +81,114 @@
   <p class="subtitle">Concise architecture for the agent layer on top of winml-cli, with autoconfig as a targeted sub-tool.</p>
   <span class="meta">Draft</span><span class="meta">2026-06-21</span><span class="meta">Research POC</span>
 
-  <h2>1. Positioning: Why an Agent Layer</h2>
-  <div class="grid-2">
-    <div class="card blue">
-      <div class="card-title">Olive vs winml-cli</div>
-      <p>Olive is pass-centric and expert-driven. winml-cli is developer-centric and workflow-driven (<code>config → build → validate</code>), with Windows hardware diversity as a first-class concern.</p>
-    </div>
-    <div class="card teal">
-      <div class="card-title">Agent value</div>
-      <p>The agent focuses on diagnosis, explanation, and decision guidance. Compute-heavy search stays in deterministic tooling (autoconfig loop), then gets interpreted for developers.</p>
-    </div>
-  </div>
-
-  <h2>2. Core Architecture</h2>
-  <p>The <strong>Orchestrator</strong> spans the full lifecycle and manages phase gates, locking, stop conditions, and artifact routing. Lifecycle reference: <a href="./autoconfig_diagram.html"><code>autoconfig_diagram.html</code></a>.</p>
-  <table>
-    <thead><tr><th>Layer</th><th>Role</th><th>Output</th></tr></thead>
-    <tbody>
-      <tr><td>Intake + Insight</td><td>Inspect model/hardware, collect profile + analyzer signals, generate hypotheses</td><td>Prioritized candidate set</td></tr>
-      <tr><td>Opt Loop (Explorer/Optimizer/Reviewer)</td><td>Run targeted experiments and review evidence with explicit loop semantics</td><td>Ranked feasible configs + verdicts</td></tr>
-      <tr><td>Outcome</td><td>Summarize recommendation with evidence and next actions</td><td>Report, champion config, KB draft entries</td></tr>
-    </tbody>
-  </table>
-
-  <h2>3. Agent Capability Model (5 Types)</h2>
+  <h2>1. Problem statement</h2>
+  <p>Developers can run winml-cli commands, but they still lack expert judgment: why a model fails on a specific EP, which config is actually safe to ship, and how a local optimization behaves on other Windows devices.</p>
   <div class="grid-2">
     <div class="card red">
-      <div class="card-title">1) Diagnostic Agent (P0)</div>
-      <p>Explain failure root cause from build/eval/analyze/profiler signals and give executable fixes.</p>
+      <div class="card-title">Current pain</div>
+      <ul>
+        <li>Decision logic is manual and fragmented across inspect/analyze/build/eval/perf.</li>
+        <li>Single-device optimization cannot answer fleet-level deployment confidence.</li>
+        <li>Perf conclusions are noisy without confidence gating and robust bench protocol.</li>
+      </ul>
     </div>
     <div class="card orange">
-      <div class="card-title">2) Decision Guidance Agent</div>
-      <p>Run small comparative probes and present tradeoffs (latency, accuracy, portability) as actionable choices.</p>
-    </div>
-    <div class="card purple">
-      <div class="card-title">3) Cross-Device Confidence Agent</div>
-      <p>Estimate deployment confidence across heterogeneous Windows devices and produce fallback chains.</p>
-    </div>
-    <div class="card blue">
-      <div class="card-title">4) Regression Detection Agent</div>
-      <p>Track perf/accuracy drift across runtime, driver, and dependency changes with statistically valid comparisons.</p>
-    </div>
-    <div class="card green">
-      <div class="card-title">5) Model Recommendation Agent</div>
-      <p>Map product intent + hardware profile to a practical model candidate and a ready-to-run command path.</p>
+      <div class="card-title">Why this matters</div>
+      <ul>
+        <li>winml-cli already has strong primitives, but no unified reasoning layer.</li>
+        <li>Wrong config choices create hidden regressions and weak portability.</li>
+        <li>Without explainable output, developers cannot trust or audit recommendations.</li>
+      </ul>
     </div>
   </div>
 
-  <h2>4. Autoconfig's Role</h2>
-  <p>Autoconfig is a <strong>sub-tool</strong>, not the primary UX entry. The agent invokes it only when focused search is needed, then returns a human-readable report with rationale and alternatives.</p>
+  <h2>2. Design principles</h2>
   <ul>
-    <li>Targeted sweep over <code>EP × opset × graph options</code> (not blind exhaustive search).</li>
-    <li>Mandatory correctness gate via <code>winml eval</code>.</li>
-    <li>Report includes a feasible-options comparison table for decision-making.</li>
+    <li><strong>Agent for judgment, tool for computation:</strong> keep heavy search deterministic; use the agent for diagnosis, prioritization, and explanation.</li>
+    <li><strong>Orchestrator as lifecycle spine:</strong> one control role across Intake → Insight → Opt Loop → Outcome (see <a href="./autoconfig_diagram.html"><code>autoconfig_diagram.html</code></a>).</li>
+    <li><strong>Evidence-first decisions:</strong> every recommendation carries validation evidence, not point estimates.</li>
+    <li><strong>Cross-device by design:</strong> optimize for deployment fleet behavior, not only the dev machine.</li>
+    <li><strong>Self-evolving knowledge:</strong> findings move through confidence levels before becoming reusable KB guidance.</li>
   </ul>
 
-  <h2>5. Integrated Core Ideas from Related Designs</h2>
+  <h2>3. Solution</h2>
+  <p>Introduce a concise agent layer with five capability types, with autoconfig as a targeted sub-tool.</p>
   <div class="grid-2">
-    <div class="card teal">
-      <div class="card-title">Cross-device core (from cross-device-design)</div>
-      <ul>
-        <li>Single-device champion configs do not answer fleet deployment questions.</li>
-        <li><code>winml serve</code> Phase 0 can act as distributed workers (no new tune protocol required).</li>
-        <li>Need a joint objective over heterogeneous devices, not independent local optima.</li>
-        <li>Add a device axis to KB confidence and portability claims.</li>
-      </ul>
+    <div class="card red">
+      <div class="card-title">1) Diagnostic agent (P0)</div>
+      <p>Explains failures and proposes executable fixes from build/eval/analyze/profiler evidence.</p>
+    </div>
+    <div class="card orange">
+      <div class="card-title">2) Decision guidance agent</div>
+      <p>Runs focused comparisons and returns explicit tradeoff guidance.</p>
     </div>
     <div class="card purple">
-      <div class="card-title">Self-evolution core (from self-evolution-design)</div>
-      <ul>
-        <li>Use paired A/B protocol to reduce thermal/sequence bias.</li>
-        <li>Adaptive sampling replaces fixed session counts.</li>
-        <li>Confidence ladder L1→L5 governs promotion; KB should hold stable evidence tiers.</li>
-        <li>Automated finding promotion closes the loop and shortens future sweeps.</li>
-      </ul>
+      <div class="card-title">3) Cross-device confidence agent</div>
+      <p>Estimates portability and generates fallback chains across heterogeneous devices.</p>
+    </div>
+    <div class="card blue">
+      <div class="card-title">4) Regression detection agent</div>
+      <p>Detects drift after runtime/driver/toolchain changes with statistically valid checks.</p>
+    </div>
+    <div class="card green">
+      <div class="card-title">5) Model recommendation agent</div>
+      <p>Maps product intent + hardware profile to practical model choices and runnable paths.</p>
     </div>
   </div>
+  <div class="note">
+    <strong>Autoconfig positioning:</strong> sub-tool, not primary entry point. It runs targeted EP/opset/graph-option search and returns a report with a feasible-options comparison table.
+  </div>
 
-  <h2>6. Non-negotiable Constraints from Current Evidence</h2>
+  <h2>4. Input</h2>
   <table>
-    <thead><tr><th>Finding</th><th>Impact</th><th>Design implication</th></tr></thead>
+    <thead><tr><th>Input category</th><th>Examples</th><th>Purpose</th></tr></thead>
     <tbody>
-      <tr><td><code>npu-001</code></td><td>opset 21 can improve Conv+residual patterns</td><td>Keep opset as a first-class lever in hypothesis generation</td></tr>
-      <tr><td><code>npu-006</code></td><td>Conv fusion can cause catastrophic NPU regressions</td><td>Hard-block risky fusion hypotheses by pattern guard</td></tr>
-      <tr><td><code>npu-007</code></td><td>DVFS noise corrupts naive conclusions</td><td>Require DVFS-aware bench protocol and confidence gating</td></tr>
+      <tr><td>User intent</td><td>“model fails”, “too slow”, “need deploy-safe config”</td><td>Select appropriate agent workflow</td></tr>
+      <tr><td>Model + build context</td><td>model id/path, config.json, EP target, precision</td><td>Ground diagnosis and optimization scope</td></tr>
+      <tr><td>Runtime evidence</td><td>inspect/analyze/perf/eval outputs, logs</td><td>Enable evidence-backed recommendations</td></tr>
+      <tr><td>Knowledge base</td><td><code>ep_knowledge/*.json</code>, confidence tiers</td><td>Prune risky hypotheses and prioritize likely wins</td></tr>
+      <tr><td>Device context</td><td>local hardware or <code>winml serve</code> worker fleet metadata</td><td>Assess cross-device behavior and portability</td></tr>
     </tbody>
   </table>
 
-  <h2>7. Open Questions</h2>
+  <h2>5. Output</h2>
+  <table>
+    <thead><tr><th>Output</th><th>Shape</th><th>Consumer value</th></tr></thead>
+    <tbody>
+      <tr><td>Actionable report</td><td>Root cause, recommendation, confidence, next actions</td><td>Fast understanding and decision support</td></tr>
+      <tr><td>Feasible-options table</td><td>Latency / accuracy / portability tradeoff comparison</td><td>Transparent choice instead of opaque winner</td></tr>
+      <tr><td>Champion config + provenance</td><td>Chosen config plus evidence trail</td><td>Auditability and reproducibility</td></tr>
+      <tr><td>KB draft/promotion candidates</td><td>Structured findings with confidence level</td><td>Continuous quality improvement over time</td></tr>
+    </tbody>
+  </table>
+
+  <h2>6. How it works</h2>
+  <h3>6.1 Lifecycle orchestration</h3>
+  <p>The Orchestrator controls all phases and hands off work to Explorer/Optimizer/Reviewer inside the optimization loop, then merges outcomes into a final recommendation.</p>
+
+  <h3>6.2 Cross-device integration (from cross-device-design)</h3>
   <ul>
-    <li>Surface shape: standalone <code>winml agent</code> vs agent-assisted existing commands.</li>
-    <li>Cross-device execution in practice: lab fleet, cloud runners, or hybrid.</li>
-    <li>Offline mode: deterministic, non-LLM fallback for constrained environments.</li>
+    <li>Treat <code>winml serve</code> Phase 0 endpoints as distributed workers.</li>
+    <li>Optimize against a joint multi-device objective, not independent local optima.</li>
+    <li>Track portability with a device axis in KB confidence semantics.</li>
   </ul>
+
+  <h3>6.3 Self-evolution integration (from self-evolution-design)</h3>
+  <ul>
+    <li>Use paired A/B protocol to reduce thermal and sequence bias.</li>
+    <li>Use adaptive sampling when variance is high.</li>
+    <li>Promote findings through L1→L5 confidence gates before broad reuse.</li>
+  </ul>
+
+  <h3>6.4 Non-negotiable constraints from current evidence</h3>
+  <table>
+    <thead><tr><th>Finding</th><th>Impact</th><th>Constraint in workflow</th></tr></thead>
+    <tbody>
+      <tr><td><code>npu-001</code></td><td>opset 21 can improve Conv+residual models</td><td>Keep opset as a first-class search lever</td></tr>
+      <tr><td><code>npu-006</code></td><td>Conv fusion can trigger severe NPU regressions</td><td>Hard-block risky fusion patterns in hypothesis stage</td></tr>
+      <tr><td><code>npu-007</code></td><td>DVFS can distort conclusions</td><td>Require DVFS-aware protocol and confidence gating</td></tr>
+    </tbody>
+  </table>
 
   <div class="note">
     This document intentionally stays high-level: it defines responsibilities, boundaries, and confidence model, while leaving algorithmic details to autoconfig and execution-specific design docs.
