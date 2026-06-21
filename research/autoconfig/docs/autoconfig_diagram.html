@@ -79,6 +79,14 @@
   /* ── Loop (Phase 2) ── */
   .loop-container { width: 100%; display: flex; gap: 10px; align-items: flex-start; }
   .loop-agents { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .experiment-loop {
+    border: 2px dashed #ffcc80; border-radius: 12px; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 8px; background: #fffaf3;
+  }
+  .experiment-loop-title {
+    font-size: 11px; font-weight: 700; color: #bf360c;
+    text-transform: uppercase; letter-spacing: 0.6px;
+  }
   .lead-bar {
     background: linear-gradient(90deg, #4a79d9, #3f6fcc);
     color: #fff; border-radius: 8px; padding: 10px 14px; border: 1.5px solid #7ea6f0;
@@ -90,7 +98,6 @@
     border: 1px dashed #9fa8da; border-radius: 999px; padding: 2px 10px;
   }
   .rel-note.data { color: #00897b; border-color: #80cbc4; background: #edfdfb; }
-  .rel-note.loop { color: #e65100; border-color: #ffcc80; background: #fff8f0; }
   .loop-agent {
     background: #fff; border-radius: 8px; padding: 10px 14px;
     border: 1.5px solid #ffe0b2; font-size: 11px;
@@ -109,11 +116,12 @@
   }
   .stop-box .stop-title { font-weight: 700; margin-bottom: 4px; }
   .stop-box ul { padding-left: 14px; line-height: 1.65; }
-  .loop-back {
-    display: flex; align-items: center; gap: 6px; margin-top: 6px;
-    padding: 5px 10px; background: #fff8f0; border-radius: 20px;
-    font-size: 10px; color: #e65100; border: 1px solid #ffcc80; align-self: flex-start;
+  .loop-return {
+    margin-top: 2px; display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 10.5px; font-weight: 700; color: #bf360c;
+    border: 1.5px dashed #bf360c; border-radius: 999px; padding: 4px 10px; background: #fff3e0;
   }
+  .loop-return .loop-icon { font-size: 13px; line-height: 1; }
   .mini-arrow { text-align: center; font-size: 13px; color: #e65100; line-height: 1; margin: -2px 0; }
 
   /* verdict pill */
@@ -276,60 +284,63 @@
             <div class="lead-title">Lead (orchestrator)</div>
             <div class="lead-desc">Manages loop state, phase gates, and stop-condition enforcement</div>
           </div>
+          <div class="experiment-loop">
+            <div class="experiment-loop-title">Experiment loop (until stop condition)</div>
 
-          <div class="loop-agent">
-            <div class="agent-title">Explorer</div>
-            <div style="display:flex;gap:8px;margin-bottom:8px">
-              <div class="box" style="flex:1;border-color:#80cbc4;background:#e0f7fa;padding:7px 10px">
-                <div class="box-title" style="color:#004d40;font-size:10px;margin-bottom:2px">skip_set</div>
-                <div style="font-size:10.5px;color:#004d40">KB hard-block pruning after hypothesis generation</div>
+            <div class="loop-agent">
+              <div class="agent-title">Explorer</div>
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <div class="box" style="flex:1;border-color:#80cbc4;background:#e0f7fa;padding:7px 10px">
+                  <div class="box-title" style="color:#004d40;font-size:10px;margin-bottom:2px">skip_set</div>
+                  <div style="font-size:10.5px;color:#004d40">KB hard-block pruning after hypothesis generation</div>
+                </div>
+                <div class="box" style="flex:1;border-color:#a5d6a7;background:#f1faf9;padding:7px 10px">
+                  <div class="box-title" style="color:#1b5e20;font-size:10px;margin-bottom:2px">priority_queue</div>
+                  <div style="font-size:10.5px;color:#1b5e20">Ranked hypotheses after pruning</div>
+                </div>
               </div>
-              <div class="box" style="flex:1;border-color:#a5d6a7;background:#f1faf9;padding:7px 10px">
-                <div class="box-title" style="color:#1b5e20;font-size:10px;margin-bottom:2px">priority_queue</div>
-                <div style="font-size:10.5px;color:#1b5e20">Ranked hypotheses after pruning</div>
+              <ul>
+                <li>Skip completed iters from <code>session.json</code> <span class="new-badge">NEW</span></li>
+                <li>Load <code>hypothesis_pool</code> from Insight Engine</li>
+                <li>Apply KB hard blocks &rarr; <code>skip_set</code></li>
+                <li>Rank remaining hypotheses &rarr; <code>priority_queue</code></li>
+                <li>Pop next hypothesis from <code>priority_queue</code></li>
+                <li>Build <code>config.json</code> delta</li>
+              </ul>
+            </div>
+
+            <div class="rel-note">spawn per experiment &darr;</div>
+            <div class="mini-arrow">&#8595;</div>
+
+            <div class="loop-agent">
+              <div class="agent-title">Optimizer</div>
+              <ul>
+                <li><code>winml build -c config.json</code></li>
+                <li><strong>Phase A — screen</strong> (200 iters): CV gate for CPU/GPU; <em>disabled</em> for QNN NPU (DVFS)</li>
+                <li><strong>Early exit</strong> <span class="new-badge">NEW</span>: screen &Delta; &lt; 1% &rarr; DISCARD, skip full bench</li>
+                <li><strong>Phase B — full bench</strong> (3 &times; 1000 iters, 60s cool-down)</li>
+                <li><code>winml eval</code> &rarr; accuracy gate</li>
+              </ul>
+            </div>
+
+            <div class="rel-note data">benchmark + accuracy data &darr;</div>
+            <div class="mini-arrow">&#8595;</div>
+
+            <div class="loop-agent">
+              <div class="agent-title">Reviewer &mdash; ThroughputOnly <span class="new-badge">NEW</span></div>
+              <ul>
+                <li><code>threshold = max(1%, 2.0 &times; CV)</code></li>
+              </ul>
+              <div class="verdict-row">
+                <span class="pill pill-keep">KEEP &gt;1.5&times;thr</span>
+                <span class="pill pill-marginal">MARGINAL 1&times;&ndash;1.5&times;</span>
+                <span class="pill pill-discard">DISCARD</span>
+                <span class="pill pill-early">EARLY DISCARD</span>
+                <span class="pill pill-crash">ACC/BUILD FAIL</span>
               </div>
             </div>
-            <ul>
-              <li>Skip completed iters from <code>session.json</code> <span class="new-badge">NEW</span></li>
-              <li>Load <code>hypothesis_pool</code> from Insight Engine</li>
-              <li>Apply KB hard blocks &rarr; <code>skip_set</code></li>
-              <li>Rank remaining hypotheses &rarr; <code>priority_queue</code></li>
-              <li>Pop next hypothesis from <code>priority_queue</code></li>
-              <li>Build <code>config.json</code> delta</li>
-            </ul>
+            <div class="loop-return"><span class="loop-icon">&#8634;</span> reviewer verdict / suggestions &rarr; back to Explorer (next iteration)</div>
           </div>
-
-          <div class="rel-note">spawn per experiment &darr;</div>
-          <div class="mini-arrow">&#8595;</div>
-
-          <div class="loop-agent">
-            <div class="agent-title">Optimizer</div>
-            <ul>
-              <li><code>winml build -c config.json</code></li>
-              <li><strong>Phase A — screen</strong> (200 iters): CV gate for CPU/GPU; <em>disabled</em> for QNN NPU (DVFS)</li>
-              <li><strong>Early exit</strong> <span class="new-badge">NEW</span>: screen &Delta; &lt; 1% &rarr; DISCARD, skip full bench</li>
-              <li><strong>Phase B — full bench</strong> (3 &times; 1000 iters, 60s cool-down)</li>
-              <li><code>winml eval</code> &rarr; accuracy gate</li>
-            </ul>
-          </div>
-
-          <div class="rel-note data">benchmark + accuracy data &darr;</div>
-          <div class="mini-arrow">&#8595;</div>
-
-          <div class="loop-agent">
-            <div class="agent-title">Reviewer &mdash; ThroughputOnly <span class="new-badge">NEW</span></div>
-            <ul>
-              <li><code>threshold = max(1%, 2.0 &times; CV)</code></li>
-            </ul>
-            <div class="verdict-row">
-              <span class="pill pill-keep">KEEP &gt;1.5&times;thr</span>
-              <span class="pill pill-marginal">MARGINAL 1&times;&ndash;1.5&times;</span>
-              <span class="pill pill-discard">DISCARD</span>
-              <span class="pill pill-early">EARLY DISCARD</span>
-              <span class="pill pill-crash">ACC/BUILD FAIL</span>
-            </div>
-          </div>
-          <div class="rel-note loop">suggestions / verdict &rarr; next Explorer iteration</div>
 
           <div class="loop-agent" style="border-color:#b2dfdb;background:#f1faf9">
             <div class="agent-title" style="color:#006064">Crash-Resume <span class="new-badge">NEW</span></div>
@@ -338,8 +349,6 @@
               <li>Stores: completed iters, baseline/best p50, discard counters</li>
             </ul>
           </div>
-
-          <div class="loop-back">&#8617; loop back to Explorer</div>
 
         </div>
 
