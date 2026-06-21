@@ -336,31 +336,31 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 </tr>
 <tr>
 <td>2</td>
-<td><code>autoconfig</code></td>
-<td>P0</td>
-<td>Flagship. Autonomously searches the config space and delivers the optimal <code>config.json</code> per EP. Also hosts the <strong>manual optimize path</strong> (precision-ladder + latency/accuracy-budget decision framework + hardware table) for users who want to choose by hand or have no target hardware. Maps to all five user scenarios (S1–S5).</td>
-<td><code>config_&lt;ep&gt;_optimal.json</code> + <code>report.html</code> (includes feasible-options comparison table) + <code>feature_requests.md</code></td>
-</tr>
-<tr>
-<td>3</td>
 <td><code>check-model-feasibility</code></td>
 <td>P0</td>
 <td>Pre-build front door, merging model discovery + EP/device compatibility: "find me a <em>supported</em> model from my constraints, then confirm it runs on my hardware." The single "what do I run, and will it run?" gate (<code>inspect</code> → <code>sys</code> → <code>analyze</code>). Highest frequency — every user hits it before building.</td>
 <td>model shortlist + go/no-go + fallback EP</td>
 </tr>
 <tr>
+<td>3</td>
+<td><code>debug-model</code></td>
+<td>P0</td>
+<td>Lightweight, read-only diagnosis skill: quickly synthesizes <code>inspect</code>, <code>analyze</code>, profiling, and op tracing signals into an explanation users can act on.</td>
+<td>diagnostic report + prioritized actions</td>
+</tr>
+<tr>
 <td>4</td>
+<td><code>auto-config</code></td>
+<td>P0</td>
+<td>Flagship. Autonomously searches the config space and delivers the optimal <code>config.json</code> per EP. Also hosts the <strong>manual optimize path</strong> (precision-ladder + latency/accuracy-budget decision framework + hardware table) for users who want to choose by hand or have no target hardware. Maps to all five user scenarios (S1–S5).</td>
+<td><code>config_&lt;ep&gt;_optimal.json</code> + <code>report.html</code> (includes feasible-options comparison table) + <code>feature_requests.md</code></td>
+</tr>
+<tr>
+<td>5</td>
 <td><code>ship-to-winapp</code></td>
 <td>P1</td>
 <td>Ship-time skill, merging validation + packaging: L1–L5 Definition-of-Done gates <strong>plus</strong> multi-EP artifact layout, <code>manifest.json</code>, and runtime EP selection. Everything between "the model is good" and "it's running in the app."</td>
 <td>pass/fail report + <code>manifest.json</code></td>
-</tr>
-<tr>
-<td>5</td>
-<td><code>debug-model</code></td>
-<td>P1</td>
-<td>Lightweight, read-only diagnosis skill: quickly synthesizes <code>inspect</code>, <code>analyze</code>, profiling, and op tracing signals into an explanation users can act on.</td>
-<td>diagnostic report + prioritized actions</td>
 </tr>
 </tbody>
 </table>
@@ -385,17 +385,17 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 </tr>
 <tr>
 <td>2</td>
-<td><code>optimization-research</code></td>
-<td>P1</td>
-<td>High leverage: deep-searches ORT/Olive/ecosystem to find gaps and file the backlog that drives every other contributor skill. Internal, but sets the roadmap.</td>
-<td>files issues + repro (drives code changes)</td>
-</tr>
-<tr>
-<td>3</td>
 <td><code>adding-ep-support</code></td>
 <td>P1</td>
 <td>Onboards a new execution-provider backend. Infrequent, but high value the moment a new NPU vendor lands.</td>
 <td>compile backend + EP registry</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>optimization-research</code></td>
+<td>P1</td>
+<td>High leverage: deep-searches ORT/Olive/ecosystem to find gaps and file the backlog that drives every other contributor skill. Internal, but sets the roadmap.</td>
+<td>files issues + repro (drives code changes)</td>
 </tr>
 <tr>
 <td>4</td>
@@ -3682,7 +3682,7 @@ promptfoo<span class="w"> </span><span class="nb">eval</span><span class="w"> </
 <h3 id="priority-order-for-implementation">Priority order for implementation<a class="headerlink" href="#priority-order-for-implementation" title="Permanent link">&para;</a></h3>
 <p>This is <strong>implementation sequencing</strong> (risk- and dependency-driven), which intentionally differs from
 the <strong>importance</strong> ranking in the Overview. Importance answers "which skill matters most to users";
-this answers "which is safest to build first." Example: <code>autoconfig</code> is the #1 <em>importance</em> user skill
+this answers "which is safest to build first." Example: <code>auto-config</code> remains a high-importance user skill
 but ships <em>last</em> because it depends on the <code>--format json</code> changes and is the most complex.</p>
 <p><strong>Code changes first (unblocks agentic skill execution):</strong>
 0. <code>winml eval --format json</code> — critical: enables all accuracy-related agentic flows
