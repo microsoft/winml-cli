@@ -80,12 +80,14 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
       <li><a href="#winml-cli-vs-olive">winml-cli vs Olive</a></li>
       <li><a href="#design-principles">Design principles</a></li>
       <li><a href="#solution">Solution</a><ul>
-        <li><a href="#agent-capability-model">Agent capability model</a></li>
+        <li><a href="#diagram-walkthrough">Diagram walkthrough</a></li>
         <li><a href="#autoconfig-positioning">Autoconfig positioning</a></li>
         <li><a href="#loop-v3-vs-agent-layer">Loop v3 vs agent layer</a></li>
       </ul></li>
       <li><a href="#input">Input</a></li>
       <li><a href="#output">Output</a></li>
+      <li><a href="#roles-and-responsibilities">Roles and responsibilities</a></li>
+      <li><a href="#auto-research-inspired-policy">Auto-research-inspired policy</a></li>
       <li><a href="#how-it-works">How it works</a><ul>
         <li><a href="#lifecycle-orchestration">Lifecycle orchestration</a></li>
         <li><a href="#cross-device-integration">Cross-device integration</a></li>
@@ -227,20 +229,20 @@ Lifecycle visual reference: <a href="./autoconfig_diagram.html"><code>autoconfig
 
 <h2 id="solution">Solution<a class="headerlink" href="#solution" title="Permanent link">&para;</a></h2>
 <p>
-Introduce an agent layer on top of winml-cli commands. The layer provides five capability types and invokes autoconfig as a targeted sub-tool when controlled search is needed.
+The solution is the lifecycle shown in <a href="./autoconfig_diagram.html"><code>autoconfig_diagram.html</code></a>:
+an orchestrated pipeline from intake to outcome, with an explicit optimization loop in the middle.
 </p>
 
-<h3 id="agent-capability-model">Agent capability model<a class="headerlink" href="#agent-capability-model" title="Permanent link">&para;</a></h3>
-<table>
-  <thead><tr><th>Agent type</th><th>Primary role</th><th>Typical trigger</th></tr></thead>
-  <tbody>
-    <tr><td>Diagnostic Agent (P0)</td><td>Explain root cause and propose executable fixes</td><td>Build/eval/analyze failure</td></tr>
-    <tr><td>Decision Guidance Agent</td><td>Compare feasible options with explicit tradeoffs</td><td>"Which config should I pick?"</td></tr>
-    <tr><td>Cross-Device Confidence Agent</td><td>Estimate portability and propose fallback chains</td><td>"Will this ship safely across devices?"</td></tr>
-    <tr><td>Regression Detection Agent</td><td>Detect and attribute perf/accuracy drift</td><td>Runtime/driver/toolchain changes</td></tr>
-    <tr><td>Model Recommendation Agent</td><td>Map use-case + hardware profile to model path</td><td>"Which model should I start with?"</td></tr>
-  </tbody>
-</table>
+<h3 id="diagram-walkthrough">Diagram walkthrough<a class="headerlink" href="#diagram-walkthrough" title="Permanent link">&para;</a></h3>
+<ol>
+  <li><strong>Phase 0 · Intake:</strong> establish baseline + correctness contract, and load resume state.</li>
+  <li><strong>Phase 1 · Insight:</strong> collect profiling/analyzer/graph evidence and generate <code>hypothesis_pool</code>.</li>
+  <li><strong>Phase 2 · Opt Loop:</strong> Explorer → Optimizer → Reviewer repeatedly evaluate candidate deltas.</li>
+  <li><strong>Phase 3 · Outcome:</strong> emit champion config, report, experiment artifacts, and KB draft findings.</li>
+</ol>
+<p>
+The key is the <strong>loop</strong>: hypotheses are not run once in a fixed sequence. Reviewer verdicts feed back into the next Explorer iteration until stop conditions are met (objective reached, queue exhausted, or plateau).
+</p>
 
 <h3 id="autoconfig-positioning">Autoconfig positioning<a class="headerlink" href="#autoconfig-positioning" title="Permanent link">&para;</a></h3>
 <p>
@@ -281,6 +283,39 @@ Correctness validation (<code>winml eval</code>) is mandatory before recommendat
     <tr><td>Feature requirements</td><td>Issue references for capability gaps (e.g. fused-op diagnostics, DVFS-aware perf)</td><td>Turns findings into product backlog action</td></tr>
   </tbody>
 </table>
+
+<h2 id="roles-and-responsibilities">Roles and responsibilities<a class="headerlink" href="#roles-and-responsibilities" title="Permanent link">&para;</a></h2>
+<table>
+  <thead><tr><th>Role</th><th>Responsibility</th><th>Key artifacts</th></tr></thead>
+  <tbody>
+    <tr><td>Orchestrator</td><td>Controls phase transitions, loop gates, stop conditions, and resume behavior</td><td><code>session.json</code>, run state, final synthesis</td></tr>
+    <tr><td>Explorer</td><td>Builds and ranks candidate experiments from <code>hypothesis_pool</code> under KB constraints</td><td><code>skip_set</code>, <code>priority_queue</code>, candidate deltas</td></tr>
+    <tr><td>Optimizer</td><td>Executes build/perf/eval for each candidate and records measurement evidence</td><td>perf/eval logs, <code>results.tsv</code>, experiment folders</td></tr>
+    <tr><td>Reviewer</td><td>Applies acceptance policy and returns verdict/suggestions to next loop iteration</td><td>KEEP/MARGINAL/DISCARD outcomes + rationale</td></tr>
+  </tbody>
+</table>
+<p>
+The Insight phase can leverage <strong>debug-model</strong> as a sub-skill to enrich failure analysis and bottleneck interpretation before hypothesis ranking.
+</p>
+
+<h2 id="auto-research-inspired-policy">Auto-research-inspired policy<a class="headerlink" href="#auto-research-inspired-policy" title="Permanent link">&para;</a></h2>
+<p>
+This design borrows from auto-research thinking: Explorer expands search and manages both termination and acceptance conditions through explicit policy, not ad-hoc trial-and-error.
+</p>
+<h3 id="search-space-definition">Search space definition<a class="headerlink" href="#search-space-definition" title="Permanent link">&para;</a></h3>
+<p>Explorer currently mutates all major tunable knobs exposed in the winml build path, including:</p>
+<ol>
+  <li>opset version</li>
+  <li><code>winml optimize</code> options</li>
+  <li>quantization parameters</li>
+  <li>ORT runtime configuration options</li>
+</ol>
+<h3 id="termination-condition">Termination condition<a class="headerlink" href="#termination-condition" title="Permanent link">&para;</a></h3>
+<p>The loop stops when all experiments considered worth exploring have been executed (or when global stop conditions trigger).</p>
+<h3 id="acceptance-condition">Acceptance condition<a class="headerlink" href="#acceptance-condition" title="Permanent link">&para;</a></h3>
+<p>
+An experiment is accepted only when <strong>performance, accuracy, and memory</strong> all satisfy user requirements, and the observed performance gain is <strong>stable</strong> rather than noise.
+</p>
 
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
 <h3 id="lifecycle-orchestration">Lifecycle orchestration<a class="headerlink" href="#lifecycle-orchestration" title="Permanent link">&para;</a></h3>
