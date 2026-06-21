@@ -21,14 +21,23 @@
 
   /* ── Layout ── */
   .diagram { display: flex; flex-direction: column; align-items: center; gap: 0; }
-  .global-lead {
-    width: 100%; max-width: 900px;
-    background: linear-gradient(90deg, #4a79d9, #3f6fcc);
-    color: #fff; border-radius: 10px; border: 1.5px solid #7ea6f0;
-    padding: 12px 18px; margin: 0 0 12px 0;
+  .lifecycle-flow {
+    width: 100%; max-width: 960px; box-sizing: border-box;
+    position: relative; padding-left: 54px;
   }
-  .global-lead .global-lead-title { font-size: 18px; font-weight: 700; margin-bottom: 3px; text-align: center; }
-  .global-lead .global-lead-desc { font-size: 12px; opacity: 0.95; text-align: center; }
+  .orchestrator-line {
+    position: absolute; left: 22px; top: 0; bottom: 0;
+    width: 10px; border-radius: 999px;
+    background: linear-gradient(180deg, #4a79d9, #3f6fcc);
+    border: 1.5px solid #7ea6f0;
+  }
+  .orchestrator-label {
+    position: absolute; left: 6px; top: 10px;
+    writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+    color: #1f3f83; background: #e8eaf6; border: 1px solid #c5cae9; border-radius: 6px;
+    padding: 6px 4px;
+  }
 
   /* ── Phase strips ── */
   .phase-row {
@@ -199,12 +208,9 @@
 
   <div class="arrow"><div class="arrow-head">&#8595;</div></div>
 
-  <div class="global-lead">
-    <div class="global-lead-title">Lead / Main Brain</div>
-    <div class="global-lead-desc">Orchestrates the full lifecycle (Intake &rarr; Insight &rarr; Opt Loop &rarr; Outcome), manages locks, phase gates, and stop conditions</div>
-  </div>
-
-  <div class="arrow"><div class="arrow-head">&#8595;</div></div>
+  <div class="lifecycle-flow">
+  <div class="orchestrator-line"></div>
+  <div class="orchestrator-label">Orchestrator</div>
 
   <!-- PHASE 0 -->
   <div class="phase-row p0">
@@ -423,6 +429,7 @@
         </div>
       </div>
     </div>
+  </div>
   </div>
 
   <!-- Footnote -->
