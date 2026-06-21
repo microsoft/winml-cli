@@ -75,6 +75,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
   <div class="toc">
     <ul>
       <li><a href="#problem-statement">Problem statement</a></li>
+      <li><a href="#key-user-scenarios">Key user scenarios</a></li>
       <li><a href="#winml-cli-vs-olive">winml-cli vs Olive</a></li>
       <li><a href="#design-principles">Design principles</a></li>
       <li><a href="#solution">Solution</a><ul>
@@ -102,12 +103,8 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 
 <h2 id="problem-statement">Problem statement<a class="headerlink" href="#problem-statement" title="Permanent link">&para;</a></h2>
 <p>
-winml-cli already provides strong primitives (<code>inspect</code>, <code>analyze</code>, <code>build</code>, <code>eval</code>, <code>perf</code>),
-but most developers still cannot reliably answer expert-level questions:
-why a model fails on a target EP, which configuration is safe to ship, and whether a local optimum generalizes across Windows hardware diversity.
-</p>
-<p>
-This is not only a technical hypothesis; it is also a direct customer ask. Multiple partners explicitly requested lower model-tuning effort, stronger transparency, and cross-IHV consistency with minimal manual optimization.
+Although winml-cli provides default config generation, real deployment needs usually require model- and target-specific trade-offs.
+The same default can behave very differently when objective shifts across latency, accuracy, memory, EP, and device.
 </p>
 <table>
   <thead><tr><th>Customer signal</th><th>Observed ask</th><th>Design implication</th></tr></thead>
@@ -116,17 +113,38 @@ This is not only a technical hypothesis; it is also a direct customer ask. Multi
     <tr><td>Canva / Affinity</td><td>One universal model across IHVs, near-real-time performance, minimal per-vendor tuning, better debuggability than black-box behavior.</td><td>Cross-device confidence + explainable diagnostics are core requirements.</td></tr>
     <tr><td>Adobe</td><td>DML memory footprint and GPU↔CPU fallback ping-pong called out as major blockers.</td><td>Need EP-behavior visibility, fallback analysis, and actionable optimization guidance.</td></tr>
     <tr><td>CyberLink</td><td>Need parity vs native runtimes, one model across silicon, and minimal engineering overhead (auto EP preference).</td><td>Agent must optimize for portability + performance while reducing expert intervention.</td></tr>
-    <tr><td>Discord feedback</td><td>Strong interest in local model IP protection / encryption guidance.</td><td>Agent recommendations should include deployment safety constraints, not only perf numbers.</td></tr>
   </tbody>
 </table>
 <p>
-Current optimization practice is often single-device and manually interpreted, which creates three recurring issues:
+Problem focus in this design:
 </p>
-<ul>
-  <li><strong>Decision fragmentation</strong>: command outputs are available, but reasoning is not systematized.</li>
-  <li><strong>Portability blind spots</strong>: a config that wins on one device can regress on another.</li>
-  <li><strong>Confidence gaps</strong>: noisy measurements and insufficient promotion gates can produce unstable recommendations.</li>
-</ul>
+<ol>
+  <li><strong>Default config is not always enough.</strong> Users have different constraints (perf, accuracy, memory, cross-EP/device portability), and trade-offs should be made from actual runtime evidence on target devices, sometimes requiring coordinated cross-device tuning.</li>
+  <li><strong>Negative optimization exists on some models.</strong> Current measurements show default config can regress specific models; this must be identified systematically and resolved with explainable diagnostics.</li>
+  <li><strong>Optimization behavior changes over time.</strong> EP/driver/winml version upgrades can shift optimal settings; the system should capture these shifts and stay up-to-date instead of freezing historical assumptions.</li>
+</ol>
+
+<h2 id="key-user-scenarios">Key user scenarios<a class="headerlink" href="#key-user-scenarios" title="Permanent link">&para;</a></h2>
+<table>
+  <thead><tr><th>Scenario</th><th>Example ask</th><th>Expected outcome</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Constraint-driven config search</td>
+      <td>"Find a ConvNeXt config with accuracy drop &lt; 10% and memory &lt; 800MB."</td>
+      <td>Feasible config set + ranked recommendation + trade-off table.</td>
+    </tr>
+    <tr>
+      <td>Cross-device / cross-EP search</td>
+      <td>"Find a ConvNeXt model/config that runs on 3 NPUs." / "Find a model that can run on all EPs."</td>
+      <td>Portability-aware recommendation, fallback chain, and confidence by device/EP scope.</td>
+    </tr>
+    <tr>
+      <td>Model optimization upgrade</td>
+      <td>"Find a model/config faster than current one with accuracy drop &lt; 5%."</td>
+      <td>Candidate replacements with verified speedup, bounded accuracy loss, and migration guidance.</td>
+    </tr>
+  </tbody>
+</table>
 
 <h2 id="winml-cli-vs-olive">winml-cli vs Olive<a class="headerlink" href="#winml-cli-vs-olive" title="Permanent link">&para;</a></h2>
 <p>
@@ -140,6 +158,8 @@ The overlap is real at implementation level (both use ORT ecosystem), but the op
     <tr><td>Tuning scope</td><td>Comprehensive optimization surface, including many advanced pass combinations</td><td>Curated, high-impact optimization set for common Windows deployment paths</td></tr>
     <tr><td>Control depth</td><td>Fine-grained and expert-oriented</td><td>Constrained and opinionated by design to reduce operational complexity</td></tr>
     <tr><td>Verification model</td><td>User-driven validation strategy</td><td>Regular verification built into flow (baseline checks, eval gates, confidence-aware decisions)</td></tr>
+    <tr><td>Primary investment</td><td>Broad model transformation and deep optimization control</td><td>Stronger debugging/diagnostic capability, explainability, and safer decision support</td></tr>
+    <tr><td>Deep model adjustment ownership</td><td>First-class (advanced pass-level tuning)</td><td>Often delegated to Olive / Mobius for heavy model surgery</td></tr>
     <tr><td>Primary user</td><td>ML/optimization engineer</td><td>WinApp developer / product engineer prioritizing time-to-ship</td></tr>
     <tr><td>Default UX goal</td><td>Maximum controllability</td><td>Minimum engineering effort with explainable, reliable outcomes</td></tr>
   </tbody>
