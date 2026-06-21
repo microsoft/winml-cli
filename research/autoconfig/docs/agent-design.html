@@ -1,202 +1,212 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>WinML CLI Agent Design</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WinML CLI Agent Design Doc</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #f4f6f9;
-    color: #1a1a2e;
-    padding: 32px 24px;
-    line-height: 1.55;
-    font-size: 13px;
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --accent: #0969da;
+  --code-bg: #f6f8fa;
+  --table-stripe: #f6f8fa;
+  --sidebar-bg: #f6f8fa;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #30363d;
+    --accent: #4493f8; --code-bg: #161b22; --table-stripe: #161b22; --sidebar-bg: #161b22;
   }
-  .container { max-width: 980px; margin: 0 auto; }
-  h1 { font-size: 24px; margin-bottom: 6px; color: #14213d; }
-  .subtitle { color: #556; margin-bottom: 14px; }
-  .meta {
-    display: inline-block; font-size: 10px; font-weight: 700;
-    letter-spacing: 0.6px; text-transform: uppercase;
-    color: #3949ab; background: #e8eaf6; border: 1px solid #c5cae9;
-    border-radius: 4px; padding: 3px 8px; margin-right: 6px;
-  }
-  h2 {
-    margin: 26px 0 12px;
-    font-size: 14px; color: #1a1a2e; font-weight: 800;
-    text-transform: uppercase; letter-spacing: 0.8px;
-    border-bottom: 2px solid #e0e4ef; padding-bottom: 6px;
-  }
-  h3 { font-size: 13px; margin: 14px 0 6px; color: #283593; }
-  p { margin-bottom: 9px; color: #334; }
-  ul { margin: 6px 0 0 18px; }
-  li { margin-bottom: 4px; color: #334; }
-  code {
-    font-family: "Cascadia Code", "Consolas", monospace;
-    background: #eef0f8; color: #3949ab;
-    border-radius: 4px; padding: 1px 5px; font-size: 11.5px;
-  }
-  .grid-2 {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-  }
-  .card {
-    background: #fff; border: 1px solid #e0e4ef; border-radius: 10px;
-    padding: 14px 16px;
-  }
-  .card-title {
-    font-size: 11px; font-weight: 800; text-transform: uppercase;
-    letter-spacing: 0.5px; margin-bottom: 6px;
-  }
-  .card.blue { border-left: 4px solid #1976d2; }
-  .card.orange { border-left: 4px solid #ef6c00; }
-  .card.green { border-left: 4px solid #2e7d32; }
-  .card.purple { border-left: 4px solid #7b1fa2; }
-  .card.red { border-left: 4px solid #c62828; }
-  .card.teal { border-left: 4px solid #00897b; }
-  .card.blue .card-title { color: #0d47a1; }
-  .card.orange .card-title { color: #e65100; }
-  .card.green .card-title { color: #2e7d32; }
-  .card.purple .card-title { color: #6a1b9a; }
-  .card.red .card-title { color: #c62828; }
-  .card.teal .card-title { color: #00695c; }
-  .note {
-    margin-top: 12px; background: #fff8e1; border-left: 4px solid #f9a825;
-    border-radius: 0 8px 8px 0; padding: 10px 12px; color: #5d4037;
-  }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
-  th {
-    text-align: left; padding: 8px 10px; background: #e8eaf6; color: #3949ab;
-    text-transform: uppercase; letter-spacing: 0.5px; font-size: 10.5px;
-  }
-  td { padding: 8px 10px; border-bottom: 1px solid #e0e4ef; vertical-align: top; }
-  tr:nth-child(even) td { background: #fafbfe; }
-  .footer { margin-top: 24px; color: #778; font-size: 11px; border-top: 1px dashed #ccd; padding-top: 12px; }
-  @media (max-width: 760px) { .grid-2 { grid-template-columns: 1fr; } }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  font-size: 16px; line-height: 1.65;
+}
+.layout { display: flex; max-width: 1450px; margin: 0 auto; }
+nav.toc {
+  width: 300px; flex-shrink: 0; position: sticky; top: 0; align-self: flex-start;
+  height: 100vh; overflow-y: auto; padding: 24px 16px 60px; border-right: 1px solid var(--border);
+  background: var(--sidebar-bg); font-size: 13.5px;
+}
+nav.toc .toc-title {
+  font-weight: 700; font-size: 14px; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted); margin: 0 0 12px;
+}
+nav.toc ul { list-style: none; margin: 0; padding-left: 14px; }
+nav.toc > ul { padding-left: 0; }
+nav.toc li { margin: 2px 0; }
+nav.toc a { color: var(--fg); text-decoration: none; display: block; padding: 3px 8px; border-radius: 6px; }
+nav.toc a:hover { background: rgba(99,110,123,.15); color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 40px 56px 120px; }
+@media (max-width: 1000px) {
+  nav.toc { display: none; }
+  main { padding: 24px; }
+}
+h1, h2, h3, h4 { line-height: 1.3; margin-top: 1.8em; margin-bottom: .6em; font-weight: 650; scroll-margin-top: 16px; }
+h1 { font-size: 2em; border-bottom: 2px solid var(--border); padding-bottom: .3em; margin-top: 0; }
+h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: .25em; }
+h3 { font-size: 1.2em; }
+h4 { font-size: 1.02em; }
+a { color: var(--accent); }
+p, li { overflow-wrap: break-word; }
+code {
+  font-family: "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 85%; background: var(--code-bg); padding: .2em .4em; border-radius: 6px;
+}
+table { border-collapse: collapse; width: 100%; margin: 1em 0; display: block; overflow-x: auto; font-size: 14px; }
+th, td { border: 1px solid var(--border); padding: 7px 12px; text-align: left; vertical-align: top; }
+th { background: var(--sidebar-bg); font-weight: 650; }
+tr:nth-child(even) td { background: var(--table-stripe); }
+blockquote { margin: 1em 0; padding: .2em 1em; color: var(--muted); border-left: 4px solid var(--border); }
+.headerlink { text-decoration: none; opacity: 0; margin-left: .4em; font-weight: 400; }
+h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .headerlink { opacity: .5; }
 </style>
 </head>
 <body>
-<div class="container">
-  <h1>WinML CLI Agent Design</h1>
-  <p class="subtitle">Concise architecture for the agent layer on top of winml-cli, with autoconfig as a targeted sub-tool.</p>
-  <span class="meta">Draft</span><span class="meta">2026-06-21</span><span class="meta">Research POC</span>
-
-  <h2>1. Problem statement</h2>
-  <p>Developers can run winml-cli commands, but they still lack expert judgment: why a model fails on a specific EP, which config is actually safe to ship, and how a local optimization behaves on other Windows devices.</p>
-  <div class="grid-2">
-    <div class="card red">
-      <div class="card-title">Current pain</div>
-      <ul>
-        <li>Decision logic is manual and fragmented across inspect/analyze/build/eval/perf.</li>
-        <li>Single-device optimization cannot answer fleet-level deployment confidence.</li>
-        <li>Perf conclusions are noisy without confidence gating and robust bench protocol.</li>
-      </ul>
-    </div>
-    <div class="card orange">
-      <div class="card-title">Why this matters</div>
-      <ul>
-        <li>winml-cli already has strong primitives, but no unified reasoning layer.</li>
-        <li>Wrong config choices create hidden regressions and weak portability.</li>
-        <li>Without explainable output, developers cannot trust or audit recommendations.</li>
-      </ul>
-    </div>
+<div class="layout">
+<nav class="toc">
+  <p class="toc-title">Contents</p>
+  <div class="toc">
+    <ul>
+      <li><a href="#problem-statement">Problem statement</a></li>
+      <li><a href="#design-principles">Design principles</a></li>
+      <li><a href="#solution">Solution</a><ul>
+        <li><a href="#agent-capability-model">Agent capability model</a></li>
+        <li><a href="#autoconfig-positioning">Autoconfig positioning</a></li>
+      </ul></li>
+      <li><a href="#input">Input</a></li>
+      <li><a href="#output">Output</a></li>
+      <li><a href="#how-it-works">How it works</a><ul>
+        <li><a href="#lifecycle-orchestration">Lifecycle orchestration</a></li>
+        <li><a href="#cross-device-integration">Cross-device integration</a></li>
+        <li><a href="#self-evolution-integration">Self-evolution integration</a></li>
+        <li><a href="#evidence-constraints">Evidence constraints</a></li>
+      </ul></li>
+      <li><a href="#references">References</a></li>
+    </ul>
   </div>
+</nav>
+<main>
+<h1 id="winml-cli-agent-design-doc">WinML CLI Agent Design Doc<a class="headerlink" href="#winml-cli-agent-design-doc" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Draft (research POC) · <strong>Updated:</strong> 2026-06-21</p>
 
-  <h2>2. Design principles</h2>
-  <ul>
-    <li><strong>Agent for judgment, tool for computation:</strong> keep heavy search deterministic; use the agent for diagnosis, prioritization, and explanation.</li>
-    <li><strong>Orchestrator as lifecycle spine:</strong> one control role across Intake → Insight → Opt Loop → Outcome (see <a href="./autoconfig_diagram.html"><code>autoconfig_diagram.html</code></a>).</li>
-    <li><strong>Evidence-first decisions:</strong> every recommendation carries validation evidence, not point estimates.</li>
-    <li><strong>Cross-device by design:</strong> optimize for deployment fleet behavior, not only the dev machine.</li>
-    <li><strong>Self-evolving knowledge:</strong> findings move through confidence levels before becoming reusable KB guidance.</li>
-  </ul>
+<h2 id="problem-statement">Problem statement<a class="headerlink" href="#problem-statement" title="Permanent link">&para;</a></h2>
+<p>
+winml-cli already provides strong primitives (<code>inspect</code>, <code>analyze</code>, <code>build</code>, <code>eval</code>, <code>perf</code>),
+but most developers still cannot reliably answer expert-level questions:
+why a model fails on a target EP, which configuration is safe to ship, and whether a local optimum generalizes across Windows hardware diversity.
+</p>
+<p>
+Current optimization practice is often single-device and manually interpreted, which creates three recurring issues:
+</p>
+<ul>
+  <li><strong>Decision fragmentation</strong>: command outputs are available, but reasoning is not systematized.</li>
+  <li><strong>Portability blind spots</strong>: a config that wins on one device can regress on another.</li>
+  <li><strong>Confidence gaps</strong>: noisy measurements and insufficient promotion gates can produce unstable recommendations.</li>
+</ul>
 
-  <h2>3. Solution</h2>
-  <p>Introduce a concise agent layer with five capability types, with autoconfig as a targeted sub-tool.</p>
-  <div class="grid-2">
-    <div class="card red">
-      <div class="card-title">1) Diagnostic agent (P0)</div>
-      <p>Explains failures and proposes executable fixes from build/eval/analyze/profiler evidence.</p>
-    </div>
-    <div class="card orange">
-      <div class="card-title">2) Decision guidance agent</div>
-      <p>Runs focused comparisons and returns explicit tradeoff guidance.</p>
-    </div>
-    <div class="card purple">
-      <div class="card-title">3) Cross-device confidence agent</div>
-      <p>Estimates portability and generates fallback chains across heterogeneous devices.</p>
-    </div>
-    <div class="card blue">
-      <div class="card-title">4) Regression detection agent</div>
-      <p>Detects drift after runtime/driver/toolchain changes with statistically valid checks.</p>
-    </div>
-    <div class="card green">
-      <div class="card-title">5) Model recommendation agent</div>
-      <p>Maps product intent + hardware profile to practical model choices and runnable paths.</p>
-    </div>
-  </div>
-  <div class="note">
-    <strong>Autoconfig positioning:</strong> sub-tool, not primary entry point. It runs targeted EP/opset/graph-option search and returns a report with a feasible-options comparison table.
-  </div>
+<h2 id="design-principles">Design principles<a class="headerlink" href="#design-principles" title="Permanent link">&para;</a></h2>
+<ol>
+  <li><strong>Agent for judgment, tools for computation</strong>: keep heavy search deterministic and use the agent for diagnosis, prioritization, and explanation.</li>
+  <li><strong>Lifecycle orchestration first</strong>: one orchestrator role spans Intake → Insight → Opt Loop → Outcome.</li>
+  <li><strong>Evidence over intuition</strong>: all recommendations are backed by validation signals and confidence semantics.</li>
+  <li><strong>Cross-device by default</strong>: design for deployment fleets, not only the developer machine.</li>
+  <li><strong>Self-evolving knowledge</strong>: findings are promoted through confidence levels before broad reuse.</li>
+</ol>
+<blockquote>
+Lifecycle visual reference: <a href="./autoconfig_diagram.html"><code>autoconfig_diagram.html</code></a>.
+</blockquote>
 
-  <h2>4. Input</h2>
-  <table>
-    <thead><tr><th>Input category</th><th>Examples</th><th>Purpose</th></tr></thead>
-    <tbody>
-      <tr><td>User intent</td><td>“model fails”, “too slow”, “need deploy-safe config”</td><td>Select appropriate agent workflow</td></tr>
-      <tr><td>Model + build context</td><td>model id/path, config.json, EP target, precision</td><td>Ground diagnosis and optimization scope</td></tr>
-      <tr><td>Runtime evidence</td><td>inspect/analyze/perf/eval outputs, logs</td><td>Enable evidence-backed recommendations</td></tr>
-      <tr><td>Knowledge base</td><td><code>ep_knowledge/*.json</code>, confidence tiers</td><td>Prune risky hypotheses and prioritize likely wins</td></tr>
-      <tr><td>Device context</td><td>local hardware or <code>winml serve</code> worker fleet metadata</td><td>Assess cross-device behavior and portability</td></tr>
-    </tbody>
-  </table>
+<h2 id="solution">Solution<a class="headerlink" href="#solution" title="Permanent link">&para;</a></h2>
+<p>
+Introduce an agent layer on top of winml-cli commands. The layer provides five capability types and invokes autoconfig as a targeted sub-tool when controlled search is needed.
+</p>
 
-  <h2>5. Output</h2>
-  <table>
-    <thead><tr><th>Output</th><th>Shape</th><th>Consumer value</th></tr></thead>
-    <tbody>
-      <tr><td>Actionable report</td><td>Root cause, recommendation, confidence, next actions</td><td>Fast understanding and decision support</td></tr>
-      <tr><td>Feasible-options table</td><td>Latency / accuracy / portability tradeoff comparison</td><td>Transparent choice instead of opaque winner</td></tr>
-      <tr><td>Champion config + provenance</td><td>Chosen config plus evidence trail</td><td>Auditability and reproducibility</td></tr>
-      <tr><td>KB draft/promotion candidates</td><td>Structured findings with confidence level</td><td>Continuous quality improvement over time</td></tr>
-    </tbody>
-  </table>
+<h3 id="agent-capability-model">Agent capability model<a class="headerlink" href="#agent-capability-model" title="Permanent link">&para;</a></h3>
+<table>
+  <thead><tr><th>Agent type</th><th>Primary role</th><th>Typical trigger</th></tr></thead>
+  <tbody>
+    <tr><td>Diagnostic Agent (P0)</td><td>Explain root cause and propose executable fixes</td><td>Build/eval/analyze failure</td></tr>
+    <tr><td>Decision Guidance Agent</td><td>Compare feasible options with explicit tradeoffs</td><td>"Which config should I pick?"</td></tr>
+    <tr><td>Cross-Device Confidence Agent</td><td>Estimate portability and propose fallback chains</td><td>"Will this ship safely across devices?"</td></tr>
+    <tr><td>Regression Detection Agent</td><td>Detect and attribute perf/accuracy drift</td><td>Runtime/driver/toolchain changes</td></tr>
+    <tr><td>Model Recommendation Agent</td><td>Map use-case + hardware profile to model path</td><td>"Which model should I start with?"</td></tr>
+  </tbody>
+</table>
 
-  <h2>6. How it works</h2>
-  <h3>6.1 Lifecycle orchestration</h3>
-  <p>The Orchestrator controls all phases and hands off work to Explorer/Optimizer/Reviewer inside the optimization loop, then merges outcomes into a final recommendation.</p>
+<h3 id="autoconfig-positioning">Autoconfig positioning<a class="headerlink" href="#autoconfig-positioning" title="Permanent link">&para;</a></h3>
+<p>
+Autoconfig is a <strong>sub-tool</strong>, not the primary UX entry. The agent uses it for targeted sweep over
+<code>EP × opset × graph options</code>, then returns an explainable report with a feasible-options comparison table.
+Correctness validation (<code>winml eval</code>) is mandatory before recommendation.
+</p>
 
-  <h3>6.2 Cross-device integration (from cross-device-design)</h3>
-  <ul>
-    <li>Treat <code>winml serve</code> Phase 0 endpoints as distributed workers.</li>
-    <li>Optimize against a joint multi-device objective, not independent local optima.</li>
-    <li>Track portability with a device axis in KB confidence semantics.</li>
-  </ul>
+<h2 id="input">Input<a class="headerlink" href="#input" title="Permanent link">&para;</a></h2>
+<table>
+  <thead><tr><th>Input category</th><th>Examples</th><th>Used for</th></tr></thead>
+  <tbody>
+    <tr><td>User intent</td><td>"model fails", "too slow", "need deploy-safe config"</td><td>Select workflow and stopping criteria</td></tr>
+    <tr><td>Model/build context</td><td>model id/path, config, EP target, precision</td><td>Scope diagnosis and optimization</td></tr>
+    <tr><td>Runtime evidence</td><td>inspect/analyze/perf/eval outputs, logs</td><td>Evidence-backed reasoning</td></tr>
+    <tr><td>Knowledge base</td><td><code>ep_knowledge/*.json</code> + confidence levels</td><td>Pruning and prioritization</td></tr>
+    <tr><td>Device context</td><td>local hw profile or worker-fleet metadata</td><td>Portability assessment</td></tr>
+  </tbody>
+</table>
 
-  <h3>6.3 Self-evolution integration (from self-evolution-design)</h3>
-  <ul>
-    <li>Use paired A/B protocol to reduce thermal and sequence bias.</li>
-    <li>Use adaptive sampling when variance is high.</li>
-    <li>Promote findings through L1→L5 confidence gates before broad reuse.</li>
-  </ul>
+<h2 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h2>
+<table>
+  <thead><tr><th>Output</th><th>Shape</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Actionable report</td><td>Root cause, recommendation, confidence, next actions</td><td>Fast and explainable decisions</td></tr>
+    <tr><td>Feasible-options table</td><td>Latency / accuracy / portability comparison</td><td>Transparent tradeoff selection</td></tr>
+    <tr><td>Champion config + provenance</td><td>Chosen config and evidence trail</td><td>Auditability + reproducibility</td></tr>
+    <tr><td>KB draft/promotion candidates</td><td>Structured findings with confidence tier</td><td>Continuous quality improvement</td></tr>
+  </tbody>
+</table>
 
-  <h3>6.4 Non-negotiable constraints from current evidence</h3>
-  <table>
-    <thead><tr><th>Finding</th><th>Impact</th><th>Constraint in workflow</th></tr></thead>
-    <tbody>
-      <tr><td><code>npu-001</code></td><td>opset 21 can improve Conv+residual models</td><td>Keep opset as a first-class search lever</td></tr>
-      <tr><td><code>npu-006</code></td><td>Conv fusion can trigger severe NPU regressions</td><td>Hard-block risky fusion patterns in hypothesis stage</td></tr>
-      <tr><td><code>npu-007</code></td><td>DVFS can distort conclusions</td><td>Require DVFS-aware protocol and confidence gating</td></tr>
-    </tbody>
-  </table>
+<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<h3 id="lifecycle-orchestration">Lifecycle orchestration<a class="headerlink" href="#lifecycle-orchestration" title="Permanent link">&para;</a></h3>
+<p>
+The orchestrator controls phase transitions and loop gates. Explorer/Optimizer/Reviewer execute the optimization loop,
+while outcome synthesis consolidates recommendation and evidence into final outputs.
+</p>
 
-  <div class="note">
-    This document intentionally stays high-level: it defines responsibilities, boundaries, and confidence model, while leaving algorithmic details to autoconfig and execution-specific design docs.
-  </div>
+<h3 id="cross-device-integration">Cross-device integration<a class="headerlink" href="#cross-device-integration" title="Permanent link">&para;</a></h3>
+<p>
+From <code>cross-device-design.html</code>: treat <code>winml serve</code> Phase 0 endpoints as distributed workers,
+optimize with joint objective across devices, and add a device axis to portability confidence.
+</p>
 
-  <div class="footer">
-    References: <code>agent-design.md</code> · <code>autoconfig_diagram.html</code> · <code>cross-device-design.html</code> · <code>self-evolution-design.html</code>
-  </div>
+<h3 id="self-evolution-integration">Self-evolution integration<a class="headerlink" href="#self-evolution-integration" title="Permanent link">&para;</a></h3>
+<p>
+From <code>self-evolution-design.html</code>: use paired A/B protocol and adaptive sampling to stabilize conclusions,
+then promote findings through L1→L5 confidence levels before broad KB reuse.
+</p>
+
+<h3 id="evidence-constraints">Evidence constraints<a class="headerlink" href="#evidence-constraints" title="Permanent link">&para;</a></h3>
+<table>
+  <thead><tr><th>Finding</th><th>Implication</th><th>Required control</th></tr></thead>
+  <tbody>
+    <tr><td><code>npu-001</code></td><td>opset 21 benefits Conv+residual patterns</td><td>Keep opset as first-class search lever</td></tr>
+    <tr><td><code>npu-006</code></td><td>Conv fusion can cause catastrophic NPU regressions</td><td>Hard-block risky fusion hypotheses</td></tr>
+    <tr><td><code>npu-007</code></td><td>DVFS distorts naive perf conclusions</td><td>Use DVFS-aware bench protocol + confidence gating</td></tr>
+  </tbody>
+</table>
+
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+  <li><code>research/autoconfig/docs/agent-design.md</code></li>
+  <li><code>research/autoconfig/docs/autoconfig_diagram.html</code></li>
+  <li><code>research/autoconfig/docs/cross-device-design.html</code></li>
+  <li><code>research/autoconfig/docs/self-evolution-design.html</code></li>
+</ul>
+</main>
 </div>
 </body>
 </html>
