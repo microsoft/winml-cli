@@ -76,6 +76,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
     <ul>
       <li><a href="#problem-statement">Problem statement</a></li>
       <li><a href="#key-user-scenarios">Key user scenarios</a></li>
+      <li><a href="#execution-plan-and-deliverables">Execution plan and deliverables</a></li>
       <li><a href="#winml-cli-vs-olive">winml-cli vs Olive</a></li>
       <li><a href="#design-principles">Design principles</a></li>
       <li><a href="#solution">Solution</a><ul>
@@ -122,6 +123,7 @@ Problem focus in this design:
   <li><strong>Default config is not always enough.</strong> Users have different constraints (perf, accuracy, memory, cross-EP/device portability), and trade-offs should be made from actual runtime evidence on target devices, sometimes requiring coordinated cross-device tuning.</li>
   <li><strong>Negative optimization exists on some models.</strong> Current measurements show default config can regress specific models; this must be identified systematically and resolved with explainable diagnostics.</li>
   <li><strong>Optimization behavior changes over time.</strong> EP/driver/winml version upgrades can shift optimal settings; the system should capture these shifts and stay up-to-date instead of freezing historical assumptions.</li>
+  <li><strong>Analyzer → optimizer coverage is still incomplete.</strong> Not all meaningful fusion opportunities are currently detected and translated into optimization actions; we need to identify which missed fusion opportunities matter most on real models and prioritize them.</li>
 </ol>
 
 <h2 id="key-user-scenarios">Key user scenarios<a class="headerlink" href="#key-user-scenarios" title="Permanent link">&para;</a></h2>
@@ -145,6 +147,52 @@ Problem focus in this design:
     </tr>
   </tbody>
 </table>
+
+<h2 id="execution-plan-and-deliverables">Execution plan and deliverables<a class="headerlink" href="#execution-plan-and-deliverables" title="Permanent link">&para;</a></h2>
+<p>
+Execution will use <strong>built-in model recipe tuning</strong> as the driver task. Each iteration improves two things at once:
+the skill's reasoning quality and the per-model built-in recipe quality.
+</p>
+<ul>
+  <li>Run iterative tuning on built-in model set across target EP/device scopes.</li>
+  <li>Capture gaps in analyzer/optimizer coverage and convert high-impact misses into prioritized feature work.</li>
+  <li>Feed validated results back to recipes, EP-specific knowledge, and skill evaluation signals.</li>
+</ul>
+
+<div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin:14px 0 18px; overflow-x:auto;">
+  <svg width="100%" height="240" viewBox="0 0 980 240" preserveAspectRatio="none" style="display:block; min-width:900px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    <defs>
+      <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0,8 3,0 6" fill="#94a3b8"></polygon>
+      </marker>
+    </defs>
+    <rect x="24" y="24" width="190" height="44" rx="8" fill="#eef0f8" stroke="#d1d9e0"></rect>
+    <text x="119" y="51" text-anchor="middle" font-size="12" fill="#334">Built-in model recipe tuning</text>
+    <rect x="266" y="24" width="160" height="44" rx="8" fill="#eef0f8" stroke="#d1d9e0"></rect>
+    <text x="346" y="51" text-anchor="middle" font-size="12" fill="#334">Run + measure</text>
+    <rect x="468" y="24" width="200" height="44" rx="8" fill="#eef0f8" stroke="#d1d9e0"></rect>
+    <text x="568" y="51" text-anchor="middle" font-size="12" fill="#334">Analyze misses / regressions</text>
+    <rect x="720" y="24" width="230" height="44" rx="8" fill="#eef0f8" stroke="#d1d9e0"></rect>
+    <text x="835" y="51" text-anchor="middle" font-size="12" fill="#334">Update skill + recipes + requirements</text>
+
+    <line x1="214" y1="46" x2="266" y2="46" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"></line>
+    <line x1="426" y1="46" x2="468" y2="46" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"></line>
+    <line x1="668" y1="46" x2="720" y2="46" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"></line>
+    <path d="M 948 70 C 948 112, 750 126, 210 126 C 110 126, 70 110, 60 88" fill="none" stroke="#7aa2f7" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arr)"></path>
+    <text x="746" y="116" font-size="11" fill="#4a5f8a">iterate with next recipe/model batch</text>
+
+    <!-- Outcome pyramid (4 layers) -->
+    <polygon points="250,220 730,220 660,182 320,182" fill="#e6f4ea" stroke="#d1d9e0"></polygon>
+    <polygon points="320,182 660,182 610,146 370,146" fill="#e8eefc" stroke="#d1d9e0"></polygon>
+    <polygon points="370,146 610,146 560,112 420,112" fill="#f5f0ff" stroke="#d1d9e0"></polygon>
+    <polygon points="420,112 560,112 490,72" fill="#efe6ff" stroke="#d1d9e0"></polygon>
+
+    <text x="490" y="205" text-anchor="middle" font-size="11" fill="#334">Improved built-in model recipes</text>
+    <text x="490" y="167" text-anchor="middle" font-size="11" fill="#334">EP-specific optimization experience / knowledge</text>
+    <text x="490" y="133" text-anchor="middle" font-size="11" fill="#334">WinML CLI feature requirements</text>
+    <text x="490" y="98" text-anchor="middle" font-size="11" fill="#334">Self-evaluated skills</text>
+  </svg>
+</div>
 
 <h2 id="winml-cli-vs-olive">winml-cli vs Olive<a class="headerlink" href="#winml-cli-vs-olive" title="Permanent link">&para;</a></h2>
 <p>
