@@ -211,13 +211,6 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 <li><a href="#feature-gaps-winml-cli-backlog-items">Feature gaps (winml-cli backlog items)</a></li>
 </ul>
 </li>
-<li><a href="#feature-request-fusedconv-detection-unfuse-for-qnn-2026-06-15">Feature Request: FusedConv detection + unfuse-for-qnn (2026-06-15)</a><ul>
-<li><a href="#problem">Problem</a></li>
-<li><a href="#root-cause_1">Root cause</a></li>
-<li><a href="#proposed-feature">Proposed feature</a></li>
-<li><a href="#priority">Priority</a></li>
-</ul>
-</li>
 <li><a href="#appendix">Appendix</a><ul>
 <li><a href="#appendix-a-archived-skill-debug-accuracy-drop-exploratory">Appendix A: Archived skill: debug-accuracy-drop (exploratory)</a></li>
 </ul>
@@ -3865,33 +3858,6 @@ Current single-session variance is dominated by DVFS thermal state, not model pe
 - Flag proposal: --sessions 3 --cool-down 30 --signal median-p50
 - This would make winml perf output trustworthy for optimization decisions on Snapdragon X Elite</p>
 <hr />
-<h2 id="feature-request-fusedconv-detection-unfuse-for-qnn-2026-06-15">Feature Request: FusedConv detection + unfuse-for-qnn (2026-06-15)<a class="headerlink" href="#feature-request-fusedconv-detection-unfuse-for-qnn-2026-06-15" title="Permanent link">&para;</a></h2>
-<h3 id="problem">Problem<a class="headerlink" href="#problem" title="Permanent link">&para;</a></h3>
-<p>用户可能从外部拿到一个已经做过 Conv fusion 的 ONNX 模型，或者 autoconfig 实验里开了 conv-add-activation-fusion flag。
-这类模型在 QNN NPU 上跑起来特别慢（ResNet-18 实测 +4900% regression），但没有任何报错，用户完全不知道原因。</p>
-<h3 id="root-cause_1">Root cause<a class="headerlink" href="#root-cause_1" title="Permanent link">&para;</a></h3>
-<p>conv-add-activation-fusion 生成的是 ORT 扩展 op FusedConv（非标准 ONNX op）。
-QNN EP 不认识这个 op，所有 FusedConv 节点全部 fallback 到 CPU，PCIe round-trip 开销极大。</p>
-<p>conv-bn-fusion 不同：它把 BN 参数数学吸收进 Conv weight，不产生新 op 类型，结果仍是标准 Conv，<strong>不可逆</strong>。</p>
-<h3 id="proposed-feature">Proposed feature<a class="headerlink" href="#proposed-feature" title="Permanent link">&para;</a></h3>
-<p><strong>1. winml analyze — FusedConv detection</strong></p>
-<p>winml analyze -m model.onnx --ep qnn 扫描图中所有节点，
-如果发现 FusedConv 节点且目标 EP 为 QNN，输出警告：</p>
-<p><code>⚠ QNN NPU: 23 FusedConv nodes detected.
-  FusedConv is an ORT-internal op not supported by QNN EP — these nodes will fall back to CPU.
-  Recommend: run winml optimize --unfuse-conv to expand back to standard ONNX ops.</code></p>
-<p><strong>2. winml optimize --unfuse-conv</strong></p>
-<p>新增 optimize pass：把 FusedConv 节点拆回 Conv + Add + <Activation>。
-- Lossless（权重不变，只拆 op 结构）
-- 输出标准 ONNX，QNN EP 可正常映射 HTP kernel
-- 适用场景：BYOM 用户带入已做过 fusion 的模型</p>
-<p><strong>Implementation notes</strong>
-- 检测：
-ode.op_type == "FusedConv" 即可定位
-- 拆分：读 FusedConv attribute ctivation 字段 → 插入对应 Relu/Sigmoid/Tanh 节点
-- 不处理 conv-bn-fusion 产生的模型（那个无法反向，只能重新从 FP32 export）</p>
-<h3 id="priority">Priority<a class="headerlink" href="#priority" title="Permanent link">&para;</a></h3>
-<p>MEDIUM — 默认 flag 是关的，不是高频路径，但对 BYOM 场景（拿到别人优化过的模型）有实际价值。</p>
 <hr />
 <h2 id="appendix">Appendix<a class="headerlink" href="#appendix" title="Permanent link">&para;</a></h2>
 <h3 id="appendix-a-archived-skill-debug-accuracy-drop-exploratory">Appendix A: Archived skill: <code>debug-accuracy-drop</code> (exploratory)<a class="headerlink" href="#appendix-a-archived-skill-debug-accuracy-drop-exploratory" title="Permanent link">&para;</a></h3>
