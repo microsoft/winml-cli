@@ -293,14 +293,6 @@ Correctness validation (<code>winml eval</code>) is mandatory before recommendat
   <span class="chip">Pareto</span>
   <span>+ optional budget / accuracy floor</span>
 </div>
-<table>
-  <thead><tr><th>Input category</th><th>Source in autoconfig_diagram</th><th>Used for</th></tr></thead>
-  <tbody>
-    <tr><td>Intake artifacts</td><td><code>winml inspect</code>, EP availability, baseline build p50, correctness contract from <code>winml eval --mode compare</code>, prior <code>session.json</code></td><td>Establish valid baseline and resume context</td></tr>
-    <tr><td>Insight evidence</td><td>Runtime profile, static analyzer (<code>winml analyze --ep</code>), graph analysis, generated <code>hypothesis_pool</code></td><td>Generate and prioritize candidate hypotheses</td></tr>
-    <tr><td>KB constraints</td><td><code>ep_knowledge/*.json</code> rules consumed as <code>skip_set</code> + ranking signals for <code>priority_queue</code></td><td>Prune unsafe/low-value experiments</td></tr>
-  </tbody>
-</table>
 
 <h2 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h2>
 <table>
