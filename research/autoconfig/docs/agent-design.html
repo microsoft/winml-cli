@@ -75,10 +75,12 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
   <div class="toc">
     <ul>
       <li><a href="#problem-statement">Problem statement</a></li>
+      <li><a href="#winml-cli-vs-olive">winml-cli vs Olive</a></li>
       <li><a href="#design-principles">Design principles</a></li>
       <li><a href="#solution">Solution</a><ul>
         <li><a href="#agent-capability-model">Agent capability model</a></li>
         <li><a href="#autoconfig-positioning">Autoconfig positioning</a></li>
+        <li><a href="#loop-v3-vs-agent-layer">Loop v3 vs agent layer</a></li>
       </ul></li>
       <li><a href="#input">Input</a></li>
       <li><a href="#output">Output</a></li>
@@ -87,6 +89,8 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
         <li><a href="#cross-device-integration">Cross-device integration</a></li>
         <li><a href="#self-evolution-integration">Self-evolution integration</a></li>
         <li><a href="#evidence-constraints">Evidence constraints</a></li>
+        <li><a href="#key-concerns">Key concerns</a></li>
+        <li><a href="#open-questions">Open questions</a></li>
       </ul></li>
       <li><a href="#references">References</a></li>
     </ul>
@@ -110,6 +114,20 @@ Current optimization practice is often single-device and manually interpreted, w
   <li><strong>Portability blind spots</strong>: a config that wins on one device can regress on another.</li>
   <li><strong>Confidence gaps</strong>: noisy measurements and insufficient promotion gates can produce unstable recommendations.</li>
 </ul>
+
+<h2 id="winml-cli-vs-olive">winml-cli vs Olive<a class="headerlink" href="#winml-cli-vs-olive" title="Permanent link">&para;</a></h2>
+<p>
+The overlap is real at implementation level (both use ORT ecosystem), but product purpose is different. Olive is pass-centric for experts; winml-cli aims at Windows app developers who need guided, explainable outcomes.
+</p>
+<table>
+  <thead><tr><th>Dimension</th><th>Olive</th><th>winml-cli (+ agent layer)</th></tr></thead>
+  <tbody>
+    <tr><td>Primary user</td><td>ML/optimization engineer</td><td>WinApp developer</td></tr>
+    <tr><td>Workflow shape</td><td>Manual pass composition</td><td><code>config → build → validate</code> with guided decisions</td></tr>
+    <tr><td>Hardware handling</td><td>Expert-driven target setup</td><td>Windows-first multi-EP lifecycle, device-aware guidance</td></tr>
+    <tr><td>Explainability</td><td>Limited by default</td><td>Agent returns rationale + confidence + next actions</td></tr>
+  </tbody>
+</table>
 
 <h2 id="design-principles">Design principles<a class="headerlink" href="#design-principles" title="Permanent link">&para;</a></h2>
 <ol>
@@ -147,26 +165,36 @@ Autoconfig is a <strong>sub-tool</strong>, not the primary UX entry. The agent u
 Correctness validation (<code>winml eval</code>) is mandatory before recommendation.
 </p>
 
+<h3 id="loop-v3-vs-agent-layer">Loop v3 vs agent layer<a class="headerlink" href="#loop-v3-vs-agent-layer" title="Permanent link">&para;</a></h3>
+<p>Autoconfig loop v3 already improved core execution quality (thresholded verdicts, early exit, crash-resume, KB-guided pruning, DVFS-aware handling). The agent layer still adds capabilities the loop alone does not provide:</p>
+<ol>
+  <li><strong>Architecture-aware reasoning</strong>: explain why a hypothesis exists for this model, not only run it.</li>
+  <li><strong>Failure explanation</strong>: convert DISCARD/failure traces into actionable diagnosis.</li>
+  <li><strong>Cross-device confidence</strong>: reason about deployment behavior beyond the local machine.</li>
+  <li><strong>Adaptive strategy</strong>: stop/reprioritize based on evidence trajectory, not only fixed counters.</li>
+  <li><strong>Knowledge narration</strong>: present promoted findings in developer-readable form, not just raw artifacts.</li>
+</ol>
+
 <h2 id="input">Input<a class="headerlink" href="#input" title="Permanent link">&para;</a></h2>
 <table>
-  <thead><tr><th>Input category</th><th>Examples</th><th>Used for</th></tr></thead>
+  <thead><tr><th>Input category</th><th>Source in autoconfig_diagram</th><th>Used for</th></tr></thead>
   <tbody>
-    <tr><td>User intent</td><td>"model fails", "too slow", "need deploy-safe config"</td><td>Select workflow and stopping criteria</td></tr>
-    <tr><td>Model/build context</td><td>model id/path, config, EP target, precision</td><td>Scope diagnosis and optimization</td></tr>
-    <tr><td>Runtime evidence</td><td>inspect/analyze/perf/eval outputs, logs</td><td>Evidence-backed reasoning</td></tr>
-    <tr><td>Knowledge base</td><td><code>ep_knowledge/*.json</code> + confidence levels</td><td>Pruning and prioritization</td></tr>
-    <tr><td>Device context</td><td>local hw profile or worker-fleet metadata</td><td>Portability assessment</td></tr>
+    <tr><td>User request contract</td><td>Model ID + Target EP + Objective (accuracy-primary / latency-primary / Pareto) + optional budget / accuracy floor</td><td>Define optimization goal and guardrails</td></tr>
+    <tr><td>Intake artifacts</td><td><code>winml inspect</code>, EP availability, baseline build p50, correctness contract from <code>winml eval --mode compare</code>, prior <code>session.json</code></td><td>Establish valid baseline and resume context</td></tr>
+    <tr><td>Insight evidence</td><td>Runtime profile, static analyzer (<code>winml analyze --ep</code>), graph analysis, generated <code>hypothesis_pool</code></td><td>Generate and prioritize candidate hypotheses</td></tr>
+    <tr><td>KB constraints</td><td><code>ep_knowledge/*.json</code> rules consumed as <code>skip_set</code> + ranking signals for <code>priority_queue</code></td><td>Prune unsafe/low-value experiments</td></tr>
   </tbody>
 </table>
 
 <h2 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h2>
 <table>
-  <thead><tr><th>Output</th><th>Shape</th><th>Value</th></tr></thead>
+  <thead><tr><th>Output</th><th>Source in autoconfig_diagram</th><th>Value</th></tr></thead>
   <tbody>
-    <tr><td>Actionable report</td><td>Root cause, recommendation, confidence, next actions</td><td>Fast and explainable decisions</td></tr>
-    <tr><td>Feasible-options table</td><td>Latency / accuracy / portability comparison</td><td>Transparent tradeoff selection</td></tr>
-    <tr><td>Champion config + provenance</td><td>Chosen config and evidence trail</td><td>Auditability + reproducibility</td></tr>
-    <tr><td>KB draft/promotion candidates</td><td>Structured findings with confidence tier</td><td>Continuous quality improvement</td></tr>
+    <tr><td>Champion config</td><td><code>config_&lt;ep&gt;_optimal.json</code></td><td>Directly consumable best-known config</td></tr>
+    <tr><td>HTML benchmark report + comparison table</td><td><code>report.html</code> with experiment chart/table</td><td>Explainable recommendation and tradeoff visibility</td></tr>
+    <tr><td>Experiment artifacts</td><td><code>experiments/&lt;n&gt;/</code>, plus loop telemetry in <code>results.tsv</code> and <code>session.json</code></td><td>Audit trail, reproducibility, crash-resume continuity</td></tr>
+    <tr><td>KB draft entry</td><td><code>ep_knowledge/&lt;ep&gt;.json</code> with new entries marked <code>status="draft"</code></td><td>Feeds confidence-gated knowledge evolution</td></tr>
+    <tr><td>Feature requirements</td><td>Issue references for capability gaps (e.g. fused-op diagnostics, DVFS-aware perf)</td><td>Turns findings into product backlog action</td></tr>
   </tbody>
 </table>
 
@@ -199,12 +227,30 @@ then promote findings through L1→L5 confidence levels before broad KB reuse.
   </tbody>
 </table>
 
+<h3 id="key-concerns">Key concerns<a class="headerlink" href="#key-concerns" title="Permanent link">&para;</a></h3>
+<table>
+  <thead><tr><th>Concern</th><th>Mitigation in design</th></tr></thead>
+  <tbody>
+    <tr><td>Device heterogeneity may invalidate local optimum</td><td>Cross-Device Confidence Agent + multi-device objective and fallback chains</td></tr>
+    <tr><td>Trust/auditability of recommendations</td><td>Require provenance artifacts and report-level explanation</td></tr>
+    <tr><td>Noise-driven false wins</td><td>DVFS-aware protocol, thresholded verdict policy, confidence gates</td></tr>
+    <tr><td>Overlap concerns with Olive</td><td>Differentiate on UX/explainability and Windows deployment reasoning</td></tr>
+  </tbody>
+</table>
+
+<h3 id="open-questions">Open questions<a class="headerlink" href="#open-questions" title="Permanent link">&para;</a></h3>
+<ol>
+  <li>Should this ship as <code>winml agent</code> or as agent-assist modes on existing commands?</li>
+  <li>How should cross-device execution be provisioned: local lab fleet, cloud runners, or hybrid?</li>
+  <li>What is the minimal offline fallback for restricted environments?</li>
+</ol>
+
 <h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
 <ul>
-  <li><code>research/autoconfig/docs/agent-design.md</code></li>
-  <li><code>research/autoconfig/docs/autoconfig_diagram.html</code></li>
-  <li><code>research/autoconfig/docs/cross-device-design.html</code></li>
-  <li><code>research/autoconfig/docs/self-evolution-design.html</code></li>
+  <li><a href="./agent-design.md"><code>agent-design.md</code></a></li>
+  <li><a href="./autoconfig_diagram.html"><code>autoconfig_diagram.html</code></a></li>
+  <li><a href="./cross-device-design.html"><code>cross-device-design.html</code></a></li>
+  <li><a href="./self-evolution-design.html"><code>self-evolution-design.html</code></a></li>
 </ul>
 </main>
 </div>
