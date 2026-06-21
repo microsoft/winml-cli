@@ -102,7 +102,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 <li><a href="#the-shift-documentation-automation">The shift: documentation → automation</a></li>
 <li><a href="#structured-output-current-state-and-gaps">Structured output: current state and gaps</a></li>
 <li><a href="#the-gather-analyze-decide-act-skill-structure">The GATHER → ANALYZE → DECIDE → ACT skill structure</a></li>
-<li><a href="#example-debug-accuracy-drop-as-an-agentic-workflow">Example: debug-accuracy-drop as an agentic workflow</a></li>
+<li><a href="#example-debug-model-as-an-agentic-workflow">Example: debug-model as an agentic workflow</a></li>
 </ul>
 </li>
 <li><a href="#validation-confidence-levels-l1l5">Validation confidence levels (L1–L5)</a></li>
@@ -116,7 +116,7 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 </ul>
 </li>
 <li><a href="#skill-use-winml-cli-existing-extend">Skill: use-winml-cli (existing — extend)</a></li>
-<li><a href="#skill-debug-accuracy-drop">Skill: debug-accuracy-drop</a><ul>
+<li><a href="#skill-debug-model">Skill: debug-model</a><ul>
 <li><a href="#frontmatter">Frontmatter</a></li>
 <li><a href="#when-to-use">When to use</a></li>
 <li><a href="#sections">Sections</a></li>
@@ -216,6 +216,10 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 <li><a href="#root-cause_1">Root cause</a></li>
 <li><a href="#proposed-feature">Proposed feature</a></li>
 <li><a href="#priority">Priority</a></li>
+</ul>
+</li>
+<li><a href="#appendix">Appendix</a><ul>
+<li><a href="#appendix-a-archived-skill-debug-accuracy-drop-exploratory">Appendix A: Archived skill: debug-accuracy-drop (exploratory)</a></li>
 </ul>
 </li>
 </ul>
@@ -335,7 +339,7 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 <td><code>autoconfig</code></td>
 <td>P0</td>
 <td>Flagship. Autonomously searches the config space and delivers the optimal <code>config.json</code> per EP. Also hosts the <strong>manual optimize path</strong> (precision-ladder + latency/accuracy-budget decision framework + hardware table) for users who want to choose by hand or have no target hardware. Maps to all five user scenarios (S1–S5).</td>
-<td><code>config_&lt;ep&gt;_optimal.json</code> + <code>report.html</code> + <code>feature_requests.md</code></td>
+<td><code>config_&lt;ep&gt;_optimal.json</code> + <code>report.html</code> (includes feasible-options comparison table) + <code>feature_requests.md</code></td>
 </tr>
 <tr>
 <td>3</td>
@@ -353,10 +357,10 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 </tr>
 <tr>
 <td>5</td>
-<td><code>debug-accuracy-drop</code></td>
-<td>P2</td>
-<td>Exploratory diagnostic workflow for accuracy regressions. Current output is advisory and best-effort, not a guaranteed optimization recipe.</td>
-<td>suspected stage + likely causes + suggestions</td>
+<td><code>debug-model</code></td>
+<td>P1</td>
+<td>Lightweight, read-only diagnosis skill: quickly synthesizes <code>inspect</code>, <code>analyze</code>, profiling, and op tracing signals into an explanation users can act on.</td>
+<td>diagnostic report + prioritized actions</td>
 </tr>
 </tbody>
 </table>
@@ -436,10 +440,10 @@ defined by the two ranked tables above; implementation sequencing (risk/dependen
   <polyline points="202,72 247,72 247,183 292,183" stroke="#90a4ae" stroke-width="1.5" fill="none" stroke-dasharray="4,2" marker-end="url(#sk-arr)"/>
   <!-- autoconfig → debug (down) -->
   <line x1="377" y1="103" x2="377" y2="148" stroke="#7986cb" stroke-width="1.5" marker-end="url(#sk-arr)"/>
-  <!-- debug-accuracy-drop -->
+  <!-- debug-model -->
   <rect x="292" y="150" width="170" height="65" rx="8" fill="#fce4ec" stroke="#f48fb1" stroke-width="1.5"/>
-  <text x="377" y="172" text-anchor="middle" font-size="10.5" font-weight="700" fill="#880e4f">debug-accuracy-drop</text>
-  <text x="377" y="188" text-anchor="middle" font-size="9.5" fill="#ad1457">diagnose drops at any stage</text>
+  <text x="377" y="172" text-anchor="middle" font-size="10.5" font-weight="700" fill="#880e4f">debug-model</text>
+  <text x="377" y="188" text-anchor="middle" font-size="9.5" fill="#ad1457">read-only explain + actions</text>
   <!-- debug → ship (elbow up) -->
   <polyline points="462,183 542,183 542,72 588,72" stroke="#90a4ae" stroke-width="1.5" fill="none" stroke-dasharray="4,2" marker-end="url(#sk-arr)"/>
   <!-- use-winml-cli bar -->
@@ -594,27 +598,29 @@ What to surface to the user: specific diagnosis + specific next step.
 <p>In practice this maps onto the existing "Sections" structure — the key is ensuring
 each section has <strong>concrete commands to run</strong> and <strong>concrete interpretation rules</strong>,
 not just prose description.</p>
-<h3 id="example-debug-accuracy-drop-as-an-agentic-workflow">Example: <code>debug-accuracy-drop</code> as an agentic workflow<a class="headerlink" href="#example-debug-accuracy-drop-as-an-agentic-workflow" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><code>User: &quot;My W8A8 model has low accuracy&quot;
+<h3 id="example-debug-model-as-an-agentic-workflow">Example: <code>debug-model</code> as an agentic workflow<a class="headerlink" href="#example-debug-model-as-an-agentic-workflow" title="Permanent link">&para;</a></h3>
+<div class="codehilite"><pre><span></span><code>User: &quot;My model runs, but results are unstable and slower than expected&quot;
 
 GATHER:
-  agent runs: winml eval --mode compare -m quantized.onnx --model-id &lt;id&gt; --format json
-  agent gets: {&quot;cosine_similarity&quot;: 0.87, &quot;sqnr_db&quot;: 28.3, &quot;stage&quot;: &quot;quantize&quot;}
+  agent runs: winml inspect -m model.onnx --format json
+  agent runs: winml analyze -m model.onnx --ep qnn --format json
+  agent runs: winml perf -m model.onnx --ep qnn --device npu --format json
+  agent runs: winml optrace -m model.onnx --ep qnn --format json (if available)
 
 ANALYZE:
-  cosine=0.87 &lt; 0.90 threshold → problem is real
-  sqnr=28.3 &lt; 30 dB → significant degradation
-  stage=quantize → problem introduced at quantize, not optimize or compile
+  inspect: dynamic axes + large activation tensors found
+  analyze: partial ops on QNN indicate fallback risk
+  perf/optrace: hotspots align with fallback boundary
 
 DECIDE:
-  quantize-stage drop on W8A8 → check if Attention layers are the culprit
-  agent runs: winml analyze -m quantized.onnx --ep qnn --format json
-  agent gets: {&quot;partial&quot;: [&quot;MultiHeadAttention&quot;, &quot;LayerNorm&quot;], &quot;unsupported&quot;: []}
+  classify as EP-coverage + graph-shape issue
+  prioritize actions by expected impact and effort
 
 ACT:
-  Agent: &quot;The accuracy drop (cosine=0.87) is at the quantize stage.
-          MultiHeadAttention is partial on QNN — activations may be falling back to FP32.
-          Try W8A16 to keep activations at FP16: winml build -c config.json --precision w8a16&quot;
+  Agent report:
+    1) likely root causes with evidence
+    2) immediate actions (config/model-level)
+    3) next verification commands
 </code></pre></div>
 
 <p>Without structured output (<code>--format json</code>), the agent would have to tell the user to run
@@ -1009,107 +1015,71 @@ ModelOpt (HF nvidia/ org), AI Hub (500+ models), NNCF (Model Zoo with accuracy t
 - Add "first-time onboarding" path for users who don't know where to start</p>
 <p>No structural changes needed; the existing skill is the general entry point.</p>
 <hr />
-<h2 id="skill-debug-accuracy-drop">Skill: <code>debug-accuracy-drop</code><a class="headerlink" href="#skill-debug-accuracy-drop" title="Permanent link">&para;</a></h2>
+<h2 id="skill-debug-model">Skill: <code>debug-model</code><a class="headerlink" href="#skill-debug-model" title="Permanent link">&para;</a></h2>
 <h3 id="frontmatter">Frontmatter<a class="headerlink" href="#frontmatter" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><code><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">debug-accuracy-drop</span>
+<div class="codehilite"><pre><span></span><code><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">debug-model</span>
 <span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
-<span class="w">  </span><span class="no">Use this skill when a quantized or optimized model produces worse accuracy than</span>
-<span class="w">  </span><span class="no">the FP32 baseline and the cause is unknown. Guides a structured diagnosis: first</span>
-<span class="w">  </span><span class="no">isolate which pipeline stage introduced the drop (optimize vs quantize vs compile),</span>
-<span class="w">  </span><span class="no">then use winml eval --mode compare to measure output similarity, then use winml</span>
-<span class="w">  </span><span class="no">analyze to check for partial/unsupported ops that may cause EP fallback. Covers</span>
-<span class="w">  </span><span class="no">calibration dataset issues, precision selection mistakes, and QNN-specific fallback</span>
-<span class="w">  </span><span class="no">patterns. Use when the user says &quot;accuracy dropped after quantization&quot;, &quot;results</span>
-<span class="w">  </span><span class="no">look wrong on NPU&quot;, or &quot;cosine similarity is low&quot;.</span>
+<span class="w">  </span><span class="no">Use this lightweight, read-only skill when a user wants fast explanation of why a model is</span>
+<span class="w">  </span><span class="no">behaving poorly (accuracy, latency, fallback, instability) without launching a full search loop.</span>
+<span class="w">  </span><span class="no">The skill gathers signals from winml inspect, winml analyze, profiling, and op tracing, then</span>
+<span class="w">  </span><span class="no">returns a concise report with evidence-backed root causes and prioritized actions.</span>
 </code></pre></div>
 
 <h3 id="when-to-use">When to use<a class="headerlink" href="#when-to-use" title="Permanent link">&para;</a></h3>
 <ul>
-<li>"My model gives wrong results after quantization"</li>
-<li>"W8A8 accuracy is too low, how do I find out why"</li>
-<li>"Results differ between NPU and CPU"</li>
-<li>cosine_similarity &lt; 0.95 from <code>winml eval --mode compare</code></li>
+<li>"My model runs but latency is much worse than expected"</li>
+<li>"NPU and CPU results or speed are inconsistent"</li>
+<li>"I need a quick diagnosis before trying autoconfig"</li>
+<li>"Explain what winml inspect/analyze/perf data means and what I should do next"</li>
 </ul>
 <h3 id="sections">Sections<a class="headerlink" href="#sections" title="Permanent link">&para;</a></h3>
-<p><strong>1. Isolation strategy: binary search on the pipeline</strong>
-Diagnose by bisecting the pipeline stages:</p>
-<div class="codehilite"><pre><span></span><code>FP32 baseline
-    → after optimize?   winml eval --mode compare (fp32 vs optimized)
-    → after quantize?   winml eval --mode compare (fp32 vs quantized)
-    → after compile?    winml eval --mode compare (fp32 vs compiled)
+<p><strong>1. Gather signals (read-only)</strong></p>
+<div class="codehilite"><pre><span></span><code>winml inspect -m &lt;model&gt; --format json
+winml analyze -m &lt;model&gt; --ep &lt;ep&gt; --format json
+winml perf -m &lt;model&gt; --ep &lt;ep&gt; --device &lt;target&gt; --format json
+winml optrace -m &lt;model&gt; --ep &lt;ep&gt; --format json   # if available
 </code></pre></div>
-
-<p>First stage where cosine drops → that's where the problem is.</p>
-<p>Key commands:</p>
-<div class="codehilite"><pre><span></span><code><span class="c1"># Export FP32 baseline</span>
-winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>&lt;model&gt;<span class="w"> </span>-o<span class="w"> </span>baseline/model.onnx
-
-<span class="c1"># Compare optimized vs baseline</span>
-winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--mode<span class="w"> </span>compare<span class="w"> </span>-m<span class="w"> </span>optimized/model.onnx<span class="w"> </span>--model-id<span class="w"> </span>&lt;model&gt;
-
-<span class="c1"># Compare quantized vs baseline</span>
-winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--mode<span class="w"> </span>compare<span class="w"> </span>-m<span class="w"> </span>quantized/model.onnx<span class="w"> </span>--model-id<span class="w"> </span>&lt;model&gt;
-
-<span class="c1"># Compare EP-compiled vs baseline (run on target EP)</span>
-winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--mode<span class="w"> </span>compare<span class="w"> </span>-m<span class="w"> </span>compiled/model.onnx<span class="w"> </span>--model-id<span class="w"> </span>&lt;model&gt;<span class="w"> </span>--ep<span class="w"> </span>qnn
-</code></pre></div>
-
-<p><strong>2. Interpreting similarity metrics</strong>
-Table of thresholds:
-| Metric | Healthy | Investigate | Problem |
-|---|---|---|---|
-| cosine_similarity | &gt; 0.99 | 0.95–0.99 | &lt; 0.95 |
-| SQNR (dB) | &gt; 40 | 30–40 | &lt; 30 |
-| max_abs_diff | model-dependent | — | unbounded |</p>
-<p><strong>3. Root cause patterns</strong></p>
+<p><strong>2. Explainable diagnosis rules</strong></p>
 <table>
 <thead>
 <tr>
 <th>Symptom</th>
-<th>Likely cause</th>
-<th>Fix</th>
+<th>Likely cause (evidence)</th>
+<th>Suggested action</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Drop appears at quantize stage</td>
-<td>Calibration dataset not representative</td>
-<td>Use task-relevant calibration data via <code>--calibration-dataset</code></td>
+<td>High p99 + high variance in perf</td>
+<td>DVFS / thermal throttling likely</td>
+<td>Use multi-session averaging protocol before concluding regression</td>
 </tr>
 <tr>
-<td>Drop appears at quantize stage for Attention layers</td>
-<td>W8A8 quantizing activations in attention</td>
-<td>Switch to W8A16 (keeps activations at FP16)</td>
+<td>Many partial/unsupported ops in analyze</td>
+<td>EP fallback dominates</td>
+<td>Change EP target or alter graph/precision to reduce fallback ops</td>
 </tr>
 <tr>
-<td>Drop appears at compile stage on QNN</td>
-<td>Op pattern unsupported → CPU fallback</td>
-<td>Run <code>winml analyze</code> to find partial ops</td>
+<td>optrace hotspots align with fallback boundary</td>
+<td>Cross-EP boundary overhead</td>
+<td>Prioritize fixes around top fallback ops reported by optrace</td>
 </tr>
 <tr>
-<td>Inconsistent results across runs</td>
-<td>Non-deterministic EP dispatch</td>
-<td>Add <code>--iterations 20</code> to average out</td>
+<td>inspect shows dynamic shapes / unstable input profile</td>
+<td>Shape/path mismatch between expected and actual traffic</td>
+<td>Pin representative shapes and rerun perf/eval on production-like data</td>
 </tr>
 <tr>
-<td>Drop only in certain inputs</td>
-<td>Input shape sensitivity</td>
-<td>Test with calibration data matching real distribution</td>
+<td>accuracy drop only after precision lowering</td>
+<td>precision sensitivity in key subgraph</td>
+<td>Escalate precision for sensitive nodes, then re-check objective</td>
 </tr>
 </tbody>
 </table>
-<p><strong>4. Checking for op fallback with <code>winml analyze</code></strong>
-When compile-stage drop is suspected:</p>
-<div class="codehilite"><pre><span></span><code>winml<span class="w"> </span>analyze<span class="w"> </span>-m<span class="w"> </span>quantized/model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn
-</code></pre></div>
-
-<p>Look for <code>partial</code> and <code>unsupported</code> ops — these fall back to CPU, introducing
-numerical differences vs native NPU execution. Partial ops are the most common
-source of unexpected accuracy variance on QNN.</p>
-<p><strong>5. Precision escalation path</strong>
-If W8A8 is the problem and the model is accuracy-sensitive:
-W8A8 → W8A16 → FP16 → FP32
-Stop at the first precision that meets accuracy requirements.</p>
+<p><strong>3. Output contract (fast, explainable)</strong>
+- Input: model (+ optional EP/device target)
+- Output: short report + prioritized action list
+- Mode: read-only (no model mutation, no automatic rebuild loop)</p>
 <p><strong>Cross-references:</strong>
 - To compare precision options systematically → <code>autoconfig</code> (manual or automated optimize)
 - If op is listed as unsupported → <code>check-model-feasibility</code></p>
@@ -1305,7 +1275,7 @@ Pseudocode for app-side logic:
 - Don't hardcode EP names → check availability at runtime
 - Don't ship only the compiled artifact without a CPU fallback</p>
 <p><strong>Cross-references:</strong>
-- If accuracy gate fails → <code>debug-accuracy-drop</code>
+- If diagnosis is needed before rerun → <code>debug-model</code>
 - If performance gate fails → <code>autoconfig</code> (manual or automated optimize path)
 - If EP not available for testing, or to pick the right EP → <code>check-model-feasibility</code>
 - To build the artifacts → <code>use-winml-cli</code></p>
@@ -1663,7 +1633,7 @@ documentation summary. Include representative user phrases in quotes.</p>
 4. Reference tables — hardware, thresholds, EP names as concrete data
 5. <code>## Cross-references</code> — links to related skills using relative paths</p>
 <p><strong>3. Cross-reference format</strong></p>
-<div class="codehilite"><pre><span></span><code><span class="k">-</span><span class="w"> </span>If accuracy dropped → see <span class="sb">`.agents/skills/debug-accuracy-drop/SKILL.md`</span>
+<div class="codehilite"><pre><span></span><code><span class="k">-</span><span class="w"> </span>If model behavior is unclear → see <span class="sb">`.agents/skills/debug-model/SKILL.md`</span>
 <span class="k">-</span><span class="w"> </span>After validating → see <span class="sb">`.agents/skills/validate-before-ship/SKILL.md`</span>
 </code></pre></div>
 
@@ -1699,6 +1669,8 @@ documentation summary. Include representative user phrases in quotes.</p>
 <span class="w">  </span><span class="no">Use when the user says &quot;find the best config for my model on QNN&quot;, &quot;automate the config search&quot;,</span>
 <span class="w">  </span><span class="no">&quot;generate configs for all EPs&quot;, &quot;I want to leave this running overnight&quot;, &quot;make it faster&quot;,</span>
 <span class="w">  </span><span class="no">&quot;which precision should I use&quot;, &quot;is NPU worth it&quot;, or &quot;compare QNN vs DirectML vs CPU&quot;.</span>
+<span class="w">  </span><span class="no">The report output includes a feasible-options comparison table (top candidates with tradeoffs)</span>
+<span class="w">  </span><span class="no">so the user can choose confidently instead of seeing only one &quot;winner&quot; config.</span>
 
 <span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">external (WinApp developers)</span>
 </code></pre></div>
@@ -2598,6 +2570,9 @@ winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> <
 winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out_compiled/model_npu_ctx.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--iterations<span class="w"> </span><span class="m">100</span><span class="w"> </span>--warmup<span class="w"> </span><span class="m">10</span>
 </code></pre></div>
 
+<p><strong>Section 8 — Feasible options comparison table</strong>
+The report includes a compact decision table of top feasible candidates (not just the winner), with columns:
+<code>config</code>, <code>accuracy</code>, <code>p50</code>, <code>headroom_to_budget</code>, <code>tradeoff_note</code>, and <code>recommended_when</code>. This helps users choose a robust fallback plan when constraints or hardware change.</p>
 <p><strong>Report generation approach</strong>: The agent generates report.html using inline Python with Jinja2-style string templating + embedded Chart.js (CDN or inlined). No external dependencies — single file, opens offline.</p>
 <hr />
 <p><strong>7. What the agent says in chat</strong></p>
@@ -2889,7 +2864,7 @@ Rule: W8A8 QDQ on GPU EP hangs — skip quantization immediately for GPU targets
 <ul>
 <li>Run <code>check-model-feasibility</code> before starting to pick a model and verify the EP is available</li>
 <li>After autoconfig completes → <code>ship-to-winapp</code> for final validation gates + packaging</li>
-<li>If autoconfig cannot meet objective → <code>debug-accuracy-drop</code> for deeper diagnosis</li>
+<li>If autoconfig cannot meet objective → <code>debug-model</code> for deeper diagnosis</li>
 <li>Multi-EP output feeds directly into <code>ship-to-winapp</code>'s manifest layout</li>
 <li>If the best config found is still not good enough → escalate to <code>optimization-research</code></li>
 </ul>
@@ -3454,9 +3429,9 @@ winml<span class="w"> </span>skill<span class="w"> </span>list<span class="w">  
    canary model to verify it doesn't crash</li>
 </ol>
 <p>Example output:</p>
-<div class="codehilite"><pre><span></span><code>winml skill check --skill debug-accuracy-drop
+<div class="codehilite"><pre><span></span><code>winml skill check --skill debug-model
 
-Checking debug-accuracy-drop...
+Checking debug-model...
   ✓ description: 4 trigger phrases found
   ✓ winml eval --mode compare     [flag verified against eval --help]
   ✓ winml analyze -m ... --ep qnn [flag verified against analyze --help]
@@ -3529,8 +3504,8 @@ detects which skills have stale commands</strong> — no manual audit needed.</p
 <p>This is "auto research": the LLM reads the skill and generates adversarial cases
 that challenge the agent — including negative cases where the agent should NOT
 recommend something.</p>
-<div class="codehilite"><pre><span></span><code>winml<span class="w"> </span>skill<span class="w"> </span>gen-evals<span class="w"> </span>--skill<span class="w"> </span>debug-accuracy-drop<span class="w"> </span>--model<span class="w"> </span>gpt-4o<span class="w"> </span>--count<span class="w"> </span><span class="m">5</span>
-<span class="c1"># Writes: skills/debug-accuracy-drop/evals/eval.yaml (auto-generated)</span>
+<div class="codehilite"><pre><span></span><code>winml<span class="w"> </span>skill<span class="w"> </span>gen-evals<span class="w"> </span>--skill<span class="w"> </span>debug-model<span class="w"> </span>--model<span class="w"> </span>gpt-4o<span class="w"> </span>--count<span class="w"> </span><span class="m">5</span>
+<span class="c1"># Writes: skills/debug-model/evals/eval.yaml (auto-generated)</span>
 <span class="c1"># Human review before committing</span>
 </code></pre></div>
 
@@ -3539,7 +3514,7 @@ committing. Over time, real user questions (from GitHub issues) can be mined and
 added as additional eval cases.</p>
 <h4 id="winml-skill-eval-agent-behavior-testing"><code>winml skill eval</code> — agent behavior testing<a class="headerlink" href="#winml-skill-eval-agent-behavior-testing" title="Permanent link">&para;</a></h4>
 <p>Runs the eval cases and reports results:</p>
-<div class="codehilite"><pre><span></span><code>winml<span class="w"> </span>skill<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--skill<span class="w"> </span>debug-accuracy-drop
+<div class="codehilite"><pre><span></span><code>winml<span class="w"> </span>skill<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--skill<span class="w"> </span>debug-model
 <span class="c1"># Uses evals/eval.yaml + injects SKILL.md as system prompt</span>
 <span class="c1"># Reports pass/fail per test case</span>
 </code></pre></div>
@@ -3549,15 +3524,15 @@ that calls the configured LLM API directly.</p>
 <h3 id="directory-layout">Directory layout<a class="headerlink" href="#directory-layout" title="Permanent link">&para;</a></h3>
 <p>Each skill carries its own eval cases:</p>
 <div class="codehilite"><pre><span></span><code>skills/
-  debug-accuracy-drop/
+  debug-model/
     SKILL.md
     evals/
       eval.yaml     ← agent behavior test cases (hand-written or gen-evals output)
 </code></pre></div>
 
 <h3 id="evalyaml-format-promptfoo">eval.yaml format (PromptFoo)<a class="headerlink" href="#evalyaml-format-promptfoo" title="Permanent link">&para;</a></h3>
-<div class="codehilite"><pre><span></span><code><span class="c1"># skills/debug-accuracy-drop/evals/eval.yaml</span>
-<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Agent</span><span class="nv"> </span><span class="s">behavior</span><span class="nv"> </span><span class="s">eval</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">debug-accuracy-drop</span><span class="nv"> </span><span class="s">skill&quot;</span>
+<div class="codehilite"><pre><span></span><code><span class="c1"># skills/debug-model/evals/eval.yaml</span>
+<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Agent</span><span class="nv"> </span><span class="s">behavior</span><span class="nv"> </span><span class="s">eval</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">debug-model</span><span class="nv"> </span><span class="s">skill&quot;</span>
 
 <span class="nt">prompts</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{user_message}}&quot;</span>
@@ -3621,9 +3596,9 @@ that calls the configured LLM API directly.</p>
 <td>Screens candidates with <code>winml inspect</code> (never recommends an unsupported model); recommends the 3-layer check in order; gives fallback when EP absent</td>
 </tr>
 <tr>
-<td><code>debug-accuracy-drop</code></td>
+<td><code>debug-model</code></td>
 <td>4</td>
-<td>Correctly isolates pipeline stage; suggests precision escalation</td>
+<td>Synthesizes inspect/analyze/perf/optrace into explainable causes + prioritized actions</td>
 </tr>
 <tr>
 <td><code>ship-to-winapp</code></td>
@@ -3658,7 +3633,7 @@ wrong guidance (e.g., blaming calibration for an optimize-stage drop).</p>
 npm<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>promptfoo
 
 <span class="c1"># Run eval for a single skill</span>
-<span class="nb">cd</span><span class="w"> </span>skills/debug-accuracy-drop
+<span class="nb">cd</span><span class="w"> </span>skills/debug-model
 promptfoo<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--config<span class="w"> </span>evals/eval.yaml
 
 <span class="c1"># Run all skill evals</span>
@@ -3679,7 +3654,7 @@ promptfoo<span class="w"> </span><span class="nb">eval</span><span class="w"> </
   check-model-feasibility/    ← new (user — model discovery + EP/device compatibility)
     SKILL.md
     evals/eval.yaml
-  debug-accuracy-drop/        ← new (user)
+  debug-model/                ← new (user)
     SKILL.md
     evals/eval.yaml
   autoconfig/                 ← new (user — optimize: autoresearch loop + manual framework)
@@ -3715,7 +3690,7 @@ but ships <em>last</em> because it depends on the <code>--format json</code> cha
 0. <code>winml perf --format json</code> — enables performance SLA agentic flows</p>
 <p><strong>User skills:</strong>
 1. <code>check-model-feasibility</code> — lowest risk, pure existing commands (<code>inspect</code>/<code>sys</code>/<code>analyze</code>); front door for new users (model discovery half needs <code>analyze --format json</code>)
-2. <code>debug-accuracy-drop</code> — closes clearest pain point, existing <code>eval --mode compare</code>
+2. <code>debug-model</code> — lightweight read-only explainer that shortens time-to-diagnosis
 3. <code>ship-to-winapp</code> — validation checklist + packaging; build it once the gate commands exist (partial dep on <code>winml package</code> feature)
 4. <code>autoconfig</code> — depends on #847/#848/#849 + most complex skill to implement (manual mode can ship first as the lightweight framework)</p>
 <p><strong>Contributor skills:</strong>
@@ -3917,6 +3892,15 @@ ode.op_type == "FusedConv" 即可定位
 - 不处理 conv-bn-fusion 产生的模型（那个无法反向，只能重新从 FP32 export）</p>
 <h3 id="priority">Priority<a class="headerlink" href="#priority" title="Permanent link">&para;</a></h3>
 <p>MEDIUM — 默认 flag 是关的，不是高频路径，但对 BYOM 场景（拿到别人优化过的模型）有实际价值。</p>
+<hr />
+<h2 id="appendix">Appendix<a class="headerlink" href="#appendix" title="Permanent link">&para;</a></h2>
+<h3 id="appendix-a-archived-skill-debug-accuracy-drop-exploratory">Appendix A: Archived skill: <code>debug-accuracy-drop</code> (exploratory)<a class="headerlink" href="#appendix-a-archived-skill-debug-accuracy-drop-exploratory" title="Permanent link">&para;</a></h3>
+<p>This concept remains exploratory and is intentionally moved out of the main skill lineup.
+Primary diagnostics are now handled by <code>debug-model</code>.</p>
+<p><strong>Original intent (archived):</strong> isolate where accuracy regresses across optimize/quantize/compile stages, using
+<code>winml eval --mode compare</code> + <code>winml analyze</code> to infer likely causes and suggest next steps.</p>
+<p><strong>Why archived:</strong> scope overlapped heavily with broader model diagnostics, and the workflow was too narrow
+for non-quantization failures. Reintroduced only after clearer boundaries and evidence standards are defined.</p>
 </main>
 </div>
 </body>
