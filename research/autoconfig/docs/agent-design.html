@@ -107,6 +107,19 @@ but most developers still cannot reliably answer expert-level questions:
 why a model fails on a target EP, which configuration is safe to ship, and whether a local optimum generalizes across Windows hardware diversity.
 </p>
 <p>
+This is not only a technical hypothesis; it is also a direct customer ask. Multiple partners explicitly requested lower model-tuning effort, stronger transparency, and cross-IHV consistency with minimal manual optimization.
+</p>
+<table>
+  <thead><tr><th>Customer signal</th><th>Observed ask</th><th>Design implication</th></tr></thead>
+  <tbody>
+    <tr><td>Teams / ecosystem feedback</td><td>Need usable CLI/tooling for model analysis, optimization, and benchmarking; WinML CLI introduced as recommended entry.</td><td>Agent layer must turn primitives into guided workflows, not raw command output only.</td></tr>
+    <tr><td>Canva / Affinity</td><td>One universal model across IHVs, near-real-time performance, minimal per-vendor tuning, better debuggability than black-box behavior.</td><td>Cross-device confidence + explainable diagnostics are core requirements.</td></tr>
+    <tr><td>Adobe</td><td>DML memory footprint and GPU↔CPU fallback ping-pong called out as major blockers.</td><td>Need EP-behavior visibility, fallback analysis, and actionable optimization guidance.</td></tr>
+    <tr><td>CyberLink</td><td>Need parity vs native runtimes, one model across silicon, and minimal engineering overhead (auto EP preference).</td><td>Agent must optimize for portability + performance while reducing expert intervention.</td></tr>
+    <tr><td>Discord feedback</td><td>Strong interest in local model IP protection / encryption guidance.</td><td>Agent recommendations should include deployment safety constraints, not only perf numbers.</td></tr>
+  </tbody>
+</table>
+<p>
 Current optimization practice is often single-device and manually interpreted, which creates three recurring issues:
 </p>
 <ul>
@@ -204,17 +217,44 @@ Correctness validation (<code>winml eval</code>) is mandatory before recommendat
 The orchestrator controls phase transitions and loop gates. Explorer/Optimizer/Reviewer execute the optimization loop,
 while outcome synthesis consolidates recommendation and evidence into final outputs.
 </p>
+<ul>
+  <li><strong>Phase governance:</strong> enforce intake prerequisites (baseline + correctness contract) before optimization starts.</li>
+  <li><strong>Loop governance:</strong> drive <code>priority_queue</code> consumption, enforce stop conditions (objective met, plateau, queue empty), and keep run state resumable via <code>session.json</code>.</li>
+  <li><strong>Decision governance:</strong> ensure each recommendation is backed by benchmark evidence and clear verdict logic, then package it into operator-friendly outputs.</li>
+  <li><strong>Reliability governance:</strong> preserve crash-resume semantics and avoid losing completed experiments when long sweeps are interrupted.</li>
+</ul>
+<p>
+In practice, Orchestrator is the control plane and Explorer/Optimizer/Reviewer are the execution plane. This separation keeps compute deterministic while allowing higher-level strategy updates without rewriting bench primitives.
+</p>
 
 <h3 id="cross-device-integration">Cross-device integration<a class="headerlink" href="#cross-device-integration" title="Permanent link">&para;</a></h3>
 <p>
 From <code>cross-device-design.html</code>: treat <code>winml serve</code> Phase 0 endpoints as distributed workers,
 optimize with joint objective across devices, and add a device axis to portability confidence.
 </p>
+<ul>
+  <li><strong>Execution model:</strong> each device runs <code>winml serve</code> as a worker; orchestrator fans out build/perf/eval calls and aggregates results centrally.</li>
+  <li><strong>Objective model:</strong> replace single-host “best local config” with a weighted multi-device objective (latency/accuracy/coverage by deployment mix).</li>
+  <li><strong>Portability model:</strong> mark findings with device scope (local-only vs cross-device stable) so recommendations can express confidence per hardware tier.</li>
+  <li><strong>Operational model:</strong> generate fallback chains (for example QNN → DML → CPU) when a single universal winner is not feasible.</li>
+</ul>
+<p>
+This directly addresses customer requests for “one model across IHVs” and reduced manual per-vendor tuning by shifting complexity from app teams into orchestration logic.
+</p>
 
 <h3 id="self-evolution-integration">Self-evolution integration<a class="headerlink" href="#self-evolution-integration" title="Permanent link">&para;</a></h3>
 <p>
 From <code>self-evolution-design.html</code>: use paired A/B protocol and adaptive sampling to stabilize conclusions,
 then promote findings through L1→L5 confidence levels before broad KB reuse.
+</p>
+<ul>
+  <li><strong>Measurement robustness:</strong> paired A/B reduces thermal/order bias; adaptive session count increases confidence only when needed.</li>
+  <li><strong>Knowledge quality:</strong> promotion gates prevent noisy one-off wins from entering reusable KB rules prematurely.</li>
+  <li><strong>Search efficiency:</strong> once findings are promoted, <code>skip_set</code> and ranking improve, reducing wasted experiments in future runs.</li>
+  <li><strong>Governance loop:</strong> each sweep contributes structured evidence back to KB, making later recommendations faster and more reliable.</li>
+</ul>
+<p>
+The result is a closed-loop system: run experiments → accumulate evidence → promote stable patterns → improve next orchestration cycle.
 </p>
 
 <h3 id="evidence-constraints">Evidence constraints<a class="headerlink" href="#evidence-constraints" title="Permanent link">&para;</a></h3>
