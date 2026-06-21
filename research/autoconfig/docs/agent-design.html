@@ -130,15 +130,18 @@ Current optimization practice is often single-device and manually interpreted, w
 
 <h2 id="winml-cli-vs-olive">winml-cli vs Olive<a class="headerlink" href="#winml-cli-vs-olive" title="Permanent link">&para;</a></h2>
 <p>
-The overlap is real at implementation level (both use ORT ecosystem), but product purpose is different. Olive is pass-centric for experts; winml-cli aims at Windows app developers who need guided, explainable outcomes.
+The overlap is real at implementation level (both use ORT ecosystem), but the optimization philosophy is intentionally different.
+<strong>winml-cli focuses on a limited set of high-impact, commonly needed tuning levers with regular verification</strong>.
+<strong>Olive is a broader optimization framework with deeper knobs and stronger low-level control</strong>.
 </p>
 <table>
   <thead><tr><th>Dimension</th><th>Olive</th><th>winml-cli (+ agent layer)</th></tr></thead>
   <tbody>
-    <tr><td>Primary user</td><td>ML/optimization engineer</td><td>WinApp developer</td></tr>
-    <tr><td>Workflow shape</td><td>Manual pass composition</td><td><code>config → build → validate</code> with guided decisions</td></tr>
-    <tr><td>Hardware handling</td><td>Expert-driven target setup</td><td>Windows-first multi-EP lifecycle, device-aware guidance</td></tr>
-    <tr><td>Explainability</td><td>Limited by default</td><td>Agent returns rationale + confidence + next actions</td></tr>
+    <tr><td>Tuning scope</td><td>Comprehensive optimization surface, including many advanced pass combinations</td><td>Curated, high-impact optimization set for common Windows deployment paths</td></tr>
+    <tr><td>Control depth</td><td>Fine-grained and expert-oriented</td><td>Constrained and opinionated by design to reduce operational complexity</td></tr>
+    <tr><td>Verification model</td><td>User-driven validation strategy</td><td>Regular verification built into flow (baseline checks, eval gates, confidence-aware decisions)</td></tr>
+    <tr><td>Primary user</td><td>ML/optimization engineer</td><td>WinApp developer / product engineer prioritizing time-to-ship</td></tr>
+    <tr><td>Default UX goal</td><td>Maximum controllability</td><td>Minimum engineering effort with explainable, reliable outcomes</td></tr>
   </tbody>
 </table>
 
