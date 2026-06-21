@@ -244,19 +244,8 @@
 
       <div style="display:flex;align-items:center;gap:8px;padding:0 4px">
         <div style="flex:1;height:1.5px;background:#a5d6a7"></div>
-        <div style="font-size:11px;color:#2e7d32;font-weight:600">Insight Engine &mdash; fuse 3 signals &rarr;</div>
+        <div style="font-size:11px;color:#2e7d32;font-weight:600">Insight Engine &mdash; hypothesis_pool (unfiltered candidates)</div>
         <div style="flex:1;height:1.5px;background:#a5d6a7"></div>
-      </div>
-
-      <div style="display:flex;gap:10px;width:100%">
-        <div class="box" style="flex:1;border-color:#80cbc4;background:#e0f7fa">
-          <div class="box-title" style="color:#004d40">skip_set</div>
-          <div style="font-size:11px;color:#004d40">Hard blocks from KB rules<br><em>e.g. conv fusions on QNN NPU</em></div>
-        </div>
-        <div class="box" style="flex:1;border-color:#a5d6a7;background:#f1faf9">
-          <div class="box-title" style="color:#1b5e20">priority_queue</div>
-          <div style="font-size:11px;color:#1b5e20">Ranked hypotheses from profile<br><em>e.g. opset21 for DINOv2-family</em></div>
-        </div>
       </div>
 
     </div>
@@ -274,10 +263,22 @@
 
           <div class="loop-agent">
             <div class="agent-title">Explorer</div>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <div class="box" style="flex:1;border-color:#80cbc4;background:#e0f7fa;padding:7px 10px">
+                <div class="box-title" style="color:#004d40;font-size:10px;margin-bottom:2px">skip_set</div>
+                <div style="font-size:10.5px;color:#004d40">KB hard-block pruning after hypothesis generation</div>
+              </div>
+              <div class="box" style="flex:1;border-color:#a5d6a7;background:#f1faf9;padding:7px 10px">
+                <div class="box-title" style="color:#1b5e20;font-size:10px;margin-bottom:2px">priority_queue</div>
+                <div style="font-size:10.5px;color:#1b5e20">Ranked hypotheses after pruning</div>
+              </div>
+            </div>
             <ul>
               <li>Skip completed iters from <code>session.json</code> <span class="new-badge">NEW</span></li>
+              <li>Load <code>hypothesis_pool</code> from Insight Engine</li>
+              <li>Apply KB hard blocks &rarr; <code>skip_set</code></li>
+              <li>Rank remaining hypotheses &rarr; <code>priority_queue</code></li>
               <li>Pop next hypothesis from <code>priority_queue</code></li>
-              <li>Check KB rules &rarr; skip if pruned</li>
               <li>Build <code>config.json</code> delta</li>
             </ul>
           </div>
