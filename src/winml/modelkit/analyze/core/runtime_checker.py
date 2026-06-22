@@ -157,6 +157,7 @@ class RuntimeChecker:
 
     def op_support(
         self,
+        for_debug: bool = False,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
@@ -166,6 +167,7 @@ class RuntimeChecker:
         Returns operator-level runtime check results for each operator.
 
         Args:
+            for_debug: Whether to include runtime debug details for each node.
             on_node_result: Optional per-node progress callback.
                 When provided, tqdm progress bar is suppressed (caller
                 handles progress display via Rich Live).
@@ -230,6 +232,7 @@ class RuntimeChecker:
             node_start = time.perf_counter()
             result = query.run_for_node(
                 node,
+                for_debug=for_debug,
                 run_unknown_op=run_unknown_op,
                 save_node_types=save_node_types,
             )
@@ -272,6 +275,7 @@ class RuntimeChecker:
         Args:
             patterns: List of PatternMatchResult objects to check.
                       If None, uses patterns from initialization.
+            for_debug: Whether to include runtime debug details for operator checks.
 
         Returns:
             List[PatternRuntime]: Runtime results for each pattern with alternatives
@@ -387,6 +391,7 @@ class RuntimeChecker:
     def summary(
         self,
         patterns: list[PatternMatchResult] | None = None,
+        for_debug: bool = False,
         run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
@@ -416,6 +421,7 @@ class RuntimeChecker:
         if self._model is not None:
             op_start = time.perf_counter()
             op_results = self.op_support(
+                for_debug=for_debug,
                 run_unknown_op=run_unknown_op,
                 save_node_types=save_node_types,
                 on_node_result=on_node_result,

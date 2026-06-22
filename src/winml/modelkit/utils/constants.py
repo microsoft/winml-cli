@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Literal, TypeAlias, get_args
+from typing import Literal, TypeAlias, cast, get_args
 
 
 if sys.platform == "win32":
@@ -137,7 +137,9 @@ def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
     # the prior membership check narrowed ``ep_lower`` so the alias mapping is
     # total in this branch.
     ep_lower = ep.lower()
-    canonical = EP_ALIASES.get(ep_lower)  # type: ignore[arg-type]
+    # ep_lower is an arbitrary lowercased string; cast to the key type for the
+    # lookup (.get tolerates non-alias keys, returning None).
+    canonical = EP_ALIASES.get(cast("EPAlias", ep_lower))
     if canonical is not None:
         return canonical
 

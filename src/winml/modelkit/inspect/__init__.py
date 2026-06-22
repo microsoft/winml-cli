@@ -28,6 +28,7 @@ from .resolver import (
     get_build_config,
     get_known_tasks,
     resolve_cache,
+    resolve_composite_info,
     resolve_exporter,
     resolve_io_config,
     resolve_loader,
@@ -38,6 +39,7 @@ from .resolver import (
 from .types import (
     CacheInfo,
     CacheStageInfo,
+    CompositeInfo,
     ExporterInfo,
     HierarchyInfo,
     InspectResult,
@@ -108,6 +110,7 @@ def inspect_model(
     logger.debug("Model type: %s, Architectures: %s", model_type, architectures)
 
     # Step 2: Detect or override task
+    detected_composite: dict[str, str] | None = None
     if task_override:
         try:
             validate_task(task_override)
@@ -121,6 +124,7 @@ def inspect_model(
 
         _resolution = resolve_task(hf_config)
         task, task_source = _resolution.task, _resolution.source.value
+        detected_composite = _resolution.composite
         logger.debug("Detected task: %s (source: %s)", task, task_source)
 
     # Step 3: Resolve loader configuration
@@ -184,6 +188,9 @@ def inspect_model(
         io_config_info.image_size,
     )
 
+    # Step 11: Composite pipeline structure (only when the resolved task bridges to one)
+    composite_info = resolve_composite_info(model_type, detected_composite)
+
     return InspectResult(
         model_id=model_id,
         model_type=model_type,
@@ -200,12 +207,14 @@ def inspect_model(
         cache=cache_info,
         processor=processor_info,
         io_config=io_config_info,
+        composite=composite_info,
     )
 
 
 __all__ = [
     "CacheInfo",
     "CacheStageInfo",
+    "CompositeInfo",
     "ExporterInfo",
     "HierarchyInfo",
     "IOConfigInfo",
@@ -224,6 +233,7 @@ __all__ = [
     "get_known_tasks",
     "inspect_model",
     "resolve_cache",
+    "resolve_composite_info",
     "resolve_io_config",
     "resolve_processor",
     "resolve_winml",

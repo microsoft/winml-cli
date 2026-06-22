@@ -1,0 +1,66 @@
+{
+  "OpenVINOExecutionProvider": {
+    "devices": {
+      "CPU": {
+        "key": "1",
+        "valid": true
+      },
+      "GPU": {
+        "key": "2",
+        "valid": true
+      },
+      "NPU": {
+        "key": "3",
+        "valid": true
+      }
+    }
+  },
+  "QNNExecutionProvider": {
+    "devices": {
+      "CPU": {
+        "key": "4",
+        "valid": false
+      },
+      "GPU": {
+        "key": "5",
+        "valid": true
+      },
+      "NPU": {
+        "key": "6",
+        "valid": true
+      }
+    }
+  },
+  "NvTensorRTRTXExecutionProvider": {
+    "devices": {
+      "CPU": {
+        "key": "7",
+        "valid": false
+      },
+      "GPU": {
+        "key": "8",
+        "valid": true
+      },
+      "NPU": {
+        "key": "9",
+        "valid": false
+      }
+    }
+  },
+  "VitisAIExecutionProvider": {
+    "devices": {
+      "CPU": {
+        "key": "a",
+        "valid": false
+      },
+      "GPU": {
+        "key": "b",
+        "valid": false
+      },
+      "NPU": {
+        "key": "c",
+        "valid": false
+      }
+    }
+  }
+}

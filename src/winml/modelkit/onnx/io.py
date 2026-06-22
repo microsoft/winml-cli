@@ -110,7 +110,7 @@ class InputTensorSpec:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
-        result = {}
+        result: dict[str, Any] = {}
         if self.name is not None:
             result["name"] = self.name
         if self.dtype is not None:
@@ -249,6 +249,8 @@ def get_io_config(
             # can resolve dynamic dims by their declared symbolic name.
             shape: list[Any] = []
             symbolic_shape: list[Any] = []
+            # Extract shape (None for dynamic dims)
+            shape: list[int | None] = []
             if tensor_type.HasField("shape"):
                 for dim in tensor_type.shape.dim:
                     if dim.HasField("dim_value"):

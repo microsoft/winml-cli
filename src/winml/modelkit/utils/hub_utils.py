@@ -88,7 +88,7 @@ def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
         # Extract comprehensive metadata
         metadata = {
             "type": "hub",
-            "model_id": model_info.modelId,
+            "model_id": model_info.id,
             "sha": model_info.sha,
             "revision": revision or "main",
             "tags": model_info.tags if hasattr(model_info, "tags") else [],
@@ -172,7 +172,7 @@ def inject_hub_metadata(onnx_model: Any, model_name_or_path: str, metadata: dict
 
     # Get ModelExport version
     try:
-        from ..version import __version__
+        from .. import __version__
 
         export_version = __version__
     except ImportError:
@@ -322,12 +322,14 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
 
         # Try to load preprocessor from Hub
         preprocessor = None
-        for loader_cls in [
+        # Heterogeneous transformers Auto-loaders sharing a from_pretrained classmethod.
+        hub_loaders: list[Any] = [
             AutoProcessor,
             AutoTokenizer,
             AutoImageProcessor,
             AutoFeatureExtractor,
-        ]:
+        ]
+        for loader_cls in hub_loaders:
             try:
                 preprocessor = loader_cls.from_pretrained(hf_hub_id, revision=hf_revision)
                 break
@@ -351,12 +353,14 @@ def load_hf_components_from_onnx(onnx_path: str) -> tuple[Any, Any]:
 
         # Try to load preprocessor from local files
         preprocessor = None
-        for loader_cls in [
+        # Heterogeneous transformers Auto-loaders sharing a from_pretrained classmethod.
+        local_loaders: list[Any] = [
             AutoProcessor,
             AutoTokenizer,
             AutoImageProcessor,
             AutoFeatureExtractor,
-        ]:
+        ]
+        for loader_cls in local_loaders:
             try:
                 preprocessor = loader_cls.from_pretrained(onnx_dir)
                 break

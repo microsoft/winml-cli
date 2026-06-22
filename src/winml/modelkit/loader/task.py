@@ -20,6 +20,11 @@ Public API:
 
 from __future__ import annotations
 
+import logging
+from typing import cast
+
+
+logger = logging.getLogger(__name__)
 
 # Task abbreviations for cache keys (47 tasks from HuggingFace Transformers)
 TASK_ABBREV: dict[str, str] = {
@@ -214,7 +219,7 @@ def normalize_task(task: str) -> str:
     """
     from optimum.exporters.tasks import TasksManager
 
-    return TasksManager.map_from_synonym(task)
+    return cast("str", TasksManager.map_from_synonym(task))
 
 
 # WinML task-synonym extensions — extend Optimum's ``TasksManager.map_from_synonym``
@@ -255,7 +260,7 @@ def to_optimum_task(task: str) -> str:
 
     from optimum.exporters.tasks import TasksManager
 
-    return TasksManager.map_from_synonym(task)
+    return cast("str", TasksManager.map_from_synonym(task))
 
 
 def get_task_abbrev(task: str) -> str:

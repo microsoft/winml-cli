@@ -21,7 +21,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 logger = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ class XrtSmiClient:
                 return {}
 
             with Path(tmp_path).open(encoding="utf-8") as f:
-                return json.load(f)
+                return cast("dict[str, Any]", json.load(f))
 
         except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as exc:
             logger.debug("xrt-smi snapshot failed: %s", exc)

@@ -294,6 +294,56 @@ def device_option(
     )
 
 
+def precision_option(
+    default: str | None = "auto",
+    optional_message: str | None = None,
+    include_short: bool = True,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add --precision option to a Click command.
+
+    Shared across ``build``, ``config``, ``eval``, ``perf``, and ``quantize`` so
+    the flag spelling (``-p``/``--precision``) and parsing stay consistent. Uses
+    ``type=str`` (not ``click.Choice``) so the ``w{x}a{y}`` mixed-precision
+    format (e.g. ``w8a16``) is accepted; invalid values are rejected downstream
+    (``resolve_precision`` for build-path commands, ``_resolve_quant_types`` for
+    ``quantize``).
+
+    Args:
+        default: Default precision value (default: "auto"). Pass ``None`` for
+            commands like ``quantize`` that treat "no precision" distinctly.
+        optional_message: Command-specific note appended after the help text
+            (e.g., "Ignored for pre-built ONNX inputs.").
+        include_short: Whether to also register the ``-p`` short alias
+            (default: True).
+        help_text: Override for the base help text. Commands whose accepted
+            values differ from the default float+int set (e.g. ``quantize``,
+            which has no fp16/fp32) supply their own; ``optional_message`` is
+            still appended to it.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = help_text or (
+        "Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
+        "auto resolves from --device (npu->w8a16, gpu/cpu->fp16); "
+        "fp16/fp32 skip quantization"
+    )
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+
+    param_decls = ["--precision", "precision"]
+    if include_short:
+        param_decls.insert(0, "-p")
+    return click.option(
+        *param_decls,
+        type=str,
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
 def verbosity_options() -> Callable[[F], F]:
     """Add verbose and quiet logging options to a Click command.
 

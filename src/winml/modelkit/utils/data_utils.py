@@ -7,14 +7,20 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+
 def pad_inputs(
     source: dict[str, Any],
-    expected: dict[str, list[int]],
+    # Covariant Mapping/Sequence so existing dict[str, list[int]] callers still
+    # fit, while modelling ONNX dynamic dims (None / str symbol) the body handles.
+    expected: Mapping[str, Sequence[int | str | None]],
     mode: Literal["left", "right"] = "right",
 ) -> dict[str, Any]:
     """Filter *source* to keys in *expected* and pad undersized tensors.

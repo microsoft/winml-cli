@@ -9,6 +9,7 @@ Benchmarks model inference performance using WinMLAutoModel and WinMLSession.
 Usage:
     winml perf -m microsoft/resnet-50
     winml perf -m microsoft/resnet-50 --device npu --iterations 100
+    winml perf -m microsoft/resnet-50 --module ResNetConvLayer
     winml perf -m bert-base-uncased --task text-classification
 """
 
@@ -918,9 +919,23 @@ def _perf_modules(
                         )
 
                 if hw_ctx:
+                    # Drive the same live chart single-model mode uses so
+                    # --monitor renders a per-module HW utilization chart
+                    # instead of silently dumping metrics to JSON (issue #654).
                     with session.perf(warmup=warmup) as stats, hw_ctx as hw:
-                        for _ in range(total_iters):
-                            session.run(inputs)
+                        _run_monitored_loop(
+                            session,
+                            inputs,
+                            stats,
+                            hw,
+                            total_iterations=total_iters,
+                            warmup=warmup,
+                            model_id=label,
+                            device=resolved_device,
+                        )
+                        # Collect inside the `with` block: hw_ctx.__exit__
+                        # stops the monitor, so to_dict() must read while it's
+                        # still live (mirrors the single-model path).
                         hw_metrics = hw.to_dict()
                 else:
                     with session.perf(warmup=warmup) as stats:
@@ -1348,13 +1363,7 @@ def _run_simple_loop(
     help="Number of warmup iterations (excluded from statistics; must be >= 0)",
 )
 @cli_utils.device_option(required=False, default="auto", include_auto=True)
-@click.option(
-    "--precision",
-    type=str,
-    default="auto",
-    show_default=True,
-    help="Precision mode: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16).",
-)
+@cli_utils.precision_option()
 @cli_utils.ep_option(
     required=False,
     optional_message="Overrides device-to-provider mapping.",

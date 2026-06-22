@@ -20,7 +20,7 @@ import importlib
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from .task import (
     HF_TASK_DEFAULTS,
@@ -34,6 +34,8 @@ from .task import (
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
+
+    from ..models.winml import WinMLCompositeModel
 
 
 logger = logging.getLogger(__name__)
@@ -123,7 +125,7 @@ def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
 
     try:
         transformers_module = importlib.import_module("transformers")
-        return getattr(transformers_module, arch_name)
+        return cast("type", getattr(transformers_module, arch_name))
     except AttributeError as e:
         raise ValueError(
             f"Cannot import {arch_name} from transformers. Please specify task explicitly."
@@ -145,7 +147,7 @@ def _detect_task_from_model_class(model_class: type) -> str:
     """
     from optimum.exporters.tasks import TasksManager
 
-    return TasksManager.infer_task_from_model(model_class)
+    return cast("str", TasksManager.infer_task_from_model(model_class))
 
 
 def _upgrade_fill_mask_for_seq2seq(task: str, config: PretrainedConfig) -> str:
@@ -196,6 +198,8 @@ def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
     except ValueError:
         return task
     main_input = getattr(model_class, "main_input_name", None)
+    if main_input is None:
+        return task
     return _FEATURE_MODALITY_BY_MAIN_INPUT.get(main_input, task)
 
 
@@ -230,7 +234,7 @@ def _get_custom_model_class(model_type: str, task: str) -> type | None:
     if task in HF_TASK_DEFAULTS:
         import transformers
 
-        return getattr(transformers, HF_TASK_DEFAULTS[task])
+        return cast("type", getattr(transformers, HF_TASK_DEFAULTS[task]))
 
     return None
 
@@ -268,6 +272,30 @@ class TaskResolution:
     composite: CompositeComponents | None = None
 
 
+def _composite_registry() -> dict[tuple[str, str], type[WinMLCompositeModel]]:
+    """The composite model registry, populated and verified non-empty.
+
+    ``COMPOSITE_MODEL_REGISTRY`` is filled as an import side effect of
+    ``winml.modelkit.models.hf``; importing it here is the REQUIRED trigger (kept
+    lazy so the ``inspect --list-tasks`` fast path stays import-cheap). The
+    non-empty check turns a "registrations moved/renamed" refactor mistake into a
+    loud failure instead of silently disabling the composite feature — readers
+    would otherwise just see an empty registry and return ``[]`` / ``None``. This
+    is also the single load trigger the three readers share, so they cannot drift.
+    """
+    import winml.modelkit.models.hf  # noqa: F401  # REQUIRED: populates the registry
+
+    from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
+
+    if not COMPOSITE_MODEL_REGISTRY:
+        raise RuntimeError(
+            "COMPOSITE_MODEL_REGISTRY is empty after importing winml.modelkit.models.hf "
+            "— composite registrations are missing or have moved; update the import "
+            "trigger in _composite_registry()."
+        )
+    return COMPOSITE_MODEL_REGISTRY
+
+
 def resolve_composite(model_type: str, task: str) -> CompositeComponents | None:
     """Sub-components of a composite *pipeline* task, else None.
 
@@ -278,12 +306,24 @@ def resolve_composite(model_type: str, task: str) -> CompositeComponents | None:
     text2text-generation -> composite) lives in ``_composite_components_for_task``
     and is applied only on the auto-detection path.
     """
-    import winml.modelkit.models.hf  # noqa: F401  # trigger composite registrations
-
-    from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
-
-    cls = COMPOSITE_MODEL_REGISTRY.get((model_type, task))
+    cls = _composite_registry().get((model_type, task))
     return dict(cls._SUB_MODEL_CONFIG) if cls is not None else None
+
+
+def composite_pipeline_tasks(model_type: str) -> list[str]:
+    """Pipeline (composite) tasks a model_type can serve, sorted; ``[]`` for non-composites.
+
+    Registry-driven and architecture-agnostic (e.g. ``bart`` ->
+    ``["summarization", "table-question-answering"]``, ``marian`` -> ``["translation"]``,
+    ``qwen3`` -> ``["text-generation"]``). Surfaced by ``winml inspect`` to show which
+    higher-level pipelines a composite serves. The per-checkpoint pipeline is
+    config-indistinguishable, so the list is sorted (deterministic, model-id-independent) —
+    the order must not imply inspect knows which pipeline a given checkpoint is.
+    """
+    # Every registry entry is a WinMLCompositeModel (enforced by
+    # register_composite_model), so trust the registry directly — this keeps the
+    # function consistent with resolve_composite() / _composite_components_for_task.
+    return sorted(task for (mt, task) in _composite_registry() if mt == model_type)
 
 
 # Optimum-canonical generation task that detect-path seq2seq models surface;
@@ -311,14 +351,9 @@ def _composite_components_for_task(model_type: str, task: str) -> CompositeCompo
     composites register under translation/summarization). Candidates deduped
     by export shape; >1 distinct shape -> ambiguous, require explicit --task.
     """
-    import winml.modelkit.models.hf  # noqa: F401
-
-    from ..models.winml import WinMLCompositeModel
-    from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
-
-    distinct: dict[tuple, type] = {}
-    for (m_type, reg_task), cls in COMPOSITE_MODEL_REGISTRY.items():
-        if m_type != model_type or not issubclass(cls, WinMLCompositeModel):
+    distinct: dict[tuple, type[WinMLCompositeModel]] = {}
+    for (m_type, reg_task), cls in _composite_registry().items():
+        if m_type != model_type:
             continue
         if task in (reg_task, _SEQ2SEQ_GENERATION_TASK):
             distinct[tuple(sorted(cls._SUB_MODEL_CONFIG.items()))] = cls
@@ -326,7 +361,7 @@ def _composite_components_for_task(model_type: str, task: str) -> CompositeCompo
         return None
     if len(distinct) == 1:
         return dict(next(iter(distinct.values()))._SUB_MODEL_CONFIG)
-    tasks = sorted(t for (mt, t) in COMPOSITE_MODEL_REGISTRY if mt == model_type)
+    tasks = sorted(t for (mt, t) in _composite_registry() if mt == model_type)
     raise ValueError(
         f"{model_type!r} has multiple composite exports; pass --task explicitly (one of: {tasks})."
     )
@@ -349,6 +384,10 @@ def resolve_task(
     model_type = getattr(config, "model_type", None)
     model_type_norm = model_type.lower().replace("_", "-") if model_type else ""
     model_id = getattr(config, "_name_or_path", "") or None
+
+    # Declared once up front so the Stage-0 branches (which assign a concrete str)
+    # and the Stage-1 detection (which starts at None) share one str | None type.
+    opt_task: str | None = None
 
     # --- Stage 0: user override (short-circuits detection) ----------------
     if model_class is not None:
@@ -402,7 +441,7 @@ def resolve_task(
         )
 
     # --- Stage 1: detection -----------------------------------------------
-    opt_task: str | None = None
+    # opt_task stays at its hoisted None until a detection sub-stage sets it.
     source: TaskSource | None = None
     resolved = None
 

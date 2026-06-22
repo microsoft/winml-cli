@@ -11,7 +11,7 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...utils.python_env import ensure_venv
 from ..session import SessionState, WinMLSession
@@ -197,8 +197,8 @@ class WinMLQairtSession(WinMLSession):
 
         qnn_version = qnn_json_obj["info"]["buildId"]
         for qnn_graph in qnn_json_obj["info"]["graphs"]:
-            qnn_input_tensor_dic = {}
-            qnn_output_tensor_dic = {}
+            qnn_input_tensor_dic: dict[str, Any] = {}
+            qnn_output_tensor_dic: dict[str, Any] = {}
             graph_name = gen_qnn_ctx_onnx_model.parse_qnn_graph(
                 qnn_graph, qnn_input_tensor_dic, qnn_output_tensor_dic
             )

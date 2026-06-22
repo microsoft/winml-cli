@@ -306,6 +306,7 @@ def _inspect_model_v2(
         build_tensor_infos_from_io_specs,
         compile_support_status,
         resolve_cache,
+        resolve_composite_info,
         resolve_io_config,
         resolve_processor,
         resolve_winml,
@@ -521,6 +522,11 @@ def _inspect_model_v2(
         model_type_override or getattr(parent_hf_config, "model_type", None) or model_type
     )
 
+    # Composite pipeline structure. resolution.composite is set only on the auto-detect
+    # path (resolve_task); an explicit --task / --model-class pins composite=None, so the
+    # pipeline-led composite view is shown only for auto-detected composites — by design.
+    composite_info = resolve_composite_info(display_model_type, resolution.composite)
+
     return InspectResult(
         model_id=model_id or display_model_type or model_class_override or "unknown",
         model_type=display_model_type,
@@ -537,4 +543,5 @@ def _inspect_model_v2(
         cache=cache_info,
         processor=processor_info,
         io_config=io_config_info,
+        composite=composite_info,
     )
