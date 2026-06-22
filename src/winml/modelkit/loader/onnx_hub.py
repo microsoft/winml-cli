@@ -59,7 +59,7 @@ def resolve_hf_onnx_path(
             not exist (re-raised unchanged).
     """
     from huggingface_hub import hf_hub_download
-    from huggingface_hub.utils import EntryNotFoundError
+    from huggingface_hub.errors import EntryNotFoundError
 
     repo_id, filename = _split_hf_onnx_path(model_id)
     logger.info("Downloading ONNX from Hub: repo=%s file=%s", repo_id, filename)

@@ -247,10 +247,8 @@ def get_io_config(
             # Extract shape (None for dynamic dims) and capture symbolic
             # dim_param strings in a parallel list so downstream consumers
             # can resolve dynamic dims by their declared symbolic name.
-            shape: list[Any] = []
-            symbolic_shape: list[Any] = []
-            # Extract shape (None for dynamic dims)
             shape: list[int | None] = []
+            symbolic_shape: list[int | str | None] = []
             if tensor_type.HasField("shape"):
                 for dim in tensor_type.shape.dim:
                     if dim.HasField("dim_value"):
