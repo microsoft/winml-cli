@@ -21,6 +21,11 @@ import os
 import re
 import sys
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 logger = logging.getLogger(__name__)
@@ -47,7 +52,7 @@ if sys.platform == "win32":
 
 
 @contextmanager
-def suppress_native_stderr():
+def suppress_native_stderr() -> Iterator[None]:
     """Redirect native stderr to devnull.  No-op on non-Windows."""
     if sys.platform != "win32":
         yield
@@ -68,7 +73,7 @@ def suppress_native_stderr():
 
 
 @contextmanager
-def capture_native_stderr(level: int = logging.INFO):
+def capture_native_stderr(level: int = logging.INFO) -> Iterator[None]:
     """Capture native stderr via pipe and re-emit through Python logging.
 
     No-op on non-Windows.

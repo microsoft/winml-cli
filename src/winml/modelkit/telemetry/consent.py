@@ -20,7 +20,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from .utils import _resolve_user_home
 
@@ -122,7 +122,9 @@ def _read_stored_consent() -> Consent | None:
         and stored_version < _CONSENT_VERSION
     ):
         return None
-    return value  # type: ignore[return-value]
+    # value was validated against ("enabled", "disabled") above, but it comes
+    # from an untyped JSON dict so mypy still sees it as Any.
+    return cast("Consent", value)
 
 
 def _write_stored_consent(value: Consent) -> None:
@@ -134,7 +136,9 @@ def _write_stored_consent(value: Consent) -> None:
     if _CONFIG_PATH is None:
         return
     data = _load_config()
-    tele = data.get("telemetry") if isinstance(data.get("telemetry"), dict) else {}
+    tele = data.get("telemetry")
+    if not isinstance(tele, dict):
+        tele = {}
     tele["consent"] = value
     tele["consent_version"] = _CONSENT_VERSION
     data["telemetry"] = tele
