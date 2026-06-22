@@ -88,16 +88,18 @@ def copy_recipe(
     return written
 
 
-def clean_existing_recipes(slugs_to_keep: set[str], dry_run: bool) -> list[str]:
-    removed: list[str] = []
-    for child in sorted(RECIPES.iterdir()):
-        if not child.is_dir():
+def clean_existing_recipes(dry_run: bool) -> None:
+    """Wipe everything under examples/recipes/ except README.md."""
+    if not RECIPES.is_dir():
+        return
+    for child in RECIPES.iterdir():
+        if child.name == "README.md":
             continue
-        if child.name not in slugs_to_keep:
-            if not dry_run:
+        if not dry_run:
+            if child.is_dir():
                 shutil.rmtree(child)
-            removed.append(child.name)
-    return removed
+            else:
+                child.unlink()
 
 
 def main() -> int:
@@ -106,12 +108,17 @@ def main() -> int:
     parser.add_argument(
         "--prune",
         action="store_true",
-        help="Remove existing recipe folders that are no longer Built-in.",
+        help="Wipe examples/recipes/ (except README.md) before writing, so stale "
+             "configs from previous runs do not leak into the output.",
     )
     args = parser.parse_args()
 
     pairs = discover_builtin_pairs()
     print(f"Built-in (slug, task) pairs: {len(pairs)}")
+
+    if args.prune:
+        clean_existing_recipes(args.dry_run)
+        print("  (pruned existing examples/recipes/ contents)")
 
     slug_set: set[str] = set()
     total_files = 0
@@ -137,11 +144,6 @@ def main() -> int:
                 f"  + {slug} {task} {precision} <- "
                 f"{qsrc.relative_to(REPO)} ({len(qfiles)} files)"
             )
-
-    if args.prune:
-        removed = clean_existing_recipes(slug_set, args.dry_run)
-        for slug in removed:
-            print(f"  - removed recipes/{slug}")
 
     print(
         f"\nWrote {total_files} recipe file(s) across {len(slug_set)} model folder(s)."

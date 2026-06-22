@@ -11,7 +11,7 @@ Python scripts; everything else (`git`, `gh`) is invoked directly from the comma
 | Script | Purpose |
 |---|---|
 | [scripts/rebuild_recipes_readme.py](../scripts/rebuild_recipes_readme.py) | Regenerate the `## Models` section of `examples/recipes/README.md` from eval results. Prose before `## Models` is preserved verbatim. |
-| [scripts/pick_builtin_recipes.py](../scripts/pick_builtin_recipes.py) | Copy qualifying recipe configs into `examples/recipes/<slug>/`. Supports `--dry-run` and `--prune`. Does **not** modify the README. |
+| [scripts/pick_builtin_recipes.py](../scripts/pick_builtin_recipes.py) | Copy qualifying recipe configs into `examples/recipes/<slug>/`. Supports `--dry-run` and `--prune` (wipe `examples/recipes/` except `README.md` before writing). Does **not** modify the README. |
 
 ---
 
