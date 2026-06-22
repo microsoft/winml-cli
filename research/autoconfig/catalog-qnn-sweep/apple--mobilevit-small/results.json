@@ -2,137 +2,273 @@
   "model_id": "apple/mobilevit-small",
   "task": "image-classification",
   "model_type": "mobilevit",
-  "timestamp": "2026-06-13T14:26:06",
+  "timestamp": "2026-06-22T08:34:17",
   "ep": "qnn",
   "device": "npu",
   "baseline_opset": 17,
+  "conv_pct": 2.5,
+  "npu006_risk": false,
+  "npu006_regression": false,
   "hypotheses": {
     "h0": {
-      "status": "OK_HIGH_CV",
+      "status": "OK",
       "screen": {
-        "p50_ms": 10.651,
-        "cv": 1.7211,
-        "stable": false,
-        "note": "DVFS noise — high CV expected on QNN NPU"
+        "p50_ms": 5.05,
+        "cv": 0.0935,
+        "stable": true
       },
       "full": {
         "p50s_ms": [
-          12.075,
-          10.313,
-          12.946
+          4.976,
+          5.51,
+          5.716
         ],
-        "median_p50_ms": 12.075
+        "median_p50_ms": 5.51
       },
-      "accuracy": 0.58,
+      "accuracy": null,
       "label": "baseline (auto-config, W8A16)",
-      "opset": 17
+      "opset": 17,
+      "extra_optim": {}
     },
     "h1": {
       "status": "OK_HIGH_CV",
       "screen": {
-        "p50_ms": 8.714,
-        "cv": 0.9982,
+        "p50_ms": 5.844,
+        "cv": 0.3039,
         "stable": false,
         "note": "DVFS noise — high CV expected on QNN NPU"
       },
       "full": {
         "p50s_ms": [
-          10.557,
-          11.721,
-          27.436
+          5.634,
+          5.307,
+          5.614
         ],
-        "median_p50_ms": 11.721
+        "median_p50_ms": 5.614
       },
       "accuracy": null,
       "label": "opset 17 explicit",
-      "opset": 17
+      "opset": 17,
+      "extra_optim": {}
     },
     "h2": {
-      "status": "OK_HIGH_CV",
+      "status": "OK",
       "screen": {
-        "p50_ms": 9.035,
-        "cv": 1.7997,
-        "stable": false,
-        "note": "DVFS noise — high CV expected on QNN NPU"
+        "p50_ms": 5.81,
+        "cv": 0.1203,
+        "stable": true
       },
       "full": {
         "p50s_ms": [
-          11.541,
-          10.506,
-          10.52
+          6.678,
+          6.586,
+          5.293
         ],
-        "median_p50_ms": 10.52
+        "median_p50_ms": 6.586
       },
       "accuracy": null,
       "label": "opset 19",
-      "opset": 19
+      "opset": 19,
+      "extra_optim": {}
     },
     "h3": {
       "status": "OK_HIGH_CV",
       "screen": {
-        "p50_ms": 11.777,
-        "cv": 1.1161,
+        "p50_ms": 5.218,
+        "cv": 0.1631,
         "stable": false,
         "note": "DVFS noise — high CV expected on QNN NPU"
       },
       "full": {
         "p50s_ms": [
-          10.814,
-          8.625,
-          8.449
+          5.355,
+          5.256,
+          5.895
         ],
-        "median_p50_ms": 8.625
+        "median_p50_ms": 5.355
       },
       "accuracy": null,
       "label": "opset 21 (tests npu-001 bypass)",
-      "opset": 21
+      "opset": 21,
+      "extra_optim": {}
     },
     "h4": {
       "status": "OK_HIGH_CV",
       "screen": {
-        "p50_ms": 11.14,
-        "cv": 1.8792,
+        "p50_ms": 6.73,
+        "cv": 0.1811,
         "stable": false,
         "note": "DVFS noise — high CV expected on QNN NPU"
       },
       "full": {
         "p50s_ms": [
-          11.599,
-          11.364,
-          10.518
+          6.43,
+          6.842,
+          6.515
         ],
-        "median_p50_ms": 11.364
+        "median_p50_ms": 6.515
       },
       "accuracy": null,
       "label": "opset 17 + conv fusions",
-      "opset": 17
+      "opset": 17,
+      "extra_optim": {
+        "conv_bn_fusion": true,
+        "conv_add_fusion": true,
+        "conv_activation_fusion": true
+      },
+      "npu006_expected_regression": false
     },
     "h5": {
       "status": "OK_HIGH_CV",
       "screen": {
-        "p50_ms": 9.256,
-        "cv": 2.2489,
+        "p50_ms": 6.187,
+        "cv": 0.1526,
         "stable": false,
         "note": "DVFS noise — high CV expected on QNN NPU"
       },
       "full": {
         "p50s_ms": [
-          11.081,
-          9.412,
-          9.994
+          5.604,
+          6.837,
+          6.711
         ],
-        "median_p50_ms": 9.994
+        "median_p50_ms": 6.711
       },
       "accuracy": null,
       "label": "opset 21 + conv fusions",
-      "opset": 21
+      "opset": 21,
+      "extra_optim": {
+        "conv_bn_fusion": true,
+        "conv_add_fusion": true,
+        "conv_activation_fusion": true
+      },
+      "npu006_expected_regression": false
+    },
+    "h6": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 5.921,
+        "cv": 0.2292,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          5.762,
+          6.263,
+          6.218
+        ],
+        "median_p50_ms": 6.218
+      },
+      "accuracy": null,
+      "label": "opset 21 + matmul_transpose_fusion",
+      "opset": 21,
+      "extra_optim": {
+        "matmul_transpose_fusion": true
+      }
+    },
+    "h7": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 4.618,
+        "cv": 0.0427,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          6.431,
+          6.47,
+          5.586
+        ],
+        "median_p50_ms": 6.431
+      },
+      "accuracy": null,
+      "label": "opset 21 + bias_softmax_fusion",
+      "opset": 21,
+      "extra_optim": {
+        "bias_softmax_fusion": true
+      }
+    },
+    "h8": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 6.451,
+        "cv": 0.4551,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          5.75,
+          5.675,
+          6.718
+        ],
+        "median_p50_ms": 5.75
+      },
+      "accuracy": null,
+      "label": "opset 21 + attention_fusion",
+      "opset": 21,
+      "extra_optim": {
+        "attention_fusion": true
+      }
+    },
+    "h9": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 5.72,
+        "cv": 0.1899,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          6.627,
+          5.535,
+          6.545
+        ],
+        "median_p50_ms": 6.545
+      },
+      "accuracy": null,
+      "label": "opset 21 + highdimRTR_lowdimRTR",
+      "opset": 21,
+      "extra_optim": {
+        "highdimRTR_lowdimRTR": true
+      }
+    },
+    "h10": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 6.726,
+        "cv": 0.1875,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          5.879,
+          6.067,
+          5.55
+        ],
+        "median_p50_ms": 5.879
+      },
+      "accuracy": null,
+      "label": "opset 17 + conv_add_fusion only",
+      "opset": 17,
+      "extra_optim": {
+        "conv_add_fusion": true
+      }
     }
   },
   "best_hypothesis": "h3",
-  "baseline_p50_ms": 12.075,
-  "best_p50_ms": 8.625,
-  "best_gain_pct": 28.57,
-  "npu001_generalized": true,
+  "baseline_p50_ms": 5.51,
+  "best_p50_ms": 5.355,
+  "best_gain_pct": 2.81,
+  "npu001_generalized": "neutral",
+  "npu001_ranges_non_overlapping": false,
   "feature_gaps": [],
-  "errors": []
+  "errors": [],
+  "best_gain_noise_floor_pct": 14.14,
+  "best_gain_ranges_separated": false,
+  "best_gain_reliable": false,
+  "best_gain_verdict": "NEUTRAL_WITHIN_NOISE"
 }

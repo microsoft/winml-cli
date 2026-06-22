@@ -75,6 +75,14 @@ SCREEN_WARMUP = 20
 SCREEN_ITERS = 200
 SCREEN_CV_MAX = 0.15
 
+# Effect-size gate (anti-DVFS-artifact): a measured gain is only "reliable" if it is
+# large relative to the run-to-run noise. We require gain_pct >= EFFECT_SIZE_CV_MULT * CV
+# (CV = session-to-session spread of p50). On QNN NPU, CV is routinely 0.2-0.5, so a
+# sub-5% "win" is almost always thermal/DVFS noise, not a real optimization. This guards
+# against the npu-001/MobileViT failure where a thermally inflated baseline produced a
+# fake +26% that did not reproduce on a clean run.
+EFFECT_SIZE_CV_MULT = 2.0
+
 FULL_WARMUP = 50
 FULL_ITERS = 500
 FULL_SESSIONS = 3
@@ -546,6 +554,10 @@ def sweep_model(
     results.setdefault("baseline_p50_ms", None)
     results.setdefault("best_p50_ms", None)
     results.setdefault("best_gain_pct", None)
+    results.setdefault("best_gain_reliable", None)
+    results.setdefault("best_gain_verdict", None)
+    results.setdefault("best_gain_noise_floor_pct", None)
+    results.setdefault("best_gain_ranges_separated", None)
     results.setdefault("npu001_generalized", None)
     results.setdefault("npu001_ranges_non_overlapping", None)
     results.setdefault("feature_gaps", [])
@@ -861,35 +873,90 @@ def _run_confirmation_pass_npu(results: dict, model_dir: Path) -> None:
         )
 
 
+def _session_cv(p50s: "list[float]") -> float:
+    """Session-to-session CV (std/mean) of per-session p50 values.
+
+    This is the run-to-run noise floor used by the effect-size gate. Unlike the
+    intra-session CV (screen.cv), this captures thermal/DVFS drift *between*
+    sessions, which is exactly the noise that produces fake cross-config wins.
+    Returns 0.0 for <2 samples (cannot estimate spread).
+    """
+    n = len(p50s)
+    if n < 2:
+        return 0.0
+    mean = sum(p50s) / n
+    if mean <= 0:
+        return 0.0
+    var = sum((x - mean) ** 2 for x in p50s) / (n - 1)
+    return (var**0.5) / mean
+
+
 def _compute_summary(results: dict) -> None:
     """Fill in baseline_p50, best_hypothesis, best_gain, npu001_generalized, npu006_regression."""
     hyps = results["hypotheses"]
 
     # Baseline p50: prefer h0, fall back to h1
     baseline_p50: float | None = None
+    baseline_h: dict = {}
     for h_id in ("h0", "h1"):
         h = hyps.get(h_id, {})
         if h.get("status") in ("OK", "OK_HIGH_CV"):
             baseline_p50 = h.get("full", {}).get("median_p50_ms")
             if baseline_p50:
+                baseline_h = h
                 break
     results["baseline_p50_ms"] = baseline_p50
 
     # Best hypothesis (minimum median p50)
     best_p50: float | None = None
     best_h: str | None = None
+    best_hyp: dict = {}
     for h_id, h in hyps.items():
         if h.get("status") in ("OK", "OK_HIGH_CV"):
             p50 = h.get("full", {}).get("median_p50_ms")
             if p50 is not None and (best_p50 is None or p50 < best_p50):
                 best_p50 = p50
                 best_h = h_id
+                best_hyp = h
     results["best_hypothesis"] = best_h
     results["best_p50_ms"] = best_p50
 
     if baseline_p50 and best_p50:
         gain_pct = (baseline_p50 - best_p50) / baseline_p50 * 100
         results["best_gain_pct"] = round(gain_pct, 2)
+
+        # ── effect-size gate (anti-DVFS-artifact) ───────────────────────────
+        # A gain is only "reliable" if it clears BOTH:
+        #   (a) effect size: gain_pct >= EFFECT_SIZE_CV_MULT * noise_floor_pct
+        #       where noise_floor = max session-to-session CV of baseline & best
+        #   (b) range separation: max(best_p50s) < min(baseline_p50s)
+        # This stops a thermally inflated baseline (high CV, overlapping ranges)
+        # from being recorded as a real optimization. See npu-001/MobileViT.
+        base_p50s: list[float] = baseline_h.get("full", {}).get("p50s_ms", [])
+        best_p50s: list[float] = best_hyp.get("full", {}).get("p50s_ms", [])
+        noise_cv = max(_session_cv(base_p50s), _session_cv(best_p50s))
+        noise_floor_pct = round(EFFECT_SIZE_CV_MULT * noise_cv * 100, 2)
+        ranges_separated = bool(best_p50s and base_p50s and max(best_p50s) < min(base_p50s))
+        effect_size_ok = gain_pct >= noise_floor_pct
+        reliable = bool(effect_size_ok and ranges_separated and best_h != "h0")
+
+        results["best_gain_noise_floor_pct"] = noise_floor_pct
+        results["best_gain_ranges_separated"] = ranges_separated
+        results["best_gain_reliable"] = reliable
+        if best_h == "h0":
+            results["best_gain_verdict"] = "BASELINE_IS_BEST"
+        elif reliable:
+            results["best_gain_verdict"] = "RELIABLE"
+        elif not effect_size_ok:
+            results["best_gain_verdict"] = "NEUTRAL_WITHIN_NOISE"
+        else:
+            results["best_gain_verdict"] = "UNRELIABLE_RANGES_OVERLAP"
+        print(
+            f"  [effect-size] best={best_h} gain={gain_pct:+.1f}% "
+            f"noise_floor={noise_floor_pct:.1f}% ranges_sep={ranges_separated} "
+            f"-> {results['best_gain_verdict']}",
+            flush=True,
+        )
 
     # ── npu-001: opset21 vs opset17 (h3 vs h1) ──────────────────────────────
     # Criterion 1 (median): h3 p50 < h1 p50 by >=5%
@@ -1045,13 +1112,14 @@ def write_summary(all_results: list[dict]) -> None:
         f" Phase-B {FULL_ITERS}x{FULL_SESSIONS} sessions, 30s cool-down  ",
         "npu-001 criterion: median >=5% gain AND ranges non-overlapping  ",
         "npu-006 criterion: Conv% of ops; h4/h5 marked catastrophic if >=5x baseline  ",
+        f"Effect-size gate: gain reliable only if gain% >= {EFFECT_SIZE_CV_MULT:.0f}×(session-CV) AND ranges separated  ",
         "",
         "---",
         "",
         "## Per-Model Results",
         "",
-        "| Model | Conv% | Baseline p50 | Best p50 | Best config | Gain% | npu-001? | npu-006 regression? | Notes |",
-        "|-------|-------|-------------|----------|-------------|-------|----------|---------------------|-------|",
+        "| Model | Conv% | Baseline p50 | Best p50 | Best config | Gain% | Reliable? | npu-001? | npu-006 regression? | Notes |",
+        "|-------|-------|-------------|----------|-------------|-------|-----------|----------|---------------------|-------|",
     ]
 
     for r in all_results:
@@ -1084,9 +1152,17 @@ def write_summary(all_results: list[dict]) -> None:
         npu006 = (
             "YES ⚠️" if r.get("npu006_regression") else ("risk" if r.get("npu006_risk") else "no")
         )
+        verdict = r.get("best_gain_verdict")
+        verdict_map = {
+            "RELIABLE": "✅ reliable",
+            "NEUTRAL_WITHIN_NOISE": "⚠️ within noise",
+            "UNRELIABLE_RANGES_OVERLAP": "⚠️ ranges overlap",
+            "BASELINE_IS_BEST": "baseline best",
+        }
+        reliable_str = verdict_map.get(verdict, "N/A")
         errors = "; ".join(r.get("errors", []))[:80] or "none"
         lines.append(
-            f"| `{model_id}` | {conv_str} | {baseline} | {best} | {best_h} ({best_label}) | {gain} | {npu001_str} | {npu006} | {errors} |"
+            f"| `{model_id}` | {conv_str} | {baseline} | {best} | {best_h} ({best_label}) | {gain} | {reliable_str} | {npu001_str} | {npu006} | {errors} |"
         )
 
     # Per-model hypothesis breakdown
