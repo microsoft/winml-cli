@@ -516,6 +516,139 @@ class TestPerfUnifiedPipeline:
         assert result.to_dict()["benchmark_info"]["ep_options"] is None
 
 
+class TestEffectiveBatchSize:
+    """Throughput must scale by the batch the session actually ran.
+
+    ``--batch-size`` only lands on inputs whose leading dim is dynamic, so a
+    static-batch model silently runs a different batch than requested. The
+    reported ``samples_per_sec`` must reflect the actual batch, not the request.
+    """
+
+    def test_helper_reads_dynamic_batch_from_inputs(self) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import effective_batch_size
+
+        inputs = {"pixel_values": np.zeros((8, 3, 224, 224), dtype=np.float32)}
+        assert effective_batch_size(inputs, ["pixel_values"], requested=8) == 8
+
+    def test_helper_reads_static_batch_not_requested(self) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import effective_batch_size
+
+        # Model has a static batch of 1; the requested 8 never reached the input.
+        inputs = {"pixel_values": np.zeros((1, 3, 224, 224), dtype=np.float32)}
+        assert effective_batch_size(inputs, ["pixel_values"], requested=8) == 1
+
+    def test_helper_skips_scalar_inputs(self) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import effective_batch_size
+
+        # First input is a rank-0 scalar (no batch dim); fall through to the
+        # first batched input for the batch reading.
+        inputs = {
+            "scalar": np.array(3, dtype=np.int64),
+            "tokens": np.zeros((4, 128), dtype=np.int64),
+        }
+        assert effective_batch_size(inputs, ["scalar", "tokens"], requested=4) == 4
+
+    def test_helper_falls_back_when_all_scalar(self) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import effective_batch_size
+
+        inputs = {"scalar": np.array(3, dtype=np.int64)}
+        assert effective_batch_size(inputs, ["scalar"], requested=8) == 8
+
+    def _fake_stats(self) -> MagicMock:
+        stats = MagicMock()
+        stats.mean_ms = 10.0  # 0.01 s -> 100 batches/sec
+        stats.min_ms = 9.0
+        stats.max_ms = 11.0
+        stats.p50_ms = 10.0
+        stats.p90_ms = 10.5
+        stats.p95_ms = 10.8
+        stats.p99_ms = 11.0
+        stats.samples_ms = [10.0, 10.0]
+        stats.all_samples_ms = [10.0, 10.0]
+        return stats
+
+    def _benchmark_with_single(self, *, batch_size: int, effective_batch: int) -> PerfBenchmark:
+        config = BenchmarkConfig(model_id="m", batch_size=batch_size, warmup=0)
+        benchmark = PerfBenchmark(config)
+        single = MagicMock()
+        single.io_config = {
+            "input_names": ["pixel_values"],
+            "input_shapes": [[effective_batch, 3, 224, 224]],
+            "input_types": ["float32"],
+            "output_names": ["logits"],
+            "output_shapes": [[effective_batch, 1000]],
+        }
+        single.device = "cpu"
+        single.ep_name = None
+        single.task = "image-classification"
+        single.running_model_path = "model.onnx"
+        benchmark._model = single
+        benchmark._effective_batch = effective_batch
+        return benchmark
+
+    def test_throughput_scales_by_effective_not_requested(self) -> None:
+        # Requested batch 8, but model ran batch 1: 100 batches/sec -> 100 sps,
+        # NOT 800. This is the bug guard.
+        benchmark = self._benchmark_with_single(batch_size=8, effective_batch=1)
+        result = benchmark._collect_results(self._fake_stats())
+
+        assert result.effective_batch_size == 1
+        assert result.batches_per_sec == pytest.approx(100.0)
+        assert result.samples_per_sec == pytest.approx(100.0)
+
+    def test_throughput_scales_when_batch_applied(self) -> None:
+        # Dynamic batch honored: 100 batches/sec * 8 = 800 samples/sec.
+        benchmark = self._benchmark_with_single(batch_size=8, effective_batch=8)
+        result = benchmark._collect_results(self._fake_stats())
+
+        assert result.effective_batch_size == 8
+        assert result.batches_per_sec == pytest.approx(100.0)
+        assert result.samples_per_sec == pytest.approx(800.0)
+
+    def test_generate_inputs_warns_on_static_batch(self) -> None:
+        import numpy as np
+
+        config = BenchmarkConfig(model_id="m", batch_size=8)
+        benchmark = PerfBenchmark(config)
+        single = MagicMock()
+        single.io_config = {
+            "input_names": ["pixel_values"],
+            "input_shapes": [[1, 3, 224, 224]],
+            "input_types": ["float32"],
+        }
+        benchmark._model = single
+
+        # Static batch of 1: generate_random_inputs ignores the requested 8.
+        static_inputs = {"pixel_values": np.zeros((1, 3, 224, 224), dtype=np.float32)}
+        with (
+            patch(
+                "winml.modelkit.commands.perf.generate_random_inputs",
+                return_value=static_inputs,
+            ),
+            patch("winml.modelkit.commands.perf.logger") as mock_logger,
+        ):
+            benchmark._generate_inputs()
+
+        assert benchmark._effective_batch == 1
+        mock_logger.warning.assert_called_once()
+
+    def test_to_dict_emits_effective_batch_size(self) -> None:
+        config = BenchmarkConfig(model_id="m", batch_size=8)
+        result = BenchmarkResult(config=config, effective_batch_size=1)
+
+        info = result.to_dict()["benchmark_info"]
+        assert info["batch_size"] == 8
+        assert info["effective_batch_size"] == 1
+
+
 # =============================================================================
 # --FORMAT JSON TESTS
 # =============================================================================

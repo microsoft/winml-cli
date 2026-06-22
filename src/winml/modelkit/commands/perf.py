@@ -130,6 +130,12 @@ class BenchmarkResult:
     samples_per_sec: float = 0.0
     batches_per_sec: float = 0.0
 
+    # Batch dimension the session actually ran. Equals config.batch_size when
+    # the model's leading input dim is dynamic; falls back to the model's
+    # static batch (often 1) otherwise. samples_per_sec is scaled by this, not
+    # by the requested config.batch_size.
+    effective_batch_size: int = 1
+
     # Actual values used (after auto-detection)
     actual_device: str = ""
     actual_task: str = ""
@@ -159,6 +165,7 @@ class BenchmarkResult:
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
                 "batch_size": self.config.batch_size,
+                "effective_batch_size": self.effective_batch_size,
                 "timestamp": self.timestamp,
             },
             "model_info": {
@@ -279,6 +286,32 @@ def _resolve_shape(
     return tuple(resolved)
 
 
+def effective_batch_size(
+    inputs: dict[str, np.ndarray],
+    input_names: list[str],
+    requested: int,
+) -> int:
+    """The batch dimension actually present in the generated inputs.
+
+    The requested ``--batch-size`` only lands on inputs whose leading
+    dimension is dynamic; a model with a statically-fixed batch dim ignores
+    it (see :func:`_resolve_shape`). Throughput (samples/sec) must be scaled
+    by what the session actually ran, not by what was asked, or a static-batch
+    model reports ``requested / latency`` while only processing one batch per
+    call -- inflating samples/sec by ``requested``.
+
+    Reads the leading dim back from the first batched (rank >= 1) input,
+    matching the "first dim is batch" convention used throughout this module.
+    Falls back to ``requested`` when no batched input exists (e.g. all-scalar
+    inputs), which preserves the prior behavior for that edge case.
+    """
+    for name in input_names:
+        arr = inputs.get(name)
+        if arr is not None and arr.ndim >= 1:
+            return int(arr.shape[0])
+    return requested
+
+
 # =============================================================================
 # Benchmark Engine
 # =============================================================================
@@ -302,6 +335,7 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
+        self._effective_batch: int = config.batch_size
         self._memory: dict[str, float] | None = None
 
     @property
@@ -525,10 +559,25 @@ class PerfBenchmark:
 
     def _generate_inputs(self) -> None:
         """Generate random inputs based on model io_config."""
+        io_config = self._single.io_config
         self._inputs = generate_random_inputs(
-            io_config=self._single.io_config,
+            io_config=io_config,
             batch_size=self.config.batch_size,
         )
+        self._effective_batch = effective_batch_size(
+            self._inputs,
+            io_config["input_names"],
+            self.config.batch_size,
+        )
+        if self.config.batch_size != 1 and self._effective_batch != self.config.batch_size:
+            logger.info(
+                "Requested --batch-size %d could not be applied: the model's "
+                "leading input dimension is statically %d. Throughput is scaled "
+                "by the actual batch (%d), not the requested value.",
+                self.config.batch_size,
+                self._effective_batch,
+                self._effective_batch,
+            )
 
     def _resolve_adapter_luid(self) -> str | None:
         """Resolve adapter LUID for VRAM queries."""
@@ -645,9 +694,11 @@ class PerfBenchmark:
         """Collect benchmark results from PerfStats."""
         io_config = self._single.io_config
 
-        # Calculate throughput
+        # Calculate throughput. Scale by the batch the session actually ran
+        # (self._effective_batch), not the requested config.batch_size, which a
+        # static-batch model silently ignores during input generation.
         mean_latency_sec = stats.mean_ms / 1000.0
-        samples_per_sec = self.config.batch_size / mean_latency_sec if mean_latency_sec > 0 else 0
+        samples_per_sec = self._effective_batch / mean_latency_sec if mean_latency_sec > 0 else 0
         batches_per_sec = 1.0 / mean_latency_sec if mean_latency_sec > 0 else 0
 
         # Calculate standard deviation
@@ -681,6 +732,7 @@ class PerfBenchmark:
             # Throughput
             samples_per_sec=samples_per_sec,
             batches_per_sec=batches_per_sec,
+            effective_batch_size=self._effective_batch,
             # Actual values (resolved after build + compile)
             actual_device=self._single.device,
             actual_task=self._single.task or self.config.task or "auto-detected",
@@ -1040,7 +1092,18 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
     # Throughput
     console.print()
-    console.print(f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec")
+    throughput_line = f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec"
+    if result.effective_batch_size != 1:
+        throughput_line += f" [dim](batch {result.effective_batch_size})[/dim]"
+    console.print(throughput_line)
+    # Flag when the requested batch couldn't be honored so a static-batch model
+    # doesn't look like it silently ran the requested batch.
+    if result.config.batch_size != result.effective_batch_size:
+        console.print(
+            f"  [yellow]Note:[/yellow] requested batch {result.config.batch_size} "
+            f"could not be applied (model has a static batch of "
+            f"{result.effective_batch_size})."
+        )
 
     # Hardware section (only when monitoring was active)
     if result.hw_monitor:
