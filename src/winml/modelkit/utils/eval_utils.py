@@ -287,6 +287,42 @@ _DEPTH_ESTIMATION_SCHEMA = TaskSchema(
     ),
 )
 
+_KEYPOINT_DETECTION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column", "input image (PIL.Image)",
+            default="image", remap_hint="<your_image_column>",
+        ),
+        SchemaItem(
+            "annotation_column",
+            "annotation dict containing per-person keypoints + bbox + area",
+            default="objects", remap_hint="<your_annotation_column>",
+        ),
+    ),
+    params=(
+        SchemaItem(
+            "keypoints_key",
+            "keypoints field inside the annotation dict "
+            "(flat [x, y, v] triplets per person)",
+            default="keypoints", remap_hint="<keypoints_field>",
+        ),
+        SchemaItem(
+            "bbox_key",
+            "person bbox field inside the annotation dict",
+            default="bbox", remap_hint="<bbox_field>",
+        ),
+        SchemaItem(
+            "area_key",
+            "person area field inside the annotation dict",
+            default="area", remap_hint="<area_field>",
+        ),
+        SchemaItem(
+            "box_format", "person bounding box layout",
+            default="xywh", remap_hint="<xywh|xyxy>",
+        ),
+    ),
+)
+
 TASK_SCHEMAS: dict[str, TaskSchema] = {
     "image-classification": _IMAGE_CLASSIFICATION_SCHEMA,
     "text-classification": _TEXT_CLASSIFICATION_SCHEMA,
@@ -304,6 +340,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "zero-shot-classification": _ZERO_SHOT_CLASSIFICATION_SCHEMA,
     "zero-shot-image-classification": _ZERO_SHOT_IMAGE_CLASSIFICATION_SCHEMA,
     "depth-estimation": _DEPTH_ESTIMATION_SCHEMA,
+    "keypoint-detection": _KEYPOINT_DETECTION_SCHEMA,
 }
 
 
