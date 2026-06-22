@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..analyze import analyze_onnx
-from ..onnx import copy_onnx_model
+from ..onnx import copy_onnx_model, is_quantized_onnx
 from ..optim import optimize_onnx
 
 
@@ -26,6 +26,43 @@ if TYPE_CHECKING:
     from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_pre_quantized_stamped(
+    config: WinMLBuildConfig, onnx_path: Path, *, force: bool = False
+) -> None:
+    """Stamp ``config.skip_optimize`` (and clear ``config.quant``) once.
+
+    Sets ``config.skip_optimize = True`` and clears ``config.quant`` if the
+    input ONNX is already quantized.
+
+    This is the **single defensive detection point** for the library entry
+    points (``build_onnx_model``, ``build_hf_model``). It is a no-op when
+    ``config.skip_optimize`` is already True (i.e. the unified CLI path
+    via :func:`generate_onnx_build_config` already stamped the config) so
+    ``is_quantized_onnx()`` runs at most **once per build**.
+
+    Args:
+        config: Build config to stamp in place.
+        onnx_path: Path to the ONNX file under consideration.
+        force: When True, stamp unconditionally without running
+            ``is_quantized_onnx`` (used to honor the legacy
+            ``skip_optimize=True`` kwarg from direct callers).
+    """
+    if config.skip_optimize:
+        return
+    if force:
+        config.skip_optimize = True
+        config.quant = None
+        return
+
+    if is_quantized_onnx(onnx_path):
+        config.skip_optimize = True
+        config.quant = None
+        logger.info(
+            "Pre-quantized model detected (QDQ or QOperator nodes present). "
+            "Skipping optimize + quantize stages."
+        )
 
 
 def run_optimize_analyze_loop(
@@ -37,6 +74,7 @@ def run_optimize_analyze_loop(
     device: str | None = None,
     max_optim_iterations: int = 0,
     allow_unsupported_nodes: bool = False,
+    skip_optimize: bool = False,
     on_ep_start: Any = None,
     on_node_result: Any = None,
     on_iteration_start: Any = None,
@@ -48,7 +86,7 @@ def run_optimize_analyze_loop(
     """Optimize an ONNX model, analyze, and optionally re-optimize via autoconf.
 
     Flow:
-        1. Optimize with ``config.optim`` flags
+        1. Optimize with ``config.optim`` flags (skipped if ``skip_optimize=True``)
         2. Analyze the result (lint + autoconf discovery)
         3. For up to ``max_optim_iterations``: if autoconf found new flags,
            re-optimize and re-analyze
@@ -62,13 +100,22 @@ def run_optimize_analyze_loop(
         ep: Target execution provider for the analyzer.
         device: Target device for the analyzer.
         max_optim_iterations: Maximum autoconf re-optimization rounds.
-            0 means optimize+analyze only (no autoconf re-optimization).
+            0 disables the autoconf re-optimize/analyze loop entirely
+            (i.e. ``_run_analyze_loop`` is not invoked), in which case
+            this function performs the initial ``optimize_onnx`` pass
+            only (or, when ``skip_optimize=True``, just copies the input
+            to ``optimized_path``).
         allow_unsupported_nodes: If True, log a warning instead of raising when
             unsupported nodes persist after analysis, letting the build proceed
             (the EP may still run them, e.g. via CPU fallback).
         analyze_output_path: Optional path to write the full analysis result as
             JSON. Written after every analyze pass; each pass overwrites the
             previous one so the file always reflects the most recent analysis.
+        skip_optimize: When True, skip the initial ``optimize_onnx`` call and
+            just copy the input model to ``optimized_path``. Used for
+            pre-quantized models (QDQ or QOperator format) where ORT-based
+            graph optimization would fail because the runtime lacks kernels
+            for ops like ``ConvInteger`` on the host EP.
         **onnx_kwargs: Additional ONNX-level kwargs.
 
     Returns:
@@ -81,15 +128,30 @@ def run_optimize_analyze_loop(
     if not config.auto:
         max_optim_iterations = 0
 
+    # Enforce the skip_optimize invariant: autoconf re-optimize would
+    # crash on pre-quantized models for the same reason the initial
+    # optimize was skipped (ORT lacks kernels for the integer ops on the
+    # host EP). Drop iterations to 0 so callers can pass any value safely.
+    if skip_optimize:
+        max_optim_iterations = 0
+
     t0 = time.monotonic()
 
-    # 1. Optimize
-    optimize_onnx(
-        model=model_path,
-        output=optimized_path,
-        **onnx_kwargs,
-        **config.optim,
-    )
+    # 1. Optimize (or skip for pre-quantized models)
+    if skip_optimize:
+        # Pre-quantized models (QOperator format with ConvInteger /
+        # MatMulInteger) cannot pass through ORT graph optimization on
+        # hosts that lack kernels for those integer ops. Simply forward
+        # the input as the "optimized" artifact.
+        if model_path.resolve() != optimized_path.resolve():
+            copy_onnx_model(model_path, optimized_path)
+    else:
+        optimize_onnx(
+            model=model_path,
+            output=optimized_path,
+            **onnx_kwargs,
+            **config.optim,
+        )
     current_path = optimized_path
 
     # Autoconf: analyze model, discover missing optimizations, re-optimize

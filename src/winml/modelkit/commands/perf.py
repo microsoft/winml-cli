@@ -201,6 +201,7 @@ class BenchmarkResult:
 def generate_random_inputs(
     io_config: dict[str, Any],
     batch_size: int = 1,
+    shape_config: dict[str, Any] | None = None,
 ) -> dict[str, np.ndarray]:
     """Generate random inputs based on model io_config.
 
@@ -210,26 +211,47 @@ def generate_random_inputs(
     Args:
         io_config: Model I/O configuration from WinMLSession.io_config.
             Expected keys: ``input_names``, ``input_shapes``, ``input_types``.
-            Optional key: ``input_value_ranges`` -- a dict mapping input names
-            to ``[low, high)`` integer ranges sourced from the build config.
+            Optional keys: ``input_value_ranges`` -- a dict mapping input
+            names to ``[low, high)`` integer ranges sourced from the build
+            config; ``input_symbolic_shapes`` -- a list of shapes whose
+            dynamic dims hold the declared symbolic dim_param name.
         batch_size: Override batch dimension
+        shape_config: Optional overrides for dynamic dimensions. Two forms
+            are supported and may be mixed:
+
+            * Per-input full-shape override:
+              ``{"input_points": [1, 1, 1, 2], ...}`` -- the value is used
+              as the resolved shape verbatim.
+            * Symbolic dim override:
+              ``{"num_points_per_image": 1, "num_boxes_per_image": 1}`` --
+              applied to any dim whose ``dim_param`` matches the key.
+
+            Symbolic overrides take precedence over positional defaults.
 
     Returns:
         Dictionary of input_name -> numpy array
     """
     from ..core import generate_dummy_inputs_from_specs
 
+    symbolic_shapes = io_config.get("input_symbolic_shapes") or [
+        [None] * len(s) for s in io_config["input_shapes"]
+    ]
+    overrides = shape_config or {}
+
     specs: dict[str, dict[str, Any]] = {}
-    for name, shape, dtype_str in zip(
+    for name, shape, symbolic, dtype_str in zip(
         io_config["input_names"],
         io_config["input_shapes"],
+        symbolic_shapes,
         io_config["input_types"],
         strict=True,
     ):
         resolved_shape = _resolve_shape(
             shape=shape,
+            symbolic_shape=symbolic,
             input_name=name,
             batch_size=batch_size,
+            shape_config=overrides,
         )
 
         np_dtype = np.dtype(dtype_str)
@@ -250,17 +272,37 @@ def _resolve_shape(
     shape: list | tuple | None,
     input_name: str,
     batch_size: int,
+    symbolic_shape: list | tuple | None = None,
+    shape_config: dict[str, Any] | None = None,
 ) -> tuple[int, ...]:
-    """Resolve dynamic dimensions in shape."""
+    """Resolve dynamic dimensions in shape.
+
+    Resolution priority for each dim:
+      1. ``shape_config[input_name]`` -- full per-input shape override.
+      2. ``shape_config[dim_param]`` -- symbolic dim override (when the
+         ONNX graph exposed a ``dim_param`` for this dim).
+      3. ``batch_size`` for the first dim.
+      4. ``DYNAMIC_DIM_DEFAULTS`` positional fallback (defaults to 128).
+    """
+    overrides = shape_config or {}
+
+    # Form 1: full per-input shape override.
+    if input_name in overrides and isinstance(overrides[input_name], (list, tuple)):
+        return tuple(int(d) for d in overrides[input_name])
+
     if shape is None:
         logger.warning("Shape unknown for '%s', using (batch_size,)", input_name)
         return (batch_size,)
 
+    sym = list(symbolic_shape) if symbolic_shape is not None else [None] * len(shape)
     resolved = []
     for i, dim in enumerate(shape):
-        if dim is None or dim == -1 or (isinstance(dim, str)):
+        if dim is None or dim == -1 or isinstance(dim, str):
             # Dynamic dimension - resolve
-            if i == 0:
+            sym_name = sym[i] if i < len(sym) else None
+            if isinstance(sym_name, str) and sym_name in overrides:
+                resolved.append(int(overrides[sym_name]))
+            elif i == 0:
                 # First dimension is almost always batch
                 resolved.append(batch_size)
             else:
@@ -528,6 +570,7 @@ class PerfBenchmark:
         self._inputs = generate_random_inputs(
             io_config=self._single.io_config,
             batch_size=self.config.batch_size,
+            shape_config=self.config.shape_config,
         )
 
     def _resolve_adapter_luid(self) -> str | None:
@@ -1470,7 +1513,14 @@ def perf(
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
-    hf_model = model
+    # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+    # is downloaded once and treated as a local .onnx path thereafter.
+    # Must run BEFORE the ``Path(hf_model).suffix == ".onnx"`` check below
+    # so a Hub ref is not mistaken for a missing local file.
+    # ``normalize_model_arg`` returns ``str | None`` per its signature;
+    # the ``or model`` keeps the narrowed ``str`` type for downstream use.
+    hf_model: str = cli_utils.normalize_model_arg(model) or model
+    model = hf_model
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.

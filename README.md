@@ -22,6 +22,7 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 - **All Windows ML EPs supported.** Every [supported execution provider](https://microsoft.github.io/winml-cli/latest/concepts/eps-and-devices/#eps-winml-cli-supports) is available behind the same commands.
 - **Curated model catalog.** A [verified set of models](https://microsoft.github.io/winml-cli/latest/reference/supported-models/) that run across all Windows ML EPs - a reliable starting point.
 - **Bring your own ONNX.** Not only for converting from PyTorch - bring an [existing ONNX model](https://microsoft.github.io/winml-cli/latest/tutorials/build-from-onnx/) to get operator-compatibility insights and optimize it based on the analysis.
+- **Hub-hosted ONNX models.** Reference pre-exported ONNX files on the Hugging Face Hub as `<org>/<repo>/<path/to/file>.onnx` (e.g. `onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx`). Supported by `winml config`, `winml build`, `winml run`, `winml serve`, `winml perf`, and `winml eval`.
 
 ---
 

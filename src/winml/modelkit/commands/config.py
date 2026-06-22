@@ -220,6 +220,10 @@ def config(
             generate_onnx_build_config,
         )
 
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx file thereafter.
+        hf_model = cli_utils.normalize_model_arg(hf_model)
+
         # Load override config from JSON file if provided
         override = None
         _override_file: str | None = None

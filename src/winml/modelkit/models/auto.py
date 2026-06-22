@@ -321,6 +321,12 @@ class WinMLAutoModel:
 
             warn_trust_remote_code()
 
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx path thereafter.
+        from ..utils.model_input import resolve_model_input
+
+        model_id = resolve_model_input(model_id).local_path or model_id
+
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file
         # =====================================================================

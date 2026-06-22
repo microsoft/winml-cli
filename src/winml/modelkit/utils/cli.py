@@ -585,11 +585,46 @@ def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
 def is_onnx_file_path(model_input: str) -> bool:
     """Check if input is a path to an existing ``.onnx`` file.
 
-    Shared helper for CLI commands that accept either a HuggingFace model ID
-    or a local ``.onnx`` file path for the ``-m/--model`` option.
+    Thin wrapper kept for backwards-compatible callers; new code should
+    use :func:`~winml.modelkit.utils.model_input.classify_model_input`
+    directly and inspect the returned ``ModelInput.kind``.
     """
-    path = Path(model_input)
-    return path.suffix == ".onnx" and path.exists()
+    from .model_input import classify_model_input
+
+    return classify_model_input(model_input).kind == "local_onnx"
+
+
+def normalize_model_arg(value: str | None) -> str | None:
+    """Normalize a CLI ``-m/--model`` value to a local path or pass-through.
+
+    Single CLI-layer entry point for resolving Hub-hosted ONNX references
+    (``org/repo/path/file.onnx``) into local cached paths. Every
+    ``winml`` subcommand should call this once on the raw ``-m`` value
+    near the top of its command body, so downstream code (build configs,
+    perf benchmarks, eval sessions, inspect lookups) only ever sees:
+
+    * a local filesystem path (Hub refs are resolved here), or
+    * a HuggingFace model ID (``org/name``, passed through unchanged), or
+    * ``None`` (pass-through).
+
+    Delegates to :func:`~winml.modelkit.utils.model_input.resolve_model_input`,
+    the single unified classifier+resolver. This is the CLI counterpart
+    to library entry points such as :meth:`WinMLSession.load` and
+    :meth:`WinMLAutoModel.from_pretrained`, which call ``resolve_model_input``
+    directly at the programmatic boundary.
+
+    Args:
+        value: Raw ``-m/--model`` value (HF id, local path, Hub ONNX ref, or ``None``).
+
+    Returns:
+        Local ``.onnx`` path string when ``value`` was a Hub ref; the
+        original ``value`` otherwise. ``None`` returns ``None``.
+    """
+    if value is None:
+        return None
+    from .model_input import resolve_model_input
+
+    return resolve_model_input(value).local_path or value
 
 
 def is_cli_provided(ctx: click.Context, param_name: str) -> bool:

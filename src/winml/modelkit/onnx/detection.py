@@ -40,11 +40,25 @@ def _load_model_lightweight(model_path: Path, operation: str) -> onnx.ModelProto
 
 
 def is_quantized_onnx(model_path: Path) -> bool:
-    """Check if ONNX model is quantized (contains QuantizeLinear/DequantizeLinear nodes)."""
-    model = _load_model_lightweight(model_path, "quantization check")
-    from ..compiler import QDQ_OP_TYPES
+    """Check if ONNX model is quantized (QDQ or QOperator format).
 
-    return any(n.op_type in QDQ_OP_TYPES for n in model.graph.node)
+    Returns ``True`` for either:
+
+    * **QDQ format** -- contains ``QuantizeLinear`` / ``DequantizeLinear``
+      pairs around float ops (the default ``onnxruntime.quantization``
+      output and the format QNN expects).
+    * **QOperator format** -- contains fused integer ops such as
+      ``ConvInteger``, ``MatMulInteger``, or ``QLinear*`` (used by
+      ``QuantFormat.QOperator`` exports and by Hub repos like
+      ``onnx-community/sam3-tracker-ONNX``).
+
+    Both formats indicate the model is "already quantized" and the
+    ``optimize`` + ``quantize`` build stages should be skipped.
+    """
+    model = _load_model_lightweight(model_path, "quantization check")
+    from ..compiler import QUANTIZATION_OP_TYPES
+
+    return any(n.op_type in QUANTIZATION_OP_TYPES for n in model.graph.node)
 
 
 def is_compiled_onnx(model_path: Path) -> bool:

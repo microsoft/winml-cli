@@ -34,7 +34,6 @@ from ..utils.console import (
     print_error,
     print_final,
     print_setup,
-    print_stage_skip,
     print_stages_header,
 )
 from ..utils.logging import configure_logging
@@ -586,6 +585,11 @@ def build(
         logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx file thereafter.
+        if model_id is not None:
+            model_id = cli_utils.normalize_model_arg(model_id)
+
         # Load or auto-generate config
         if config_file is not None:
             config_or_configs = _load_config(
@@ -598,6 +602,22 @@ def build(
                 raise click.UsageError("-m/--model is required when -c is not provided.")
             from ..config import generate_build_config
 
+            # When ``model_id`` resolves to an .onnx file (either a local path or
+            # a Hub-hosted ONNX ref that was just downloaded by
+            # ``normalize_model_arg``), route to the ONNX config generator instead
+            # of treating the path as a HuggingFace repo id (which would try to
+            # load the .onnx file as a JSON config and crash).
+            if cli_utils.is_onnx_file_path(model_id):
+                config_or_configs = generate_build_config(
+                    onnx_path=model_id,
+                    device=device,
+                )
+            else:
+                config_or_configs = generate_build_config(
+                    model_id,
+                    trust_remote_code=trust_remote_code,
+                    device=device,
+                )
             config_or_configs = generate_build_config(
                 model_id,
                 trust_remote_code=trust_remote_code,
@@ -991,6 +1011,7 @@ def _run_optimize_stage(
     show_io_first: bool = False,
     analyze_output_path: Path | None = None,
     allow_unsupported_nodes: bool = False,
+    skip_optimize: bool = False,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -1007,6 +1028,9 @@ def _run_optimize_stage(
         stage_timings: List to append (stage_name, elapsed) tuple to.
         show_io_first: If True, show I/O tensors at the start of the stage
             (used in ONNX mode where there is no export stage).
+        skip_optimize: When True, skip the ORT graph-optimization pass.
+            Used for pre-quantized models (QDQ or QOperator format) whose
+            integer ops have no kernel on the host EP.
 
     Returns:
         Tuple of (current_path, opt_elapsed).
@@ -1100,6 +1124,7 @@ def _run_optimize_stage(
             device=device,
             max_optim_iterations=max_iters,
             allow_unsupported_nodes=allow_unsupported_nodes,
+            skip_optimize=skip_optimize,
             on_ep_start=_on_ep_start,
             on_node_result=_on_node_result,
             on_iteration_start=_on_iteration_start,
@@ -1151,16 +1176,14 @@ def _run_quantize_stage(
     Returns:
         Updated current_path (quantized_path if quantization ran, else unchanged).
     """
-    from ..onnx import is_quantized_onnx
     from ..quant import quantize_onnx
     from ..utils.console import StageLive
 
     if config.quant is None:
-        return current_path
-
-    if is_quantized_onnx(current_path):
-        print_stage_skip(console, "quantize", "(QDQ nodes already present)")
-        stage_timings.append(("Quantize", None))
+        # ``generate_onnx_build_config`` and ``ensure_pre_quantized_stamped``
+        # (in build/common.py) both clear ``config.quant`` for pre-quantized
+        # inputs, so this single check covers both "user-explicit None" and
+        # "auto-detected pre-quantized" cases.
         return current_path
 
     with StageLive("quantize", console) as sl:
@@ -1487,6 +1510,14 @@ def _build_onnx_pipeline(
     if current_path.resolve() != onnx_path.resolve():
         copy_onnx_model(onnx_path, current_path)
 
+    # Pre-quantized models (QDQ or QOperator format) cannot pass through
+    # ORT-based graph optimization on hosts that lack kernels for ops like
+    # ``ConvInteger``. The unified pipeline stamps ``config.skip_optimize``
+    # exactly once in ``generate_onnx_build_config`` -- downstream stages
+    # (here and inside ``build_onnx_model``) read the flag instead of
+    # re-running ``is_quantized_onnx`` on the same file.
+    is_pre_quantized = config.skip_optimize
+
     # ── Optimize stage (first stage for ONNX — show I/O here) ────
     current_path, _ = _run_optimize_stage(
         config=config,
@@ -1499,6 +1530,7 @@ def _build_onnx_pipeline(
         show_io_first=True,
         analyze_output_path=analyze_result_path,
         allow_unsupported_nodes=allow_unsupported_nodes,
+        skip_optimize=is_pre_quantized,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))

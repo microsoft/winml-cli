@@ -17,6 +17,43 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Local-path indicators used to short-circuit Hub detection. Centralized
+# here so every callsite that classifies a model input string applies the
+# same rejection rules (existing path, ./ ../ /. ~/ prefixes, Windows
+# drive letter). Without this shared helper, each detector tends to
+# reimplement only the easiest check (Path.exists) and accept inputs
+# like ``./model.onnx`` as Hub references.
+_LOCAL_PATH_PREFIXES: tuple[str, ...] = ("./", "../", "/", "~/")
+_WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def _is_local_path(value: str | None) -> bool:
+    r"""Return ``True`` if *value* looks like a local filesystem path.
+
+    Heuristic check used to reject local paths before treating an input as
+    a Hub identifier. Detects:
+
+    * existing filesystem entries (``Path.exists()``);
+    * Unix-style relative/absolute/home prefixes (``./``, ``../``, ``/``, ``~/``);
+    * Windows drive-letter absolute paths (``C:\``, ``D:/``).
+
+    ``None`` and empty strings are not local paths.
+    """
+    if not value:
+        return False
+    try:
+        if Path(value).exists():
+            return True
+    except (OSError, ValueError):
+        # Path may be syntactically invalid on the current platform
+        # (e.g. control characters); treat as "not a local path" so the
+        # caller can apply Hub-format heuristics instead.
+        pass
+    if value.startswith(_LOCAL_PATH_PREFIXES):
+        return True
+    return bool(_WIN_DRIVE_RE.match(value))
+
+
 def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
     """Comprehensive Hub model detection with metadata extraction.
 
@@ -26,16 +63,8 @@ def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
     Returns:
         Tuple of (is_hub_model, metadata_dict)
     """
-    # Quick rejection for obvious local paths
-    if Path(model_name_or_path).exists():
-        return False, {"type": "local", "path": model_name_or_path}
-
-    # Check for local path indicators
-    if any(model_name_or_path.startswith(prefix) for prefix in ["./", "../", "/", "~/"]):
-        return False, {"type": "local", "path": model_name_or_path}
-
-    # Check for Windows absolute paths
-    if re.match(r"^[A-Za-z]:[\\/]", model_name_or_path):
+    # Local-path rejection (existing path, ./ ../ /. ~/ prefixes, Windows drive)
+    if _is_local_path(model_name_or_path):
         return False, {"type": "local", "path": model_name_or_path}
 
     # Parse potential Hub model format

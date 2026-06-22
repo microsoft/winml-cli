@@ -28,6 +28,7 @@ Note:
 from typing import Any
 
 from .config import WinMLLoaderConfig, resolve_loader_config
+from .onnx_hub import resolve_hf_onnx_path
 from .resolution import (
     TaskResolution,
     TaskSource,
@@ -61,6 +62,7 @@ __all__ = [
     "normalize_task",
     "resolve_composite",
     "resolve_hf_model_class",
+    "resolve_hf_onnx_path",
     "resolve_loader_config",
     "resolve_optimum_library",
     "resolve_task",

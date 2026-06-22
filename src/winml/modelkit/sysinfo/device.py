@@ -91,6 +91,15 @@ def get_device_ep_map() -> dict[str, list[EPName]]:
     return {device: list(eps) for device, eps in _DEVICE_EP_MAP.items()}
 
 
+# EPs that exist in ``onnxruntime.get_available_providers()`` but are not yet
+# exposed via the new ``get_ep_devices()``/AutoEP machinery. Mapped to the
+# canonical device they target so they can still be selected via the legacy
+# ``SessionOptions.add_provider`` code path.
+_LEGACY_EP_DEVICE_FALLBACK: dict[EPName, str] = {
+    "VitisAIExecutionProvider": "npu",  # AMD Phoenix/Strix XDNA NPU
+}
+
+
 @functools.lru_cache(maxsize=1)
 def _get_device_ep_map_from_ort() -> dict[str, tuple[EPName, ...]]:
     """Return device -> EPs targeting it, derived from registered ORT EP devices.
@@ -100,6 +109,11 @@ def _get_device_ep_map_from_ort() -> dict[str, tuple[EPName, ...]]:
     :func:`_get_available_devices`, :func:`resolve_device`, and
     :func:`resolve_eps`. Cached for the process lifetime since hardware/EPs
     do not change at runtime.
+
+    Also merges in EPs from :data:`_LEGACY_EP_DEVICE_FALLBACK` that are
+    advertised by ``onnxruntime.get_available_providers()`` but not yet
+    registered as ``OrtEpDevice`` instances (e.g. ``VitisAIExecutionProvider``
+    in ``onnxruntime-vitisai`` 1.23.x).
     """
     result: dict[str, list[EPName]] = {}
     try:
@@ -113,6 +127,19 @@ def _get_device_ep_map_from_ort() -> dict[str, tuple[EPName, ...]]:
         # map and raises "No execution providers detected" — the user needs
         # the root cause visible at default verbosity to act on it.
         logger.warning("Failed to enumerate registered EP devices", exc_info=True)
+
+    # Legacy-API fallback: some EPs (e.g. VitisAI) only register via
+    # ``get_available_providers()``, not via ``get_ep_devices()``.
+    try:
+        import onnxruntime as ort
+
+        available = set(ort.get_available_providers())
+        for ep_name, device_name in _LEGACY_EP_DEVICE_FALLBACK.items():
+            if ep_name in available and ep_name not in result.get(device_name, ()):
+                result.setdefault(device_name, []).append(ep_name)
+    except Exception:
+        logger.debug("Legacy EP fallback enumeration failed", exc_info=True)
+
     return {dev: tuple(eps) for dev, eps in result.items()}
 
 

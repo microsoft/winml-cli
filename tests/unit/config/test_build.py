@@ -985,6 +985,9 @@ class TestConfigCliOverride:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1018,6 +1021,9 @@ class TestConfigCliOverride:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1469,6 +1475,9 @@ class TestEdgeCases:
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1664,6 +1673,9 @@ class TestShapeConfigCli:
                 return_value=mock_export_config,
             ) as mock_gen_export,
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -2172,6 +2184,11 @@ class TestDevicePrecisionCli:
                 "winml.modelkit.sysinfo.resolve_check_device_ep",
                 return_value=("npu", ["npu", "gpu", "cpu"], ["QNNExecutionProvider"]),
             ),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            "autoconfig": patch(
+                "transformers.AutoConfig.from_pretrained", return_value=BertConfig()
+            ),
         }
 
     def _invoke(self, tmp_path, extra_args: list[str] | None = None):
@@ -2186,6 +2203,7 @@ class TestDevicePrecisionCli:
             self._patches["export"],
             self._patches["registry"],
             self._patches["device"],
+            self._patches["autoconfig"],
         ):
             runner = CliRunner()
             result = runner.invoke(config_command, args)

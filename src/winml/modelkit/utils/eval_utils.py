@@ -287,6 +287,22 @@ _DEPTH_ESTIMATION_SCHEMA = TaskSchema(
     ),
 )
 
+_MASK_GENERATION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column", "input image (PIL.Image)",
+            default="image", remap_hint="<your_image_column>",
+        ),
+        SchemaItem(
+            "mask_column", "binary or instance ground-truth mask (PIL.Image)",
+            default="mask", remap_hint="<your_mask_column>",
+        ),
+    ),
+    # SAM-family composite: ``image-encoder`` runs once, ``prompt-decoder``
+    # consumes the embeddings plus point / box prompts to produce masks.
+    roles=("image-encoder", "prompt-decoder"),
+)
+
 TASK_SCHEMAS: dict[str, TaskSchema] = {
     "image-classification": _IMAGE_CLASSIFICATION_SCHEMA,
     "text-classification": _TEXT_CLASSIFICATION_SCHEMA,
@@ -304,6 +320,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "zero-shot-classification": _ZERO_SHOT_CLASSIFICATION_SCHEMA,
     "zero-shot-image-classification": _ZERO_SHOT_IMAGE_CLASSIFICATION_SCHEMA,
     "depth-estimation": _DEPTH_ESTIMATION_SCHEMA,
+    "mask-generation": _MASK_GENERATION_SCHEMA,
 }
 
 

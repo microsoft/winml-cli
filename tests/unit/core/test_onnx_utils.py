@@ -207,6 +207,7 @@ class TestGetIoConfig:
         expected_keys = {
             "input_names",
             "input_shapes",
+            "input_symbolic_shapes",
             "input_types",
             "output_names",
             "output_shapes",
