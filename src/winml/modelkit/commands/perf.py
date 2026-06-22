@@ -570,7 +570,7 @@ class PerfBenchmark:
             self.config.batch_size,
         )
         if self.config.batch_size != 1 and self._effective_batch != self.config.batch_size:
-            logger.info(
+            logger.warning(
                 "Requested --batch-size %d could not be applied: the model's "
                 "leading input dimension is statically %d. Throughput is scaled "
                 "by the actual batch (%d), not the requested value.",
