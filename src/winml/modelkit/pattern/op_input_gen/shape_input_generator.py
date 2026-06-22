@@ -53,7 +53,7 @@ class ShapeInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint | int | None]]:
+    ) -> list[dict[str, object]]:
         """Returns comprehensive input combinations for Shape operator.
 
         Coverage strategy:
@@ -412,7 +412,7 @@ class ShapeInputGenerator(OpInputGenerator):
         input_name = self.op_input_names[0]
         return [f"{input_name}_shape", f"{input_name}_value", "attr_start", "attr_end"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Reshape operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),

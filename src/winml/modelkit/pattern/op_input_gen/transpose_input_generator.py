@@ -46,7 +46,7 @@ class TransposeInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Transpose operator.
 
         Strategy:
@@ -123,7 +123,7 @@ class TransposeInputGenerator(OpInputGenerator):
         input_param_name = self.op_input_names[0]
         return [f"{input_param_name}_shape", "attr_perm"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Transpose operator inputs."""
         return {
             "data": QDQParameterConfig(support_non_qdq=True, support_activation=True),

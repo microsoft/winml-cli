@@ -10,7 +10,7 @@ that can reuse the UnaryInputGenerator base shapes while adding operator-specifi
 attributes or input handling.
 """
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -240,7 +240,7 @@ class SoftmaxInputGenerator(UnaryInputGenerator):
             item["axis_size_is_one"] = False
         return item
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Softmax operator inputs."""
         return {
             "input": QDQParameterConfig(support_activation=True),
@@ -299,7 +299,7 @@ class ArgExtremaInputGenerator(UnaryInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for ArgMax/ArgMin.
 
         Iterate over all possible axis values for each input shape.
@@ -311,10 +311,11 @@ class ArgExtremaInputGenerator(UnaryInputGenerator):
         # Get shapes from parent class
         parent_combinations = super().get_input_and_infinite_attribute_combinations()
 
-        combinations = []
+        combinations: list[dict[str, object]] = []
         for combo in parent_combinations:
-            if input_name in combo and isinstance(combo[input_name], InputShapeConstraint):
-                shape = combo[input_name].shape
+            constraint = combo.get(input_name)
+            if isinstance(constraint, InputShapeConstraint):
+                shape = constraint.shape
                 data_dim = len(shape)
                 # Generate axis values: negative (-1) first, then positive (0, 1, ..., data_dim-1)
                 # Negative axis is more common in real models (e.g., axis=-1 for last dim)
@@ -405,7 +406,7 @@ class LRNInputGenerator(UnaryInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for LRN.
 
         LRN requires at least 4D input with format (N x C x H x W) or higher dimensions.
@@ -450,7 +451,7 @@ class ClipInputGenerator(UnaryInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Clip.
 
         Test with various tensor shapes and optional min/max scalars.
@@ -497,7 +498,7 @@ class ClipInputGenerator(UnaryInputGenerator):
         parent_infinite_props = super().get_infinite_property_names()
         return [*parent_infinite_props, min_name + "_value", max_name + "_value"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Clip operator inputs."""
         return {
             "input": QDQParameterConfig(support_activation=True),
@@ -525,7 +526,7 @@ class CumSumInputGenerator(UnaryInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for CumSum.
 
         Test with various tensor shapes and axis values.
@@ -536,9 +537,9 @@ class CumSumInputGenerator(UnaryInputGenerator):
 
         shape_constraints = super().get_input_and_infinite_attribute_combinations()
 
-        combinations = []
+        combinations: list[dict[str, object]] = []
         for constraint in shape_constraints:
-            shape = constraint[x_name].shape
+            shape = cast(InputShapeConstraint, constraint[x_name]).shape
             axis_values = range(-len(shape), len(shape))
             # Only add valid axis values for the shape
             combinations.extend(
@@ -550,7 +551,7 @@ class CumSumInputGenerator(UnaryInputGenerator):
             )
         return combinations
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for CumSum operator inputs."""
         return {
             "x": QDQParameterConfig(support_activation=True),
@@ -575,7 +576,7 @@ class DropoutInputGenerator(UnaryInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Dropout.
 
         Test with various tensor shapes and ratio/training_mode.
@@ -629,7 +630,7 @@ class CastInputGenerator(UnaryInputGenerator):
         """
         from onnx import TensorProto
 
-        result = {
+        result: dict[str, list[Any]] = {
             "to": [
                 int(TensorProto.BOOL),
                 int(TensorProto.DOUBLE),
@@ -672,7 +673,7 @@ class CastInputGenerator(UnaryInputGenerator):
         onnx_type = SupportedONNXType.from_tensor_proto_type(output_type_enum)
         return [onnx_type.annotation]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Cast operator inputs."""
         return {
             "input": QDQParameterConfig(support_activation=True, support_non_qdq=True),
@@ -696,7 +697,7 @@ class CastLikeInputGenerator(UnaryInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for CastLike.
 
         Test with various source and target types.

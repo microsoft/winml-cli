@@ -2,6 +2,8 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+from typing import Any
+
 import numpy as np
 
 from .op_input_gen import (
@@ -43,7 +45,7 @@ class ReshapeInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns comprehensive input combinations for Reshape operator.
 
         Coverage strategy:
@@ -243,7 +245,7 @@ class ReshapeInputGenerator(OpInputGenerator):
             },
         ]
 
-    def derive_properties(self, properties: dict[str, any]) -> dict[str, any]:
+    def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
         """Derive additional properties for Reshape operator testing.
 
         Args:

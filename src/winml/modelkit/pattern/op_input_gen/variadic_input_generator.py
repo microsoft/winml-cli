@@ -42,7 +42,7 @@ class ConcatInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Concat.
 
         Test cases systematically cover:
@@ -144,7 +144,7 @@ class ConcatInputGenerator(OpInputGenerator):
         """
         return ["inputs_shape", "inputs_value", "attr_axis", "inputs_is_constant"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Concat operator inputs."""
         return {
             "inputs": QDQParameterConfig(support_activation=True),

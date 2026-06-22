@@ -46,7 +46,7 @@ class GlobalPoolingInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns input combinations for global pooling operators.
 
         Coverage strategy:
@@ -114,7 +114,7 @@ class GlobalAveragePoolInputGenerator(GlobalPoolingInputGenerator):
 
     op_name = "GlobalAveragePool"
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for GlobalAveragePool operator inputs."""
         return {
             "X": QDQParameterConfig(support_activation=True),

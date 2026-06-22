@@ -69,7 +69,7 @@ class SliceInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Slice operator.
 
         Focused coverage strategy:
@@ -78,7 +78,7 @@ class SliceInputGenerator(OpInputGenerator):
         - steps: [1,...,1], [-1,...,-1], [1,2,1,1,...,1]
         - starts/ends: positive values covering [0, dim-1] and [1, dim-2]
         """
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         for data_shape in _SLICE_DATA_SHAPES:
             rank = len(data_shape)
@@ -95,7 +95,7 @@ class SliceInputGenerator(OpInputGenerator):
                 axis_dims = [data_shape[int(ax)] for ax in axes]
 
                 # Step patterns: all 1s, all -1s, and mixed [1,2,1,...]
-                steps_patterns = [
+                steps_patterns: list[np.ndarray] = [
                     np.ones(num_axes, dtype=np.int64),
                     -np.ones(num_axes, dtype=np.int64),
                 ]
@@ -113,7 +113,7 @@ class SliceInputGenerator(OpInputGenerator):
                     is_all_backward = np.all(steps <= -1)
 
                     # Determine start/end patterns based on step direction
-                    starts_ends_patterns = []
+                    starts_ends_patterns: list[tuple[np.ndarray, np.ndarray]] = []
 
                     if is_all_forward:
                         # Forward slicing patterns

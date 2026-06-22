@@ -13,7 +13,7 @@ Key principle: NEVER redefine input shapes - reuse parent class shapes combined
 with additional attributes or inputs.
 """
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -93,7 +93,7 @@ class ModInputGenerator(BinaryInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Mod operator.
 
         Strategy:
@@ -128,7 +128,8 @@ class ModInputGenerator(BinaryInputGenerator):
             a_constraint = parent_combo[parent_first]
 
             # Get B shape from parent, but override with min_max to ensure non-zero divisor
-            b_shape = parent_combo[parent_second].shape
+            # Parent binary combos hold InputShapeConstraint values for these inputs.
+            b_shape = cast(InputShapeConstraint, parent_combo[parent_second]).shape
 
             # Create non-zero divisor: sample values from 1 to 10
             # This avoids divide-by-zero while providing varied test data
@@ -176,7 +177,7 @@ class WhereInputGenerator(BinaryInputGenerator):
     # TODO: use InputValueConstraint or InputShapeConstraint for condition input?
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Where operator.
 
         Strategy:
@@ -210,12 +211,12 @@ class WhereInputGenerator(BinaryInputGenerator):
         parent_first = parent_param_names[0] if parent_param_names else "A"
         parent_second = parent_param_names[1] if len(parent_param_names) > 1 else "B"
 
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         for parent_combo in parent_combinations:
             # Get X and Y shapes from parent combination
-            x_constraint = parent_combo[parent_first]
-            y_constraint = parent_combo[parent_second]
+            x_constraint = cast(InputShapeConstraint, parent_combo[parent_first])
+            y_constraint = cast(InputShapeConstraint, parent_combo[parent_second])
 
             x_shape = x_constraint.shape
             y_shape = y_constraint.shape
@@ -312,7 +313,7 @@ class WhereInputGenerator(BinaryInputGenerator):
             f"{y_name}_shape",
         ]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Where operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_non_qdq=True),

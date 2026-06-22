@@ -67,7 +67,7 @@ class ExpandInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns comprehensive input combinations for Expand operator.
 
         Coverage strategy:
@@ -343,7 +343,7 @@ class ExpandInputGenerator(OpInputGenerator):
         """
         return ["input_shape", "input_value", "shape_shape", "shape_value"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Expand operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),

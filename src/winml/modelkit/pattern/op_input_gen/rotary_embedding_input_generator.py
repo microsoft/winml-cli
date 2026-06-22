@@ -58,7 +58,7 @@ class RotaryEmbeddingInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for RotaryEmbedding.
 
         Tests both 4D and 3D input formats with varying rotary_embedding_dim.

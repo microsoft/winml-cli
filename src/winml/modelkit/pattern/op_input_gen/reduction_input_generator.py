@@ -52,7 +52,9 @@ class ReductionInputGenerator(OpInputGenerator):
             (2, 2, 2, 2, 2, 3),  # 6D
         ]
 
-    def get_common_axes_combinations(self, shape: tuple[int, ...]) -> list[np.ndarray]:
+    def get_common_axes_combinations(
+        self, shape: tuple[int, ...]
+    ) -> list[list[int]] | list[np.ndarray]:
         """Return common axes patterns to test for given shape.
 
         For each shape, test:
@@ -68,7 +70,7 @@ class ReductionInputGenerator(OpInputGenerator):
             List of axes arrays (always explicit, never None)
         """
         rank = len(shape)
-        axes_combinations = [
+        axes_combinations: list[list[int]] = [
             list(range(rank)),  # All axes (explicit)
             [-1],  # Reduce last axis
             [0],  # Reduce first axis
@@ -82,7 +84,7 @@ class ReductionInputGenerator(OpInputGenerator):
         # basically all Reduce* ops have "axes" as attrribute for opset <=17
         # and as input for opset >=18, EXCEPT ReduceSum, which has "axes" as input since opset 13
         if "axes" in self.op_input_names:
-            axes_combinations = [np.array(axes, dtype=np.int64) for axes in axes_combinations]
+            return [np.array(axes, dtype=np.int64) for axes in axes_combinations]
 
         return axes_combinations
 
@@ -100,7 +102,7 @@ class ReductionInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for reduction operators.
 
         Strategy:
@@ -156,7 +158,7 @@ class ReductionInputGenerator(OpInputGenerator):
             + ["attr_axes"]
         )
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for reduction operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),
@@ -310,7 +312,7 @@ class TopKInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for TopK operator.
 
         Strategy:
@@ -318,7 +320,7 @@ class TopKInputGenerator(OpInputGenerator):
         - For each shape, K should be smaller than the dimension being reduced
         - K is an input (not an attribute)
         """
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         # Test shapes from 1D through 6D
         test_shapes = [
@@ -371,7 +373,7 @@ class TopKInputGenerator(OpInputGenerator):
             f"{input_name}_shape" for input_name in self.op_input_names
         ]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for TopK operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),  # "X"
