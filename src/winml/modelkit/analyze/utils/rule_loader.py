@@ -17,12 +17,12 @@ from ..models.runtime_checks import RuntimeCheckRule
 
 logger = logging.getLogger(__name__)
 
-#: Environment variable for runtime check rules directories.
-#: Use ``os.pathsep`` (`;` on Windows, `:` on Unix) to separate multiple paths.
+#: Environment variable for the runtime check rules directory.
+#: Holds a single directory path; it is not split on ``os.pathsep``.
 WINMLCLI_RULES_DIR_ENV = "WINMLCLI_RULES_DIR"
 
-#: Environment variable for additional runtime debug rule directories.
-#: Use ``os.pathsep`` (`;` on Windows, `:` on Unix) to separate multiple paths.
+#: Environment variable for the runtime debug rule directory.
+#: Holds a single directory path; it is not split on ``os.pathsep``.
 WINMLCLI_RULES_DIR_FOR_DEBUG_ENV = "WINMLCLI_RULES_DIR_FOR_DEBUG"
 
 # Directory containing this module file. Relative env-var entries are resolved from here.
@@ -46,44 +46,48 @@ def _resolve_env_rules_dir_entry(entry: str) -> Path:
     return (_RULE_LOADER_DIR / entry_path).resolve()
 
 
-def _get_env_rules_dirs(env_name: str) -> list[Path]:
-    """Parse ``os.pathsep``-separated env var values into absolute paths."""
-    dirs: list[Path] = []
+def _get_env_rules_dir(env_name: str) -> Path | None:
+    """Resolve the single directory configured in ``env_name``.
+
+    The value is treated as one directory path and is intentionally not split
+    on ``os.pathsep`` -- only a single rules directory is supported. Returns
+    ``None`` when the env var is unset or blank.
+    """
     env_val = os.environ.get(env_name, "").strip()
-    if env_val:
-        for entry in env_val.split(os.pathsep):
-            entry = entry.strip()
-            if entry:
-                dirs.append(_resolve_env_rules_dir_entry(entry))
-    return dirs
+    if not env_val:
+        return None
+    return _resolve_env_rules_dir_entry(env_val)
 
 
 def get_runtime_rules_search_dirs() -> list[Path]:
-    """Return ordered list of directories to search for runtime rule artifacts.
+    """Return the directory to search for runtime rule artifacts.
 
     Selection behavior:
-        1. If :data:`WINMLCLI_RULES_DIR` is set, use only those directories
-            (ordered, ``os.pathsep``-separated). Absolute paths are used directly;
-            relative paths are resolved relative to this module file directory.
+        1. If :data:`WINMLCLI_RULES_DIR` is set, use only that directory.
+            Absolute paths are used directly; a relative path is resolved
+            relative to this module file directory.
         2. If :data:`WINMLCLI_RULES_DIR` is unset/empty, use the embedded default
             directory (``src/winml/modelkit/analyze/rules/runtime_check_rules/``).
 
     Returns:
-        List of directory Paths (may include non-existent ones; callers filter).
+        Single-element list with the selected directory (the embedded default
+        when the env var is unset). The directory may not exist; callers filter.
     """
-    dirs = _get_env_rules_dirs(WINMLCLI_RULES_DIR_ENV)
-    if dirs:
-        return dirs
+    env_dir = _get_env_rules_dir(WINMLCLI_RULES_DIR_ENV)
+    if env_dir is not None:
+        return [env_dir]
     return [_DEFAULT_RUNTIME_RULES_DIR]
 
 
 def get_runtime_rules_debug_search_dirs() -> list[Path]:
-    """Return ordered debug-rule directories from env var only.
+    """Return the debug-rule directory from the env var only.
 
     Unlike :func:`get_runtime_rules_search_dirs`, this intentionally has no
-    embedded default fallback directory.
+    embedded default fallback: an empty list is returned when
+    :data:`WINMLCLI_RULES_DIR_FOR_DEBUG` is unset.
     """
-    return _get_env_rules_dirs(WINMLCLI_RULES_DIR_FOR_DEBUG_ENV)
+    env_dir = _get_env_rules_dir(WINMLCLI_RULES_DIR_FOR_DEBUG_ENV)
+    return [env_dir] if env_dir is not None else []
 
 
 def resolve_rule_parquet_path(parquet_filename: str, for_debug: bool = False) -> Path:

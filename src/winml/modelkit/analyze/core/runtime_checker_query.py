@@ -1951,8 +1951,11 @@ class RuntimeCheckerQuery:
             f"_opset{op_since_version}{'_qdq' if is_qdq else ''}.parquet"
         )
         parquet_path = resolve_rule_parquet_path(parquet_name, for_debug=for_debug)
-        resolved_parquet_path = parquet_path if parquet_path.exists() else None
 
+        # This per-instance cache assumes a stable rules location for the query's
+        # lifetime: the rule-dir env vars must not change between calls. The path
+        # is recomputed each call (so reporting reflects the current location),
+        # but a cached None is reused without re-probing the filesystem.
         cache_key = (op_name, op_domain.value, op_since_version, is_qdq)
         if cache_key in self._parquet_rule_table_cache:
             if self._parquet_rule_table_cache[cache_key] is not None:
@@ -1963,7 +1966,7 @@ class RuntimeCheckerQuery:
                 self._parquet_condition_tree_cache.get(cache_key),
             )
 
-        if resolved_parquet_path is None:
+        if not parquet_path.exists():
             self._parquet_rule_table_cache[cache_key] = None
             self._parquet_condition_tree_cache[cache_key] = None
             return parquet_path, None, None

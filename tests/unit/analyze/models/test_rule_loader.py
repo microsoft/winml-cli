@@ -472,13 +472,24 @@ class TestRuntimeRulesSearchDirs:
         assert len(dirs) == 1
         assert dirs[0] == _DEFAULT_RUNTIME_RULES_DIR
 
-    def test_env_var_adds_dirs(self, monkeypatch):
-        """WINMLCLI_RULES_DIR overrides default and uses only env directories."""
+    def test_env_var_overrides_default_with_single_dir(self, monkeypatch):
+        """WINMLCLI_RULES_DIR overrides default and uses only that one directory."""
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", "/extra/path1")
+        dirs = get_runtime_rules_search_dirs()
+        assert len(dirs) == 1
+        assert dirs[0] == Path("/extra/path1").resolve()
+
+    def test_env_var_not_split_on_pathsep(self, monkeypatch):
+        """Only one directory is supported: the value is not split on os.pathsep.
+
+        A value containing os.pathsep is treated as a single literal directory
+        path rather than multiple search dirs, so the embedded default is never
+        silently consulted as a fallback.
+        """
         monkeypatch.setenv("WINMLCLI_RULES_DIR", f"/extra/path1{os.pathsep}/extra/path2")
         dirs = get_runtime_rules_search_dirs()
-        assert len(dirs) == 2
-        assert dirs[0] == Path("/extra/path1").resolve()
-        assert dirs[1] == Path("/extra/path2").resolve()
+        assert len(dirs) == 1
+        assert _DEFAULT_RUNTIME_RULES_DIR not in dirs
 
     def test_env_var_relative_path_resolved_from_module_dir(self, monkeypatch):
         """Relative WINMLCLI_RULES_DIR entries are resolved from rule_loader.py dir."""
@@ -554,16 +565,21 @@ class TestRuntimeRules4CharKeyRoundTrip:
 class TestRuntimeRulesDebugSearchDirs:
     """Test get_runtime_rules_debug_search_dirs behavior."""
 
-    def test_debug_env_var_adds_dirs(self, monkeypatch):
-        """WINMLCLI_RULES_DIR_FOR_DEBUG adds extra debug search directories."""
+    def test_debug_env_var_single_dir(self, monkeypatch):
+        """WINMLCLI_RULES_DIR_FOR_DEBUG uses a single debug search directory."""
+        monkeypatch.setenv(WINMLCLI_RULES_DIR_FOR_DEBUG_ENV, "/debug/path1")
+        dirs = get_runtime_rules_debug_search_dirs()
+        assert len(dirs) == 1
+        assert dirs[0] == Path("/debug/path1").resolve()
+
+    def test_debug_env_var_not_split_on_pathsep(self, monkeypatch):
+        """Only one debug directory is supported: not split on os.pathsep."""
         monkeypatch.setenv(
             WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
             f"/debug/path1{os.pathsep}/debug/path2",
         )
         dirs = get_runtime_rules_debug_search_dirs()
-        assert len(dirs) == 2
-        assert dirs[0] == Path("/debug/path1").resolve()
-        assert dirs[1] == Path("/debug/path2").resolve()
+        assert len(dirs) == 1
 
     def test_debug_env_var_relative_path_resolved_from_module_dir(self, monkeypatch):
         """Relative WINMLCLI_RULES_DIR_FOR_DEBUG entries are module-dir relative."""
