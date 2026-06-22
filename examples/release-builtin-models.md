@@ -35,26 +35,32 @@ A *bucket* is one folder under `examples/<ep>/<device>/`. The full set is:
 | 10 | `vitisai` | npu | `examples/vitisai/npu/<slug>/` | `<task>_<precision>_eval_result.json` |
 
 `<slug>` = `<hf_id>` with the first `/` replaced by `_` (e.g. `microsoft/resnet-50` → `microsoft_resnet-50`).
-For NPU `<precision>` ∈ {`fp16`, `w8a8`, `w8a16`}. For CPU/GPU EPs, results are accepted as either `<task>_eval_result.json` (EP default precision, treated as fp16-equivalent) or `<task>_fp16_eval_result.json`.
 
 See also [test_config.md](test_config.md) and [generate_config.md](generate_config.md) for the layout these results come from.
 
+### Configs and eval results per bucket
+
+- **CPU/GPU buckets** (7 total): one config per task, `<task>_config.json`, with one matching eval result `<task>_eval_result.json` (EP default precision — treated as fp16-equivalent).
+- **NPU buckets** (3 total): up to three configs per task — `<task>_fp16_config.json`, `<task>_w8a8_config.json`, `<task>_w8a16_config.json` — each with a matching `<task>_<precision>_eval_result.json` when its eval passes.
+
 ### Built-in Model criterion
 
-A `(model, task)` pair is **Built-in** iff its **fp16** eval passes on **every** one of the 10 buckets:
+A `(model, task)` pair is **Built-in** iff:
 
-- For CPU/GPU buckets, "fp16 passes" means `<task>_eval_result.json` exists (these EPs run their default precision, treated as fp16-equivalent for this criterion).
-- For NPU buckets, "fp16 passes" means `<task>_fp16_eval_result.json` exists.
+- All 7 CPU/GPU buckets contain `<task>_eval_result.json` (CPU/GPU eval passes), **and**
+- All 3 NPU buckets contain `<task>_fp16_eval_result.json` (NPU fp16 eval passes).
+
+NPU w8a8 / w8a16 eval results play **no role** in the Built-in criterion.
 
 ### Recipe picking criterion
 
-For each Built-in `(model, task)`, configs are always sourced from an NPU bucket (Built-in implies all 3 NPU buckets passed fp16, so at least one is guaranteed to have the source files):
+For each Built-in `(model, task)`, recipes are copied from an NPU bucket into `examples/recipes/<slug>/`:
 
-- **fp16** recipe: always picked (mandatory by definition).
-- **w8a8** recipe: picked iff `<task>_w8a8_eval_result.json` exists on **at least one** NPU EP, sourced from that EP.
-- **w8a16** recipe: picked iff `<task>_w8a16_eval_result.json` exists on at least one NPU EP, sourced from that EP.
+- **fp16** recipe: always picked (Built-in guarantees NPU fp16 passed on every NPU EP, so the source always exists).
+- **w8a8** recipe: picked iff at least one NPU EP has `<task>_w8a8_eval_result.json`; sourced from that EP.
+- **w8a16** recipe: same, for `<task>_w8a16_eval_result.json`.
 
-Source configs are globbed as `<task>_<precision>_config*.json`. Composite tasks (e.g. CLIP zero-shot) match multiple files via the `*` and all are copied.
+Composite tasks (e.g. CLIP zero-shot) match multiple files via `<task>_<precision>_config*.json` and all are copied. CPU/GPU configs are not copied — the recipe set is intentionally NPU-shaped.
 
 ---
 

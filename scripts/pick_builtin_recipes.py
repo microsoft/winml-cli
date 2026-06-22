@@ -31,7 +31,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rebuild_recipes_readme import (  # noqa: E402
-    EPS_ALL,
     EVAL_SUFFIX,
     NPU_EPS,
     discover_builtin_pairs,
@@ -46,53 +45,21 @@ QUANT_PRECISIONS = ("w8a8", "w8a16")
 
 
 def find_source_dir(slug: str, task: str, precision: str) -> Path | None:
-    """Return the bucket whose `<task>_<precision>_eval_result.json` exists.
+    """Return the NPU bucket whose `<task>_<precision>_eval_result.json` exists.
 
-    NPU EPs are preferred (they carry precision in the filename). fp16 falls
-    back to any CPU/GPU bucket as a defensive measure.
+    For Built-in pairs, fp16 is guaranteed to hit (NPU fp16 passes on every
+    NPU EP by definition). w8a8/w8a16 may legitimately return None.
     """
     for ep, hw in NPU_EPS:
         d = EX / ep / hw / slug
         if (d / f"{task}_{precision}{EVAL_SUFFIX}").exists():
             return d
-    if precision == "fp16":
-        for ep, hw in EPS_ALL:
-            if (ep, hw) in NPU_EPS:
-                continue
-            d = EX / ep / hw / slug
-            if (
-                (d / f"{task}{EVAL_SUFFIX}").exists()
-                or (d / f"{task}_fp16{EVAL_SUFFIX}").exists()
-            ):
-                return d
     return None
 
 
 def source_config_files(src_dir: Path, task: str, precision: str) -> list[Path]:
-    """Return matching `<task>_<precision>_config*.json` (NPU) or
-    `<task>_config*.json` (CPU/GPU) files in src_dir."""
-    matches = sorted(src_dir.glob(f"{task}_{precision}_config*.json"))
-    if matches:
-        return matches
-    return sorted(src_dir.glob(f"{task}_config*.json"))
-
-
-def recipe_target_name(src_name: str, task: str, precision: str) -> str:
-    """Map a source config filename to its recipe filename.
-
-    Examples:
-      `image-classification_config.json`                 -> `image-classification_fp16_config.json`
-      `image-classification_fp16_config.json`            -> `image-classification_fp16_config.json`
-      `zero-shot-image-classification_config_text-encoder.json`
-                                                         -> `zero-shot-image-classification_fp16_config_text-encoder.json`
-    """
-    npu_prefix = f"{task}_{precision}_config"
-    if src_name.startswith(npu_prefix):
-        return src_name
-    cpu_prefix = f"{task}_config"
-    assert src_name.startswith(cpu_prefix), src_name
-    suffix = src_name[len(cpu_prefix):]
-    return f"{npu_prefix}{suffix}"
+    """Return matching `<task>_<precision>_config*.json` files in an NPU bucket."""
+    return sorted(src_dir.glob(f"{task}_{precision}_config*.json"))
 
 
 def copy_recipe(
@@ -110,11 +77,10 @@ def copy_recipe(
         dest_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     for src in sources:
-        dest_name = recipe_target_name(src.name, task, precision)
-        dest = dest_dir / dest_name
+        dest = dest_dir / src.name
         if not dry_run:
             shutil.copy2(src, dest)
-        written.append(dest_name)
+        written.append(src.name)
     return written
 
 
