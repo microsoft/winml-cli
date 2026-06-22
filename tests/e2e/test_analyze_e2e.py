@@ -363,18 +363,28 @@ class TestAnalyzeHappyPath:
         assert result.exit_code == 0
 
     def test_default_auto_selects_single_ep_when_ep_omitted(
-        self, onnx_model_path: Path, rules_dir: Path
+        self,
+        onnx_model_path: Path,
+        rules_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Omitting ``--ep`` resolves a single best EP from local availability.
 
-        With a synthetic rule present the run must complete cleanly; the auto
-        axis resolves from the real ORT device map (CPU EP is always available
-        as a fallback), so only documented exit codes are asserted."""
+        The test is hardware-agnostic: local availability is controlled via the
+        ORT device->EP map monkeypatch rather than real machine capabilities.
+        With this synthetic map, auto resolves to QNN on NPU and should be fully
+        supported."""
+        monkeypatch.setattr(
+            "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
+            lambda: {
+                "npu": ("QNNExecutionProvider",),
+                "gpu": ("QNNExecutionProvider", "DmlExecutionProvider"),
+                "cpu": ("CPUExecutionProvider",),
+            },
+        )
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
         result = _invoke(["-m", str(onnx_model_path), "--quiet"])
-        # Aggregate result depends on whether the resolved EP is fully
-        # supported; only assert documented exit codes.
-        assert result.exit_code in {0, 1, 2}
+        assert result.exit_code == 0
 
 
 # ===========================================================================
