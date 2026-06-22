@@ -228,6 +228,10 @@ class WinMLEPRegistry:
         available = registry.get_available_eps()
     """
 
+    # Set in __new__ before __init__ runs; declared here so mypy can resolve its
+    # type at the __init__ read site.
+    _initialized: bool
+
     def __new__(cls) -> WinMLEPRegistry:
         """Singleton pattern."""
         global _winml_ep_registry
@@ -269,7 +273,8 @@ class WinMLEPRegistry:
         """Load EP catalog from WinML."""
         from windowsml import EpCatalog
 
-        checked_eps: set[EPName] = set()
+        # Dedup of raw windowsml provider-name strings (pre-validation).
+        checked_eps: set[str] = set()
         with EpCatalog() as catalog:
             for provider in catalog.find_all_providers():
                 if provider.name in checked_eps:
@@ -402,4 +407,4 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
         except Exception as e:
             logger.debug("WinML discovery skipped: %s", e)
 
-    return ort.get_available_providers()
+    return cast("list[str]", ort.get_available_providers())

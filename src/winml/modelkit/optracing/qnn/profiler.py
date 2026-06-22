@@ -19,7 +19,7 @@ import contextlib
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -27,6 +27,10 @@ from ..base import OpTracer
 from ..result import OperatorMetrics, OpTraceResult
 from .csv_parser import parse_qnn_profiling_csv
 from .viewer import find_qnn_sdk, run_qhas_viewer
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 logger = logging.getLogger(__name__)
@@ -53,7 +57,7 @@ def _resolve_shape(shape: list, default_dim: int = 1) -> list[int]:
 
 
 @contextlib.contextmanager
-def _working_directory(path: Path):
+def _working_directory(path: Path) -> Iterator[None]:
     """Temporarily change CWD and restore on exit.
 
     QNN EP writes ``*_schematic.bin`` into the process CWD, so we

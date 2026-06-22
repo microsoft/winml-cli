@@ -28,6 +28,10 @@ from .utils import _extract_exception_stack, _format_exception_message
 
 
 if TYPE_CHECKING:
+    from opentelemetry._logs import Logger
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry.sdk.resources import Resource
+
     from ..utils.constants import EPNameOrAlias
 
 
@@ -88,8 +92,8 @@ class Telemetry:
     """
 
     def __init__(self) -> None:
-        self._logger = None  # set when enabled; None when disabled
-        self._provider = None
+        self._logger: Logger | None = None  # set when enabled; None when disabled
+        self._provider: LoggerProvider | None = None
         self._disabled = True  # set to False only after successful init
         self._app_instance_id = str(uuid.uuid4())
         # Kept in the event schema for forward-compat: today
@@ -147,7 +151,7 @@ class Telemetry:
             self._disabled = True
             _clear_cache_quietly()
 
-    def _build_resource(self):
+    def _build_resource(self) -> Resource:
         from opentelemetry.sdk.resources import Resource
 
         device_id, id_status = get_or_create_device_id()
@@ -219,6 +223,8 @@ class Telemetry:
     def _emit(self, event_name: str, attrs: dict[str, Any]) -> None:
         from opentelemetry._logs import LogRecord
 
+        if self._logger is None:
+            return
         filtered = _filter_allowlist(event_name, attrs)
         record = LogRecord(
             timestamp=time.time_ns(),
