@@ -64,6 +64,18 @@ def _mock_local_ep_device_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
         "winml.modelkit.sysinfo.device._get_available_eps",
         lambda: simulated_eps,
     )
+    # The analyze command now resolves a single `auto` target via the shared
+    # sysinfo helpers (resolve_device / resolve_eps), which read the ORT device
+    # -> EP map directly. Mirror the simulated local matrix here so resolution is
+    # deterministic and hardware-independent.
+    device_ep_map: dict[str, list[str]] = {}
+    for _ep, _device in SIMULATED_LOCAL_EP_DEVICE_PAIRS:
+        device_ep_map.setdefault(_device.lower(), []).append(_ep)
+    simulated_device_ep_map = {d: tuple(eps) for d, eps in device_ep_map.items()}
+    monkeypatch.setattr(
+        "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
+        lambda: simulated_device_ep_map,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -1163,55 +1175,45 @@ class TestAnalyzeEPDeviceSelectionMatrix:
     @pytest.mark.parametrize(
         ("ep_arg", "device_arg", "expect_exit", "expect_calls", "expect_error"),
         [
-            # Both auto: filter to local_pairs. Output sorted by EP_SUPPORTED_DEVICES.
+            # Both auto: resolve a single best target via shared sysinfo helpers.
+            # Best device is NPU (priority npu>gpu>cpu); its best local EP is
+            # OpenVINO (only npu EP in the simulated matrix).
             (
                 None,
                 None,
                 0,
-                [
-                    ("NvTensorRTRTXExecutionProvider", "GPU"),
-                    ("OpenVINOExecutionProvider", "NPU"),
-                    ("OpenVINOExecutionProvider", "CPU"),
-                    ("DmlExecutionProvider", "GPU"),
-                    ("CPUExecutionProvider", "CPU"),
-                ],
+                [("OpenVINOExecutionProvider", "NPU")],
                 None,
             ),
-            # ep=auto, device=gpu: warn about non-local but run all eps that support GPU.
+            # ep=auto, device=gpu: single best local EP for GPU. _DEVICE_EP_MAP
+            # ranks NvTensorRTRTX above Dml, both locally available on GPU.
             (
                 None,
                 "gpu",
                 0,
-                [
-                    ("NvTensorRTRTXExecutionProvider", "GPU"),
-                    ("OpenVINOExecutionProvider", "GPU"),
-                    ("DmlExecutionProvider", "GPU"),
-                ],
+                [("NvTensorRTRTXExecutionProvider", "GPU")],
                 None,
             ),
-            # ep=openvino, device=auto: warn about non-local pairs, run all 3.
+            # ep=openvino, device=auto: single best local device for OpenVINO.
+            # OpenVINO is local on NPU and CPU; NPU wins on priority.
             (
                 "openvino",
                 None,
                 0,
-                [
-                    ("OpenVINOExecutionProvider", "NPU"),
-                    ("OpenVINOExecutionProvider", "GPU"),
-                    ("OpenVINOExecutionProvider", "CPU"),
-                ],
+                [("OpenVINOExecutionProvider", "NPU")],
                 None,
             ),
-            # ep=qnn, device=auto: QNN is not local, but we warn (not filter) and run.
+            # ep=qnn, device=auto: QNN is not local, so resolving a device fails
+            # the same way build/run fail — exit 2 with a clear message.
             (
                 "qnn",
                 None,
-                0,
-                [
-                    ("QNNExecutionProvider", "NPU"),
-                    ("QNNExecutionProvider", "GPU"),
-                ],
-                None,
+                2,
+                [],
+                "not available on this system",
             ),
+            # ep=qnn, device=all: `all` keeps the full fan-out (no local check),
+            # so both QNN-supported devices run unchanged.
             (
                 "qnn",
                 "all",
@@ -1337,14 +1339,19 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         assert call_kwargs["device"] == "GPU"
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
-    def test_qnn_auto_warns_about_non_local_pairs(
+    def test_qnn_device_auto_errors_when_not_local(
         self,
         mock_analyzer_class: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """qnn + auto device: QNN isn't locally supported but we warn (not error) and run."""
+        """qnn + auto device: QNN isn't local, so device resolution fails (exit 2).
+
+        ``auto`` resolves from local availability via the shared sysinfo helpers,
+        exactly like build/run. To statically analyze a non-local EP the user must
+        pin the device (``--device npu``) or use ``--device all``.
+        """
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -1353,23 +1360,16 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         mock_analyzer_class.return_value = mock_instance
 
         result = runner.invoke(analyze, ["--model", str(model_file), "--ep", "qnn"])
-        assert result.exit_code == 0
-        assert "not available on this machine" in result.output.lower()
-        actual_calls = [
-            (call.kwargs["ep"], call.kwargs["device"])
-            for call in mock_instance.analyze.call_args_list
-        ]
-        assert actual_calls == [
-            ("QNNExecutionProvider", "NPU"),
-            ("QNNExecutionProvider", "GPU"),
-        ]
+        assert result.exit_code == 2
+        assert "not available on this system" in result.output.lower()
+        assert not mock_instance.analyze.called
 
     @patch(
         "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
         return_value=False,
     )
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
-    def test_auto_specific_device_run_unknown_op_executes_local_pairs_without_rule_data(
+    def test_auto_ep_specific_device_run_unknown_op_executes_single_local_pair(
         self,
         mock_analyzer_class: MagicMock,
         _mock_has_rule: Mock,
@@ -1377,12 +1377,12 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """ep=auto + specific device should run all locally-eligible (ep, device) pairs.
+        """ep=auto + specific device resolves a single best local (ep, device) pair.
 
-        With ep=auto and device specified, no local filter is applied — pairs the
-        local machine doesn't support are kept (a warning is emitted) and analysis
-        runs for each. has_rule_data_for_ep returning False here only affects
-        per-pair OP CHECK rendering (op-check-skipped), not which pairs run.
+        With ep=auto the shared resolver picks the highest-priority EP locally
+        available on the requested device (NvTensorRTRTX on GPU). The pair is
+        local, so --run-unknown-op stays enabled. has_rule_data_for_ep returning
+        False only affects per-pair OP CHECK rendering, not which pair runs.
         """
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
@@ -1401,11 +1401,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
             (call.kwargs["ep"], call.kwargs["device"])
             for call in mock_instance.analyze.call_args_list
         ]
-        assert actual_calls == [
-            ("NvTensorRTRTXExecutionProvider", "GPU"),
-            ("OpenVINOExecutionProvider", "GPU"),
-            ("DmlExecutionProvider", "GPU"),
-        ]
+        assert actual_calls == [("NvTensorRTRTXExecutionProvider", "GPU")]
 
 
 class TestQDQNodeDisplayMapping:

@@ -725,7 +725,8 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
     type=click.Choice([*ALL_EP_NAMES, "all", "auto"], case_sensitive=False),
     help=(
         "Target execution provider. Supports canonical names, aliases, and all/auto. "
-        "all = evaluate all rule-data-backed EPs; auto = infer from local availability"
+        "all = evaluate all rule-data-backed EPs; "
+        "auto = infer a single best target from local availability"
     ),
 )
 @click.option(
@@ -736,7 +737,8 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
     type=click.Choice([*SUPPORTED_DEVICES, "all", "auto"], case_sensitive=False),
     help=(
         "Target device type. Supports CPU/GPU/NPU and all/auto. "
-        "all = all rule-data-backed devices; auto = infer from local availability"
+        "all = all rule-data-backed devices; "
+        "auto = infer a single best target from local availability"
     ),
 )
 @cli_utils.verbosity_options()
@@ -897,13 +899,29 @@ def analyze(
             logger.error("Searched directories: %s", searched)
             sys.exit(2)
 
-        devices: list[str]
-        if device == "auto":
-            from ..sysinfo.device import _get_available_devices
+        # Resolve the EP/device selection. `all` keeps the full rule-data-backed
+        # set (fan-out, unchanged). `auto` resolves to a single best target from
+        # local availability via the shared sysinfo helpers — the same path
+        # build/run/perf use. A concrete value is used as-is.
+        from ..sysinfo import resolve_device, resolve_eps
 
-            devices = list(_get_available_devices())
-        elif device == "all":
+        # Only a pinned (concrete) EP can constrain device auto-resolution.
+        # ``ep`` is a concrete EP/alias here unless it is the "auto"/"all"
+        # sentinel; the cast drops those sentinels from the type for resolve_*.
+        ep_hint: EPNameOrAlias | None = (
+            None if ep in ("auto", "all") or ep is None else cast("EPNameOrAlias", ep)
+        )
+
+        devices: list[str]
+        if device == "all":
             devices = list(SUPPORTED_DEVICES)
+        elif device == "auto":
+            try:
+                resolved_device, _ = resolve_device(device="auto", ep=ep_hint)
+            except (ValueError, RuntimeError) as e:
+                logger.error("Could not auto-select a device: %s", e)
+                sys.exit(2)
+            devices = [resolved_device]
         elif device is not None:
             devices = [device]
         else:
@@ -911,12 +929,25 @@ def analyze(
         devices = sorted(d.upper() for d in devices)
 
         eps: list[EPName | None]
-        if ep == "auto":
-            from ..sysinfo.device import _get_available_eps
-
-            eps = list(_get_available_eps())
-        elif ep == "all":
+        if ep == "all":
             eps = list(SUPPORTED_EPS)
+        elif ep == "auto":
+            # Single highest-priority EP available on the target device. With
+            # device == "all" there is no single device context, so fall back to
+            # the best available device purely for EP selection.
+            if device == "all":
+                try:
+                    ref_device, _ = resolve_device(device="auto")
+                except (ValueError, RuntimeError) as e:
+                    logger.error("Could not auto-select an execution provider: %s", e)
+                    sys.exit(2)
+            else:
+                ref_device = devices[0]
+            compatible_eps = resolve_eps(ref_device)
+            if not compatible_eps:
+                logger.error("No execution provider is available for device '%s'.", ref_device)
+                sys.exit(2)
+            eps = [compatible_eps[0]]
         else:
             # ep is a specific EP or alias
             eps = [normalize_ep_name(ep)]
@@ -937,26 +968,10 @@ def analyze(
             )
         execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
+        # Local pairs are still needed to gate --run-unknown-op probing
+        # (_resolve_run_unknown_op). Single-target `auto` selection is already
+        # local by construction, so no extra intersection/warning is required.
         local_pairs = set(_get_local_ep_device_pairs())
-
-        if device == "auto" and ep == "auto":
-            execution_pairs = [pair for pair in execution_pairs if pair in local_pairs]
-        elif device == "auto":
-            unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
-            if unsupported_pairs:
-                logger.warning(
-                    "--device auto resolves from local availability, but --ep is pinned;"
-                    " the following pairs are not available on this machine: %s",
-                    ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
-                )
-        elif ep == "auto":
-            unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
-            if unsupported_pairs:
-                logger.warning(
-                    "--ep auto resolves from local availability, but --device is pinned;"
-                    " the following pairs are not available on this machine: %s",
-                    ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
-                )
 
         if not execution_pairs:
             logger.error("No EP/device combination matched the current selection.")
