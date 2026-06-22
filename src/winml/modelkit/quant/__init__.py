@@ -16,6 +16,8 @@ Usage:
     result = quantize_onnx("model.onnx", WinMLQuantizationConfig(samples=100))
 """
 
+from typing import Any
+
 from .config import QuantizeResult, WinMLQuantizationConfig
 
 
@@ -31,7 +33,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load quantizer (imports onnxruntime.quantization)."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]

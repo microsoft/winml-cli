@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from opentelemetry.sdk._logs import ReadableLogRecord
+    from opentelemetry.sdk.resources import Resource
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -226,7 +227,10 @@ class OneCollectorLogExporter(LogRecordExporter):
 
     def _to_envelope(self, ld: ReadableLogRecord) -> dict:
         record = ld.log_record
-        timestamp = _ns_to_datetime(record.timestamp)
+        # OTel types timestamp as Optional; fall back to now only when truly
+        # absent (None) — timestamp=0 is a valid epoch value, so don't use `or`.
+        ts_ns = record.timestamp if record.timestamp is not None else time.time_ns()
+        timestamp = _ns_to_datetime(ts_ns)
         data = dict(record.attributes or {})
         ext = _resource_to_ext(ld.resource)
         return _build_envelope(
@@ -266,7 +270,7 @@ def _ns_to_datetime(ts_ns: int) -> datetime:
     return datetime.fromtimestamp(ts_ns / 1_000_000_000, tz=timezone.utc)
 
 
-def _resource_to_ext(resource) -> dict:
+def _resource_to_ext(resource: Resource | None) -> dict:
     """Translate OpenTelemetry Resource attributes to CS 4.0 ext.* slots.
 
     Attribute name → CS slot mapping:
