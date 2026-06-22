@@ -35,7 +35,7 @@ A *bucket* is one folder under `examples/<ep>/<device>/`. The full set is:
 | 10 | `vitisai` | npu | `examples/vitisai/npu/<slug>/` | `<task>_<precision>_eval_result.json` |
 
 `<slug>` = `<hf_id>` with the first `/` replaced by `_` (e.g. `microsoft/resnet-50` → `microsoft_resnet-50`).
-For NPU `<precision>` ∈ {`fp16`, `w8a8`, `w8a16`}. For CPU/GPU EPs there is no precision suffix (EP default precision).
+For NPU `<precision>` ∈ {`fp16`, `w8a8`, `w8a16`}. For CPU/GPU EPs, results are accepted as either `<task>_eval_result.json` (EP default precision, treated as fp16-equivalent) or `<task>_fp16_eval_result.json`.
 
 See also [test_config.md](test_config.md) and [generate_config.md](generate_config.md) for the layout these results come from.
 
@@ -50,11 +50,11 @@ A `(model, task)` pair is **Built-in** iff its **fp16** eval passes on **every**
 
 For each Built-in `(model, task)`:
 
-- **fp16** recipe: always picked (mandatory by definition).
-- **w8a8** recipe: picked iff `<task>_w8a8_eval_result.json` exists on **at least one** NPU EP.
-- **w8a16** recipe: picked iff `<task>_w8a16_eval_result.json` exists on at least one NPU EP.
+- **fp16** recipe: always picked (mandatory by definition). Sourced from an NPU bucket whose fp16 eval passed; falls back to a CPU/GPU bucket if no NPU has it.
+- **w8a8** recipe: picked iff `<task>_w8a8_eval_result.json` exists on **at least one** NPU EP, sourced from that EP.
+- **w8a16** recipe: picked iff `<task>_w8a16_eval_result.json` exists on at least one NPU EP, sourced from that EP.
 
-Recipes are sourced from the matching NPU folder; composite models (e.g. CLIP zero-shot) copy every file matching `<task>_<precision>_config*.json`.
+Source configs are globbed as `<task>_<precision>_config*.json` (NPU) or `<task>_config*.json` (CPU/GPU); CPU/GPU sources are renamed to the NPU-style filename on copy. Composite tasks (e.g. CLIP zero-shot) match multiple files via the `*` and all are copied.
 
 ---
 
@@ -111,8 +111,7 @@ $branch = "shzhen/update-builtin-recipes-" + (Get-Date -Format yyyyMMdd)
 git switch --create $branch origin/main
 
 # 6. Replace examples/recipes/ wholesale with the snapshot (README included).
-Get-ChildItem examples/recipes -Recurse -File | Remove-Item -Force
-Get-ChildItem examples/recipes -Directory | Remove-Item -Recurse -Force
+Get-ChildItem examples/recipes | Remove-Item -Recurse -Force
 Copy-Item -Recurse $tmp/* examples/recipes/ -Force
 Remove-Item -Recurse -Force $tmp
 
