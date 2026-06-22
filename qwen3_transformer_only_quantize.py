@@ -133,6 +133,23 @@ def _tokenize_prompts(tokenizer: Any, prompts: list[str], num_samples: int) -> l
     return out
 
 
+def _gqa_node_names(onnx_path: Path) -> list[str]:
+    """Return the names of every GroupQueryAttention node in ``onnx_path``.
+
+    These nodes are excluded from quantization so ORT leaves both their
+    inputs and output in float (``... -> Cast -> GQA -> Cast``), matching
+    the reference graph which keeps attention entirely out of QDQ.
+    """
+    import onnx
+
+    model = onnx.load(str(onnx_path), load_external_data=False)
+    return [
+        n.name
+        for n in model.graph.node
+        if n.op_type == "GroupQueryAttention" and n.name
+    ]
+
+
 def quantize_built_model(
     model: WinMLCompositeModel,
     *,
@@ -140,7 +157,7 @@ def quantize_built_model(
     max_cache_len: int = DEFAULT_MAX_CACHE,
     prefill_seq: int = DEFAULT_PREFILL_SEQ,
     num_samples: int = DEFAULT_NUM_SAMPLES,
-    weight_type: str = "uint8",
+    weight_type: str = "int8",
     activation_type: str = "uint16",
 ) -> dict[str, Path]:
     """Quantize the transformer-only ONNX files in-place.
@@ -200,6 +217,11 @@ def quantize_built_model(
         print(f"\n=== Quantize (transformer-only): {sub_name} (seq_len={seq_len}) ===")
         print(f"  in : {fused_path}")
         print(f"  out: {quant_path}")
+        gqa_nodes = _gqa_node_names(fused_path)
+        print(
+            f"  excluding {len(gqa_nodes)} GroupQueryAttention nodes from "
+            "quantization (inputs + output stay float, Cast -> GQA -> Cast)"
+        )
         reader = Qwen3TransformerOnlyCalibReader(
             embed_tokens,
             hf_model.config,
@@ -213,6 +235,15 @@ def quantize_built_model(
             activation_type=activation_type,  # type: ignore[arg-type]
             calibration_method="minmax",
             calibration_data=reader,
+            # w8a16: symmetric int8 weights (zp=0) + asymmetric uint16
+            # activations, matching the reference quantization.
+            weight_symmetric=True,
+            activation_symmetric=False,
+            # ORT treats GroupQueryAttention as quantizable and wraps both its
+            # inputs and output in QDQ. The reference keeps attention entirely
+            # in float (Cast -> GQA -> Cast), so exclude the GQA nodes from
+            # quantization so no QDQ is inserted around them.
+            nodes_to_exclude=gqa_nodes,
         )
         result = quantize_onnx(fused_path, output_path=quant_path, config=cfg)
         if not result.success:

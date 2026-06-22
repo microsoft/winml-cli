@@ -68,6 +68,11 @@ class WinMLQuantizationConfig:
     # Quantization options
     per_channel: bool = False
     symmetric: bool = False
+    # Optional per-target symmetry overrides. When None, fall back to
+    # ``symmetric``. Lets w8a16 use symmetric weights (int8, zp=0) together
+    # with asymmetric activations (uint16).
+    weight_symmetric: bool | None = None
+    activation_symmetric: bool | None = None
 
     # Output settings
     save_calibration: bool = False
@@ -98,6 +103,8 @@ class WinMLQuantizationConfig:
             "activation_type": self.activation_type,
             "per_channel": self.per_channel,
             "symmetric": self.symmetric,
+            "weight_symmetric": self.weight_symmetric,
+            "activation_symmetric": self.activation_symmetric,
             "save_calibration": self.save_calibration,
             "distribution": self.distribution,
             "seed": self.seed,
@@ -139,6 +146,8 @@ class WinMLQuantizationConfig:
             activation_type=data.get("activation_type", "uint8"),
             per_channel=data.get("per_channel", False),
             symmetric=data.get("symmetric", False),
+            weight_symmetric=data.get("weight_symmetric"),
+            activation_symmetric=data.get("activation_symmetric"),
             save_calibration=data.get("save_calibration", False),
             distribution=data.get("distribution", "uniform"),
             seed=data.get("seed"),

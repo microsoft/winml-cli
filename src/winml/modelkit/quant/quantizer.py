@@ -132,10 +132,23 @@ def quantize_onnx(
         activation_type = activation_type_map[config.activation_type]
         calibrate_method = calibration_method_map[config.calibration_method]
 
-        # Build extra options
+        # Build extra options. Weight/activation symmetry can be controlled
+        # independently (e.g. w8a16 = symmetric int8 weights + asymmetric
+        # uint16 activations); fall back to the single ``symmetric`` flag when
+        # the per-target override is unset.
+        weight_symmetric = (
+            config.weight_symmetric
+            if config.weight_symmetric is not None
+            else config.symmetric
+        )
+        activation_symmetric = (
+            config.activation_symmetric
+            if config.activation_symmetric is not None
+            else config.symmetric
+        )
         extra_options = {
-            "ActivationSymmetric": config.symmetric,
-            "WeightSymmetric": config.symmetric,
+            "ActivationSymmetric": activation_symmetric,
+            "WeightSymmetric": weight_symmetric,
         }
 
         # Step 1: Generate QDQ config
