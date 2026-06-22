@@ -173,6 +173,63 @@ And a `search_space_rules` object that `autoconfig.py` reads to prune configurat
 
 ---
 
+## Self-Evolution Tooling
+
+Implements the loop from [`docs/self-evolution-design.html`](docs/self-evolution-design.html) —
+how sweeps stabilize their own conclusions and promote findings without a human in the loop.
+
+### bench_utils.py — paired A/B + adaptive sampling
+
+Shared bench primitives used across sweeps:
+
+- **`paired_ab_bench(run_session, baseline, hyp, n_pairs)`** (Fix #1) — interleaves the
+  baseline and hypothesis perf sessions in one thermal window so DVFS/thermal drift appears
+  in both legs and **cancels** in the within-pair ratio. Returns mean gain, 95% CI, and a
+  verdict (`KEEP_CONFIRMED` / `MARGINAL` / `DISCARD`). This is the unbiased fix for the
+  npu-001/MobileViT failure, where a cold baseline vs warm hypothesis manufactured a fake win.
+- **`adaptive_paired_ab_bench(...)`** (Fix #2) — keeps adding pairs until the 95% CI is
+  decisive (clears the KEEP or DISCARD band) or `MAX_PAIRS` is reached. Stable models finish
+  in `MIN_PAIRS=3`; noisy ones automatically get more samples.
+- **`thermal_classify(ref_p50, cold_ref_p50)`** (Fix #5) — classifies device thermal state
+  (`COOL`/`WARM`/`HOT_RUN`) from a reference-model latency, for excluding throttled runs.
+- **`session_cv(p50s)`** — between-session coefficient of variation (the effect-size noise floor).
+
+The QNN sweep opts into paired A/B with `--paired-ab` (default off; the validated default is
+the sequential Phase B):
+
+```bash
+python catalog_qnn_sweep.py --model apple/mobilevit-small --task image-classification --paired-ab
+```
+
+### promote_findings.py — confidence-gated KB promotion (L1 → L4)
+
+Post-processing script (Fix #4) that reads every `catalog-*-sweep/*/results.json` and applies
+the confidence ladder, writing a **draft** to `ep_knowledge/_auto_promoted.json` (it never
+clobbers the curated `<ep>.json` files):
+
+| Level | Gate |
+|---|---|
+| **L1** Observed | median gain ≥ 5% on one model, one run |
+| **L2** Confirmed | hypothesis p50 range strictly below baseline range **and** gain ≥ 2×(session CV) — the same effect-size gate the sweep uses |
+| **L3** Generalized | same `(ep, flags)` reaches L2 on ≥2 distinct models of one architecture class (`model_type`) |
+| **L4** Cross-cutting | same `(ep, flags)` reaches L2 across ≥3 architecture classes |
+
+```bash
+python promote_findings.py            # writes ep_knowledge/_auto_promoted.json
+```
+
+A human applies the promotion checklist in [`ep_knowledge/README.md`](ep_knowledge/README.md)
+(paired A/B, clean baseline, effect-size > noise floor, independent reruns, baseline-drift
+check) before merging any auto-promoted candidate into the curated KB.
+
+### analyze_insight.py — architecture-based pruning (Fix #3)
+
+`build_insight()` fuses graph fingerprint + `winml analyze` + KB rules into a `skip_set`
+(hypotheses to prune) and `priority_boosts` (reordering), cutting the 14-hypothesis matrix
+to the few that matter per architecture.
+
+---
+
 ## Feature Gaps Identified
 
 Three actionable gaps in `winml-cli` surfaced by this research:
@@ -197,12 +254,17 @@ Three actionable gaps in `winml-cli` surfaced by this research:
 research/autoconfig/
 ├── README.md                    ← this file
 ├── autoconfig.py                ← adaptive single-model config search loop
-├── catalog_qnn_sweep.py         ← fixed-hypothesis multi-model QNN sweep
+├── catalog_qnn_sweep.py         ← fixed-hypothesis multi-model QNN sweep (--paired-ab)
+├── bench_utils.py               ← shared bench primitives (paired A/B, adaptive, thermal)
+├── promote_findings.py          ← L1→L4 confidence-gated KB promotion (draft sink)
+├── analyze_insight.py           ← graph + analyze + KB → skip_set / priority_boosts
 ├── analyze_graph.py             ← ONNX graph pattern analysis helper
 ├── autoconfig_diagram.html      ← Explorer/Optimizer/Reviewer architecture diagram
 ├── gen_report_v3.py             ← HTML report generator for sweep results
+├── docs/                        ← design docs (self-evolution, agent, skills, cross-device)
 ├── ep_knowledge/
-│   ├── README.md                ← epistemics guidelines and KB format
+│   ├── README.md                ← epistemics guidelines + promotion checklist
+│   ├── _auto_promoted.json      ← promote_findings.py output (auto-generated draft)
 │   ├── cpu.json                 ← CPU EP findings (ConvNext, 6 findings)
 │   ├── dml.json                 ← DirectML EP findings
 │   ├── qnn_gpu.json             ← QNN Adreno GPU findings

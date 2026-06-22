@@ -55,6 +55,8 @@ try:
 except Exception:
     generate_model_report = None
 
+from bench_utils import adaptive_paired_ab_bench, run_perf_session
+
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
@@ -82,6 +84,13 @@ SCREEN_CV_MAX = 0.15
 # against the npu-001/MobileViT failure where a thermally inflated baseline produced a
 # fake +26% that did not reproduce on a clean run.
 EFFECT_SIZE_CV_MULT = 2.0
+
+# Paired A/B (self-evolution-design Fix #1): opt-in. When enabled (--paired-ab),
+# each non-baseline hypothesis is additionally measured by interleaving baseline
+# and hypothesis perf sessions in the same thermal window, so DVFS drift cancels
+# in the within-pair ratio. This is the unbiased complement to the (default)
+# sequential Phase B. Default OFF — the sequential path is the validated one.
+PAIRED_AB = False
 
 FULL_WARMUP = 50
 FULL_ITERS = 500
@@ -614,6 +623,7 @@ def sweep_model(
     # conv_pct is filled in after h0 succeeds (used to annotate npu-006 risk for h4/h5)
     conv_pct: float = 0.0
     npu006_risk: bool = False
+    baseline_onnx_path: Path | None = None
 
     for hyp_id, label, opset_override, extra_optim in HYPOTHESES:
         # Hypothesis filter: skip if not in --only-hypotheses list
@@ -741,6 +751,36 @@ def sweep_model(
         bench["extra_optim"] = extra_optim or {}
         if hyp_id in ("h4", "h5"):
             bench["npu006_expected_regression"] = npu006_risk
+
+        # Remember the baseline ONNX so later hypotheses can be paired against it.
+        if hyp_id == "h0" and onnx_path.exists():
+            baseline_onnx_path = onnx_path
+
+        # Opt-in paired A/B (Fix #1): interleave baseline vs hypothesis in one
+        # thermal window so DVFS drift cancels. Records verdict + 95% CI alongside
+        # the (default) sequential Phase B result.
+        if (
+            PAIRED_AB
+            and hyp_id != "h0"
+            and baseline_onnx_path is not None
+            and onnx_path.exists()
+            and bench["status"] in ("OK", "OK_HIGH_CV")
+        ):
+            print("  [paired-A/B] interleaving baseline vs hypothesis…", flush=True)
+
+            def _session(p: Path) -> float | None:
+                return run_perf_session(WINML, p, EP, DEVICE, iters=FULL_ITERS, warmup=FULL_WARMUP)
+
+            bench["paired_ab"] = adaptive_paired_ab_bench(
+                _session, baseline_onnx_path, onnx_path, cool_down_s=COOL_DOWN_S
+            )
+            pa = bench["paired_ab"]
+            print(
+                f"  [paired-A/B] {pa['verdict']} mean={pa['mean_gain_pct']}% "
+                f"±{pa['ci_half_95']} ({pa['n_pairs']} pairs)",
+                flush=True,
+            )
+
         results["hypotheses"][hyp_id] = bench
 
         if bench["status"] == "UNSTABLE":
@@ -1353,7 +1393,21 @@ def main() -> None:
             "running winml config again. Requires a previous full sweep to have run."
         ),
     )
+    parser.add_argument(
+        "--paired-ab",
+        action="store_true",
+        help=(
+            "Additionally run interleaved paired A/B bench (baseline vs hypothesis in "
+            "one thermal window) per hypothesis, recording verdict + 95%% CI. "
+            "Unbiased complement to sequential Phase B (self-evolution-design Fix #1)."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.paired_ab:
+        global PAIRED_AB
+        PAIRED_AB = True
+        print("  [paired-A/B] enabled — interleaved baseline/hypothesis benching\n", flush=True)
 
     # Parse hypothesis filter
     only_hyp_ids: set[str] | None = None

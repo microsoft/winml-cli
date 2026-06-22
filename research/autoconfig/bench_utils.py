@@ -21,9 +21,12 @@ from __future__ import annotations
 
 import copy
 import json
+import math
+import statistics
 import subprocess
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +44,16 @@ COOL_DOWN_S: int = 30  # seconds between full-bench sessions (NPU)
 BUILD_TIMEOUT_S: int = 8 * 60
 BENCH_TIMEOUT_S: int = 8 * 60
 CONFIG_TIMEOUT_S: int = 120
+
+# ── Paired A/B + adaptive sampling (self-evolution-design Fix #1 / Fix #2) ─────
+MIN_PAIRS: int = 3  # never conclude on fewer than this many A/B pairs
+MAX_PAIRS: int = 8  # force-stop (MARGINAL) after this many pairs
+KEEP_GAIN_PCT: float = 5.0  # CI lower bound must exceed this to KEEP_CONFIRMED
+DISCARD_GAIN_PCT: float = -2.0  # CI upper bound below this -> DISCARD
+
+# ── Thermal reference classification (self-evolution-design Fix #5) ────────────
+THERMAL_COOL_MULT: float = 1.05  # <= 1.05x cold reference -> proceed
+THERMAL_HOT_MULT: float = 1.30  # >= 1.30x cold reference -> HOT_RUN
 
 
 # ── subprocess wrapper ────────────────────────────────────────────────────────
@@ -362,6 +375,205 @@ def ranges_non_overlapping(a: list[float], b: list[float]) -> bool | None:
     if not a or not b:
         return None
     return max(a) < min(b)
+
+
+def session_cv(p50s: list[float]) -> float:
+    """Session-to-session coefficient of variation (sample stddev / mean).
+
+    This is the run-to-run noise floor used by the effect-size gate. Unlike the
+    intra-session CV (screen.cv), it captures thermal / DVFS drift *between*
+    sessions — the noise that produces fake cross-config wins. Returns 0.0 for
+    fewer than 2 samples (spread cannot be estimated).
+    """
+    n = len(p50s)
+    if n < 2:
+        return 0.0
+    mean = sum(p50s) / n
+    if mean <= 0:
+        return 0.0
+    var = sum((x - mean) ** 2 for x in p50s) / (n - 1)
+    return (var**0.5) / mean
+
+
+# ── Paired A/B bench protocol (Fix #1) ─────────────────────────────────────────
+
+
+def run_perf_session(
+    winml: str,
+    model_path: Path,
+    ep: str,
+    device: str,
+    iters: int | None = None,
+    warmup: int | None = None,
+    out_json: Path | None = None,
+) -> float | None:
+    """Run a single `winml perf` session. Returns p50_ms, or None on failure.
+
+    This is the atomic measurement primitive shared by full-bench and paired A/B.
+    """
+    _iters = iters if iters is not None else FULL_ITERS
+    _warmup = warmup if warmup is not None else FULL_WARMUP
+    if out_json is None:
+        out_json = model_path.parent / "ab_perf.json"
+    rc, _, _ = run_cmd(
+        [
+            winml,
+            "perf",
+            "-m",
+            str(model_path),
+            "--ep",
+            ep,
+            "--device",
+            device,
+            "--warmup",
+            str(_warmup),
+            "--iterations",
+            str(_iters),
+            "-o",
+            str(out_json),
+        ],
+        label=f"perf session ({_iters} iters)",
+        timeout=BENCH_TIMEOUT_S,
+    )
+    if rc != 0 or not out_json.exists():
+        return None
+    try:
+        data = json.loads(out_json.read_text(encoding="utf-8"))
+        lat = data.get("latency_ms", data)
+        p50 = lat.get("p50") if isinstance(lat, dict) else None
+        return round(float(p50), 3) if p50 else None
+    except Exception as e:
+        print(f"     [warn] perf session parse error: {e}", flush=True)
+        return None
+
+
+def _ci_half_95(values: list[float]) -> float:
+    """Half-width of the 95% confidence interval of the mean (1.96 * SE).
+
+    Returns a large sentinel (999.0) for fewer than 2 samples (CI undefined).
+    """
+    if len(values) < 2:
+        return 999.0
+    return 1.96 * statistics.stdev(values) / math.sqrt(len(values))
+
+
+def _verdict_from_gains(gains: list[float]) -> dict:
+    """Summarise within-pair gain percentages into mean / 95% CI / verdict.
+
+    verdict:
+      KEEP_CONFIRMED — CI lower bound > KEEP_GAIN_PCT (real, robust speedup)
+      DISCARD        — CI upper bound < DISCARD_GAIN_PCT (real regression)
+      MARGINAL       — CI straddles the indifference band (need more pairs)
+      BENCH_FAIL     — no usable pairs
+    """
+    if not gains:
+        return {
+            "gains_pct": [],
+            "mean_gain_pct": None,
+            "ci_half_95": None,
+            "n_pairs": 0,
+            "verdict": "BENCH_FAIL",
+        }
+    mean = statistics.mean(gains)
+    ci = _ci_half_95(gains)
+    if mean - ci > KEEP_GAIN_PCT:
+        verdict = "KEEP_CONFIRMED"
+    elif mean + ci < DISCARD_GAIN_PCT:
+        verdict = "DISCARD"
+    else:
+        verdict = "MARGINAL"
+    return {
+        "gains_pct": [round(g, 2) for g in gains],
+        "mean_gain_pct": round(mean, 2),
+        "ci_half_95": round(ci, 2) if ci < 999 else None,
+        "n_pairs": len(gains),
+        "verdict": verdict,
+    }
+
+
+def paired_ab_bench(
+    run_session: Callable[[Path], float | None],
+    baseline_path: Path,
+    hyp_path: Path,
+    n_pairs: int = MIN_PAIRS,
+    cool_down_s: int | None = None,
+) -> dict:
+    """Interleaved A/B bench (Fix #1): baseline then hypothesis in one thermal window.
+
+    Each pair measures ``baseline`` immediately followed by ``hyp`` so DVFS / thermal
+    drift appears in BOTH legs and cancels in the within-pair ratio. The mean of the
+    per-pair gains (with a 95% CI) is far more reliable than comparing a cold baseline
+    against a warm hypothesis across separate sweep phases.
+
+    ``run_session`` is an injectable callable ``(model_path) -> p50_ms | None`` so the
+    statistics can be unit-tested without hardware. Use :func:`run_perf_session` (via a
+    lambda binding winml/ep/device) for the real measurement.
+    """
+    _cool = cool_down_s if cool_down_s is not None else COOL_DOWN_S
+    gains: list[float] = []
+    for i in range(max(1, n_pairs)):
+        b = run_session(baseline_path)
+        h = run_session(hyp_path)
+        if b and h and b > 0:
+            gains.append((b - h) / b * 100)
+        if i < n_pairs - 1:
+            print(f"     cool-down {_cool}s...", flush=True)
+            time.sleep(_cool)
+    return _verdict_from_gains(gains)
+
+
+def adaptive_paired_ab_bench(
+    run_session: Callable[[Path], float | None],
+    baseline_path: Path,
+    hyp_path: Path,
+    min_pairs: int = MIN_PAIRS,
+    max_pairs: int = MAX_PAIRS,
+    cool_down_s: int | None = None,
+) -> dict:
+    """Adaptive paired A/B (Fix #2): keep sampling until the 95% CI is decisive.
+
+    Stops early once the CI clears the KEEP or DISCARD band (after at least
+    ``min_pairs`` pairs); otherwise force-stops at ``max_pairs`` and returns MARGINAL.
+    Stable models finish in ``min_pairs``; noisy ones automatically get more pairs.
+    """
+    _cool = cool_down_s if cool_down_s is not None else COOL_DOWN_S
+    gains: list[float] = []
+    for i in range(max(1, max_pairs)):
+        b = run_session(baseline_path)
+        h = run_session(hyp_path)
+        if b and h and b > 0:
+            gains.append((b - h) / b * 100)
+        if len(gains) >= min_pairs:
+            mean = statistics.mean(gains)
+            ci = _ci_half_95(gains)
+            if mean - ci > KEEP_GAIN_PCT or mean + ci < DISCARD_GAIN_PCT:
+                break
+        if i < max_pairs - 1:
+            print(f"     cool-down {_cool}s...", flush=True)
+            time.sleep(_cool)
+    return _verdict_from_gains(gains)
+
+
+def thermal_classify(
+    ref_p50_ms: float,
+    cold_ref_p50_ms: float,
+    cool_mult: float = THERMAL_COOL_MULT,
+    hot_mult: float = THERMAL_HOT_MULT,
+) -> str:
+    """Classify device thermal state from a reference-model latency (Fix #5).
+
+    ``cold_ref_p50_ms`` is the reference latency captured when the device is cold.
+    Returns ``COOL`` (proceed), ``WARM`` (borderline), ``HOT_RUN`` (throttled —
+    exclude from L2 promotion), or ``UNKNOWN`` if no valid cold reference.
+    """
+    if cold_ref_p50_ms <= 0 or ref_p50_ms <= 0:
+        return "UNKNOWN"
+    ratio = ref_p50_ms / cold_ref_p50_ms
+    if ratio <= cool_mult:
+        return "COOL"
+    if ratio >= hot_mult:
+        return "HOT_RUN"
+    return "WARM"
 
 
 # ── ONNX analysis helpers ─────────────────────────────────────────────────────
