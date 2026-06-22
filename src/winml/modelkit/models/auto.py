@@ -451,6 +451,15 @@ class WinMLAutoModel:
             if user_ep is not None
             else (config.compile.ep_config.provider if config.compile is not None else None)
         )
+        # Forward build-pipeline controls (skip_optimize / hack_max_optim_iterations)
+        # supplied by callers like winml perf and winml eval. Only the recognized
+        # build-control keys are forwarded so unrelated kwargs (e.g. ``ep``, read
+        # above) do not leak into build_hf_model's signature.
+        build_control_kwargs = {
+            key: kwargs[key]
+            for key in ("skip_optimize", "hack_max_optim_iterations")
+            if key in kwargs
+        }
         result = build_hf_model(
             config=config,
             output_dir=output_dir,
@@ -462,6 +471,7 @@ class WinMLAutoModel:
             ep=resolved_ep,
             device=device,
             allow_unsupported_nodes=allow_unsupported_nodes,
+            **build_control_kwargs,
         )
         onnx_path = result.final_onnx_path
 

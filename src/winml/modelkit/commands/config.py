@@ -117,16 +117,22 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     default="transformers",
     help="Source library for TasksManager (default: transformers)",
 )
-@click.option(
-    "--quant/--no-quant",
-    "quant",
-    default=True,
-    show_default=True,
-    help="Include quantization in generated config (use --no-quant to exclude, sets quant=None)",
+@cli_utils.quant_option(
+    help_text="Include quantization in generated config "
+    "(use --no-quant to exclude, sets quant=None)"
 )
 @cli_utils.compile_option(
     default=True,
     help_text="Exclude compilation from generated config (sets compile=None). Default: exclude.",
+)
+@cli_utils.optimize_option(
+    optional_message="Build-pipeline flag; has no effect on the emitted config (config is static)."
+)
+@cli_utils.analyze_option(
+    optional_message="Build-pipeline flag; has no effect on the emitted config (config is static)."
+)
+@cli_utils.max_optim_iterations_option(
+    optional_message="Build-pipeline flag; has no effect on the emitted config (config is static)."
 )
 @cli_utils.trust_remote_code_option()
 @cli_utils.verbosity_options()
@@ -149,6 +155,9 @@ def config(
     quiet: bool,
     quant: bool,
     no_compile: bool,
+    optimize: bool,
+    analyze: bool,
+    max_optim_iterations: int | None,
     trust_remote_code: bool,
 ) -> None:
     r"""Generate WinMLBuildConfig for a HuggingFace model or .onnx file.
@@ -197,6 +206,20 @@ def config(
     """
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
+
+    # --optimize/--analyze/--max-optim-iterations are shared build-pipeline flags
+    # (see winml build/perf/eval). `winml config` only emits a static config and
+    # never runs the pipeline, so warn rather than silently ignore them.
+    for _flag, _provided in (
+        ("--no-optimize" if not optimize else "--optimize", "optimize"),
+        ("--no-analyze" if not analyze else "--analyze", "analyze"),
+        ("--max-optim-iterations", "max_optim_iterations"),
+    ):
+        if cli_utils.is_cli_provided(ctx, _provided):
+            logger.warning(
+                "%s has no effect on `winml config` (it only affects the build pipeline); ignored.",
+                _flag,
+            )
 
     hf_model = model  # rename for clarity in this function
     # Validate: at least one of -m, --model-type, or --model-class is required

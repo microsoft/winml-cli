@@ -10,7 +10,15 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.utils.cli import parse_ep_options, precision_option
+from winml.modelkit.utils.cli import (
+    analyze_option,
+    build_pipeline_extra_kwargs,
+    max_optim_iterations_option,
+    optimize_option,
+    parse_ep_options,
+    precision_option,
+    quant_option,
+)
 
 
 class TestParseEpOptions:
@@ -128,3 +136,123 @@ class TestPrecisionOption:
         assert "Quantization precision: int8, int16" in flat
         assert "Overridden by --weight-type" in flat
         assert "fp16" not in flat  # base float help is gone
+
+
+class TestQuantOption:
+    """Tests for the shared quant_option() decorator (with --quantize alias)."""
+
+    @staticmethod
+    def _make_cmd(**kwargs: object) -> click.Command:
+        @click.command()
+        @quant_option(**kwargs)  # type: ignore[arg-type]
+        def cmd(quant: bool) -> None:
+            click.echo(str(quant))
+
+        return cmd
+
+    def test_default_true(self) -> None:
+        result = CliRunner().invoke(self._make_cmd(), [])
+        assert result.output.strip() == "True"
+
+    @pytest.mark.parametrize(
+        ("flag", "expected"),
+        [
+            ("--quant", "True"),
+            ("--no-quant", "False"),
+            ("--quantize", "True"),
+            ("--no-quantize", "False"),
+        ],
+    )
+    def test_canonical_and_alias_flags(self, flag: str, expected: str) -> None:
+        """--quant/--no-quant and the --quantize/--no-quantize alias map to ``quant``."""
+        result = CliRunner().invoke(self._make_cmd(), [flag])
+        assert result.exit_code == 0
+        assert result.output.strip() == expected
+
+    def test_custom_default_false(self) -> None:
+        result = CliRunner().invoke(self._make_cmd(default=False), [])
+        assert result.output.strip() == "False"
+
+    def test_help_override_and_optional_message(self) -> None:
+        cmd = self._make_cmd(help_text="Config quant section", optional_message="Note.")
+        flat = " ".join(CliRunner().invoke(cmd, ["--help"]).output.split())
+        assert "Config quant section" in flat
+        assert "Note." in flat
+
+
+class TestOptimizeAnalyzeOptions:
+    """Tests for the shared optimize_option() / analyze_option() toggles."""
+
+    @staticmethod
+    def _make_cmd(decorator) -> click.Command:
+        @click.command()
+        @decorator()
+        def cmd(optimize: bool = True, analyze: bool = True) -> None:
+            # Echo whichever flag the decorator registered.
+            click.echo(f"optimize={optimize} analyze={analyze}")
+
+        return cmd
+
+    @pytest.mark.parametrize(
+        ("decorator", "flag", "needle"),
+        [
+            (optimize_option, "--no-optimize", "optimize=False"),
+            (optimize_option, "--optimize", "optimize=True"),
+            (analyze_option, "--no-analyze", "analyze=False"),
+            (analyze_option, "--analyze", "analyze=True"),
+        ],
+    )
+    def test_toggle(self, decorator, flag: str, needle: str) -> None:
+        result = CliRunner().invoke(self._make_cmd(decorator), [flag])
+        assert result.exit_code == 0
+        assert needle in result.output
+
+
+class TestMaxOptimIterationsOption:
+    """Tests for the shared max_optim_iterations_option() decorator."""
+
+    @staticmethod
+    def _make_cmd() -> click.Command:
+        @click.command()
+        @max_optim_iterations_option()
+        def cmd(max_optim_iterations: int | None) -> None:
+            click.echo(repr(max_optim_iterations))
+
+        return cmd
+
+    def test_default_none(self) -> None:
+        assert CliRunner().invoke(self._make_cmd(), []).output.strip() == "None"
+
+    def test_int_value(self) -> None:
+        result = CliRunner().invoke(self._make_cmd(), ["--max-optim-iterations", "5"])
+        assert result.output.strip() == "5"
+
+    def test_rejects_non_int(self) -> None:
+        assert CliRunner().invoke(self._make_cmd(), ["--max-optim-iterations", "x"]).exit_code != 0
+
+
+class TestBuildPipelineExtraKwargs:
+    """Tests for the shared build_pipeline_extra_kwargs() translator."""
+
+    def test_defaults_are_empty(self) -> None:
+        """All-default flags carry the pipeline default, so no keys are emitted."""
+        assert build_pipeline_extra_kwargs() == {}
+
+    def test_no_optimize_sets_skip_optimize(self) -> None:
+        assert build_pipeline_extra_kwargs(optimize=False) == {"skip_optimize": True}
+
+    def test_no_analyze_zeroes_iterations(self) -> None:
+        assert build_pipeline_extra_kwargs(analyze=False) == {"hack_max_optim_iterations": 0}
+
+    def test_max_optim_iterations_forwarded_when_analyzing(self) -> None:
+        result = build_pipeline_extra_kwargs(max_optim_iterations=7)
+        assert result == {"hack_max_optim_iterations": 7}
+
+    def test_no_analyze_wins_over_explicit_iterations(self) -> None:
+        """--no-analyze takes precedence over an explicit --max-optim-iterations."""
+        result = build_pipeline_extra_kwargs(analyze=False, max_optim_iterations=7)
+        assert result == {"hack_max_optim_iterations": 0}
+
+    def test_combined_optimize_and_analyze(self) -> None:
+        result = build_pipeline_extra_kwargs(optimize=False, analyze=False)
+        assert result == {"skip_optimize": True, "hack_max_optim_iterations": 0}

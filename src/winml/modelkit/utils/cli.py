@@ -522,6 +522,160 @@ def compile_option(
     )
 
 
+def quant_option(
+    default: bool = True,
+    optional_message: str | None = None,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--quant/--no-quant`` quantization toggle.
+
+    Shared across ``build``, ``config``, ``perf``, and ``eval`` so the flag
+    spelling and default stay consistent. ``--quantize/--no-quantize`` is kept
+    as an alias so existing ``perf`` invocations keep working. The decorated
+    function receives the value as the ``quant`` parameter (``True`` = run
+    quantization, ``--no-quant`` overrides the config's quant section).
+
+    Args:
+        default: Default value (default: True = quantize).
+        optional_message: Command-specific note appended after the help text.
+        help_text: Override for the base help text. ``config`` phrases it in
+            terms of the emitted config section; ``optional_message`` is still
+            appended to it.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = help_text or "Enable quantization (use --no-quant to skip, overrides config)"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--quant/--no-quant",
+        "--quantize/--no-quantize",
+        "quant",
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
+def optimize_option(
+    default: bool = True,
+    optional_message: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--optimize/--no-optimize`` toggle.
+
+    Controls whether the build pipeline runs graph optimization. The decorated
+    function receives the value as the ``optimize`` parameter; ``--no-optimize``
+    maps to ``skip_optimize=True`` downstream (see
+    :func:`build_pipeline_extra_kwargs`).
+
+    Args:
+        default: Default value (default: True = optimize).
+        optional_message: Command-specific note appended after the help text.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = "Run optimization (use --no-optimize to skip for pre-quantized ONNX models)"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--optimize/--no-optimize",
+        "optimize",
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
+def analyze_option(
+    default: bool = True,
+    optional_message: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--analyze/--no-analyze`` toggle.
+
+    Controls whether the build runs the autoconf analyzer loop. The decorated
+    function receives the value as the ``analyze`` parameter; ``--no-analyze``
+    forces ``max_optim_iterations`` to 0 (see
+    :func:`build_pipeline_extra_kwargs`).
+
+    Args:
+        default: Default value (default: True = analyze).
+        optional_message: Command-specific note appended after the help text.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = "Run analyzer loop during build (use --no-analyze to skip)"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--analyze/--no-analyze",
+        "analyze",
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
+def max_optim_iterations_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add the shared ``--max-optim-iterations`` option.
+
+    The decorated function receives the value as the ``max_optim_iterations``
+    parameter (``None`` = use the pipeline default of 3). ``--no-analyze`` wins
+    over an explicit value (see :func:`build_pipeline_extra_kwargs`).
+
+    Args:
+        optional_message: Command-specific note appended to the help text.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = "Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0."
+    if optional_message:
+        base_help = f"{base_help} {optional_message}"
+    return click.option(
+        "--max-optim-iterations",
+        "max_optim_iterations",
+        type=int,
+        default=None,
+        help=base_help,
+    )
+
+
+def build_pipeline_extra_kwargs(
+    *,
+    optimize: bool = True,
+    analyze: bool = True,
+    max_optim_iterations: int | None = None,
+) -> dict[str, Any]:
+    """Translate the shared optimize/analyze/max-optim flags into build kwargs.
+
+    Centralizes the mapping shared by ``build``, ``perf``, and ``eval`` so the
+    semantics stay identical:
+
+    * ``--no-optimize`` -> ``skip_optimize=True``
+    * ``--no-analyze``  -> ``hack_max_optim_iterations=0``
+    * ``--max-optim-iterations N`` -> ``hack_max_optim_iterations=N`` (only when
+      analysis is enabled; ``--no-analyze`` takes precedence).
+
+    Keys are omitted when they would carry the pipeline default, so callers can
+    splat the result unconditionally onto ``build_hf_model`` /
+    ``build_onnx_model`` (or ``WinMLAutoModel``, which forwards them).
+
+    Returns:
+        Mapping of build-control kwargs.
+    """
+    extra: dict[str, Any] = {}
+    if not optimize:
+        extra["skip_optimize"] = True
+    if not analyze:
+        extra["hack_max_optim_iterations"] = 0
+    elif max_optim_iterations is not None:
+        extra["hack_max_optim_iterations"] = max_optim_iterations
+    return extra
+
+
 def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:
     """Add shared --allow-unsupported-nodes option to a Click command.
 
