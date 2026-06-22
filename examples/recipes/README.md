@@ -1,4 +1,4 @@
-﻿# Built-in Model Recipes
+# Built-in Model Recipes
 
 Curated recipe configuration samples for **portable, high-performance, and high-quality** AI models on Windows ML, working consistently across supported EPs.
 
