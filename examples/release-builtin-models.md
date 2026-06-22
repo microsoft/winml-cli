@@ -48,13 +48,13 @@ A `(model, task)` pair is **Built-in** iff its **fp16** eval passes on **every**
 
 ### Recipe picking criterion
 
-For each Built-in `(model, task)`:
+For each Built-in `(model, task)`, configs are always sourced from an NPU bucket (Built-in implies all 3 NPU buckets passed fp16, so at least one is guaranteed to have the source files):
 
-- **fp16** recipe: always picked (mandatory by definition). Sourced from an NPU bucket whose fp16 eval passed; falls back to a CPU/GPU bucket if no NPU has it.
+- **fp16** recipe: always picked (mandatory by definition).
 - **w8a8** recipe: picked iff `<task>_w8a8_eval_result.json` exists on **at least one** NPU EP, sourced from that EP.
 - **w8a16** recipe: picked iff `<task>_w8a16_eval_result.json` exists on at least one NPU EP, sourced from that EP.
 
-Source configs are globbed as `<task>_<precision>_config*.json` (NPU) or `<task>_config*.json` (CPU/GPU); CPU/GPU sources are renamed to the NPU-style filename on copy. Composite tasks (e.g. CLIP zero-shot) match multiple files via the `*` and all are copied.
+Source configs are globbed as `<task>_<precision>_config*.json`. Composite tasks (e.g. CLIP zero-shot) match multiple files via the `*` and all are copied.
 
 ---
 
