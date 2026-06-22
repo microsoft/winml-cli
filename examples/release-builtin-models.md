@@ -1,0 +1,127 @@
+# Release Built-in Models & Recipes
+
+This runbook is the single entry point for two recurring release tasks:
+
+1. **Refresh `examples/recipes/README.md`** (Built-in Model count + Models table) on the current working branch and push.
+2. **Pick recipe configs** onto a fresh branch forked from `main` and open a PR.
+
+The two non-trivial pieces of logic (eval-result counting and recipe picking) live in
+Python scripts; everything else (`git`, `gh`) is invoked directly from the commands below.
+
+| Script | Purpose |
+|---|---|
+| [scripts/rebuild_recipes_readme.py](../scripts/rebuild_recipes_readme.py) | Regenerate the `## Models` section of `examples/recipes/README.md` from eval results. Prose before `## Models` is preserved verbatim. |
+| [scripts/pick_builtin_recipes.py](../scripts/pick_builtin_recipes.py) | Copy qualifying recipe configs into `examples/recipes/<slug>/`. Supports `--dry-run` and `--prune`. Does **not** modify the README. |
+
+---
+
+## Definitions
+
+### The 10 (EP, device) buckets
+
+A *bucket* is one folder under `examples/<ep>/<device>/`. The full set is:
+
+| # | EP | Device | Folder | Result filename pattern |
+|---|---|---|---|---|
+| 1 | `dml` | gpu | `examples/dml/gpu/<slug>/` | `<task>_eval_result.json` |
+| 2 | `mlas` | cpu | `examples/mlas/cpu/<slug>/` | `<task>_eval_result.json` |
+| 3 | `migraphx` | gpu | `examples/migraphx/gpu/<slug>/` | `<task>_eval_result.json` |
+| 4 | `nv_tensorrt_rtx` | gpu | `examples/nv_tensorrt_rtx/gpu/<slug>/` | `<task>_eval_result.json` |
+| 5 | `openvino` | cpu | `examples/openvino/cpu/<slug>/` | `<task>_eval_result.json` |
+| 6 | `openvino` | gpu | `examples/openvino/gpu/<slug>/` | `<task>_eval_result.json` |
+| 7 | `qnn` | gpu | `examples/qnn/gpu/<slug>/` | `<task>_eval_result.json` |
+| 8 | `openvino` | npu | `examples/openvino/npu/<slug>/` | `<task>_<precision>_eval_result.json` |
+| 9 | `qnn` | npu | `examples/qnn/npu/<slug>/` | `<task>_<precision>_eval_result.json` |
+| 10 | `vitisai` | npu | `examples/vitisai/npu/<slug>/` | `<task>_<precision>_eval_result.json` |
+
+`<slug>` = `<hf_id>` with the first `/` replaced by `_` (e.g. `microsoft/resnet-50` → `microsoft_resnet-50`).
+For NPU `<precision>` ∈ {`fp16`, `w8a8`, `w8a16`}. For CPU/GPU EPs there is no precision suffix (EP default precision).
+
+See also [test_config.md](test_config.md) and [generate_config.md](generate_config.md) for the layout these results come from.
+
+### Built-in Model criterion
+
+A `(model, task)` pair is **Built-in** iff its **fp16** eval passes on **every** one of the 10 buckets:
+
+- For CPU/GPU buckets, "fp16 passes" means `<task>_eval_result.json` exists (these EPs run their default precision, treated as fp16-equivalent for this criterion).
+- For NPU buckets, "fp16 passes" means `<task>_fp16_eval_result.json` exists.
+
+### Recipe picking criterion
+
+For each Built-in `(model, task)`:
+
+- **fp16** recipe: always picked (mandatory by definition).
+- **w8a8** recipe: picked iff `<task>_w8a8_eval_result.json` exists on **at least one** NPU EP.
+- **w8a16** recipe: picked iff `<task>_w8a16_eval_result.json` exists on at least one NPU EP.
+
+Recipes are sourced from the matching NPU folder; composite models (e.g. CLIP zero-shot) copy every file matching `<task>_<precision>_config*.json`.
+
+---
+
+## Stage 1 — Refresh `recipes/README.md` (this branch)
+
+Regenerate the README in-place (preserving prose above `## Models`), commit on the **current** branch, push.
+
+```powershell
+uv run python scripts/rebuild_recipes_readme.py
+git add examples/recipes/README.md
+git diff --cached --quiet examples/recipes/README.md
+if ($LASTEXITCODE -ne 0) {
+    git commit -m "examples/recipes: refresh built-in model README"
+    git push origin (git rev-parse --abbrev-ref HEAD)
+} else {
+    Write-Host "README unchanged; nothing to commit."
+}
+```
+
+---
+
+## Stage 2 — Pick recipe configs onto a branch off `main` and open a PR
+
+The picker reads `<ep>/<device>/.../<task>_*_eval_result.json` from disk to decide
+what qualifies, so it must run on a branch that **has** those eval results
+(typically your working branch). We then snapshot `examples/recipes/` to a
+temp dir, switch to a fresh branch forked from `main`, and replace
+`examples/recipes/` wholesale — so additions **and deletions** relative to
+`main` both land in the PR.
+
+```powershell
+# 0. Run on the branch that contains the eval results. Tree must be clean.
+git status --porcelain  # must be empty
+
+# 1. Pick recipes into examples/recipes/.
+uv run python scripts/pick_builtin_recipes.py --prune
+
+# 2. Snapshot the final examples/recipes/ contents to a temp dir.
+$tmp = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ("builtin-recipes-" + [guid]::NewGuid().Guid))
+Copy-Item -Recurse examples/recipes/* $tmp
+
+# 3. Restore working branch (drop the picker's changes).
+git checkout -- examples/recipes
+git clean -fd examples/recipes
+
+# 4. Fork from origin/main.
+git fetch origin main
+$branch = "shzhen/update-builtin-recipes-" + (Get-Date -Format yyyyMMdd)
+git switch --create $branch origin/main
+
+# 5. Replace examples/recipes/ wholesale with the snapshot.
+Get-ChildItem examples/recipes -Exclude README.md | Remove-Item -Recurse -Force
+Copy-Item -Recurse $tmp/* examples/recipes/ -Force
+Remove-Item -Recurse -Force $tmp
+
+# 6. Rebuild the README so the Models table matches the picked configs.
+uv run python scripts/rebuild_recipes_readme.py
+
+# 7. Commit, push, open PR.
+git add examples/recipes
+git commit -m "examples/recipes: refresh built-in model recipes"
+git push --set-upstream origin $branch
+gh pr create --base main --head $branch `
+    --title "Refresh built-in model recipes" `
+    --body "Auto-generated by ``scripts/pick_builtin_recipes.py --prune``."
+```
+
+Step 5 keeps `examples/recipes/README.md` from `main` in place; step 6 then overwrites
+its `## Models` section. If you need to recover from an interrupted run, the snapshot
+lives at the `$tmp` path printed by `Copy-Item`.
