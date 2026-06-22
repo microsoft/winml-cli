@@ -52,7 +52,11 @@ def slug_to_hf_id(slug: str) -> str:
 
 
 def fp16_tasks_in_bucket(bucket_dir: Path, hw: str) -> set[tuple[str, str]]:
-    """Return {(slug, task)} that have a passing fp16 eval in this bucket."""
+    """Return {(slug, task)} that have a passing fp16 eval in this bucket.
+
+    NPU layout: `<task>_<precision>_eval_result.json`; only `fp16` counts here.
+    CPU/GPU layout: `<task>_eval_result.json` (EP default precision).
+    """
     out: set[tuple[str, str]] = set()
     if not bucket_dir.is_dir():
         return out
@@ -62,19 +66,13 @@ def fp16_tasks_in_bucket(bucket_dir: Path, hw: str) -> set[tuple[str, str]]:
         for ev in slug_dir.glob(f"*{EVAL_SUFFIX}"):
             stem = ev.name[: -len(EVAL_SUFFIX)]  # strip trailing "_eval_result.json"
             if hw == "npu":
-                # NPU layout: "<task>_<precision>"; only fp16 counts here.
                 if "_" not in stem:
                     continue
                 task, precision = stem.rsplit("_", 1)
                 if precision == "fp16":
                     out.add((slug_dir.name, task))
             else:
-                # CPU/GPU layout: "<task>" (default precision) or "<task>_fp16".
-                if stem.endswith("_fp16"):
-                    task = stem[: -len("_fp16")]
-                else:
-                    task = stem
-                out.add((slug_dir.name, task))
+                out.add((slug_dir.name, stem))
     return out
 
 
