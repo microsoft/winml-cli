@@ -315,7 +315,11 @@ class TestCatalogFilterTask:
         b = _run_json(tmp_path / "b.json", "--task", task_b)
         assert len(a) > 0, f"Expected {task_a} models in catalog"
         assert len(b) > 0, f"Expected {task_b} models in catalog"
-        assert _model_ids(a).isdisjoint(_model_ids(b))
+        # Compare (model_id, task) tuples: the same model_id can appear
+        # under multiple tasks, but each entry's task must match the filter.
+        entries_a = {(m["model_id"], m["task"]) for m in a}
+        entries_b = {(m["model_id"], m["task"]) for m in b}
+        assert entries_a.isdisjoint(entries_b)
 
 
 # ===========================================================================
