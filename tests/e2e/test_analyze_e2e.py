@@ -44,6 +44,7 @@ import pandas as pd
 import pytest
 from click.testing import CliRunner
 
+from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.analyze import analyze
 from winml.modelkit.utils.constants import EP_ALIASES as _EP_ALIASES
 from winml.modelkit.utils.constants import SUPPORTED_EPS
@@ -339,25 +340,20 @@ class TestAnalyzeHappyPath:
         self,
         onnx_model_path: Path,
         rules_dir: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Omitting ``--device`` resolves a single best device for the pinned EP.
 
-        ``auto`` now picks one target via the shared sysinfo helpers (like
-        build/run): for ``qnn`` locally available on NPU and GPU, the
-        highest-priority device (NPU) is chosen — a single ``(qnn, NPU)`` run.
+        ``auto`` picks one target via the shared sysinfo helpers (like
+        build/run). On a QNN-capable host the highest-priority device is NPU,
+        so ``--ep qnn`` with no ``--device`` resolves to a single ``(qnn, NPU)``
+        run that is fully supported.
 
-        The test is hardware-agnostic: local availability is controlled via the
-        ORT device->EP map monkeypatch rather than real machine capabilities.
+        Real end-to-end: gated on actual QNN availability via ``require_ep``
+        rather than monkeypatching local capabilities. The auto-resolution
+        logic itself is covered hardware-agnostically by the unit-level
+        selection-matrix test.
         """
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
-            lambda: {
-                "npu": ("QNNExecutionProvider",),
-                "gpu": ("QNNExecutionProvider", "DmlExecutionProvider"),
-                "cpu": ("CPUExecutionProvider",),
-            },
-        )
+        require_ep("qnn")
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
         result = _invoke(["-m", str(onnx_model_path), "--ep", "qnn", "--quiet"])
         assert result.exit_code == 0
@@ -366,22 +362,17 @@ class TestAnalyzeHappyPath:
         self,
         onnx_model_path: Path,
         rules_dir: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Omitting ``--ep`` resolves a single best EP from local availability.
 
-        The test is hardware-agnostic: local availability is controlled via the
-        ORT device->EP map monkeypatch rather than real machine capabilities.
-        With this synthetic map, auto resolves to QNN on NPU and should be fully
-        supported."""
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
-            lambda: {
-                "npu": ("QNNExecutionProvider",),
-                "gpu": ("QNNExecutionProvider", "DmlExecutionProvider"),
-                "cpu": ("CPUExecutionProvider",),
-            },
-        )
+        On a QNN-capable host the highest-priority device (NPU) and its
+        highest-priority EP (QNN) win, so bare ``auto`` resolves to ``(qnn,
+        NPU)`` and should be fully supported.
+
+        Real end-to-end: gated on actual QNN availability via ``require_ep``
+        rather than monkeypatching local capabilities.
+        """
+        require_ep("qnn")
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
         result = _invoke(["-m", str(onnx_model_path), "--quiet"])
         assert result.exit_code == 0
