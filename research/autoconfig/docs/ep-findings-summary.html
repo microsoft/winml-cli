@@ -178,7 +178,7 @@
 <p class="meta">
   Hardware: Snapdragon X Elite CRD &nbsp;|&nbsp; ORT: 1.24.5 (onnxruntime-windowsml) &nbsp;|&nbsp;
   QNN SDK: Hexagon HTP (NPU) + Adreno X1-85 (GPU) &nbsp;|&nbsp;
-  Last updated: 2026-06-18 &nbsp;|&nbsp; 15 models (QNN NPU), 8 models (QNN GPU), 4 models (CPU partial)
+  Last updated: 2026-06-22 &nbsp;|&nbsp; 15 models (QNN NPU), 8 models (QNN GPU), 4 models (CPU partial) &nbsp;|&nbsp; npu-001 revised: MobileViT opset21 NEUTRAL on clean rerun
 </p>
 
 <div class="stats-bar">
@@ -265,20 +265,21 @@
       <div class="find-id">npu-001</div>
       <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>empirical</span></div>
       <div class="find-body">
-        <div class="find-title">opset 21 export gives +24&ndash;42% speedup on CNN-ViT hybrid / DINOv2 models &mdash; mechanism UNKNOWN, NOT a general ViT property</div>
+        <div class="find-title">opset 21 export gives +24&ndash;31% speedup on DINOv2-family models &mdash; mechanism UNKNOWN, NOT a general ViT property; MobileViT benefit NOT reproduced on clean rerun</div>
         <div class="find-detail">
           DINOv2-small: <span class="data">opset17 7.2ms &rarr; opset21 5.0ms (+30.6%)</span>.
           DINOv2-base: <span class="data">opset17 34.6ms &rarr; opset21 26.2ms (+24.1%)</span>.
-          MobileViT-small: <span class="data">opset21 baseline 8.6ms (+28.6%) &rarr; with matmul_transpose 7.0ms (+42.1%)</span>.
+          MobileViT-small: <span class="warn">REVISED to NEUTRAL.</span> The original +28.6% / +42.1% (matmul_transpose) was measured against an inflated ~12ms baseline. A clean from-scratch 11-hypothesis rerun (2026-06-22, fresh winml config+build, 3&times;500-iter) gave <span class="data">baseline 5.51ms &rarr; opset21 5.355ms = +2.81% with overlapping session ranges</span>; matmul_transpose (h6) = 6.218ms = SLOWER. The earlier &ldquo;win&rdquo; was a DVFS/thermal baseline artifact.
           <span class="warn">Critical controls: dino-vitb16 &minus;0.7% NEUTRAL; ViT-base &minus;10.8% HURTS; all NLP tested neutral. Not a general ViT property.</span>
           Also: bias_softmax_fusion adds +14% incremental on DINOv2 on top of opset21 (npu-009). Original kMaxSupportedOpset bypass mechanism INVALIDATED (ORT 1.24.5 has kMaxSupportedOpset&ge;23).
-          <div><span class="scope">Scope: DINOv2-family, MobileViT. NOT plain ViT (ViT-base HURTS), NOT NLP.</span></div>
+          <div><span class="scope">Scope: DINOv2-family confirmed. MobileViT REVISED to neutral. NOT plain ViT (ViT-base HURTS), NOT NLP.</span></div>
         </div>
       </div>
       <div class="find-action">
         <div class="action-label">Autoconfig action</div>
         <div class="action-text">
-          DINOv2-family/MobileViT: try <code>opset21 + bias_softmax_fusion</code> bundle first.
+          DINOv2-family: try <code>opset21 + bias_softmax_fusion</code> bundle first.
+          MobileViT-class hybrids: do NOT assume opset21 helps &mdash; clear the effect-size gate (gain &ge; 2&times;session-CV AND ranges separated) before trusting any win.
           Plain ViT: SKIP &mdash; confirmed harmful.
           NLP: SKIP &mdash; consistently neutral.
           Architecture check required.
