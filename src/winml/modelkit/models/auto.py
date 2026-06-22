@@ -247,6 +247,7 @@ class WinMLAutoModel:
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
         no_compile: bool = False,
+        model_type: str | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel:
         """Load appropriate WinML model based on task detection.
@@ -278,6 +279,10 @@ class WinMLAutoModel:
             shape_config: Shape overrides passed to generate_build_config().
                 Valid keys -- text: sequence_length; vision: height, width;
                 audio: feature_size, nb_max_frames, audio_sequence_length.
+            model_type: Explicit model_type override. When provided alongside a
+                HF model_id, selects a registered build variant (e.g.
+                ``"qwen3_transformer_only"``) instead of the architecture's
+                native model_type. Leave ``None`` for normal auto-detection.
             **kwargs: Additional arguments
 
         Returns:
@@ -334,6 +339,11 @@ class WinMLAutoModel:
             else:
                 _model_type = None
 
+            # Explicit override wins so a variant composite (e.g.
+            # "qwen3_transformer_only") can be selected over the native type.
+            if model_type is not None:
+                _model_type = model_type
+
             if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
                 from .winml.composite_model import WinMLCompositeModel
 
@@ -368,6 +378,7 @@ class WinMLAutoModel:
             trust_remote_code=trust_remote_code,
             ep=kwargs.get("ep"),
             no_compile=no_compile,
+            model_type=model_type,
         )
 
         resolved_task = build_config.loader.task
@@ -402,7 +413,9 @@ class WinMLAutoModel:
         from transformers import AutoConfig
 
         hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=effective_trust)
-        model_type = getattr(hf_config, "model_type", "unknown")
+        # Honor an explicit model_type override; otherwise probe from the config.
+        if model_type is None:
+            model_type = getattr(hf_config, "model_type", "unknown")
         logger.debug("Model type: %s, task: %s", model_type, resolved_task)
 
         # =====================================================================
@@ -431,6 +444,7 @@ class WinMLAutoModel:
             cache_key=cache_key,
             ep=resolved_ep,
             device=device,
+            model_type=model_type,
         )
         onnx_path = result.final_onnx_path
 

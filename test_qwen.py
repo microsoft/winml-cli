@@ -10,9 +10,6 @@ with FP16 past/present KV named ``past_keys_{i}`` / ``past_values_{i}``,
 ``com.microsoft::GroupQueryAttention``, ``LpNormalization``, and 1x1 Conv
 projections.
 
-Important: ``install()`` MUST be called before importing the composite model
-machinery so the registry hot-patches take effect.
-
 Generation (``model.generate(...)``) is NOT supported by this build path —
 the inference feeds in ``WinMLDecoderOnlyModel`` still target the eager
 I/O signature. Use the eager ``WinMLQwen3Model`` build path for end-to-end
@@ -68,16 +65,13 @@ def _build_one(task: str, seq_len: int) -> None:
     clean interpreter — building both in one process leaves PyTorch/ORT
     state from the first build that corrupts/kills the second.
     """
-    from winml.modelkit.models.hf.qwen_transformer_only import install as install_qwen_transformer_only
-
-    install_qwen_transformer_only()
-
     from winml.modelkit.config import WinMLBuildConfig
     from winml.modelkit.models.auto import WinMLAutoModel
 
     WinMLAutoModel.from_pretrained(
         model_id,
         task=task,
+        model_type="qwen3_transformer_only",
         config=WinMLBuildConfig(quant=None, compile=None),
         precision="fp16",
         device="npu",

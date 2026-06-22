@@ -218,6 +218,19 @@ def resolve_loader_config(
             f"attribute. Cannot proceed with config generation."
         )
 
+    # Explicit model_type override alongside a model_id: honor the requested
+    # type so downstream class / build-config / export resolution selects the
+    # variant (e.g. "qwen3_transformer_only") rather than the architecture's
+    # native type. The model_type-only path above (AutoConfig.for_model) is
+    # unaffected because it only runs when model_id is None.
+    if model_id is not None and model_type is not None and hf_config.model_type != model_type:
+        logger.info(
+            "Overriding resolved model_type '%s' -> '%s' (explicit request)",
+            hf_config.model_type,
+            model_type,
+        )
+        hf_config.model_type = model_type
+
     # 2. Infer task (depends on: model_type param or hf_config.architectures)
     if task is None and model_type is not None:
         supported = get_supported_tasks(model_type, library_name=library_name)

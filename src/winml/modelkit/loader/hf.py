@@ -150,6 +150,7 @@ def load_hf_model(
     user_script: str | None = None,
     trust_remote_code: bool = False,
     hf_config: PretrainedConfig | None = None,
+    model_type: str | None = None,
 ) -> tuple[nn.Module, PretrainedConfig, str]:
     """Load, detect task, and prepare HuggingFace model.
 
@@ -223,6 +224,18 @@ def load_hf_model(
             model_name_or_path,
             trust_remote_code=trust_remote_code,
         )
+
+    # Explicit model_type override: select a registered build variant (e.g.
+    # "qwen3_transformer_only") rather than the architecture's native type.
+    # Mutates the freshly-loaded config only; gated on an explicit request so
+    # normal loading is unaffected.
+    if model_type is not None and getattr(hf_config, "model_type", None) != model_type:
+        logger.info(
+            "Overriding model_type '%s' -> '%s' (explicit request)",
+            getattr(hf_config, "model_type", None),
+            model_type,
+        )
+        hf_config.model_type = model_type
 
     # [2] Task & Model Class Resolution
     if user_script is not None:

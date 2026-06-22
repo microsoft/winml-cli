@@ -2,12 +2,17 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Parallel ``qwen3`` build path that produces a transformer-only ONNX.
+"""Transformer-only ``qwen3`` build variant, registered as a distinct model_type.
 
-Opt-in via ``install()`` — calling it hot-patches the WinML registries so
-that the next ``WinMLAutoModel.from_pretrained("Qwen/Qwen3-*", task="text-generation")``
-exports two transformer-only ONNX files (a prefill/context graph and an
-iteration/decode graph) with this I/O:
+This module registers a self-contained build path under the model_type
+``"qwen3_transformer_only"`` (distinct from the stock ``"qwen3"`` path in
+``qwen.py``). Selecting it is explicit — pass ``model_type="qwen3_transformer_only"``
+to ``WinMLAutoModel.from_pretrained(...)`` (or the underlying
+``generate_hf_build_config(...)``). Both paths coexist; neither overrides the
+other, and there is no import-ordering requirement.
+
+The variant exports two transformer-only ONNX files (a prefill/context graph
+and an iteration/decode graph) with this I/O:
 
   Inputs : past_keys_{i}, past_values_{i} (FP16, ``[1, kv_heads, max_cache, head_dim]``),
            input_hidden_states (FP32, ``[1, seq_len, hidden]``),
@@ -16,8 +21,9 @@ iteration/decode graph) with this I/O:
   Ops    : ``com.microsoft::GroupQueryAttention`` (do_rotary=1),
            ``onnx::LpNormalization`` (RMSNorm), 1x1 ``Conv`` projections.
 
-The original eager-export path in ``qwen.py`` is left intact — only the
-qwen3 entries in the registries are replaced. ``install()`` is idempotent.
+Registration happens at import time via decorators and module-level mappings,
+mirroring ``qwen.py``. The aggregating ``models.hf`` package imports this
+module so the entries land in ``MODEL_CLASS_MAPPING`` / ``MODEL_BUILD_CONFIGS``.
 """
 
 from __future__ import annotations
@@ -36,12 +42,20 @@ from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
 from ...export.config import WinMLExportConfig
 from ..winml import register_specialization
+from ..winml.composite_model import register_composite_model
 from ..winml.decoder_only import WinMLDecoderOnlyModel
 from ..winml.kv_cache import WinMLSlidingWindowCache
 from .qwen3_export_ops import apply_transformer_only_export_prep
 
 
 logger = logging.getLogger(__name__)
+
+# Distinct model_type for this variant. The underscore form is what the
+# exporter sees on ``model.config.model_type`` and what Optimum's TasksManager
+# and ``register_specialization`` are keyed on; the hyphenated form is used for
+# the ``MODEL_CLASS_MAPPING`` / ``MODEL_BUILD_CONFIGS`` lookups (those callers
+# normalize ``_`` -> ``-``).
+TRANSFORMER_ONLY_MODEL_TYPE = "qwen3_transformer_only"
 
 
 # =============================================================================
@@ -65,6 +79,10 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
         self.num_layers = num_layers
         self.config = model.config
         apply_transformer_only_export_prep(model, matmul_to_conv=True)
+        # Tag the config so the exporter resolves this variant's OnnxConfig
+        # (registered under ``TRANSFORMER_ONLY_MODEL_TYPE``) rather than the
+        # stock qwen3 one. Mirrors the CLIP/zoedepth sub-model precedent.
+        self.config.model_type = TRANSFORMER_ONLY_MODEL_TYPE
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> QwenTransformerOnlyDecoderWrapper:
@@ -222,6 +240,9 @@ def _transformer_only_outputs(num_layers: int, kv_seq_axis: str = "max_seq_len")
     return result
 
 
+@register_onnx_overwrite(
+    TRANSFORMER_ONLY_MODEL_TYPE, "feature-extraction", library_name="transformers"
+)
 class QwenTransformerOnlyPrefillIOConfig(OnnxConfig):
     """Prefill (seq=64) — transformer-only I/O."""
 
@@ -241,6 +262,9 @@ class QwenTransformerOnlyPrefillIOConfig(OnnxConfig):
         return _transformer_only_outputs(self._normalized_config.num_layers)
 
 
+@register_onnx_overwrite(
+    TRANSFORMER_ONLY_MODEL_TYPE, "text2text-generation", library_name="transformers"
+)
 class QwenTransformerOnlyGenIOConfig(OnnxConfig):
     """Generation (seq=1) — transformer-only I/O."""
 
@@ -279,6 +303,7 @@ QWEN_TRANSFORMER_ONLY_CONFIG = WinMLBuildConfig(
 # =============================================================================
 
 
+@register_composite_model(TRANSFORMER_ONLY_MODEL_TYPE, "text-generation")
 class WinMLQwen3TransformerOnlyModel(WinMLDecoderOnlyModel):
     """Composite handle for the transformer-only Qwen3 build (export only).
 
@@ -299,56 +324,28 @@ class WinMLQwen3TransformerOnlyModel(WinMLDecoderOnlyModel):
 
 
 # =============================================================================
-# install() — hot-patch the registries
+# Declarative registration (import-time)
 # =============================================================================
 
+# Wrapper-class lookup keyed by (model_type, task). Keys use the hyphenated
+# model_type form because ``_get_custom_model_class`` normalizes ``_`` -> ``-``
+# before lookup. Merged into the aggregate mapping by ``models.hf.__init__``.
+MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
+    ("qwen3-transformer-only", "feature-extraction"): QwenTransformerOnlyDecoderWrapper,
+    ("qwen3-transformer-only", "text2text-generation"): QwenTransformerOnlyDecoderWrapper,
+}
 
-_INSTALLED = False
-
-
-def install() -> None:
-    """Replace the qwen3 entries in WinML registries with the transformer-only variants.
-
-    Idempotent. After this call, building any qwen3 model via
-    :class:`~winml.modelkit.models.winml.composite_model.WinMLCompositeModel`
-    or :class:`~winml.modelkit.models.auto.WinMLAutoModel` produces
-    transformer-only ONNX files.
-    """
-    global _INSTALLED
-    if _INSTALLED:
-        return
-
-    # 1) Per-model build config + wrapper-class lookup live on the parent
-    #    ``models.hf`` package as module-level dicts; mutating them is the
-    #    documented hook for adding/overriding a model_type.
-    from .. import hf as _hf_pkg  # noqa: PLC0415
-
-    _hf_pkg.MODEL_BUILD_CONFIGS["qwen3"] = QWEN_TRANSFORMER_ONLY_CONFIG
-    _hf_pkg.MODEL_CLASS_MAPPING[("qwen3", "feature-extraction")] = QwenTransformerOnlyDecoderWrapper
-    _hf_pkg.MODEL_CLASS_MAPPING[("qwen3", "text2text-generation")] = QwenTransformerOnlyDecoderWrapper
-
-    # 2) Optimum OnnxConfig (overwrites existing registration).
-    register_onnx_overwrite("qwen3", "feature-extraction", library_name="transformers")(QwenTransformerOnlyPrefillIOConfig)
-    register_onnx_overwrite("qwen3", "text2text-generation", library_name="transformers")(QwenTransformerOnlyGenIOConfig)
-
-    # 3) Inference specialization (still GenericTask — wrapper returns raw KV).
-    register_specialization("qwen3", "feature-extraction", "WinMLModelForGenericTask")
-    register_specialization("qwen3", "text2text-generation", "WinMLModelForGenericTask")
-
-    # 4) Composite registry — swap to the transformer-only handle.
-    from ..winml.composite_model import COMPOSITE_MODEL_REGISTRY
-
-    COMPOSITE_MODEL_REGISTRY[("qwen3", "text-generation")] = WinMLQwen3TransformerOnlyModel
-
-    _INSTALLED = True
-    logger.info("qwen_transformer_only: transformer-only export path installed for qwen3.")
+# Inference specialization (GenericTask — the wrapper returns raw hidden states / KV).
+register_specialization(TRANSFORMER_ONLY_MODEL_TYPE, "feature-extraction", "WinMLModelForGenericTask")
+register_specialization(TRANSFORMER_ONLY_MODEL_TYPE, "text2text-generation", "WinMLModelForGenericTask")
 
 
 __all__ = [
+    "MODEL_CLASS_MAPPING",
     "QWEN_TRANSFORMER_ONLY_CONFIG",
+    "TRANSFORMER_ONLY_MODEL_TYPE",
     "QwenTransformerOnlyDecoderWrapper",
     "QwenTransformerOnlyGenIOConfig",
     "QwenTransformerOnlyPrefillIOConfig",
     "WinMLQwen3TransformerOnlyModel",
-    "install",
 ]

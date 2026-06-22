@@ -1,7 +1,7 @@
 """Transformer-only w8a16 quantization for Qwen3.
 
-Targets the transformer-only ONNX produced by
-``qwen_transformer_only.install() + test_qwen.py``:
+Targets the transformer-only ONNX produced by the
+``qwen3_transformer_only`` build variant (see ``test_qwen.py``):
 
   - **No embedding/lm_head surgery.** The export already excludes both,
     so we feed ``WinMLQuantization`` the file directly.
@@ -24,6 +24,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from winml.modelkit.models.winml.composite_model import WinMLCompositeModel
 from winml.modelkit.quant import WinMLQuantizationConfig, quantize_onnx
+from winml.modelkit.quant.config import CalibrationDataReader
 
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ def _load_gsm8k_prompts(num_samples: int) -> list[str]:
     return [row["question"] for row in split.select(range(num_samples))]
 
 
-class Qwen3TransformerOnlyCalibReader:
+class Qwen3TransformerOnlyCalibReader(CalibrationDataReader):
     """Yields calibration feeds for the transformer-only ONNX.
 
     Feeds match the exported graph exactly: ``input_hidden_states`` (FP32),
