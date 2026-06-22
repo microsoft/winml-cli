@@ -7,14 +7,20 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+
 def pad_inputs(
     source: dict[str, Any],
-    expected: dict[str, list[int]],
+    # Covariant Mapping/Sequence so existing dict[str, list[int]] callers still
+    # fit, while modelling ONNX dynamic dims (None / str symbol) the body handles.
+    expected: Mapping[str, Sequence[int | str | None]],
     mode: Literal["left", "right"] = "right",
 ) -> dict[str, Any]:
     """Filter *source* to keys in *expected* and pad undersized tensors.
@@ -51,10 +57,7 @@ def pad_inputs(
                 # Dynamic ONNX dims may be None or a string symbol; emit a
                 # (0, 0) pair so later pairs stay aligned with their dim index.
                 if not isinstance(exp, int):
-                    # Forward-looking: expected is typed list[int] today, but ONNX
-                    # dynamic dims (None / str symbol) are a planned input (see TODO
-                    # above). Keep the guard until the signature widens for them.
-                    pad.extend([0, 0])  # type: ignore[unreachable]
+                    pad.extend([0, 0])
                     continue
                 deficit = max(exp - val.shape[dim], 0)
                 if mode == "right":

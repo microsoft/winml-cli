@@ -227,8 +227,10 @@ class OneCollectorLogExporter(LogRecordExporter):
 
     def _to_envelope(self, ld: ReadableLogRecord) -> dict:
         record = ld.log_record
-        # OTel types timestamp as Optional; fall back to now if a record omits it.
-        timestamp = _ns_to_datetime(record.timestamp or time.time_ns())
+        # OTel types timestamp as Optional; fall back to now only when truly
+        # absent (None) — timestamp=0 is a valid epoch value, so don't use `or`.
+        ts_ns = record.timestamp if record.timestamp is not None else time.time_ns()
+        timestamp = _ns_to_datetime(ts_ns)
         data = dict(record.attributes or {})
         ext = _resource_to_ext(ld.resource)
         return _build_envelope(

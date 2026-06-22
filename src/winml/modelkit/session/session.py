@@ -334,7 +334,7 @@ class WinMLSession:
         if session is None:
             raise InferenceError(
                 message="Session not available after compile",
-                context={},
+                context={"onnx_path": str(self._onnx_path), "device": self._device},
             )
 
         if self._state == SessionState.ERROR:

@@ -212,8 +212,10 @@ def _extract_json_from_stdout(stdout: str) -> dict[str, Any] | list[Any] | None:
                 if start == -1:
                     break
                 try:
+                    # Reached only after matching a {...} / [...] pair, so the
+                    # parse yields a dict or list — never None.
                     return cast(
-                        "dict[str, Any] | list[Any] | None",
+                        "dict[str, Any] | list[Any]",
                         json.loads(stdout[start : end + 1]),
                     )
                 except json.JSONDecodeError:

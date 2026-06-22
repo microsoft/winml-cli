@@ -414,8 +414,10 @@ class PdhPoller:
         # as dicts because an adapter exposes multiple engines (e.g. several
         # Compute_* on an NPU; 3D + Compute_* on a GPU) and the total adapter
         # time is the sum of per-engine deltas.
-        self._running_time_start_ns: dict[str, float] = {}
-        self._running_time_end_ns: dict[str, float] = {}
+        # Running-time counters are 64-bit ns integers; ns-since-epoch (~1.7e18)
+        # exceeds float64's exact range (2**53), so keep them int.
+        self._running_time_start_ns: dict[str, int] = {}
+        self._running_time_end_ns: dict[str, int] = {}
 
     def start(self) -> None:
         """Resolve target device, register PDH counters, start background thread.
@@ -482,7 +484,7 @@ class PdhPoller:
 
             initial = self._query.collect(interval=0.05)
             self._running_time_start_ns = {
-                k: v
+                k: int(v)
                 for k, v in initial.items()
                 if k.startswith("running_time_") and v is not None
             }
@@ -512,7 +514,7 @@ class PdhPoller:
             try:
                 final = self._query._collect_once()
                 self._running_time_end_ns = {
-                    k: v
+                    k: int(v)
                     for k, v in final.items()
                     if k.startswith("running_time_") and v is not None
                 }
@@ -745,7 +747,7 @@ class PdhPoller:
             start = self._running_time_start_ns.get(key)
             if start is None:
                 continue
-            total += int(max(0, end - start))
+            total += max(0, end - start)
         return total
 
     @staticmethod
