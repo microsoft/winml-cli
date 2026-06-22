@@ -1,5 +1,9 @@
 # Supported Models
 
+Windows ML CLI has validated a set of models for compatibility across all
+Execution Providers (EPs)—see the full
+[model compatibility report](https://microsoft.github.io/winml-cli/reports/model_compatibility_report.html).
+
 winml-cli supports a wide range of model architectures and tasks. This page
 lists what's validated and how to discover model support.
 
@@ -8,7 +12,7 @@ lists what's validated and how to discover model support.
 ## Discovery Commands
 
 ```bash
-# Browse the curated catalog (57 validated models)
+# Browse the curated catalog (64 validated models)
 uv run winml catalog
 
 # Filter by task
@@ -77,13 +81,13 @@ testing. Use `winml catalog` to browse the full list interactively.
 
 | Model | Architecture |
 |-------|-------------|
-| `AdamCodd/vit-base-nsfw-detector` | ViT |
-| `Falconsai/nsfw_image_detection` | ViT |
-| `amunchet/rorshark-vit-base` | ViT |
 | `apple/mobilevit-small` | MobileViT |
 | `dima806/fairface_age_image_detection` | ViT |
+| `facebook/convnext-tiny-224` | ConvNeXt |
 | `google/vit-base-patch16-224` | ViT |
 | `microsoft/resnet-18` | ResNet |
+| `microsoft/resnet-50` | ResNet |
+| `microsoft/swin-large-patch4-window7-224` | Swin |
 | `rizvandwiki/gender-classification` | ViT |
 
 ### Image Feature Extraction
@@ -92,28 +96,33 @@ testing. Use `winml catalog` to browse the full list interactively.
 |-------|-------------|
 | `facebook/dino-vitb16` | ViT |
 | `facebook/dino-vits16` | ViT |
-| `facebook/dinov2-base` | DINOv2 |
-| `facebook/dinov2-large` | DINOv2 |
 | `facebook/dinov2-small` | DINOv2 |
 | `google/vit-base-patch16-224-in21k` | ViT |
-| `microsoft/rad-dino` | DINOv2 |
 
 ### Feature Extraction (Text)
 
 | Model | Architecture |
 |-------|-------------|
+| `BAAI/bge-base-en-v1.5` | BERT |
+| `BAAI/bge-m3` | XLM-RoBERTa |
+| `BAAI/bge-small-en-v1.5` | BERT |
+| `google-bert/bert-base-multilingual-cased` | BERT |
+| `Intel/bert-base-uncased-mrpc` | BERT |
 | `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` | CLIP |
 | `openai/clip-vit-base-patch16` | CLIP |
 | `openai/clip-vit-base-patch32` | CLIP |
 | `sentence-transformers/all-MiniLM-L6-v2` | BERT |
 | `sentence-transformers/all-mpnet-base-v2` | MPNet |
 | `sentence-transformers/multi-qa-mpnet-base-dot-v1` | MPNet |
+| `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | BERT |
 
 ### Sentence Similarity
 
 | Model | Architecture |
 |-------|-------------|
+| `BAAI/bge-base-en-v1.5` | BERT |
 | `BAAI/bge-large-en-v1.5` | BERT |
+| `BAAI/bge-m3` | XLM-RoBERTa |
 | `BAAI/bge-small-en-v1.5` | BERT |
 | `sentence-transformers/all-MiniLM-L6-v2` | BERT |
 | `sentence-transformers/all-mpnet-base-v2` | MPNet |
@@ -125,69 +134,72 @@ testing. Use `winml catalog` to browse the full list interactively.
 
 | Model | Architecture |
 |-------|-------------|
-| `FacebookAI/roberta-base` | RoBERTa |
-| `FacebookAI/xlm-roberta-base` | XLM-RoBERTa |
 | `distilbert/distilbert-base-uncased` | DistilBERT |
+| `FacebookAI/roberta-base` | RoBERTa |
+| `FacebookAI/roberta-large` | RoBERTa |
+| `FacebookAI/xlm-roberta-base` | XLM-RoBERTa |
 | `google-bert/bert-base-multilingual-cased` | BERT |
 | `google-bert/bert-base-multilingual-uncased` | BERT |
 | `google-bert/bert-base-uncased` | BERT |
-| `sentence-transformers/all-mpnet-base-v2` | MPNet |
-| `sentence-transformers/multi-qa-mpnet-base-dot-v1` | MPNet |
 
 ### Text Classification
 
 | Model | Architecture |
 |-------|-------------|
 | `cardiffnlp/twitter-roberta-base-sentiment-latest` | RoBERTa |
-| `cross-encoder/ms-marco-MiniLM-L4-v2` | BERT |
-| `cross-encoder/ms-marco-MiniLM-L6-v2` | BERT |
 | `distilbert/distilbert-base-uncased-finetuned-sst-2-english` | DistilBERT |
+| `Intel/bert-base-uncased-mrpc` | BERT |
+| `ProsusAI/finbert` | BERT |
 
 ### Token Classification
 
 | Model | Architecture |
 |-------|-------------|
+| `Babelscape/wikineural-multilingual-ner` | BERT |
+| `dbmdz/bert-large-cased-finetuned-conll03-english` | BERT |
+| `dslim/bert-base-NER` | BERT |
 | `Isotonic/distilbert_finetuned_ai4privacy_v2` | DistilBERT |
-| `Jean-Baptiste/camembert-ner-with-dates` | CamemBERT |
-| `kredor/punctuate-all` | XLM-RoBERTa |
 | `w11wo/indonesian-roberta-base-posp-tagger` | RoBERTa |
 
 ### Question Answering
 
 | Model | Architecture |
 |-------|-------------|
-| `ahotrod/electra_large_discriminator_squad2_512` | Electra |
 | `deepset/bert-large-uncased-whole-word-masking-squad2` | BERT |
 | `deepset/roberta-base-squad2` | RoBERTa |
 | `deepset/tinyroberta-squad2` | RoBERTa |
 | `distilbert/distilbert-base-cased-distilled-squad` | DistilBERT |
 | `distilbert/distilbert-base-uncased-distilled-squad` | DistilBERT |
-| `monologg/koelectra-small-v2-distilled-korquad-384` | Electra |
+| `google-bert/bert-large-uncased-whole-word-masking-finetuned-squad` | BERT |
 
 ### Zero-Shot Classification
 
 | Model | Architecture |
 |-------|-------------|
-| `lxyuan/distilbert-base-multilingual-cased-sentiments-student` | DistilBERT |
+| `joeddav/xlm-roberta-large-xnli` | XLM-RoBERTa |
 
 ### Zero-Shot Image Classification
 
 | Model | Architecture |
 |-------|-------------|
-| `laion/CLIP-ViT-B-32-laion2B-s34B-b79K` | CLIP |
+| `openai/clip-vit-base-patch16` | CLIP |
 
-### Object Detection
-
-| Model | Architecture |
-|-------|-------------|
-| `hustvl/yolos-small` | YOLOS |
-| `valentinafeve/yolos-fashionpedia` | YOLOS |
-
-### Depth Estimation
+### Image Segmentation
 
 | Model | Architecture |
 |-------|-------------|
-| `Intel/dpt-hybrid-midas` | DPT |
+| `mattmdjaga/segformer_b2_clothes` | Segformer |
+| `nvidia/segformer-b1-finetuned-ade-512-512` | Segformer |
+| `nvidia/segformer-b2-finetuned-ade-512-512` | Segformer |
+| `nvidia/segformer-b5-finetuned-ade-640-640` | Segformer |
+
+### Image-to-Text
+
+| Model | Architecture |
+|-------|-------------|
+| `microsoft/trocr-base-handwritten` | VisionEncoderDecoder |
+| `microsoft/trocr-base-printed` | VisionEncoderDecoder |
+| `microsoft/trocr-large-handwritten` | VisionEncoderDecoder |
 
 ---
 
