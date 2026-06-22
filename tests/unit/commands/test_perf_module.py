@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from click.testing import CliRunner
 
@@ -383,6 +383,9 @@ class TestPerfModuleMonitor:
                 "winml.modelkit.commands.perf.generate_random_inputs",
                 return_value={},
             ),
+            # Lazy import inside _perf_modules — patch the source module, not
+            # the call site (winml.modelkit.commands.perf has no HWMonitor name
+            # bound until the function runs).
             patch(
                 "winml.modelkit.session.monitor.hw_monitor.HWMonitor",
                 fake_hw_cls,
@@ -411,8 +414,19 @@ class TestPerfModuleMonitor:
             )
 
         assert result.exit_code == 0, result.output
-        # The live-chart loop must be driven once for the single module instance.
-        mock_loop.assert_called_once()
+        # The live-chart loop must be driven once for the single module
+        # instance, with the benchmark params forwarded intact (guards against
+        # e.g. dropping warmup or mislabeling the chart).
+        mock_loop.assert_called_once_with(
+            ANY,
+            ANY,
+            ANY,
+            ANY,
+            total_iterations=1,
+            warmup=0,
+            model_id=ANY,
+            device="cpu",
+        )
         # And the collected HW metrics still land in the JSON report.
         report = json.loads(out_path.read_text(encoding="utf-8"))
         assert report["instances"][0]["hw_monitor"]["monitor"] == "HWMonitor"

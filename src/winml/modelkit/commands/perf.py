@@ -890,6 +890,9 @@ def _perf_modules(
                             model_id=label,
                             device=resolved_device,
                         )
+                        # Collect inside the `with` block: hw_ctx.__exit__
+                        # stops the monitor, so to_dict() must read while it's
+                        # still live (mirrors the single-model path).
                         hw_metrics = hw.to_dict()
                 else:
                     with session.perf(warmup=warmup) as stats:
