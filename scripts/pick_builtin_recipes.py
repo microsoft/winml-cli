@@ -45,16 +45,20 @@ QUANT_PRECISIONS = ("w8a8", "w8a16")
 
 
 def find_source_dir(slug: str, task: str, precision: str) -> Path | None:
-    """Return the NPU bucket whose `<task>_<precision>_eval_result.json` exists.
+    """Return an NPU bucket whose `<task>_<precision>_eval_result.json` exists
+    on **every** NPU EP, or None if any NPU EP is missing it.
 
-    For Built-in pairs, fp16 is guaranteed to hit (NPU fp16 passes on every
-    NPU EP by definition). w8a8/w8a16 may legitimately return None.
+    For Built-in pairs, fp16 is guaranteed to satisfy this (NPU fp16 passes
+    on every NPU EP by definition). w8a8/w8a16 may legitimately return None.
     """
+    candidate: Path | None = None
     for ep, hw in NPU_EPS:
         d = EX / ep / hw / slug
-        if (d / f"{task}_{precision}{EVAL_SUFFIX}").exists():
-            return d
-    return None
+        if not (d / f"{task}_{precision}{EVAL_SUFFIX}").exists():
+            return None
+        if candidate is None:
+            candidate = d
+    return candidate
 
 
 def source_config_files(src_dir: Path, task: str, precision: str) -> list[Path]:

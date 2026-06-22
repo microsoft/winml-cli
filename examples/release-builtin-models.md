@@ -57,7 +57,7 @@ NPU w8a8 / w8a16 eval results play **no role** in the Built-in criterion.
 For each Built-in `(model, task)`, recipes are copied from an NPU bucket into `examples/recipes/<slug>/`:
 
 - **fp16** recipe: always picked (Built-in guarantees NPU fp16 passed on every NPU EP, so the source always exists).
-- **w8a8** recipe: picked iff at least one NPU EP has `<task>_w8a8_eval_result.json`; sourced from that EP.
+- **w8a8** recipe: picked iff `<task>_w8a8_eval_result.json` exists on **every** one of the 3 NPU EPs; sourced from any one of them.
 - **w8a16** recipe: same, for `<task>_w8a16_eval_result.json`.
 
 Composite tasks (e.g. CLIP zero-shot) match multiple files via `<task>_<precision>_config*.json` and all are copied. CPU/GPU configs are not copied — the recipe set is intentionally NPU-shaped.
