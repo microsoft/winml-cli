@@ -29,7 +29,6 @@ from typing import Any
 
 from .config import WinMLLoaderConfig, resolve_loader_config
 from .onnx_hub import resolve_hf_onnx_path
-from .resolution import TaskResolution, TaskSource, resolve_composite, resolve_task
 from .resolution import (
     TaskResolution,
     TaskSource,
