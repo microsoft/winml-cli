@@ -998,10 +998,20 @@ def _compute_summary(results: dict) -> None:
             flush=True,
         )
 
-    # ── npu-001: opset21 vs opset17 (h3 vs h1) ──────────────────────────────
-    # Criterion 1 (median): h3 p50 < h1 p50 by >=5%
-    # Criterion 2 (range-overlap, stricter): max(h3_p50s) < min(h1_p50s)
-    # Both must agree for "True"; either failing gives "neutral"
+    # ── npu-001: opset21 vs opset17 ─────────────────────────────────────────
+    # npu-001 ("opset 21 bypasses an opset-17 slowdown") is only CONFIRMED when
+    # opset 21 (h3) beats BOTH opset-17 references by the effect-size gate:
+    #   (1) the explicit-opset-17 stress build (h1), AND
+    #   (2) the auto-config baseline (h0) — the build users actually ship.
+    # Two guards stop a degenerate opset-17 reference from manufacturing a
+    # false confirmation (observed on yolos-small, 2026-06-22):
+    #   - HIGH-CV guard: if the explicit-opset-17 reference (h1) is OK_HIGH_CV
+    #     (DVFS-thrashing, here 66ms at CV>0.25 vs a stable 49ms h0/h3), the
+    #     comparison is unreliable -> N/A, never CONFIRMED.
+    #   - baseline guard: opset21 must also clear the h0 effect-size gate.
+    #     yolos h3 beat the pathological h1 by +26% yet was within noise of the
+    #     real auto-config baseline (h0), so it must NOT generalize npu-001.
+    h0 = hyps.get("h0", {})
     h1 = hyps.get("h1", {})
     h3 = hyps.get("h3", {})
     if h1.get("status") in ("OK", "OK_HIGH_CV") and h3.get("status") in ("OK", "OK_HIGH_CV"):
@@ -1018,12 +1028,51 @@ def _compute_summary(results: dict) -> None:
         ranges_non_overlapping = max(h3_p50s) < min(h1_p50s) if h3_p50s and h1_p50s else None
         results["npu001_ranges_non_overlapping"] = ranges_non_overlapping
 
-        if median_gain and ranges_non_overlapping:
+        # Guard 1: explicit-opset-17 reference (h1) must be reliable (low-CV).
+        h1_high_cv = h1.get("status") == "OK_HIGH_CV"
+
+        # Guard 2: opset21 must also beat the auto-config baseline (h0) by the
+        # same effect-size gate used for best_gain. If h0 is missing, fall back
+        # to the h1-only comparison (legacy behaviour).
+        beats_baseline: bool | None = None
+        if h0.get("status") in ("OK", "OK_HIGH_CV"):
+            h0_p50s: list[float] = h0["full"].get("p50s_ms", [])
+            p50_h0 = h0["full"].get("median_p50_ms")
+            if h0_p50s and p50_h0 and h3_p50s:
+                gain_vs_base = (p50_h0 - p50_h3) / p50_h0 * 100
+                base_floor = (
+                    EFFECT_SIZE_CV_MULT * max(_session_cv(h0_p50s), _session_cv(h3_p50s)) * 100
+                )
+                beats_baseline = gain_vs_base >= base_floor and max(h3_p50s) < min(h0_p50s)
+
+        # Guard 3: an unbiased paired-A/B verdict overrides — MARGINAL/DISCARD
+        # means no real win regardless of the sequential medians.
+        pab = h3.get("paired_ab") or {}
+        pab_rejects = pab.get("verdict") in ("MARGINAL", "DISCARD")
+
+        if h1_high_cv:
+            results["npu001_generalized"] = "N/A (high-CV opset17 reference)"
+            print(
+                f"  [npu-001] N/A: explicit-opset17 reference is HIGH-CV"
+                f" ({p50_h1:.1f}ms, unreliable) — cannot confirm bypass",
+                flush=True,
+            )
+        elif beats_baseline is False or pab_rejects:
+            results["npu001_generalized"] = "neutral"
+            why = (
+                "paired-A/B not decisive" if pab_rejects else "within noise of auto-config baseline"
+            )
+            print(
+                f"  [npu-001] NEUTRAL vs auto-config baseline: opset21={p50_h3:.1f}ms"
+                f" ~ baseline ({why})",
+                flush=True,
+            )
+        elif median_gain and ranges_non_overlapping:
             results["npu001_generalized"] = True
             gain = (p50_h1 - p50_h3) / p50_h1 * 100
             print(
                 f"  [npu-001] CONFIRMED: opset21={p50_h3:.1f}ms vs opset17={p50_h1:.1f}ms"
-                f" (+{gain:.1f}%, ranges non-overlapping)",
+                f" (+{gain:.1f}%, ranges non-overlapping, beats auto-config baseline)",
                 flush=True,
             )
         elif median_gain and not ranges_non_overlapping:
@@ -1086,13 +1135,26 @@ def _save_results(results: dict, model_dir: Path) -> None:
 
 
 def emit_champion_config(results: dict, model_dir: Path) -> None:
-    """Write champion config to champion-configs/<slug>_<ep>_<device>_optimal.json."""
+    """Write champion config to champion-configs/<slug>_<ep>_<device>_optimal.json.
+
+    The champion is the *recommended ship config*. A hypothesis is only crowned
+    when its gain over baseline is RELIABLE (clears the effect-size gate); when
+    the best gain is within noise we fall back to the auto-config baseline (h0)
+    so we never ship a "champion" that isn't actually faster than the default.
+    """
     best_h_id = results.get("best_hypothesis")
     if not best_h_id:
         return
-    best_hyp = results.get("hypotheses", {}).get(best_h_id, {})
 
-    cfg_path = model_dir / best_h_id / "build_config.json"
+    verdict = results.get("best_gain_verdict")
+    reliable = verdict == "RELIABLE"
+    # Fall back to the auto-config baseline when there is no reliable win.
+    champion_h_id = best_h_id if reliable else "h0"
+    if champion_h_id not in results.get("hypotheses", {}):
+        champion_h_id = best_h_id
+    champion_hyp = results.get("hypotheses", {}).get(champion_h_id, {})
+
+    cfg_path = model_dir / champion_h_id / "build_config.json"
     build_config = None
     if cfg_path.exists():
         try:
@@ -1107,25 +1169,31 @@ def emit_champion_config(results: dict, model_dir: Path) -> None:
     CHAMPION_DIR.mkdir(parents=True, exist_ok=True)
     out_path = CHAMPION_DIR / f"{model_slug}_{ep}_{device}_optimal.json"
 
+    champion_p50 = champion_hyp.get("full", {}).get("median_p50_ms", results.get("best_p50_ms"))
     champion = {
         "model_id": results["model_id"],
         "ep": ep,
         "device": device,
-        "champion_hypothesis": best_h_id,
-        "champion_label": best_hyp.get("label", ""),
-        "opset": best_hyp.get("opset"),
-        "extra_optim": best_hyp.get("extra_optim", {}),
+        "champion_hypothesis": champion_h_id,
+        "champion_label": champion_hyp.get("label", ""),
+        "champion_verdict": verdict,
+        "reliable_improvement": reliable,
+        "opset": champion_hyp.get("opset"),
+        "extra_optim": champion_hyp.get("extra_optim", {}),
         "perf": {
             "baseline_p50_ms": results.get("baseline_p50_ms"),
-            "champion_p50_ms": results.get("best_p50_ms"),
-            "gain_pct": results.get("best_gain_pct"),
+            "champion_p50_ms": champion_p50,
+            "best_observed_hypothesis": best_h_id,
+            "best_observed_gain_pct": results.get("best_gain_pct"),
+            "gain_reliable": reliable,
         },
         "build_config": build_config,
         "sweep_timestamp": results.get("timestamp"),
         "generated_by": Path(__file__).name,
     }
     out_path.write_text(json.dumps(champion, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"  Champion config: {out_path}", flush=True)
+    note = "" if reliable else f"  (no reliable win — shipping baseline; best observed {best_h_id})"
+    print(f"  Champion config: {out_path}{note}", flush=True)
 
 
 def _emit_model_artifacts(results: dict, model_dir: Path) -> None:

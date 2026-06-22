@@ -513,6 +513,14 @@ def generate_model_report(results: dict, output_path: Path) -> None:
     champion = hypotheses_map.get(champion_hyp or "", {})
     champion_p50_ms = results.get("best_p50_ms") or _get_p50(champion)
     best_gain_pct = results.get("best_gain_pct")
+    best_gain_verdict = results.get("best_gain_verdict")
+    gain_reliable = best_gain_verdict == "RELIABLE"
+    # When the best observed gain is not statistically reliable, the recommended
+    # ship config is the auto-config baseline, not the fastest-observed hypothesis.
+    if best_gain_verdict and not gain_reliable:
+        reliability_note = f"⚠ {best_gain_verdict.replace('_', ' ').lower()} — ship baseline"
+    else:
+        reliability_note = ""
 
     keep_rows = _table_rows(
         hyps,
@@ -747,7 +755,7 @@ def generate_model_report(results: dict, output_path: Path) -> None:
     <div class="kpi-card {_status_class(best_gain_pct)}">
       <div class="kpi-label">Best Gain %</div>
       <div class="kpi-value">{_fmt_pct(best_gain_pct)}</div>
-      <div class="kpi-sub">Champion: {_escape(champion_hyp or "—")}</div>
+      <div class="kpi-sub">Champion: {_escape(champion_hyp or "—")}{(" · " + _escape(reliability_note)) if reliability_note else ""}</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Baseline → Champion ms</div>
@@ -761,8 +769,8 @@ def generate_model_report(results: dict, output_path: Path) -> None:
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Champion Config</div>
-      <div class="kpi-value">{_escape(champion_hyp or "—")}</div>
-      <div class="kpi-sub">{_escape(champion_summary)}</div>
+      <div class="kpi-value">{_escape(("h0 (baseline)" if reliability_note else (champion_hyp or "—")))}</div>
+      <div class="kpi-sub">{_escape(reliability_note or champion_summary)}</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Total experiments</div>

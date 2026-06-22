@@ -1,59 +1,92 @@
 {
   "model_id": "hustvl/yolos-small",
   "task": "object-detection",
-  "model_type": "yolos",
-  "timestamp": "2026-06-13T15:12:34",
+  "model_type": "auto",
+  "timestamp": "2026-06-22T12:06:44",
   "ep": "qnn",
   "device": "npu",
   "baseline_opset": 17,
   "hypotheses": {
     "h0": {
-      "status": "OK_HIGH_CV",
+      "status": "OK",
       "screen": {
-        "p50_ms": 76.826,
-        "cv": 0.344,
-        "stable": false,
-        "note": "DVFS noise — high CV expected on QNN NPU"
+        "p50_ms": 48.663,
+        "cv": 0.0666,
+        "stable": true
       },
       "full": {
         "p50s_ms": [
-          76.629,
-          96.253,
-          78.694
+          50.715,
+          49.324,
+          49.598
         ],
-        "median_p50_ms": 78.694
+        "median_p50_ms": 49.598
       },
       "accuracy": null,
       "label": "baseline (auto-config, W8A16)",
-      "opset": 17
+      "opset": 17,
+      "extra_optim": {}
     },
     "h1": {
       "status": "OK_HIGH_CV",
       "screen": {
-        "p50_ms": 89.003,
-        "cv": 0.316,
+        "p50_ms": 66.447,
+        "cv": 0.2261,
         "stable": false,
         "note": "DVFS noise — high CV expected on QNN NPU"
       },
       "full": {
         "p50s_ms": [
-          95.119,
-          92.075,
-          89.82
+          67.96,
+          65.68,
+          65.888
         ],
-        "median_p50_ms": 92.075
+        "median_p50_ms": 65.888
       },
       "accuracy": null,
       "label": "opset 17 explicit",
-      "opset": 17
+      "opset": 17,
+      "extra_optim": {}
     },
     "h2": {
       "status": "TIMEOUT",
       "label": "opset 19"
     },
     "h3": {
-      "status": "TIMEOUT",
-      "label": "opset 21 (tests npu-001 bypass)"
+      "status": "OK",
+      "screen": {
+        "p50_ms": 48.787,
+        "cv": 0.0503,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          48.741,
+          48.599,
+          48.605
+        ],
+        "median_p50_ms": 48.605
+      },
+      "accuracy": null,
+      "label": "opset 21 (tests npu-001 bypass)",
+      "opset": 21,
+      "extra_optim": {},
+      "paired_ab": {
+        "gains_pct": [
+          -0.39,
+          -1.85,
+          -0.05,
+          -0.42,
+          -0.16,
+          -0.31,
+          -0.73,
+          -0.22
+        ],
+        "mean_gain_pct": -0.52,
+        "ci_half_95": 0.4,
+        "n_pairs": 8,
+        "verdict": "MARGINAL"
+      }
     },
     "h4": {
       "status": "TIMEOUT",
@@ -62,18 +95,89 @@
     "h5": {
       "status": "TIMEOUT",
       "label": "opset 21 + conv fusions"
+    },
+    "h6": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 49.012,
+        "cv": 0.048,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          50.151,
+          49.574,
+          49.956
+        ],
+        "median_p50_ms": 49.956
+      },
+      "accuracy": null,
+      "label": "opset 21 + matmul_transpose_fusion",
+      "opset": 21,
+      "extra_optim": {
+        "matmul_transpose_fusion": true
+      }
+    },
+    "h7": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 49.042,
+        "cv": 0.0618,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          49.06,
+          51.631,
+          51.895
+        ],
+        "median_p50_ms": 51.631
+      },
+      "accuracy": null,
+      "label": "opset 21 + bias_softmax_fusion",
+      "opset": 21,
+      "extra_optim": {
+        "bias_softmax_fusion": true
+      }
+    },
+    "h8": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 51.292,
+        "cv": 0.078,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          51.226,
+          49.202,
+          49.531
+        ],
+        "median_p50_ms": 49.531
+      },
+      "accuracy": null,
+      "label": "opset 21 + attention_fusion",
+      "opset": 21,
+      "extra_optim": {
+        "attention_fusion": true
+      }
     }
   },
-  "best_hypothesis": "h0",
-  "baseline_p50_ms": 78.694,
-  "best_p50_ms": 78.694,
-  "best_gain_pct": 0.0,
-  "npu001_generalized": "N/A (h1, h3 not OK)",
+  "best_hypothesis": "h3",
+  "baseline_p50_ms": 49.598,
+  "best_p50_ms": 48.605,
+  "best_gain_pct": 2.0,
+  "npu001_generalized": "N/A (high-CV opset17 reference)",
   "feature_gaps": [],
   "errors": [
-    "Model timed out at 1318s (before h2)",
-    "Model timed out at 1318s (before h3)",
-    "Model timed out at 1318s (before h4)",
-    "Model timed out at 1318s (before h5)"
-  ]
+    "h2 (opset 19), h4/h5 (conv fusions): not measured — agent deprioritized (yolos is 0.1% conv / 99.9% transformer, so conv-fusion and intermediate-opset hypotheses are low expected-value)."
+  ],
+  "conv_pct": 0.1,
+  "npu006_risk": false,
+  "npu006_regression": false,
+  "best_gain_reliable": false,
+  "best_gain_verdict": "NEUTRAL_WITHIN_NOISE",
+  "best_gain_noise_floor_pct": 2.95,
+  "best_gain_ranges_separated": true,
+  "npu001_ranges_non_overlapping": true
 }

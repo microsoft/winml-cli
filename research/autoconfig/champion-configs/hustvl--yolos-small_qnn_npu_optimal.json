@@ -1,5 +1,5 @@
 {
-  "model_id": "apple/mobilevit-small",
+  "model_id": "hustvl/yolos-small",
   "ep": "qnn",
   "device": "npu",
   "champion_hypothesis": "h0",
@@ -9,13 +9,13 @@
   "opset": 17,
   "extra_optim": {},
   "perf": {
-    "baseline_p50_ms": 5.51,
-    "champion_p50_ms": 5.51,
+    "baseline_p50_ms": 49.598,
+    "champion_p50_ms": 49.598,
     "best_observed_hypothesis": "h3",
-    "best_observed_gain_pct": 2.81,
+    "best_observed_gain_pct": 2.0,
     "gain_reliable": false
   },
   "build_config": null,
-  "sweep_timestamp": "2026-06-22T08:34:17",
+  "sweep_timestamp": "2026-06-22T12:06:44",
   "generated_by": "catalog_qnn_sweep.py"
 }
