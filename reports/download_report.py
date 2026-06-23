@@ -25,14 +25,14 @@ Usage:
     python download_report.py --account <account> --out <path>
 
 By default the report is written next to this script, overwriting the published
-copy (reports/model_compatibility_report.html on the gh-pages branch).
+copy (reports/examples_compatibility_report.html on the gh-pages branch).
 
 PUBLISHING (manual, done by a maintainer):
     See README.md (co-located in this folder) for full instructions. After
     fetching, commit and push the refreshed report on the gh-pages branch:
 
-        git add reports/model_compatibility_report.html
-        git commit -m "Update model compatibility report"
+        git add reports/examples_compatibility_report.html
+        git commit -m "Update examples compatibility report"
         git push origin gh-pages
 """
 
@@ -47,7 +47,7 @@ from pathlib import Path
 
 SOURCE_REPO = "gim-home/ModelKitArtifacts"
 SOURCE_BRANCH = "site-src"
-SOURCE_FILE = "e2e_model_coverage_result/model_compatibility_report.html"
+SOURCE_FILE = "e2e_model_coverage_result/examples_compatibility_report.html"
 REPORT_FILENAME = SOURCE_FILE.rsplit("/", 1)[-1]
 DEFAULT_OUT = Path(__file__).resolve().parent / REPORT_FILENAME
 
@@ -122,7 +122,7 @@ def _sparse_clone(clone_url: str, dest: Path) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fetch the model compatibility report from gim-home/ModelKitArtifacts"
+        description="Fetch the examples compatibility report from gim-home/ModelKitArtifacts"
     )
     parser.add_argument("--account", type=str, help="gh CLI account with access to gim-home org")
     parser.add_argument(
