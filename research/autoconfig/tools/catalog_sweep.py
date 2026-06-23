@@ -37,7 +37,7 @@ Usage:
     python tools/catalog_sweep.py --ep qnn --device npu --only-hypotheses h6,h7 --paired-ab
     python tools/catalog_sweep.py --ep qnn --device gpu --list
 
-Results: <results_dir>/<model_slug>/results.json + report.html, SUMMARY.md.
+Results: <results_dir>/<model_slug>/{results.json, report.html, champion_<ep>_<device>.json}, SUMMARY.md.
 """
 
 from __future__ import annotations
@@ -77,7 +77,6 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 
 KB_DIR = _AGENT_ROOT / "ep_device_knowledge"
 WINML = str(_AGENT_ROOT / ".venv" / "Scripts" / "winml.exe")
-CHAMPION_DIR = _AGENT_ROOT / "champion-configs"
 
 _OK = ("OK", "OK_HIGH_CV")
 
@@ -953,35 +952,50 @@ class CatalogSweep:
             print(f"  [warn] report generation failed: {e}", flush=True)
 
     def _emit_champion(self, results: dict, model_dir: Path) -> None:
+        """Write the recommended build config alongside the model's sweep artifacts.
+
+        The champion is the best hypothesis when its gain is reliable, otherwise the
+        baseline (auto) config. ``build_config`` is the *real* winml config used to
+        build that hypothesis (``model_dir/<hyp>/build_config.json``) — not a
+        hand-written summary. Written into the per-model folder so all tuning
+        products for a model live together.
+        """
+        baseline_id = self.baseline_id
         best_h = results.get("best_hypothesis")
-        if not best_h or best_h == self.baseline_id:
+        reliable = bool(results.get("best_gain_reliable")) and best_h not in (None, baseline_id)
+        champion_h = best_h if reliable else baseline_id
+        if not champion_h:
             return
-        best_hyp = results.get("hypotheses", {}).get(best_h, {})
-        cfg_path = model_dir / best_h / "build_config.json"
+
+        champ = results.get("hypotheses", {}).get(champion_h, {})
+        cfg_path = model_dir / champion_h / "build_config.json"
         build_config = None
         if cfg_path.exists():
             try:
                 build_config = json.loads(cfg_path.read_text(encoding="utf-8"))
             except Exception:
                 pass
-        CHAMPION_DIR.mkdir(parents=True, exist_ok=True)
-        slug = results["model_id"].replace("/", "--")
-        out_path = CHAMPION_DIR / f"{slug}_{self.ep}_{self.device}_optimal.json"
+
+        champ_p50 = results.get("best_p50_ms") if reliable else results.get("baseline_p50_ms")
+        out_path = model_dir / f"champion_{self.ep}_{self.device}.json"
         out_path.write_text(
             json.dumps(
                 {
                     "model_id": results["model_id"],
                     "ep": self.ep,
                     "device": self.device,
-                    "champion_hypothesis": best_h,
-                    "champion_label": best_hyp.get("label", ""),
-                    "opset": best_hyp.get("opset"),
-                    "optim": best_hyp.get("optim", {}),
+                    "champion_hypothesis": champion_h,
+                    "champion_label": champ.get("label", ""),
+                    "champion_verdict": results.get("best_gain_verdict"),
+                    "reliable_improvement": reliable,
+                    "opset": champ.get("opset"),
+                    "optim": champ.get("optim", {}),
                     "perf": {
                         "baseline_p50_ms": results.get("baseline_p50_ms"),
-                        "champion_p50_ms": results.get("best_p50_ms"),
-                        "gain_pct": results.get("best_gain_pct"),
-                        "verdict": results.get("best_gain_verdict"),
+                        "champion_p50_ms": champ_p50,
+                        "best_observed_hypothesis": best_h,
+                        "best_observed_gain_pct": results.get("best_gain_pct"),
+                        "gain_reliable": reliable,
                     },
                     "build_config": build_config,
                     "sweep_timestamp": results.get("timestamp"),
@@ -992,6 +1006,12 @@ class CatalogSweep:
             ),
             encoding="utf-8",
         )
+        if build_config is None:
+            print(
+                f"  [warn] champion build_config missing — {cfg_path} not found"
+                " (run a full sweep to materialize it)",
+                flush=True,
+            )
         print(f"  Champion config: {out_path}", flush=True)
 
     def write_summary(self, all_results: list[dict]) -> None:

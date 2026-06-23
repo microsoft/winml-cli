@@ -141,8 +141,10 @@ python tools/catalog_sweep.py --ep qnn --device gpu
 python tools/catalog_sweep.py --ep qnn --device npu --list
 ```
 
-Results land in `catalog-<device-or-ep>-sweep/<model-slug>/results.json` and a `SUMMARY.md`
-is regenerated at the end of each sweep.
+Results land in `catalog-<device-or-ep>-sweep/<model-slug>/` — `results.json`, an HTML
+report, and `champion_<ep>_<device>.json` (the recommended build config, with the real
+`winml config` output embedded under `build_config`). A `SUMMARY.md` is regenerated at
+the end of each sweep.
 
 ### analyze_graph.py — ONNX graph analysis
 
@@ -322,14 +324,17 @@ research/autoconfig/
 │
 ├── catalog-qnn-sweep/           ← QNN NPU sweep results (also catalog-cpu-sweep/, catalog-gpu-sweep/)
 │   ├── SUMMARY.md               ← 8-model sweep results and cross-model analysis
-│   ├── apple--mobilevit-small/results.json
-│   ├── facebook--dinov2-small/results.json
-│   ├── microsoft--resnet-18/results.json
-│   ├── google--vit-base-patch16-224/results.json
-│   ├── deepset--roberta-base-squad2/results.json
-│   ├── distilbert--distilbert-base-uncased-finetuned-sst-2-english/results.json
-│   ├── sentence-transformers--all-MiniLM-L6-v2/results.json
-│   └── hustvl--yolos-small/results.json
+│   ├── apple--mobilevit-small/  ← per-model tuning products live together:
+│   │   ├── results.json         ←   benchmark results + verdicts
+│   │   ├── report.html          ←   per-model HTML report
+│   │   └── champion_qnn_npu.json ←  recommended build config (real `winml config` output)
+│   ├── facebook--dinov2-small/
+│   ├── microsoft--resnet-18/
+│   ├── google--vit-base-patch16-224/
+│   ├── deepset--roberta-base-squad2/
+│   ├── distilbert--distilbert-base-uncased-finetuned-sst-2-english/
+│   ├── sentence-transformers--all-MiniLM-L6-v2/
+│   └── hustvl--yolos-small/
 │
 └── catalog-cpu-sweep/, catalog-gpu-sweep/  ← analogous per-model results for CPU / QNN GPU
 ```
