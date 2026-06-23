@@ -108,6 +108,12 @@ def quantize_onnx(
             from ..onnx import load_onnx, save_onnx
             from ..optim.fp16 import convert_to_fp16
 
+            if config.calibration_data is not None:
+                logger.warning(
+                    "calibration_data is set but fp16_only=True — "
+                    "calibration data will be ignored."
+                )
+
             logger.info("Running FP16-only conversion (no quantization)...")
             model = load_onnx(model_path, validate=False)
             model = convert_to_fp16(

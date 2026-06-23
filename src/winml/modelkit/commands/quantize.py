@@ -182,6 +182,22 @@ def quantize(
     is_fp16 = precision and precision.lower() == "fp16"
 
     if is_fp16:
+        # Warn about ignored calibration options
+        ignored = []
+        if cli_utils.is_cli_provided(ctx, "samples"):
+            ignored.append("--samples")
+        if cli_utils.is_cli_provided(ctx, "method"):
+            ignored.append("--method")
+        if cli_utils.is_cli_provided(ctx, "weight_type"):
+            ignored.append("--weight-type")
+        if cli_utils.is_cli_provided(ctx, "activation_type"):
+            ignored.append("--activation-type")
+        if ignored:
+            console.print(
+                f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — "
+                "FP16 conversion does not use calibration data."
+            )
+
         # Determine output path
         if output is None:
             output = model.parent / f"{model.stem}_fp16.onnx"
