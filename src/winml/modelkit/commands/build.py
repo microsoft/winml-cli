@@ -1135,7 +1135,6 @@ def _run_optimize_stage(
     return current_path, opt_elapsed
 
 
-
 def _run_quantize_stage(
     *,
     config: WinMLBuildConfig,
@@ -1166,9 +1165,6 @@ def _run_quantize_stage(
 
     # ── FP16-only fast path (no calibration / QDQ) ───────────────
     if config.quant.fp16_only:
-        from ..quant import quantize_onnx
-        from ..utils.console import StageLive
-
         with StageLive("fp16", console) as sl:
             sl.set_status("Converting to FP16...")
             t0 = time.monotonic()
@@ -1193,9 +1189,6 @@ def _run_quantize_stage(
 
     # ── RTN weight-only path (no calibration) ────────────────────
     if config.quant.algorithm == "rtn":
-        from ..quant import quantize_onnx
-        from ..utils.console import StageLive
-
         with StageLive("quantize", console) as sl:
             bits = config.quant.rtn_bits
             sl.set_status(f"Quantizing (RTN {bits}-bit)...")
@@ -1216,8 +1209,7 @@ def _run_quantize_stage(
             sl.kv("Algorithm:", f"[cyan]RTN[/cyan]  [dim](weight-only {bits}-bit)[/dim]")
             sl.kv(
                 "Config:",
-                f"block_size={config.quant.rtn_block_size}, "
-                f"symmetric={config.quant.rtn_symmetric}",
+                f"block_size={config.quant.rtn_block_size}, symmetric={config.quant.rtn_symmetric}",
             )
             sl.artifact(str(quantized_path), _safe_size(quantized_path))
             sl.blank()

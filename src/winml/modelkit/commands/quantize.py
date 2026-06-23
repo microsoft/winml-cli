@@ -258,6 +258,7 @@ def quantize(
                 "RTN weight-only quantization does not use calibration data."
             )
 
+        assert precision is not None  # guaranteed by is_rtn check
         rtn_bits = extract_weight_bits(precision.lower())
 
         # Determine output path

@@ -68,7 +68,7 @@ def convert_to_fp16(
     if op_block_list:
         logger.info("  Keeping ops in FP32: %s", op_block_list)
 
-    converted = convert_float_to_float16(
+    converted: ModelProto = convert_float_to_float16(
         model,
         keep_io_types=keep_io_types,
         op_block_list=op_block_list,
