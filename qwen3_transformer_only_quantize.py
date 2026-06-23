@@ -34,6 +34,7 @@ DEFAULT_MAX_CACHE = 256
 DEFAULT_PREFILL_SEQ = 64
 DEFAULT_GEN_SEQ = 1
 DEFAULT_NUM_SAMPLES = 30
+DEFAULT_DECODE_STEPS = 16
 DEFAULT_CALIB_DATASET = "openai/gsm8k"
 DEFAULT_CALIB_DATASET_CONFIG = "main"
 DEFAULT_CALIB_SPLIT = "train"
@@ -119,6 +120,140 @@ class Qwen3TransformerOnlyCalibReader(CalibrationDataReader):
         self._iter = iter(self._samples)
 
 
+def _layer_kv(past: Any, i: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """Extract layer ``i``'s (key, value) from an HF cache, version-agnostic.
+
+    Handles the legacy tuple-of-tuples cache, the older ``DynamicCache``
+    (``.key_cache`` / ``.value_cache``), and the newer per-layer
+    ``DynamicCache`` (``.layers[i].keys`` / ``.values``).
+    """
+    if hasattr(past, "key_cache") and hasattr(past, "value_cache"):
+        return past.key_cache[i], past.value_cache[i]
+    if hasattr(past, "layers"):
+        layer = past.layers[i]
+        return layer.keys, layer.values
+    return past[i][0], past[i][1]
+
+
+class Qwen3DecodeTrajectoryCalibReader(CalibrationDataReader):
+    """Calibrate the iter (seq_len=1) model on REAL decode-step states.
+
+    The naive reader feeds one (repeated) token with a zeroed KV cache and
+    ``past_seq_len=0`` — a state the model never sees during generation. With
+    MinMax calibration this collapses the observed activation ranges far below
+    the real decode distribution, so the resulting w8a16 model degenerates
+    (e.g. ``Paris -> Parisammedammed...``).
+
+    Instead, drive the HF FP reference model through a real prefill + decode
+    trajectory and capture, at each decode step, the exact feed the iter ONNX
+    would receive: the embedding of the *actually generated* token, the real
+    accumulated KV cache (copied into the fixed ``[1, kv_heads, max_cache,
+    head_dim]`` FP16 buffer), and the growing ``past_seq_len``. Token
+    selection uses the HF model's true logits, so the trajectory matches
+    greedy generation. The QDQ scheme is unchanged — only the calibration
+    statistics become representative.
+    """
+
+    def __init__(
+        self,
+        hf_model: torch.nn.Module,
+        embed_tokens: torch.nn.Module,
+        config: Any,
+        token_ids_list: list[torch.Tensor],
+        *,
+        prefill_seq: int,
+        max_cache_len: int,
+        decode_steps: int = 16,
+    ) -> None:
+        self.num_layers = config.num_hidden_layers
+        self.num_kv_heads = config.num_key_value_heads
+        self.head_dim = getattr(
+            config, "head_dim", config.hidden_size // config.num_attention_heads
+        )
+        self.max_cache_len = max_cache_len
+        self._samples = list(
+            self._build_samples(
+                hf_model,
+                embed_tokens,
+                token_ids_list,
+                prefill_seq=prefill_seq,
+                decode_steps=decode_steps,
+            )
+        )
+        self._iter: Iterator[dict[str, np.ndarray]] | None = None
+        self.rewind()
+
+    def _kv_buffers(self, past: Any, cur_len: int) -> dict[str, np.ndarray]:
+        """Copy the ``cur_len`` valid KV positions into fixed FP16 buffers."""
+        feed: dict[str, np.ndarray] = {}
+        for i in range(self.num_layers):
+            k, v = _layer_kv(past, i)
+            kbuf = np.zeros(
+                (1, self.num_kv_heads, self.max_cache_len, self.head_dim), np.float16
+            )
+            vbuf = np.zeros_like(kbuf)
+            kbuf[:, :, :cur_len, :] = k[:, :, :cur_len, :].to(torch.float16).cpu().numpy()
+            vbuf[:, :, :cur_len, :] = v[:, :, :cur_len, :].to(torch.float16).cpu().numpy()
+            feed[f"past_keys_{i}"] = kbuf
+            feed[f"past_values_{i}"] = vbuf
+        return feed
+
+    def _build_samples(
+        self,
+        hf_model: torch.nn.Module,
+        embed_tokens: torch.nn.Module,
+        token_ids_list: list[torch.Tensor],
+        *,
+        prefill_seq: int,
+        decode_steps: int,
+    ) -> Iterator[dict[str, np.ndarray]]:
+        for ids in token_ids_list:
+            ids = ids[:, :prefill_seq]  # real prompt prefix (no pad-token KV)
+            cur_len = ids.shape[1]
+
+            # FP prefill once to seed a realistic KV cache + first token.
+            with torch.no_grad():
+                out = hf_model(input_ids=ids, use_cache=True)
+            past = out.past_key_values
+            tok = int(out.logits[:, -1, :].argmax(-1))
+
+            for _ in range(decode_steps):
+                if cur_len >= self.max_cache_len:
+                    break
+                # The feed the iter model sees for THIS token: embedding of the
+                # token to process, the KV of the `cur_len` preceding tokens,
+                # and seqlens_k = (cur_len + 1) - 1 = cur_len.
+                with torch.no_grad():
+                    emb = embed_tokens(torch.tensor([[tok]])).to(torch.float32).cpu().numpy()
+                feed: dict[str, np.ndarray] = {
+                    "input_hidden_states": emb.astype(np.float32),
+                    "past_seq_len": np.array([[cur_len]], dtype=np.int32),
+                    "total_seq_len": np.array([self.max_cache_len], dtype=np.int32),
+                }
+                feed.update(self._kv_buffers(past, cur_len))
+                yield feed
+
+                # Advance the reference model one real decode step.
+                with torch.no_grad():
+                    out = hf_model(
+                        input_ids=torch.tensor([[tok]]),
+                        past_key_values=past,
+                        use_cache=True,
+                    )
+                past = out.past_key_values
+                tok = int(out.logits[:, -1, :].argmax(-1))
+                cur_len += 1
+
+    def get_next(self) -> dict[str, np.ndarray] | None:
+        try:
+            return next(self._iter) if self._iter is not None else None
+        except StopIteration:
+            return None
+
+    def rewind(self) -> None:
+        self._iter = iter(self._samples)
+
+
 def _tokenize_prompts(tokenizer: Any, prompts: list[str], num_samples: int) -> list[torch.Tensor]:
     out: list[torch.Tensor] = []
     for i in range(num_samples):
@@ -160,6 +295,7 @@ def quantize_built_model(
     num_samples: int = DEFAULT_NUM_SAMPLES,
     weight_type: str = "int8",
     activation_type: str = "uint16",
+    decode_steps: int = DEFAULT_DECODE_STEPS,
 ) -> dict[str, Path]:
     """Quantize the transformer-only ONNX files in-place.
 
@@ -223,13 +359,33 @@ def quantize_built_model(
             f"  excluding {len(gqa_nodes)} GroupQueryAttention nodes from "
             "quantization (inputs + output stay float, Cast -> GQA -> Cast)"
         )
-        reader = Qwen3TransformerOnlyCalibReader(
-            embed_tokens,
-            hf_model.config,
-            token_ids_list,
-            seq_len=seq_len,
-            max_cache_len=max_cache_len,
-        )
+        if sub_name == "decoder_gen":
+            # The iter model only sees mid-generation states. Calibrate it on a
+            # real prefill+decode trajectory (true tokens, accumulated KV,
+            # growing past_seq_len) instead of one token + zeroed KV, which
+            # would under-range the MinMax activation scales and collapse
+            # generation.
+            print(
+                f"  calibrating on decode trajectory ({decode_steps} steps/prompt, "
+                f"prefill_seq={prefill_seq})"
+            )
+            reader: CalibrationDataReader = Qwen3DecodeTrajectoryCalibReader(
+                hf_model,
+                embed_tokens,
+                hf_model.config,
+                token_ids_list,
+                prefill_seq=prefill_seq,
+                max_cache_len=max_cache_len,
+                decode_steps=decode_steps,
+            )
+        else:
+            reader = Qwen3TransformerOnlyCalibReader(
+                embed_tokens,
+                hf_model.config,
+                token_ids_list,
+                seq_len=seq_len,
+                max_cache_len=max_cache_len,
+            )
         cfg = WinMLQuantizationConfig(
             samples=num_samples,
             weight_type=weight_type,  # type: ignore[arg-type]
