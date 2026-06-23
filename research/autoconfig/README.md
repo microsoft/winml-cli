@@ -11,14 +11,23 @@ underlying ORT/EP optimizer mechanics.
 
 ## What This Is
 
-`autoconfig.py` implements an Explorer/Optimizer/Reviewer loop:
+`autoconfig.py` implements an Explorer/Optimizer/Reviewer loop as three explicit
+classes wired by a thin orchestrator (`main()`):
 
-1. **Explorer** — proposes the next hypothesis (opset, EP flags, graph passes) by reading
-   `ep_knowledge/` to prune already-refuted configurations
-2. **Optimizer** — runs `winml build` + `winml perf` (two-phase: 200-iter CV screen → 3×500-iter full bench)
-3. **Reviewer** — evaluates the result, updates the knowledge base, and decides keep/discard
+1. **`Explorer`** — proposes the next hypothesis (opset, EP flags, graph passes): builds
+   the `priority_queue` and prunes already-refuted configs via KB hard-blocks + the
+   Insight Engine `skip_set`. Owns search *order* only.
+2. **`Optimizer`** — runs `winml build` + `winml perf` (two-phase: 200-iter CV screen → 3×500-iter full bench)
+   + `winml eval` accuracy. Produces raw measurements only.
+3. **`Reviewer`** — applies the `ThroughputOnly` verdict (`threshold = max(1%, 2×CV)`),
+   decides keep/discard, and drafts KB entries.
 
 The loop terminates after 30 consecutive discards (plateau detection) or a time budget.
+
+The same four-role architecture is also captured as composable **skill definitions**
+under `skills/` — an `autoconfig-orchestrator` (the brain) that delegates to three
+sub-skills `autoconfig-explorer`, `autoconfig-optimizer`, and `autoconfig-reviewer`.
+Each `SKILL.md` mirrors the corresponding class and the diagram phase.
 
 `catalog_qnn_sweep.py` is a generalized multi-model sweep that tests a fixed hypothesis
 matrix (h0–h5: baseline, opset 17–21, conv fusions) across a catalog of models on the
@@ -261,6 +270,11 @@ research/autoconfig/
 ├── analyze_graph.py             ← ONNX graph pattern analysis helper
 ├── autoconfig_diagram.html      ← Explorer/Optimizer/Reviewer architecture diagram
 ├── gen_report_v3.py             ← HTML report generator for sweep results
+├── skills/                      ← composable skill defs for the loop roles
+│   ├── autoconfig-orchestrator/SKILL.md  ← the brain (Phase 0–3 lifecycle)
+│   ├── autoconfig-explorer/SKILL.md      ← what to try next (priority_queue + skip_set)
+│   ├── autoconfig-optimizer/SKILL.md     ← run it (build → screen → full bench → eval)
+│   └── autoconfig-reviewer/SKILL.md      ← judge it (ThroughputOnly verdict + KB draft)
 ├── docs/                        ← design docs (self-evolution, agent, skills, cross-device)
 ├── ep_knowledge/
 │   ├── README.md                ← epistemics guidelines + promotion checklist

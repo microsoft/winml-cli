@@ -231,172 +231,248 @@ HYPOTHESES: list[tuple[str, object, str]] = [
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
-def build(cfg: dict, out_dir: Path) -> tuple[bool, str]:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    cfg_path = out_dir / "config.json"
-    cfg_path.write_text(json.dumps(cfg, indent=2))
-    rc, out, _ = run_cmd(
-        [
-            WINML,
-            "build",
-            "-c",
-            str(cfg_path),
-            "-m",
-            MODEL_ID,
-            "-o",
-            str(out_dir),
-            "--ep",
-            EP,
-            "--device",
-            DEVICE,
-            "--no-quant",
-            "--no-compile",
-        ],
-        label="winml build",
-    )
-    return rc == 0, out
+# ═══════════════════════════════════════════════════════════════════════════
+#  Phase 2 — Opt Loop subagents (autoconfig_diagram.html)
+#
+#  The experiment loop is split into three explicit subagents that mirror the
+#  architecture diagram:
+#
+#    Explorer   — decides *what to try next*: loads the hypothesis pool, applies
+#                 KB hard-blocks + Insight-Engine skip rules (skip_set), and ranks
+#                 the survivors by Insight priority boost (priority_queue).
+#    Optimizer  — *runs* one hypothesis: winml build -> Phase A screen (CV gate) ->
+#                 Phase B full bench -> accuracy eval. Produces raw measurements
+#                 only; it makes no keep/discard decision.
+#    Reviewer   — *judges* the measurements: applies the ThroughputOnly verdict
+#                 policy (threshold = max(min_improvement, stat_bar x CV)), emits
+#                 KEEP / MARGINAL / DISCARD, and drafts KB entries for real wins.
+#
+#  The orchestrator (main) wires them together: Explorer yields a hypothesis ->
+#  Optimizer benchmarks it -> Reviewer returns a verdict -> repeat.
+# ═══════════════════════════════════════════════════════════════════════════
 
 
-def _run_screen(model_path: Path) -> tuple[float | None, float]:
-    """Phase A: 200-iter screen with CV gate.
+class Explorer:
+    """Phase 2 Explorer — hypothesis pool -> skip_set pruning -> priority_queue.
 
-    For CPU EP, high CV means thermal/scheduling noise — reject and retry later.
-    Returns (p50_ms, cv). p50_ms=None means unstable or command failed.
+    Owns search *order* only; it never builds or benchmarks. It fuses two pruning
+    signals (confirmed KB hard-blocks and the Phase 1 Insight Engine skip_set) and
+    ranks the remaining hypotheses by Insight priority boost.
     """
-    sr = bench_screen(winml=WINML, model_path=model_path, ep=EP, device=DEVICE)
-    if sr.hard_failed:
-        return None, 999.0
-    if sr.cv is not None and sr.cv > SCREEN_CV_MAX:
-        print(
-            f"     Phase A rejected: CV={sr.cv:.2f} > {SCREEN_CV_MAX}"
-            f" (thermal/scheduling noise on {EP.upper()} — cool device and retry)"
+
+    def __init__(self, hypotheses: list[tuple], kb: dict, insight) -> None:
+        self.kb = kb
+        self.insight = insight
+        # priority_queue: stable sort, highest Insight priority boost first.
+        self.priority_queue = sorted(
+            hypotheses, key=lambda item: -insight.priority_boosts.get(item[0], 0.0)
         )
-        return None, sr.cv
-    return sr.p50_ms, sr.cv or 0.0
+
+    def __iter__(self):
+        """Iterate hypotheses in priority order (pop next from priority_queue)."""
+        return iter(self.priority_queue)
+
+    def skip_reason(self, label: str, flags_preview: str) -> str | None:
+        """Return why this hypothesis is pruned, or None to run it.
+
+        Checks the confirmed-KB hard-block rules first, then the Insight Engine
+        skip_set. Mirrors the diagram's "Apply KB hard blocks -> skip_set" step.
+        """
+        kb_rule = next(
+            (r for r in self.kb["skip_passes"] if any(f in flags_preview for f in r.split()[:2])),
+            None,
+        )
+        if kb_rule is not None:
+            return f"KB confirmed rule: {kb_rule}"
+        if label in self.insight.skip_set:
+            return f"Insight Engine: {label}"
+        return None
 
 
-def _run_full(model_path: Path) -> list[float]:
-    """Phase B: 3 sessions × FULL_ITERS with cool-down. Returns p50 per session."""
-    return bench_full(
-        winml=WINML,
-        model_path=model_path,
-        ep=EP,
-        device=DEVICE,
-        out_prefix="full",
-        iters=FULL_ITERS,
-        cool_down_s=COOL_DOWN_S,
-    )
+class Optimizer:
+    """Phase 2 Optimizer — winml build -> Phase A screen -> Phase B full bench -> accuracy.
 
-
-def _run_phase_b(
-    out_dir: Path,
-    label: str,
-    exp_info: dict,
-    screen_cv: float,
-    baseline_p50: float | None,
-    best_p50: float,
-    best_label: str,
-    policy: ThroughputOnly,
-) -> tuple[str, dict]:
-    """Run Phase B (full bench + accuracy gate) and evaluate with VerdictPolicy.
-
-    Returns (status_str, updated exp_info). Does not update best_p50/best_label —
-    caller is responsible so champion tracking stays in one place.
+    Produces raw measurements for one hypothesis. Holds the winml binary path and
+    the build target (model id / EP / device); thresholds stay as module constants.
     """
-    full_p50s = _run_full(out_dir / "model.onnx")
-    if not full_p50s:
-        exp_info["analysis"] = "Phase B winml perf returned no data"
-        return "crash (full bench failed)", exp_info
 
-    med_p50 = median_p50(full_p50s)
-    assert med_p50 is not None
-    exp_info["full_p50s"] = [f"{p:.1f}" for p in full_p50s]
-    exp_info["median_p50"] = f"{med_p50:.1f}"
+    def __init__(self, winml: str, model_id: str, ep: str, device: str) -> None:
+        self.winml = winml
+        self.model_id = model_id
+        self.ep = ep
+        self.device = device
 
-    # Promote baseline from first successful full bench
-    if baseline_p50 is None:
-        baseline_p50 = med_p50
-        exp_info["baseline_p50"] = f"{baseline_p50:.1f}"
-
-    # Accuracy gate
-    accuracy = eval_accuracy(out_dir)
-    exp_info["accuracy"] = f"{accuracy:.4f}" if accuracy is not None else "N/A"
-
-    improvement_pct = (baseline_p50 - med_p50) / baseline_p50 * 100
-    delta_pct = -improvement_pct
-    exp_info["delta_pct"] = f"{delta_pct:+.1f}%"
-
-    correctness_pass = accuracy is None or accuracy >= ACCURACY_FLOOR
-    verdict = policy.evaluate(
-        VerdictInput(
-            improvement_pct=improvement_pct,
-            cv_pct=screen_cv * 100.0,
-            correctness_pass=correctness_pass,
+    def build(self, cfg: dict, out_dir: Path) -> tuple[bool, str]:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        cfg_path = out_dir / "config.json"
+        cfg_path.write_text(json.dumps(cfg, indent=2))
+        rc, out, _ = run_cmd(
+            [
+                self.winml,
+                "build",
+                "-c",
+                str(cfg_path),
+                "-m",
+                self.model_id,
+                "-o",
+                str(out_dir),
+                "--ep",
+                self.ep,
+                "--device",
+                self.device,
+                "--no-quant",
+                "--no-compile",
+            ],
+            label="winml build",
         )
-    )
+        return rc == 0, out
 
-    exp_info["analysis"] = verdict.reasoning
-    if verdict.verdict in ("KEEP", "MARGINAL_KEEP"):
-        status = "keep" + (" (marginal)" if verdict.marginal else "")
-        exp_info["analysis"] = (
-            f"Improvement confirmed: p50 {baseline_p50:.1f}ms -> {med_p50:.1f}ms "
-            f"({delta_pct:+.1f}%). {verdict.reasoning}"
-        )
-        # Auto-write KB draft entry for notable improvements
-        if not verdict.marginal:
-            write_kb_draft(
-                ep=EP,
-                label=label,
-                improvement_pct=improvement_pct,
-                cv=screen_cv,
-                model_id=MODEL_ID,
-                dimension=exp_info.get("dimension", "unknown"),
+    def screen(self, model_path: Path) -> tuple[float | None, float]:
+        """Phase A: 200-iter screen with CV gate.
+
+        For CPU EP, high CV means thermal/scheduling noise — reject and retry later.
+        Returns (p50_ms, cv). p50_ms=None means unstable or command failed.
+        """
+        sr = bench_screen(winml=self.winml, model_path=model_path, ep=self.ep, device=self.device)
+        if sr.hard_failed:
+            return None, 999.0
+        if sr.cv is not None and sr.cv > SCREEN_CV_MAX:
+            print(
+                f"     Phase A rejected: CV={sr.cv:.2f} > {SCREEN_CV_MAX}"
+                f" (thermal/scheduling noise on {self.ep.upper()} — cool device and retry)"
             )
-    elif verdict.verdict == "ACC_FAIL":
-        status = f"discard (accuracy {accuracy:.4f} < floor {ACCURACY_FLOOR})"
-    else:
-        status = f"discard ({verdict.reasoning})"
+            return None, sr.cv
+        return sr.p50_ms, sr.cv or 0.0
 
-    return status, exp_info
+    def full_bench(self, model_path: Path) -> list[float]:
+        """Phase B: 3 sessions × FULL_ITERS with cool-down. Returns p50 per session."""
+        return bench_full(
+            winml=self.winml,
+            model_path=model_path,
+            ep=self.ep,
+            device=self.device,
+            out_prefix="full",
+            iters=FULL_ITERS,
+            cool_down_s=COOL_DOWN_S,
+        )
+
+    def eval_accuracy(self, out_dir: Path) -> float | None:
+        """Run winml eval; return accuracy (top-1 or cosine). For latency: use bench_*."""
+        model_path = out_dir / "model.onnx"
+        if not model_path.exists():
+            return None
+        result_json = out_dir / "eval_result.json"
+        rc, _, _ = run_cmd(
+            [
+                self.winml,
+                "eval",
+                "-m",
+                str(model_path),
+                "--model-id",
+                self.model_id,
+                "--task",
+                TASK,
+                "--ep",
+                self.ep,
+                "--device",
+                self.device,
+                "--samples",
+                str(EVAL_SAMPLES),
+                "-o",
+                str(result_json),
+            ],
+            label="winml eval (accuracy gate)",
+        )
+        if rc != 0 or not result_json.exists():
+            return None
+        try:
+            data = json.loads(result_json.read_text())
+            metrics = data.get("metrics", data)
+            acc = metrics.get("accuracy")
+            return float(acc) if acc is not None else None
+        except Exception as e:
+            print(f"     [warn] parse error: {e}")
+            return None
 
 
-def eval_accuracy(out_dir: Path) -> float | None:
-    """Run winml eval; return accuracy (top-1 or cosine). For latency: use bench_*."""
-    model_path = out_dir / "model.onnx"
-    if not model_path.exists():
-        return None
-    result_json = out_dir / "eval_result.json"
-    rc, _, _ = run_cmd(
-        [
-            WINML,
-            "eval",
-            "-m",
-            str(model_path),
-            "--model-id",
-            MODEL_ID,
-            "--task",
-            TASK,
-            "--ep",
-            EP,
-            "--device",
-            DEVICE,
-            "--samples",
-            str(EVAL_SAMPLES),
-            "-o",
-            str(result_json),
-        ],
-        label="winml eval (accuracy gate)",
-    )
-    if rc != 0 or not result_json.exists():
-        return None
-    try:
-        data = json.loads(result_json.read_text())
-        metrics = data.get("metrics", data)
-        acc = metrics.get("accuracy")
-        return float(acc) if acc is not None else None
-    except Exception as e:
-        print(f"     [warn] parse error: {e}")
-        return None
+class Reviewer:
+    """Phase 2 Reviewer — ThroughputOnly verdict -> KEEP / MARGINAL / DISCARD.
+
+    Turns Optimizer measurements (full-bench p50s + accuracy) into a verdict via
+    the ThroughputOnly policy, promotes the first successful bench to baseline,
+    and drafts a KB entry for notable confirmed wins.
+    """
+
+    def __init__(
+        self, policy: ThroughputOnly, ep: str, model_id: str, accuracy_floor: float
+    ) -> None:
+        self.policy = policy
+        self.ep = ep
+        self.model_id = model_id
+        self.accuracy_floor = accuracy_floor
+
+    def review(
+        self,
+        label: str,
+        exp_info: dict,
+        screen_cv: float,
+        baseline_p50: float | None,
+        full_p50s: list[float],
+        accuracy: float | None,
+    ) -> tuple[str, dict]:
+        """Judge one hypothesis from its measurements.
+
+        Returns (status_str, updated exp_info). Does not update best_p50/best_label —
+        the orchestrator owns champion tracking so it stays in one place.
+        """
+        med_p50 = median_p50(full_p50s)
+        assert med_p50 is not None
+        exp_info["full_p50s"] = [f"{p:.1f}" for p in full_p50s]
+        exp_info["median_p50"] = f"{med_p50:.1f}"
+
+        # Promote baseline from first successful full bench
+        if baseline_p50 is None:
+            baseline_p50 = med_p50
+            exp_info["baseline_p50"] = f"{baseline_p50:.1f}"
+
+        exp_info["accuracy"] = f"{accuracy:.4f}" if accuracy is not None else "N/A"
+
+        improvement_pct = (baseline_p50 - med_p50) / baseline_p50 * 100
+        delta_pct = -improvement_pct
+        exp_info["delta_pct"] = f"{delta_pct:+.1f}%"
+
+        correctness_pass = accuracy is None or accuracy >= self.accuracy_floor
+        verdict = self.policy.evaluate(
+            VerdictInput(
+                improvement_pct=improvement_pct,
+                cv_pct=screen_cv * 100.0,
+                correctness_pass=correctness_pass,
+            )
+        )
+
+        exp_info["analysis"] = verdict.reasoning
+        if verdict.verdict in ("KEEP", "MARGINAL_KEEP"):
+            status = "keep" + (" (marginal)" if verdict.marginal else "")
+            exp_info["analysis"] = (
+                f"Improvement confirmed: p50 {baseline_p50:.1f}ms -> {med_p50:.1f}ms "
+                f"({delta_pct:+.1f}%). {verdict.reasoning}"
+            )
+            # Auto-write KB draft entry for notable improvements
+            if not verdict.marginal:
+                write_kb_draft(
+                    ep=self.ep,
+                    label=label,
+                    improvement_pct=improvement_pct,
+                    cv=screen_cv,
+                    model_id=self.model_id,
+                    dimension=exp_info.get("dimension", "unknown"),
+                )
+        elif verdict.verdict == "ACC_FAIL":
+            status = f"discard (accuracy {accuracy:.4f} < floor {self.accuracy_floor})"
+        else:
+            status = f"discard ({verdict.reasoning})"
+
+        return status, exp_info
 
 
 def write_experiment_doc(exp_dir: Path, info: dict) -> None:
@@ -564,6 +640,11 @@ def main() -> None:
         stat_bar_multiplier=STAT_BAR_MULTIPLIER,
     )
 
+    # Phase 2 subagents: Optimizer runs hypotheses, Reviewer judges them.
+    # Explorer is constructed after Phase 1 (it needs the Insight Engine output).
+    optimizer = Optimizer(WINML, MODEL_ID, EP, DEVICE)
+    reviewer = Reviewer(policy, EP, MODEL_ID, ACCURACY_FLOOR)
+
     # ── Phase 1: Insight Engine ────────────────────────────────────────────────
     # Run AFTER baseline build so we have a real ONNX to analyse.
     # The baseline ONNX is expected at WORK_DIR/iter_00/model.onnx once h0 has run.
@@ -578,14 +659,10 @@ def main() -> None:
         kb=kb,
     )
 
-    # Reorder HYPOTHESES by priority boost (highest first), keeping stable sort
-    def _sort_key(item: tuple) -> float:
-        lbl = item[0]
-        return -insight.priority_boosts.get(lbl, 0.0)
+    # Explorer (Phase 2 "what to try next"): owns the priority_queue + skip rules.
+    explorer = Explorer(HYPOTHESES, kb, insight)
 
-    active_hypotheses = sorted(HYPOTHESES, key=_sort_key)
-
-    for i, (label, patch_fn, dimension) in enumerate(active_hypotheses):
+    for i, (label, patch_fn, dimension) in enumerate(explorer):
         # Skip iters completed in a prior run
         if i in session.completed_iters:
             print(f"  [resume] skipping iter {i} ({label}) — already done")
@@ -596,18 +673,11 @@ def main() -> None:
         print(f"  iter {i}  |  {label}  [{dimension}]")
         print(f"{'--' * 32}")
 
-        # Check KB skip_set (confirmed rules only)
+        # Explorer decides whether to prune this hypothesis (KB hard-block or Insight skip_set)
         flags_preview = optim_flags(patch_fn(copy.deepcopy(BASELINE)))  # type: ignore[operator]
-        skip_reason = next(
-            (r for r in kb["skip_passes"] if any(f in flags_preview for f in r.split()[:2])), None
-        )
+        skip_reason = explorer.skip_reason(label, flags_preview)
         if skip_reason:
-            print(f"  skipped by KB confirmed rule: {skip_reason}")
-            continue
-
-        # Check insight skip_set (Phase 1 analysis-derived rules)
-        if label in insight.skip_set:
-            print(f"  skipped by Insight Engine: {label}")
+            print(f"  skipped by {skip_reason}")
             continue
 
         cfg = patch_fn(copy.deepcopy(BASELINE))  # type: ignore[operator]
@@ -618,7 +688,7 @@ def main() -> None:
 
         out_dir = WORK_DIR / f"iter_{i:02d}"
         exp_dir = WORK_DIR / "experiments" / f"{i:02d}_{dimension}"
-        ok, _ = build(cfg, out_dir)
+        ok, _ = optimizer.build(cfg, out_dir)
 
         exp_info: dict = {
             "iter": i,
@@ -634,10 +704,16 @@ def main() -> None:
             status = "crash"
             exp_info["analysis"] = "winml build failed — check build log"
         else:
-            # Phase A: quick screen
-            screen_p50, screen_cv = _run_screen(out_dir / "model.onnx")
+            # Optimizer Phase A: quick screen
+            screen_p50, screen_cv = optimizer.screen(out_dir / "model.onnx")
             exp_info["screen_p50"] = f"{screen_p50:.1f}" if screen_p50 else "UNSTABLE"
             exp_info["screen_cv"] = f"{screen_cv:.3f}"
+
+            screen_improvement_pct = (
+                (baseline_p50 - screen_p50) / baseline_p50 * 100
+                if (screen_p50 is not None and baseline_p50 is not None)
+                else None
+            )
 
             if screen_p50 is None:
                 status = "discard (unstable — CV too high)"
@@ -645,51 +721,46 @@ def main() -> None:
                     f"Phase A rejected: CV={screen_cv:.2f} > {SCREEN_CV_MAX}. "
                     f"Thermal or scheduling noise on {EP.upper()} EP. Cool device and retry."
                 )
-            elif baseline_p50 is not None:
+            elif (
+                screen_improvement_pct is not None
+                and screen_improvement_pct < SCREEN_PASS_MIN_IMPROVEMENT_PCT
+            ):
                 # Screen early exit: skip full bench when screen shows negligible gain.
                 # Saves 3x full-bench time for clearly non-improving configs.
-                screen_improvement_pct = (baseline_p50 - screen_p50) / baseline_p50 * 100
-                if screen_improvement_pct < SCREEN_PASS_MIN_IMPROVEMENT_PCT:
-                    status = (
-                        f"discard (screen early exit: improvement {screen_improvement_pct:+.1f}%"
-                        f" < {SCREEN_PASS_MIN_IMPROVEMENT_PCT:.0f}% — full bench skipped)"
-                    )
-                    exp_info["analysis"] = (
-                        f"Phase A early exit: screen p50={screen_p50:.1f}ms vs baseline "
-                        f"{baseline_p50:.1f}ms ({screen_improvement_pct:+.1f}% improvement) is "
-                        f"below {SCREEN_PASS_MIN_IMPROVEMENT_PCT:.0f}% threshold. "
-                        f"Full bench skipped — not worth 3x{FULL_ITERS} iters."
-                    )
-                    exp_info["delta_pct"] = f"{-screen_improvement_pct:+.1f}% (screen estimate)"
+                status = (
+                    f"discard (screen early exit: improvement {screen_improvement_pct:+.1f}%"
+                    f" < {SCREEN_PASS_MIN_IMPROVEMENT_PCT:.0f}% — full bench skipped)"
+                )
+                exp_info["analysis"] = (
+                    f"Phase A early exit: screen p50={screen_p50:.1f}ms vs baseline "
+                    f"{baseline_p50:.1f}ms ({screen_improvement_pct:+.1f}% improvement) is "
+                    f"below {SCREEN_PASS_MIN_IMPROVEMENT_PCT:.0f}% threshold. "
+                    f"Full bench skipped — not worth 3x{FULL_ITERS} iters."
+                )
+                exp_info["delta_pct"] = f"{-screen_improvement_pct:+.1f}% (screen estimate)"
+            else:
+                # Optimizer Phase B: full bench + accuracy, then Reviewer verdict.
+                full_p50s = optimizer.full_bench(out_dir / "model.onnx")
+                if not full_p50s:
+                    status = "crash (full bench failed)"
+                    exp_info["analysis"] = "Phase B winml perf returned no data"
                 else:
-                    status, exp_info = _run_phase_b(
-                        out_dir,
-                        label,
-                        exp_info,
-                        screen_cv,
-                        baseline_p50,
-                        best_p50,
-                        best_label,
-                        policy,
+                    accuracy = optimizer.eval_accuracy(out_dir)
+                    status, exp_info = reviewer.review(
+                        label=label,
+                        exp_info=exp_info,
+                        screen_cv=screen_cv,
+                        baseline_p50=baseline_p50,
+                        full_p50s=full_p50s,
+                        accuracy=accuracy,
                     )
                     if status.startswith("keep"):
-                        # Update champion tracking
+                        # Orchestrator owns champion tracking
                         new_p50 = float(exp_info.get("median_p50", best_p50))
                         if new_p50 < best_p50:
                             best_p50 = new_p50
                             best_label = label
                             status = "keep *** NEW BEST ***"
-            else:
-                # First iteration: no baseline yet — always run full bench
-                status, exp_info = _run_phase_b(
-                    out_dir, label, exp_info, screen_cv, None, best_p50, best_label, policy
-                )
-                if status.startswith("keep"):
-                    new_p50 = float(exp_info.get("median_p50", best_p50))
-                    if new_p50 < best_p50:
-                        best_p50 = new_p50
-                        best_label = label
-                        status = "keep *** NEW BEST ***"
 
         # Extract baseline from first successful full bench
         if baseline_p50 is None and "median_p50" in exp_info:
