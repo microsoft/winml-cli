@@ -427,8 +427,9 @@ The Outcome contract ([`_meta-032`](./skill_meta/findings.json)) treats a real G
 **Lane A — Skill-only updates** (SKILL.md / REVIEW.md / `skill_meta/findings.json` / `research/adding-model-support/iter<N>_reports/`):
 
 - Push directly to the **current working branch** (the producer's skills/research branch — e.g. `shzhen/skills_poc`). No new branch. No separate PR per skill edit.
-- Rationale: methodology evolution is iterative and cross-cuts many contributions. Forcing one PR per `_meta-NNN` finding would shred the dialectical record into unreviewable fragments.
-- Reviewer reads the cumulative branch state at the next model-PR hand-off.
+- **Do NOT run `gh pr create` against `main` for Lane A changes.** The working branch IS the target; the skill content lives on that branch indefinitely and is not staged for merge to `main` unless the user explicitly says so. A producer who opens a Lane A → `main` PR is in `_meta-033` REQUEST_CHANGES — close the PR and leave the push.
+- Rationale: methodology evolution is iterative and cross-cuts many contributions. Forcing one PR per `_meta-NNN` finding would shred the dialectical record into unreviewable fragments. Bundling them into a single "snapshot" PR (the failure mode that surfaced this rule, PR #935 closed 2026-06-23) dumps 19+ research files on `main` reviewers who haven't opted in to the methodology debate.
+- Reviewer reads the cumulative branch state at the next model-PR hand-off, not via a PR diff on `main`.
 
 **Lane B — New model support** (anything under `examples/recipes/<org>_<model>/` or `src/winml/modelkit/models/hf/<model_type>.py`):
 
