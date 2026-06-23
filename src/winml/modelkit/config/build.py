@@ -225,10 +225,17 @@ class WinMLBuildConfig:
         # Exceptions: ONNX builds (export=None) don't need quant.task/model_name
         # because the ONNX model is pre-exported. Submodule builds (module_path
         # set) use RandomDataset which only needs the ONNX model_path.
+        # Algorithms that skip calibration (fp16_only, rtn, dynamic) also don't
+        # need task/model_name since they don't generate calibration datasets.
         if self.quant is not None:
             is_submodule = bool(self.loader and self.loader.module_path)
-            is_fp16_only = self.quant.fp16_only
-            needs_quant_ids = not is_onnx_build and not is_submodule and not is_fp16_only
+            needs_calibration = (
+                not self.quant.fp16_only
+                and self.quant.algorithm == "static"
+            )
+            needs_quant_ids = (
+                not is_onnx_build and not is_submodule and needs_calibration
+            )
             if needs_quant_ids and not self.quant.task:
                 errors.append("quant.task is required when quant is enabled for HF builds")
             if needs_quant_ids and not self.quant.model_name:
