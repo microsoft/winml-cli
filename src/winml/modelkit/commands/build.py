@@ -579,6 +579,7 @@ def build(
                 trust_remote_code=trust_remote_code,
                 device=device,
                 precision=precision,
+                ep=ep,
             )
             if not quant:
                 config_or_configs.quant = None
@@ -640,6 +641,24 @@ def build(
                 _cfg.validate()
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
+
+        # Fail fast for compile builds: compilation physically instantiates the
+        # EP (EPContext), so the target EP/device must be present on this
+        # machine. Catch an unavailable combo here -- before export/optimize --
+        # instead of surfacing deep in the compile stage. A no-compile build
+        # only produces a portable, analyzed ONNX and may legitimately target a
+        # device absent on this machine (cross-compile), so it is left to run.
+        for _cfg in _configs_to_validate:
+            _compile = _cfg.compile
+            if _compile is None or _compile.ep_config is None:
+                continue
+            from ..sysinfo import resolve_device as _resolve_device_check
+
+            try:
+                _resolve_device_check(device=device or "auto", ep=_compile.ep_config.provider)
+            except ValueError as e:
+                raise click.UsageError(str(e)) from e
+            break
 
         preloaded_hf_config = _validate_loader_tasks_for_model(
             model_id=model_id,
@@ -1012,11 +1031,18 @@ def _run_optimize_stage(
             _header_shown[0] = False
 
         # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
-        # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        # doesn't search for non-existent "*_AUTO_*.parquet" files. Only a device
+        # name is needed (the EP comes from each analyzer callback below), so
+        # don't pass ep or availability-fail here: a no-compile cross-compile
+        # build may target a device absent on this machine (compile builds are
+        # gated earlier, before export).
         from ..analyze.utils.ep_utils import has_rule_data_for_ep
         from ..sysinfo import resolve_device as _resolve_device
 
-        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+        if device and device.lower() != "auto":
+            _resolved_device = device.lower()
+        else:
+            _resolved_device, _ = _resolve_device(device="auto")
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep
