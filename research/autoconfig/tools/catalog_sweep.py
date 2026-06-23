@@ -952,13 +952,15 @@ class CatalogSweep:
             print(f"  [warn] report generation failed: {e}", flush=True)
 
     def _emit_champion(self, results: dict, model_dir: Path) -> None:
-        """Write the recommended build config alongside the model's sweep artifacts.
+        """Copy the optimal build's winml_build_config.json into the model folder.
 
         The champion is the best hypothesis when its gain is reliable, otherwise the
-        baseline (auto) config. ``build_config`` is the *real* winml config used to
-        build that hypothesis (``model_dir/<hyp>/build_config.json``) — not a
-        hand-written summary. Written into the per-model folder so all tuning
-        products for a model live together.
+        baseline (auto) config. The emitted file *is* the winml build config of that
+        hypothesis — the fully-resolved ``winml_build_config.json`` winml writes into
+        the build output dir — so it can be fed straight back to ``winml build -c``.
+        Falls back to the input ``build_config.json`` if the build output config is
+        unavailable (e.g. a results-only checkout). Lives in the per-model folder so
+        all tuning products for a model stay together.
         """
         baseline_id = self.baseline_id
         best_h = results.get("best_hypothesis")
@@ -967,52 +969,46 @@ class CatalogSweep:
         if not champion_h:
             return
 
-        champ = results.get("hypotheses", {}).get(champion_h, {})
-        cfg_path = model_dir / champion_h / "build_config.json"
-        build_config = None
-        if cfg_path.exists():
-            try:
-                build_config = json.loads(cfg_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-
-        champ_p50 = results.get("best_p50_ms") if reliable else results.get("baseline_p50_ms")
+        build_config = self._load_winml_build_config(model_dir / champion_h)
         out_path = model_dir / f"champion_{self.ep}_{self.device}.json"
-        out_path.write_text(
-            json.dumps(
-                {
-                    "model_id": results["model_id"],
-                    "ep": self.ep,
-                    "device": self.device,
-                    "champion_hypothesis": champion_h,
-                    "champion_label": champ.get("label", ""),
-                    "champion_verdict": results.get("best_gain_verdict"),
-                    "reliable_improvement": reliable,
-                    "opset": champ.get("opset"),
-                    "optim": champ.get("optim", {}),
-                    "perf": {
-                        "baseline_p50_ms": results.get("baseline_p50_ms"),
-                        "champion_p50_ms": champ_p50,
-                        "best_observed_hypothesis": best_h,
-                        "best_observed_gain_pct": results.get("best_gain_pct"),
-                        "gain_reliable": reliable,
-                    },
-                    "build_config": build_config,
-                    "sweep_timestamp": results.get("timestamp"),
-                    "generated_by": Path(__file__).name,
-                },
-                indent=2,
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
         if build_config is None:
             print(
-                f"  [warn] champion build_config missing — {cfg_path} not found"
-                " (run a full sweep to materialize it)",
+                f"  [warn] champion config missing — no winml_build_config.json in"
+                f" {model_dir / champion_h} (run a full sweep to materialize it)",
                 flush=True,
             )
-        print(f"  Champion config: {out_path}", flush=True)
+            return
+
+        out_path.write_text(
+            json.dumps(build_config, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        champ = results.get("hypotheses", {}).get(champion_h, {})
+        champ_p50 = results.get("best_p50_ms") if reliable else results.get("baseline_p50_ms")
+        print(
+            f"  Champion config: {out_path}  "
+            f"[{champion_h} {champ.get('label', '')!r}  p50={champ_p50}ms"
+            f"  reliable_gain={reliable}]",
+            flush=True,
+        )
+
+    @staticmethod
+    def _load_winml_build_config(build_dir: Path) -> dict | None:
+        """Return the build config from a hypothesis' build output dir.
+
+        Prefers the fully-resolved ``winml_build_config.json`` winml persists after a
+        build (also matches the ``<cache_key>_winml_build_config.json`` variant); falls
+        back to the ``build_config.json`` the sweep passed as build input.
+        """
+        candidates = [build_dir / "winml_build_config.json"]
+        candidates += sorted(build_dir.glob("*_winml_build_config.json"))
+        candidates.append(build_dir / "build_config.json")
+        for path in candidates:
+            if path.exists():
+                try:
+                    return json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+        return None
 
     def write_summary(self, all_results: list[dict]) -> None:
         lines = [

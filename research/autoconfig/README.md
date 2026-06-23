@@ -142,9 +142,9 @@ python tools/catalog_sweep.py --ep qnn --device npu --list
 ```
 
 Results land in `catalog-<device-or-ep>-sweep/<model-slug>/` — `results.json`, an HTML
-report, and `champion_<ep>_<device>.json` (the recommended build config, with the real
-`winml config` output embedded under `build_config`). A `SUMMARY.md` is regenerated at
-the end of each sweep.
+report, and `champion_<ep>_<device>.json` — the recommended build config itself: a copy
+of the optimal hypothesis' `winml_build_config.json`, so it can be fed straight back to
+`winml build -c`. A `SUMMARY.md` is regenerated at the end of each sweep.
 
 ### analyze_graph.py — ONNX graph analysis
 
@@ -327,7 +327,7 @@ research/autoconfig/
 │   ├── apple--mobilevit-small/  ← per-model tuning products live together:
 │   │   ├── results.json         ←   benchmark results + verdicts
 │   │   ├── report.html          ←   per-model HTML report
-│   │   └── champion_qnn_npu.json ←  recommended build config (real `winml config` output)
+│   │   └── champion_qnn_npu.json ←  recommended build config (raw winml_build_config.json)
 │   ├── facebook--dinov2-small/
 │   ├── microsoft--resnet-18/
 │   ├── google--vit-base-patch16-224/
