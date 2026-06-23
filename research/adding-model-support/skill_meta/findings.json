@@ -924,6 +924,59 @@
       "mechanism_notes": "Mechanism confirmed iter-6 same day: `gh pr review --approve` returned HTTP 422 'Can not approve your own pull request' on both PRs; `gh pr comment --body-file` succeeded for both, returning comment URLs. Reviewer's structured APPROVE verdict (independent L0..L3 re-runs + composite contract check) is now visible in PR conversation for the maintainer.",
       "resolution": "Reviewer verdicts posted as PR comments instead of Reviews: PR #933 \u2192 issuecomment-4775278723, PR #934 \u2192 issuecomment-4775278822. REVIEW.md 'Verdict format' section should gain a 'Same-identity fallback' clause in the next skill push (deferred to next Lane A commit).",
       "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-036",
+      "title": "User-consent gate before `gh pr create`: producer/reviewer agents automate every step UP TO the PR-creation call, but the ship/no-ship decision is the user's. The producer presents (model + tier claim + reviewer verdict + pre-composed `gh pr create` command) and waits for explicit user approval before firing.",
+      "observation": "Iter-6 (2026-06-23) producer over-applied `_meta-033`'s 'do not wait to be asked' rule and opened Lane A PR #935 against `main` without user consent. User closed #935 and clarified: '\u53d1PR\u7684\u8fc7\u7a0b\u4f60\u81ea\u52a8\u5316\uff0c\u4f46\u662f\u8981\u4e0d\u8981\u53d1\u662f\u4eba\u51b3\u5b9a\u7684' (mechanics automatic, decision human). The original `_meta-033` framing collapsed two distinct steps \u2014 'run the review' (cheap, automatable, default-on) vs 'fire `gh pr create`' (cheap to fire, expensive to retract; affects upstream queue). Only the first should auto-run. The second is gated on user 'ship' / 'hold' / 'fix X first' decision. A producer who runs `gh pr create` without that explicit go-ahead is committing the same `_meta-007` self-grading mistake as one who skipped the reviewer step, just at a different layer \u2014 here the user, not the reviewer, is the authority being bypassed.",
+      "scope": {
+        "validated_on": ["iter-6 PR #935 closed by user 2026-06-23 (Lane A skill-only PR opened against `main` without user consent); user verbatim clarification '\u53d1PR\u7684\u8fc7\u7a0b\u4f60\u81ea\u52a8\u5316\uff0c\u4f46\u662f\u8981\u4e0d\u8981\u53d1\u662f\u4eba\u51b3\u5b9a\u7684'"],
+        "falsified_on": ["pre-`_meta-036` SKILL.md Step 7 phrasing 'Ship the PR (do not wait to be asked)' \u2014 falsified at the upstream-queue layer; the rule was right for the mechanics, wrong for the decision"],
+        "refines": ["_meta-033", "_meta-007"],
+        "not_yet_tested_on": ["iter-7 first model PR \u2014 will producer correctly present the pre-composed command + reviewer verdict and stop, or will it default back to firing `gh pr create` autonomously?", "user-explicit 'always ship if reviewer APPROVEs' override \u2014 a future user might delegate the ship decision; SKILL.md should still default to gated, with explicit user override required to skip"]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "The consent gate applies to `gh pr create` only \u2014 NOT to `git push`. The branch must be pushed to `origin` as part of producer prep so the user can act on a real branch (review the commit, push it manually, ship later). Holding the branch local-only defeats the prep.",
+        "The reviewer agent runs UNGATED \u2014 the user shouldn't have to approve 'run the review'. Review-then-present-then-wait is the correct order.",
+        "User answers come in three shapes: 'ship' / '\u53d1\u5427' (run the command), 'hold' / 'don't ship' (leave branch pushed, do nothing), 'fix X first' (amend commit, force-push, re-run reviewer, re-present). Producer must wait for one of the three; anything else is REQUEST_CHANGES on the hand-off itself.",
+        "Reviewer-verdict REJECT does NOT auto-cancel the prep \u2014 the branch is still pushed, the command is still composed, the user still decides (the user may choose to ship a REJECT-verdict PR with the reviewer feedback inlined as discussion context). The reviewer informs; the user decides."
+      ],
+      "feature_gaps_filed": [
+        "FILE: 'always-ship' / 'always-hold' user-preference flag \u2014 SKILL.md should support an explicit user-set policy that skips the gate (e.g. for a known-good batch). Until that flag exists, gated-by-default is the safe rule."
+      ],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Mechanism not yet re-tested at the time this finding was written. Iter-7 first contribution after this push is the natural test: producer should prep + present + wait, NOT fire. Confirmation requires (a) producer runs Lane B prep automatically, (b) producer surfaces command + verdict, (c) producer halts, (d) user explicit 'ship' triggers `gh pr create`, (e) no PR opened before step (d). If any of (a)\u2013(e) breaks, file as `_meta-036` falsification.",
+      "resolution": "SKILL.md Step 7 renamed 'Prepare and ship the PR (user holds the trigger)' (2026-06-23). The Lane B shipment block now ends at `git push` (step 4); `gh pr create` moved into a separate 'User-consent gate' subsection that lists the producer's required hand-off package (tier claim, reviewer verdict, pre-composed command, mirror file path) and the three valid user responses. Self-check checkbox 'PR URL returned by `gh pr create`' replaced with 'pre-composed command shown, NOT yet executed'. Pushed to `shzhen/skills_poc` in the same commit.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-037",
+      "title": "Diligence ladder before declaring `*-BLOCKED`: `HOST-BLOCKED` / `CLI-BLOCKED` / `FAIL` are cheap verdicts for producer, expensive for users (each one is a feature-gap that someone has to triage). Before writing any of them, work a 6-step ladder. Stop at the first step that unblocks; document which step worked.",
+      "observation": "Across iter-3 through iter-6, several '*-BLOCKED' verdicts were declared on first-failure when a known workaround existed in the per-family knowledge file (`_meta-013` bart eos-pooling, `_meta-017` custom-script L1 evidence, `_meta-026` `--ep-options` retry). The producer had read the knowledge file at Step 1 but did not consult it again at the failure point. Pattern: knowledge-file reading is front-loaded, but failure-recovery is back-loaded \u2014 they never re-meet. A lightweight 'before you write BLOCKED, walk this ladder' checklist closes the loop without adding ceremony for the happy path.",
+      "scope": {
+        "validated_on": ["iter-6 reviewer flow on PR #934 \u2014 composite vit-gpt2 perf reported via per-half decoder/encoder direct-name-match (knowledge `_meta-020` recall at failure point); iter-5 bart eos-pooling resolved via knowledge file step 1 retroactive consult"],
+        "falsified_on": [],
+        "refines": ["_meta-013", "_meta-017", "_meta-018", "_meta-026"],
+        "not_yet_tested_on": ["iter-7 first BLOCKED verdict \u2014 will producer walk the ladder and document which step unblocked (or document all 6 failures + file a feature-gap)? If producer writes BLOCKED without naming the ladder steps tried, falsifies the rule \u2014 the ladder needs more teeth (e.g. reviewer auto-REQUEST_CHANGES on missing ladder trace)."]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "The ladder is a list, not a flowchart \u2014 stop at first success. Don't waste cycles on steps 4\u20136 if step 1 (re-read knowledge file) unblocks.",
+        "Step 7 (file feature-gap entry) is what makes a BLOCKED verdict honest. A BLOCKED with no `feature_gaps_filed[]` is `_meta-007` self-grading 'I tried' without evidence; the gap entry forces naming what the tool needs to make the case work.",
+        "The ladder lives in Step 4c \u2014 BEFORE Step 5 (pitfalls) and Step 6 (reviewer hand-off) \u2014 because BLOCKED verdicts get baked into the hand-off package. Catching them upstream saves the reviewer round-trip."
+      ],
+      "feature_gaps_filed": [
+        "FILE: REVIEW.md row to validate 'BLOCKED verdict cites ladder steps tried + feature_gap entry' \u2014 currently the reviewer can only flag missing methodology learnings, not missing diligence trace on a BLOCKED verdict."
+      ],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Mechanism not yet tested at write time. Next BLOCKED verdict in iter-7 is the test \u2014 producer should either walk the ladder and find a success (in which case the verdict isn't BLOCKED), or walk all 6 and document each + file a feature gap. Either outcome confirms the rule; only 'declared BLOCKED without naming any ladder step' falsifies it.",
+      "resolution": "SKILL.md gained 'Step 4c \u2014 Try harder before declaring `*-BLOCKED`' (2026-06-23). 6-step ladder + step 7 feature-gap requirement. Cross-references `_meta-013`, `_meta-017`, `_meta-018`, `_meta-026`. Pushed to `shzhen/skills_poc` in the same commit as `_meta-036`.",
+      "last_updated": "2026-06-23"
     }
   ]
 }

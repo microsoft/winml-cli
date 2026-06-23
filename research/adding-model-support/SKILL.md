@@ -368,11 +368,25 @@ If NONE of triggers 1–7 fired, you do NOT owe a `_meta-NNN`. A no-friction con
 
 Use the same finding schema as Step 4 with these required fields tightened:
 
-- `id`: `_meta-NNN` where `NNN` = `(max existing id) + 1`. Currently next id = **`_meta-031` (post-iter-6, 2026-06-23)** — grep `findings.json` for the actual max before assigning.
+- `id`: `_meta-NNN` where `NNN` = `(max existing id) + 1`. Currently next id = **`_meta-038` (post-iter-6, 2026-06-23)** — grep `findings.json` for the actual max before assigning.
 - `scope.validated_on`: cite the exact run that surfaced the friction (model id, command, error message or wrong-output diff).
 - `scope.refines` / `scope.falsified_on`: if your finding supersedes an existing `_meta-NNN`, name it here. Append, don't rewrite (same rule as Step 4).
 - `mechanism_confirmed`: `true` only if you re-ran with the fix and confirmed the friction is gone. Otherwise `false` with hypothesis in `mechanism_notes`.
 - `resolution`: name the SKILL.md / REVIEW.md edit you made in the same PR. "To be addressed in a follow-up" is REQUEST_CHANGES at reviewer time — the methodology edit MUST land with the producing PR.
+
+## Step 4c — Try harder before declaring `*-BLOCKED` ([`_meta-037`](./skill_meta/findings.json))
+
+`HOST-BLOCKED` / `CLI-BLOCKED` / `FAIL` are cheap verdicts for the producer and expensive for the user (each one is a feature gap that someone has to triage later). Before writing any of them down, work the diligence ladder. Stop at the first step that unblocks; document which step worked.
+
+1. **Re-read the per-family knowledge file** (`model_knowledge/<family>.json`) for known workarounds on this `model_type` — someone may have hit and fixed the same failure mode already (e.g. bart eos-pooling, marian DEFERRED-HARNESS, pix2struct non-standard checkpoint).
+2. **PR-mine the recent shipped recipes of the same `model_type`**: `git log --all --oneline -- examples/recipes/` filtered to the family; diff a successful recipe against yours and lift the deltas.
+3. **Re-run `winml config`** with explicit `--task` / `--model-class` / `--model-type` overrides matching what the knowledge file predicts — the autoconf draft is often closer to a working recipe than a hand-edit.
+4. **For EP failures, `--ep-options` retry** per [`_meta-026`](./skill_meta/findings.json) (e.g. `enable_graph_capture=false` on DML, `htp_performance_mode=burst` on QNN). At least one tuned option before EP-FAIL.
+5. **For export traps, narrow `value_range` / pin shapes / inject a special token** per the [`_meta-013`](./skill_meta/findings.json) workaround convention. Bart eos-pooling and any model with `input_ids.eq(<special>).nonzero()` need this.
+6. **For perf/eval CLI crashes on special-token models, write the custom Python harness** per [`_meta-017`](./skill_meta/findings.json). `winml perf` ignoring recipe `value_range` is documented; a custom script is valid L1 evidence.
+7. **Only after 1–6 fail**: declare `*-BLOCKED` with (a) the exact stderr / wrong-output diff, (b) which ladder steps you tried, (c) a `feature_gaps_filed[]` entry naming the CLI/runtime change that would unblock.
+
+The `feature_gaps_filed[]` entry from step 7 is what makes a BLOCKED verdict honest — it converts "I gave up" into "the tool needs X to make this work".
 
 ## Step 5 — Common pitfalls (still apply, regardless of tier)
 
@@ -418,9 +432,11 @@ The reviewer is bound by [REVIEW.md](./REVIEW.md) and must:
 
 The reviewer issues APPROVE / REQUEST_CHANGES / REJECT. Only APPROVE closes the contribution.
 
-## Step 7 — Ship the PR (do not wait to be asked)
+## Step 7 — Prepare and ship the PR (user holds the trigger)
 
-The Outcome contract ([`_meta-032`](./skill_meta/findings.json)) treats a real GitHub PR as part of the deliverable, not as an optional follow-up the user must request. Producers default to opening the PR; user explicitly says *"don't push yet"* to opt out.
+The Outcome contract ([`_meta-032`](./skill_meta/findings.json)) treats a real GitHub PR as part of the deliverable. **But the producer does NOT decide when to ship.** Producer/reviewer agents prepare the PR mechanically; the user decides whether the PR is actually opened ([`_meta-036`](./skill_meta/findings.json)).
+
+The rule, in one line: **automate the PR-creation mechanics; the user decides whether to fire them.**
 
 ### Two shipment lanes (decide which one applies)
 
@@ -441,9 +457,9 @@ The Outcome contract ([`_meta-032`](./skill_meta/findings.json)) treats a real G
 - **Composite recipes ship as ONE PR** per [`_meta-020`](./skill_meta/findings.json) — encoder + decoder of the same composite (translation / image-to-text / summarization) share a branch and a PR description; the Goal-ladder verdict table expands per-half inside the single PR.
 - **Do NOT include skill-level edits** (SKILL.md / REVIEW.md / `skill_meta/findings.json` outside the per-model `model_knowledge/<family>.json` finding) in a model PR. Those go to Lane A. Mixing the lanes pollutes the diff and forces reviewers to context-switch between code-review and methodology-review modes.
 
-### Shipment commands (Lane B)
+### Producer's automated prep (Lane B) — always runs without prompting
 
-From the workspace root, with `gh` authenticated:
+With `gh` authenticated, from the workspace root, the producer **always** runs steps 1–4 below as part of finishing a contribution. The branch + commit are local-only side effects (cheap, reversible).
 
 ```powershell
 # 1. Branch off a clean main
@@ -451,8 +467,7 @@ git fetch origin main
 git checkout -b <author>/add-<org>-<model>-recipe origin/main
 
 # 2. Stage ONLY the scope-relevant files (use explicit paths, never `git add -A`)
-git add examples/recipes/<org>_<model>/ examples/recipes/README.md `
-        research/adding-model-support/model_knowledge/<family>.json
+git add examples/recipes/<org>_<model>/ examples/recipes/README.md
 # add code paths here if L1+; do not catch unrelated edits from the working tree
 
 # 3. Commit with a one-line conventional message
@@ -460,8 +475,30 @@ git commit -m "recipe(<model>): add <task> recipe (Goal-Lk PASS on CPU)"
 
 # 4. Push to origin (this repo accepts contributor branches directly; no fork needed)
 git push -u origin <author>/add-<org>-<model>-recipe
+```
 
-# 5. Open the PR with the mirror report as body
+After step 4 the producer has: a pushed branch, a mirror PR description at `research/adding-model-support/iter<N>_reports/PR_<org>_<model>.md`, and a Goal-ladder verdict table. **The producer stops here. The producer does NOT run `gh pr create`.**
+
+### User-consent gate ([`_meta-036`](./skill_meta/findings.json)) — always required before `gh pr create`
+
+Producer hands off to the reviewer agent (Step 6). Reviewer emits APPROVE / REQUEST_CHANGES / REJECT. Producer then presents to the user:
+
+1. The model + (Effort, Goal, Outcome) tier claim
+2. The reviewer verdict (one of APPROVE / REQUEST_CHANGES / REJECT) with the one-line summary
+3. The pre-composed `gh pr create` command, ready to copy-paste or to execute on user `ship` confirmation
+4. The `iter<N>_reports/PR_<org>_<model>.md` mirror file path
+
+The user decides one of:
+
+- **"ship"** — producer runs the `gh pr create` command exactly as presented, reports the PR URL back
+- **"don't ship"** / **"hold"** — producer leaves the branch pushed, does nothing else; user may ship later via the same command
+- **"fix X first"** — producer addresses the feedback, amends the commit, force-pushes the branch, re-runs reviewer, re-presents
+
+A producer who runs `gh pr create` without one of the user's three answers above is in `_meta-036` REJECT — the user's authority over what hits the upstream PR queue is non-negotiable, even when the producer is confident the reviewer verdict is APPROVE. The cost of asking is cheap (one extra turn); the cost of an unwanted PR is the user closing it, the reviewer re-reviewing the same content twice, and noise in the repo's PR history.
+
+### Shipment command (after user says "ship")
+
+```powershell
 gh pr create --base main --head <author>/add-<org>-<model>-recipe `
              --title "recipe(<model>): <task> recipe" `
              --body-file research/adding-model-support/iter<N>_reports/PR_<org>_<model>.md
@@ -469,16 +506,17 @@ gh pr create --base main --head <author>/add-<org>-<model>-recipe `
 
 ### Push-failure escalation
 
-If `git push` is rejected by Microsoft Enterprise SSO / token-lifetime policy (90-day classic-token rule), report the exact stderr to the user and ask: (a) refresh the token, (b) push from a different remote, OR (c) hand the producer-prepared branch over for the user to push manually. Do **not** silently fall back to a local mirror — the Outcome contract is not satisfied until the PR exists.
+If `git push` (Step 4 above, the automated prep) is rejected by Microsoft Enterprise SSO / token-lifetime policy (90-day classic-token rule), report the exact stderr to the user and ask: (a) refresh the token, (b) push from a different remote, OR (c) hand the producer-prepared branch over for the user to push manually. Do **not** silently fall back to a local mirror — the branch must be pushed even when the PR is not yet authorized to open, because the user-consent gate needs a real branch to consent over.
 
-### Self-check before claiming "done"
+### Self-check before claiming "ready for user decision"
 
-- [ ] PR URL returned by `gh pr create` pasted into the producer's hand-off message?
-- [ ] PR description = the iter<N>_reports/ mirror file byte-identical at hand-off time (post-review edits are OK to diverge, but Step 6 hand-off requires sync)?
-- [ ] PR diff contains exactly the scope-rule files for the claimed Effort tier (no leakage of unrelated working-tree files)?
-- [ ] Reviewer agent (Step 6) was given the PR URL, not just the branch?
+- [ ] Branch pushed to `origin`?
+- [ ] `iter<N>_reports/PR_<org>_<model>.md` mirror file is the byte-identical body the `gh pr create` command will use?
+- [ ] Branch diff contains exactly the scope-rule files for the claimed Effort tier (no leakage of unrelated working-tree files)?
+- [ ] Reviewer agent (Step 6) verdict captured and surfaced to user?
+- [ ] `gh pr create` command pre-composed and shown to user, NOT yet executed?
 
-A producer who declares "done" without a PR URL is in `_meta-007` self-grading failure mode — the user shouldn't have to ask "where's the PR?" any more than they should have to ask "where's the report?".
+A producer who declares "shipped" before the user said "ship" is in `_meta-036` failure mode. A producer who declares "done" before completing steps 1–4 of the automated prep (i.e. left a working branch unpushed, hand-off package undelivered) is in `_meta-033` failure mode. Both are user-visible mistakes.
 
 ## Cross-references
 
