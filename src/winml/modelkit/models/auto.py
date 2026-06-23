@@ -35,6 +35,8 @@ from .winml import get_supported_tasks, get_winml_class
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from transformers import PretrainedConfig
 
     from ..config import WinMLBuildConfig
@@ -98,17 +100,21 @@ class WinMLAutoModel:
     @classmethod
     def from_onnx(
         cls,
-        onnx_path: str | Path | dict[str, str | Path],
+        # Mapping (not dict) so dict[str, str] from configs is accepted
+        # without a cast — dict is invariant on value type, Mapping is covariant.
+        onnx_path: str | Path | Mapping[str, str | Path],
         *,
         task: str | None = None,
         config: WinMLBuildConfig | None = None,
         device: str = "auto",
         precision: str = "auto",
         ep: EPNameOrAlias | None = None,
+        provider_options: dict[str, str] | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
         skip_build: bool = False,
+        no_compile: bool = False,
         allow_unsupported_nodes: bool = False,
         session_options: Any | None = None,
         hf_config: PretrainedConfig | None = None,
@@ -126,6 +132,8 @@ class WinMLAutoModel:
             device: Target device ("auto", "npu", "gpu", "cpu").
             precision: Target precision ("auto", "fp32", "fp16", "int8").
             ep: Explicit execution provider.
+            provider_options: Runtime EP provider options (e.g. QNN
+                ``htp_performance_mode``) forwarded to the inference session.
             cache_dir: Override cache directory.
             use_cache: Whether to use persistent cache.
             force_rebuild: Force rebuild even if cached.
@@ -151,10 +159,12 @@ class WinMLAutoModel:
                 device=device,
                 precision=precision,
                 ep=ep,
+                provider_options=provider_options,
                 cache_dir=cache_dir,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
                 skip_build=skip_build,
+                no_compile=no_compile,
                 session_options=session_options,
                 **kwargs,
             )
@@ -177,6 +187,7 @@ class WinMLAutoModel:
             precision=precision,
             ep=ep,
             override=config,
+            no_compile=no_compile,
         )
 
         # Resolve task from explicit arg or generated config
@@ -197,6 +208,7 @@ class WinMLAutoModel:
                 device=device,
                 session_options=session_options,
                 ep=ep,
+                provider_options=provider_options,
             )
 
         # Resolve output directory
@@ -235,6 +247,7 @@ class WinMLAutoModel:
             device=device,
             session_options=session_options,
             ep=ep,
+            provider_options=provider_options,
         )
 
     @classmethod
@@ -246,6 +259,7 @@ class WinMLAutoModel:
         config: WinMLBuildConfig | None = None,
         device: str = "auto",
         precision: str = "auto",
+        provider_options: dict[str, str] | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
@@ -275,7 +289,9 @@ class WinMLAutoModel:
             device: Target device ("auto", "npu", "gpu", "cpu").
                 "auto" detects available hardware (NPU > GPU > CPU).
             precision: Target precision ("auto", "fp32", "fp16", "int8", "int16").
-                "auto" selects based on device (npu->int8, gpu->fp16, cpu->fp16).
+                "auto" selects based on device (npu->w8a16, gpu->fp16, cpu->fp16).
+            provider_options: Runtime EP provider options (e.g. QNN
+                ``htp_performance_mode``) forwarded to the inference session.
             cache_dir: Directory for caching. If None, uses default cache dir.
             use_cache: If True (default), use persistent cache directory.
                 If False, build in a temp directory and always rebuild.
@@ -317,6 +333,7 @@ class WinMLAutoModel:
                 device=device,
                 precision=precision,
                 ep=kwargs.pop("ep", None),
+                provider_options=provider_options,
                 cache_dir=cache_dir,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
@@ -356,9 +373,11 @@ class WinMLAutoModel:
                     trust_remote_code=trust_remote_code,
                     shape_config=shape_config,
                     precision=precision,
+                    provider_options=provider_options,
                     config=config,
                     cache_dir=cache_dir,
                     allow_unsupported_nodes=allow_unsupported_nodes,
+                    no_compile=no_compile,
                     **kwargs,
                 )
 
@@ -432,6 +451,15 @@ class WinMLAutoModel:
             if user_ep is not None
             else (config.compile.ep_config.provider if config.compile is not None else None)
         )
+        # Forward build-pipeline controls (skip_optimize / hack_max_optim_iterations)
+        # supplied by callers like winml perf and winml eval. Only the recognized
+        # build-control keys are forwarded so unrelated kwargs (e.g. ``ep``, read
+        # above) do not leak into build_hf_model's signature.
+        build_control_kwargs = {
+            key: kwargs[key]
+            for key in ("skip_optimize", "hack_max_optim_iterations")
+            if key in kwargs
+        }
         result = build_hf_model(
             config=config,
             output_dir=output_dir,
@@ -443,6 +471,7 @@ class WinMLAutoModel:
             ep=resolved_ep,
             device=device,
             allow_unsupported_nodes=allow_unsupported_nodes,
+            **build_control_kwargs,
         )
         onnx_path = result.final_onnx_path
 
@@ -457,6 +486,7 @@ class WinMLAutoModel:
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
             device=device,  # pass user's original device string; WinMLSession handles "auto"
             ep=resolved_ep,
+            provider_options=provider_options,
         )
         model._build_config = config  # resolved build config (task, quant, compile)
         return model

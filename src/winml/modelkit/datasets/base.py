@@ -39,7 +39,7 @@ class BaseTaskDataset(ABC):
         dataset_name: str | None = None,
         max_samples: int | None = None,
         data_split: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Initialize dataset with readonly properties.
 
@@ -59,8 +59,10 @@ class BaseTaskDataset(ABC):
         # Store additional kwargs for subclass use
         self._config = kwargs
 
-        # Subclasses should populate these during initialization
-        self._dataset = None  # The actual dataset object
+        # Subclasses should populate these during initialization.
+        # Typed as Any because each subclass uses a different dataset library
+        # (HF datasets.Dataset, torch DataLoader, plain list[dict], ...).
+        self._dataset: Any = None
         self._metadata: dict[str, Any] = {}  # Dataset metadata
 
         # Initialize subclass-specific data

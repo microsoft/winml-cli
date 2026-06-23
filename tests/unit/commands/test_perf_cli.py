@@ -20,6 +20,7 @@ from click.testing import CliRunner
 
 from winml.modelkit.commands.perf import (
     BenchmarkConfig,
+    BenchmarkResult,
     PerfBenchmark,
     generate_output_path,
     perf,
@@ -395,3 +396,237 @@ class TestPerfUnifiedPipeline:
             benchmark._load_model()
 
         assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
+
+    def test_onnx_load_model_passes_ep_options(self, tmp_path: Path) -> None:
+        """--ep-options should reach from_onnx as provider_options (ONNX path)."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(
+            model_id=str(onnx_file),
+            task="image-classification",
+            device="npu",
+            ep="qnn",
+            ep_options={"htp_performance_mode": "burst"},
+        )
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+            return_value=MagicMock(),
+        ) as mock_from_onnx:
+            benchmark._load_model()
+
+        assert mock_from_onnx.call_args.kwargs["provider_options"] == {
+            "htp_performance_mode": "burst"
+        }
+
+    def test_hf_load_model_passes_ep_options(self) -> None:
+        """--ep-options should reach from_pretrained as provider_options (HF path)."""
+        config = BenchmarkConfig(
+            model_id="microsoft/resnet-50",
+            task="image-classification",
+            device="npu",
+            ep="qnn",
+            ep_options={"htp_performance_mode": "burst"},
+        )
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_from_pretrained:
+            benchmark._load_model()
+
+        assert mock_from_pretrained.call_args.kwargs["provider_options"] == {
+            "htp_performance_mode": "burst"
+        }
+
+    def test_cli_ep_options_parsed_into_config(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Repeated --ep-options KEY=VALUE are parsed into BenchmarkConfig.ep_options."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            return MagicMock()
+
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark", side_effect=capture_config),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--ep-options",
+                    "htp_performance_mode=burst",
+                    "--ep-options",
+                    "htp_graph_finalization_optimization_mode=3",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["config"].ep_options == {
+            "htp_performance_mode": "burst",
+            "htp_graph_finalization_optimization_mode": "3",
+        }
+
+    def test_cli_ep_options_invalid_format_rejected(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """An --ep-options value without '=' is rejected with a clear error."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        result = runner.invoke(
+            perf,
+            ["-m", str(onnx_file), "--ep-options", "no_equals_sign"],
+            obj={},
+        )
+
+        assert result.exit_code != 0
+        assert "KEY=VALUE" in result.output
+
+    def test_help_shows_ep_options(self, runner: CliRunner) -> None:
+        result = runner.invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        assert "--ep-options" in result.output
+
+    def test_ep_options_captured_in_to_dict(self) -> None:
+        """ep_options must be written into benchmark_info so saved JSON is reproducible."""
+        ep_options = {"htp_performance_mode": "burst"}
+        config = BenchmarkConfig(model_id="m", ep_options=ep_options)
+        result = BenchmarkResult(config=config)
+
+        assert result.to_dict()["benchmark_info"]["ep_options"] == ep_options
+
+    def test_ep_options_none_when_not_set_in_to_dict(self) -> None:
+        """When no EP options are given, benchmark_info records None."""
+        config = BenchmarkConfig(model_id="m")
+        result = BenchmarkResult(config=config)
+
+        assert result.to_dict()["benchmark_info"]["ep_options"] is None
+
+
+# =============================================================================
+# --FORMAT JSON TESTS
+# =============================================================================
+
+
+class TestPerfFormatJson:
+    """Test --format json produces structured JSON to stdout."""
+
+    def test_help_shows_format_option(self, runner: CliRunner) -> None:
+        """--format flag must appear in --help output."""
+        result = runner.invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        assert "--format" in result.output
+        assert "json" in result.output
+
+    def test_invalid_format_rejected(self, runner: CliRunner) -> None:
+        """An invalid --format value must be rejected by Click."""
+        result = runner.invoke(perf, ["-m", "test", "--format", "xml"], obj={})
+        assert result.exit_code != 0
+
+    @patch("winml.modelkit.commands.perf.PerfBenchmark")
+    def test_format_json_emits_valid_json(
+        self, mock_benchmark_class: MagicMock, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--format json must produce parseable JSON on stdout.
+
+        Note: CliRunner mixes stderr into result.output; in production the
+        Console(stderr=True) keeps stdout clean. Extract JSON from mixed output.
+        """
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {
+            "benchmark_info": {
+                "model_id": "microsoft/resnet-50",
+                "task": "image-classification",
+                "device": "cpu",
+                "ep": None,
+            },
+            "latency_ms": {"mean": 18.3, "p50": 17.5, "p90": 21.7},
+            "throughput": {"samples_per_sec": 54.6},
+        }
+        mock_instance = MagicMock()
+        mock_instance.run.return_value = mock_result
+        mock_benchmark_class.return_value = mock_instance
+
+        output_file = tmp_path / "result.json"
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "microsoft/resnet-50",
+                "--format",
+                "json",
+                "--output",
+                str(output_file),
+            ],
+            obj={},
+        )
+
+        assert result.exit_code == 0
+        # Extract JSON object from mixed output (CliRunner mixes stderr)
+        output = result.output
+        json_start = output.index("{")
+        json_end = output.rindex("}") + 1
+        parsed = json.loads(output[json_start:json_end])
+        assert parsed["benchmark_info"]["model_id"] == "microsoft/resnet-50"
+        assert "latency_ms" in parsed
+
+    @patch("winml.modelkit.commands.perf.PerfBenchmark")
+    def test_format_text_shows_console_report(
+        self, mock_benchmark_class: MagicMock, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Default --format text must not emit raw JSON."""
+        mock_result = MagicMock()
+        mock_result.to_dict.return_value = {"benchmark_info": {"model_id": "test"}}
+        mock_result.config = MagicMock()
+        mock_result.config.model_id = "test"
+        mock_result.actual_device = "cpu"
+        mock_result.actual_task = "cls"
+        mock_result.actual_ep = None
+        mock_result.mean_ms = 10.0
+        mock_result.min_ms = 9.0
+        mock_result.max_ms = 11.0
+        mock_result.p50_ms = 10.0
+        mock_result.p90_ms = 10.5
+        mock_result.p95_ms = 10.8
+        mock_result.p99_ms = 11.0
+        mock_result.std_ms = 0.5
+        mock_result.warmup_mean_ms = 12.0
+        mock_result.samples_per_sec = 100.0
+        mock_result.batches_per_sec = 100.0
+        mock_result.hw_monitor = None
+        mock_result.memory_profile = None
+        mock_instance = MagicMock()
+        mock_instance.run.return_value = mock_result
+        mock_benchmark_class.return_value = mock_instance
+
+        output_file = tmp_path / "result.json"
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "test",
+                "--output",
+                str(output_file),
+            ],
+            obj={},
+        )
+
+        assert result.exit_code == 0
+        # Should NOT be parseable as JSON (it's console text)
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(result.output)

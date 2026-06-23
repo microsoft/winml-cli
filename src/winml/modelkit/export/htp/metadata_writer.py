@@ -44,8 +44,8 @@ class MetadataWriter(StepAwareWriter):
         # Store data for final building
         self._model_info_set = False
         self._export_time = 0.0
-        self._steps_data = {}
-        self._export_data = None  # Will be set on first write
+        self._steps_data: dict[str, dict[str, Any]] = {}
+        self._export_data: ExportData | None = None  # Will be set on first write
 
     def _write_default(self, export_step: ExportStep, data: ExportData) -> int:
         """Default handler - record step completion."""
@@ -360,7 +360,7 @@ class MetadataWriter(StepAwareWriter):
             return {}
 
         # Build root structure
-        root = {
+        root: dict[str, Any] = {
             "class_name": root_info.class_name,
             "traced_tag": root_info.traced_tag,
             "scope": "",
@@ -446,7 +446,7 @@ class MetadataWriter(StepAwareWriter):
                 key = module_info.class_name
 
             # Build child structure
-            child = {
+            child: dict[str, Any] = {
                 "class_name": module_info.class_name,
                 "traced_tag": module_info.traced_tag,
                 "scope": path,  # Full path from root

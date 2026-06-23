@@ -352,7 +352,7 @@ def _save_json(data: Any, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-    console.print(f"[green]Results saved to:[/green] {path}")
+    click.echo(f"Results saved to: {path}", err=True)
 
 
 # ---------------------------------------------------------------------------
@@ -384,18 +384,21 @@ def _save_json(data: Any, path: Path) -> None:
     optional_message="If not specified, shows all devices",
 )
 @cli_utils.output_option("Save results to a JSON file.")
+@cli_utils.format_option()
 def catalog(
     model_type: str | None,
     task: str | None,
     ep: EPNameOrAlias | None,
     device: str | None,
     output: Path | None,
+    output_format: cli_utils.OutputFormat,
 ) -> None:
     r"""Browse WinML CLI's curated built-in model catalog.
 
     Lists HuggingFace models that have been validated end-to-end
     (export -> quantise -> run on device) with confirmed accuracy results.
-    Use ``--output`` to save results to a JSON file.
+    Use ``--output`` to save results to a JSON file, or ``--format json``
+    to print structured JSON to stdout.
 
     \b
     Examples:
@@ -404,6 +407,7 @@ def catalog(
         winml catalog --task text-classification
         winml catalog --ep qnn
         winml catalog --device NPU
+        winml catalog --format json
         winml catalog --output results/catalog.json
     """
     try:
@@ -415,15 +419,20 @@ def catalog(
     models = _filter_by_ep(models, ep)
     models = _filter_by_device(models, device)
 
-    # Show the extra column only when exactly one of --ep / --device is given.
-    ep_col_header = None
-    ep_col_fn = None
-    if (ep is not None) ^ (device is not None):
-        if ep is not None:
-            ep_col_header, ep_col_fn = _make_ep_col_fn_for_ep(normalize_ep_name(ep) or "")
-        else:
-            ep_col_header, ep_col_fn = _make_ep_col_fn_for_device(device or "")
-    _output_list(models, ep_col_header=ep_col_header, ep_col_fn=ep_col_fn)
+    json_mode = output_format == "json"
+
+    if json_mode:
+        click.echo(json.dumps(models, indent=2))
+    else:
+        # Show the extra column only when exactly one of --ep / --device is given.
+        ep_col_header = None
+        ep_col_fn = None
+        if (ep is not None) ^ (device is not None):
+            if ep is not None:
+                ep_col_header, ep_col_fn = _make_ep_col_fn_for_ep(normalize_ep_name(ep) or "")
+            else:
+                ep_col_header, ep_col_fn = _make_ep_col_fn_for_device(device or "")
+        _output_list(models, ep_col_header=ep_col_header, ep_col_fn=ep_col_fn)
 
     if output is not None:
         _save_json(models, output)

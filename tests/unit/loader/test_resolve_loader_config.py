@@ -21,6 +21,32 @@ from winml.modelkit.loader import (
 )
 
 
+def _make_resolution(task: str, model_class: MagicMock) -> MagicMock:
+    """Return a minimal TaskResolution-like mock."""
+    from winml.modelkit.loader.resolution import TaskResolution, TaskSource
+
+    return TaskResolution(
+        task=task,
+        optimum_task=task,
+        model_class=model_class,
+        source=TaskSource.TASKS_MANAGER,
+        composite=None,
+    )
+
+
+def _make_resolution_wrapped(task: str, model_class: MagicMock) -> MagicMock:
+    """Return a TaskResolution-like mock with WRAPPED_LIBRARY source."""
+    from winml.modelkit.loader.resolution import TaskResolution, TaskSource
+
+    return TaskResolution(
+        task=task,
+        optimum_task=task,
+        model_class=model_class,
+        source=TaskSource.WRAPPED_LIBRARY,
+        composite=None,
+    )
+
+
 # =============================================================================
 # TestResolveLoaderConfig
 # =============================================================================
@@ -29,8 +55,8 @@ from winml.modelkit.loader import (
 class TestResolveLoaderConfig:
     """Tests for resolve_loader_config function."""
 
-    def test_returns_tuple_of_three(self) -> None:
-        """resolve_loader_config returns (WinMLLoaderConfig, hf_config, class)."""
+    def test_returns_tuple_of_four(self) -> None:
+        """resolve_loader_config returns (WinMLLoaderConfig, hf_config, class, TaskResolution)."""
         mock_config = MagicMock()
         mock_config.model_type = "bert"
         mock_class = MagicMock(spec=[])
@@ -43,11 +69,11 @@ class TestResolveLoaderConfig:
                 return_value=mock_config,
             ),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",  # same module
-                return_value=("fill-mask", mock_class),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("fill-mask", mock_class),
             ),
         ):
-            loader_config, hf_config, resolved_class = resolve_loader_config(
+            loader_config, hf_config, resolved_class, resolution = resolve_loader_config(
                 "bert-base-uncased", task="fill-mask"
             )
 
@@ -57,6 +83,7 @@ class TestResolveLoaderConfig:
         assert loader_config.model_type == "bert"
         assert hf_config is mock_config
         assert resolved_class is mock_class
+        assert resolution is not None
 
     def test_neither_model_id_nor_model_type_raises(self) -> None:
         """Neither model_id nor model_type raises ValueError."""
@@ -76,11 +103,11 @@ class TestResolveLoaderConfig:
         with (
             patch("transformers.AutoConfig.from_pretrained") as mock_from_pretrained,
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("fill-mask", mock_class),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("fill-mask", mock_class),
             ),
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
+            loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "bert-base-uncased",
                 task="fill-mask",
                 hf_config=provided_config,
@@ -106,15 +133,11 @@ class TestResolveLoaderConfig:
                 return_value=mock_config,
             ) as mock_create,
             patch(
-                "winml.modelkit.loader.task.get_supported_tasks",
-                return_value=["feature-extraction", "fill-mask"],
-            ),
-            patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",  # same module
-                return_value=("feature-extraction", mock_class),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("feature-extraction", mock_class),
             ),
         ):
-            loader_config, _, _ = resolve_loader_config(model_type="bert")
+            loader_config, _, _, _resolution = resolve_loader_config(model_type="bert")
 
         mock_create.assert_called_once_with("bert")
         assert loader_config.task == "feature-extraction"
@@ -133,11 +156,11 @@ class TestResolveLoaderConfig:
                 return_value=mock_config,
             ),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",  # same module
-                return_value=("text-generation", mock_class),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("text-generation", mock_class),
             ),
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
+            loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "some-model", model_type="gpt2", task="text-generation"
             )
 
@@ -160,23 +183,21 @@ class TestResolveLoaderConfig:
                 return_value=mock_config,
             ),
             patch(
-                "winml.modelkit.loader.task.get_supported_tasks",
-                return_value=["feature-extraction", "fill-mask"],
-            ),
-            patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",  # same module
-                return_value=("feature-extraction", mock_class),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("feature-extraction", mock_class),
             ) as mock_resolve,
         ):
-            loader_config, _, _ = resolve_loader_config("some-model", model_type="bert")
+            loader_config, _, _, _resolution = resolve_loader_config(
+                "some-model", model_type="bert"
+            )
 
         assert loader_config.task == "feature-extraction"
-        # Verify the auto-detected task was passed to resolve_task_and_model_class
+        # Verify resolve_task was called with the hf_config (no pre-set task)
         mock_resolve.assert_called_once()
-        assert mock_resolve.call_args.kwargs["task"] == "feature-extraction"
+        assert mock_resolve.call_args.kwargs.get("task") is None
 
     def test_no_supported_tasks_raises(self) -> None:
-        """model_type with no supported tasks raises ValueError."""
+        """model_type with no supported tasks raises ValueError — delegated to resolve_task."""
         mock_config = MagicMock()
         mock_config.model_type = "nonexistent"
 
@@ -186,8 +207,8 @@ class TestResolveLoaderConfig:
                 return_value=mock_config,
             ),
             patch(
-                "winml.modelkit.loader.task.get_supported_tasks",
-                return_value=[],
+                "winml.modelkit.loader.resolution.resolve_task",
+                side_effect=ValueError("No supported tasks found for model_type 'nonexistent'"),
             ),
             pytest.raises(ValueError, match="No supported tasks found"),
         ):
@@ -220,18 +241,18 @@ class TestResolveLoaderConfig:
                 return_value=mock_config,
             ),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",  # same module
-                return_value=("fill-mask", mock_class),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("fill-mask", mock_class),
             ),
         ):
-            loader_config, _, _ = resolve_loader_config(
+            loader_config, _, _, _resolution = resolve_loader_config(
                 "some-model", task="fill-mask", trust_remote_code=True
             )
 
         assert loader_config.trust_remote_code is True
 
     def test_explicit_task_passed_through(self) -> None:
-        """Explicit task is passed to resolve_task_and_model_class."""
+        """Explicit task is forwarded to resolve_task."""
         mock_config = MagicMock()
         mock_config.model_type = "bert"
         mock_class = MagicMock(spec=[])
@@ -244,8 +265,8 @@ class TestResolveLoaderConfig:
                 return_value=mock_config,
             ),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",  # same module
-                return_value=("text-classification", mock_class),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("text-classification", mock_class),
             ) as mock_resolve,
         ):
             resolve_loader_config("bert-base-uncased", task="text-classification")
@@ -254,7 +275,7 @@ class TestResolveLoaderConfig:
         assert mock_resolve.call_args.kwargs["task"] == "text-classification"
 
     def test_explicit_model_class_passed_through(self) -> None:
-        """Explicit model_class is passed to resolve_task_and_model_class."""
+        """Explicit model_class is forwarded to resolve_task."""
         mock_config = MagicMock()
         mock_config.model_type = "bert"
         mock_class = MagicMock(spec=[])
@@ -267,8 +288,8 @@ class TestResolveLoaderConfig:
                 return_value=mock_config,
             ),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",  # same module
-                return_value=("fill-mask", mock_class),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("fill-mask", mock_class),
             ) as mock_resolve,
         ):
             resolve_loader_config(
@@ -310,11 +331,11 @@ class TestSubConfigConsolidation:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("fill-mask", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("fill-mask", mock_cls),
             ),
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
+            loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "bert-base-uncased", task="fill-mask"
             )
 
@@ -334,11 +355,11 @@ class TestSubConfigConsolidation:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("feature-extraction", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("feature-extraction", mock_cls),
             ),
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
+            loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "openai/clip-vit-base-patch32", task="feature-extraction"
             )
 
@@ -361,11 +382,11 @@ class TestSubConfigConsolidation:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("image-feature-extraction", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("image-feature-extraction", mock_cls),
             ),
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
+            loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "openai/clip-vit-base-patch32", task="image-feature-extraction"
             )
 
@@ -382,11 +403,11 @@ class TestSubConfigConsolidation:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("feature-extraction", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("feature-extraction", mock_cls),
             ),
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
+            loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "some-model", task="feature-extraction"
             )
 
@@ -404,11 +425,11 @@ class TestSubConfigConsolidation:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("feature-extraction", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("feature-extraction", mock_cls),
             ),
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
+            loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "bert-base-uncased", task="feature-extraction"
             )
 
@@ -429,11 +450,11 @@ class TestSubConfigConsolidation:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("feature-extraction", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("feature-extraction", mock_cls),
             ),
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
+            loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "some-model", task="feature-extraction"
             )
 
@@ -451,7 +472,8 @@ class TestResolveLoaderConfigInputOutput:
     """Test input/output contract of resolve_loader_config for each input combo."""
 
     def test_output_structure(self) -> None:
-        """Return value is a 3-tuple of (WinMLLoaderConfig, PretrainedConfig, type)."""
+        """Return value is a 4-tuple of (WinMLLoaderConfig, PretrainedConfig, type,
+        TaskResolution)."""
         parent = MagicMock()
         parent.model_type = "bert"
         mock_cls = MagicMock(spec=[])
@@ -461,17 +483,17 @@ class TestResolveLoaderConfigInputOutput:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("fill-mask", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("fill-mask", mock_cls),
             ),
         ):
             result = resolve_loader_config("bert-base-uncased", task="fill-mask")
 
-        # Must be a 3-tuple
+        # Must be a 4-tuple
         assert isinstance(result, tuple)
-        assert len(result) == 3
+        assert len(result) == 4
 
-        loader_config, hf_config, resolved_class = result
+        loader_config, hf_config, resolved_class, resolution = result
 
         # Item 0: WinMLLoaderConfig with all fields populated
         assert isinstance(loader_config, WinMLLoaderConfig)
@@ -484,6 +506,9 @@ class TestResolveLoaderConfigInputOutput:
 
         # Item 2: resolved_class (a type/callable with __name__)
         assert hasattr(resolved_class, "__name__")
+
+        # Item 3: TaskResolution
+        assert resolution is not None
 
     def test_output_loader_config_fields_match_inputs(self) -> None:
         """WinMLLoaderConfig fields reflect resolved values, not raw inputs."""
@@ -498,11 +523,11 @@ class TestResolveLoaderConfigInputOutput:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("feature-extraction", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("feature-extraction", mock_cls),
             ),
         ):
-            loader_config, hf_config, resolved_class = resolve_loader_config(
+            loader_config, hf_config, resolved_class, _resolution = resolve_loader_config(
                 "openai/clip-vit-base-patch32", task="feature-extraction"
             )
 
@@ -525,11 +550,13 @@ class TestResolveLoaderConfigInputOutput:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("image-classification", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("image-classification", mock_cls),
             ),
         ):
-            loader_config, hf_config, resolved_class = resolve_loader_config("microsoft/resnet-50")
+            loader_config, hf_config, resolved_class, _resolution = resolve_loader_config(
+                "microsoft/resnet-50"
+            )
 
         assert loader_config.task == "image-classification"
         assert loader_config.model_class == "ResNetForImageClassification"
@@ -548,11 +575,11 @@ class TestResolveLoaderConfigInputOutput:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("text-classification", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("text-classification", mock_cls),
             ) as mock_resolve,
         ):
-            loader_config, _, _ = resolve_loader_config(
+            loader_config, _, _, _resolution = resolve_loader_config(
                 "bert-base-uncased", task="text-classification"
             )
 
@@ -572,11 +599,11 @@ class TestResolveLoaderConfigInputOutput:
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("feature-extraction", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("feature-extraction", mock_cls),
             ) as mock_resolve,
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
+            loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "openai/clip-vit-base-patch32",
                 task="feature-extraction",
                 model_class="CLIPTextModelWithProjection",
@@ -600,15 +627,11 @@ class TestResolveLoaderConfigInputOutput:
                 return_value=parent,
             ) as mock_create,
             patch(
-                "winml.modelkit.loader.task.get_supported_tasks",
-                return_value=["feature-extraction", "fill-mask"],
-            ),
-            patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("feature-extraction", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("feature-extraction", mock_cls),
             ),
         ):
-            loader_config, hf_config, _ = resolve_loader_config(model_type="bert")
+            loader_config, hf_config, _, _resolution = resolve_loader_config(model_type="bert")
 
         mock_create.assert_called_once_with("bert")
         assert loader_config.task == "feature-extraction"
@@ -629,14 +652,16 @@ class TestResolveLoaderConfigInputOutput:
                 return_value=parent,
             ),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("fill-mask", mock_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("fill-mask", mock_cls),
             ) as mock_resolve,
         ):
-            loader_config, _, _ = resolve_loader_config(model_type="bert", task="fill-mask")
+            loader_config, _, _, _resolution = resolve_loader_config(
+                model_type="bert", task="fill-mask"
+            )
 
         assert loader_config.task == "fill-mask"
-        # get_supported_tasks should NOT be called (task was provided)
+        # task was provided, so it should be forwarded to resolve_task
         assert mock_resolve.call_args.kwargs["task"] == "fill-mask"
 
     def test_model_class_only(self) -> None:
@@ -658,22 +683,34 @@ class TestResolveLoaderConfigInputOutput:
             ) as mock_create,
             patch("transformers.BertForMaskedLM", mock_transformers_cls, create=True),
             patch(
-                "winml.modelkit.loader.task.resolve_task_and_model_class",
-                return_value=("fill-mask", mock_resolved_cls),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=_make_resolution("fill-mask", mock_resolved_cls),
             ) as mock_resolve,
         ):
-            loader_config, _hf_config, _ = resolve_loader_config(model_class="BertForMaskedLM")
+            loader_config, _hf_config, _, _resolution = resolve_loader_config(
+                model_class="BertForMaskedLM"
+            )
 
         # create_hf_config_from_model_class called with the imported class
         mock_create.assert_called_once()
-        # task auto-detected via resolve_task_and_model_class Case 3
+        # task auto-detected via resolve_task Case 3
         assert loader_config.task == "fill-mask"
         assert loader_config.model_class == "BertForMaskedLM"
         assert loader_config.model_type == "bert"
-        # model_class forwarded to resolve_task_and_model_class
+        # model_class forwarded to resolve_task
         assert mock_resolve.call_args.kwargs["model_class"] == "BertForMaskedLM"
 
     def test_model_class_invalid_raises(self) -> None:
         """model_class with unknown class name raises ValueError."""
         with pytest.raises(ValueError, match="not found in any of"):
             resolve_loader_config(model_class="NonExistentModelClass12345")
+
+
+def test_model_type_only_no_architectures_resolves_first_supported_task():
+    from winml.modelkit.loader import resolve_loader_config
+
+    loader_config, _hf_config, _resolved_class, resolution = resolve_loader_config(
+        model_id=None, model_type="bert"
+    )
+    assert resolution.source.value == "wrapped-library"
+    assert loader_config.task in ("feature-extraction", "fill-mask")

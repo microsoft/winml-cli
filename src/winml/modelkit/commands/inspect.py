@@ -89,14 +89,7 @@ def _looks_like_local_path(model_id: str) -> bool:
     default=None,
     help="HuggingFace model ID (e.g., microsoft/resnet-50)",
 )
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice(["table", "json"], case_sensitive=False),
-    default="table",
-    help="Output format (default: table)",
-)
+@cli_utils.format_option(choices=["table", "json"], default="table")
 @click.option(
     "-t",
     "--task",
@@ -105,10 +98,10 @@ def _looks_like_local_path(model_id: str) -> bool:
     help="Override auto-detected task (e.g., image-classification, feature-extraction)",
 )
 @click.option(
-    "-H",
-    "--hierarchy",
-    is_flag=True,
+    "-H/-N",
+    "--hierarchy/--no-hierarchy",
     default=False,
+    show_default=True,
     help="Show HF module hierarchy (uses random weights, no weight download)",
 )
 @click.option(
@@ -135,7 +128,7 @@ def _looks_like_local_path(model_id: str) -> bool:
 def inspect(
     ctx: click.Context,
     model_id: str | None,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     task: str | None,
@@ -213,7 +206,7 @@ def inspect(
     # json` consumers still get clean stdout. Suppressed in --quiet mode
     # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
     # and JSON consumers expect clean stdout regardless).
-    json_mode = output_format.lower() == "json"
+    json_mode = output_format == "json"
     target = model_id or model_type or model_class
     if not quiet and not json_mode:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
@@ -245,7 +238,7 @@ def inspect(
                     include_hierarchy=hierarchy,
                 )
 
-        if output_format.lower() == "json":
+        if output_format == "json":
             click.echo(output_json(result, verbose=bool(verbose)))
         else:
             output_table(console, result, verbose=bool(verbose))
@@ -300,6 +293,7 @@ def _inspect_model_v2(
         build_tensor_infos_from_io_specs,
         compile_support_status,
         resolve_cache,
+        resolve_composite_info,
         resolve_io_config,
         resolve_processor,
         resolve_winml,
@@ -330,7 +324,7 @@ def _inspect_model_v2(
     from huggingface_hub.errors import RepositoryNotFoundError
 
     try:
-        loader_config, hf_config, _resolved_class = resolve_loader_config(
+        loader_config, hf_config, _resolved_class, resolution = resolve_loader_config(
             model_id,
             task=task_override,
             model_type=model_type_override,
@@ -366,14 +360,10 @@ def _inspect_model_v2(
     architectures = getattr(parent_hf_config, "architectures", []) or []
 
     # =========================================================================
-    # STEP 3: Derive task_source by checking registries post-hoc
+    # STEP 3: provenance comes straight from the resolver (no post-hoc recompute).
     # =========================================================================
     mt = model_type.lower().replace("_", "-")
-    task_source = "TasksManager"
-    for m, t in HF_MODEL_CLASS_MAPPING:
-        if m == mt and t == task:
-            task_source = "HF_MODEL_CLASS_MAPPING"
-            break
+    task_source = resolution.source.value
 
     # =========================================================================
     # STEP 4: Derive loader display info
@@ -519,6 +509,11 @@ def _inspect_model_v2(
         model_type_override or getattr(parent_hf_config, "model_type", None) or model_type
     )
 
+    # Composite pipeline structure. resolution.composite is set only on the auto-detect
+    # path (resolve_task); an explicit --task / --model-class pins composite=None, so the
+    # pipeline-led composite view is shown only for auto-detected composites — by design.
+    composite_info = resolve_composite_info(display_model_type, resolution.composite)
+
     return InspectResult(
         model_id=model_id or display_model_type or model_class_override or "unknown",
         model_type=display_model_type,
@@ -535,4 +530,5 @@ def _inspect_model_v2(
         cache=cache_info,
         processor=processor_info,
         io_config=io_config_info,
+        composite=composite_info,
     )

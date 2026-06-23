@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
+
+    from .resolution import TaskResolution
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +124,7 @@ def resolve_loader_config(
     trust_remote_code: bool = False,
     library_name: str = "transformers",
     hf_config: PretrainedConfig | None = None,
-) -> tuple[WinMLLoaderConfig, PretrainedConfig, type]:
+) -> tuple[WinMLLoaderConfig, PretrainedConfig, type, TaskResolution]:
     """Resolve all loader concerns from raw user inputs.
 
     Encapsulates hf_config loading/creation, model_type override,
@@ -134,12 +136,10 @@ def resolve_loader_config(
            - model_id → AutoConfig.from_pretrained(model_id)
            - model_type → AutoConfig.for_model(model_type)
            - model_class → create_hf_config_from_model_class(cls)
-        2. Infer task (depends on: model_type param or hf_config.architectures)
-           Two detection paths:
-           - model_type param set → get_supported_tasks(model_type)[0]
-           - model_id only → deferred to step 3 (Case 1 via architectures)
-        3. Resolve task + model_class (depends on: hf_config + task)
-           → resolve_task_and_model_class(hf_config, task, model_class)
+        2-3. Unified task + model_class resolution (depends on: hf_config + task)
+           → resolve_task(hf_config, task, model_class)
+           Subsumes the old --model-type fallback (first supported task) and the
+           legacy task/model-class orchestrator; returns a TaskResolution.
         4. Resolve hf_config + model_type (depends on: resolved_class)
            → _resolve_hf_config_for_class(hf_config, resolved_class)
            Uses config_class.base_config_key to extract sub-config for multimodal
@@ -167,6 +167,8 @@ def resolve_loader_config(
         - hf_config: Resolved HF config for the model class. For multimodal
           models, this is the sub-config (e.g., CLIPTextConfig), not the parent.
         - resolved_class: Actual model class type for instantiation.
+        - resolution: Full TaskResolution with provenance (source, optimum_task,
+          composite). Consumed by inspect and future callers for richer output.
 
     Raises:
         ValueError: If neither model_id nor model_type is provided, model_type
@@ -174,7 +176,7 @@ def resolve_loader_config(
     """
     from transformers import AutoConfig
 
-    from .task import get_supported_tasks, resolve_task_and_model_class
+    from .resolution import resolve_task
 
     if trust_remote_code:
         from ..utils.cli import warn_trust_remote_code
@@ -218,28 +220,10 @@ def resolve_loader_config(
             f"attribute. Cannot proceed with config generation."
         )
 
-    # 2. Infer task (depends on: model_type param or hf_config.architectures)
-    if task is None and model_type is not None:
-        supported = get_supported_tasks(model_type, library_name=library_name)
-        if not supported:
-            raise ValueError(
-                f"No supported tasks found for model_type '{model_type}'. "
-                f"Provide an explicit --task."
-            )
-        task = supported[0]
-        logger.info(
-            "Auto-detected task '%s' from model_type '%s' (supported: %s)",
-            task,
-            model_type,
-            supported,
-        )
-
-    # 3. Resolve task + model_class (depends on: hf_config + task)
-    resolved_task, resolved_class = resolve_task_and_model_class(
-        hf_config,
-        task=task,
-        model_class=model_class,
-    )
+    # 2-3. Unified resolution. Task detection — including the no-architectures
+    # --model-type fallback (first supported task) — now lives in resolve_task.
+    resolution = resolve_task(hf_config, task=task, model_class=model_class)
+    resolved_task, resolved_class = resolution.task, resolution.model_class
     logger.info("Resolved: task=%s, model_class=%s", resolved_task, resolved_class.__name__)
 
     # 4. Resolve hf_config + model_type (depends on: resolved_class)
@@ -256,7 +240,7 @@ def resolve_loader_config(
         trust_remote_code=trust_remote_code,
     )
 
-    return loader_config, resolved_hf_config, resolved_class
+    return loader_config, resolved_hf_config, resolved_class, resolution
 
 
 def _create_hf_config_from_model_class(model_class: type) -> PretrainedConfig:
@@ -282,7 +266,7 @@ def _create_hf_config_from_model_class(model_class: type) -> PretrainedConfig:
         )
     hf_config = config_cls()
     hf_config.architectures = [model_class.__name__]
-    return hf_config
+    return cast("PretrainedConfig", hf_config)
 
 
 def _resolve_hf_config_for_class(

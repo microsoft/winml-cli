@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 import click
 from rich.console import Console
@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
 # TypeVar for signature-preserving Click decorators.
 F = TypeVar("F", bound="Callable[..., Any]")
+
+# Allowed values for ``--format`` / ``-f``.
+OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
 
 
 # Shared stderr console for security/diagnostic messages emitted from utils.
@@ -124,6 +127,34 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     return click.option("--output", "-o", **kwargs)
 
 
+def format_option(
+    choices: list[OutputFormat] | None = None,
+    default: OutputFormat = "text",
+    short_flag: bool = True,
+) -> Callable[[F], F]:
+    """Add ``--format`` option to a Click command.
+
+    The option is exposed as the ``output_format`` parameter in the
+    decorated function (type: :data:`OutputFormat`).
+
+    Args:
+        choices: Allowed format values. Defaults to ``["text", "json"]``.
+        default: Default format value. Defaults to ``"text"``.
+        short_flag: Whether to include ``-f`` short alias. Set to False
+            when another option already uses ``-f``.
+    """
+    if choices is None:
+        choices = ["text", "json"]
+    args = ["-f", "--format"] if short_flag else ["--format"]
+    return click.option(
+        *args,
+        "output_format",
+        type=click.Choice(choices, case_sensitive=False),
+        default=default,
+        help=f"Output format (default: {default}). 'json' prints structured JSON to stdout.",
+    )
+
+
 def ep_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
     """Add --ep (execution provider) option to a Click command.
 
@@ -154,6 +185,76 @@ def ep_option(required: bool = True, optional_message: str | None = None) -> Cal
         type=click.Choice(ep_choices, case_sensitive=False),
         help=help_text,
     )
+
+
+def ep_options_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add a repeatable ``--ep-options KEY=VALUE`` option to a Click command.
+
+    Collects runtime EP provider options (e.g. QNN ``htp_performance_mode``)
+    that are forwarded to ``add_provider_for_devices`` when the inference
+    session is created. Distinct from build-time provider options set via
+    ``--config``: these affect the runtime session, not the compiled graph.
+
+    Use :func:`parse_ep_options` to turn the collected tuple into a dict.
+
+    Args:
+        optional_message: Extra command-specific guidance appended to help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = (
+        "Runtime EP provider option as KEY=VALUE (repeatable). Forwarded to the "
+        "inference session's execution provider (e.g. "
+        "--ep-options htp_performance_mode=burst). Duplicate keys: later "
+        "occurrence wins."
+    )
+    if optional_message:
+        help_text = f"{help_text} {optional_message}"
+
+    return click.option(
+        "--ep-options",
+        "ep_options",
+        multiple=True,
+        help=help_text,
+    )
+
+
+def parse_ep_options(values: tuple[str, ...]) -> dict[str, str] | None:
+    """Parse ``--ep-options KEY=VALUE`` tuples into a provider-options dict.
+
+    Args:
+        values: Raw values collected by a ``multiple=True`` Click option.
+
+    Surrounding whitespace is stripped from both key and value. Duplicate
+    keys follow last-write-wins semantics (the later occurrence wins).
+
+    Returns:
+        Mapping of option name to value, or ``None`` when nothing was provided
+        (so callers can leave the session default untouched).
+
+    Raises:
+        click.BadParameter: If any value is missing the ``=`` separator or has
+            an empty key.
+    """
+    if not values:
+        return None
+    options: dict[str, str] = {}
+    for item in values:
+        if "=" not in item:
+            raise click.BadParameter(
+                f"Invalid EP option format: '{item}'. Use KEY=VALUE.",
+                param_hint="--ep-options",
+            )
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise click.BadParameter(
+                f"Invalid EP option format: '{item}'. Key cannot be empty.",
+                param_hint="--ep-options",
+            )
+        options[key] = value.strip()
+    return options
 
 
 def device_option(
@@ -190,6 +291,56 @@ def device_option(
         show_default=True,
         type=click.Choice(choices, case_sensitive=False),
         help=help_text,
+    )
+
+
+def precision_option(
+    default: str | None = "auto",
+    optional_message: str | None = None,
+    include_short: bool = True,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add --precision option to a Click command.
+
+    Shared across ``build``, ``config``, ``eval``, ``perf``, and ``quantize`` so
+    the flag spelling (``-p``/``--precision``) and parsing stay consistent. Uses
+    ``type=str`` (not ``click.Choice``) so the ``w{x}a{y}`` mixed-precision
+    format (e.g. ``w8a16``) is accepted; invalid values are rejected downstream
+    (``resolve_precision`` for build-path commands, ``_resolve_quant_types`` for
+    ``quantize``).
+
+    Args:
+        default: Default precision value (default: "auto"). Pass ``None`` for
+            commands like ``quantize`` that treat "no precision" distinctly.
+        optional_message: Command-specific note appended after the help text
+            (e.g., "Ignored for pre-built ONNX inputs.").
+        include_short: Whether to also register the ``-p`` short alias
+            (default: True).
+        help_text: Override for the base help text. Commands whose accepted
+            values differ from the default float+int set (e.g. ``quantize``,
+            which has no fp16/fp32) supply their own; ``optional_message`` is
+            still appended to it.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = help_text or (
+        "Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
+        "auto resolves from --device (npu->w8a16, gpu/cpu->fp16); "
+        "fp16/fp32 skip quantization"
+    )
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+
+    param_decls = ["--precision", "precision"]
+    if include_short:
+        param_decls.insert(0, "-p")
+    return click.option(
+        *param_decls,
+        type=str,
+        default=default,
+        show_default=True,
+        help=base_help,
     )
 
 
@@ -329,12 +480,200 @@ def trust_remote_code_option(optional_message: str | None = None) -> Callable[[F
         return value
 
     return click.option(
-        "--trust-remote-code",
-        is_flag=True,
+        "--trust-remote-code/--no-trust-remote-code",
         default=False,
+        show_default=True,
         help=help_text,
         callback=_warn_callback,
     )
+
+
+def compile_option(
+    default: bool | None = None,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add shared ``--no-compile/--compile`` toggle to a Click command.
+
+    The flag is exposed as the ``no_compile`` parameter. Note the inverted
+    sense — ``--no-compile`` maps to ``no_compile=True``:
+
+        * ``--no-compile`` -> ``no_compile=True``  (force skip compilation)
+        * ``--compile``    -> ``no_compile=False`` (force enable compilation)
+
+    Args:
+        default: Value for ``no_compile`` when neither flag is passed.
+            ``None`` -> tri-state inherit (e.g. ``winml build`` inherits from
+            the config file); ``True`` -> exclude compilation by default
+            (e.g. ``winml config`` omits the compile section).
+        help_text: Command-specific help string. Falls back to a generic
+            description when not provided.
+
+    Returns:
+        Decorator function.
+    """
+    if help_text is None:
+        help_text = "Override compilation. --compile forces enable; --no-compile forces skip."
+
+    return click.option(
+        "--no-compile/--compile",
+        "no_compile",
+        default=default,
+        help=help_text,
+    )
+
+
+def quant_option(
+    default: bool = True,
+    optional_message: str | None = None,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--quant/--no-quant`` quantization toggle.
+
+    Shared across ``build``, ``config``, ``perf``, and ``eval`` so the flag
+    spelling and default stay consistent. ``--quantize/--no-quantize`` is kept
+    as an alias so existing ``perf`` invocations keep working. The decorated
+    function receives the value as the ``quant`` parameter (``True`` = run
+    quantization, ``--no-quant`` overrides the config's quant section).
+
+    Args:
+        default: Default value (default: True = quantize).
+        optional_message: Command-specific note appended after the help text.
+        help_text: Override for the base help text. ``config`` phrases it in
+            terms of the emitted config section; ``optional_message`` is still
+            appended to it.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = help_text or "Enable quantization (use --no-quant to skip, overrides config)"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--quant/--no-quant",
+        "--quantize/--no-quantize",
+        "quant",
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
+def optimize_option(
+    default: bool = True,
+    optional_message: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--optimize/--no-optimize`` toggle.
+
+    Controls whether the build pipeline runs graph optimization. The decorated
+    function receives the value as the ``optimize`` parameter; ``--no-optimize``
+    maps to ``skip_optimize=True`` downstream (see
+    :func:`build_pipeline_extra_kwargs`).
+
+    Args:
+        default: Default value (default: True = optimize).
+        optional_message: Command-specific note appended after the help text.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = "Run optimization (use --no-optimize to skip for pre-quantized ONNX models)"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--optimize/--no-optimize",
+        "optimize",
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
+def analyze_option(
+    default: bool = True,
+    optional_message: str | None = None,
+) -> Callable[[F], F]:
+    """Add the shared ``--analyze/--no-analyze`` toggle.
+
+    Controls whether the build runs the autoconf analyzer loop. The decorated
+    function receives the value as the ``analyze`` parameter; ``--no-analyze``
+    forces ``max_optim_iterations`` to 0 (see
+    :func:`build_pipeline_extra_kwargs`).
+
+    Args:
+        default: Default value (default: True = analyze).
+        optional_message: Command-specific note appended after the help text.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = "Run analyzer loop during build (use --no-analyze to skip)"
+    if optional_message:
+        base_help = f"{base_help}. {optional_message}"
+    return click.option(
+        "--analyze/--no-analyze",
+        "analyze",
+        default=default,
+        show_default=True,
+        help=base_help,
+    )
+
+
+def max_optim_iterations_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add the shared ``--max-optim-iterations`` option.
+
+    The decorated function receives the value as the ``max_optim_iterations``
+    parameter (``None`` = use the pipeline default of 3). ``--no-analyze`` wins
+    over an explicit value (see :func:`build_pipeline_extra_kwargs`).
+
+    Args:
+        optional_message: Command-specific note appended to the help text.
+
+    Returns:
+        Decorator function.
+    """
+    base_help = "Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0."
+    if optional_message:
+        base_help = f"{base_help} {optional_message}"
+    return click.option(
+        "--max-optim-iterations",
+        "max_optim_iterations",
+        type=int,
+        default=None,
+        help=base_help,
+    )
+
+
+def build_pipeline_extra_kwargs(
+    *,
+    optimize: bool = True,
+    analyze: bool = True,
+    max_optim_iterations: int | None = None,
+) -> dict[str, Any]:
+    """Translate the shared optimize/analyze/max-optim flags into build kwargs.
+
+    Centralizes the mapping shared by ``build``, ``perf``, and ``eval`` so the
+    semantics stay identical:
+
+    * ``--no-optimize`` -> ``skip_optimize=True``
+    * ``--no-analyze``  -> ``hack_max_optim_iterations=0``
+    * ``--max-optim-iterations N`` -> ``hack_max_optim_iterations=N`` (only when
+      analysis is enabled; ``--no-analyze`` takes precedence).
+
+    Keys are omitted when they would carry the pipeline default, so callers can
+    splat the result unconditionally onto ``build_hf_model`` /
+    ``build_onnx_model`` (or ``WinMLAutoModel``, which forwards them).
+
+    Returns:
+        Mapping of build-control kwargs.
+    """
+    extra: dict[str, Any] = {}
+    if not optimize:
+        extra["skip_optimize"] = True
+    if not analyze:
+        extra["hack_max_optim_iterations"] = 0
+    elif max_optim_iterations is not None:
+        extra["hack_max_optim_iterations"] = max_optim_iterations
+    return extra
 
 
 def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:
@@ -358,9 +697,9 @@ def allow_unsupported_nodes_option(optional_message: str | None = None) -> Calla
         help_text = f"{help_text} {optional_message}"
 
     return click.option(
-        "--allow-unsupported-nodes",
-        is_flag=True,
+        "--allow-unsupported-nodes/--no-allow-unsupported-nodes",
         default=False,
+        show_default=True,
         help=help_text,
     )
 

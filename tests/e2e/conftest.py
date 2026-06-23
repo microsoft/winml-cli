@@ -18,6 +18,7 @@ E2E tests are auto-skipped unless explicitly selected with:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,6 +31,17 @@ from PIL import Image
 
 if TYPE_CHECKING:
     from click.testing import CliRunner
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Raise the HF download timeout for E2E runs to reduce flaky 408 timeouts.
+
+    Test-only: this sets the env var for the pytest process so streaming parquet
+    fetches from the HF xet CDN get 60s (vs the 10s default) before timing out.
+    Uses ``setdefault`` so an explicit ``HF_HUB_DOWNLOAD_TIMEOUT`` still wins, and
+    it never affects the shipped CLI outside the test harness.
+    """
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
 
 
 # ---------------------------------------------------------------------------
@@ -132,20 +144,56 @@ def test_image(tmp_path_factory: pytest.TempPathFactory) -> str:
 
 @pytest.fixture
 def runner() -> CliRunner:
-    from click.testing import CliRunner
+    # RetryingCliRunner transparently retries invocations that fail with a
+    # transient dataset-download error (e.g. a 408 from the HF xet CDN) so
+    # network blips don't fail e2e runs. Non-transient failures are not retried.
+    from ._retry import RetryingCliRunner
 
-    return CliRunner()
+    return RetryingCliRunner()
 
 
 # ---------------------------------------------------------------------------
 # Auto-skip E2E
 # ---------------------------------------------------------------------------
 
+# Default per-test timeout (seconds) for E2E tests when --timeout is not passed
+# on the command line. Higher than the global 300 s ini default because cold
+# E2E runs build the model end-to-end (export -> optimize -> quantize ->
+# compile). Precedence (highest first): a per-test ``@pytest.mark.timeout``
+# marker, then ``--timeout`` on the CLI, then this default. An explicit
+# ``--timeout`` therefore always wins over this fallback.
+E2E_DEFAULT_TIMEOUT = 900
+
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-skip E2E tests unless '-m e2e' is explicitly passed."""
-    marker_expr = config.getoption("-m", default="")
-    if "e2e" in str(marker_expr):
+    """Auto-skip E2E tests unless '-m e2e' is passed; else apply the e2e timeout default.
+
+    Additionally, tests marked ``e2e_run`` or ``e2e_serve`` are always skipped
+    unless their marker name appears in the ``-m`` expression (the commands are
+    not yet enabled — see https://github.com/microsoft/winml-cli/issues/892).
+    """
+    marker_expr = str(config.getoption("-m", default=""))
+    if "e2e" in marker_expr:
+        # E2E tests are running. Inject the default timeout only when neither a
+        # per-test marker nor --timeout is given, so an explicit --timeout on the
+        # CLI always takes effect (pytest-timeout precedence: marker > CLI > ini).
+        if config.getoption("timeout", default=None) is None:
+            for item in items:
+                if "e2e" in item.keywords and item.get_closest_marker("timeout") is None:
+                    item.add_marker(pytest.mark.timeout(E2E_DEFAULT_TIMEOUT))
+
+        # Skip e2e_run / e2e_serve unless explicitly opted-in via -m
+        _disabled_commands = {
+            "e2e_run": "winml run is not yet enabled (see #892)",
+            "e2e_serve": "winml serve is not yet enabled (see #892)",
+        }
+        for marker_name, reason in _disabled_commands.items():
+            if marker_name not in marker_expr:
+                skip_marker = pytest.mark.skip(reason=reason)
+                for item in items:
+                    if marker_name in item.keywords:
+                        item.add_marker(skip_marker)
+
         return  # User explicitly requested E2E tests
     skip_e2e = pytest.mark.skip(reason="E2E tests require -m e2e (skipped by default)")
     for item in items:

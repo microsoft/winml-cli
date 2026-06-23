@@ -90,7 +90,7 @@ class TestModelArchitectureOverride:
 
     def test_model_class_invalid(self):
         """Test error handling for invalid model_class."""
-        # resolve_task_and_model_class wraps AttributeError as ValueError
+        # resolve_task wraps AttributeError as ValueError
         with pytest.raises(ValueError, match="not found"):
             load_hf_model(
                 "microsoft/resnet-50",

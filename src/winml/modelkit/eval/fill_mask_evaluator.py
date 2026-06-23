@@ -13,7 +13,7 @@ position is replaced by ``[MASK]``, runs the model, and records
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from tqdm import tqdm
 
@@ -70,10 +70,10 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
 
     def _logits(self, outputs: Any) -> torch.Tensor:
         if not isinstance(outputs, dict):
-            return outputs.logits
+            return cast("torch.Tensor", outputs.logits)
         if "logits" not in outputs:
             raise KeyError(f"Model output dict has no 'logits' key; got keys {list(outputs)}.")
-        return outputs["logits"]
+        return cast("torch.Tensor", outputs["logits"])
 
     def _score(
         self,

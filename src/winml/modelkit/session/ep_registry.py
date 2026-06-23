@@ -228,6 +228,10 @@ class WinMLEPRegistry:
         available = registry.get_available_eps()
     """
 
+    # Set in __new__ before __init__ runs; declared here so mypy can resolve its
+    # type at the __init__ read site.
+    _initialized: bool
+
     def __new__(cls) -> WinMLEPRegistry:
         """Singleton pattern."""
         global _winml_ep_registry
@@ -269,8 +273,13 @@ class WinMLEPRegistry:
         """Load EP catalog from WinML."""
         from windowsml import EpCatalog
 
+        # Dedup of raw windowsml provider-name strings (pre-validation).
+        checked_eps: set[str] = set()
         with EpCatalog() as catalog:
             for provider in catalog.find_all_providers():
+                if provider.name in checked_eps:
+                    continue
+                checked_eps.add(provider.name)
                 try:
                     _ensure_provider_ready(provider)
                 except OSError as e:
@@ -289,7 +298,7 @@ class WinMLEPRegistry:
                 if provider.library_path == "":
                     continue
                 self._ep_paths[cast("EPName", provider.name)] = provider.library_path
-                logger.debug("Found EP: %s at %s", provider.name, provider.library_path)
+                logger.info("Found EP: %s at %s", provider.name, provider.library_path)
 
     def register_to_ort(self) -> list[EPName]:
         """Register discovered EPs to ONNX Runtime.
@@ -398,4 +407,4 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
         except Exception as e:
             logger.debug("WinML discovery skipped: %s", e)
 
-    return ort.get_available_providers()
+    return cast("list[str]", ort.get_available_providers())

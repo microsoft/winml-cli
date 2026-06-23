@@ -65,7 +65,13 @@ if TYPE_CHECKING:
 
     from click.testing import CliRunner
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.network, pytest.mark.timeout(3600)]
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.e2e_run,
+    pytest.mark.slow,
+    pytest.mark.network,
+    pytest.mark.timeout(3600),
+]
 
 
 # ---------------------------------------------------------------------------

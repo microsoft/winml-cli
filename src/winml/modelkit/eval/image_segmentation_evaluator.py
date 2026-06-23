@@ -63,9 +63,10 @@ class WinMLImageSegmentationEvaluator(WinMLEvaluator):
 
         io_config = getattr(self.model, "io_config", None) or {}
         input_shapes = io_config.get("input_shapes", [])
-        if input_shapes and len(input_shapes[0]) == 4:
+        if pipe.image_processor is not None and input_shapes and len(input_shapes[0]) == 4:
             _, _, h, w = input_shapes[0]
-            pipe.image_processor.size = {"height": h, "width": w}
+            # Runtime-settable processor attribute; not on the base class.
+            pipe.image_processor.size = {"height": h, "width": w}  # type: ignore[attr-defined]
 
         return pipe
 

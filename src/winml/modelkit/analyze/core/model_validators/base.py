@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
+    from ....utils.constants import EPName
     from ...models.information import Information
     from ...models.onnx_model import ONNXModel
     from ...models.runtime_checks import PatternRuntime
@@ -34,19 +35,26 @@ class ModelValidator(ABC):
         model_proto: ONNX ModelProto extracted from model
         graph: Shorthand for model_proto.graph
         op_runtime_results: List of PatternRuntime results from runtime checker (optional)
+        ep: Execution provider name (optional)
+        device: Device type, e.g. "NPU", "GPU", "CPU" (optional)
     """
 
     def __init__(
         self,
         model: ONNXModel,
         op_runtime_results: list[PatternRuntime] | None = None,
+        ep: EPName | None = None,
+        device: str | None = None,
     ) -> None:
-        """Initialize validator with ONNX model and optional runtime results.
+        """Initialize validator with ONNX model and optional context.
 
         Args:
             model: ONNXModel wrapper to validate
             op_runtime_results: List of PatternRuntime results from runtime checker.
                                Used to enrich validators with OP-level information.
+            ep: Execution provider name. Validators that gate on EP read this.
+            device: Device type (e.g., "NPU", "GPU", "CPU"). Validators that gate
+                   on device read this.
 
         Raises:
             ValueError: If model is invalid
@@ -55,6 +63,9 @@ class ModelValidator(ABC):
         self.model_proto = model.get_model()
         self.graph = self.model_proto.graph
         self.op_runtime_results = op_runtime_results or []
+        # Annotate explicitly so the EPName Literal is not widened to ``str``.
+        self.ep: EPName | None = ep
+        self.device = device
 
         logger.debug(
             f"Initialized {self.validator_name} for model with {len(self.graph.node)} nodes"

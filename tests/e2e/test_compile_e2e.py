@@ -35,15 +35,17 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 import onnx
 import pytest
 from click.testing import CliRunner
+from onnx import TensorProto, helper
 
 from tests.e2e.require_ep import require_ep, require_not_ep
 from winml.modelkit.commands.compile import compile as compile_cmd
 from winml.modelkit.onnx import is_compiled_onnx
 from winml.modelkit.utils import normalize_ep_name
-from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES
+from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES, ORT_SESSION_COMPILER
 
 
 if TYPE_CHECKING:
@@ -164,6 +166,9 @@ def assert_by_run_inference(
     device: str,
     ep: str,
     sample_input: dict,
+    reference_model: Path | None = None,
+    rtol: float = 1e-2,
+    atol: float = 1e-2,
 ) -> None:
     """Bind ``ep`` + ``device`` and run one inference call on the compiled artifact.
 
@@ -171,17 +176,37 @@ def assert_by_run_inference(
     EP), this asserts the artifact specifically loads and runs on the
     requested ``(device, ep)`` pair. Catches the case where the compile
     succeeded against a different EP/device than the user asked for.
+
+    When ``reference_model`` is given, the original (pre-compile) model is run on
+    the CPU EP with the same input and the compiled output is checked against it
+    with :func:`numpy.allclose` — a correctness check that the compiled graph still
+    computes the same result, not just that it runs.
     """
+    import onnxruntime as ort
+
     from winml.modelkit.session import WinMLSession
 
     session = WinMLSession(out_path, device=device, ep=ep)
     outputs = session.run(sample_input)
     assert outputs, "Inference produced no outputs"
 
+    if reference_model is not None:
+        ref_sess = ort.InferenceSession(str(reference_model), providers=["CPUExecutionProvider"])
+        ref_names = [o.name for o in ref_sess.get_outputs()]
+        ref_outputs = ref_sess.run(None, sample_input)
+        for name, ref in zip(ref_names, ref_outputs, strict=True):
+            assert name in outputs, f"Compiled model missing output {name!r}"
+            got = np.asarray(outputs[name], dtype=np.float32)
+            ref = np.asarray(ref, dtype=np.float32)
+            assert np.allclose(got, ref, rtol=rtol, atol=atol), (
+                f"Compiled output {name!r} differs from CPU reference "
+                f"(max abs diff {np.max(np.abs(got - ref)):.4g}, "
+                f"rtol={rtol}, atol={atol})"
+            )
+
 
 def _find_qairt_sdk_root() -> Path | None:
-    """Locate an installed QAIRT SDK on this host, or None.
-    """
+    """Locate an installed QAIRT SDK on this host, or None."""
     for env_var in ("QNN_SDK_ROOT", "QAIRT_SDK_ROOT"):
         value = os.environ.get(env_var)
         if value:
@@ -217,9 +242,18 @@ class TestCliSurface:
         result = _invoke("--help")
         assert result.exit_code == 0
         for opt in (
-            "--model", "--output", "--output-dir", "--device", "--ep",
-            "--validate", "--no-validate", "--verbose", "--compiler",
-            "--qnn-sdk-root", "--embed", "--list",
+            "--model",
+            "--output",
+            "--output-dir",
+            "--device",
+            "--ep",
+            "--validate",
+            "--no-validate",
+            "--verbose",
+            "--compiler",
+            "--qnn-sdk-root",
+            "--embed",
+            "--list",
         ):
             assert opt in result.output, f"--help missing {opt}"
 
@@ -241,9 +275,7 @@ class TestCliSurface:
         out = result.output.lower()
         assert "ort" in out and "qairt" in out
 
-    def test_reject_already_compiled_model(
-        self, simple_matmul_onnx: Path, tmp_path: Path
-    ) -> None:
+    def test_reject_already_compiled_model(self, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         # Build an EPContext-looking ONNX by hand (no real compile needed).
         x = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 4])
         y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 4])
@@ -256,10 +288,13 @@ class TestCliSurface:
             domain="com.microsoft",
         )
         graph = onnx.helper.make_graph([node], "fake_ctx", [x], [y])
-        model = onnx.helper.make_model(graph, opset_imports=[
-            onnx.helper.make_opsetid("", 17),
-            onnx.helper.make_opsetid("com.microsoft", 1),
-        ])
+        model = onnx.helper.make_model(
+            graph,
+            opset_imports=[
+                onnx.helper.make_opsetid("", 17),
+                onnx.helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
         model.ir_version = 8
         ctx_path = tmp_path / "fake_ctx.onnx"
         onnx.save(model, str(ctx_path))
@@ -269,8 +304,7 @@ class TestCliSurface:
         assert result.exit_code != 0
         combined = (result.output or "") + (str(result.exception) if result.exception else "")
         assert (
-            "already a compiled" in combined.lower()
-            or "cannot be re-compiled" in combined.lower()
+            "already a compiled" in combined.lower() or "cannot be re-compiled" in combined.lower()
         )
 
 
@@ -308,9 +342,7 @@ def test_unsupported_ep_returns_error(ep: str, simple_matmul_onnx: Path) -> None
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep)
 
-    assert result.exit_code != 0, (
-        f"--ep {ep} should be rejected but exit was 0.\n{result.output}"
-    )
+    assert result.exit_code != 0, f"--ep {ep} should be rejected but exit was 0.\n{result.output}"
     combined = result.output.lower()
     assert "does not support epcontext compilation" in combined, (
         f"Expected unsupported-EP error message for {ep}.\n{result.output}"
@@ -327,9 +359,7 @@ def test_unsupported_ep_returns_error(ep: str, simple_matmul_onnx: Path) -> None
 @pytest.mark.e2e
 class TestOutputPaths:
     @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
-    def test_explicit_output_file(
-        self, ep: str, simple_matmul_onnx: Path, tmp_path: Path
-    ) -> None:
+    def test_explicit_output_file(self, ep: str, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         require_ep(ep)
         out = tmp_path / "custom_name.onnx"
         result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep, "-o", str(out))
@@ -341,9 +371,7 @@ class TestOutputPaths:
         require_ep(ep)
         out_dir = tmp_path / "out"
         out_dir.mkdir()
-        result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", ep, "--output-dir", str(out_dir)
-        )
+        result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep, "--output-dir", str(out_dir))
         assert result.exit_code == 0, result.output
         produced = [p for p in out_dir.glob("*.onnx") if is_compiled_onnx(p)]
         assert len(produced) == 1, f"Expected exactly one EPContext .onnx, got {produced}"
@@ -403,8 +431,14 @@ class TestValidate:
         require_ep(ep)
         out = tmp_path / "no_validate.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", ep, "--no-validate", "--verbose",
-            "-o", str(out),
+            "-m",
+            str(simple_matmul_onnx),
+            "--ep",
+            ep,
+            "--no-validate",
+            "--verbose",
+            "-o",
+            str(out),
         )
         assert result.exit_code == 0, result.output
         assert out.is_file() and is_compiled_onnx(out)
@@ -420,7 +454,13 @@ class TestValidate:
         require_ep(ep)
         out = tmp_path / "validated.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", ep, "--verbose", "-o", str(out),
+            "-m",
+            str(simple_matmul_onnx),
+            "--ep",
+            ep,
+            "--verbose",
+            "-o",
+            str(out),
         )
         assert result.exit_code == 0, result.output
         assert out.is_file() and is_compiled_onnx(out)
@@ -459,9 +499,17 @@ class TestQairtBackend:
 
         out = tmp_path / "qairt.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", "qnn",
-            "--compiler", "qairt", "--qnn-sdk-root", str(sdk),
-            "-o", str(out), "--verbose",
+            "-m",
+            str(simple_matmul_onnx),
+            "--ep",
+            "qnn",
+            "--compiler",
+            "qairt",
+            "--qnn-sdk-root",
+            str(sdk),
+            "-o",
+            str(out),
+            "--verbose",
         )
         assert result.exit_code == 0, result.output
         lower = result.output.lower()
@@ -476,9 +524,7 @@ class TestQairtBackend:
         assert bin_path.is_file(), f"QAIRT intermediate .bin missing: {bin_path}"
         assert info_path.is_file(), f"QAIRT cache_info.json missing: {info_path}"
 
-    def test_qairt_backend_with_embed(
-        self, simple_matmul_onnx: Path, tmp_path: Path
-    ) -> None:
+    def test_qairt_backend_with_embed(self, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         """``--compiler qairt --embed`` produces an inlined EPContext artifact.
 
         Strict: any failure here is either a QAIRT bug or a missing
@@ -490,9 +536,18 @@ class TestQairtBackend:
 
         out = tmp_path / "qairt_embed.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", "qnn",
-            "--compiler", "qairt", "--qnn-sdk-root", str(sdk),
-            "--embed", "-o", str(out), "--verbose",
+            "-m",
+            str(simple_matmul_onnx),
+            "--ep",
+            "qnn",
+            "--compiler",
+            "qairt",
+            "--qnn-sdk-root",
+            str(sdk),
+            "--embed",
+            "-o",
+            str(out),
+            "--verbose",
         )
         assert result.exit_code == 0, result.output
         assert_epcontext_artifact(out, simple_matmul_onnx, embed=True)
@@ -571,11 +626,15 @@ class TestConfigFile:
         out_dir.mkdir()
         out = out_dir / "cli_wins.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "-c", str(cfg),
-            "--embed",       # overrides config embed_context=false
-            "--validate",    # overrides config validate=false
-            "--verbose",     # so we can observe the validation log line
-            "-o", str(out),
+            "-m",
+            str(simple_matmul_onnx),
+            "-c",
+            str(cfg),
+            "--embed",  # overrides config embed_context=false
+            "--validate",  # overrides config validate=false
+            "--verbose",  # so we can observe the validation log line
+            "-o",
+            str(out),
         )
         assert result.exit_code == 0, result.output
         lower = result.output.lower()
@@ -630,12 +689,9 @@ def test_reject_recompile_of_real_compiled_output(
     # Second compile on that artifact must be rejected.
     second = _invoke("-m", str(out), "--ep", ep)
     assert second.exit_code != 0, second.output
-    combined = (second.output or "") + (
-        str(second.exception) if second.exception else ""
-    )
+    combined = (second.output or "") + (str(second.exception) if second.exception else "")
     assert (
-        "already a compiled" in combined.lower()
-        or "cannot be re-compiled" in combined.lower()
+        "already a compiled" in combined.lower() or "cannot be re-compiled" in combined.lower()
     ), combined
 
 
@@ -645,8 +701,7 @@ def test_reject_recompile_of_real_compiled_output(
 
 _EPCONTEXT_CAPABLE_EPS = ("qnn", "openvino", "vitisai", "nv_tensorrt_rtx")
 EP_DEVICE_SUPPORT: dict[str, tuple[str, ...]] = {
-    alias: EP_SUPPORTED_DEVICES[normalize_ep_name(alias)]
-    for alias in _EPCONTEXT_CAPABLE_EPS
+    alias: EP_SUPPORTED_DEVICES[normalize_ep_name(alias)] for alias in _EPCONTEXT_CAPABLE_EPS
 }
 
 
@@ -755,9 +810,7 @@ _BAD_INPUT_CONFLICT_PARAMS = _expand_conflict_inputs(EP_DEVICE_SUPPORT)
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("device,ep", _BAD_INPUT_CONFLICT_PARAMS)
-def test_bad_input_device_ep_conflict(
-    device: str, ep: str, simple_matmul_onnx: Path
-) -> None:
+def test_bad_input_device_ep_conflict(device: str, ep: str, simple_matmul_onnx: Path) -> None:
     """``--device X --ep Y`` is rejected when Y does not support X.
 
     Gated on ``ep`` being registered on this host so the ``sysinfo``
@@ -768,15 +821,10 @@ def test_bad_input_device_ep_conflict(
     require_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--device", device, "--ep", ep)
-    # Two valid rejection paths depending on whether ORT enumerates ``ep``
-    # on ``device``:
-    #   * Yes (e.g. QNN on the cpu node) -> ``_resolve_compile_provider``
-    #     policy check raises ``--ep X cannot run on --device Y``.
-    #   * No (e.g. NvTensorRTRTX is GPU-only) -> ``resolve_device`` raises
-    #     ``Device 'X' requested but no compatible EP is available``.
+    # ``resolve_device`` raises `EP '{ep}' does not support device '{device}'``.
     _assert_rejected(
         result,
-        (f"cannot run on --device {device}", "no compatible EP is available"),
+        (f"does not support device '{device}'"),
         src_hash,
         simple_matmul_onnx,
     )
@@ -793,25 +841,19 @@ def test_bad_input_unsupported_ep(ep: str, simple_matmul_onnx: Path) -> None:
     require_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep)
-    _assert_rejected(
-        result, "does not support EPContext compilation", src_hash, simple_matmul_onnx
-    )
+    _assert_rejected(result, "does not support EPContext compilation", src_hash, simple_matmul_onnx)
 
 
 # Pair each EP with a device it supports. With no ``--device``, ``sysinfo``
 # falls back to CPU when the requested EP isn't registered, which then
 # trips the policy check ("cannot run on --device cpu") instead of the
 # host-state rejection this test targets.
-_EP_NOT_REGISTERED_PARAMS = [
-    (ep, EP_DEVICE_SUPPORT[ep][0]) for ep in _EPCONTEXT_CAPABLE_EPS
-]
+_EP_NOT_REGISTERED_PARAMS = [(ep, EP_DEVICE_SUPPORT[ep][0]) for ep in _EPCONTEXT_CAPABLE_EPS]
 
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("ep,device", _EP_NOT_REGISTERED_PARAMS)
-def test_bad_input_ep_not_registered(
-    ep: str, device: str, simple_matmul_onnx: Path
-) -> None:
+def test_bad_input_ep_not_registered(ep: str, device: str, simple_matmul_onnx: Path) -> None:
     """``--ep X`` on a host without X is rejected.
 
     With the EP unavailable on host, ``sysinfo``'s device-resolution
@@ -821,12 +863,8 @@ def test_bad_input_ep_not_registered(
     """
     require_not_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
-    result = _invoke(
-        "-m", str(simple_matmul_onnx), "--device", device, "--ep", ep
-    )
-    _assert_rejected(
-        result, "is not available on this system", src_hash, simple_matmul_onnx
-    )
+    result = _invoke("-m", str(simple_matmul_onnx), "--device", device, "--ep", ep)
+    _assert_rejected(result, "is not available on this system", src_hash, simple_matmul_onnx)
 
 
 @pytest.mark.e2e
@@ -848,3 +886,123 @@ def test_bad_input_no_ep_covers_device(simple_matmul_onnx: Path) -> None:
         src_hash,
         simple_matmul_onnx,
     )
+
+
+# ===========================================================================
+# Compile backend (ort.ModelCompiler vs ort.InferenceSession) + multi-model
+# shared EP context (qnn-only)
+# ===========================================================================
+
+
+@pytest.fixture
+def shared_weight_models(tmp_path: Path) -> tuple[Path, Path]:
+    """Two MatMul models sharing the SAME weight but with different input shapes.
+
+    Mirrors the prefill/decode (ctx/iter) pattern that QNN weight sharing targets:
+    one ``[K, K]`` weight ``B`` reused across both graphs while the leading sequence
+    dimension differs (4 vs 1). Returns ``(seq4_model, seq1_model)``.
+    """
+    np.random.seed(7)
+    k = 4
+    b_values = np.random.randn(k, k).astype(np.float32)
+
+    def _build(seq: int, name: str) -> Path:
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, seq, k])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, seq, k])
+        b = helper.make_tensor("B", TensorProto.FLOAT, [k, k], b_values.flatten().tolist())
+        node = helper.make_node("MatMul", ["A", "B"], ["C"], name="matmul")
+        graph = helper.make_graph([node], "shared_matmul", [a], [c], [b])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        onnx.checker.check_model(model)
+        path = tmp_path / name
+        onnx.save(model, str(path))
+        return path
+
+    return _build(4, "shared_seq4.onnx"), _build(1, "shared_seq1.onnx")
+
+
+def _sample_for(model_path: Path) -> dict[str, np.ndarray]:
+    """Random input matching a ``shared_weight_models`` graph's declared shape."""
+    dims = onnx.load(str(model_path)).graph.input[0].type.tensor_type.shape.dim
+    shape = [d.dim_value for d in dims]
+    return {"A": np.random.randn(*shape).astype(np.float32)}
+
+
+@pytest.mark.e2e
+def test_default_backend_uses_model_compiler(
+    simple_matmul_onnx: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """By default (``--compiler ort``), a single-model compile is driven by
+    ``ort.ModelCompiler``."""
+    require_ep("qnn")
+    import onnxruntime as ort
+
+    real = ort.ModelCompiler
+    calls: list[int] = []
+
+    def _spy(*args: object, **kwargs: object) -> object:
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ort, "ModelCompiler", _spy)
+
+    out = tmp_path / "default.onnx"
+    result = _invoke("-m", str(simple_matmul_onnx), "--ep", "qnn", "-o", str(out))
+    assert result.exit_code == 0, result.output
+    assert calls, "Default single-model compile should use ort.ModelCompiler"
+    assert is_compiled_onnx(out)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "use_inference_session",
+    [False, True],
+    ids=["model_compiler", "inference_session"],
+)
+def test_multi_model_shared_weights(
+    use_inference_session: bool,
+    shared_weight_models: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """Multiple models with shared weights compile to a single shared EP context in
+    BOTH backends (``ort.ModelCompiler`` default, ``ort.InferenceSession`` opt-in).
+
+    Both backends are smoke-checked (files + one shared weights bin). The
+    inference_session output is additionally loaded and run on QNN; the
+    model_compiler output is smoke-only (not loaded).
+    """
+    require_ep("qnn")
+    m_seq4, m_seq1 = shared_weight_models
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    cmd = ["-m", str(m_seq4), "-m", str(m_seq1), "--ep", "qnn", "--output-dir", str(out_dir)]
+    if use_inference_session:
+        cmd += ["--compiler", ORT_SESSION_COMPILER]
+    result = _invoke(*cmd)
+    assert result.exit_code == 0, result.output
+    assert "Success! Model compiled" in result.output, result.output
+    # The InferenceSession backend is selected via --compiler ort_session.
+    if use_inference_session:
+        assert ORT_SESSION_COMPILER in result.output
+    else:
+        assert ORT_SESSION_COMPILER not in result.output
+
+    # Both compiled wrappers exist + exactly one shared weights bin (weight sharing).
+    ctx4 = out_dir / f"{m_seq4.stem}_ctx.onnx"
+    ctx1 = out_dir / f"{m_seq1.stem}_ctx.onnx"
+    assert ctx4.is_file() and is_compiled_onnx(ctx4), f"missing/invalid {ctx4}"
+    assert ctx1.is_file() and is_compiled_onnx(ctx1), f"missing/invalid {ctx1}"
+    bins = [p for p in out_dir.glob("*.bin") if not p.name.endswith("_schematic.bin")]
+    assert len(bins) == 1, f"Expected one shared weights bin, got {[b.name for b in bins]}"
+
+    # inference_session output is runnable; model_compiler output is smoke-only (no load).
+    # Run on QNN and np.allclose-check against the original model on CPU.
+    if use_inference_session:
+        assert_by_run_inference(
+            ctx4, device="npu", ep="qnn", sample_input=_sample_for(m_seq4), reference_model=m_seq4
+        )
+        assert_by_run_inference(
+            ctx1, device="npu", ep="qnn", sample_input=_sample_for(m_seq1), reference_model=m_seq1
+        )

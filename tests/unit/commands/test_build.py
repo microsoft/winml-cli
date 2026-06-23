@@ -578,6 +578,61 @@ class TestBuildFlagPassthrough:
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["device"] == "npu"
 
+    def test_precision_flag_sets_quant(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--precision int8`` populates the quant config for the target device."""
+        cfg = _make_minimal_config_file(tmp_path)  # quant=None
+        result = _invoke(
+            [*self._base_args(cfg, tmp_path), "--device", "gpu", "--precision", "int8"]
+        )
+        assert result.exit_code == 0, result.output
+        passed = mock_run_single_build.call_args.kwargs["config"]
+        assert passed.quant is not None
+        assert passed.quant.weight_type == "uint8"
+
+    def test_precision_fp16_clears_quant(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--precision fp16`` skips quantization even on a quantizing device."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke(
+            [*self._base_args(cfg, tmp_path), "--device", "npu", "--precision", "fp16"]
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].quant is None
+
+    def test_precision_alone_triggers_quant_patch(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """``--precision`` without ``--device`` still patches quant (here, clears it)."""
+        # Config ships an explicit quant section; fp16 must clear it even though
+        # --device was not passed (precision alone triggers the patch path).
+        config = {
+            "loader": {"task": "image-classification"},
+            "export": {"opset_version": 17, "batch_size": 1},
+            "optim": {},
+            "quant": {
+                "mode": "qdq",
+                "samples": 10,
+                "task": "image-classification",
+                "model_name": "test",
+            },
+            "compile": None,
+        }
+        cfg = tmp_path / "withquant.json"
+        cfg.write_text(json.dumps(config))
+        result = _invoke(
+            [
+                "-c",
+                str(cfg),
+                "-m",
+                "microsoft/resnet-50",
+                "-o",
+                str(tmp_path / "out"),
+                "--precision",
+                "fp16",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].quant is None
+
     def test_trust_remote_code_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--trust-remote-code`` is forwarded via ``extra_kwargs``."""
         cfg = _make_minimal_config_file(tmp_path)

@@ -213,7 +213,7 @@ class TestInspectBert:
         data = _run_network(self.MODEL)
         _assert_common_structure(data, self.MODEL, "fill-mask")
         assert data["model_type"] == "bert"
-        assert data["task_source"] == "TasksManager"
+        assert data["task_source"] == "tasks-manager"
 
     def test_feature_extraction(self):
         """feature-extraction task override must work."""

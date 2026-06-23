@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from transformers import BertConfig
 
 # Import models package to trigger ONNX config registration with TasksManager
 import winml.modelkit.models  # noqa: F401
@@ -221,7 +222,7 @@ class TestGenerateBuildConfigFast:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -260,7 +261,7 @@ class TestGenerateBuildConfigFast:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(tc_loader_config, mock_hf_config, mock_model_class),
+                return_value=(tc_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ) as mock_resolve,
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -286,7 +287,7 @@ class TestGenerateBuildConfigFast:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ) as mock_resolve,
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -314,7 +315,7 @@ class TestGenerateBuildConfigFast:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -369,7 +370,7 @@ class TestRegistryShortCircuit:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(loader_config, mock_hf_config, mock_model_class),
+                return_value=(loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -401,7 +402,7 @@ class TestRegistryShortCircuit:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -429,7 +430,7 @@ class TestRegistryShortCircuit:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -468,7 +469,7 @@ class TestRegistryShortCircuit:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(loader_config, mock_hf_config, mock_model_class),
+                return_value=(loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -509,7 +510,7 @@ class TestRegistryShortCircuit:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(loader_config, mock_hf_config, mock_model_class),
+                return_value=(loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -537,7 +538,7 @@ class TestRegistryShortCircuit:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -561,7 +562,7 @@ class TestRegistryShortCircuit:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -977,7 +978,7 @@ class TestConfigCliOverride:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1010,7 +1011,7 @@ class TestConfigCliOverride:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1064,7 +1065,7 @@ class TestModelTypeOverride:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(gpt2_loader_config, mock_hf_config, mock_model_class),
+                return_value=(gpt2_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ) as mock_resolve,
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1103,7 +1104,7 @@ class TestModelTypeOverride:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(auto_loader_config, mock_hf_config, mock_model_class),
+                return_value=(auto_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ) as mock_resolve,
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1149,7 +1150,12 @@ class TestModelTypeOverride:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(standalone_loader_config, mock_hf_config, mock_model_class),
+                return_value=(
+                    standalone_loader_config,
+                    mock_hf_config,
+                    mock_model_class,
+                    MagicMock(),
+                ),
             ) as mock_resolve,
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1187,7 +1193,7 @@ class TestModelTypeOverride:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1219,7 +1225,7 @@ class TestModelTypeCliOverride:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1260,13 +1266,16 @@ class TestModelTypeCliOverride:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -1297,7 +1306,12 @@ class TestModelTypeCliOverride:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(standalone_loader_config, mock_hf_config, mock_model_class),
+                return_value=(
+                    standalone_loader_config,
+                    mock_hf_config,
+                    mock_model_class,
+                    MagicMock(),
+                ),
             ) as mock_resolve,
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1402,7 +1416,12 @@ class TestEdgeCases:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(standalone_loader_config, mock_hf_config, mock_model_class),
+                return_value=(
+                    standalone_loader_config,
+                    mock_hf_config,
+                    mock_model_class,
+                    MagicMock(),
+                ),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1443,7 +1462,7 @@ class TestEdgeCases:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1482,7 +1501,7 @@ class TestShapeConfig:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1510,7 +1529,7 @@ class TestShapeConfig:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1638,7 +1657,7 @@ class TestShapeConfigCli:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -1967,6 +1986,7 @@ class TestDevicePrecisionIntegration:
                     self._mock_loader_config,
                     self._mock_hf_config,
                     self._mock_model_class,
+                    MagicMock(),
                 ),
             ),
             patch(
@@ -2027,6 +2047,7 @@ class TestDevicePrecisionIntegration:
                     self._mock_loader_config,
                     self._mock_hf_config,
                     self._mock_model_class,
+                    MagicMock(),
                 ),
             ),
             patch(
@@ -2064,6 +2085,7 @@ class TestDevicePrecisionIntegration:
                     self._mock_loader_config,
                     self._mock_hf_config,
                     self._mock_model_class,
+                    MagicMock(),
                 ),
             ),
             patch(
@@ -2093,6 +2115,7 @@ class TestDevicePrecisionIntegration:
                     self._mock_loader_config,
                     self._mock_hf_config,
                     self._mock_model_class,
+                    MagicMock(),
                 ),
             ),
             patch(
@@ -2138,7 +2161,7 @@ class TestDevicePrecisionCli:
         self._patches = {
             "loader": patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             "export": patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
@@ -2310,13 +2333,16 @@ class TestConfigOnnxAutoDetect:
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            # config now inspects the HF config to route seq2seq composites (#850);
+            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
+            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
         ):
             runner = CliRunner()
             result = runner.invoke(
