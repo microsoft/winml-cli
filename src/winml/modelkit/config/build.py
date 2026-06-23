@@ -335,7 +335,7 @@ def resolve_quant_compile_config(
         policy does not require that stage (e.g., CPU with fp32).
     """
     from ..sysinfo import resolve_check_device_ep
-    from .precision import resolve_precision
+    from .precision import extract_weight_bits, is_weight_only_precision, resolve_precision
 
     resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
     logger.info(
@@ -364,6 +364,12 @@ def resolve_quant_compile_config(
     elif policy.precision == "fp16":
         # Pure FP16: no QDQ quantization, only FP16 conversion
         quant_config = WinMLQuantizationConfig(fp16=True, fp16_only=True)
+    elif is_weight_only_precision(policy.precision):
+        # Weight-only (RTN): derive rtn_bits from precision
+        quant_config = WinMLQuantizationConfig(
+            algorithm="rtn",
+            rtn_bits=extract_weight_bits(policy.precision),
+        )
 
     # Compile config
     compile_config = WinMLCompileConfig.for_provider(policy.compile_provider, device=policy.device)

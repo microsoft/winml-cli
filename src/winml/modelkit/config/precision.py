@@ -71,10 +71,16 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, QuantType] = {
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 # Named precision presets (non-mixed)
-_NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int8", "int16"})
+_NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int4", "int8", "int16"})
 
 # Regex for mixed precision: w{weight_bits}a{activation_bits}
 _MIXED_RE = re.compile(r"^w(\d+)a(\d+)$")
+
+# Valid bit widths for w{x}a{y} validation.
+# Weight supports 4-bit (RTN weight-only) plus 8/16-bit (QDQ).
+# Activation only supports 8/16-bit (no 4-bit activation quantization).
+_VALID_WEIGHT_BITS = frozenset({4, 8, 16})
+_VALID_ACTIVATION_BITS = frozenset({8, 16})
 
 
 def resolve_quant_types(precision: str) -> tuple[QuantType, QuantType]:
@@ -93,6 +99,14 @@ def resolve_quant_types(precision: str) -> tuple[QuantType, QuantType]:
         ValueError: If precision is float, "auto", or uses unsupported bit widths.
     """
     p = precision.lower()
+
+    # Weight-only precisions use RTN, not QDQ — caller should use
+    # is_weight_only_precision() to detect these before calling here.
+    if is_weight_only_precision(p):
+        raise ValueError(
+            f"Precision '{precision}' is weight-only (RTN) — no QDQ quant types. "
+            "Use is_weight_only_precision() to detect and create RTN config instead."
+        )
 
     # Named preset
     if p in _WEIGHT_TYPE:
@@ -126,19 +140,21 @@ def resolve_quant_types(precision: str) -> tuple[QuantType, QuantType]:
 def is_quantized_precision(precision: str) -> bool:
     """Return True if precision implies quantization (not float).
 
-    Only returns True for *supported* precisions — unknown w{x}a{y} bit
-    widths (e.g., w4a16) return False rather than claiming to be quantized.
+    Includes both QDQ precisions (int8, int16, w8a8) and weight-only
+    precisions (int4, w4a16) that use RTN.
     """
     p = precision.lower()
     if p in ("fp16", "fp32", "auto"):
         return False
+    if p == "int4":
+        return True
     if p in _WEIGHT_TYPE:
         return _WEIGHT_TYPE[p] is not None
     m = _MIXED_RE.match(p)
     if not m:
         return False
     w_bits, a_bits = int(m.group(1)), int(m.group(2))
-    return w_bits in _BITS_TO_WEIGHT_TYPE and a_bits in _BITS_TO_ACTIVATION_TYPE
+    return w_bits in _VALID_WEIGHT_BITS and a_bits in _VALID_ACTIVATION_BITS
 
 
 def _is_valid_precision(precision: str) -> bool:
@@ -149,7 +165,60 @@ def _is_valid_precision(precision: str) -> bool:
     if not m:
         return False
     w_bits, a_bits = int(m.group(1)), int(m.group(2))
-    return w_bits in _BITS_TO_WEIGHT_TYPE and a_bits in _BITS_TO_ACTIVATION_TYPE
+    return w_bits in _VALID_WEIGHT_BITS and a_bits in _VALID_ACTIVATION_BITS
+
+
+def is_weight_only_precision(precision: str) -> bool:
+    """Return True if precision implies weight-only quantization (RTN).
+
+    Weight-only precisions use the RTN (Round-To-Nearest) algorithm with
+    MatMulNBits ops instead of QDQ (QuantizeLinear/DequantizeLinear).
+
+    Rules:
+        - ``int4`` → weight-only 4-bit RTN
+        - ``w4a{y}`` → weight 4-bit RTN (y must be a valid activation bit-width)
+        - All other precisions → False (use QDQ or FP16)
+
+    Only returns True for valid precisions — ``w4a4`` returns False because
+    4-bit activation is not supported.
+    """
+    p = precision.lower()
+    if p == "int4":
+        return True
+    m = _MIXED_RE.match(p)
+    if not m:
+        return False
+    w_bits, a_bits = int(m.group(1)), int(m.group(2))
+    # Must be a valid precision AND have weight bits that are not QDQ-supported
+    return (
+        w_bits not in _BITS_TO_WEIGHT_TYPE
+        and w_bits in _VALID_WEIGHT_BITS
+        and a_bits in _VALID_ACTIVATION_BITS
+    )
+
+
+def extract_weight_bits(precision: str) -> int:
+    """Extract weight bit-width from a precision string.
+
+    Used to derive ``rtn_bits`` from the precision (e.g., ``int4`` → 4).
+
+    Args:
+        precision: A valid precision string.
+
+    Returns:
+        Weight bit-width as integer.
+
+    Raises:
+        ValueError: If bit-width cannot be extracted.
+    """
+    p = precision.lower()
+    preset_bits = {"int4": 4, "int8": 8, "int16": 16}
+    if p in preset_bits:
+        return preset_bits[p]
+    m = _MIXED_RE.match(p)
+    if m:
+        return int(m.group(1))
+    raise ValueError(f"Cannot extract weight bits from '{precision}'")
 
 
 @dataclass
@@ -274,8 +343,13 @@ def resolve_precision(
     if compile_provider == "CPUExecutionProvider":
         compile_provider = None
 
-    # Resolve weight/activation types — supports named presets and w{x}a{y}
-    if is_quantized_precision(resolved_precision):
+    # Resolve weight/activation types — supports named presets and w{x}a{y}.
+    # Weight-only precisions (int4, w4a16) use RTN, not QDQ — they have no
+    # traditional weight_type/activation_type.  The caller (resolve_quant_compile_config)
+    # inspects PrecisionPolicy.precision to create RTN config.
+    if is_weight_only_precision(resolved_precision):
+        weight_type, activation_type = None, None
+    elif is_quantized_precision(resolved_precision):
         weight_type, activation_type = resolve_quant_types(resolved_precision)
     else:
         weight_type, activation_type = None, None

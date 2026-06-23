@@ -49,8 +49,9 @@ console = Console()
 @cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
 @cli_utils.precision_option(
     default=None,
-    help_text="Quantization precision: auto, fp16, int8, int16, or w{x}a{y} where "
-    "x,y in {8,16} (e.g., w8a8, w8a16, w16a16). "
+    help_text="Quantization precision: auto, fp16, int4, int8, int16, or w{x}a{y} where "
+    "x in {4,8,16}, y in {8,16} (e.g., w4a16, w8a8, w8a16). "
+    "int4/w4a16 uses RTN weight-only quantization; "
     "fp16 converts all FP32 tensors to FP16 (no QDQ)",
     optional_message="Overridden by explicit --weight-type/--activation-type",
 )
@@ -123,11 +124,11 @@ def quantize(
     quiet: bool,
     config_file: Path | None,
 ) -> None:
-    r"""Quantize ONNX model by inserting QDQ nodes or convert to FP16.
+    r"""Quantize ONNX model by inserting QDQ nodes, RTN weight-only, or convert to FP16.
 
-    This command applies static quantization to an ONNX model using calibration
-    data to determine quantization parameters, or converts the model to FP16
-    when --precision fp16 is specified.
+    This command applies quantization to an ONNX model. The algorithm is
+    auto-selected from the precision: int4/w4a16 → RTN weight-only,
+    int8/int16/w8a8 → static QDQ, fp16 → FP16 conversion.
 
     \b
     Examples:
@@ -136,6 +137,9 @@ def quantize(
 
         # Use precision shorthand (same as --weight-type uint8 --activation-type uint8)
         winml quantize -m model.onnx --precision int8
+
+        # RTN 4-bit weight-only quantization (no calibration data needed)
+        winml quantize -m model.onnx --precision int4
 
         # Int16 quantization
         winml quantize -m model.onnx --precision int16
@@ -232,6 +236,70 @@ def quantize(
 
         return
 
+    # ── Weight-only (RTN) path ───────────────────────────────────
+    from ..config.precision import extract_weight_bits, is_weight_only_precision
+
+    is_rtn = precision and is_weight_only_precision(precision.lower())
+
+    if is_rtn:
+        # Warn about ignored calibration options (RTN is calibration-free)
+        ignored = []
+        if cli_utils.is_cli_provided(ctx, "samples"):
+            ignored.append("--samples")
+        if cli_utils.is_cli_provided(ctx, "method"):
+            ignored.append("--method")
+        if cli_utils.is_cli_provided(ctx, "weight_type"):
+            ignored.append("--weight-type")
+        if cli_utils.is_cli_provided(ctx, "activation_type"):
+            ignored.append("--activation-type")
+        if ignored:
+            console.print(
+                f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — "
+                "RTN weight-only quantization does not use calibration data."
+            )
+
+        rtn_bits = extract_weight_bits(precision.lower())
+
+        # Determine output path
+        if output is None:
+            output = model.parent / f"{model.stem}_int{rtn_bits}.onnx"
+        output.parent.mkdir(parents=True, exist_ok=True)
+
+        console.print(f"[bold blue]Input:[/bold blue] {model}")
+        console.print(f"[bold blue]Output:[/bold blue] {output}")
+        console.print(f"[bold blue]Precision:[/bold blue] {precision}")
+        console.print(f"[bold blue]Algorithm:[/bold blue] RTN (weight-only, {rtn_bits}-bit)")
+
+        config = WinMLQuantizationConfig(
+            algorithm="rtn",
+            rtn_bits=rtn_bits,
+        )
+
+        try:
+            console.print(f"\n[bold]Running RTN {rtn_bits}-bit weight-only quantization...[/bold]")
+            result = quantize_onnx(model, output_path=output, config=config)
+
+            if result.success:
+                console.print(
+                    f"\n[bold green]Success![/bold green] Model quantized (RTN {rtn_bits}-bit)"
+                )
+                console.print(f"[dim]Output: {result.output_path}[/dim]")
+                console.print(f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]")
+            else:
+                console.print("\n[bold red]RTN quantization failed:[/bold red]")
+                for error in result.errors:
+                    console.print(f"  {error}")
+                raise click.ClickException("RTN quantization failed")
+
+        except click.ClickException:
+            raise
+        except Exception as e:
+            console.print(f"\n[bold red]RTN quantization failed:[/bold red] {e}")
+            logger.exception("RTN quantization failed")
+            raise click.ClickException(f"RTN quantization failed: {e}") from e
+
+        return
+
     # ── QDQ quantization path ────────────────────────────────────
     # Resolve weight/activation types from --precision or explicit flags
     resolved_weight, resolved_activation = _resolve_quant_types(
@@ -312,7 +380,14 @@ def _resolve_quant_types(
         Tuple of (weight_type, activation_type).
     """
     from ..config import is_quantized_precision, resolve_quant_types
+    from ..config.precision import is_weight_only_precision
 
+    if precision and is_weight_only_precision(precision.lower()):
+        # Should not reach here — RTN path returns early above.
+        raise click.BadParameter(
+            f"'{precision}' is a weight-only precision (use RTN path).",
+            param_hint="'-p' / '--precision'",
+        )
     if precision and is_quantized_precision(precision):
         default_w, default_a = resolve_quant_types(precision)
     elif precision is None or precision.lower() == "auto":

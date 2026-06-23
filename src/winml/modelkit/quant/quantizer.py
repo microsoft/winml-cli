@@ -139,6 +139,68 @@ def quantize_onnx(
                 warnings=warnings,
             )
 
+        # ── RTN weight-only path ──────────────────────────────────────
+        if config.algorithm == "rtn":
+            from onnxruntime.quantization.matmul_nbits_quantizer import MatMulNBitsQuantizer
+
+            from ..onnx import load_onnx, save_onnx
+
+            if config.calibration_data is not None:
+                logger.warning(
+                    "calibration_data is set but algorithm='rtn' — "
+                    "calibration data will be ignored."
+                )
+
+            logger.info(
+                "Running RTN %d-bit weight-only quantization (block_size=%d, symmetric=%s)...",
+                config.rtn_bits,
+                config.rtn_block_size,
+                config.rtn_symmetric,
+            )
+
+            accuracy_level = config.rtn_accuracy_level if config.rtn_accuracy_level != 0 else None
+
+            quantizer = MatMulNBitsQuantizer(
+                model=str(model_path),
+                bits=config.rtn_bits,
+                block_size=config.rtn_block_size,
+                is_symmetric=config.rtn_symmetric,
+                accuracy_level=accuracy_level,
+                nodes_to_exclude=config.nodes_to_exclude,
+            )
+            quantizer.process()
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            quantized_model = quantizer.model
+
+            # FP16 post-processing (if requested alongside RTN)
+            if config.fp16:
+                from ..optim.fp16 import convert_to_fp16
+
+                logger.info("Applying FP16 post-processing to RTN quantized model...")
+                quantized_model = convert_to_fp16(
+                    quantized_model,
+                    keep_io_types=config.fp16_keep_io_types,
+                    op_block_list=config.fp16_op_block_list,
+                )
+
+            save_onnx(quantized_model, output_path)
+
+            total_time = time.perf_counter() - start_time
+            logger.info(
+                "RTN quantization complete: %s -> %s (%.2fs)",
+                model_path.name,
+                output_path.name,
+                total_time,
+            )
+            return QuantizeResult(
+                success=True,
+                output_path=output_path,
+                total_time_seconds=total_time,
+                errors=errors,
+                warnings=warnings,
+            )
+
         # Create calibration data reader
         cal_start = time.perf_counter()
 
