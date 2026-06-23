@@ -834,7 +834,7 @@ def get_query_conditions_for_node(
                 type_vars[type_annotation] = dtype
         else:
             vi = valueinfo.get(inp_name)
-            shape_seq: list | tuple[int, ...] | None = None
+            shape_seq: tuple[int | str | None, ...] | None = None
             dtype = None
             if vi is not None:
                 shape_seq, dtype = shape_and_dtype_from_valueinfo(vi)

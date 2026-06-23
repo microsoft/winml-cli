@@ -48,12 +48,11 @@ from ..onnx import ONNXDomain
 from .base import (
     Pattern,
     PatternInputGenerator,
-    PatternMatchResult,
     PatternSchema,
     Skeleton,
-    SkeletonMatchResult,
     register_pattern_input_generator,
 )
+from .match import PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint
 
 
