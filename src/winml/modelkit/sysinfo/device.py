@@ -145,7 +145,7 @@ def _get_available_eps() -> frozenset[EPName]:
 
 
 def resolve_device(
-    device: str = "auto",
+    device: str,
     *,
     ep: EPNameOrAlias | None,
 ) -> tuple[str, list[str]]:

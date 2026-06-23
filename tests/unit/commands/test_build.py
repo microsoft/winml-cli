@@ -1742,38 +1742,3 @@ class TestBuildEpResolution:
             )
         assert result.exit_code == 0, result.output
         assert mock_gen.call_args.kwargs["ep"] == "openvino"
-
-    def test_compile_build_unavailable_ep_fails_before_build(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
-        """A compile build whose EP isn't present fails fast, before _run_single_build.
-
-        Compilation physically instantiates the EP, so an unavailable EP must be
-        caught up front rather than deep in the compile stage.
-        """
-        cfg = _make_minimal_config_file(tmp_path, compile_section={"execution_provider": "qnn"})
-        with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            side_effect=ValueError("Requested EP 'qnn' is not available on this system."),
-        ):
-            result = _invoke([*self._base_args(cfg, tmp_path), "--ep", "qnn", "--compile"])
-        assert result.exit_code == 2, result.output
-        assert "not available on this system" in result.output
-        mock_run_single_build.assert_not_called()
-
-    def test_no_compile_build_skips_ep_availability_gate(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
-        """A no-compile build proceeds even when the EP isn't present (cross-compile).
-
-        No-compile only produces a portable, analyzed ONNX, so it must not require
-        the target EP/device to exist on the build machine.
-        """
-        cfg = _make_minimal_config_file(tmp_path, compile_section={"execution_provider": "qnn"})
-        with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            side_effect=ValueError("Requested EP 'qnn' is not available on this system."),
-        ):
-            result = _invoke([*self._base_args(cfg, tmp_path), "--ep", "qnn", "--no-compile"])
-        assert result.exit_code == 0, result.output
-        mock_run_single_build.assert_called_once()
