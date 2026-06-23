@@ -211,10 +211,6 @@ h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .head
 <li><a href="#feature-gaps-winml-cli-backlog-items">Feature gaps (winml-cli backlog items)</a></li>
 </ul>
 </li>
-<li><a href="#appendix">Appendix</a><ul>
-<li><a href="#appendix-a-archived-skill-debug-accuracy-drop-exploratory">Appendix A: Archived skill: debug-accuracy-drop (exploratory)</a></li>
-</ul>
-</li>
 </ul>
 </div>
 
@@ -293,10 +289,10 @@ model to a working AI feature on the user's device is covered.</p>
 </div>
 
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
-<p>This document defines the design for 9 skills to be added to <code>skills/</code> in winml-cli.
+<p>This document defines the design for 10 skills to be added to <code>skills/</code> in winml-cli.
 Skills are split into <strong>two categories by the single question: does the task require editing repo code?</strong></p>
 <ul>
-<li><strong>User skills (5)</strong> — the user reaches their goal purely by specifying conditions and letting
+<li><strong>User skills (6)</strong> — the user reaches their goal purely by specifying conditions and letting
   winml-cli produce or modify a <code>config.json</code> / <code>manifest.json</code> / report. <strong>No source code is touched.</strong>
   Audience: WinApp developers and ISVs deploying models.</li>
 <li><strong>Contributor skills (4)</strong> — the task requires a winml-cli source-code change (a new exporter, a new
@@ -354,6 +350,13 @@ by Mobius, NVIDIA Model-Optimizer, and Google LiteRT-CLI as the de facto standar
 <td>P1</td>
 <td>Ship-time skill, merging validation + packaging: L1–L5 Definition-of-Done gates <strong>plus</strong> multi-EP artifact layout, <code>manifest.json</code>, and runtime EP selection. Everything between "the model is good" and "it's running in the app."</td>
 <td>pass/fail report + <code>manifest.json</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>debug-accuracy-drop</code></td>
+<td>P2</td>
+<td>Narrow, exploratory diagnostic: isolates <em>where</em> accuracy regresses across the optimize → quantize → compile stages, using <code>winml eval --mode compare</code> + <code>winml analyze</code> to attribute the drop to a stage and suggest next steps. Ranks last because its scope overlaps <code>debug-model</code> (which owns primary diagnostics) and it is focused on quantization/accuracy regressions rather than general failures.</td>
+<td>accuracy-regression report + likely-cause stage + suggested fixes</td>
 </tr>
 </tbody>
 </table>
@@ -3605,16 +3608,6 @@ winml perf should natively support session-level median aggregation for QNN NPU.
 Current single-session variance is dominated by DVFS thermal state, not model performance.
 - Flag proposal: --sessions 3 --cool-down 30 --signal median-p50
 - This would make winml perf output trustworthy for optimization decisions on Snapdragon X Elite</p>
-<hr />
-<hr />
-<h2 id="appendix">Appendix<a class="headerlink" href="#appendix" title="Permanent link">&para;</a></h2>
-<h3 id="appendix-a-archived-skill-debug-accuracy-drop-exploratory">Appendix A: Archived skill: <code>debug-accuracy-drop</code> (exploratory)<a class="headerlink" href="#appendix-a-archived-skill-debug-accuracy-drop-exploratory" title="Permanent link">&para;</a></h3>
-<p>This concept remains exploratory and is intentionally moved out of the main skill lineup.
-Primary diagnostics are now handled by <code>debug-model</code>.</p>
-<p><strong>Original intent (archived):</strong> isolate where accuracy regresses across optimize/quantize/compile stages, using
-<code>winml eval --mode compare</code> + <code>winml analyze</code> to infer likely causes and suggest next steps.</p>
-<p><strong>Why archived:</strong> scope overlapped heavily with broader model diagnostics, and the workflow was too narrow
-for non-quantization failures. Reintroduced only after clearer boundaries and evidence standards are defined.</p>
 </main>
 </div>
 </body>

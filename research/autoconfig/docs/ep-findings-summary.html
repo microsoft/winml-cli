@@ -202,7 +202,10 @@
   <button class="toggle-btn" onclick="document.body.classList.toggle('show-single');this.textContent=document.body.classList.contains('show-single')?'Hide single-model findings':'Show single-model findings'">
     Show single-model findings
   </button>
-  <span class="toggle-note">Showing only multi-model / cross-EP findings by default. Single-model findings are hidden.</span>
+  <button class="toggle-btn" id="lowconf-btn" onclick="toggleLowConf()">
+    Show low-confidence findings
+  </button>
+  <span class="toggle-note">Showing only multi-model / cross-EP findings by default. Single-model and <strong>LOW-confidence</strong> findings are hidden.</span>
 </div>
 
 <!-- QNN NPU -->
@@ -867,15 +870,6 @@
       </tr>
 
       <tr>
-        <td>winml perf: report p90/p99 + std per session</td>
-        <td><a class="issue-link" href="#">#155</a></td>
-        <td><span class="pri pri-p1">P1</span></td>
-        <td>dml-002/gpu-002: NHWC transformer hurts p90 (+19&ndash;21%) while p50 is neutral. Without p90 in perf output, autoconfig cannot detect stability regressions. p50-only verdict policy misses these cases.</td>
-        <td>dml-002, gpu-002</td>
-        <td>OPEN</td>
-      </tr>
-
-      <tr>
         <td>winml perf --profile (per-op kernel time)</td>
         <td><a class="issue-link" href="#">#158</a></td>
         <td><span class="pri pri-p1">P1</span></td>
@@ -917,6 +911,31 @@
   All findings from Snapdragon X Elite CRD (Oryon CPU + Adreno X1-85 GPU + Hexagon HTP NPU).
   ORT 1.24.5 (onnxruntime-windowsml). Findings may not generalize to x86 hardware or older ORT versions.
 </div>
+<script>
+(function () {
+  // Auto-tag any finding card that carries a LOW confidence badge.
+  document.querySelectorAll('.finding').forEach(function (f) {
+    if (f.querySelector('.conf-low')) f.classList.add('low-conf');
+  });
+})();
+
+// LOW-confidence findings are hidden by default. When hidden we force an inline
+// display:none so they stay hidden regardless of the single-model toggle; when
+// shown we clear the inline style and let the single-model CSS rules apply.
+var lowConfShown = false;
+function applyLowConf() {
+  document.querySelectorAll('.finding.low-conf').forEach(function (f) {
+    f.style.display = lowConfShown ? '' : 'none';
+  });
+}
+function toggleLowConf() {
+  lowConfShown = !lowConfShown;
+  document.getElementById('lowconf-btn').textContent =
+    lowConfShown ? 'Hide low-confidence findings' : 'Show low-confidence findings';
+  applyLowConf();
+}
+applyLowConf();
+</script>
 
 </body>
 </html>
