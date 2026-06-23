@@ -45,7 +45,7 @@ from ..winml import register_specialization
 from ..winml.composite_model import register_composite_model
 from ..winml.decoder_only import WinMLDecoderOnlyModel
 from ..winml.kv_cache import WinMLSlidingWindowCache
-from .qwen3_export_ops import apply_transformer_only_export_prep
+from .qwen3_modeling import apply_transformer_only_export_prep
 
 
 logger = logging.getLogger(__name__)

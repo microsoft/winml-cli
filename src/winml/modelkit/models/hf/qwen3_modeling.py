@@ -18,7 +18,7 @@ What each class emits:
 - ``WinMLQwen3DecoderLayer`` / ``WinMLQwen3Model`` -> transformer-only forward
   that threads the KV cache + seq-len tensors and omits embeddings / lm_head.
 
-``apply_transformer_only_export_prep`` (in ``qwen3_export_ops``) walks a loaded
+``apply_transformer_only_export_prep`` (defined below) walks a loaded
 ``Qwen3ForCausalLM``, calls ``prepare_for_onnx_export`` on each submodule, and
 binds the matching ``forward`` from these classes onto it.
 """
@@ -42,15 +42,14 @@ class WinMLQwen3RMSNorm(nn.Module):
 
     def prepare_for_onnx_export(self) -> None:
         # Pre-multiply the gain into the weight (LpNorm has unit gain).
+        # ``scale`` is shape ``[1]`` and broadcasts over ``self.weight``
+        # (shape ``[hidden_size]``), so the result keeps the per-channel
+        # shape even when the original weights are all ones.
         n = self.weight.numel()
         scale = torch.sqrt(
             torch.tensor([n], device=self.weight.device, dtype=self.weight.dtype)
         )
-        if torch.any(self.weight.data != torch.ones_like(self.weight)).item():
-            new_w = scale * self.weight
-        else:
-            new_w = scale
-        self.weight = nn.Parameter(new_w)
+        self.weight = nn.Parameter(scale * self.weight)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         out = LpNormOnnxExport.apply(hidden_states, -1, 2)
@@ -228,10 +227,100 @@ class WinMLQwen3Model(nn.Module):
         return hidden_states, present_kvs
 
 
+# =============================================================================
+# Apply export prep: bind winml Qwen3 export methods onto a loaded model
+# =============================================================================
+
+
+def apply_transformer_only_export_prep(
+    causal_lm: nn.Module, *, matmul_to_conv: bool = True
+) -> None:
+    """Mutate ``Qwen3ForCausalLM`` in-place into the export topology.
+
+    Binds the winml-owned export behaviour (the ``WinMLQwen3*`` classes in this
+    module) onto each Qwen3 submodule (runs ``prepare_for_onnx_export`` and
+    rebinds ``forward``). After this call, ``causal_lm.model(inputs_embeds,
+    past_key_values, past_seq_len, total_seq_len)`` runs the transformer-only
+    forward.
+
+    Args:
+        causal_lm: A ``transformers.Qwen3ForCausalLM`` instance.
+        matmul_to_conv: Swap ``nn.Linear`` projections to 1x1 ``Conv2d`` so
+            QNN sees them as Conv.
+
+    Raises:
+        RuntimeError: If any expected Qwen3 submodule class is not found,
+            meaning the loaded model does not match the expected topology
+            (e.g. the stock HF class names changed).
+    """
+
+    def _bind(module: nn.Module, owner: type) -> None:
+        module.forward = owner.forward.__get__(module, type(module))
+
+    # Identify Qwen3 submodules by their (stock HF) class name so we don't
+    # depend on importing ``transformers.models.qwen3`` here.
+    def _is(module: nn.Module, name: str) -> bool:
+        return type(module).__name__ == name
+
+    patched = {
+        "Qwen3RMSNorm": 0,
+        "Qwen3Attention": 0,
+        "Qwen3MLP": 0,
+        "Qwen3DecoderLayer": 0,
+        "Qwen3Model": 0,
+    }
+
+    # Patch every RMSNorm first (Qwen3RMSNorm appears at top, in q_norm/k_norm,
+    # in input/post_attention layernorms).
+    for mod in causal_lm.modules():
+        if _is(mod, "Qwen3RMSNorm"):
+            WinMLQwen3RMSNorm.prepare_for_onnx_export(mod)
+            _bind(mod, WinMLQwen3RMSNorm)
+            patched["Qwen3RMSNorm"] += 1
+
+    for mod in causal_lm.modules():
+        if _is(mod, "Qwen3Attention"):
+            WinMLQwen3Attention.prepare_for_onnx_export(mod, matmul_to_conv=matmul_to_conv)
+            _bind(mod, WinMLQwen3Attention)
+            patched["Qwen3Attention"] += 1
+        elif _is(mod, "Qwen3MLP"):
+            # MLP forward is unchanged; only the projections are swapped to Conv.
+            WinMLQwen3MLP.prepare_for_onnx_export(mod, matmul_to_conv=matmul_to_conv)
+            patched["Qwen3MLP"] += 1
+
+    # HF moved ``rotary_emb`` from ``Qwen3Attention`` up to ``Qwen3Model``;
+    # the export forward invokes ``self.rotary_emb`` on the attention module,
+    # so re-attach a reference from the parent model.
+    for mod in causal_lm.modules():
+        if _is(mod, "Qwen3Model") and hasattr(mod, "rotary_emb"):
+            for layer in mod.layers:
+                layer.self_attn.rotary_emb = mod.rotary_emb
+
+    for mod in causal_lm.modules():
+        if _is(mod, "Qwen3DecoderLayer"):
+            _bind(mod, WinMLQwen3DecoderLayer)
+            patched["Qwen3DecoderLayer"] += 1
+
+    for mod in causal_lm.modules():
+        if _is(mod, "Qwen3Model"):
+            WinMLQwen3Model.prepare_for_onnx_export(mod, matmul_to_conv=matmul_to_conv)
+            _bind(mod, WinMLQwen3Model)
+            patched["Qwen3Model"] += 1
+
+    missing = [name for name, count in patched.items() if count == 0]
+    if missing:
+        raise RuntimeError(
+            "transformer-only export prep found no "
+            f"{missing} submodule(s) to patch; the loaded model does not match "
+            "the expected Qwen3 topology (stock HF class names may have changed)."
+        )
+
+
 __all__ = [
     "WinMLQwen3Attention",
     "WinMLQwen3DecoderLayer",
     "WinMLQwen3MLP",
     "WinMLQwen3Model",
     "WinMLQwen3RMSNorm",
+    "apply_transformer_only_export_prep",
 ]

@@ -15,6 +15,7 @@ Run via ``test_qwen.py``.
 from __future__ import annotations
 
 import logging
+import gc
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -39,6 +40,16 @@ DEFAULT_CALIB_DATASET = "openai/gsm8k"
 DEFAULT_CALIB_DATASET_CONFIG = "main"
 DEFAULT_CALIB_SPLIT = "train"
 DEFAULT_CALIB_SEED = 42
+
+# Map an ONNX quantization dtype to the bit-width suffix used in artifact
+# filenames (e.g. int8 -> "8", uint16 -> "16"), instead of brittle string
+# slicing of the dtype name.
+_DTYPE_BITS = {
+    "int8": "8",
+    "uint8": "8",
+    "int16": "16",
+    "uint16": "16",
+}
 
 
 def _load_gsm8k_prompts(num_samples: int) -> list[str]:
@@ -348,7 +359,8 @@ def quantize_built_model(
 
         seq_len = seq_by_sub[sub_name]
         quant_path = fused_path.with_name(
-            fused_path.stem + f"_w{weight_type[-1]}a{activation_type[-2:]}.quant.onnx"
+            fused_path.stem
+            + f"_w{_DTYPE_BITS[weight_type]}a{_DTYPE_BITS[activation_type]}.quant.onnx"
         )
 
         print(f"\n=== Quantize (transformer-only): {sub_name} (seq_len={seq_len}) ===")
@@ -413,6 +425,10 @@ def quantize_built_model(
             f"{result.total_time_seconds:.1f}s"
         )
         quant_paths[sub_name] = quant_path
+
+    # Free the FP reference model now that calibration is done.
+    del hf_model, embed_tokens
+    gc.collect()
 
     print("\n=== Done ===")
     return quant_paths

@@ -17,7 +17,7 @@ generation.
 
 Run::
 
-    python test_qwen_transformer_only.py
+    python test_qwen.py
 
 This builds each transformer sub-model and then runs the w8a16
 quantization on the exported transformer ONNX files (no surgery needed —
@@ -85,6 +85,8 @@ def _build_one(task: str, seq_len: int) -> None:
     print(f"BUILD COMPLETE: task={task} seq_len={seq_len}", flush=True)
     sys.stdout.flush()
     sys.stderr.flush()
+    # TODO(winml-cli#836): replace the hard exit once the native QNN/ORT
+    # teardown segfault (0xC0000005) on interpreter shutdown is fixed upstream.
     os._exit(0)
 
 
@@ -155,6 +157,8 @@ def _run_quant() -> None:
     print("QUANT COMPLETE", flush=True)
     sys.stdout.flush()
     sys.stderr.flush()
+    # TODO(winml-cli#836): replace the hard exit once the native QNN/ORT
+    # teardown segfault (0xC0000005) on interpreter shutdown is fixed upstream.
     os._exit(0)
 
 
@@ -173,6 +177,7 @@ def main() -> None:
             [sys.executable, "-u", str(pathlib.Path(__file__).resolve()),
              "--build-sub", task, str(seq_len)],
             cwd=str(_repo_root),
+            timeout=1800,
         ).returncode
 
         after = _latest_ctx_mtime(prefix)
@@ -205,6 +210,7 @@ def main() -> None:
     rc = subprocess.run(
         [sys.executable, "-u", str(pathlib.Path(__file__).resolve()), "--quant"],
         cwd=str(_repo_root),
+        timeout=1800,
     ).returncode
     after_files = list(ARTIFACTS_DIR.glob("*quant.onnx"))
     after = max((p.stat().st_mtime for p in after_files), default=0.0)

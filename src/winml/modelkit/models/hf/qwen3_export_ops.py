@@ -46,7 +46,12 @@ class LpNormOnnxExport(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, input, axis, p):  # noqa: ARG004
-        return input  # placeholder — real compute happens in symbolic
+        # Shape-only tracing placeholder. The real op is emitted by
+        # ``symbolic`` during ONNX export; ``forward`` exists solely so the
+        # TorchScript exporter (and Optimum's pre-export dry run) can trace
+        # output shapes. It returns ``input`` unchanged on purpose and is NOT a
+        # correct eager RMSNorm — do not call this module for real inference.
+        return input
 
 
 class GroupQueryAttentionOnnxExport(torch.autograd.Function):
@@ -100,6 +105,12 @@ class GroupQueryAttentionOnnxExport(torch.autograd.Function):
         kv_num_heads,
         num_heads,
     ):  # noqa: ARG004
+        # Shape-only tracing placeholder. The real op is emitted by
+        # ``symbolic`` during ONNX export; ``forward`` exists solely so the
+        # TorchScript exporter (and Optimum's pre-export dry run) can trace
+        # output shapes. It returns the inputs as stand-in present-KV on
+        # purpose and is NOT correct attention — do not call this module for
+        # real inference.
         return query, past_key, past_value  # placeholder shapes
 
 
@@ -136,76 +147,8 @@ class TransposeConv2d1x1Transpose(nn.Module):
         return cls(linear.in_features, linear.out_features, linear.weight, linear.bias)
 
 
-# =============================================================================
-# Apply export prep: bind winml Qwen3 export methods onto a loaded model
-# =============================================================================
-
-
-def apply_transformer_only_export_prep(causal_lm: nn.Module, *, matmul_to_conv: bool = True) -> None:
-    """Mutate ``Qwen3ForCausalLM`` in-place into the export topology.
-
-    Binds the winml-owned export behaviour from :mod:`.qwen3_modeling` onto each
-    Qwen3 submodule (runs ``prepare_for_onnx_export`` and rebinds ``forward``).
-    After this call, ``causal_lm.model(inputs_embeds, past_key_values,
-    past_seq_len, total_seq_len)`` runs the transformer-only forward.
-
-    Args:
-        causal_lm: A ``transformers.Qwen3ForCausalLM`` instance.
-        matmul_to_conv: Swap ``nn.Linear`` projections to 1x1 ``Conv2d`` so
-            QNN sees them as Conv.
-    """
-    from .qwen3_modeling import (
-        WinMLQwen3Attention,
-        WinMLQwen3DecoderLayer,
-        WinMLQwen3MLP,
-        WinMLQwen3Model,
-        WinMLQwen3RMSNorm,
-    )
-
-    def _bind(module: nn.Module, owner: type) -> None:
-        module.forward = owner.forward.__get__(module, type(module))
-
-    # Identify Qwen3 submodules by their (stock HF) class name so we don't
-    # depend on importing ``transformers.models.qwen3`` here.
-    def _is(module: nn.Module, name: str) -> bool:
-        return type(module).__name__ == name
-
-    # Patch every RMSNorm first (Qwen3RMSNorm appears at top, in q_norm/k_norm,
-    # in input/post_attention layernorms).
-    for mod in causal_lm.modules():
-        if _is(mod, "Qwen3RMSNorm"):
-            WinMLQwen3RMSNorm.prepare_for_onnx_export(mod)
-            _bind(mod, WinMLQwen3RMSNorm)
-
-    for mod in causal_lm.modules():
-        if _is(mod, "Qwen3Attention"):
-            WinMLQwen3Attention.prepare_for_onnx_export(mod, matmul_to_conv=matmul_to_conv)
-            _bind(mod, WinMLQwen3Attention)
-        elif _is(mod, "Qwen3MLP"):
-            # MLP forward is unchanged; only the projections are swapped to Conv.
-            WinMLQwen3MLP.prepare_for_onnx_export(mod, matmul_to_conv=matmul_to_conv)
-
-    # HF moved ``rotary_emb`` from ``Qwen3Attention`` up to ``Qwen3Model``;
-    # the export forward invokes ``self.rotary_emb`` on the attention module,
-    # so re-attach a reference from the parent model.
-    for mod in causal_lm.modules():
-        if _is(mod, "Qwen3Model") and hasattr(mod, "rotary_emb"):
-            for layer in mod.layers:
-                layer.self_attn.rotary_emb = mod.rotary_emb
-
-    for mod in causal_lm.modules():
-        if _is(mod, "Qwen3DecoderLayer"):
-            _bind(mod, WinMLQwen3DecoderLayer)
-
-    for mod in causal_lm.modules():
-        if _is(mod, "Qwen3Model"):
-            WinMLQwen3Model.prepare_for_onnx_export(mod, matmul_to_conv=matmul_to_conv)
-            _bind(mod, WinMLQwen3Model)
-
-
 __all__ = [
     "GroupQueryAttentionOnnxExport",
     "LpNormOnnxExport",
     "TransposeConv2d1x1Transpose",
-    "apply_transformer_only_export_prep",
 ]
