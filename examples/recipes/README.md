@@ -16,6 +16,7 @@ Each *(model, task)* includes:
 
 | Model | Task |
 |---|---|
+| apple/DepthPro-hf | depth-estimation |
 | BAAI/bge-large-en-v1.5 | sentence-similarity |
 | cardiffnlp/twitter-roberta-base-sentiment-latest | text-classification |
 | deepset/roberta-base-squad2 | question-answering |
