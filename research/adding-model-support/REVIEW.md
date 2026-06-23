@@ -18,6 +18,45 @@ A separate agent catches these failures because it doesn't share the producer's 
 3. The model id under contribution.
 4. The build output directory (the producer should have referenced this in the PR; if not, that's the first failure).
 
+## Step 0 — Check out the actual PR branch (Lane B reviews)
+
+For a real GitHub PR (`https://github.com/microsoft/WinML-ModelKit/pull/<N>`), the producer's working tree is NOT what the maintainer will merge. The maintainer merges the PR branch into `origin/main`. The reviewer MUST verify from that same state, not from the producer's possibly-dirty working branch.
+
+Protocol (Windows PowerShell, `gh` authenticated):
+
+```powershell
+# 1. Capture the producer's working state so it's not lost when switching refs.
+git status --short                              # NOTE: any "M" / "??" entries before checkout
+git stash push -u -m "reviewer-checkout-pr<N>"  # ONLY if working tree is dirty; skip on clean tree
+
+# 2. Fetch + check out the PR head directly.
+gh pr checkout <N>                              # OR: git fetch origin <branch>; git checkout <branch>
+
+# 3. Confirm you are on the PR head and main is the merge base.
+git log --oneline -1                            # must match PR's top commit hash
+git merge-base HEAD origin/main                 # base for diff scope check below
+```
+
+**Diff-scope sanity** (per [`_meta-033`](./skill_meta/findings.json) Lane B rules):
+
+```powershell
+git diff --stat origin/main...HEAD              # expect only Effort-tier-matching paths
+git diff --name-only origin/main...HEAD         # cite this list in the verdict
+```
+
+L0 / L0★ PRs MUST show exactly: `examples/recipes/<org>_<model>/*.json` + `examples/recipes/README.md`. Anything under `src/winml/modelkit/models/hf/`, `tests/`, `research/`, `SKILL.md`, or `REVIEW.md` in an L0/L0★ PR diff is scope leakage = REJECT (or REQUEST_CHANGES if it's a research/ skill file that should have stayed on the producer's Lane A working branch).
+
+**Artifact reuse rule**: if the producer cited a build output dir (e.g. `temp/verify_bart_build/`) built BEFORE the PR branch was cut, the reviewer MUST verify the recipe JSON at PR HEAD is byte-identical to the recipe the producer built from. Run `git diff <cached-build-commit>..HEAD -- examples/recipes/<org>_<model>/`. If non-empty, the cached artifacts are stale and you MUST re-build from the PR-head recipe before scoring L0..L3. If empty, the cached artifacts are valid evidence and full re-build is optional.
+
+**Restore on completion**:
+
+```powershell
+git checkout <producer-working-branch>          # e.g. shzhen/skills_poc
+git stash pop                                   # if you stashed in step 1
+```
+
+A reviewer who scored a PR without running Step 0 cannot distinguish "the recipe works on main + the PR diff" from "the recipe works on the producer's local working tree with 6 months of unrelated edits" — those are different claims.
+
 ## Checklist (evidence-based, fail-closed)
 
 Each box requires **a one-line citation**: a file path + line number, a command + observed output, or a commit hash. "Looks fine" is not evidence.
