@@ -752,34 +752,6 @@ def allow_unsupported_nodes_option(optional_message: str | None = None) -> Calla
     )
 
 
-def precision_option(
-    required: bool = False,
-    optional_message: str | None = None,
-) -> Callable[[F], F]:
-    """Add shared --precision option to a Click command.
-
-    Consistent with winml perf, winml eval, winml config. Values: fp32, fp16.
-
-    Args:
-        required: Whether the option is required.
-        optional_message: Extra guidance appended to help text.
-
-    Returns:
-        Decorator function.
-    """
-    help_text = "Model precision: fp32 (default) or fp16."
-    if optional_message:
-        help_text = f"{help_text} {optional_message}"
-
-    return click.option(
-        "--precision",
-        type=click.Choice(["fp32", "fp16"]),
-        default=None,
-        required=required,
-        help=help_text,
-    )
-
-
 def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
     """Load a WinMLBuildConfig from a JSON file.
 

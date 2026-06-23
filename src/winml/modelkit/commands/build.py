@@ -471,9 +471,6 @@ def _validate_loader_tasks_for_model(
 @cli_utils.optimize_option()
 @cli_utils.max_optim_iterations_option()
 @cli_utils.allow_unsupported_nodes_option()
-@cli_utils.precision_option(
-    optional_message="When fp16, applies FP16 conversion during optimization."
-)
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
@@ -495,7 +492,6 @@ def build(
     analyze: bool,
     max_optim_iterations: int | None,
     allow_unsupported_nodes: bool,
-    precision: str | None,
     trust_remote_code: bool,
     verbose: int,
     quiet: bool,
@@ -533,6 +529,12 @@ def build(
 
         # Force rebuild
         winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild
+
+        # Build with INT8 quantization
+        winml build -m microsoft/resnet-50 -o output/ --precision int8
+
+        # Build with mixed precision (INT8 weights, INT8 activations)
+        winml build -m microsoft/resnet-50 -o output/ --precision w8a8
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -543,6 +545,16 @@ def build(
         raise click.UsageError("--output-dir and --use-cache are mutually exclusive.")
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
+
+    # Validate precision value early for better error messages.
+    if precision is not None:
+        from ..config.precision import _is_valid_precision
+
+        if not _is_valid_precision(precision.lower()):
+            raise click.UsageError(
+                f"Invalid precision '{precision}'. "
+                "Expected: auto, fp32, fp16, int8, int16, or w{{x}}a{{y}} (e.g., w8a8, w8a16)."
+            )
 
     # If ep unspecified, resolve the target device and pick the highest-priority
     # EP compatible with it. Avoids selecting an EP that does not match the host
@@ -619,6 +631,8 @@ def build(
                     # and other calibration settings from the existing config.
                     cfg.quant.weight_type = resolved_quant.weight_type
                     cfg.quant.activation_type = resolved_quant.activation_type
+                    cfg.quant.fp16 = resolved_quant.fp16
+                    cfg.quant.fp16_only = resolved_quant.fp16_only
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -664,8 +678,8 @@ def build(
         # on the key being present, matching the module-mode path which passes
         # allow_unsupported_nodes explicitly regardless of its value.
         extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
-        if precision == "fp16":
-            extra_kwargs["precision"] = "fp16"
+        if precision:
+            extra_kwargs["precision"] = precision
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
