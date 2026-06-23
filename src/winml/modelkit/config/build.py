@@ -229,13 +229,8 @@ class WinMLBuildConfig:
         # need task/model_name since they don't generate calibration datasets.
         if self.quant is not None:
             is_submodule = bool(self.loader and self.loader.module_path)
-            needs_calibration = (
-                not self.quant.fp16_only
-                and self.quant.algorithm == "static"
-            )
-            needs_quant_ids = (
-                not is_onnx_build and not is_submodule and needs_calibration
-            )
+            needs_calibration = not self.quant.fp16_only and self.quant.algorithm == "static"
+            needs_quant_ids = not is_onnx_build and not is_submodule and needs_calibration
             if needs_quant_ids and not self.quant.task:
                 errors.append("quant.task is required when quant is enabled for HF builds")
             if needs_quant_ids and not self.quant.model_name:
@@ -677,7 +672,7 @@ def generate_hf_build_config(
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
     from ..sysinfo import resolve_check_device_ep
-    from .precision import resolve_precision
+    from .precision import extract_weight_bits, is_weight_only_precision, resolve_precision
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
     # blindly default to QNN on machines without an NPU (#412).
@@ -707,6 +702,12 @@ def generate_hf_build_config(
     elif policy.precision == "fp16":
         # Pure FP16: no QDQ, only FP16 conversion via quantize stage
         parent_config.quant = WinMLQuantizationConfig(fp16=True, fp16_only=True)
+    elif policy.precision and is_weight_only_precision(policy.precision):
+        # RTN weight-only quantization (e.g. int4, w4a16)
+        parent_config.quant = WinMLQuantizationConfig(
+            algorithm="rtn",
+            rtn_bits=extract_weight_bits(policy.precision),
+        )
     else:
         # CPU/GPU: precision is float (fp32) — no quantization
         parent_config.quant = None

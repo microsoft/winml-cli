@@ -110,8 +110,7 @@ def quantize_onnx(
 
             if config.calibration_data is not None:
                 logger.warning(
-                    "calibration_data is set but fp16_only=True — "
-                    "calibration data will be ignored."
+                    "calibration_data is set but fp16_only=True — calibration data will be ignored."
                 )
 
             logger.info("Running FP16-only conversion (no quantization)...")
@@ -122,7 +121,7 @@ def quantize_onnx(
                 op_block_list=config.fp16_op_block_list,
             )
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            save_onnx(model, output_path)
+            save_onnx(model, output_path, use_external_data=use_external_data)
 
             total_time = time.perf_counter() - start_time
             logger.info(
@@ -185,7 +184,7 @@ def quantize_onnx(
                     op_block_list=config.fp16_op_block_list,
                 )
 
-            save_onnx(quantized_model, output_path)
+            save_onnx(quantized_model, output_path, use_external_data=use_external_data)
 
             total_time = time.perf_counter() - start_time
             logger.info(

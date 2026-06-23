@@ -38,6 +38,21 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 
+def _warn_ignored_calibration_options(ctx: click.Context, reason: str) -> None:
+    """Warn if the user passed calibration-related CLI options that are ignored."""
+    ignored = []
+    if cli_utils.is_cli_provided(ctx, "samples"):
+        ignored.append("--samples")
+    if cli_utils.is_cli_provided(ctx, "method"):
+        ignored.append("--method")
+    if cli_utils.is_cli_provided(ctx, "weight_type"):
+        ignored.append("--weight-type")
+    if cli_utils.is_cli_provided(ctx, "activation_type"):
+        ignored.append("--activation-type")
+    if ignored:
+        console.print(f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — {reason}")
+
+
 @click.command()
 @click.option(
     "--model",
@@ -186,21 +201,7 @@ def quantize(
     is_fp16 = precision and precision.lower() == "fp16"
 
     if is_fp16:
-        # Warn about ignored calibration options
-        ignored = []
-        if cli_utils.is_cli_provided(ctx, "samples"):
-            ignored.append("--samples")
-        if cli_utils.is_cli_provided(ctx, "method"):
-            ignored.append("--method")
-        if cli_utils.is_cli_provided(ctx, "weight_type"):
-            ignored.append("--weight-type")
-        if cli_utils.is_cli_provided(ctx, "activation_type"):
-            ignored.append("--activation-type")
-        if ignored:
-            console.print(
-                f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — "
-                "FP16 conversion does not use calibration data."
-            )
+        _warn_ignored_calibration_options(ctx, "FP16 conversion does not use calibration data.")
 
         # Determine output path
         if output is None:
@@ -242,21 +243,9 @@ def quantize(
     is_rtn = precision and is_weight_only_precision(precision.lower())
 
     if is_rtn:
-        # Warn about ignored calibration options (RTN is calibration-free)
-        ignored = []
-        if cli_utils.is_cli_provided(ctx, "samples"):
-            ignored.append("--samples")
-        if cli_utils.is_cli_provided(ctx, "method"):
-            ignored.append("--method")
-        if cli_utils.is_cli_provided(ctx, "weight_type"):
-            ignored.append("--weight-type")
-        if cli_utils.is_cli_provided(ctx, "activation_type"):
-            ignored.append("--activation-type")
-        if ignored:
-            console.print(
-                f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — "
-                "RTN weight-only quantization does not use calibration data."
-            )
+        _warn_ignored_calibration_options(
+            ctx, "RTN weight-only quantization does not use calibration data."
+        )
 
         assert precision is not None  # guaranteed by is_rtn check
         rtn_bits = extract_weight_bits(precision.lower())
