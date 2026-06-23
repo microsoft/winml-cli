@@ -5,7 +5,6 @@
 """Input generator for Shape operator."""
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,

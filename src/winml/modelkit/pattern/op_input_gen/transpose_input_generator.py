@@ -5,7 +5,6 @@
 """Input generator for Transpose ONNX operator."""
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,

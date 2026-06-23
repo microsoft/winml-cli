@@ -10,7 +10,6 @@ This includes MaxPool, AveragePool, and LpPool.
 import numpy as np
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,

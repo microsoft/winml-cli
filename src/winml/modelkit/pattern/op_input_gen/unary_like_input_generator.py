@@ -16,7 +16,6 @@ import numpy as np
 
 from ...onnx import SupportedONNXType
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     QDQParameterConfig,
@@ -539,7 +538,7 @@ class CumSumInputGenerator(UnaryInputGenerator):
 
         combinations: list[dict[str, object]] = []
         for constraint in shape_constraints:
-            shape = cast(InputShapeConstraint, constraint[x_name]).shape
+            shape = cast("InputShapeConstraint", constraint[x_name]).shape
             axis_values = range(-len(shape), len(shape))
             # Only add valid axis values for the shape
             combinations.extend(

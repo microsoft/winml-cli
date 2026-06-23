@@ -7,7 +7,6 @@
 import numpy as np
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,

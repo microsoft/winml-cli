@@ -19,7 +19,6 @@ import numpy as np
 
 from .binary_input_generator import BinaryInputGenerator
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     QDQParameterConfig,
@@ -129,7 +128,7 @@ class ModInputGenerator(BinaryInputGenerator):
 
             # Get B shape from parent, but override with min_max to ensure non-zero divisor
             # Parent binary combos hold InputShapeConstraint values for these inputs.
-            b_shape = cast(InputShapeConstraint, parent_combo[parent_second]).shape
+            b_shape = cast("InputShapeConstraint", parent_combo[parent_second]).shape
 
             # Create non-zero divisor: sample values from 1 to 10
             # This avoids divide-by-zero while providing varied test data
@@ -215,8 +214,8 @@ class WhereInputGenerator(BinaryInputGenerator):
 
         for parent_combo in parent_combinations:
             # Get X and Y shapes from parent combination
-            x_constraint = cast(InputShapeConstraint, parent_combo[parent_first])
-            y_constraint = cast(InputShapeConstraint, parent_combo[parent_second])
+            x_constraint = cast("InputShapeConstraint", parent_combo[parent_first])
+            y_constraint = cast("InputShapeConstraint", parent_combo[parent_second])
 
             x_shape = x_constraint.shape
             y_shape = y_constraint.shape

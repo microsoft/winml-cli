@@ -17,7 +17,6 @@ import numpy as np
 
 from ...onnx import SupportedONNXType
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,

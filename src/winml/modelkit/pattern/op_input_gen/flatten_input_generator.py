@@ -7,7 +7,6 @@
 from typing import Any
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,

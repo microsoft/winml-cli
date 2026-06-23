@@ -3,7 +3,6 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,

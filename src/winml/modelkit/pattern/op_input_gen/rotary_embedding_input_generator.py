@@ -10,7 +10,6 @@ It supports both 3D (batch_size, sequence_length, hidden_size) and
 """
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     register_runtime_checker_op,

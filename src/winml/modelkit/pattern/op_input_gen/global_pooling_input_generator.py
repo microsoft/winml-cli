@@ -9,7 +9,6 @@ reduce spatial dimensions by computing statistics across channels.
 """
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,

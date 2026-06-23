@@ -10,7 +10,6 @@ from onnx import TensorProto
 
 from ...onnx import SupportedONNXType
 from .op_input_gen import (
-    InputConstraint,
     InputValueConstraint,
     OpInputGenerator,
     register_runtime_checker_op,
