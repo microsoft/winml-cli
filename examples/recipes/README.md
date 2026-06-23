@@ -25,6 +25,7 @@ Each *(model, task)* includes:
 | google/vit-base-patch16-224-in21k | image-feature-extraction |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction |
 | microsoft/rad-dino | image-feature-extraction |
+| nlpconnect/vit-gpt2-image-captioning | image-to-text |
 | openai/clip-vit-base-patch16 | feature-extraction |
 | sentence-transformers/all-MiniLM-L6-v2 | feature-extraction |
 | sentence-transformers/all-MiniLM-L6-v2 | sentence-similarity |
