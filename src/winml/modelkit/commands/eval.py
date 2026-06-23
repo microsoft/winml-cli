@@ -86,6 +86,16 @@ logger = logging.getLogger(__name__)
     optional_message="Applied during model build. Ignored for pre-built ONNX inputs "
     "(precision is already baked in).",
 )
+@cli_utils.quant_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
+)
+@cli_utils.optimize_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
+)
+@cli_utils.analyze_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
+)
+@cli_utils.max_optim_iterations_option(optional_message="Ignored for pre-built ONNX inputs.")
 @click.option(
     "--samples",
     type=int,
@@ -172,6 +182,10 @@ def eval(
     task: str | None,
     device: str,
     precision: str,
+    quant: bool,
+    optimize: bool,
+    analyze: bool,
+    max_optim_iterations: int | None,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,

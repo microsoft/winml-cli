@@ -117,12 +117,9 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     default="transformers",
     help="Source library for TasksManager (default: transformers)",
 )
-@click.option(
-    "--quant/--no-quant",
-    "quant",
-    default=True,
-    show_default=True,
-    help="Include quantization in generated config (use --no-quant to exclude, sets quant=None)",
+@cli_utils.quant_option(
+    help_text="Include quantization in generated config "
+    "(use --no-quant to exclude, sets quant=None)"
 )
 @cli_utils.compile_option(
     default=True,

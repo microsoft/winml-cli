@@ -447,13 +447,7 @@ def _validate_loader_tasks_for_model(
     show_default=True,
     help="Overwrite existing artifacts and rebuild",
 )
-@click.option(
-    "--quant/--no-quant",
-    "quant",
-    default=True,
-    show_default=True,
-    help="Enable quantization (use --no-quant to skip, overrides config)",
-)
+@cli_utils.quant_option()
 @cli_utils.compile_option(
     default=None,
     help_text="Override compilation. --compile forces enable (config must have a compile section). "
@@ -473,27 +467,9 @@ def _validate_loader_tasks_for_model(
 @cli_utils.precision_option(
     optional_message="With -c, applied only when --device or --precision is passed.",
 )
-@click.option(
-    "--analyze/--no-analyze",
-    "analyze",
-    default=True,
-    show_default=True,
-    help="Run analyzer loop during build (use --no-analyze to skip)",
-)
-@click.option(
-    "--optimize/--no-optimize",
-    "optimize",
-    default=True,
-    show_default=True,
-    help="Run optimization (use --no-optimize to skip for pre-quantized ONNX models)",
-)
-@click.option(
-    "--max-optim-iterations",
-    "max_optim_iterations",
-    type=int,
-    default=None,
-    help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
-)
+@cli_utils.analyze_option()
+@cli_utils.optimize_option()
+@cli_utils.max_optim_iterations_option()
 @cli_utils.allow_unsupported_nodes_option()
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
@@ -671,14 +647,13 @@ def build(
             trust_remote_code=trust_remote_code,
         )
 
-        # Build extra kwargs for pipeline control
-        extra_kwargs: dict[str, Any] = {}
-        if not optimize:
-            extra_kwargs["skip_optimize"] = True
-        if not analyze:
-            extra_kwargs["hack_max_optim_iterations"] = 0
-        elif max_optim_iterations is not None:
-            extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
+        # Build extra kwargs for pipeline control. The optimize/analyze/max-optim
+        # mapping is shared with perf and eval via build_pipeline_extra_kwargs.
+        extra_kwargs: dict[str, Any] = cli_utils.build_pipeline_extra_kwargs(
+            optimize=optimize,
+            analyze=analyze,
+            max_optim_iterations=max_optim_iterations,
+        )
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
         # Always set (even when False) so downstream pipeline functions can rely

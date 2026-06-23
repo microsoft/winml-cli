@@ -79,6 +79,9 @@ class BenchmarkConfig:
     batch_size: int = 1
     output_path: Path | None = None
     no_quantize: bool = False
+    no_optimize: bool = False
+    no_analyze: bool = False
+    max_optim_iterations: int | None = None
     no_compile: bool = True
     rebuild: bool = False
     ignore_cache: bool = False
@@ -509,6 +512,13 @@ class PerfBenchmark:
             "shape_config": self.config.shape_config,
             "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
             "no_compile": self.config.no_compile,
+            # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
+            # build_hf_model / build_onnx_model. Shared mapping with build/eval.
+            **cli_utils.build_pipeline_extra_kwargs(
+                optimize=not self.config.no_optimize,
+                analyze=not self.config.no_analyze,
+                max_optim_iterations=self.config.max_optim_iterations,
+            ),
         }
 
         if is_onnx:
@@ -707,6 +717,9 @@ def _perf_modules(
     warmup: int,
     batch_size: int,
     no_quantize: bool,
+    no_optimize: bool,
+    no_analyze: bool,
+    max_optim_iterations: int | None,
     no_compile: bool,
     output: Path | None,
     verbose: bool,
@@ -732,6 +745,9 @@ def _perf_modules(
         warmup: Number of warmup iterations.
         batch_size: Batch size for input generation.
         no_quantize: If True, skip quantization during the per-module build.
+        no_optimize: If True, skip graph optimization during the per-module build.
+        no_analyze: If True, skip the analyzer loop (forces max_optim_iterations=0).
+        max_optim_iterations: Max autoconf re-optimization rounds (None = default 3).
         no_compile: If True, skip the build's compile stage for each module.
         output: Output JSON path, or None for auto-generated path.
         verbose: If True, log exceptions at DEBUG level.
@@ -844,6 +860,11 @@ def _perf_modules(
                     ep=ep,
                     device=resolved_device,
                     allow_unsupported_nodes=allow_unsupported_nodes,
+                    **cli_utils.build_pipeline_extra_kwargs(
+                        optimize=not no_optimize,
+                        analyze=not no_analyze,
+                        max_optim_iterations=max_optim_iterations,
+                    ),
                 )
 
                 # Benchmark using WinMLSession
@@ -1346,13 +1367,10 @@ def _run_simple_loop(
     default=None,
     help='JSON file with shape overrides (e.g., {"height": 480, "width": 480}).',
 )
-@click.option(
-    "--quantize/--no-quantize",
-    "quantize",
-    default=True,
-    show_default=True,
-    help="Include quantization during model build (use --no-quantize to skip)",
-)
+@cli_utils.quant_option(optional_message="Applied during model build.")
+@cli_utils.optimize_option(optional_message="Applied during model build.")
+@cli_utils.analyze_option(optional_message="Applied during model build.")
+@cli_utils.max_optim_iterations_option()
 @click.option(
     "--rebuild/--no-rebuild",
     default=False,
@@ -1419,7 +1437,10 @@ def perf(
     output: Path | None,
     batch_size: int,
     shape_config_path: Path | None,
-    quantize: bool,
+    quant: bool,
+    optimize: bool,
+    analyze: bool,
+    max_optim_iterations: int | None,
     rebuild: bool,
     ignore_cache: bool,
     skip_build: bool,
@@ -1521,7 +1542,10 @@ def perf(
             iterations=iterations,
             warmup=warmup,
             batch_size=batch_size,
-            no_quantize=not quantize,
+            no_quantize=not quant,
+            no_optimize=not optimize,
+            no_analyze=not analyze,
+            max_optim_iterations=max_optim_iterations,
             no_compile=no_compile,
             output=output,
             verbose=bool(verbose),
@@ -1569,7 +1593,10 @@ def perf(
         warmup=warmup,
         batch_size=batch_size,
         output_path=output,
-        no_quantize=not quantize,
+        no_quantize=not quant,
+        no_optimize=not optimize,
+        no_analyze=not analyze,
+        max_optim_iterations=max_optim_iterations,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         skip_build=skip_build,

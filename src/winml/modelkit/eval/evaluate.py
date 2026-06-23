@@ -193,9 +193,25 @@ class EvalResult:
 def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
     """Load model from ONNX path or HF model ID."""
     from ..models import WinMLAutoModel
+    from ..utils import cli as cli_utils
 
     if config.model_id is None:
         raise ValueError("model_id is required.")
+
+    # Build-pipeline controls, shared with winml build/perf. --no-quant clears
+    # the config's quant section; optimize/analyze/max-optim map to the same
+    # build kwargs build_hf_model / build_onnx_model accept. All are ignored
+    # when building is skipped (pre-built ONNX with skip_build=True).
+    quant_override = None
+    if not config.quant:
+        from ..config import WinMLBuildConfig
+
+        quant_override = WinMLBuildConfig(quant=None)
+    pipeline_kwargs = cli_utils.build_pipeline_extra_kwargs(
+        optimize=config.optimize,
+        analyze=config.analyze,
+        max_optim_iterations=config.max_optim_iterations,
+    )
 
     if config.model_path is not None:
         # Pre-built ONNX: precision is already baked into the model and is
@@ -209,7 +225,9 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
             device=config.device,
             ep=config.ep,
             skip_build=config.skip_build,
+            config=quant_override,
             hf_config=hf_config,
+            **pipeline_kwargs,
         )
         model.config = hf_config
         return model
@@ -221,6 +239,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         precision=config.precision,
         ep=config.ep,
         allow_unsupported_nodes=config.allow_unsupported_nodes,
+        config=quant_override,
+        **pipeline_kwargs,
     )
 
 
