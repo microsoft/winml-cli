@@ -49,8 +49,9 @@ console = Console()
 @cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
 @cli_utils.precision_option(
     default=None,
-    help_text="Quantization precision: auto, int8, int16, or w{x}a{y} where "
-    "x,y in {8,16} (e.g., w8a8, w8a16, w16a16)",
+    help_text="Quantization precision: auto, fp16, int8, int16, or w{x}a{y} where "
+    "x,y in {8,16} (e.g., w8a8, w8a16, w16a16). "
+    "fp16 converts all FP32 tensors to FP16 (no QDQ)",
     optional_message="Overridden by explicit --weight-type/--activation-type",
 )
 @click.option(
@@ -122,11 +123,11 @@ def quantize(
     quiet: bool,
     config_file: Path | None,
 ) -> None:
-    r"""Quantize ONNX model by inserting QDQ nodes.
+    r"""Quantize ONNX model by inserting QDQ nodes or convert to FP16.
 
     This command applies static quantization to an ONNX model using calibration
-    data to determine quantization parameters. The output model contains
-    QuantizeLinear and DequantizeLinear nodes for quantization-aware inference.
+    data to determine quantization parameters, or converts the model to FP16
+    when --precision fp16 is specified.
 
     \b
     Examples:
@@ -138,6 +139,9 @@ def quantize(
 
         # Int16 quantization
         winml quantize -m model.onnx --precision int16
+
+        # Convert model to FP16 (no QDQ, full-model conversion)
+        winml quantize -m model.onnx --precision fp16
 
         # Custom output path and more samples
         winml quantize -m model.onnx -o quantized.onnx --samples 100
@@ -174,6 +178,45 @@ def quantize(
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
 
+    # ── FP16 fast path ───────────────────────────────────────────
+    is_fp16 = precision and precision.lower() == "fp16"
+
+    if is_fp16:
+        # Determine output path
+        if output is None:
+            output = model.parent / f"{model.stem}_fp16.onnx"
+        output.parent.mkdir(parents=True, exist_ok=True)
+
+        console.print(f"[bold blue]Input:[/bold blue] {model}")
+        console.print(f"[bold blue]Output:[/bold blue] {output}")
+        console.print("[bold blue]Precision:[/bold blue] fp16")
+
+        config = WinMLQuantizationConfig(fp16=True, fp16_only=True)
+
+        try:
+            console.print("\n[bold]Converting to FP16...[/bold]")
+            result = quantize_onnx(model, output_path=output, config=config)
+
+            if result.success:
+                console.print("\n[bold green]Success![/bold green] Model converted to FP16")
+                console.print(f"[dim]Output: {result.output_path}[/dim]")
+                console.print(f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]")
+            else:
+                console.print("\n[bold red]FP16 conversion failed:[/bold red]")
+                for error in result.errors:
+                    console.print(f"  {error}")
+                raise click.ClickException("FP16 conversion failed")
+
+        except click.ClickException:
+            raise
+        except Exception as e:
+            console.print(f"\n[bold red]FP16 conversion failed:[/bold red] {e}")
+            logger.exception("FP16 conversion failed")
+            raise click.ClickException(f"FP16 conversion failed: {e}") from e
+
+        return
+
+    # ── QDQ quantization path ────────────────────────────────────
     # Resolve weight/activation types from --precision or explicit flags
     resolved_weight, resolved_activation = _resolve_quant_types(
         precision, weight_type, activation_type

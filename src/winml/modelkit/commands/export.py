@@ -130,7 +130,6 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
 @cli_utils.build_config_option()
-@cli_utils.precision_option(optional_message="When fp16, applies FP16 conversion after export.")
 @cli_utils.verbosity_options()
 @click.pass_context
 def export(
@@ -149,7 +148,6 @@ def export(
     export_config: Path | None,
     shape_config: Path | None,
     config_file: Path | None,
-    precision: str | None,
 ) -> None:
     r"""Export HuggingFace model to ONNX format with HTP.
 
@@ -421,17 +419,6 @@ def export(
             enable_reporting=with_report,
         )
         logger.debug("Export stats: %s", export_stats)
-
-        # Post-export FP16 conversion when --precision fp16 is specified
-        if precision == "fp16":
-            console.print("[bold]Converting to FP16...[/bold]")
-            from ..onnx import load_onnx, save_onnx
-            from ..optim.fp16 import convert_to_fp16
-
-            fp16_model = load_onnx(output_path)
-            fp16_model = convert_to_fp16(fp16_model, keep_io_types=True)
-            save_onnx(fp16_model, output_path)
-            console.print("[dim]FP16 conversion applied (I/O kept as FP32)[/dim]")
 
         # TODO: re-enable post-export optimization (shape inference, constant folding)
         # Disabled: needs validation that optimize_onnx preserves HTP hierarchy tags.
