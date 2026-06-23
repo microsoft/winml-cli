@@ -871,6 +871,59 @@
       "mechanism_notes": "Hypothesis: naming PR shipment as a numbered Step (7) with concrete shipment commands + a self-check checklist + an explicit anti-pattern ('don't fall back to local-mirror-only on push failure') causes producers to default to opening the PR without re-prompting. Grounded in the parallel `_meta-031` / `_meta-032` mechanism (making each implicit contract a named obligation causes it to happen). Iter-6 partial confirmation (2026-06-23): producer DID default to `gh pr create` for all pushed branches once auth was fixed (validates the 'do not wait to be asked' half) BUT over-applied the default to Lane A (PR #935, closed by user). Lane A push-only is the missing scope-restriction. Updated Step 7 + new gotcha to forbid `gh pr create` against main for Lane A. Falsified if iter-7's first Lane A skill update gets a `gh pr create` against main.",
       "resolution": "SKILL.md gained a new Step 7 'Ship the PR (do not wait to be asked)' between Step 6 and Cross-references (2026-06-23) with two-lane workflow + shipment commands + push-failure escalation + self-check. Outcome-axis Report-location callout extended with a one-line cross-reference into Step 7. Post-iter-6 amendment (same date): Lane A bullets tightened to forbid `gh pr create` against main; new gotcha records the PR #935 mistake (user closed it). REVIEW.md Outcome-L0 PR-URL check landed in the same skill-only push (REVIEW.md line 29 'PR scope matches Effort tier').",
       "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-034",
+      "title": "Reviewer-checkout protocol: REVIEW.md must instruct reviewer to `gh pr checkout <N>` (or `git checkout <branch>`) BEFORE scoring L0..L3, then restore producer branch on completion. Without this step the reviewer scores the producer's possibly-dirty working tree (with N months of unrelated edits) instead of what maintainers will merge.",
+      "observation": "Iter-6 first reviewer-side run on PRs #933/#934 (2026-06-23) surfaced that REVIEW.md `Inputs you receive` line 1 says 'PR diff or workspace state at HEAD' but never bound the reviewer to explicitly switch to the PR head. The reviewer was already on `shzhen/skills_poc` (producer working branch) which contains 12 untracked items + the full `research/` tree that are NOT in the PR diff. A naive reviewer would have scored the working tree, conflating 'recipe works on shzhen/skills_poc' with 'recipe works on the PR scope against main'. Fix: add Step 0 'Check out the actual PR branch (Lane B reviews)' with stash/checkout/diff-scope/restore protocol, including the artifact-reuse rule (if producer's cached build was built BEFORE the PR branch was cut, verify recipe is byte-identical at PR HEAD before reusing artifacts).",
+      "scope": {
+        "validated_on": ["iter-6 PR #933 (bart-large-mnli) + PR #934 (vit-gpt2) reviewer runs 2026-06-23 \u2014 Step 0 protocol exercised end-to-end: stash README \u2192 checkout PR branch \u2192 diff scope check \u2192 L0..L3 re-run from cached artifacts (verified recipe byte-identical) \u2192 restore producer branch \u2192 stash pop"],
+        "falsified_on": ["implicit pre-`_meta-034` assumption that 'reviewer reads the workspace state' is unambiguous \u2014 there are at least 3 possible workspace states (producer's working branch with untracked files, the PR branch checked out fresh, main + PR diff applied as a worktree). Each gives different L0..L3 results in the presence of stale untracked artifacts."],
+        "refines": ["_meta-007", "_meta-011", "_meta-033"],
+        "not_yet_tested_on": ["L1+ PRs where the reviewer must rebuild from scratch because no cached artifacts exist or because the recipe diff is non-empty between cached-build commit and PR HEAD", "PRs whose branch is force-pushed mid-review \u2014 reviewer may need to re-run Step 0 after the producer addresses REQUEST_CHANGES"]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Producer's `temp/verify_<model>_build/` is gitignored \u2014 it survives branch checkouts. Reviewer who checks out a different PR branch can REUSE these artifacts IF the recipe at PR HEAD is byte-identical to the recipe the producer built from. Verify with `git diff <cached-commit>..HEAD -- examples/recipes/<org>_<model>/` first. Skip reuse if non-empty.",
+        "Working tree with untracked files survives `git checkout` cleanly UNLESS the destination branch tracks one of those paths. If `git checkout` fails with 'would be overwritten by checkout', that's a hidden conflict between an untracked working-tree file and a tracked file on the destination branch \u2014 stash the conflicting paths individually (`git stash push -m '...' <paths>`) rather than the whole working tree.",
+        "Restore step is non-optional. A reviewer who finishes scoring on the PR branch and then `git commit`s skill updates from there will accidentally push the skill updates to the PR branch (Lane B = recipe-only scope leakage, REQUEST_CHANGES under `_meta-033`). Always `git checkout <producer-working-branch>` + `git stash pop` before any further edits."
+      ],
+      "feature_gaps_filed": [
+        "FILE: `gh pr checkout-and-stash` git alias \u2014 a one-shot wrapper that does the stash + checkout + scope-print sequence and prints a one-line 'remember to restore with: git checkout <orig> && git stash pop' reminder."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Mechanism confirmed iter-6 same day: reviewer ran Step 0 end-to-end on PRs #933 + #934, scope checks revealed exactly 2-file / 3-file L0\u2605 shapes (no leakage), cached `temp/verify_bart_build/` and `temp/verify_vit_*/` artifacts were correctly reused because recipe byte-identical between cached-build-commit and PR HEAD, reviewer restored `shzhen/skills_poc` cleanly via `git stash pop` after both reviews. Two APPROVE verdicts shipped as PR comments.",
+      "resolution": "REVIEW.md gained Step 0 'Check out the actual PR branch (Lane B reviews)' (2026-06-23) between 'Inputs you receive' and 'Checklist'. Documents the protocol, the diff-scope sanity check, the artifact-reuse rule, and the restore step. Pushed to `shzhen/skills_poc` commit `1f11b0b8`.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-035",
+      "title": "Same-author block on `gh pr review --approve`: when producer and reviewer agent run under the same GitHub identity, `gh pr review --approve` fails with HTTP 422 'Can not approve your own pull request'. Fallback: post the structured verdict via `gh pr comment` so the human maintainer (the true second-party approver) can read it.",
+      "observation": "Iter-6 (2026-06-23) reviewer agent attempted `gh pr review 933 --approve --body-file ...` on a PR opened by the same GitHub user `ssss141414`. GitHub blocks this at the API level: 'Review Can not approve your own pull request'. The two-agent producer/reviewer flow (defending against `_meta-005`/`_meta-007` single-agent self-grading) is a SEPARATION-OF-CONCERN guarantee in the agent layer, NOT a separation-of-identity guarantee at the GitHub layer. The structured reviewer evidence (independent re-run of L0..L3, diff scope check, composite contract check) still belongs on the PR \u2014 just delivered as a comment, not an Approve.",
+      "scope": {
+        "validated_on": ["iter-6 PR #933 + #934 reviewer-comment fallback (2026-06-23) \u2014 both verdicts posted at https://github.com/microsoft/winml-cli/pull/933#issuecomment-4775278723 and pull/934#issuecomment-4775278822, marked 'APPROVE' in body, maintainer sees them in PR conversation"],
+        "falsified_on": ["pre-`_meta-035` assumption that the two-agent flow + `gh pr review --approve` produces a green GitHub-side approval signal \u2014 it does not, because producer + reviewer share an identity"],
+        "refines": ["_meta-007", "_meta-033"],
+        "not_yet_tested_on": ["actual cross-identity reviewer (different GitHub account) \u2014 e.g. a CI-runner identity that posts approvals after running the REVIEW.md checks programmatically. Would unblock the `--approve` path but adds infra complexity.", "GitHub branch-protection rules that REQUIRE an approval from a different reviewer \u2014 the comment fallback satisfies the human reader but does not satisfy auto-merge gates."]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "`GH_TOKEN` environment variable can re-leak between terminal commands even after `Remove-Item Env:GH_TOKEN` \u2014 PowerShell parent process or VSCode integrated-terminal profile re-injects it. Reviewer agent must `Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue` at the START of every `gh` command sequence, not just once.",
+        "Reviewer's APPROVE / REQUEST_CHANGES / REJECT verdict format (REVIEW.md) is content-only; GitHub's PR Review state (APPROVED / CHANGES_REQUESTED / COMMENTED) is metadata-only. The two coexist: a reviewer-agent COMMENT containing 'APPROVE' is a valid skill-level approval; a GitHub-side APPROVED requires cross-identity which the iter-6 single-identity setup cannot provide.",
+        "Step 7 self-check item 'Reviewer agent (Step 6) was given the PR URL' is unaffected by this finding \u2014 the reviewer can still read the PR and emit its verdict; only the GitHub-side `--approve` button is blocked."
+      ],
+      "feature_gaps_filed": [
+        "FILE: cross-identity reviewer setup \u2014 either (a) run reviewer agent under a service-account GitHub identity, OR (b) accept the comment-only fallback and document that GitHub-side approval requires a human maintainer.",
+        "FILE: REVIEW.md verdict-format clarification \u2014 add a 'How to deliver the verdict' subsection covering same-identity (comment fallback) vs cross-identity (`gh pr review`) cases."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Mechanism confirmed iter-6 same day: `gh pr review --approve` returned HTTP 422 'Can not approve your own pull request' on both PRs; `gh pr comment --body-file` succeeded for both, returning comment URLs. Reviewer's structured APPROVE verdict (independent L0..L3 re-runs + composite contract check) is now visible in PR conversation for the maintainer.",
+      "resolution": "Reviewer verdicts posted as PR comments instead of Reviews: PR #933 \u2192 issuecomment-4775278723, PR #934 \u2192 issuecomment-4775278822. REVIEW.md 'Verdict format' section should gain a 'Same-identity fallback' clause in the next skill push (deferred to next Lane A commit).",
+      "last_updated": "2026-06-23"
     }
   ]
 }

@@ -161,6 +161,12 @@ Produce one of:
 - **REQUEST_CHANGES**: bullet list of every unticked box with the producer-actionable fix. Include the file/line where the missing evidence should land.
 - **REJECT**: structural failure — wrong effort tier, fabricated numbers (verification command that can't actually run), or entire deliverable missing. Cite the SKILL.md row or `_meta-NNN` finding that established the requirement.
 
+### How to deliver the verdict ([`_meta-035`](./skill_meta/findings.json))
+
+For real GitHub PRs, try `gh pr review <N> --approve` / `--request-changes` / `--comment` with `--body-file <path-to-verdict.md>`. **Caveat**: when the reviewer agent runs under the same GitHub identity as the producer (the common single-developer iter-N setup), `gh pr review --approve` is blocked by GitHub with HTTP 422 "Can not approve your own pull request". In that case, fall back to `gh pr comment <N> --body-file <verdict.md>` — the structured APPROVE / REQUEST_CHANGES / REJECT verdict still lands in the PR conversation for the maintainer to read; you simply lose the GitHub-side approval-state metadata.
+
+Restore the producer's working branch before issuing the verdict per Step 0 (otherwise any subsequent edits accidentally commit to the PR branch — Lane B scope leakage per [`_meta-033`](./skill_meta/findings.json)). And clear `GH_TOKEN` (`Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue`) at the start of every `gh` command sequence — the env var re-leaks between commands on some PowerShell setups, causing HTTP 401 even when `gh auth status` shows the web-flow `oauth_token` as active.
+
 ## What this reviewer does not check
 
 - Code style / formatting (lint catches it).
