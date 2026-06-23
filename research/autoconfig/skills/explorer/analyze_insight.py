@@ -8,7 +8,7 @@
 Fuses three signals to build skip_set and priority_queue:
   1. Graph analysis  : op counts, Conv%, GELU variant, dynamic axes
   2. winml analyze   : partial/unsupported op list per EP (static rule data)
-  3. ep_knowledge KB : confirmed empirical findings (skip_passes, priority hints)
+  3. ep_device_knowledge KB : confirmed empirical findings (skip_passes, priority hints)
 
 Outputs:
   InsightResult.skip_set         — set of hypothesis labels to prune
@@ -36,7 +36,9 @@ except ImportError:
     _ONNX_OK = False
 
 # Agent package bootstrap: make the autoconfig root importable for sibling packages.
-_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+_AGENT_ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / "ep_device_knowledge").is_dir()
+)
 if str(_AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AGENT_ROOT))
 

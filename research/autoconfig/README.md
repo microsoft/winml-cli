@@ -29,9 +29,10 @@ under `skills/` — an `autoconfig-orchestrator` (the brain) that delegates to t
 sub-skills `autoconfig-explorer`, `autoconfig-optimizer`, and `autoconfig-reviewer`.
 Each `SKILL.md` mirrors the corresponding class and the diagram phase.
 
-`catalog_qnn_sweep.py` is a generalized multi-model sweep that tests a fixed hypothesis
-matrix (h0–h5: baseline, opset 17–21, conv fusions) across a catalog of models on the
-QNN NPU, collecting structured results in `catalog-qnn-sweep/<model-slug>/results.json`.
+`catalog_sweep.py` is a single, JSON-driven multi-model sweep. It reads the hypothesis
+matrix, model catalog, and per-EP bench protocol from `ep_device_knowledge/<ep>_<device>.json`
+and runs them for any `--ep/--device` combination (qnn/npu, qnn/gpu, dml/gpu, cpu/cpu),
+collecting structured results in `catalog-<device-or-ep>-sweep/<model-slug>/results.json`.
 
 `analyze_graph.py` is an ONNX graph analysis helper that identifies architectural
 patterns relevant to EP optimization (Transpose sandwiches, residual branches, GELU
@@ -110,23 +111,30 @@ python skills/orchestrator/autoconfig.py
 ```
 
 Results are written to `WORK_DIR/results.tsv` and per-hypothesis subdirectories.
-The script reads `ep_knowledge/<ep>.json` to prune already-refuted configurations.
+The script reads `ep_device_knowledge/<ep>_<device>.json` to prune already-refuted configurations.
 
-### catalog_qnn_sweep.py — multi-model QNN NPU sweep
+### catalog_sweep.py — JSON-driven multi-model sweep
+
+One driver covers every EP/device. The hypothesis matrix, model catalog, and bench
+protocol (screen/full iterations, thermal handling, effect-size gate, paired A/B,
+accuracy eval) all come from `ep_device_knowledge/<ep>_<device>.json`:
 
 ```bash
-# Full catalog sweep (all 8 models, ~6-8 hours on X Elite)
-python tools/catalog_qnn_sweep.py
+# Full QNN NPU catalog sweep (all models, ~6-8 hours on X Elite)
+python tools/catalog_sweep.py --ep qnn --device npu
 
-# Single model
-python tools/catalog_qnn_sweep.py --model microsoft/resnet-18
+# CPU EP sweep, single model
+python tools/catalog_sweep.py --ep cpu --device cpu --model microsoft/resnet-18
 
-# Show available models
-python tools/catalog_qnn_sweep.py --list
+# QNN GPU sweep
+python tools/catalog_sweep.py --ep qnn --device gpu
+
+# Show the models/hypotheses configured for an EP/device
+python tools/catalog_sweep.py --ep qnn --device npu --list
 ```
 
-Results land in `catalog-qnn-sweep/<model-slug>/results.json` and a `SUMMARY.md` is
-regenerated at the end of each sweep.
+Results land in `catalog-<device-or-ep>-sweep/<model-slug>/results.json` and a `SUMMARY.md`
+is regenerated at the end of each sweep.
 
 ### analyze_graph.py — ONNX graph analysis
 
@@ -140,14 +148,15 @@ breakdown to stdout.
 
 ---
 
-## ep_knowledge/ — Empirical Knowledge Base
+## ep_device_knowledge/ — Empirical Knowledge Base
 
-Each JSON file stores empirical findings for one EP/device combination:
+Each JSON file stores empirical findings **and** the sweep configuration for one
+EP/device combination, named `<ep>_<device>.json`:
 
 | File | EP/device |
 |---|---|
-| `cpu.json` | CPU EP (Snapdragon X Elite Oryon) |
-| `dml.json` | DirectML EP |
+| `cpu_cpu.json` | CPU EP (Snapdragon X Elite Oryon) |
+| `dml_gpu.json` | DirectML EP (GPU) |
 | `qnn_gpu.json` | QNN Adreno GPU |
 | `qnn_npu.json` | QNN HTP (Hexagon NPU) — most findings here |
 
@@ -166,19 +175,24 @@ Each file has a `findings` array. Each finding has:
 }
 ```
 
+It also carries the data-driven sweep contract consumed by `catalog_sweep.py`:
+`sweep_config` (bench protocol), `hypotheses` (the h0–hN matrix with opset/optim/guards),
+`models` (the catalog), and `cross_checks` (npu-001 opset-bypass, npu-006 catastrophic
+regression, cpu-001 regression probe).
+
 And a `search_space_rules` object that `autoconfig.py` reads to prune configurations
 (only findings with `"mechanism_confirmed": true` are applied as pruning rules).
 
 ### Adding a new finding
 
 1. Run the experiment and collect bench data
-2. Add an entry to the appropriate `ep_knowledge/<ep>.json` under `findings`
+2. Add an entry to the appropriate `ep_device_knowledge/<ep>_<device>.json` under `findings`
 3. Set `"mechanism_confirmed": false` and `"confidence": "draft"` until the mechanism
    is understood from ORT/EP source code
 4. If the finding prunes a search dimension, add a rule under `search_space_rules`
 5. Set `"mechanism_confirmed": true` only after source code investigation confirms
    the root cause — do NOT promote to confirmed based on benchmark numbers alone
-6. See `ep_knowledge/README.md` for the epistemics guidelines
+6. See `ep_device_knowledge/README.md` for the epistemics guidelines
 
 ---
 
@@ -207,14 +221,14 @@ The QNN sweep opts into paired A/B with `--paired-ab` (default off; the validate
 the sequential Phase B):
 
 ```bash
-python tools/catalog_qnn_sweep.py --model apple/mobilevit-small --task image-classification --paired-ab
+python tools/catalog_sweep.py --ep qnn --device npu --model apple/mobilevit-small --task image-classification --paired-ab
 ```
 
 ### skills/reviewer/promote_findings.py — confidence-gated KB promotion (L1 → L4)
 
 Post-processing script (Fix #4) that reads every `catalog-*-sweep/*/results.json` and applies
-the confidence ladder, writing a **draft** to `ep_knowledge/_auto_promoted.json` (it never
-clobbers the curated `<ep>.json` files):
+the confidence ladder, writing a **draft** to `ep_device_knowledge/_auto_promoted.json` (it never
+clobbers the curated `<ep>_<device>.json` files):
 
 | Level | Gate |
 |---|---|
@@ -224,10 +238,10 @@ clobbers the curated `<ep>.json` files):
 | **L4** Cross-cutting | same `(ep, flags)` reaches L2 across ≥3 architecture classes |
 
 ```bash
-python skills/reviewer/promote_findings.py   # writes ep_knowledge/_auto_promoted.json
+python skills/reviewer/promote_findings.py   # writes ep_device_knowledge/_auto_promoted.json
 ```
 
-A human applies the promotion checklist in [`ep_knowledge/README.md`](ep_knowledge/README.md)
+A human applies the promotion checklist in [`ep_device_knowledge/README.md`](ep_device_knowledge/README.md)
 (paired A/B, clean baseline, effect-size > noise floor, independent reruns, baseline-drift
 check) before merging any auto-promoted candidate into the curated KB.
 
@@ -251,7 +265,7 @@ Three actionable gaps in `winml-cli` surfaced by this research:
    that waits for device temperature to stabilize before measurements, and should report
    confidence intervals rather than a single p50.
 
-3. **Budget-aware sweep** — `tools/catalog_qnn_sweep.py` exhausts the 20-min budget on models
+3. **Budget-aware sweep** — `tools/catalog_sweep.py` exhausts the 20-min budget on models
    > 50 ms baseline after just 2 hypotheses (YOLOS: 78 ms × 3×500 iters = 207 s/hypothesis).
    A `--quick` flag that reduces to 1×200-iter for large models is needed.
 
@@ -283,22 +297,20 @@ research/autoconfig/
 │   └── gen_model_report.py      ← per-model report builder used by the sweeps
 │
 ├── tools/                       ← batch drivers and one-off utilities
-│   ├── catalog_qnn_sweep.py     ← fixed-hypothesis multi-model QNN sweep (--paired-ab)
-│   ├── catalog_cpu_sweep.py     ← CPU EP catalog sweep
-│   ├── catalog_gpu_sweep.py     ← QNN GPU catalog sweep
+│   ├── catalog_sweep.py         ← JSON-driven multi-model sweep (--ep/--device, --paired-ab)
 │   ├── validation_sweep.py      ← re-runs to validate KB findings
 │   └── gen_report_v3.py         ← legacy HTML report generator
 │
 ├── docs/                        ← design docs (self-evolution, agent, skills, cross-device)
 │   └── autoconfig_diagram.html  ← Explorer/Optimizer/Reviewer architecture diagram
 │
-├── ep_knowledge/
+├── ep_device_knowledge/
 │   ├── README.md                ← epistemics guidelines + promotion checklist
 │   ├── _auto_promoted.json      ← promote_findings.py output (auto-generated draft)
-│   ├── cpu.json                 ← CPU EP findings (ConvNext, 6 findings)
-│   ├── dml.json                 ← DirectML EP findings
-│   ├── qnn_gpu.json             ← QNN Adreno GPU findings
-│   └── qnn_npu.json             ← QNN HTP NPU findings (npu-001 through npu-007)
+│   ├── cpu_cpu.json             ← CPU EP findings + sweep config (ConvNext, 6 findings)
+│   ├── dml_gpu.json             ← DirectML EP findings + sweep config
+│   ├── qnn_gpu.json             ← QNN Adreno GPU findings + sweep config
+│   └── qnn_npu.json             ← QNN HTP NPU findings + sweep config (npu-001 … npu-007)
 │
 ├── catalog-qnn-sweep/           ← QNN NPU sweep results (also catalog-cpu-sweep/, catalog-gpu-sweep/)
 │   ├── SUMMARY.md               ← 8-model sweep results and cross-model analysis

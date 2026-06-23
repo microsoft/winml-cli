@@ -25,6 +25,212 @@
     "last_updated": "2026-06-22",
     "epistemics_warning": "⚠️ All findings are hypotheses derived from limited models on 1 device (Snapdragon X Elite). Confidence levels reflect how well the mechanism is understood, not how universally applicable the finding is. ALWAYS re-validate on new model architectures before using to prune search space."
   },
+  "sweep_config": {
+    "results_dir": "catalog-qnn-sweep",
+    "quant": "auto",
+    "compile": false,
+    "screen": {
+      "warmup": 20,
+      "iters": 200,
+      "cv_max": 0.15,
+      "thermal_aware": true
+    },
+    "full": {
+      "warmup": 50,
+      "iters": 500,
+      "sessions": 3,
+      "cool_down_s": 30
+    },
+    "confirm_sessions": 2,
+    "min_improvement_pct": 5.0,
+    "effect_size_gate": true,
+    "effect_size_cv_mult": 2.0,
+    "accuracy_eval": true,
+    "eval_samples": 50,
+    "paired_ab_available": true,
+    "baseline_priority": [
+      "h0",
+      "h1"
+    ],
+    "timeouts": {
+      "config_s": 120,
+      "build_s": 480,
+      "bench_s": 480,
+      "eval_s": 360,
+      "model_s": 10800
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "h0",
+      "label": "baseline (auto-config, W8A16)",
+      "opset": null,
+      "optim": null
+    },
+    {
+      "id": "h1",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "optim": null
+    },
+    {
+      "id": "h2",
+      "label": "opset 19",
+      "opset": 19,
+      "optim": null
+    },
+    {
+      "id": "h3",
+      "label": "opset 21 (tests npu-001 bypass)",
+      "opset": 21,
+      "optim": null
+    },
+    {
+      "id": "h4",
+      "label": "opset 17 + conv fusions",
+      "opset": 17,
+      "optim": {
+        "conv_bn_fusion": true,
+        "conv_add_fusion": true,
+        "conv_activation_fusion": true
+      },
+      "guard": {
+        "type": "conv_pct_regression",
+        "finding": "npu-006",
+        "threshold_pct": 20.0
+      }
+    },
+    {
+      "id": "h5",
+      "label": "opset 21 + conv fusions",
+      "opset": 21,
+      "optim": {
+        "conv_bn_fusion": true,
+        "conv_add_fusion": true,
+        "conv_activation_fusion": true
+      },
+      "guard": {
+        "type": "conv_pct_regression",
+        "finding": "npu-006",
+        "threshold_pct": 20.0
+      }
+    },
+    {
+      "id": "h6",
+      "label": "opset 21 + matmul_transpose_fusion",
+      "opset": 21,
+      "optim": {
+        "matmul_transpose_fusion": true
+      }
+    },
+    {
+      "id": "h7",
+      "label": "opset 21 + bias_softmax_fusion",
+      "opset": 21,
+      "optim": {
+        "bias_softmax_fusion": true
+      }
+    },
+    {
+      "id": "h8",
+      "label": "opset 21 + attention_fusion",
+      "opset": 21,
+      "optim": {
+        "attention_fusion": true
+      }
+    },
+    {
+      "id": "h9",
+      "label": "opset 21 + highdimRTR_lowdimRTR",
+      "opset": 21,
+      "optim": {
+        "highdimRTR_lowdimRTR": true
+      }
+    },
+    {
+      "id": "h10",
+      "label": "opset 17 + conv_add_fusion only",
+      "opset": 17,
+      "optim": {
+        "conv_add_fusion": true
+      }
+    }
+  ],
+  "models": [
+    {
+      "id": "microsoft/resnet-18",
+      "task": "image-classification",
+      "model_type": "resnet"
+    },
+    {
+      "id": "google/vit-base-patch16-224",
+      "task": "image-classification",
+      "model_type": "vit"
+    },
+    {
+      "id": "apple/mobilevit-small",
+      "task": "image-classification",
+      "model_type": "mobilevit"
+    },
+    {
+      "id": "facebook/dinov2-small",
+      "task": "image-feature-extraction",
+      "model_type": "dinov2"
+    },
+    {
+      "id": "hustvl/yolos-small",
+      "task": "object-detection",
+      "model_type": "yolos"
+    },
+    {
+      "id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+      "task": "text-classification",
+      "model_type": "distilbert"
+    },
+    {
+      "id": "sentence-transformers/all-MiniLM-L6-v2",
+      "task": "sentence-similarity",
+      "model_type": "bert"
+    },
+    {
+      "id": "deepset/roberta-base-squad2",
+      "task": "question-answering",
+      "model_type": "roberta"
+    },
+    {
+      "id": "microsoft/rad-dino",
+      "task": "image-feature-extraction",
+      "model_type": "dinov2"
+    },
+    {
+      "id": "deepset/tinyroberta-squad2",
+      "task": "question-answering",
+      "model_type": "roberta"
+    },
+    {
+      "id": "BAAI/bge-small-en-v1.5",
+      "task": "sentence-similarity",
+      "model_type": "bert"
+    }
+  ],
+  "cross_checks": [
+    {
+      "id": "npu-001",
+      "type": "opset_bypass",
+      "candidate": "h3",
+      "stress_ref": "h1",
+      "baseline_ref": "h0"
+    },
+    {
+      "id": "npu-006",
+      "type": "catastrophic_regression",
+      "hypotheses": [
+        "h4",
+        "h5"
+      ],
+      "ratio_threshold": 5.0
+    }
+  ],
   "findings": [
     {
       "id": "npu-001",
@@ -194,8 +400,16 @@
             8.449
           ],
           "clean_rerun_2026_06_22": {
-            "h0_opset17_sessions_ms": [4.98, 5.51, 5.72],
-            "h3_opset21_sessions_ms": [5.36, 5.26, 5.90],
+            "h0_opset17_sessions_ms": [
+              4.98,
+              5.51,
+              5.72
+            ],
+            "h3_opset21_sessions_ms": [
+              5.36,
+              5.26,
+              5.9
+            ],
             "h6_opset21_matmul_transpose_p50_ms": 6.218,
             "verdict": "NEUTRAL_WITHIN_NOISE (+2.81%, ranges overlap)"
           },

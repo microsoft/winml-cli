@@ -19,6 +19,207 @@
       "microsoft/rad-dino"
     ]
   },
+  "sweep_config": {
+    "results_dir": "catalog-gpu-sweep",
+    "quant": false,
+    "compile": false,
+    "screen": {
+      "warmup": 20,
+      "iters": 200,
+      "cv_max": 0.15,
+      "thermal_aware": false
+    },
+    "full": {
+      "warmup": 20,
+      "iters": 300,
+      "sessions": 3,
+      "cool_down_s": 5
+    },
+    "confirm_sessions": 2,
+    "min_improvement_pct": 5.0,
+    "effect_size_gate": false,
+    "effect_size_cv_mult": 2.0,
+    "accuracy_eval": false,
+    "eval_samples": 50,
+    "paired_ab_available": false,
+    "baseline_priority": [
+      "h0"
+    ],
+    "timeouts": {
+      "config_s": 300,
+      "build_s": 600,
+      "bench_s": 480,
+      "eval_s": 360,
+      "model_s": null
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "h0",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": null,
+      "optim": null
+    },
+    {
+      "id": "h1",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "optim": null
+    },
+    {
+      "id": "h2",
+      "label": "opset 19",
+      "opset": 19,
+      "optim": null
+    },
+    {
+      "id": "h3",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "optim": null
+    },
+    {
+      "id": "h4",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "optim": {
+        "matmul_transpose_fusion": true
+      }
+    },
+    {
+      "id": "h5",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "optim": {
+        "attention_fusion": true
+      }
+    },
+    {
+      "id": "h6",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "optim": {
+        "bias_softmax_fusion": true
+      }
+    },
+    {
+      "id": "h7",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true
+      }
+    },
+    {
+      "id": "h8",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "skip_layer_norm_fusion": true
+      }
+    },
+    {
+      "id": "h9",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "optim": {
+        "matmul_transpose_fusion": true,
+        "attention_fusion": true
+      }
+    },
+    {
+      "id": "h10",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "matmul_transpose_fusion": true
+      }
+    },
+    {
+      "id": "h11",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "optim": {
+        "gelu_fusion": true
+      }
+    },
+    {
+      "id": "h12",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "optim": {
+        "transpose_optimizer": true
+      }
+    }
+  ],
+  "models": [
+    {
+      "id": "microsoft/resnet-18",
+      "task": "image-classification",
+      "model_type": "resnet"
+    },
+    {
+      "id": "google/vit-base-patch16-224",
+      "task": "image-classification",
+      "model_type": "vit"
+    },
+    {
+      "id": "apple/mobilevit-small",
+      "task": "image-classification",
+      "model_type": "mobilevit"
+    },
+    {
+      "id": "facebook/dinov2-small",
+      "task": "image-feature-extraction",
+      "model_type": "dinov2"
+    },
+    {
+      "id": "hustvl/yolos-small",
+      "task": "object-detection",
+      "model_type": "yolos"
+    },
+    {
+      "id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+      "task": "text-classification",
+      "model_type": "distilbert"
+    },
+    {
+      "id": "sentence-transformers/all-MiniLM-L6-v2",
+      "task": "sentence-similarity",
+      "model_type": "bert"
+    },
+    {
+      "id": "deepset/roberta-base-squad2",
+      "task": "question-answering",
+      "model_type": "roberta"
+    },
+    {
+      "id": "microsoft/rad-dino",
+      "task": "image-feature-extraction",
+      "model_type": "dinov2"
+    },
+    {
+      "id": "deepset/tinyroberta-squad2",
+      "task": "question-answering",
+      "model_type": "roberta"
+    },
+    {
+      "id": "BAAI/bge-small-en-v1.5",
+      "task": "sentence-similarity",
+      "model_type": "bert"
+    }
+  ],
+  "cross_checks": [
+    {
+      "id": "gpu-006",
+      "type": "opset_bypass",
+      "candidate": "h3",
+      "stress_ref": "h1",
+      "baseline_ref": "h0"
+    }
+  ],
   "findings": [
     {
       "id": "gpu-001",

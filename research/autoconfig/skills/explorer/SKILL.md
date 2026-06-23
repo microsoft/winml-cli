@@ -27,7 +27,7 @@ the next candidate config delta. Not used standalone.
 ## Inputs
 
 - `hypothesis_pool` — list of `(label, patch_fn, dimension)` candidates (opset bumps, EP toggles, graph-optimization passes).
-- `kb` — confirmed `ep_knowledge/<ep>.json` rules, especially `skip_passes` hard-blocks.
+- `kb` — confirmed `ep_device_knowledge/<ep>_<device>.json` rules, especially `skip_passes` hard-blocks.
 - `insight` — Phase 1 output: `skip_set` (passes to prune for this model) + `priority_boosts` (per-label ranking weight).
 
 ## Procedure

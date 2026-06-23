@@ -30,7 +30,7 @@ the explorer / optimizer / reviewer sub-skills formalize).
 - "Find the fastest config for this model on my NPU/GPU/CPU"
 - "Sweep opset 17–21 and graph optimizations and tell me what actually helps"
 - "Run an automated, statistically-honest config search and give me an auditable report"
-- Driving a catalog sweep across many models (see `catalog_qnn_sweep.py`)
+- Driving a catalog sweep across many models (see `catalog_sweep.py`)
 
 ## Sub-skills it coordinates
 

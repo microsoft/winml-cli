@@ -35,7 +35,7 @@ before its `confidence` is raised above `draft` / before it is used to prune sea
    CV is high or contains a >2σ spike. A noisy baseline poisons every ratio derived from it.
 3. **Effect size > noise floor.** Require `gain% >= 2 × (session-to-session CV)` AND
    non-overlapping session p50 ranges. A sub-5% median win on QNN NPU is noise by default.
-   (`catalog_qnn_sweep.py` now emits `best_gain_verdict`: `RELIABLE` /
+   (`catalog_sweep.py` now emits `best_gain_verdict`: `RELIABLE` /
    `NEUTRAL_WITHIN_NOISE` / `UNRELIABLE_RANGES_OVERLAP` for exactly this.)
 4. **Independent reruns, then tiered confidence.** A single sweep is **L1 (draft)** only.
    Promote to **L3** only after ≥N independent reruns (fresh build) agree in direction;

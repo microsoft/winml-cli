@@ -14,7 +14,7 @@ Bench protocol (npu-007):
     KEEP criterion: all p50s below baseline; for NPU, ranges must not overlap.
 
 winml config + build helpers are also centralized here to avoid duplication
-between catalog_qnn_sweep.py and validation_sweep.py.
+between catalog_sweep.py and validation_sweep.py.
 """
 
 from __future__ import annotations

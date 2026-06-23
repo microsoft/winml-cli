@@ -15,7 +15,7 @@ Key design principles (from GPU Optimizer V2 + ConvNext lessons):
      (CPU/GPU) — or unconditionally for QNN NPU (npu-007: DVFS makes CV unreliable)
   2. Use winml perf (NOT winml eval) for latency — eval includes HF preprocessing
   3. Mandatory external-research after 5 consecutive DISCARDs in same dimension
-  4. Load ep_knowledge/*.json (only "confirmed" entries) to prune search space
+  4. Load ep_device_knowledge/*.json (only "confirmed" entries) to prune search space
   5. Per-experiment structured output: hypothesis/impl/parity/perf/analysis/decision
   6. Stop condition: 30 consecutive DISCARDs (not 5)
 
@@ -34,9 +34,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Agent package bootstrap: make the autoconfig root (the dir holding ep_knowledge/)
+# Agent package bootstrap: make the autoconfig root (the dir holding ep_device_knowledge/)
 # importable so sibling skills/lib packages resolve when run as a standalone script.
-_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+_AGENT_ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / "ep_device_knowledge").is_dir()
+)
 if str(_AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AGENT_ROOT))
 
@@ -66,7 +68,7 @@ DEVICE = "cpu"
 WINML = str(_AGENT_ROOT / ".venv" / "Scripts" / "winml.exe")
 WORK_DIR = _AGENT_ROOT / "convnext-search"
 RESULTS_TSV = WORK_DIR / "results.tsv"
-KB_DIR = _AGENT_ROOT / "ep_knowledge"
+KB_DIR = _AGENT_ROOT / "ep_device_knowledge"
 
 EVAL_SAMPLES = 50  # for accuracy gate
 ACCURACY_FLOOR = 0.70  # cosine drop below this → discard
@@ -100,7 +102,7 @@ def load_ep_knowledge(ep: str) -> dict:
     """Load confirmed KB entries for given EP. Only 'confirmed' status entries
     are used to prune search space. 'draft' entries are informational only.
     """
-    kb_path = KB_DIR / f"{ep}.json"
+    kb_path = KB_DIR / f"{ep}_{DEVICE}.json"
     if not kb_path.exists():
         return {"skip_passes": [], "skip_quantization": False, "notes": []}
 
@@ -526,14 +528,14 @@ Timestamp: {datetime.now().isoformat(timespec="seconds")}
 def write_kb_draft(
     ep: str, label: str, improvement_pct: float, cv: float, model_id: str, dimension: str
 ) -> None:
-    """Append a draft finding to ep_knowledge/<ep>.json when improvement > 10%.
+    """Append a draft finding to ep_device_knowledge/<ep>_<device>.json when improvement > 10%.
 
     The entry gets status='draft' — a human must review and promote to 'confirmed'
     after Gate 2 validation (>=2 independent models, mechanism understood).
     """
     if improvement_pct < 10.0:
         return
-    kb_path = KB_DIR / f"{ep}.json"
+    kb_path = KB_DIR / f"{ep}_{DEVICE}.json"
     if not kb_path.exists():
         return
     try:
@@ -792,7 +794,9 @@ def main() -> None:
                 print(
                     "     -> Check kMaxSupportedOpset for opset dimension, EP-specific rules for others"
                 )
-                print(f"     -> File findings in ep_knowledge/{EP}.json as 'draft' entry")
+                print(
+                    f"     -> File findings in ep_device_knowledge/{EP}_{DEVICE}.json as 'draft' entry"
+                )
         else:
             consecutive_discards = 0
             discard_by_dimension[dimension] = 0

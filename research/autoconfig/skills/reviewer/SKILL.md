@@ -39,7 +39,7 @@ benchmark + accuracy data. Not used standalone.
    - `MARGINAL_KEEP` — improvement between 1x and 1.5x threshold.
    - `DISCARD` — improvement below threshold (noise-level), or
    - `ACC_FAIL` — accuracy below floor.
-5. **KB draft** — on a non-marginal KEEP with improvement > 10%, append a `status="draft"` finding to `ep_knowledge/<ep>.json` (de-duplicated per label+model).
+5. **KB draft** — on a non-marginal KEEP with improvement > 10%, append a `status="draft"` finding to `ep_device_knowledge/<ep>_<device>.json` (de-duplicated per label+model).
 
 ## Outputs
 

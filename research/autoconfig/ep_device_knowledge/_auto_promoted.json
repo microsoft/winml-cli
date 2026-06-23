@@ -2,7 +2,7 @@
   "_meta": {
     "generated_by": "promote_findings.py",
     "status": "draft",
-    "note": "Auto-generated promotion candidates. NOT curated KB. Apply the promotion checklist in ep_knowledge/README.md (paired A/B, clean baseline, effect-size > noise floor, independent reruns, baseline-drift check) before merging into <ep>.json.",
+    "note": "Auto-generated promotion candidates. NOT curated KB. Apply the promotion checklist in ep_device_knowledge/README.md (paired A/B, clean baseline, effect-size > noise floor, independent reruns, baseline-drift check) before merging into <ep>_<device>.json.",
     "gates": {
       "L1_gain_pct": 5.0,
       "L2_effect_size_cv_mult": 2.0,

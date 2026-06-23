@@ -11,7 +11,7 @@ Tests:
   npu-001: opset17 vs opset21 speedup on Conv+attention hybrid vs pure ViT
   npu-006: conv fusions regression — confirm MobileViT/DINOv2 are unaffected
 
-Hypotheses (subset of catalog_qnn_sweep.py):
+Hypotheses (subset of catalog_sweep.py):
   h0: baseline (auto-config, W8A16)
   h1: opset 17 explicit
   h3: opset 21  ← npu-001 test
@@ -37,8 +37,10 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
-# Autoconfig root = the dir holding ep_knowledge/; repo root is two levels above it.
-_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+# Autoconfig root = the dir holding ep_device_knowledge/; repo root is two levels above it.
+_AGENT_ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / "ep_device_knowledge").is_dir()
+)
 BASE_DIR = _AGENT_ROOT
 REPO_ROOT = _AGENT_ROOT.parent.parent  # research/autoconfig/ → research/ → repo root
 WINML = str(REPO_ROOT / ".venv" / "Scripts" / "winml.exe")

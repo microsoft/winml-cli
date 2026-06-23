@@ -20,9 +20,9 @@ L1 -> L4 confidence ladder from ``docs/self-evolution-design.html`` §2:
     L4  Cross-cutting — the same (ep, flags) signature reaches L2 across >= 3
                         architecture classes; scope broadens to EP-wide.
 
-Output is written to ``ep_knowledge/_auto_promoted.json`` as a DRAFT sink — it
-never clobbers the human-curated ``ep_knowledge/<ep>.json`` files. A human applies
-the promotion checklist in ``ep_knowledge/README.md`` before merging anything into
+Output is written to ``ep_device_knowledge/_auto_promoted.json`` as a DRAFT sink — it
+never clobbers the human-curated ``ep_device_knowledge/<ep>_<device>.json`` files. A human applies
+the promotion checklist in ``ep_device_knowledge/README.md`` before merging anything into
 the curated KB. This keeps "KB holds L3+ only" while protecting curated findings.
 
 Architecture class == winml ``model_type`` (an architecture family such as
@@ -30,7 +30,7 @@ Architecture class == winml ``model_type`` (an architecture family such as
 universal and contains no hard-coded model logic.
 
 Usage:
-    uv run python promote_findings.py [--root .] [--out ep_knowledge/_auto_promoted.json]
+    uv run python promote_findings.py [--root .] [--out ep_device_knowledge/_auto_promoted.json]
 """
 
 from __future__ import annotations
@@ -42,13 +42,16 @@ from collections import defaultdict
 from pathlib import Path
 
 # Agent package bootstrap: make the autoconfig root importable for sibling packages.
-_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+_AGENT_ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / "ep_device_knowledge").is_dir()
+)
 if str(_AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AGENT_ROOT))
 
 from skills.optimizer.bench_utils import session_cv  # noqa: E402
 
-# Effect-size multiplier — must match catalog_qnn_sweep.EFFECT_SIZE_CV_MULT.
+# Effect-size multiplier — must match the `effect_size_cv_mult` in the sweep config
+# (ep_device_knowledge/<ep>_<device>.json) used by catalog_sweep._effect_size.
 EFFECT_SIZE_CV_MULT = 2.0
 L1_GAIN_PCT = 5.0  # L1 (Observed) minimum median gain
 L3_MIN_MODELS = 2  # distinct models of one arch class for L3
@@ -105,7 +108,7 @@ def _baseline_p50s(hyps: dict) -> list[float]:
 def classify_hypothesis(hyp: dict, base_p50s: list[float]) -> dict | None:
     """Return per-hypothesis L1/L2 classification vs a baseline, or None if not OK.
 
-    Mirrors the effect-size gate in catalog_qnn_sweep._compute_summary so promotion
+    Mirrors the effect-size gate in catalog_sweep._effect_size so promotion
     and the sweep agree on what "reliable" means.
     """
     if hyp.get("status") not in OK_STATUSES:
@@ -252,11 +255,11 @@ def main() -> None:
         "--out",
         type=Path,
         default=None,
-        help="output draft file (default: <root>/ep_knowledge/_auto_promoted.json)",
+        help="output draft file (default: <root>/ep_device_knowledge/_auto_promoted.json)",
     )
     args = parser.parse_args()
     root: Path = args.root
-    out: Path = args.out or (root / "ep_knowledge" / "_auto_promoted.json")
+    out: Path = args.out or (root / "ep_device_knowledge" / "_auto_promoted.json")
 
     records = collect(root)
     ladder = promote(records)
@@ -266,9 +269,9 @@ def main() -> None:
             "status": "draft",
             "note": (
                 "Auto-generated promotion candidates. NOT curated KB. Apply the "
-                "promotion checklist in ep_knowledge/README.md (paired A/B, clean "
+                "promotion checklist in ep_device_knowledge/README.md (paired A/B, clean "
                 "baseline, effect-size > noise floor, independent reruns, "
-                "baseline-drift check) before merging into <ep>.json."
+                "baseline-drift check) before merging into <ep>_<device>.json."
             ),
             "gates": {
                 "L1_gain_pct": L1_GAIN_PCT,
