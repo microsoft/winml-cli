@@ -1,0 +1,58 @@
+{
+  "_note": "Workaround: input_ids.value_range narrowed to [2,3] (eos_token_id=2) so BartForSequenceClassification eos-pooling never sees an empty match during export. Verified end-to-end: build complete (157s), L0 PASS (1042 nodes, opset 17), L1-CPU PASS (1638ms/iter with real input — `winml perf` will fail because random ints lack eos), L2 PASS (cosine=1.0, max_abs=1e-6 vs PyTorch on premise+hypothesis pair). See research/adding-model-support/model_knowledge/bart.json bart-004.",
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "input_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          1024
+        ],
+        "value_range": [
+          2,
+          3
+        ]
+      },
+      {
+        "name": "attention_mask",
+        "dtype": "int32",
+        "shape": [
+          1,
+          1024
+        ],
+        "value_range": [
+          1,
+          2
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      }
+    ]
+  },
+  "optim": {
+    "clamp_constant_values": true,
+    "gelu_fusion": true,
+    "matmul_add_fusion": true,
+    "remove_isnan_in_attention_mask": true
+  },
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "text-classification",
+    "model_class": "AutoModelForSequenceClassification",
+    "model_type": "bart"
+  }
+}
