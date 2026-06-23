@@ -46,6 +46,8 @@ Before touching anything, pick one cell per axis. Writing this down avoids the m
 | **L1 — Per-architecture code from scratch** | New file under `models/hf/` that writes an `OnnxConfig` against the HF `transformers` source (no vendor base to subclass), plus optionally `@register_composite_model` | `vilt`: not registered anywhere — write `VILTOnnxConfig` from the HF `VILTModel` source. Any `model_type` truly absent from `TasksManager._SUPPORTED_MODEL_TYPE[...]['onnx']` |
 | **L2 — Deeper / structural** | Touching [src/winml/modelkit/models/winml/](../../src/winml/modelkit/models/winml/) shared infra, calibration plumbing, custom op handling, or things outside the per-model surface | New `WinMLCompositeModel` sub-pattern (e.g. first true VQA decoder model); architecture needs a non-standard shared `DummyInputGenerator`; tokenization or pre/post-processing not expressible via the existing `InferenceEngine` task spec |
 
+> **Pre-flight on L0 / L0★** ([`_meta-038`](./skill_meta/findings.json)): before claiming L0 or L0★, run Step 1b's two gates (auto-config diff + baseline build). If both gates show the CLI on `main` already handles your model with zero delta, this is **NOT a contribution** — it's a paraphrase of `winml config` output. The Goal-ladder measures `main`, not your PR. Either close the work or escalate to a recipe with measurable perf / quant / eval delta over baseline.
+
 If you find yourself drifting from L0 → L0★, L0★ → L1-light, L1-light → L1, or L1 → L2 mid-session, **stop and re-pick**. Each escalation changes the review surface and the Outcome you owe. **L0★ in particular is the trap**: a contributor commits to L0 ("just a recipe"), discovers no template exists, writes one from scratch, and now also owes a template-publication finding — that's the L0★ contract. **L1-light vs L1 is the other common mis-estimate** — see Step 1 below; many `model_type`s look unregistered to winml's eyes but are already covered by Optimum natively, dropping the work from "write `OnnxConfig` from scratch" to "subclass and override one method" or even to L0★.
 
 > **Batch-mode contract** (see [skill_meta/findings.json](./skill_meta/findings.json) `_meta-010`). If your contribution covers N ≥ 3 models, your PR description MUST include a pre-build N-row tier table classifying every candidate as exactly one of:
@@ -73,6 +75,8 @@ Goal tiers are **cumulative in intent but independently verified**: each row can
 > **L2 — feature gap.** Direct PyTorch-vs-ONNX numerical compare is not a first-class `winml` mode today; `winml eval --mode compare` compares ONNX-to-ONNX (e.g. quantized vs. FP32 ONNX). Until a `--reference pytorch` mode exists, **L2 is best-effort** — either (a) approximate by comparing your quantized ONNX to your own FP32 ONNX export (which folds export error into the baseline, masking it), or (b) write a one-off comparison script in `temp/` and report numbers in the PR. Either way, **file the gap** as part of the L1 Outcome (below).
 
 > **L3 — task-registry coverage is a structural gate.** `winml eval`'s TASK_REGISTRY as of 2026-06-22 covers 16 tasks (mostly classification + extractive); generative text-to-text tasks (`translation`, `summarization`, `text2text-generation`) are NOT registered. Every seq2seq translation / summarization recipe is L3-CLI-blocked no matter how good the recipe is. Probe via `winml eval --schema --task <task>` BEFORE planning L3 evidence; if blocked, downgrade publicly and file the gap.
+
+> **Catalog guardrail** ([`_meta-038`](./skill_meta/findings.json)): a Goal-Lx PASS verdict is meaningful **only when Step 1b's two gates have run AND at least one shows a real delta over baseline**. If Gate 1 (auto-config diff) returns IDENTICAL and Gate 2 (baseline build on `main`) returns PASS, then every Lx verdict you can produce is a property of `main`, not of your PR — `winml build` would have produced the same artifact with the same Lx pass/fail without your recipe existing. In that situation the contribution is `Effort-L0★-catalog` (no PR) OR must demonstrate measurable artifact delta (perf, quant quality, eval accuracy) over the baseline build. Goal-ladder framing without passing the catalog gate first is `_meta-007` self-grading at the methodology level.
 
 ### Outcome axis — what you ship
 
@@ -195,6 +199,51 @@ For seq2seq / composite models the JSON additionally carries `pipeline_tasks` (e
 - **Invariant**: `winml inspect -m X`, `winml config -m X`, and `winml build -c <recipe> -m X` MUST resolve the same task for the same input ([`_meta-028`](./skill_meta/findings.json), enforced by `tests/integration/test_task_consistency.py`). If you see disagreement, file it as a bug — DO NOT try to work around it in the recipe.
 
 Save the JSON; cite it in the PR and quote it in your knowledge-base append.
+
+## Step 1b — Catalog vs real-engineering gate (run BEFORE any recipe work) ([`_meta-038`](./skill_meta/findings.json))
+
+The Goal-ladder measures "the model end-to-end works", **not** "this PR adds engineering delta over auto-generated config". Without this gate it is possible (and on 2026-06-23 this happened 6 PRs in a row) to earn a `Goal-L1 PASS` verdict by shipping a recipe that does nothing the CLI on `main` doesn't already do. **Run both gates before writing the recipe, not after.**
+
+### Gate 1 — auto-config diff
+
+```bash
+# Generate what the CLI would produce on its own:
+winml config -m <hf-id> --task <task> -o temp/autoconf_<stem>.json
+# (For composite models, this emits <stem>_encoder.json + <stem>_decoder.json.)
+
+# Strip `_note` from any reference recipe you were planning to ship, then diff:
+python -c "import json; a=json.load(open('temp/autoconf_<stem>.json')); b={k:v for k,v in json.load(open('<your_recipe>.json')).items() if k!='_note'}; print('IDENTICAL' if a==b else 'DIFFERS')"
+```
+
+- If **IDENTICAL** → your recipe is a paraphrase of `winml config` output. **Do not file a PR.** Hand the user the `winml build -m <hf-id>` command instead. (Reference template: [`temp/auto_config_diff.py`](../../temp/auto_config_diff.py).)
+- If **DIFFERS** → record the diff in the PR description as your delta hypothesis; the next gate decides whether the delta is real.
+
+### Gate 2 — baseline build on `main`
+
+```powershell
+winml build -m <hf-id> -o temp/baseline_<stem> `
+  --ep cpu --device cpu `
+  --no-analyze --no-optimize --no-quant --no-compile --rebuild
+```
+
+- **No `-c <recipe>`. No PR files. No `--task` (build infers task).** This is `main`-only behavior.
+- If it **PASSES** → the CLI on `main` already supports this model. Your recipe is `Effort-L0★-catalog` AT BEST. Goal-Lx PASS framing is forbidden — the Goal-ladder is measuring `main`, not your PR. Either (a) close the PR and recommend `winml build -m <hf-id>` direct, or (b) demonstrate via numbers (perf delta, quant delta, eval delta) that your recipe produces a strictly better artifact than the baseline.
+- If it **FAILS** → quote the exact error in the PR description. Your recipe must fix this specific failure for the contribution to count as real engineering. Re-run Gate 2 with `-c <your_recipe>` and confirm the failure goes away. The diff between failing baseline and passing recipe-build IS your engineering delta.
+- If it **PASSES BUT** with non-fatal stderr (e.g. `OpenVINOExecutionProvider` shim error when CPU EP is requested) → ignore the stderr, check the log tail for `✅ Build complete in <N>s`. Shell exit code may be non-zero from the shim noise; the build succeeded.
+
+### Verdict mapping
+
+| Gate 1 | Gate 2 | Verdict | Action |
+|---|---|---|---|
+| IDENTICAL | PASS | Catalog clone | Do not file PR. Recommend `winml build` direct. |
+| DIFFERS (cosmetic, e.g. `_note` / inert override per [`_meta-017`](./skill_meta/findings.json)) | PASS | Catalog with decoration | Do not file PR. |
+| DIFFERS (real fields) | PASS | Catalog ★ — needs numbers | Only file PR if you can show perf / quant / eval *delta* between `-c <recipe>` build and baseline build. Goal-Lx framing forbidden without numbers. |
+| Any | FAIL | Real engineering | File PR. Goal-ladder applies. Cite the baseline failure verbatim. |
+| Cannot run Gate 2 (model fetch fails — FAIL-UPSTREAM) | n/a | FAIL-UPSTREAM | Fall back to HF repo inspection per [`_meta-018`](./skill_meta/findings.json) BLOCKED rules. Catalog-only rule does NOT apply (no baseline to clone). |
+
+**Why both gates?** Gate 1 alone misses semantically-inert overrides (e.g. `value_range: [2,3]` on a sequence-classification model that `winml perf` ignores per [`_meta-017`](./skill_meta/findings.json)). Gate 2 alone misses recipe changes that improve quality without changing whether the build crashes (e.g. better `quant` calibration). Together they pin "this PR adds nothing the CLI-on-`main` user can't already get" to the floor.
+
+> **Reviewer hook**: every recipe PR description MUST include the verdict-table row from above with timestamped command outputs (`winml --version`, `git rev-parse HEAD`, both gate logs). Missing this section is REQUEST_CHANGES regardless of artifact quality. See [REVIEW.md](./REVIEW.md) for the reviewer checklist row.
 
 ## Step 2 — Add or extend the per-architecture file (Effort ≥ L1 only)
 
@@ -359,6 +408,7 @@ Filename = lowercase HF `model_type` (`config.json["model_type"]`). One file per
 | 5 | **Reviewer found gap** — the reviewer agent flagged a check that REVIEW.md doesn't currently encode | New `_meta-NNN` capturing the missed check + REVIEW.md checklist row added |
 | 6 | **Effort mis-estimate** — you committed to L0/L0★/L1-light and ended at L0★/L1-light/L1 (or vice-versa) because the Optimum-coverage probe or the actual code surface contradicted Step 0's classification | New `_meta-NNN` documenting the misclassification signal + SKILL.md Step 0 Effort table edit (add the disambiguator that would have caught it earlier) |
 | 7 | **PR-mining discovery** — you read a recent winml PR (per Step 1's PR-mining substep) and found a behavior or check that SKILL.md doesn't yet cite | New `_meta-NNN` per PR + SKILL.md / REVIEW.md edit citing the PR with branch-state classification per [`_meta-030`](./skill_meta/findings.json) |
+| 8 | **Catalog-only escape** — Step 1b gate showed the model already builds on `main` AND your recipe is byte-identical to `winml config` output (or differs only on a semantically-inert field per [`_meta-017`](./skill_meta/findings.json) etc), yet you still felt drawn to file a PR | New `_meta-NNN` documenting which CLI surface (perf? eval? task registry?) you thought your recipe addressed + how Step 1b would have caught the false signal earlier. This is the [`_meta-038`](./skill_meta/findings.json) parent-class — if you nearly fell for it again, the gate isn't tight enough |
 
 ### Anti-trigger — do NOT bloat findings.json
 
@@ -368,7 +418,7 @@ If NONE of triggers 1–7 fired, you do NOT owe a `_meta-NNN`. A no-friction con
 
 Use the same finding schema as Step 4 with these required fields tightened:
 
-- `id`: `_meta-NNN` where `NNN` = `(max existing id) + 1`. Currently next id = **`_meta-038` (post-iter-6, 2026-06-23)** — grep `findings.json` for the actual max before assigning.
+- `id`: `_meta-NNN` where `NNN` = `(max existing id) + 1`. Currently next id = **`_meta-039` (post-iter-6 + catalog-only audit, 2026-06-23)** — grep `findings.json` for the actual max before assigning.
 - `scope.validated_on`: cite the exact run that surfaced the friction (model id, command, error message or wrong-output diff).
 - `scope.refines` / `scope.falsified_on`: if your finding supersedes an existing `_meta-NNN`, name it here. Append, don't rewrite (same rule as Step 4).
 - `mechanism_confirmed`: `true` only if you re-ran with the fix and confirmed the friction is gone. Otherwise `false` with hypothesis in `mechanism_notes`.

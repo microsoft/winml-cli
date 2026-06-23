@@ -2,7 +2,7 @@
   "_meta": {
     "family": "_meta",
     "purpose": "Methodology-level findings about this skill itself. Not a model family. Lives alongside per-family files so the dialectical record covers the framework too.",
-    "last_updated": "2026-06-23",
+    "last_updated": "2026-06-23 (added _meta-038: auto-config-diff + baseline-build gates)",
     "epistemics_warning": "These are observations about SKILL.md, not about any model. Update when the skill's own claims are refuted."
   },
   "findings": [
@@ -976,6 +976,46 @@
       "mechanism_confirmed": false,
       "mechanism_notes": "Mechanism not yet tested at write time. Next BLOCKED verdict in iter-7 is the test \u2014 producer should either walk the ladder and find a success (in which case the verdict isn't BLOCKED), or walk all 6 and document each + file a feature gap. Either outcome confirms the rule; only 'declared BLOCKED without naming any ladder step' falsifies it.",
       "resolution": "SKILL.md gained 'Step 4c \u2014 Try harder before declaring `*-BLOCKED`' (2026-06-23). 6-step ladder + step 7 feature-gap requirement. Cross-references `_meta-013`, `_meta-017`, `_meta-018`, `_meta-026`. Pushed to `shzhen/skills_poc` in the same commit as `_meta-036`.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-038",
+      "title": "Auto-config-diff AND baseline-build gates BEFORE claiming a recipe 'adds model support': the Goal-ladder measures 'model end-to-end works', NOT 'recipe adds engineering delta over auto-generated config'. Without these two cheap upstream gates, a Goal-Lx PASS verdict can be earned by a recipe that does literally nothing the CLI on `main` doesn't already do out-of-box.",
+      "observation": "On 2026-06-23 (post-iter-6) the user pushed back on PRs #933 and #934 with '\u4f60\u6709\u505a\u4ec0\u4e48\u5de5\u4f5c\u5417\uff1f\u4f60\u7684 recipe \u6d4b\u8bd5\u7684\u65f6\u5019\u4e5f\u6ca1\u6709\u7528\u5230\u3002\u600e\u4e48\u770b\u8d77\u6765\u50cf\u672c\u6765\u5c31\u652f\u6301' \u2014 essentially 'did you actually do any work? the recipe wasn't used in your verification, so it looks like the model was already supported on main'. Investigation: (1) auto-config-diff via `winml config -m <id> --task <task>` against the shipped recipe (stripping `_note`) revealed 5 of 5 halves byte-IDENTICAL across PRs #934 (vit-gpt2 enc+dec), #943 (DepthPro), #944 (en-ru enc+dec), #945 (fr-en enc+dec); (2) baseline-build via `winml build -m <id> -o <tmp> --ep cpu --device cpu --no-analyze --no-optimize --no-quant --no-compile --rebuild` (NO `-c`, NO PR files) PASSED out-of-box for all 4 models on `main` (opus-mt-en-ru 86s/330MB, opus-mt-fr-en 53s/342MB, vit-gpt2 144s/1.06GB, DepthPro 489s/3.6GB) and also for #933 BART-MNLI (151s/1.6GB) where shipped recipe had `value_range: [2,3]` override that auto-config didn't emit; (3) for BART specifically, `_meta-017` already documents that `winml perf` IGNORES recipe `value_range` and uses random inputs, so even the one nominally-distinct field had zero CLI-surface delta. Net: 6 of 6 recent recipe PRs (#933, #934, #943, #944, #945, #946) had zero engineering delta over `winml config` auto-generated output, yet 5 of them claimed `Goal-L1 PASS` / `Goal-L2-encoder PASS` framing. The Goal-ladder rewards 'CLI didn't crash on this model' \u2014 which is a property of `main`, not of the PR.",
+      "scope": {
+        "validated_on": [
+          "2026-06-23 auto-config-diff across PRs #934 #943 #944 #945 \u2014 5/5 halves IDENTICAL stripping `_note` (see `temp/auto_config_diff/diff_report.json`)",
+          "2026-06-23 baseline-build sweep on `main @ 77176b46` \u2014 4/4 PASS without `-c <recipe>` (opus en-ru 86s, fr-en 53s, vit-gpt2 144s, DepthPro 489s; see `temp/baseline_build_summary.json`)",
+          "2026-06-23 BART-MNLI baseline-build PASS in 151.2s without `value_range` override \u2014 the one nominally-distinct field in #933's recipe (`value_range: [2,3]`) is documented inert at perf time by `_meta-017`, so it's pure decoration",
+          "User feedback verbatim: '\u4f60\u6709\u505a\u4ec0\u4e48\u5de5\u4f5c\u5417\uff1f\u4f60\u7684 recipe \u6d4b\u8bd5\u7684\u65f6\u5019\u4e5f\u6ca1\u6709\u7528\u5230\u3002\u600e\u4e48\u770b\u8d77\u6765\u50cf\u672c\u6765\u5c31\u652f\u6301' \u2014 the spark that exposed the gap"
+        ],
+        "falsified_on": [],
+        "refines": ["_meta-013", "_meta-018"],
+        "not_yet_tested_on": [
+          "iter-7 first new-model PR \u2014 will producer run BOTH gates (config-diff + baseline-build) BEFORE drafting the PR? If config-diff is IDENTICAL AND baseline-build PASSES, will producer downgrade to `Effort-L0\u2605-catalog` framing instead of `Goal-Lx PASS`?",
+          "FAIL-UPSTREAM models (e.g. pix2text-mfr lacking PyTorch weights on HF) \u2014 baseline-build can't run, so gate 2 produces 'cannot probe' verdict. Rule needs explicit carve-out: FAIL-UPSTREAM keeps current evidence requirements (HF repo inspection), not catalog-only.",
+          "Recipes with genuine non-cosmetic overrides (real `model_class` swaps, `optim.nodes_to_exclude` from coverage analysis, `quant` calibration data) \u2014 these SHOULD survive both gates. Confirming the rule catches catalog-only without over-flagging real engineering is the actual test."
+        ]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "`_note` field MUST be stripped before diffing \u2014 `winml config` does not emit `_note`, so a recipe with only a `_note` addition diffs as 'different' but is still catalog-only. Comparison must be on functional fields (export, optim, quant, compile, loader, eval) only.",
+        "Auto-config-diff alone is INSUFFICIENT \u2014 the config might differ on a field that the build path ignores (e.g. `value_range` per `_meta-017`). Always run BOTH gates: a field-level diff catches obvious catalog clones; the baseline build catches semantically-inert overrides.",
+        "Baseline-build alone is INSUFFICIENT \u2014 a recipe might modify `quant` or `optim` in ways that change the artifact's quality without changing whether it builds. Both gates together pin 'this PR adds nothing the CLI-on-main user can't already get' to the floor.",
+        "`winml build` does NOT accept `--task` or `--precision` \u2014 it infers task from the model. Verified via `winml build --help` 2026-06-23. Don't waste cycles trying these flags.",
+        "FAIL-UPSTREAM models can't be baseline-tested (`winml build` will fail at fetch). For those, fall back to HF repo inspection \u2014 they don't get the `Effort-L0\u2605-catalog` downgrade because there's no working-out-of-box baseline to compare against.",
+        "OpenVINO EP registration error (`onnxruntime_providers_shared.dll missing`) appears in baseline-build output but is NON-FATAL when CPU EP is requested. The shell exit code may be non-zero from EP-registration stderr; check the log tail for `Build complete in <N>s` to confirm success.",
+        "Composite recipes emit a separate config per half (`<stem>_encoder.json` + `<stem>_decoder.json`). Diff each half against `winml config` output independently \u2014 a composite catalog-only PR is two catalog-only halves, not one composite delta."
+      ],
+      "feature_gaps_filed": [
+        "FILE: REVIEW.md row to enforce 'BOTH gates run + reported in PR description before any Goal-Lx PASS claim'. Today the reviewer can flag missing Goal-ladder evidence but not 'evidence was for a property of `main`, not of this PR'.",
+        "FILE: Move 'catalog of verified-working models' out of hand-authored PRs entirely into an automated CI build matrix that runs `winml build` against a curated model list nightly and auto-generates a coverage page. Hand-authored recipe PRs should only be accepted when both gates fail."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Mechanism empirically confirmed 2026-06-23: 6 PRs ran both gates; 5 of 6 caught (#934 #943 #944 #945 #946 all closed with explanatory comment), 1 of 6 caught after follow-up investigation (#933 \u2014 initially survived gate-1 due to `value_range` delta, fell to gate-2 because the field is inert per `_meta-017`). All 6 closed as catalog-only. No replacement PRs needed; the CLI on `main` already serves these users.",
+      "resolution": "SKILL.md gained 'Step 1b \u2014 Catalog vs real-engineering gate (BEFORE any recipe work)' immediately after Step 1, runs both gates upfront so producer never starts down the catalog-only path. Step 0 Effort table got a new disambiguator on L0/L0\u2605: 'if `winml config` auto-output is IDENTICAL to your planned recipe AND `winml build` PASSes out-of-box on `main`, this is NOT a contribution \u2014 do not file the PR'. Step 0 Goal table got a guardrail line on every tier: 'Lx evidence is meaningful only when both gates from Step 1b have been run and at least one shows a real delta'. findings.json updated. Pushed to `shzhen/skills_poc` in the same commit as the 6 PR closures.",
       "last_updated": "2026-06-23"
     }
   ]
