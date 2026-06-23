@@ -20,6 +20,7 @@ import numpy as np
 if TYPE_CHECKING:
     from onnx import NodeProto
 
+    from ..analyze import ONNXOp
     from .base import Pattern, PatternMatcher
     from .models import Pattern as PatternModel
 
@@ -141,40 +142,27 @@ class PatternMatchResult:
         return self.skeleton_match_result.matched_node_keys
 
     @property
-    def matched_node_names(self):
+    def matched_node_names(self) -> list[ONNXOp]:
         """Get matched nodes as ONNXOp objects.
 
         Note: Despite the name, this returns ONNXOp objects, not strings.
         This is for backward compatibility. Use matched_nodes for string names.
 
         Returns:
-            List of ONNXOp instances containing node metadata (when used from analyze).
-            Falls back to dicts when ONNXOp is not available.
+            List of ONNXOp instances containing node metadata.
         """
-        try:
-            from ..analyze import ONNXOp
+        from ..analyze import ONNXOp
 
-            node_keys = self.skeleton_match_result.matched_node_keys
+        node_keys = self.skeleton_match_result.matched_node_keys
 
-            return [
-                ONNXOp(
-                    node_name=node_keys[idx],
-                    op_type=node.op_type,
-                    namespace=node.domain if node.domain else "ai.onnx",
-                )
-                for idx, node in enumerate(self.skeleton_match_result.matched_nodes)
-            ]
-        except ImportError:
-            # When used outside analyze context, return node info as dicts
-            node_keys = self.skeleton_match_result.matched_node_keys
-            return [
-                {
-                    "node_name": node_keys[idx],
-                    "op_type": node.op_type,
-                    "namespace": node.domain if node.domain else "ai.onnx",
-                }
-                for idx, node in enumerate(self.skeleton_match_result.matched_nodes)
-            ]
+        return [
+            ONNXOp(
+                node_name=node_keys[idx],
+                op_type=node.op_type,
+                namespace=node.domain if node.domain else "ai.onnx",
+            )
+            for idx, node in enumerate(self.skeleton_match_result.matched_nodes)
+        ]
 
     @property
     def type_vars(self) -> dict[str, str]:
