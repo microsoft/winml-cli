@@ -1225,6 +1225,20 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 None,
             ),
             ("openvino", "gpu", 0, [("OpenVINOExecutionProvider", "GPU")], None),
+            # ep=auto, device=all: best available EP *per device* rather than one
+            # ref-device EP fanned across all devices. GPU->NvTensorRTRTX,
+            # NPU->OpenVINO, CPU->OpenVINO from the simulated local matrix.
+            (
+                None,
+                "all",
+                0,
+                [
+                    ("NvTensorRTRTXExecutionProvider", "GPU"),
+                    ("OpenVINOExecutionProvider", "NPU"),
+                    ("OpenVINOExecutionProvider", "CPU"),
+                ],
+                None,
+            ),
             # ep=all, device=all: every (ep, device) combo allowed by EP_SUPPORTED_DEVICES.
             (
                 "all",
@@ -1253,6 +1267,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
             "qnn-empty",
             "qnn-all",
             "openvino-gpu",
+            "auto-all",
             "all-all",
         ],
     )

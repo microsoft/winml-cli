@@ -221,12 +221,11 @@ class RuntimeChecker:
         run_for_node_total_ms = 0
         callback_total_ms = 0
 
-        # Get all nodes from model
-        model_proto = self._model.get_model()
         # Get cached RuntimeCheckerQuery
         query = self._get_query()
+        # Use the same graph snapshot as RuntimeCheckerQuery (post shape inference).
+        nodes = query.model_proto.graph.node
         # Use tqdm for progress unless caller provides a callback
-        nodes = model_proto.graph.node
         iterator = nodes if on_node_result else tqdm.tqdm(nodes)
         for node in iterator:
             node_start = time.perf_counter()

@@ -928,45 +928,60 @@ def analyze(
             devices = []
         devices = sorted(d.upper() for d in devices)
 
-        eps: list[EPName | None]
-        if ep == "all":
-            eps = list(SUPPORTED_EPS)
-        elif ep == "auto":
-            # Single highest-priority EP available on the target device. With
-            # device == "all" there is no single device context, so fall back to
-            # the best available device purely for EP selection.
-            if device == "all":
-                try:
-                    ref_device, _ = resolve_device(device="auto")
-                except (ValueError, RuntimeError) as e:
-                    logger.error("Could not auto-select an execution provider: %s", e)
-                    sys.exit(2)
-            else:
-                ref_device = devices[0]
-            compatible_eps = resolve_eps(ref_device)
-            if not compatible_eps:
-                logger.error("No execution provider is available for device '%s'.", ref_device)
-                sys.exit(2)
-            eps = [compatible_eps[0]]
-        else:
-            # ep is a specific EP or alias
-            eps = [normalize_ep_name(ep)]
-
-        # Build with a for-loop rather than a single nested comprehension so
-        # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
-        # narrowing carries through to the appended tuple's type (EPName,
-        # not str). The inner generator stays a comprehension to satisfy
-        # ruff PERF401.
-        execution_pairs: list[tuple[EPName, str]] = []
-        for candidate_ep in eps:
-            if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
-                continue
-            execution_pairs.extend(
-                (candidate_ep, candidate_device)
-                for candidate_device in devices
-                if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+        execution_pairs: list[tuple[EPName, str]]
+        if ep == "auto" and device == "all":
+            # auto + all: resolve the best available EP per device rather than
+            # picking a single EP from one ref device and fanning it across
+            # unrelated devices. resolve_eps() already returns only EPs that are
+            # valid and locally available for the given device, so the resulting
+            # pairs need no further EP_SUPPORTED_DEVICES filtering.
+            execution_pairs = _sort_ep_device_pairs(
+                [
+                    (device_eps[0], target_device)
+                    for target_device in devices
+                    if (device_eps := resolve_eps(target_device))
+                ]
             )
-        execution_pairs = _sort_ep_device_pairs(execution_pairs)
+        else:
+            eps: list[EPName | None]
+            if ep == "all":
+                eps = list(SUPPORTED_EPS)
+            elif ep == "auto":
+                # Single highest-priority EP available on the target device.
+                # device == "all" is handled above, so a concrete device context
+                # exists here -- but guard against an empty device list (e.g. a
+                # programmatic ``device=None`` call) so we exit cleanly instead
+                # of raising an unguarded IndexError on ``devices[0]``.
+                ref_device = devices[0] if devices else None
+                if not ref_device:
+                    logger.error("No device context available for EP auto-resolution.")
+                    sys.exit(2)
+                compatible_eps = resolve_eps(ref_device)
+                if not compatible_eps:
+                    logger.error(
+                        "No execution provider is available for device '%s'.", ref_device
+                    )
+                    sys.exit(2)
+                eps = [compatible_eps[0]]
+            else:
+                # ep is a specific EP or alias
+                eps = [normalize_ep_name(ep)]
+
+            # Build with a for-loop rather than a single nested comprehension so
+            # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
+            # narrowing carries through to the appended tuple's type (EPName,
+            # not str). The inner generator stays a comprehension to satisfy
+            # ruff PERF401.
+            execution_pairs = []
+            for candidate_ep in eps:
+                if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
+                    continue
+                execution_pairs.extend(
+                    (candidate_ep, candidate_device)
+                    for candidate_device in devices
+                    if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+                )
+            execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
         # Local pairs are still needed to gate --run-unknown-op probing
         # (_resolve_run_unknown_op). Single-target `auto` selection is already
