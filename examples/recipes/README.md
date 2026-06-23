@@ -17,6 +17,7 @@ Each *(model, task)* includes:
 | Model | Task |
 |---|---|
 | BAAI/bge-large-en-v1.5 | sentence-similarity |
+| Helsinki-NLP/opus-mt-en-ru | translation |
 | cardiffnlp/twitter-roberta-base-sentiment-latest | text-classification |
 | deepset/roberta-base-squad2 | question-answering |
 | deepset/tinyroberta-squad2 | question-answering |
