@@ -68,11 +68,16 @@ decides, Reviewer never builds.
 - Run the static/graph analyzer over the full OFAT grid to produce the
   `skip_set` + `priority_boosts` tailored to the model
   (e.g. Conv% drives the npu-006 conv-fusion hard-block).
+- **Graph-presence pruning:** for every `graph_pass` hypothesis, pre-estimate from
+  the baseline graph whether the pass can fire (`_pass_can_fire` over the detected
+  `fusion_candidates`). Patterns present → boost; confidently absent → **cut**
+  (added to `skip_set`); not estimable → kept for the empirical search.
 - Hand the full grid + `skip_set` + `priority_boosts` to the Explorer.
 
 **Phase 2 — Opt Loop** (repeat until a stop condition)
 1. Ask **explorer** for the next hypothesis (it pops from the priority_queue and skips KB/Insight-blocked passes).
 2. Ask **optimizer** to build + benchmark it (screen early-exits if delta < 1%; full bench is 3x1000 with 60 s cool-down).
+   - **Runtime no-op guard:** for a `graph_pass`, if the built graph is identical to the baseline (`graph_is_noop`), the pass matched nothing at build time → discard before screen/bench (catches passes that survived static pruning but still didn't fire).
 3. Ask **reviewer** for the verdict; on KEEP, update the champion.
 4. Persist `session.json` atomically (crash-resume) and append the TSV row + experiment.md.
 

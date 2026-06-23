@@ -44,6 +44,25 @@ the next candidate config delta. Not used standalone.
    - Insight skip_set: if the label is in `insight.skip_set`, skip with "Insight Engine: <label>".
    - Otherwise, yield the hypothesis to the Optimizer.
 
+### Graph-presence pruning (`skip_set` source)
+
+The Insight Engine pre-estimates, from the **baseline graph analysis**, which graph
+passes can actually fire. For each `graph_pass` hypothesis it checks whether the
+pass's required pattern is present (`_pass_can_fire` over the detected
+`fusion_candidates`):
+
+- **present** → the pass is kept and gets a priority boost proportional to the
+  candidate count (try the promising passes first).
+- **confidently absent** (e.g. no Conv→BN subgraph for `conv_bn_fusion`, no
+  Softmax for `attention_fusion`) → the label is added to `skip_set` and **cut** —
+  there is nothing to fuse, so benchmarking it would be wasted.
+- **not statically estimable** → left in the queue for the empirical search
+  (no false cuts).
+
+This is complemented at build time by the orchestrator's runtime no-op check
+(`graph_is_noop`): if a pass that survived pruning still produces a graph
+identical to the baseline, that iteration is discarded before screen/bench.
+
 ## Outputs
 
 - The next `(label, config-delta, dimension)` to run, **or**

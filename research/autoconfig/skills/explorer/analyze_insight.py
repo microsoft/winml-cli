@@ -668,6 +668,50 @@ def run_winml_analyze(winml: str, onnx_path: Path, ep: str, device: str) -> Anal
     return result
 
 
+# ── graph-presence pruning ──────────────────────────────────────────────────
+
+# Map each OFAT graph pass to the baseline-graph pattern it needs to fire.
+# For "pattern" passes the detector emits an exact-named FusionCandidate ONLY
+# when the subgraph is actually present (no count threshold), so a count of 0 is
+# a confident "this pass would be a no-op" signal we can prune on.
+_PASS_PATTERN_FLAG: dict[str, str] = {
+    "conv_bn_fusion": "conv_bn_fusion",
+    "conv_add_fusion": "conv_add_fusion",
+    "conv_activation_fusion": "conv_activation_fusion",
+    "gelu_fusion": "gelu_fusion",
+    "layer_norm_fusion": "layer_norm_fusion",
+    "skip_layer_norm_fusion": "skip_layer_norm_fusion",
+    "matmul_add_fusion": "matmul_add_fusion",
+    "matmul_transpose_fusion": "matmul_transpose_fusion",
+    "attention_fusion": "attention_fusion",
+    "bias_softmax_fusion": "bias_softmax_fusion",
+}
+
+
+def _pass_name_of(label: str) -> str:
+    """Extract the single graph-pass name from an 'opset=NN + pass' hypothesis label."""
+    return label.split("+")[-1].strip()
+
+
+def _pass_can_fire(pass_name: str, g: GraphInfo, present: dict[str, int]) -> bool | None:
+    """Pre-estimate, from the baseline graph, whether a single pass can change it.
+
+    Returns True (required pattern present), False (confidently absent → the pass
+    is a guaranteed no-op), or None (pass not statically estimable → leave it to
+    the empirical search rather than risk a false cut).
+    """
+    if pass_name in _PASS_PATTERN_FLAG:
+        return present.get(_PASS_PATTERN_FLAG[pass_name], 0) > 0
+    # layout / rewrite passes: fall back to the primitive op the pass operates on.
+    if pass_name == "transpose_optimizer":
+        return g.transpose_count > 0
+    if pass_name == "highdimRTR_lowdimRTR":
+        return g.transpose_count > 0 and g.op_counts.get("Reshape", 0) > 0
+    if pass_name == "nchwc_transformer":
+        return g.op_counts.get("Conv", 0) > 0
+    return None
+
+
 # ── insight engine ────────────────────────────────────────────────────────────
 
 
@@ -786,6 +830,22 @@ def build_insight(
                     notes.append(
                         f"skip [{label}]: dml-002/gpu-002 — nhwc-transformer increases p90 variance"
                     )
+
+        # graph-presence pruning (static pre-estimate): cut graph-pass hypotheses
+        # whose required pattern is absent from the baseline graph. With nothing to
+        # fuse the pass is a guaranteed no-op, so there is no point benchmarking it.
+        # Passes we cannot statically estimate (_pass_can_fire → None) are left for
+        # the empirical search rather than risk a false cut.
+        present_flags = {fc.flag: fc.count for fc in g.fusion_candidates}
+        for label, _, dim in hypotheses:
+            if dim != "graph_pass":
+                continue
+            if _pass_can_fire(_pass_name_of(label), g, present_flags) is False:
+                result.skip_set.add(label)
+                notes.append(
+                    f"skip [{label}]: graph analysis — required pattern absent in the"
+                    " baseline graph (pass would be a no-op, nothing to fuse)"
+                )
 
     # ── build priority_boosts ──────────────────────────────────
 

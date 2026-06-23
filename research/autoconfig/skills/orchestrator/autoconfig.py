@@ -43,7 +43,7 @@ if str(_AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AGENT_ROOT))
 
 from lib.report_gen import generate_report  # noqa: E402
-from skills.explorer.analyze_insight import build_insight  # noqa: E402
+from skills.explorer.analyze_insight import build_insight, run_graph_analysis  # noqa: E402
 from skills.optimizer.bench_utils import (  # noqa: E402
     FULL_ITERS,
     FULL_SESSIONS,
@@ -256,6 +256,20 @@ def build_search_space(
 HYPOTHESES: list[tuple[str, object, str]] = build_search_space()
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+
+def graph_is_noop(model_path: Path, baseline_op_counts: dict[str, int]) -> bool:
+    """True when the optimized graph is structurally identical to the baseline.
+
+    A graph pass that matches no pattern leaves the op-type histogram unchanged
+    (fusions only ever *reduce* node counts). When that happens there is nothing
+    to benchmark, so the orchestrator discards the hypothesis early — the runtime
+    counterpart to the Explorer's static graph-presence pruning.
+    """
+    if not baseline_op_counts or not model_path.exists():
+        return False
+    info = run_graph_analysis(model_path)
+    return info.available and info.op_counts == baseline_op_counts
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -735,6 +749,11 @@ def main() -> None:
     # Explorer (Phase 2 "what to try next"): owns the priority_queue + skip rules.
     explorer = Explorer(HYPOTHESES, kb, insight)
 
+    # Baseline op-type histogram (from Phase 1 graph analysis) — used to detect
+    # graph passes that turn out to be no-ops at build time (optimized graph
+    # identical to baseline).
+    baseline_op_counts: dict[str, int] = dict(insight.graph_info.op_counts)
+
     for i, (label, patch_fn, dimension) in enumerate(explorer):
         # Skip iters completed in a prior run
         if i in session.completed_iters:
@@ -778,6 +797,17 @@ def main() -> None:
         if not ok:
             status = "crash"
             exp_info["analysis"] = "winml build failed — check build log"
+        elif dimension == "graph_pass" and graph_is_noop(
+            out_dir / "model.onnx", baseline_op_counts
+        ):
+            # Optimized graph is identical to baseline — the pass matched nothing.
+            status = "discard (no-op: optimized graph identical to baseline — pass did not fire)"
+            exp_info["analysis"] = (
+                "Post-build graph analysis: the optimized model has the same op-type "
+                "counts as the baseline, so this graph pass matched no pattern and was "
+                "a no-op. Screen + full bench skipped."
+            )
+            exp_info["graph_delta"] = "none (0 nodes changed)"
         else:
             # Optimizer Phase A: quick screen
             screen_p50, screen_cv = optimizer.screen(out_dir / "model.onnx")

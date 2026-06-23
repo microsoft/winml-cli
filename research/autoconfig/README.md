@@ -18,11 +18,15 @@ classes wired by a thin orchestrator (`main()`):
    the orchestrator enumerates (from a FP32 baseline, one factor varied at a time —
    opset 17–21, quant precision fp32/fp16/int8/int16/w8a16, or one single graph
    pass; ~74 combinations via `build_search_space()`): it builds the `priority_queue`
-   and prunes already-refuted configs via KB hard-blocks + the Insight Engine
-   `skip_set`. Owns search *order* only — the grid itself is generated up front,
-   zero-experience.
+   and prunes refuted/no-op configs via KB hard-blocks + the Insight Engine
+   `skip_set`. Pruning uses the **baseline graph analysis** — a graph pass whose
+   pattern is absent (e.g. no Conv→BN subgraph) is cut, while passes whose pattern
+   is present are boosted to the front. Owns search *order* only — the grid itself
+   is generated up front, zero-experience.
 2. **`Optimizer`** — runs `winml build` + `winml perf` (two-phase: 200-iter CV screen → 3×500-iter full bench)
-   + `winml eval` accuracy. Produces raw measurements only.
+   + `winml eval` accuracy. Produces raw measurements only. A graph pass that
+   builds to a graph identical to the baseline (`graph_is_noop`) is discarded
+   before benchmarking — it matched nothing.
 3. **`Reviewer`** — applies the `ThroughputOnly` verdict (`threshold = max(1%, 2×CV)`),
    decides keep/discard, and drafts KB entries.
 
