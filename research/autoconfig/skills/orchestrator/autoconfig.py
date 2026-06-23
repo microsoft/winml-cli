@@ -167,12 +167,13 @@ BASELINE: dict = {
 
 # ── full search space — the unbiased, zero-experience OFAT grid ───────────────
 # The orchestrator reference loop enumerates the COMPLETE one-factor-at-a-time
-# grid: every supported opset crossed with {baseline, each single graph pass}.
-# This is the full set of "all combinations" BEFORE any experience is applied.
-# The Explorer then prunes/reorders it via confirmed-KB hard-blocks + the
-# Insight Engine. The per-(ep, device) catalog_sweep matrices in
-# ep_device_knowledge/<ep>_<device>.json ("hypotheses") are the experience-pruned
-# and reordered subsets of this same grid (single source of truth lives here).
+# grid: from a FP32 baseline it varies exactly one factor at a time — opset,
+# quantization precision, or a single graph pass. This is the full set of "all
+# combinations" BEFORE any experience is applied. The Explorer then prunes/reorders
+# it via confirmed-KB hard-blocks + the Insight Engine. The per-(ep, device)
+# catalog_sweep matrices in ep_device_knowledge/<ep>_<device>.json ("hypotheses")
+# are the experience-pruned and reordered subsets of this same grid (single source
+# of truth lives here).
 #
 # Each patch_fn receives a FRESH copy of BASELINE (isolated mode): hypotheses are
 # independent, no state is accumulated across them.
@@ -197,41 +198,58 @@ OPTIM_PASSES: list[str] = [
     "highdimRTR_lowdimRTR",
 ]
 
+# The quantization precisions winml-cli can target. "fp32" == no quantization
+# (the reference). int8/int16/w8a16/fp16 are device-dependent; the full grid lists
+# them all and the Explorer/experience prunes device-invalid ones per (ep, device).
+PRECISIONS: list[str] = ["fp32", "fp16", "int8", "int16", "w8a16"]
 
-def _make_patch(opset: int, pass_name: str | None):
-    """Return a patch_fn setting one opset and at most one optim pass on a fresh
-    BASELINE copy. pass_name=None => pure opset (no fusion flags)."""
+
+def _make_patch(opset: int, pass_name: str | None, precision: str = "fp32"):
+    """Return a patch_fn setting one opset, at most one optim pass, and a precision
+    on a fresh BASELINE copy. pass_name=None => no fusion flags; precision='fp32'
+    => no quantization (FP32 reference)."""
 
     def patch(cfg: dict) -> dict:
         cfg["export"]["opset_version"] = opset
         cfg["optim"] = {pass_name: True} if pass_name else {}
+        cfg["precision"] = precision
         return cfg
 
     return patch
 
 
 def build_search_space(
-    opsets: list[int] = OPSET_RANGE, passes: list[str] = OPTIM_PASSES
+    opsets: list[int] = OPSET_RANGE,
+    passes: list[str] = OPTIM_PASSES,
+    precisions: list[str] = PRECISIONS,
 ) -> list[tuple[str, object, str]]:
-    """Enumerate the full OFAT grid: opset x {baseline, each single pass}.
+    """Enumerate the full OFAT grid: vary one factor at a time from baseline.
 
-    Returns (label, patch_fn, search_dimension) triples. The lowest opset with no
-    pass is the global 'baseline'; other no-pass entries form the 'opset'
-    dimension; every single-pass entry is a 'graph_pass'.
+    Axes:
+      * baseline   — lowest opset, FP32, no pass (the global reference)
+      * opset      — each higher opset (FP32, no pass)
+      * quant      — each non-FP32 precision (base opset, no pass)
+      * graph_pass — each single pass x each opset (FP32)
+
+    Returns (label, patch_fn, search_dimension) triples.
     """
     base_opset = opsets[0]
+    base_prec = precisions[0]
     space: list[tuple[str, object, str]] = []
-    # 1. pure-opset axis (no fusion flags): baseline + opset sweep
+    # 1. pure-opset axis (FP32, no fusion flags): baseline + opset sweep
     for op in opsets:
         if op == base_opset:
-            label, dim = f"baseline (opset {op}, no fusions)", "baseline"
+            label, dim = f"baseline (opset {op}, {base_prec}, no fusions)", "baseline"
         else:
             label, dim = f"opset={op}", "opset"
-        space.append((label, _make_patch(op, None), dim))
-    # 2. single graph-pass axis, crossed with every opset
+        space.append((label, _make_patch(op, None, base_prec), dim))
+    # 2. quant axis (base opset, no fusion flags): each non-FP32 precision
+    for prec in precisions[1:]:
+        space.append((f"quant={prec}", _make_patch(base_opset, None, prec), "quant"))
+    # 3. single graph-pass axis (FP32), crossed with every opset
     for op in opsets:
         for p in passes:
-            space.append((f"opset={op} + {p}", _make_patch(op, p), "graph_pass"))
+            space.append((f"opset={op} + {p}", _make_patch(op, p, base_prec), "graph_pass"))
     return space
 
 
@@ -313,6 +331,17 @@ class Optimizer:
 
     def build(self, cfg: dict, out_dir: Path) -> tuple[bool, str]:
         out_dir.mkdir(parents=True, exist_ok=True)
+        cfg = copy.deepcopy(cfg)
+        precision = cfg.pop("precision", "fp32")
+        # fp32 => no quantization (FP32 reference). For a specific precision,
+        # materialize the quant section via `winml config --precision` and build
+        # with --quant; `winml build` alone only resolves device-default quant.
+        quant_flag = "--no-quant"
+        if precision != "fp32":
+            quant_section = self._resolve_quant_section(precision, out_dir)
+            if quant_section is not None:
+                cfg["quant"] = quant_section
+                quant_flag = "--quant"
         cfg_path = out_dir / "config.json"
         cfg_path.write_text(json.dumps(cfg, indent=2))
         rc, out, _ = run_cmd(
@@ -329,12 +358,47 @@ class Optimizer:
                 self.ep,
                 "--device",
                 self.device,
-                "--no-quant",
+                quant_flag,
                 "--no-compile",
             ],
-            label="winml build",
+            label=f"winml build [{precision}]",
         )
         return rc == 0, out
+
+    def _resolve_quant_section(self, precision: str, out_dir: Path) -> dict | None:
+        """Generate a throwaway config at the requested precision and lift out its
+        quant block, so a specific precision (fp16/int8/int16/w8a16) can be applied
+        to the hand-built config. Returns None if winml config fails."""
+        tmp = out_dir / "_quant_probe.json"
+        rc, _, _ = run_cmd(
+            [
+                self.winml,
+                "config",
+                "-m",
+                self.model_id,
+                "-t",
+                TASK,
+                "--ep",
+                self.ep,
+                "--device",
+                self.device,
+                "--precision",
+                precision,
+                "--no-compile",
+                "-o",
+                str(tmp),
+            ],
+            label=f"winml config --precision {precision}",
+        )
+        if rc != 0 or not tmp.exists():
+            return None
+        try:
+            probe = json.loads(tmp.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        finally:
+            tmp.unlink(missing_ok=True)
+        return probe.get("quant")
 
     def screen(self, model_path: Path) -> tuple[float | None, float]:
         """Phase A: 200-iter screen with CV gate.
@@ -692,8 +756,9 @@ def main() -> None:
         cfg = patch_fn(copy.deepcopy(BASELINE))  # type: ignore[operator]
         flags = optim_flags(cfg)
         opset = cfg["export"]["opset_version"]
+        precision = cfg.get("precision", "fp32")
         print(f"  optim: {flags}")
-        print(f"  opset: {opset}")
+        print(f"  opset: {opset}   precision: {precision}")
 
         out_dir = WORK_DIR / f"iter_{i:02d}"
         exp_dir = WORK_DIR / "experiments" / f"{i:02d}_{dimension}"
@@ -705,6 +770,7 @@ def main() -> None:
             "dimension": dimension,
             "optim_flags": flags,
             "opset": opset,
+            "precision": precision,
             "hypothesis": label,
             "baseline_p50": f"{baseline_p50:.1f}" if baseline_p50 else "N/A",
         }

@@ -15,10 +15,12 @@ underlying ORT/EP optimizer mechanics.
 classes wired by a thin orchestrator (`main()`):
 
 1. **`Explorer`** — selects the next hypothesis from the **full OFAT search grid**
-   the orchestrator enumerates (`opset 17–21 × {baseline, each single graph pass}`,
-   ~70 combinations via `build_search_space()`): it builds the `priority_queue` and
-   prunes already-refuted configs via KB hard-blocks + the Insight Engine `skip_set`.
-   Owns search *order* only — the grid itself is generated up front, zero-experience.
+   the orchestrator enumerates (from a FP32 baseline, one factor varied at a time —
+   opset 17–21, quant precision fp32/fp16/int8/int16/w8a16, or one single graph
+   pass; ~74 combinations via `build_search_space()`): it builds the `priority_queue`
+   and prunes already-refuted configs via KB hard-blocks + the Insight Engine
+   `skip_set`. Owns search *order* only — the grid itself is generated up front,
+   zero-experience.
 2. **`Optimizer`** — runs `winml build` + `winml perf` (two-phase: 200-iter CV screen → 3×500-iter full bench)
    + `winml eval` accuracy. Produces raw measurements only.
 3. **`Reviewer`** — applies the `ThroughputOnly` verdict (`threshold = max(1%, 2×CV)`),
