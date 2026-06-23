@@ -26,7 +26,9 @@ the next candidate config delta. Not used standalone.
 
 ## Inputs
 
-- `hypothesis_pool` — list of `(label, patch_fn, dimension)` candidates (opset bumps, EP toggles, graph-optimization passes).
+- `hypothesis_pool` — the full OFAT search grid from the orchestrator:
+  `opset (17–21) × {baseline, each single graph pass}` as `(label, patch_fn, dimension)`
+  triples (~70 combinations). The Explorer prunes/reorders it; it does not generate it.
 - `kb` — confirmed `ep_device_knowledge/<ep>_<device>.json` rules, especially `skip_passes` hard-blocks.
 - `insight` — Phase 1 output: `skip_set` (passes to prune for this model) + `priority_boosts` (per-label ranking weight).
 

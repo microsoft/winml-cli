@@ -165,76 +165,77 @@ BASELINE: dict = {
 }
 
 
-# ── hypothesis sequence ───────────────────────────────────────────────────────
-# Each function receives a FRESH copy of BASELINE (isolated mode).
-# Hypotheses are independent — no state is accumulated across them.
-# Use "+" in labels only when the function explicitly inherits optim from prior
-# state. Here all hypotheses start from baseline optim={}, so labels are flat.
+# ── full search space — the unbiased, zero-experience OFAT grid ───────────────
+# The orchestrator reference loop enumerates the COMPLETE one-factor-at-a-time
+# grid: every supported opset crossed with {baseline, each single graph pass}.
+# This is the full set of "all combinations" BEFORE any experience is applied.
+# The Explorer then prunes/reorders it via confirmed-KB hard-blocks + the
+# Insight Engine. The per-(ep, device) catalog_sweep matrices in
+# ep_device_knowledge/<ep>_<device>.json ("hypotheses") are the experience-pruned
+# and reordered subsets of this same grid (single source of truth lives here).
+#
+# Each patch_fn receives a FRESH copy of BASELINE (isolated mode): hypotheses are
+# independent, no state is accumulated across them.
 
+OPSET_RANGE: list[int] = [17, 18, 19, 20, 21]
 
-def h0_baseline(cfg: dict) -> dict:
-    """FP32 export, no extra fusions — reference point."""
-    cfg["optim"] = {}
-    return cfg
-
-
-def h1_conv_fusions(cfg: dict) -> dict:
-    """Conv+BN+Add+Activation fusions in isolation.
-
-    NOTE: These are ORT graph-level fusions (conv_bn_fusion etc.) that create FusedConv ops.
-    On QNN NPU, FusedConv causes CPU fallback → catastrophic regression (npu-006).
-    Only run on CPU/DML EPs. Use count_conv_pct() before enabling on QNN.
-    """
-    cfg["optim"] = {
-        "conv_bn_fusion": True,
-        "conv_add_fusion": True,
-        "conv_activation_fusion": True,
-    }
-    return cfg
-
-
-def h2_gelu_fusion(cfg: dict) -> dict:
-    """Gelu fusion in isolation (no conv fusions)."""
-    cfg["optim"] = {"gelu_fusion": True}
-    return cfg
-
-
-def h3_layernorm_fusion(cfg: dict) -> dict:
-    """LayerNorm fusion in isolation."""
-    cfg["optim"] = {"layer_norm_fusion": True}
-    return cfg
-
-
-def h4_matmul_add(cfg: dict) -> dict:
-    """MatMul+Add fusion in isolation (MLP block bottleneck)."""
-    cfg["optim"] = {"matmul_add_fusion": True}
-    return cfg
-
-
-def h5_transpose_opt(cfg: dict) -> dict:
-    """Transpose optimizer in isolation."""
-    cfg["optim"] = {"transpose_optimizer": True}
-    return cfg
-
-
-def h6_opset21(cfg: dict) -> dict:
-    """Opset 21 research hypothesis — model-architecture-dependent benefit (npu-001).
-    NOTE: Mechanism unknown. Not a confirmed optimization. Gate 2 required before KB.
-    """
-    cfg["export"]["opset_version"] = 21
-    return cfg
-
-
-HYPOTHESES: list[tuple[str, object, str]] = [
-    # (label, patch_fn, search_dimension)
-    ("baseline (FP32, no fusions)", h0_baseline, "baseline"),
-    ("conv fusions: bn+add+activation", h1_conv_fusions, "graph_pass"),
-    ("gelu-fusion only", h2_gelu_fusion, "graph_pass"),
-    ("layer-norm-fusion only", h3_layernorm_fusion, "graph_pass"),
-    ("matmul-add-fusion (MLP blocks)", h4_matmul_add, "graph_pass"),
-    ("transpose-optimizer only", h5_transpose_opt, "graph_pass"),
-    ("opset=21 (npu-001 research)", h6_opset21, "opset"),
+# The full universe of single graph-optimization passes winml-cli can toggle.
+# catalog_sweep KBs draw their per-EP hypothesis matrices from this same set.
+OPTIM_PASSES: list[str] = [
+    "conv_bn_fusion",
+    "conv_add_fusion",
+    "conv_activation_fusion",
+    "gelu_fusion",
+    "layer_norm_fusion",
+    "skip_layer_norm_fusion",
+    "matmul_add_fusion",
+    "matmul_transpose_fusion",
+    "attention_fusion",
+    "bias_softmax_fusion",
+    "transpose_optimizer",
+    "nchwc_transformer",
+    "highdimRTR_lowdimRTR",
 ]
+
+
+def _make_patch(opset: int, pass_name: str | None):
+    """Return a patch_fn setting one opset and at most one optim pass on a fresh
+    BASELINE copy. pass_name=None => pure opset (no fusion flags)."""
+
+    def patch(cfg: dict) -> dict:
+        cfg["export"]["opset_version"] = opset
+        cfg["optim"] = {pass_name: True} if pass_name else {}
+        return cfg
+
+    return patch
+
+
+def build_search_space(
+    opsets: list[int] = OPSET_RANGE, passes: list[str] = OPTIM_PASSES
+) -> list[tuple[str, object, str]]:
+    """Enumerate the full OFAT grid: opset x {baseline, each single pass}.
+
+    Returns (label, patch_fn, search_dimension) triples. The lowest opset with no
+    pass is the global 'baseline'; other no-pass entries form the 'opset'
+    dimension; every single-pass entry is a 'graph_pass'.
+    """
+    base_opset = opsets[0]
+    space: list[tuple[str, object, str]] = []
+    # 1. pure-opset axis (no fusion flags): baseline + opset sweep
+    for op in opsets:
+        if op == base_opset:
+            label, dim = f"baseline (opset {op}, no fusions)", "baseline"
+        else:
+            label, dim = f"opset={op}", "opset"
+        space.append((label, _make_patch(op, None), dim))
+    # 2. single graph-pass axis, crossed with every opset
+    for op in opsets:
+        for p in passes:
+            space.append((f"opset={op} + {p}", _make_patch(op, p), "graph_pass"))
+    return space
+
+
+HYPOTHESES: list[tuple[str, object, str]] = build_search_space()
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 

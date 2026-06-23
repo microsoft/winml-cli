@@ -14,9 +14,11 @@ underlying ORT/EP optimizer mechanics.
 `autoconfig.py` implements an Explorer/Optimizer/Reviewer loop as three explicit
 classes wired by a thin orchestrator (`main()`):
 
-1. **`Explorer`** — proposes the next hypothesis (opset, EP flags, graph passes): builds
-   the `priority_queue` and prunes already-refuted configs via KB hard-blocks + the
-   Insight Engine `skip_set`. Owns search *order* only.
+1. **`Explorer`** — selects the next hypothesis from the **full OFAT search grid**
+   the orchestrator enumerates (`opset 17–21 × {baseline, each single graph pass}`,
+   ~70 combinations via `build_search_space()`): it builds the `priority_queue` and
+   prunes already-refuted configs via KB hard-blocks + the Insight Engine `skip_set`.
+   Owns search *order* only — the grid itself is generated up front, zero-experience.
 2. **`Optimizer`** — runs `winml build` + `winml perf` (two-phase: 200-iter CV screen → 3×500-iter full bench)
    + `winml eval` accuracy. Produces raw measurements only.
 3. **`Reviewer`** — applies the `ThroughputOnly` verdict (`threshold = max(1%, 2×CV)`),
