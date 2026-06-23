@@ -10,6 +10,7 @@ import json
 from typing import TYPE_CHECKING
 from unittest.mock import ANY, MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.cli import main
@@ -18,6 +19,28 @@ from winml.modelkit.commands.perf import generate_output_path
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def _mock_device_resolution():
+    """Stub perf()'s up-front device/EP resolution so module tests stay hermetic.
+
+    perf() calls resolve_device() (and resolve_eps() when --ep is omitted) before
+    branching into module mode. Tests that need a specific device override
+    resolve_device locally inside their own ``with patch(...)`` block, which
+    nests over (and wins against) this autouse default.
+    """
+    with (
+        patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            return_value=("cpu", ["cpu"]),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_eps",
+            return_value=["CPUExecutionProvider"],
+        ),
+    ):
+        yield
 
 
 class TestPerfModuleFlag:
