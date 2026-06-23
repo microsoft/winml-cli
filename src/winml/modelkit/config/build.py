@@ -227,7 +227,8 @@ class WinMLBuildConfig:
         # set) use RandomDataset which only needs the ONNX model_path.
         if self.quant is not None:
             is_submodule = bool(self.loader and self.loader.module_path)
-            needs_quant_ids = not is_onnx_build and not is_submodule
+            is_fp16_only = self.quant.fp16_only
+            needs_quant_ids = not is_onnx_build and not is_submodule and not is_fp16_only
             if needs_quant_ids and not self.quant.task:
                 errors.append("quant.task is required when quant is enabled for HF builds")
             if needs_quant_ids and not self.quant.model_name:
