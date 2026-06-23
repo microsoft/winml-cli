@@ -44,32 +44,29 @@ schedules:
         - main
     always: true
 
-# When this pipeline runs on a release/* branch (CI trigger or manual queue),
-# check out the same-named release branch from ModelKitArtifacts so the
-# artifact content matches the modelkit release. For all other branches
-# (e.g. main scheduled runs, manual queue from main), fall back to main.
+# Check out ModelKitArtifacts from the same branch this pipeline is running on
+# so the artifact content matches the modelkit branch:
+#   * release/* run (CI trigger or manual queue) -> same-named release branch
+#   * main run (daily schedule or manual queue on main) -> main
+# Build.SourceBranch is 'refs/heads/<name>' (e.g. 'refs/heads/release/<x>' or
+# 'refs/heads/main'), which is a valid `ref` for a GitHub repository resource.
 #
-# Azure Pipelines only allows template expressions in the *value* position of
-# a repository resource's `ref` (not as a YAML key inside `repositories`), so
-# the conditional is resolved here in a top-level compile-time variable and
-# the `ref` field simply references that variable.
-# Build.SourceBranch is in the form 'refs/heads/release/<name>', which is a
-# valid `ref` value for a GitHub repository resource.
+# IMPORTANT: a repository resource's `ref` may only contain template
+# expressions over `parameters` and *system predefined* variables — it CANNOT
+# read YAML- or UI-defined `variables`. The previous indirection
+# (`ref: ${{ variables.artifactsRef }}` fed by a compile-time `variables`
+# block) silently violated this rule, so the expression was ignored and the
+# resource always checked out its default branch (main) — even on release/*.
+# Referencing the Build.SourceBranch system variable directly is the
+# documented, supported pattern for matching the pipeline's own branch.
 # See: https://learn.microsoft.com/azure/devops/release-notes/2022/sprint-212-update#template-expressions-in-repository-resource-definition
-variables:
-  - name: artifactsRef
-    ${{ if startsWith(variables['Build.SourceBranch'], 'refs/heads/release/') }}:
-      value: ${{ variables['Build.SourceBranch'] }}
-    ${{ else }}:
-      value: main
-
 resources:
   repositories:
     - repository: ModelKitArtifacts
       type: github
       endpoint: github.com_yuesu_microsoft
       name: gim-home/ModelKitArtifacts
-      ref: ${{ variables.artifactsRef }}
+      ref: ${{ variables['Build.SourceBranch'] }}
 
 parameters:
   # --------------------------------------------------------------------
