@@ -353,6 +353,9 @@ def resolve_quant_compile_config(
         quant_config = WinMLQuantizationConfig()
         quant_config.weight_type = policy.weight_type
         quant_config.activation_type = policy.activation_type
+    elif policy.precision == "fp16":
+        # Pure FP16: no QDQ quantization, only FP16 conversion
+        quant_config = WinMLQuantizationConfig(fp16=True, fp16_only=True)
 
     # Compile config
     compile_config = WinMLCompileConfig.for_provider(policy.compile_provider, device=policy.device)
@@ -687,8 +690,11 @@ def generate_hf_build_config(
             parent_config.quant = WinMLQuantizationConfig()
         parent_config.quant.weight_type = policy.weight_type
         parent_config.quant.activation_type = policy.activation_type
+    elif policy.precision == "fp16":
+        # Pure FP16: no QDQ, only FP16 conversion via quantize stage
+        parent_config.quant = WinMLQuantizationConfig(fp16=True, fp16_only=True)
     else:
-        # CPU/GPU: precision is float (fp16/fp32) — no quantization
+        # CPU/GPU: precision is float (fp32) — no quantization
         parent_config.quant = None
 
     # Compile config

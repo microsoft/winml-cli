@@ -1115,44 +1115,6 @@ def _run_optimize_stage(
     return current_path, opt_elapsed
 
 
-def _run_fp16_stage(
-    *,
-    model_path: Path,
-    stage_timings: list[tuple[str, float | None]],
-) -> Path:
-    """Run FP16 conversion stage on an ONNX model file.
-
-    Loads the model, applies FP16 conversion with keep_io_types=True,
-    and overwrites the file in-place.
-
-    Args:
-        model_path: Path to the ONNX model to convert.
-        stage_timings: List to append (stage_name, elapsed) tuple to.
-
-    Returns:
-        The same model_path (overwritten with FP16 model).
-    """
-    from ..onnx import load_onnx, save_onnx
-    from ..optim.fp16 import convert_to_fp16
-    from ..utils.console import StageLive
-
-    with StageLive("fp16", console) as sl:
-        sl.set_status("Converting to FP16...")
-        t0 = time.monotonic()
-
-        model = load_onnx(model_path)
-        model = convert_to_fp16(model, keep_io_types=True)
-        save_onnx(model, model_path)
-
-        elapsed = time.monotonic() - t0
-        sl.set_done(elapsed)
-        sl.detail("[dim]I/O types preserved as FP32[/dim]")
-        sl.artifact(str(model_path), _safe_size(model_path))
-        sl.blank()
-
-    stage_timings.append(("FP16", elapsed))
-    return model_path
-
 
 def _run_quantize_stage(
     *,
@@ -1180,6 +1142,33 @@ def _run_quantize_stage(
     from ..utils.console import StageLive
 
     if config.quant is None:
+        return current_path
+
+    # ── FP16-only fast path (no calibration / QDQ) ───────────────
+    if config.quant.fp16_only:
+        from ..quant import quantize_onnx
+        from ..utils.console import StageLive
+
+        with StageLive("fp16", console) as sl:
+            sl.set_status("Converting to FP16...")
+            t0 = time.monotonic()
+            quant_result = quantize_onnx(
+                model_path=current_path,
+                output_path=quantized_path,
+                config=config.quant,
+                use_external_data=True,
+            )
+            if not quant_result.success:
+                errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
+                sl.set_error(errors)
+                raise RuntimeError(f"FP16 conversion failed: {errors}")
+            current_path = quantized_path
+            _fp16_elapsed = time.monotonic() - t0
+            sl.set_done(_fp16_elapsed)
+            sl.detail("[dim]I/O types preserved as FP32[/dim]")
+            sl.artifact(str(quantized_path), _safe_size(quantized_path))
+            sl.blank()
+        stage_timings.append(("FP16", _fp16_elapsed))
         return current_path
 
     if is_quantized_onnx(current_path):
@@ -1434,24 +1423,13 @@ def _build_hf_pipeline(
     # Persist config after autoconf
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── FP16 conversion (when --precision fp16) ──────────────────
-    if _precision == "fp16":
-        current_path = _run_fp16_stage(
-            model_path=current_path,
-            stage_timings=stage_timings,
-        )
-
-    # ── Quantize stage (skipped when FP16 — incompatible) ────────
-    if _precision == "fp16" and config.quant is not None:
-        print_stage_skip(console, "quantize", "(incompatible with --precision fp16)")
-        stage_timings.append(("Quantize", None))
-    else:
-        current_path = _run_quantize_stage(
-            config=config,
-            current_path=current_path,
-            quantized_path=quantized_path,
-            stage_timings=stage_timings,
-        )
+    # ── Quantize stage (handles QDQ + FP16 post-processing) ──────
+    current_path = _run_quantize_stage(
+        config=config,
+        current_path=current_path,
+        quantized_path=quantized_path,
+        stage_timings=stage_timings,
+    )
 
     # ── Compile stage ────────────────────────────────────────────
     current_path = _run_compile_stage(
@@ -1541,24 +1519,13 @@ def _build_onnx_pipeline(
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── FP16 conversion (when --precision fp16) ──────────────────
-    if _precision == "fp16":
-        current_path = _run_fp16_stage(
-            model_path=current_path,
-            stage_timings=stage_timings,
-        )
-
-    # ── Quantize stage (skipped when FP16 — incompatible) ────────
-    if _precision == "fp16" and config.quant is not None:
-        print_stage_skip(console, "quantize", "(incompatible with --precision fp16)")
-        stage_timings.append(("Quantize", None))
-    else:
-        current_path = _run_quantize_stage(
-            config=config,
-            current_path=current_path,
-            quantized_path=quantized_path,
-            stage_timings=stage_timings,
-        )
+    # ── Quantize stage (handles QDQ + FP16 post-processing) ──────
+    current_path = _run_quantize_stage(
+        config=config,
+        current_path=current_path,
+        quantized_path=quantized_path,
+        stage_timings=stage_timings,
+    )
 
     # ── Compile stage ────────────────────────────────────────────
     current_path = _run_compile_stage(

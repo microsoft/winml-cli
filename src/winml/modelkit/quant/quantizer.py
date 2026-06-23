@@ -18,6 +18,15 @@ from .config import QuantizeResult, WinMLQuantizationConfig
 logger = logging.getLogger(__name__)
 
 
+def _should_run_quantization(config: WinMLQuantizationConfig) -> bool:
+    """Return True if quantization (QDQ/dynamic/RTN) should run.
+
+    Pure FP16 configs (fp16=True, fp16_only=True) skip quantization
+    entirely and only run FP16 conversion.
+    """
+    return not config.fp16_only
+
+
 def quantize_onnx(
     model_path: str | Path,
     output_path: str | Path | None = None,
@@ -94,6 +103,36 @@ def quantize_onnx(
     warnings: list[str] = []
 
     try:
+        # ── Pure FP16 fast path (no quantization, only FP16 conversion) ──
+        if config.fp16 and not _should_run_quantization(config):
+            from ..onnx import load_onnx, save_onnx
+            from ..optim.fp16 import convert_to_fp16
+
+            logger.info("Running FP16-only conversion (no quantization)...")
+            model = load_onnx(model_path, validate=False)
+            model = convert_to_fp16(
+                model,
+                keep_io_types=config.fp16_keep_io_types,
+                op_block_list=config.fp16_op_block_list,
+            )
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            save_onnx(model, output_path)
+
+            total_time = time.perf_counter() - start_time
+            logger.info(
+                "FP16 conversion complete: %s -> %s (%.2fs)",
+                model_path.name,
+                output_path.name,
+                total_time,
+            )
+            return QuantizeResult(
+                success=True,
+                output_path=output_path,
+                total_time_seconds=total_time,
+                errors=errors,
+                warnings=warnings,
+            )
+
         # Create calibration data reader
         cal_start = time.perf_counter()
 
@@ -238,6 +277,21 @@ def quantize_onnx(
         nodes_quantized = sum(
             1 for node in quantized_model.graph.node if node.op_type in QDQ_OP_TYPES
         )
+
+        # ── FP16 post-processing ────────────────────────────────────────
+        if config.fp16:
+            from ..onnx import load_onnx as _load
+            from ..onnx import save_onnx as _save
+            from ..optim.fp16 import convert_to_fp16
+
+            logger.info("Applying FP16 post-processing to quantized model...")
+            fp16_model = _load(output_path, validate=False)
+            fp16_model = convert_to_fp16(
+                fp16_model,
+                keep_io_types=config.fp16_keep_io_types,
+                op_block_list=config.fp16_op_block_list,
+            )
+            _save(fp16_model, output_path)
 
         total_time = time.perf_counter() - start_time
 

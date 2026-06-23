@@ -47,11 +47,21 @@ class WinMLQuantizationConfig:
         # Custom config
         config = WinMLQuantizationConfig(samples=100, weight_type="int8")
         result = quantize_onnx("model.onnx", config)
+
+        # FP16 post-processing (mixed precision INT8 + FP16)
+        config = WinMLQuantizationConfig(fp16=True)
+        result = quantize_onnx("model.onnx", config)
     """
+
+    # Quantization algorithm
+    algorithm: Literal["static", "dynamic", "rtn"] = "static"
+    # "static"  — Calibrated QDQ quantization (requires calibration data)
+    # "dynamic" — Dynamic quantization (no calibration)
+    # "rtn"     — Round-To-Nearest weight-only (no calibration, block-wise)
 
     mode: Literal["qdq", "static", "dynamic"] = "qdq"
 
-    # Calibration settings
+    # Calibration settings (static/dynamic)
     samples: int = 10
     calibration_method: Literal["minmax", "entropy", "percentile"] = "minmax"
     calibration_data: CalibrationDataReader | None = None  # None = random data
@@ -61,11 +71,11 @@ class WinMLQuantizationConfig:
     model_name: str | None = None  # e.g., "microsoft/resnet-50"
     dataset_name: str | None = None  # Optional: override default dataset
 
-    # Quantization types
+    # Quantization types (static/dynamic)
     weight_type: Literal["uint8", "int8", "uint16", "int16"] = "uint8"
     activation_type: Literal["uint8", "int8", "uint16", "int16"] = "uint8"
 
-    # Quantization options
+    # Quantization options (static/dynamic)
     per_channel: bool = False
     symmetric: bool = False
 
@@ -78,9 +88,23 @@ class WinMLQuantizationConfig:
     calibration_load_path: Path | None = None
     calibration_save_path: Path | None = None
 
-    # Advanced
+    # Advanced (static/dynamic)
     op_types_to_quantize: list[str] | None = None
     nodes_to_exclude: list[str] | None = None
+
+    # RTN-specific settings (only used when algorithm="rtn")
+    rtn_bits: int = 4
+    rtn_block_size: int = 128
+    rtn_symmetric: bool = True
+    rtn_accuracy_level: int = 0
+
+    # FP16 post-processing (can combine with any algorithm)
+    # When True, remaining FP32 tensors/ops are converted to FP16 after
+    # quantization. This produces mixed-precision models (e.g. INT8 + FP16).
+    fp16: bool = False
+    fp16_only: bool = False  # When True, skip quantization and only do FP16
+    fp16_keep_io_types: bool = True
+    fp16_op_block_list: list[str] | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization.
@@ -91,6 +115,7 @@ class WinMLQuantizationConfig:
         to keep submodule configs clean.
         """
         result: dict = {
+            "algorithm": self.algorithm,
             "mode": self.mode,
             "samples": self.samples,
             "calibration_method": self.calibration_method,
@@ -109,6 +134,8 @@ class WinMLQuantizationConfig:
             ),
             "op_types_to_quantize": self.op_types_to_quantize,
             "nodes_to_exclude": self.nodes_to_exclude,
+            "fp16": self.fp16,
+            "fp16_only": self.fp16_only,
         }
         if self.task is not None:
             result["task"] = self.task
@@ -116,6 +143,14 @@ class WinMLQuantizationConfig:
             result["model_name"] = self.model_name
         if self.dataset_name is not None:
             result["dataset_name"] = self.dataset_name
+        if self.algorithm == "rtn":
+            result["rtn_bits"] = self.rtn_bits
+            result["rtn_block_size"] = self.rtn_block_size
+            result["rtn_symmetric"] = self.rtn_symmetric
+            result["rtn_accuracy_level"] = self.rtn_accuracy_level
+        if self.fp16:
+            result["fp16_keep_io_types"] = self.fp16_keep_io_types
+            result["fp16_op_block_list"] = self.fp16_op_block_list
         return result
 
     @classmethod
@@ -129,6 +164,7 @@ class WinMLQuantizationConfig:
             WinMLQuantizationConfig instance.
         """
         return cls(
+            algorithm=data.get("algorithm", "static"),
             mode=data.get("mode", "qdq"),
             samples=data.get("samples", data.get("calibration_samples", 10)),
             calibration_method=data.get("calibration_method", "minmax"),
@@ -150,6 +186,14 @@ class WinMLQuantizationConfig:
             ),
             op_types_to_quantize=data.get("op_types_to_quantize"),
             nodes_to_exclude=data.get("nodes_to_exclude"),
+            rtn_bits=data.get("rtn_bits", 4),
+            rtn_block_size=data.get("rtn_block_size", 128),
+            rtn_symmetric=data.get("rtn_symmetric", True),
+            rtn_accuracy_level=data.get("rtn_accuracy_level", 0),
+            fp16=data.get("fp16", False),
+            fp16_only=data.get("fp16_only", False),
+            fp16_keep_io_types=data.get("fp16_keep_io_types", True),
+            fp16_op_block_list=data.get("fp16_op_block_list"),
         )
 
 

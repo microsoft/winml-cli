@@ -220,7 +220,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.compile.ep_config.provider == "qnn"
 
     def test_raw_onnx_cpu(self, tmp_path) -> None:
-        """Raw ONNX + device=cpu resolves quant=None and compile=None."""
+        """Raw ONNX + device=cpu resolves to fp16_only quant, compile=None."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -235,7 +235,9 @@ class TestGenerateBuildConfigOnnxPath:
             config = generate_onnx_build_config(str(onnx_file), device="cpu")
 
         assert config.export is None
-        assert config.quant is None
+        assert config.quant is not None
+        assert config.quant.fp16 is True
+        assert config.quant.fp16_only is True
         assert config.compile is None
 
     def test_quantized_onnx_skips_quant(self, tmp_path) -> None:
@@ -562,10 +564,9 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.export is None
 
     def test_auto_device_auto_precision_defaults(self, tmp_path) -> None:
-        """device=auto + precision=auto (defaults) keeps config defaults.
+        """device=auto + precision=auto resolves to fp16 on CPU.
 
-        resolve_quant_compile_config returns (None, None) when both are auto,
-        so raw ONNX gets quant=None, compile=None.
+        resolve_precision resolves the EP to a concrete device, yielding fp16_only.
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
@@ -580,8 +581,9 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file))
 
-        # Both auto -> resolve_precision returns device="auto" -> (None, None)
-        assert config.quant is None
+        assert config.quant is not None
+        assert config.quant.fp16 is True
+        assert config.quant.fp16_only is True
         assert config.compile is None
 
     def test_compiled_does_not_call_resolve_quant_compile(self, tmp_path) -> None:
@@ -601,7 +603,7 @@ class TestGenerateBuildConfigOnnxPath:
         mock_resolve.assert_not_called()
 
     def test_raw_onnx_with_gpu(self, tmp_path) -> None:
-        """Raw ONNX + device=gpu resolves quant=None, compile=None.
+        """Raw ONNX + device=gpu resolves to fp16_only quant, compile=None.
 
         DML has enable_ep_context=False so for_provider("dml") returns None —
         no offline compile step is needed.
@@ -619,8 +621,10 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file), device="gpu")
 
-        # GPU auto-precision is fp16 -> no quantization; DML has no EPContext step
-        assert config.quant is None
+        # GPU auto-precision is fp16 -> fp16_only quant; DML has no EPContext step
+        assert config.quant is not None
+        assert config.quant.fp16 is True
+        assert config.quant.fp16_only is True
         assert config.compile is None
 
     def test_ep_override_forwarded(self, tmp_path) -> None:
@@ -660,15 +664,17 @@ class TestResolveQuantCompileConfig:
     the HF and ONNX build config paths.
     """
 
-    def test_auto_auto_returns_none_none(self) -> None:
-        """device=auto + precision=auto returns (None, None)."""
+    def test_auto_auto_returns_fp16_only(self) -> None:
+        """device=auto + precision=auto resolves to fp16_only quant config."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("auto", ["npu", "gpu", "cpu"], ["CPUExecutionProvider"]),
         ):
             quant, compile_cfg = resolve_quant_compile_config()
 
-        assert quant is None
+        assert isinstance(quant, WinMLQuantizationConfig)
+        assert quant.fp16 is True
+        assert quant.fp16_only is True
         assert compile_cfg is None
 
     def test_npu_returns_quant_and_compile(self) -> None:
@@ -685,26 +691,30 @@ class TestResolveQuantCompileConfig:
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 
-    def test_gpu_returns_none_quant_and_none_compile(self) -> None:
-        """device=gpu returns (None, None) — DML has no EPContext step."""
+    def test_gpu_returns_fp16_quant_and_none_compile(self) -> None:
+        """device=gpu returns (fp16_only quant config, None) — auto-precision is fp16."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
         ):
             quant, compile_cfg = resolve_quant_compile_config(device="gpu")
 
-        assert quant is None
+        assert isinstance(quant, WinMLQuantizationConfig)
+        assert quant.fp16 is True
+        assert quant.fp16_only is True
         assert compile_cfg is None
 
-    def test_cpu_returns_none_none(self) -> None:
-        """device=cpu returns (None, None) since CPU has no compile provider."""
+    def test_cpu_returns_fp16_quant_and_none_compile(self) -> None:
+        """device=cpu returns (fp16_only quant config, None) — auto-precision is fp16."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
         ):
             quant, compile_cfg = resolve_quant_compile_config(device="cpu")
 
-        assert quant is None
+        assert isinstance(quant, WinMLQuantizationConfig)
+        assert quant.fp16 is True
+        assert quant.fp16_only is True
         assert compile_cfg is None
 
     def test_ep_override_changes_provider(self) -> None:
