@@ -1,0 +1,31 @@
+{
+  "_meta": {
+    "family": "<hf model_type, lowercase>",
+    "hf_model_type": "<config.json model_type verbatim>",
+    "models_tested": [],
+    "last_updated": "YYYY-MM-DD",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "<family>-001",
+      "title": "Short, falsifiable claim — 1 sentence",
+      "observation": "What you ran, what you saw, with concrete numbers. Include model id, recipe path, precision, EP, ORT version, date.",
+      "scope": {
+        "validated_on": [
+          "<org/model-id @ precision @ ep>"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "L0 | L1 | L2",
+      "goal_tier_reached": "L0 | L1 | L2 | L3",
+      "recipe_template": "examples/recipes/<org>_<model>/<task>_<precision>_config.json",
+      "gotchas": [],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Hypothesis only — what would falsify it.",
+      "last_updated": "YYYY-MM-DD"
+    }
+  ]
+}

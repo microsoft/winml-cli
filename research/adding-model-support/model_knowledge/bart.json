@@ -1,0 +1,148 @@
+{
+  "_meta": {
+    "family": "bart",
+    "hf_model_type": "bart",
+    "models_tested": ["facebook/bart-large-mnli (L0+L1-CPU+L2+L3 PASS)"],
+    "diagnostic_only": [],
+    "last_updated": "2026-06-23",
+    "epistemics_warning": "bart-001 + bart-002 are DIAGNOSTIC; bart-003 is VALIDATED-NEGATIVE (winml build attempted, export failed). Effort tier downgrade from bart-002 (L0★) is the wrong fix — the failure is a recipe content issue, not a code-coverage issue. bart-004 RESOLVES bart-003 via value_range:[2,3] recipe-side workaround. bart-005 extends the ladder to L3 (full Goal-tier closure on CPU)."
+  },
+  "findings": [
+    {
+      "id": "bart-001",
+      "title": "BART encoder + decoder OnnxConfigs are registered, but only for summarization / table-QA composite tasks",
+      "observation": "src/winml/modelkit/models/hf/bart.py registers @register_onnx_overwrite('bart', 'feature-extraction') for the encoder and @register_onnx_overwrite('bart', 'text2text-generation') for the decoder, plus @register_composite_model('bart', 'summarization') and @register_composite_model('bart', 'table-question-answering'). No registration exists for ('bart', 'text-classification') or ('bart', 'zero-shot-classification'). MODEL_CLASS_MAPPING covers only the two encoder-decoder export pairs.",
+      "scope": {
+        "validated_on": [],
+        "falsified_on": [],
+        "not_yet_tested_on": ["facebook/bart-large-mnli @ text-classification @ any-ep", "facebook/bart-large-mnli @ zero-shot-classification @ any-ep"]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L0 (not yet attempted)",
+      "recipe_template": "no encoder-decoder recipe exists under examples/recipes/ today; sequence-classification recipe template from deepset_roberta-base-squad2/question-answering_fp16_config.json is closest for a single-head bart-large-mnli text-classification config",
+      "gotchas": [
+        "bart-large-mnli is BartForSequenceClassification — a single-encoder model with a 3-way (entailment/neutral/contradiction) MLP head pooling over the eos token. It is NOT an encoder-decoder at inference time, even though the base bart-large is. A 'text-classification' OnnxConfig should expose only encoder + classification head, not the decoder.",
+        "Zero-shot-classification at the HF pipeline level wraps text-classification (NLI) with a label-templating step. KNOWN_TASKS in loader/task.py does NOT include 'zero-shot-classification' explicitly; verify via TasksManager.map_from_synonym whether it normalizes to 'text-classification' before adding to the recipe.",
+        "BART decoder configs assume sliding-window/static KV cache and bake cache_position = max_cache_len-1 as a Constant — irrelevant for the encoder-only classifier path, but ensure the new OnnxConfig does NOT inherit from BartDecoderIOConfig."
+      ],
+      "feature_gaps_filed": [
+        "FILE: @register_onnx_overwrite('bart', 'text-classification') OnnxConfig and BartForSequenceClassification wrapper",
+        "FILE: zero-shot-classification — confirm whether it should route through text-classification via TASK_SYNONYM_EXTENSIONS, or whether a dedicated OnnxConfig is needed",
+        "FILE: no encoder-decoder recipe exists in examples/recipes/ — gap for any contributor adding the first seq2seq recipe (bart-large-cnn, marian, t5, m2m_100, pix2struct, vision-encoder-decoder all share this gap)"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct grep of @register_* decorators in src/winml/modelkit/models/hf/bart.py against KNOWN_TASKS and TASK_REGISTRY. Inference-side TASK_REGISTRY has both 'text-classification' (line 291) and 'zero-shot-classification' (line 369), so the missing surface is export-side only.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "bart-002",
+      "title": "REFINEMENT of bart-001: Optimum-native BartOnnxConfig already covers text-classification and question-answering — bart-large-mnli is Effort-L0★, NOT L1",
+      "observation": "TasksManager probe (temp/probe_optimum_coverage.py, 2026-06-22 PM): optimum's BartOnnxConfig registers 8 tasks natively on 'bart': feature-extraction, feature-extraction-with-past, question-answering, text-classification, text-generation, text-generation-with-past, text2text-generation, text2text-generation-with-past. The winml @register_onnx_overwrite calls in models/hf/bart.py only override feature-extraction and text2text-generation (for sliding-window KV cache). text-classification falls through to Optimum's vanilla BartOnnxConfig with task='text-classification'. So a bart-large-mnli text-classification recipe needs ZERO new code — just a config.",
+      "scope": {
+        "validated_on": ["optimum @ probe 2026-06-22 (TasksManager._SUPPORTED_MODEL_TYPE['bart']['onnx'])"],
+        "falsified_on": [],
+        "refines": ["bart-001"],
+        "not_yet_tested_on": ["facebook/bart-large-mnli @ text-classification @ any-ep"]
+      },
+      "effort_tier_required": "L0★ (no template for bart text-classification exists under examples/recipes/)",
+      "goal_tier_reached": "L0 (not yet attempted)",
+      "recipe_template": "examples/recipes/deepset_roberta-base-squad2/question-answering_fp16_config.json is the closest single-encoder + classification-head template (different task, same shape pattern: input_ids + attention_mask + token_type_ids → logits)",
+      "gotchas": [
+        "bart-large-mnli is BartForSequenceClassification — single-encoder + 3-way MLP head pooling over the eos token. Optimum's BartOnnxConfig handles this via task='text-classification'. Confirm the encoder side: BartOnnxConfig may export the full encoder-decoder for text-classification (some HF NLI checkpoints keep the decoder for the pooling head). Verify by `winml inspect` once available.",
+        "zero-shot-classification: Optimum does NOT register this task. KNOWN_TASKS does not include it. The HF pipeline implements zero-shot-classification by ITERATING text-classification (NLI) across candidate labels — the underlying ONNX is the same text-classification graph. So a SINGLE bart-large-mnli text-classification recipe + a postprocess registration in TASK_REGISTRY['zero-shot-classification'] satisfies BOTH user-facing tasks."
+      ],
+      "feature_gaps_filed": [
+        "FILE: confirm that TASK_REGISTRY['zero-shot-classification'] postprocess routes through TASK_REGISTRY['text-classification']'s underlying engine — if not, file an issue to consolidate."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Optimum coverage probe (temp/probe_optimum_coverage.py) reads TasksManager._SUPPORTED_MODEL_TYPE after force-loading optimum.exporters.onnx.model_configs. Result saved to temp/coverage_report.json on 2026-06-22.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "bart-003",
+      "title": "VALIDATED-NEGATIVE: facebook/bart-large-mnli @ text-classification @ cpu — export FAILS on random int32 input with `index -1 is out of bounds for dimension 1 with size 0`. Optimum coverage was a NECESSARY but NOT SUFFICIENT condition.",
+      "observation": "Ran `uv run winml config -m facebook/bart-large-mnli --task text-classification -o temp/bart_mnli_build/config_draft.json` — succeeded, auto-detected AutoModelForSequenceClassification, generated [1,1024] input_ids + attention_mask + logits output. Promoted to examples/recipes/facebook_bart-large-mnli/text-classification_fp16_config.json. Ran `uv run winml build -c <recipe> -m facebook/bart-large-mnli -o temp/bart_mnli_build/`. Build log: 'Model loaded: BartForSequenceClassification (353 modules, 407.3M parameters)' → 'Generated inputs: input_ids shape=[1, 1024] dtype=torch.int32' → 'Exporting to ONNX... Error: Build failed: index -1 is out of bounds for dimension 1 with size 0'. NO model.onnx produced; NO analyze_result.json / export_htp_metadata.json / winml_build_config.json produced (export failed before optimize stage).",
+      "scope": {
+        "validated_on": ["facebook/bart-large-mnli @ text-classification @ cpu — REPRODUCED FAILURE (winml build, 2026-06-22 PM)"],
+        "falsified_on": ["bart-002 implicit assumption that Optimum vendor coverage ⇒ build will succeed"],
+        "refines": ["bart-002"],
+        "not_yet_tested_on": ["facebook/bart-large-mnli with a real-tokenizer-generated input_ids (not random int32)", "facebook/bart-large-cnn @ summarization @ * (different head — encoder-decoder, not single-encoder-classifier)"]
+      },
+      "effort_tier_required": "L0★ on paper (Optimum covers it), but BLOCKED on a real bug — Effort_actual is L1 until the root cause is fixed.",
+      "goal_tier_reached": "NEGATIVE (build failed before producing an artifact)",
+      "recipe_template": "examples/recipes/facebook_bart-large-mnli/text-classification_fp16_config.json — checked in but DOES NOT BUILD. Keep it as a regression test; add a 'broken: true' marker or move under a `_broken/` subdir if the convention exists.",
+      "gotchas": [
+        "Root cause (hypothesis, not confirmed): BartForSequenceClassification's forward pass pools the encoder hidden state at the LAST `eos_token_id` position via `input_ids.eq(self.config.eos_token_id).nonzero()` and then indexes `hidden[:, eos_positions[-1], :]`. With dummy input_ids being uniform random int32 in [0, 50265], the probability that the eos_token_id (token 2 for BART) appears AT ALL in a 1024-token random sequence is ~1 - (50264/50265)^1024 ≈ 2%, so 98% of runs hit `eos_positions = []` and the `[-1]` index throws `index -1 is out of bounds for dimension 1 with size 0`. The fix is to inject eos_token_id at position N-1 in the dummy input — Optimum's normalized_config / DummyTextInputGenerator does this for some checkpoints but not all.",
+        "This falsifies the methodology assumption that 'Optimum coverage = build will work'. Optimum-coverage probe tells you the OnnxConfig exists; it does NOT tell you whether the DummyInputGenerator that ships with that OnnxConfig produces inputs that exercise the forward pass without tripping checkpoint-specific assertions. NLI / classification heads that pool by eos position are a known landmine.",
+        "Generalization candidates worth probing: any HF model whose forward() does positional index lookup on a tokenizer-specific special token. Includes most NLI models (xlm-roberta-large-xnli, bart-large-mnli), conditional generation models that use BOS/EOS as separators, and BartForQuestionAnswering (similar `last_eos` pooling for the QA head).",
+        "`winml config` succeeded even though the resulting recipe doesn't build. This is a symptom of the config command using a sample tokenizer at a different layer than build's DummyInputGenerator. Treat `winml config` success as 'recipe shape is right', NOT 'recipe will build'."
+      ],
+      "feature_gaps_filed": [
+        "FILE: DummyTextInputGenerator (or winml's wrapper around it) should inject the model's eos_token_id at the last position when the model is *ForSequenceClassification with a HEAD that pools by eos. Optimum may already do this for BartForSequenceClassification's task='text-classification' OnnxConfig — verify against the optimum source and file the issue against the right repo.",
+        "FILE: winml build error 'index -1 is out of bounds for dimension 1 with size 0' is uninformative. The stack trace should surface to stdout (currently it's swallowed). At minimum, the export step should log the operation type and the offending tensor's shape when the index error fires.",
+        "FILE: add an integration test that confirms `winml build` survives random-dummy-input for every checked-in recipe under examples/recipes/. Today the recipe under examples/recipes/facebook_bart-large-mnli/ is broken with no in-repo signal."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction is 1 step: `uv run winml build -c examples/recipes/facebook_bart-large-mnli/text-classification_fp16_config.json -m facebook/bart-large-mnli -o temp/bart_mnli_build/`. Failure occurs deterministically at the export stage. Full build log preserved at temp/bart_mnli_build/build.log. The eos-pooling hypothesis is plausible from the HF BartForSequenceClassification source but has NOT been confirmed by patching the input generator and re-running — that's the next contributor's job.",
+      "resolution": "UNRESOLVED. Recipe is checked in as a known-broken regression case so subsequent runs of the skill on bart-* checkpoints don't repeat the same diagnostic cycle. Either (a) fix the DummyInputGenerator and re-validate, then promote to validated_on; (b) document the recipe as broken-by-upstream and link to the Optimum issue; (c) ship a different bart checkpoint that doesn't have eos-pooling (bart-large-cnn @ summarization is encoder-decoder, different code path).",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "bart-004",
+      "title": "RESOLVED bart-003: contributor-side workaround — pin `value_range:[2,3]` on `input_ids` so random dummy contains eos_token_id=2 deterministically. bart-large-mnli now builds + L1 + L2 PASS. First VALIDATED-NEGATIVE → VALIDATED reversal in this skill.",
+      "observation": "Root cause confirmed (per bart-003 hypothesis): `BartForSequenceClassification.forward` pools encoder hidden state at the last eos_token_id (=2) position via `input_ids.eq(self.config.eos_token_id).nonzero()[-1]`. Default DummyTextInputGenerator emits `randint(0, vocab_size)` — eos appears with probability ~1 − (V−1)/V)^seq_len ≈ 2% at seq_len=1024, hitting `index -1` on empty nonzero result 98% of the time. WORKAROUND: in the recipe's `export.input_tensors[*]` for input_ids, set `value_range:[2,3]` (PyTorch `random_(from,to)` requires from<to, so the half-open [2,3) gives exactly token 2). Built `examples/recipes/facebook_bart-large-mnli/text-classification_config.json` (NEW shipped recipe; drops `_fp16_` tag per `_meta-014` since `quant: null`): `winml build` completed in 91.2s — 1042 nodes, opset 17, fp32. L0 PASS. L1-CPU (real-input via temp/bart_mnli_perf.py): 1637ms/iter on 1024-token sequence with real tokenized 'A soccer game...' → 'This example is sports.' (mnli template). L2 (temp/bart_mnli_l2.py PT-vs-ONNX with real tokenized input): cosine=1.000000, max_abs=1e-6, argmax=2 ENTAILMENT on both sides. The workaround is documented inline in the shipped recipe's `_note` field (per `_meta-013` convention).",
+      "scope": {
+        "validated_on": ["facebook/bart-large-mnli @ text-classification @ cpu (winml build + winml perf-script + PT-vs-ONNX, 2026-06-22 PM)"],
+        "falsified_on": ["bart-003 'UNRESOLVED' verdict (the workaround was reachable inside the recipe schema all along)"],
+        "refines": ["bart-003"],
+        "not_yet_tested_on": ["xlm-roberta-large-xnli + deberta-v3-large-mnli (same eos-pooling head pattern — workaround should generalize)", "@ qnn-npu / @ dml-gpu (host-blocked per `_meta-016`)"]
+      },
+      "effort_tier_required": "L0★ (recipe-only — no source changes; just one well-chosen value_range narrowing)",
+      "goal_tier_reached": "L0 (artifacts) + L1-CPU (real-input perf via temp/bart_mnli_perf.py) + L2 (cosine=1.0 vs PyTorch, argmax matches). L3-zero-shot-classification reachable via the existing TASK_REGISTRY['zero-shot-classification'] → text-classification → NLI iteration path (not yet exercised but unblocked).",
+      "recipe_template": "examples/recipes/facebook_bart-large-mnli/text-classification_config.json — first NLI / eos-pooling-classification recipe in the repo. Other contributors hitting `index -1` on similar HF classification heads can copy the `value_range:[<eos_id>, <eos_id>+1]` pattern.",
+      "gotchas": [
+        "PyTorch `Tensor.random_(from, to)` is half-open and asserts from<to. `value_range:[2,2]` raises `RuntimeError: random_ expects 'from' to be less than 'to'`. Must be `[2,3]` to fix the value to 2.",
+        "`winml perf` uses RANDOM int inputs (independent of recipe value_range — the dummy generator at perf time does NOT honor the recipe's value_range narrowing). Random tokens trigger the same eos-pooling crash at PERF time even when the recipe builds fine. Workaround: write a custom Python perf script that feeds real tokenized inputs (template in temp/bart_mnli_perf.py).",
+        "The eos-pooling gotcha is generic to NLI / classification heads that pool by `last_eos_position`. Pattern in HF source: `model.forward` calls `input_ids.eq(self.config.eos_token_id)` followed by positional index. Grep candidates: `BartForSequenceClassification`, `LlamaForSequenceClassification`, `XLMRobertaForSequenceClassification`, …",
+        "The new recipe drops `_fp16_` from the filename per `_meta-014` — `quant: null` means fp32 weights regardless of filename, so the precision tag was misleading. Existing `text-classification_fp16_config.json` (the BROKEN one) should likely be deleted or renamed once the new recipe is in the README index."
+      ],
+      "feature_gaps_filed": [
+        "FILE: `winml perf` should accept a `--inputs <path-to-real-input-pkl>` (or similar) flag so producers don't need to hand-write a perf script for eos-pooling-style models. Today every such model owes a ~30-line script.",
+        "FILE: DummyTextInputGenerator should be aware of `*ForSequenceClassification` heads that pool by special-token position and inject eos_token_id at position N-1. Optimum upstream issue.",
+        "FILE: `value_range` narrowing for special tokens (eos/bos/pad/sep) deserves a recipe-side helper: `\"special_tokens\":[\"eos\"]` instead of forcing the contributor to look up the integer id."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction trail: temp/bart_mnli_workaround.json + _build/ for the original build; recipe promoted to examples/recipes/facebook_bart-large-mnli/text-classification_config.json. Perf log: temp/bart_mnli_perf.py (real-tokenized 'A soccer game with multiple males playing.' → 'This example is sports.'). L2 log: temp/bart_mnli_l2.py — PT logits[2.4517, -1.4173, -0.9532], ONNX logits identical to 4 decimals, both argmax=2 ENTAILMENT, max_abs=1e-6.",
+      "resolution": "bart-large-mnli is now VALIDATED at L0+L1+L2. The shipped recipe documents the workaround inline so the next bart-NLI contributor doesn't re-discover it. The old BROKEN recipe `text-classification_fp16_config.json` is superseded; consider deletion in a follow-up to avoid confusion.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "bart-005",
+      "title": "VALIDATED Goal-L3 for facebook/bart-large-mnli — `winml eval` on GLUE/mnli validation_matched (100 samples, CPU) gives accuracy=0.8800, latency=1.89s/sample. Closes the full Goal ladder L0..L3 for the first encoder-decoder family in repo. Cross-refs `_meta-019..030` from iter-6 PR-mining.",
+      "observation": "Command: `uv run winml eval -m temp\\verify_bart_build\\model.onnx --model-id facebook/bart-large-mnli --task text-classification --dataset glue --dataset-name mnli --split validation_matched --samples 100 --device cpu --ep cpu --column input_column=premise --column second_input_column=hypothesis --column label_column=label -o temp\\bart_mnli_l3_eval.json`. Result JSON: accuracy=0.88, total_time=189.05s, samples_per_sec=0.529, latency=1.89s/sample. Published reference accuracy for bart-large-mnli on full validation_matched is ~0.886 → the 100-sample subset matches to within MC noise. NOTE: `--dataset-config` is NOT a flag; correct flag is `--dataset-name` (the typo cost one wasted run before discovery via `--help`). Iter-6 also confirmed that `temp\\verify_bart_build` external-data layout (model.onnx + model.onnx.data co-located) is the COMPLIANT layout per `_meta-023`.",
+      "scope": {
+        "validated_on": ["facebook/bart-large-mnli @ text-classification @ cpu Goal-L3 (winml eval glue/mnli, 2026-06-23)"],
+        "falsified_on": ["`_meta-015` 'L3 CLI-blocked for seq2seq' — text-classification is single-head not seq2seq, so L3 IS reachable for the NLI head; the gap remains for true seq2seq tasks (summarization/translation)."],
+        "refines": ["bart-004"],
+        "not_yet_tested_on": ["@ qnn-npu / @ dml-gpu (host-blocked per `_meta-016`)", "@ full validation_matched 9815 samples (~5h CPU — TIMEOUT-at-scale per `_meta-029`)"]
+      },
+      "effort_tier_required": "L0★ (no code changes; pure CLI invocation against already-shipped recipe artifact)",
+      "goal_tier_reached": "L0 + L1-CPU + L2 + L3-CPU — full ladder closure. First model in the skill to reach L3 PASS.",
+      "recipe_template": "examples/recipes/facebook_bart-large-mnli/text-classification_config.json (unchanged from bart-004).",
+      "gotchas": [
+        "`--dataset-name` not `--dataset-config` — Click suggests the right flag in the error message; always run `winml eval --help` once per task family.",
+        "Sample count 100 gives ±~3% noise around the published accuracy on MNLI; for regression-test value, 500-sample subsets are tighter. Full 9815 sample run is L3-TIMEOUT territory per `_meta-029`.",
+        "OpenVINO EP DLL-load-fails on this host (logged before the actual CPU run) — does NOT block CPU eval, but the error is noisy in stderr. Tracked under `_meta-016`.",
+        "Task-consistency invariant (per `_meta-028`): recipe.task='text-classification' matches eval --task; bart-large-mnli's HF pipeline_tag is also 'zero-shot-classification' which composites over text-classification — `_meta-021` warns Optimum mislabels bart-large-cnn as fill-mask; bart-large-mnli is correctly classified."
+      ],
+      "feature_gaps_filed": [
+        "FILE: `winml eval` default dataset hint for image-to-text / image-text-to-text (today errors with 'No dataset provided and no default for task'). Compare to text-classification which defaults to glue.",
+        "FILE: `winml eval` should emit a 'CLI-BLOCKED' verdict alongside 'No dataset provided' so the methodology's short-circuit rule (`_meta-018`) can be wired to exit-code-2 instead of exit-code-1."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Output file temp/bart_mnli_l3_eval.json + tee log temp/bart_mnli_l3.log preserved. Reproducible: any contributor can re-run the exact command and expect 0.88±0.03 on the same seed=42 100-sample subset.",
+      "resolution": "bart-large-mnli closes Goal-L0..L3 on CPU. Open frontier: alt-EP L1/L3 (DML+QNN host-blocked) + true seq2seq L3 (bart-large-cnn summarization — needs `--dataset cnn_dailymail` plumbing, not yet probed). Composite-expansion gate (`_meta-020`): bart-large-mnli is SINGLE recipe (text-classification head), NOT a composite, so `winml inspect` should report pipeline_tasks=['text-classification'] composite=false.",
+      "last_updated": "2026-06-23"
+    }
+  ]
+}

@@ -1,0 +1,877 @@
+{
+  "_meta": {
+    "family": "_meta",
+    "purpose": "Methodology-level findings about this skill itself. Not a model family. Lives alongside per-family files so the dialectical record covers the framework too.",
+    "last_updated": "2026-06-23",
+    "epistemics_warning": "These are observations about SKILL.md, not about any model. Update when the skill's own claims are refuted."
+  },
+  "findings": [
+    {
+      "id": "_meta-001",
+      "title": "Initial SKILL.md mis-located the per-architecture code surface — caught and corrected during the 12-model methodology test",
+      "observation": "The first draft of SKILL.md (2026-06-22 morning) directed contributors to src/winml/modelkit/export/ for per-architecture exporter files. Applying the diagnostic step to 12 candidate models surfaced that this directory contains only generic plumbing (pytorch.py, io.py, value_range.py) — the real per-architecture surface is src/winml/modelkit/models/hf/<model_type>.py, where each file registers `OnnxConfig` subclasses via `@register_onnx_overwrite` and optionally `WinMLCompositeModel` subclasses via `@register_composite_model`. SKILL.md Step 2 + 'Where the code lives' table were corrected the same day.",
+      "scope": {
+        "validated_on": ["repo @ 2026-06-22 commit 4c8428f0"],
+        "falsified_on": [],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "n/a (methodology finding)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Path-truth check belongs in Step 1 (diagnostic): a real contributor running `winml inspect` would not have hit the wrong path — but a contributor reading SKILL.md offline (e.g. before installing winml) would. Both flows are valid. Cite directory listings in the skill itself, not only in the diagnostic step.",
+        "The CLAUDE.md prohibition on hardcoded paths in source code does NOT extend to SKILL.md documentation paths — but those paths drift the same way and should be re-verified each time the skill is touched."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct verification: list_dir on src/winml/modelkit/export/ vs src/winml/modelkit/models/hf/, plus grep of @register_onnx_overwrite. The methodology working as designed surfaced the doc bug.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-002",
+      "title": "Encoder-decoder recipe gap is a cross-family finding, not a per-family one — every seq2seq contributor pays the template cost today (now captured as Effort-L0★ tier)",
+      "observation": "12-model audit (2026-06-22): bart, marian, t5, mu2, vision-encoder-decoder all have @register_onnx_overwrite + @register_composite_model in place, but examples/recipes/ contains zero encoder-decoder recipes. Every recipe under examples/recipes/ (BAAI/bge, deepset/roberta-squad2, facebook/dinov2-*, google/vit-*, sentence-transformers, openai/clip, laion/CLIP, microsoft/rad-dino, cardiffnlp/twitter-roberta) is single-component encoder-only feature-extraction / classification / QA / sentence-similarity. The first seq2seq recipe contributor (whether for marian-opus, bart-large-cnn, t5-small, NLLB, pix2text-mfr) writes a template from scratch.",
+      "scope": {
+        "validated_on": ["repo @ 2026-06-22 commit 4c8428f0"],
+        "falsified_on": [],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "n/a (cross-family observation)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "Once the first encoder-decoder recipe lands, every per-family finding here that says 'recipe_template: no checked-in template' should be updated.",
+      "gotchas": [
+        "The Effort-L0 / Effort-L1 split in SKILL.md assumed a recipe template exists. For seq2seq models where the code is registered but no recipe ships, the contributor experience is closer to 'Effort-L0 with infrastructure debt' than pure L0. Consider documenting this as a sub-state.",
+        "`winml config -m <model-id> --task translation` emits two recipe files (encoder + decoder). The exact file-naming convention this produces is not documented in docs/reference/output-layout.md — capture it once observed."
+      ],
+      "feature_gaps_filed": [
+        "FILE: ship one canonical encoder-decoder recipe (suggest t5-small or opus-mt-fr-en) under examples/recipes/ to close the template gap",
+        "FILE: document `winml config` composite-emit pattern in docs/reference/output-layout.md"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Cross-checked by listing examples/recipes/ and grepping for any of: 'text2text-generation', 'translation', 'image-to-text', 'visual-question-answering', 'depth-estimation', 'composite' — all returned zero matches in JSON files on 2026-06-22.",
+      "resolution": "SKILL.md 2026-06-22 added Effort-L0★ tier ('Config only, no template'). An L0★ contributor explicitly owes a recipe_template publication and a finding update in model_knowledge/<family>.json so the next contributor in this pattern is promoted to plain L0.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-003",
+      "title": "Visual-question-answering has no @register_onnx_overwrite anywhere — first VQA model lands a task family, not just a model (now captured as Outcome-L2 tier)",
+      "observation": "Grep of '@register_onnx_overwrite' across src/winml/modelkit/models/hf/*.py shows zero entries for task 'visual-question-answering'. BLIP only registers image-to-text / image-text-to-text / feature-extraction / text2text-generation. Inference-side TASK_REGISTRY['visual-question-answering'] exists (tasks.py line 417), and the user-facing 3 target models in the test (dandelin/vilt + 3 pix2struct checkpoints) all hit this gap. The first VQA contributor effectively defines the export-side VQA pattern for the repo, and likely needs to clarify whether classification-style VQA (ViLT-style fixed answer vocab) and generative VQA (Pix2Struct-style decoder) share or split the task surface.",
+      "scope": {
+        "validated_on": ["repo @ 2026-06-22 commit 4c8428f0"],
+        "falsified_on": [],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "n/a (cross-model observation)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Effort tier for the first model in a new task family is always at least one tier higher than for the Nth model in an established family. Update SKILL.md Step 0 Effort-tier table to note this asymmetry.",
+        "VQA is the most pronounced case among the 12-model audit, but the same pattern applies to any 'first-of-task' contribution — recipe-template gap, inference-postprocess questions, and possibly a new models/winml/<task>.py shared-infra file."
+      ],
+      "feature_gaps_filed": [
+        "TRACK: when the first VQA model lands, decide whether classification-VQA and generative-VQA share a TASK_REGISTRY entry or split into 'visual-question-answering' (classifier) + 'generative-visual-question-answering' (decoder)."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Cross-checked via grep_search across all hf/*.py files on 2026-06-22.",
+      "resolution": "SKILL.md 2026-06-22 added Outcome-L2 tier ('L1 + new task family'). The first contributor for a never-before-exported task owes a new TASK_REGISTRY entry, possibly a new models/winml/<task>.py shared-infra file, and a finding here in skill_meta/ documenting the new task-family pattern.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-004",
+      "title": "Step-1 diagnostic missed the Optimum vendor registry — 4 of 6 'needs new code' families were already covered by Optimum, mis-classifying them as L1/L2 instead of L0★",
+      "observation": "Second iteration of the 12-model audit (2026-06-22 PM) added an Optimum-coverage probe (temp/probe_optimum_coverage.py, snapshot of TasksManager._SUPPORTED_MODEL_TYPE[mt]['onnx'].keys() before vs after ensure_hf_models_registered()). Results saved to temp/coverage_report.json. Verdicts for the 6 families originally classified as needing new winml code:\n  - bart 'text-classification' — VENDOR-ONLY (Optimum's BartOnnxConfig registers 8 tasks natively, bart-large-mnli is L0★ not L1)\n  - m2m_100 'text2text-generation' — VENDOR-ONLY (Optimum's M2M100OnnxConfig covers it, NLLB is L0★ not L1)\n  - pix2struct 'image-to-text' — VENDOR-ONLY (Optimum's Pix2StructOnnxConfig handles variable-patch internally, deplot/ai2d/docvqa are L0★/L1 not L2)\n  - mgp-str 'feature-extraction' — VENDOR-ONLY for encoder, image-to-text still needs L1-light winml override (3-head outputs)\n  - vilt — UNREGISTERED in both vendor and winml (true L1 confirmed)\n  - depth_pro — WINML-ONLY (true L0★ confirmed)\nFour of the six families were mis-classified upward in the first iteration because Step-1 only grepped src/winml/modelkit/models/hf/, never asked Optimum what it covers natively. A 'no winml registration' result was conflated with 'no registration anywhere'.",
+      "scope": {
+        "validated_on": ["optimum @ probe 2026-06-22 against TasksManager._SUPPORTED_MODEL_TYPE"],
+        "falsified_on": ["initial Effort-tier classifications in m2m_100-001, pix2struct-001, partially mgp_str-001 and bart-001"],
+        "not_yet_tested_on": ["any of the 12 candidate models against an actual `winml build` execution"]
+      },
+      "effort_tier_required": "n/a (methodology finding)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "The keyset diff (vendor task-keys before vs after winml registration) detects added tasks but NOT class-identity overrides. marian had added_by_winml=[] despite the file containing @register_onnx_overwrite for two tasks — because overwrite_existing=True replaces the partial under the SAME key. A true 'is winml overriding?' check requires comparing cls.__qualname__ per (model_type, task) cell, not just keys.",
+        "Optimum normalizes model_type with both hyphen and underscore in HF configs. mgp-str (hyphen) is registered; mgp_str (underscore) is not. Always probe both variants.",
+        "Optimum's coverage for a task is necessary but NOT sufficient for winml. Goal-L1 (perf gate) may force an L0★ → L1-light promotion if the vendor's DynamicCache-style decoder export is HTP-unfriendly on QNN NPU. Decision should be data-driven via `winml perf` against the vanilla Optimum export, NOT pre-emptive.",
+        "Net effect: the first-pass methodology over-estimated effort because it only saw half the registry. A diagnostic that misses 'work already done by upstream' is worse than no diagnostic — it sends contributors to write code they don't need."
+      ],
+      "feature_gaps_filed": [
+        "FILE: add a new SKILL.md Step-1 sub-step before 'check src/winml/modelkit/models/hf/': probe Optimum's TasksManager._SUPPORTED_MODEL_TYPE[<model_type>]['onnx'].keys() to distinguish UNREGISTERED / VENDOR-ONLY / VENDOR+OVERRIDE / WINML-ONLY.",
+        "FILE: clarify in SKILL.md Effort table that VENDOR-ONLY tasks are L0★ at most (recipe only), never L1+; L1 is only for UNREGISTERED tasks or VENDOR-ONLY tasks where perf forces an override.",
+        "FILE: add an Effort sub-tier L1-light = 'subclass Optimum's vendor OnnxConfig and override one method' (e.g. outputs, dummy_inputs, generate_dummy_inputs) — distinct from L1-full = 'write OnnxConfig from scratch against transformers source'."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Probe at temp/probe_optimum_coverage.py; snapshot result at temp/coverage_report.json. Both runs (before/after ensure_hf_models_registered) executed on 2026-06-22 PM with optimum and onnxruntime-windowsml 1.24.5.",
+      "resolution": "Step 1 of SKILL.md updated 2026-06-22 PM to add the Optimum-coverage probe as the FIRST diagnostic. Affected per-family findings (bart-002, m2m_100-002, pix2struct-002, mgp_str-002, marian-002, vision-encoder-decoder-002) appended to model_knowledge/ to refute or refine the iter-1 entries. L1-light sub-tier introduced in the Effort table.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-005",
+      "title": "Goal-L0 verification command in SKILL.md was wrong — surfaced only by actually running the skill end-to-end on apple/DepthPro-hf",
+      "observation": "First end-to-end exercise of the skill (depth_pro-002, 2026-06-22 PM) ran `winml inspect -m temp/depth_pro_build/model.onnx --format json` as Goal-L0 acceptance per the SKILL.md table. inspect refused with 'Error: ONNX file inspection is not yet supported. Use winml config -m model.onnx for ONNX build config.' The Goal-L0 row had been written from imagination, not from running the verifier. Substituted `python -c \"import onnx; m = onnx.load(...)\"` for shape/opset validation, which worked. Separately, `winml build` exited with PowerShell exit code 1 despite the build completing cleanly \u2014 a benign OpenVINO EP DLL load failure on stderr propagated through `2>&1 | Tee-Object` and poisoned the exit code. CI/scripted consumers cannot trust `winml`'s exit code today.",
+      "scope": {
+        "validated_on": ["depth_pro-002 build run @ 2026-06-22 PM with winml-cli @ HEAD"],
+        "falsified_on": ["SKILL.md Goal-L0 row as authored in iter-1"],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "n/a (methodology finding)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Iter-3 and iter-4 of this skill's methodology test were both pure paper exercises (probe scripts, table edits, finding-file appends). Neither would have caught either bug \u2014 only an actual `winml build` invocation exposed them. Lesson: every methodology iteration owes at least one end-to-end run, otherwise the methodology grades itself.",
+        "The Goal-L0 row had a syntactically reasonable command that any reader (and any agent) would have accepted on inspection \u2014 'winml inspect <artifact>' parallels 'winml inspect <model-id>'. Plausibility \u2260 correctness. SKILL.md should cite the command source (commit / output) when it documents a verification command.",
+        "The exit-code-poisoning bug is a deeper problem: agents using this skill cannot rely on PowerShell exit codes to gate next steps. They must parse stdout for '\u2705 Build complete' or check artifact existence. Document this in SKILL.md until winml-cli swallows benign EP-install stderr."
+      ],
+      "feature_gaps_filed": [
+        "FILE: winml-cli either (a) make `winml inspect` accept .onnx files, or (b) update SKILL.md to canonicalize a different Goal-L0 verifier (the onnx.load one-liner). Done as a stop-gap; the cli-side fix is preferred.",
+        "FILE: winml-cli swallow benign EP-install/registration errors so exit code reflects the actual command outcome \u2014 today scripted consumers and CI cannot use `$LASTEXITCODE`."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Both gaps reproduced and quoted from temp/depth_pro_build.log on 2026-06-22 PM.",
+      "resolution": "SKILL.md Goal-L0 row rewritten 2026-06-22 PM to use `onnx.load` for artifact validation and to explicitly call out that `winml inspect` is HF-model-ID-only. Exit-code gap noted in the depth_pro-002 finding as well \u2014 follow-up at the cli level required.",
+      "last_updated": "2026-06-22"    },
+    {
+      "id": "_meta-006",
+      "title": "Step-4 'append to knowledge base' was under-specified — first end-to-end run captured ONLY the methodology lesson, missed all build-artifact data",
+      "observation": "After running depth_pro end-to-end (depth_pro-002, 2026-06-22 PM), I wrote a finding that captured ONE thing: 'build succeeded in 758s, artifact loads, here's the I/O shape'. The user asked '你有没有把知识落地下来?' (did you actually capture knowledge?) and forced me to look at the build outputs. I had ignored THREE structured JSONs sitting in temp/depth_pro_build/: analyze_result.json (per-EP op support), export_htp_metadata.json (module hierarchy, parameter count, trace coverage), winml_build_config.json (autoconf-resolved config). Each contained model-specific structural knowledge worth recording: '3 independent DINOv2 backbones', '49% layout-move ops', 'autoconf picked gelu+matmul-add only'. None of that landed in the first-pass finding. I also forgot to add a row to examples/recipes/README.md — a published recipe that no contributor can discover via the index is half-shipped. Step 4 of SKILL.md says 'append to model_knowledge/<family>.json' but doesn't enumerate WHAT to mine.",
+      "scope": {
+        "validated_on": ["depth_pro-002 first-pass capture vs depth_pro-003 second-pass capture @ 2026-06-22 PM"],
+        "falsified_on": ["SKILL.md Step 4 as authored (too vague)"],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "n/a (methodology finding)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Side observation about analyze_result.json from the same run: the analyze step ran ONLY against DmlExecutionProvider (because that was the system's default device probe), and all 19 op types came back classification=unknown because DML EP runtime_support=False on this box. So the artifact looks like it carries per-EP support data but actually carries one EP probe that failed. Anyone reading analyze_result.json without checking which EP it covers will be misled. SKILL.md should tell the contributor to (a) re-run analyze with the EP they actually care about and (b) treat all-unknown as 'EP unavailable', not 'op unsupported'.",
+        "The recipe README index is a separate registration surface from the recipe file itself. Effort-L0★ contract was 'publish a template' but the template is unreachable without the index update. Outcome-L0 deliverables in SKILL.md should explicitly include 'add row to examples/recipes/README.md'.",
+        "The 952M-param + 3-independent-DINOv2-backbones architecture insight has direct quantization consequences: a calibration dataset feeding only the top-level model leaves 2 of 3 backbones uncalibrated. Without mining export_htp_metadata.json no one would know this from looking at the .onnx alone."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 4 should list the artifacts to mine: temp/<build>/analyze_result.json (op counts + per-EP coverage), temp/<build>/export_htp_metadata.json (module hierarchy + param count + trace coverage ratio), temp/<build>/winml_build_config.json (autoconf-resolved diff against my recipe).",
+        "FILE: SKILL.md Outcome-L0 row should add 'updates examples/recipes/README.md index table' as a required deliverable.",
+        "FILE: winml-cli analyze should default to ALL available EPs on the host, not silently fall back to one. Or expose a clear 'EP unavailable' classification distinct from 'op unknown'."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction trail: depth_pro-002 finding (first pass, sparse) → user challenge → read 3 JSON artifacts → depth_pro-003 finding (structural data) + README index row. All on 2026-06-22 PM.",
+      "resolution": "SKILL.md Step 4 and Outcome table updated 2026-06-22 PM with explicit artifact-mining checklist and README-index update requirement.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-007",
+      "title": "Producer-only workflow systematically grades itself — introduce a separate reviewer agent bound by REVIEW.md",
+      "observation": "Two consecutive same-day failures (_meta-005 fabricated verification command, _meta-006 missed artifact mining) both share root cause: the producer agent was the only verifier. The producer wrote SKILL.md, ran the skill, wrote the finding, and judged whether the finding was complete. The user's challenge '你有没有把知识落地下来?' is exactly what an external reviewer would have asked structurally. Resolution: split the workflow into producer (SKILL.md, Steps 0-5) and reviewer (REVIEW.md, fail-closed checklist). The reviewer is bound to (a) re-run at least one command from the PR, (b) read the 3 build artifacts directly rather than trust the producer's summary, (c) re-run the Optimum-coverage probe and cross-check the claimed Effort tier, (d) reject if any claimed verification command can't actually run today (e.g. `winml inspect <artifact>.onnx`).",
+      "scope": {
+        "validated_on": ["depth_pro contribution sequence on 2026-06-22 PM: _meta-005 and _meta-006 both surfaced only after user challenge"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["any contribution actually reviewed by a separate agent following REVIEW.md"]
+      },
+      "effort_tier_required": "n/a (workflow finding)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "This finding is itself produced by the producer agent without a reviewer agent. The first reviewer-agent invocation IS the validation — until that happens, REVIEW.md is a hypothesis just like any other finding. Mark `mechanism_confirmed: false` until a real reviewer pass exists.",
+        "The reviewer agent must NOT be a different instance of the same agent fed the same workspace context, because that instance shares the producer's mental shortcuts. A separate session / separate agent with only the PR diff and REVIEW.md as inputs is the strongest form. A weaker form (same agent in 'reviewer mode' starting from a fresh checkout) is the minimum.",
+        "REVIEW.md's 'Self-check before issuing a verdict' section exists specifically to defend against rubber-stamp reviews. If the reviewer can't name a command they re-ran, the review is paperwork and the verdict is invalid.",
+        "Risk: REVIEW.md's checklist may itself drift out of sync with SKILL.md. Anchor each check to a SKILL.md row or a `_meta-NNN` finding so changes propagate together. If a SKILL.md row is edited without a matching REVIEW.md update, that's a separate bug worth a follow-up finding."
+      ],
+      "feature_gaps_filed": [
+        "FILE: actually invoke the reviewer agent on the depth_pro contribution as the first real test of REVIEW.md. Until then, the workflow design is unvalidated.",
+        "FILE: when a SKILL.md change is reviewed (not just a model contribution), the reviewer should additionally verify the change has been exercised end-to-end at least once — paper edits to SKILL.md are how the methodology grades itself."
+      ],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Workflow design proposed by user 2026-06-22 PM after observing _meta-005 and _meta-006. Hypothesis: separating producer and reviewer agents will catch the self-grading failure mode. Validation requires a real reviewer-agent invocation, which has not happened yet.",
+      "resolution": "REVIEW.md created at research/adding-model-support/REVIEW.md on 2026-06-22 PM. SKILL.md gains Step 6 (Hand off to a reviewer agent) pointing at REVIEW.md. Resolution becomes validated once a reviewer-agent invocation actually catches or fails to catch a planted defect.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-008",
+      "title": "Optimum-coverage probe is NECESSARY but NOT SUFFICIENT — vendor coverage does not imply a build will succeed",
+      "observation": "Iter-5 trial (2026-06-22 PM) ran the new two-agent workflow against the iter-1 candidate sheet. facebook/bart-large-mnli, classified as L0\u2605 by iter-4's Optimum-coverage probe (vendor BartOnnxConfig covers text-classification), build FAILED at the export stage with `Error: Build failed: index -1 is out of bounds for dimension 1 with size 0`. Root-cause hypothesis (bart-003): BartForSequenceClassification.forward pools encoder hidden state at the last eos_token_id position; random int32 dummy input never contains an eos token; nonzero() returns empty; [-1] indexing throws. The Optimum-coverage probe answers 'does the OnnxConfig exist?' \u2014 it does NOT answer 'does the DummyInputGenerator produce inputs that exercise the forward without tripping checkpoint-specific assertions?'. SKILL.md Step 1's verdict table maps probe results to Effort tiers, but those Effort tiers are LOWER BOUNDS \u2014 a probe-says-L0\u2605 contribution can still be effectively L1 if the upstream DummyInputGenerator is wrong.",
+      "scope": {
+        "validated_on": ["facebook/bart-large-mnli @ text-classification @ cpu (2026-06-22 PM, bart-003)"],
+        "falsified_on": [],
+        "refines": ["_meta-004"],
+        "not_yet_tested_on": ["other eos-pooling NLI checkpoints (xlm-roberta-large-xnli, deberta-v3-large-mnli) \u2014 do they hit the same dummy-input issue?"]
+      },
+      "gotchas": [
+        "The probe verdict 'VENDOR-ONLY' should be read as 'on paper, no winml code is needed'. The probe verdict 'VENDOR-ONLY + build succeeds' is the actually-actionable signal. Without the build, the probe is at best a planning artifact.",
+        "_meta-004 (the iter-4 finding that introduced the probe) implicitly conflated these. The probe was framed as 'determines Effort tier', not 'narrows the candidate Effort tier subject to the dummy input working'. Update _meta-004's gotchas: a build attempt with the producer's dummy-input generator is the only definitive signal."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 1 verdict table should add a row 'Probe says VENDOR-ONLY but build fails on random dummy input' \u2192 likely a head-specific assertion (eos-pooling, padded-position lookup, ...) and the contribution becomes L1-light to fix the DummyInputGenerator.",
+        "FILE: REVIEW.md should add an explicit check: 'If the producer claims L0\u2605, the reviewer MUST re-run the build, not just confirm the recipe exists' \u2014 already implied by the existing 'Build re-runs cleanly' box, but the L0\u2605 \u2192 build-failure pattern is sneaky enough to deserve its own row."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction: `uv run winml build -c examples/recipes/facebook_bart-large-mnli/text-classification_fp16_config.json -m facebook/bart-large-mnli -o temp/bart_mnli_build/` \u2192 deterministic `index -1` failure. Marian (also VENDOR-ONLY per the probe) succeeded on the same run, ruling out an environmental cause.",
+      "resolution": "Captured as bart-003 in model_knowledge/bart.json with full mechanism. SKILL.md Step 1 verdict-table refinement is the next producer's job (and the obvious thing for a reviewer agent to demand). Until then, treat the probe as a planning hint only.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-009",
+      "title": "`winml config` can dead-end BEFORE producing any recipe draft for variable-shape models \u2014 SKILL.md Step 0 assumes a draft always exists",
+      "observation": "Iter-5 (2026-06-22 PM) ran `uv run winml config -m google/pix2struct-ai2d-base --task image-to-text -o temp/probe_drafts/pix2struct_draft.json`. Command exited with: 'Error: Preprocessors for pix2struct need to be available for the ONNX export to infer input static shapes. Got: None'. No config_draft.json was produced. The error originates inside Optimum (the OnnxConfig knows it needs the Pix2StructProcessor's max_patches to derive flattened_patches shape, and refuses to invent one), and winml does not currently load AutoProcessor and pass its size attributes through. This is BEFORE any build attempt \u2014 SKILL.md Step 0's implicit assumption that 'pick a tier, run `winml config`, get a starting recipe' is violated. Affected family: any image-task model with variable input shape (pix2struct, donut variants, fuyu).",
+      "scope": {
+        "validated_on": ["google/pix2struct-ai2d-base @ image-to-text @ config-stage (2026-06-22 PM, pix2struct-003)"],
+        "falsified_on": [],
+        "refines": ["_meta-004"],
+        "not_yet_tested_on": ["donut variants", "fuyu", "kosmos-2 with image-input variant"]
+      },
+      "gotchas": [
+        "Same producer-only failure-mode amplification as _meta-007: the producer of THIS finding chose to not attempt the manual workaround (passing AutoProcessor through or hand-writing a recipe) this turn. A reviewer agent would correctly point out that the L0\u2605 verdict-table row says 'task in vendor \u21d2 L0\u2605' \u2014 not 'L0\u2605 IF `winml config` cooperates'.",
+        "The fix is plumbing in `winml config` (load AutoProcessor, pass its size attrs to the OnnxConfig constructor). Until then, the SKILL.md user has to know to either (a) use --processor-args (verify if it exists) or (b) hand-write the recipe \u2014 neither path is documented today."
+      ],
+      "feature_gaps_filed": [
+        "FILE: extend `winml config` to load HF AutoProcessor for image-task models and thread max_patches / patch_size / image_size through to Optimum's OnnxConfig constructor. Unblocks pix2struct, donut variants, fuyu, and similar.",
+        "FILE: SKILL.md Step 0 should add a fall-back row: 'If `winml config` errors before producing a draft, downgrade to manual recipe + capture as L1-light effort in the finding.'",
+        "FILE: REVIEW.md should add 'If the producer's finding says \\\\`winml config` refused\\\\', confirm whether a manual workaround was attempted. A negative finding without any workaround attempt is REQUEST_CHANGES.'"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction is 1 step. The error string comes from Optimum, verified by reading the absence of winml.modelkit traceback in the error. Workaround NOT attempted in this session by the producer \u2014 documented as a feature gap, but the reviewer agent should call this out.",
+      "resolution": "Captured as pix2struct-003 in model_knowledge/pix2struct.json. SKILL.md Step 0 + REVIEW.md updates are the next producer/reviewer cycle's job.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-010",
+      "title": "Producer-only batch contributions still self-grade at the batch level \u2014 producer chose 3 of 10 candidates, the easy ones",
+      "observation": "Iter-5 was framed as 'try the 10 models with the new workflow'. The producer ran 3 (bart, marian, pix2struct) and left 7 in diagnostic-only state (m2m_100, mgp_str, vilt, vision-encoder-decoder, opus-mt-fr-en, deplot, docvqa-base). The 3 chosen happen to be the 3 that fit in a single turn: (a) marian \u2014 successful L0\u2605 with a known fast build; (b) bart \u2014 known small fp16 model where the failure would surface fast; (c) pix2struct \u2014 the failure surfaces at the `winml config` stage so it's even faster. The unrun 7 are slower / harder: m2m_100/NLLB-600M is large, mgp_str + vilt need L1 code, vision-encoder-decoder needs another vision-text composite recipe. A reviewer agent reading the iter-5 output would correctly flag this: '_meta-007 said the producer self-grades. The producer just demonstrated it again at the batch level: 7 candidates are still diagnostic-only and the producer never said why.'",
+      "scope": {
+        "validated_on": ["iter-5 session 2026-06-22 PM: producer ran 3 of 10 claimed candidates"],
+        "falsified_on": [],
+        "refines": ["_meta-007"],
+        "not_yet_tested_on": ["any session where a reviewer agent demanded the full 10 be exercised before approval"]
+      },
+      "gotchas": [
+        "When the user asks for a batch ('try these 10 models'), the producer's Step 0 should produce ONE (Effort, Goal, Outcome) declaration per model UP-FRONT, not retroactively justify which ones got built.",
+        "A reviewer agent's first question on a batch contribution should be: 'Show me your per-model tier table BEFORE any model was built. If that table doesn't exist, REQUEST_CHANGES \u2014 the producer hasn't planned the batch, only the easy subset of the batch.'"
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md should add a 'Batch mode' note: for a contribution covering N models, the producer's PR description must contain an N-row tier table BEFORE any build is attempted. Otherwise it's a single-model contribution masquerading as a batch.",
+        "FILE: REVIEW.md gets a corresponding check: 'For batch contributions, is there a pre-build per-model tier table?'"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Self-incrimination by the producer 2026-06-22 PM, immediately after writing the iter5_summary.md table that revealed only 3 of 10 had real verdicts. The fact that I noticed and wrote this finding myself doesn't fix _meta-007's underlying problem \u2014 it just illustrates how cheap self-grading actually is when there's no reviewer in the loop.",
+      "resolution": "UNRESOLVED. Will become validated/falsified the next time a reviewer agent rejects a batch contribution for missing pre-build tier table.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-011",
+      "title": "Reviewer subagent without terminal-execution capability cannot satisfy REVIEW.md's \"re-run at least one command\" rule \u2014 first real reviewer invocation surfaced this",
+      "observation": "First real exercise of the two-agent workflow (iter-5 reviewer pass, 2026-06-22 PM, Explore subagent): the reviewer agent issued an honest REQUEST_CHANGES verdict but acknowledged it ran 0 terminal commands. The Explore agent is a read-only subagent (file_search / read_file / grep_search only), and REVIEW.md's \"Self-check before issuing a verdict\" requires re-running at least one of the producer's commands. The reviewer satisfied the spirit of the check by reading the producer's checked-in build artifacts (analyze_result.json, export_htp_metadata.json, winml_build_config.json) and the committed build log \u2014 but the literal requirement (\"re-run\") was not met. _meta-007's resolution claim (\"REVIEW.md is a hypothesis until a real reviewer pass exists\") is now half-validated: the workflow caught real producer defects (5 actionable items), but the tool budget required to fully execute REVIEW.md was missing.",
+      "scope": {
+        "validated_on": ["iter-5 reviewer pass on 2026-06-22 PM with Explore subagent"],
+        "falsified_on": [],
+        "refines": ["_meta-007"],
+        "not_yet_tested_on": ["any reviewer agent invocation with terminal access (e.g. the same main agent in 'reviewer mode' but with run_in_terminal enabled)"]
+      },
+      "effort_tier_required": "n/a (workflow finding)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "REVIEW.md as written implicitly assumes the reviewer has the same tool budget as the producer. In practice, subagents are often constrained read-only for safety. The checklist should split into two columns: REQUIRED-FROM-EVIDENCE (file reads, log inspection) vs REQUIRED-FROM-RE-EXECUTION (build, analyze, perf).",
+        "A read-only reviewer is still vastly better than no reviewer \u2014 the iter-5 reviewer caught the broken bart recipe, the schema misstatement, the pix2struct workaround gap, the batch-mode self-grading. Don't reject the workflow because the tool budget was incomplete; document the constraint."
+      ],
+      "feature_gaps_filed": [
+        "FILE: REVIEW.md should add an explicit 'Reviewer tool budget' row that downgrades 'must re-run' to 'must verify from committed artifacts' when terminal access is unavailable, AND notes the limitation in the verdict.",
+        "FILE: ideally the reviewer agent is the main agent in a separate session with full tool access; document the recommended invocation pattern in SKILL.md Step 6."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct observation from the reviewer agent's verdict 2026-06-22 PM: the reviewer explicitly stated 0 terminal commands were run and listed the 5 actionable items derived from artifact reads alone.",
+      "resolution": "REVIEW.md updated 2026-06-22 PM to add the 'Reviewer tool budget' check. SKILL.md Step 6 should also recommend invocation pattern \u2014 follow-up.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-012",
+      "title": "Recipe schema in SKILL.md was wrong \u2014 listed 5 keys, real `WinMLBuildConfig` has 6 including `compile`; reviewer flagged committed marian/depth_pro recipes as schema-violating",
+      "observation": "Iter-5 reviewer item #1 (2026-06-22 PM): the reviewer compared `examples/recipes/Helsinki-NLP_opus-mt-en-ru/translation_fp16_encoder_config.json` against SKILL.md's recipe-schema documentation row and reported a schema violation \u2014 the recipe contained a `compile` key not listed as allowed. Investigation (read of `src/winml/modelkit/config/build.py:96-200` `WinMLBuildConfig` dataclass): real schema is `{loader, export, optim, quant, compile, eval}`; `eval` is optional and may be omitted; `compile` is present and `winml config` emits it by default; `from_dict` uses `.get()` and silently ignores unknown keys (so adding `_status` as a marker is also safe). SKILL.md's previous text claimed exactly `{export, optim, quant, loader, eval}`, missing `compile` and incorrectly implying `eval` is required. The fix is in SKILL.md and REVIEW.md, NOT in the recipes \u2014 both marian and apple/DepthPro-hf recipes have the schema `winml config` actually emits.",
+      "scope": {
+        "validated_on": ["src/winml/modelkit/config/build.py @ HEAD 2026-06-22; both checked-in marian + depth_pro recipes; `winml config` output for opus-mt-fr-en"],
+        "falsified_on": ["SKILL.md Step 3 schema row as written before iter-5"],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "n/a (methodology finding)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "SKILL.md documentation drift from `WinMLBuildConfig` is structural \u2014 the dataclass evolves and the prose hand-copy doesn't. Step 3 should cite the dataclass file directly rather than paraphrase the field list.",
+        "Reviewer agents reading prose-only schema docs will produce false positives. The fix is to ground the schema check on either (a) the dataclass source, or (b) `winml config`'s emitted output for the same (model, task)."
+      ],
+      "feature_gaps_filed": [
+        "FILE: consider generating SKILL.md's schema callout from `WinMLBuildConfig.__dataclass_fields__` at doc-build time so the two cannot drift again."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Read `src/winml/modelkit/config/build.py` lines 96-200 (dataclass definition) and 148-175 (`from_dict`). Verified by comparing the dataclass field set to (a) marian recipe (`{export, optim, quant, compile, loader}`), (b) depth_pro recipe (same shape), (c) `winml config` output for opus-mt-fr-en (same shape).",
+      "resolution": "SKILL.md Step 3 schema row and REVIEW.md Outcome-L0 check both rewritten 2026-06-22 PM to enumerate `{loader, export, optim, quant, compile, eval}` with required/optional/null annotations and a pointer to the dataclass file.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-013",
+      "title": "`winml analyze` standalone requires runtime_check_rules/*.parquet \u2014 missing on external hosts; reviewer cannot satisfy \"re-run analyze with available EP\" rule for `_meta-005` follow-up",
+      "observation": "Iter-5 reviewer item #2 (2026-06-22 PM): the reviewer asked the producer to re-run `winml analyze` against an available EP (`cpu`) to replace the useless DML-on-host-without-DML analyze data in marian-003. Attempted: `uv run winml analyze -m temp/marian_build/encoder/model.onnx --ep cpu ...` \u2014 failed with `No runtime rule parquet files were found`. Investigation: `src/winml/modelkit/analyze/rules/runtime_check_rules/` contains only `README.md`, no `.parquet` files. `scripts/download_rules.py` is the populator but is Microsoft-internal-only (reads from internal blob URLs). External hosts must fetch parquet rules from a `winml-cli` GitHub release that doesn't currently exist (or have access to internal infrastructure). Net: REVIEW.md's `_meta-005`-derived \"re-run analyze with available EP\" requirement is structurally impossible to satisfy on the producer's host, and on any host that doesn't have Microsoft-internal access.",
+      "scope": {
+        "validated_on": ["this host @ 2026-06-22 PM: `winml analyze` with any --ep fails with missing parquet rules"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["a host that ran scripts/download_rules.py with internal credentials"]
+      },
+      "effort_tier_required": "n/a (host onboarding gap)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "REVIEW.md cannot require something that's not provisioned on the contributor's host. Either ship the parquet rules with the package, expose a public download path, or downgrade the requirement to 'cite producer's analyze_result.json + note EP availability'.",
+        "_meta-005's resolution claim that 'analyze can be re-run with the EP you actually care about' is host-dependent. The fix lives at the cli-distribution layer, not in SKILL.md or REVIEW.md text."
+      ],
+      "feature_gaps_filed": [
+        "FILE: ship `runtime_check_rules/*.parquet` with the winml-cli package OR publish them as a downloadable release artifact OR document `scripts/download_rules.py` (with public mirror) as part of the contributor onboarding flow.",
+        "FILE: REVIEW.md should treat 'analyze parquet rules unavailable on host' as a host-environment caveat, not a producer failure."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction: `uv run winml analyze -m temp/marian_build/encoder/model.onnx --ep cpu --format json -o temp/marian_encoder_cpu_analyze.json` 2026-06-22 PM \u2192 'No runtime rule parquet files were found'. Confirmed by `Get-ChildItem src/winml/modelkit/analyze/rules/runtime_check_rules/` showing only README.md, and reading scripts/download_rules.py header (internal blob URLs only).",
+      "resolution": "REVIEW.md updated 2026-06-22 PM with the parquet-availability caveat. Cli-side fix (ship or download rules) tracked as the persistent gap.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-014",
+      "title": "Recipe filename precision tag (`*_fp16_*_config.json`) is purely cosmetic \u2014 there is no precision-cast step in the recipe schema beyond `quant`, so a 'fp16' recipe with `quant: null` ships fp32 weights",
+      "observation": "After Goal-L0/L1 validation of Helsinki-NLP/opus-mt-fr-en, inspected the actual encoder ONNX weight dtypes: `Counter({FLOAT(1): 102, INT64(7): 32})` \u2014 zero FLOAT16. The recipe file is named `translation_fp16_encoder_config.json` but contains `\"quant\": null` and no `optim.cast_to_fp16`-style flag. The recipe schema (`WinMLBuildConfig`: `{loader, export, optim, quant, compile, eval}`) has no first-class fp16-cast knob \u2014 precision is downgraded only via `quant`. Net: every recipe whose filename includes `_fp16_` but whose body has `quant: null` is silently fp32. `winml perf` honestly reports `Model Precision: fp32`, so the diagnostic is recoverable, but the filename itself misleads.",
+      "scope": {
+        "validated_on": ["examples/recipes/Helsinki-NLP_opus-mt-fr-en/translation_fp16_encoder_config.json @ 2026-06-22: filename says fp16, weights are 102\u00d7float32, perf reports fp32"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["all other `*_fp16_*` recipes in examples/recipes/ \u2014 likely affected at the same rate"]
+      },
+      "effort_tier_required": "n/a (recipe-authoring convention)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "The filename is the only place the word `fp16` appears in many recipes. There is no enforcement that the body matches the filename.",
+        "`winml perf` is honest: `Model Precision: fp32` in the log is the ground truth, not the filename.",
+        "Existing 'fp16' recipes in examples/recipes/ should be audited \u2014 either rename them to drop the false tag, or add a quant block that actually casts."
+      ],
+      "feature_gaps_filed": [
+        "FILE: define a first-class precision-cast field in `WinMLBuildConfig` (e.g. `optim.cast_to_fp16: bool` or `precision: fp16|bf16|fp32`) so recipe naming and recipe behavior cannot drift.",
+        "FILE: contributing.md should warn that the filename tag is decorative \u2014 truth lives in the `quant` block and in the emitted weight dtypes.",
+        "FILE: REVIEW.md Outcome-L0 should grep the emitted ONNX for FLOAT16 initializers whenever the recipe filename includes `_fp16_`."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction (2026-06-22 PM): built opus-mt-fr-en encoder from the shipped recipe; inspected `temp/opus_fr_en_build/encoder/model.onnx`: 102 initializers with data_type=1 (FLOAT32), 32 with data_type=7 (INT64), 0 with data_type=10 (FLOAT16). `winml perf` log reports `Model Precision: fp32`. Recipe body: `\"quant\": null`, no fp16-related field anywhere in the recipe schema.",
+      "resolution": "Documented here as `_meta-014`. Repo-memory note also updated. Recipe rename / schema change deferred \u2014 not in scope for this iteration.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-015",
+      "title": "Goal-L3 task-metric for translation is CLI-blocked at the source \u2014 `winml eval` task registry does not include `translation`",
+      "observation": "Attempted Goal-L3 (BLEU / chrF) for Helsinki-NLP/opus-mt-fr-en via `uv run winml eval --schema --task translation` \u2192 hard error: 'Task `translation` is not supported by `winml eval`'. Supported tasks listed: depth-estimation, feature-extraction, fill-mask, image-classification, image-feature-extraction, image-segmentation, image-to-text, next-sentence-prediction, object-detection, question-answering, sentence-similarity, sequence-classification, text-classification, token-classification, zero-shot-classification, zero-shot-image-classification. **No `translation`.** Net: every seq2seq translation recipe is structurally capped at Goal-L1 (perf) + ad-hoc L2 (custom numerical script). L3 cannot be reached through the CLI no matter how good the recipe is.",
+      "scope": {
+        "validated_on": ["this host @ 2026-06-22 PM: `winml eval --schema --task translation` returns the unsupported-task error and lists the 16 supported tasks above"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["text-to-text generation, summarization, ASR, TTS \u2014 likely the same generative-task gap"]
+      },
+      "effort_tier_required": "n/a (CLI feature gap)",
+      "goal_tier_reached": "L3 unreachable for translation models via CLI",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Reviewers should not penalize translation recipes for missing L3 evidence \u2014 the gap is in `winml eval`, not in the recipe.",
+        "Methodology note: the Goal-tier ladder is partly a function of CLI coverage. A recipe can be 'maximally validated' at L1+L2 if L3 is structurally unavailable.",
+        "Workaround: write an ad-hoc BLEU script (transformers + sacrebleu) and ship it next to the recipe; do not pretend L3 was reached."
+      ],
+      "feature_gaps_filed": [
+        "FILE: register `translation` task in the `winml eval` TASK_REGISTRY with BLEU/chrF/COMET metrics and a default dataset descriptor (e.g. wmt14_fr_en / flores_devtest).",
+        "FILE: add a `--list-tasks` short-form to surface the registry without needing `--schema --task <foo>`.",
+        "FILE: a generative-task umbrella (translation, summarization, text2text-generation) should likely share one harness."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction (2026-06-22 PM): `uv run winml eval --schema --task translation` \u2192 unsupported-task error with the 16-task list. Cross-checked Effort-L0 onnx.load on both halves of opus-mt-fr-en passing + L1-CPU perf passing + L2 ad-hoc encoder numerical compare passing (cosine=1.000000, max_abs=8e-5 vs PyTorch) \u2014 the model is fine; the L3 surface is not provisioned.",
+      "resolution": "Documented here. Producer's report for opus-mt-fr-en marks L3 as 'CLI-blocked, not recipe-blocked'. Cli-side fix deferred.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-016",
+      "title": "On this host, EP availability is: CPU OK, DML registered-but-crashes (0xC0000409 STATUS_STACK_BUFFER_OVERRUN), QNN absent, OpenVINO DLL-load-fails. Goal-L1 multi-EP matrix is a host-environment matrix as much as a per-recipe matrix.",
+      "observation": "Ran `winml perf` for opus-mt-fr-en encoder on each requested EP (2026-06-22 PM): (a) `--ep cpu` \u2192 PASS, 60.97ms/iter avg over 30 iters. (b) `--ep dml` \u2192 process crashed with native exit code -1073740791 = 0xC0000409 = STATUS_STACK_BUFFER_OVERRUN; consistent with marian-003 analyze data that already showed `DmlExecutionProvider runtime_support=false` on this host. (c) `--ep qnn` \u2192 clean refusal: 'Requested EP `QNNExecutionProvider` is not available on this system. Available EPs: [CPUExecutionProvider, DmlExecutionProvider].' (no Snapdragon NPU). (d) `--ep openvino` \u2192 OpenVINO EP installs via WinAppSDK, but `register_execution_provider_library` fails because `onnxruntime_providers_shared.dll` is missing alongside the plugin DLL. (e) `--ep migraphx` / `--ep nvtensorrtrtx` / `--ep vitisai` \u2192 not attempted (no AMD or NVIDIA RTX hardware claimed). Net: a producer running on a vanilla x64 box with no NPU and no working DML/OpenVINO can only honestly claim Goal-L1 on CPU.",
+      "scope": {
+        "validated_on": ["this host @ 2026-06-22 PM: CPU works, DML crashes, QNN absent, OpenVINO DLL-load-fails"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["Snapdragon X Elite host (QNN), Intel Core Ultra host (OpenVINO), AMD Ryzen AI host (VitisAI)"]
+      },
+      "effort_tier_required": "n/a (host-EP enumeration)",
+      "goal_tier_reached": "Goal-L1-CPU on this host; other EPs require other hosts",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "DML's failure mode is the worst of the bunch: the process aborts at native level (0xC0000409) without a Python traceback. Easy to mistake for a recipe bug. Always probe `onnxruntime.get_available_providers()` first.",
+        "OpenVINO EP installs successfully via the package manager (the WinAppSDK package downloads) but then fails at DLL load because a sibling DLL is missing. This is a packaging bug, not a recipe bug.",
+        "Goal-L1 'pass on at least one EP' is the only honest universal floor. Anything stronger requires explicit per-EP host-availability evidence.",
+        "Reviewers should accept 'CPU-only L1' when the producer can attach a `get_available_providers()` snapshot + per-EP failure logs."
+      ],
+      "feature_gaps_filed": [
+        "FILE: `winml perf` should fail-fast with a clean message when the requested EP is registered but its driver/runtime is non-functional (current behavior: 0xC0000409 native crash).",
+        "FILE: `winml perf` should not abort the whole run when an *unrelated* EP (OpenVINO) fails to register \u2014 the OpenVINO DLL failure happens even for `--ep cpu` runs and just doesn't kill them, but for `--ep dml` it seems to interact poorly.",
+        "FILE: SKILL.md / REVIEW.md should add a 'host EP capability matrix' section that producers fill in once and reuse across recipes."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproductions captured in `temp/opus_fr_en_perf_enc_cpu.log` (PASS), `temp/opus_fr_en_perf_enc_dml.log` + `_dml2.log` + `_dml3.log` (all native-crash with exit -1073740791), `temp/opus_fr_en_perf_enc_qnn.log` (clean 'EP not available'). OpenVINO failure printed in every log.",
+      "resolution": "Documented here as `_meta-016`. Producer's report classifies L1 outcomes per EP and cites which limits are host-environmental vs CLI vs recipe.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-017",
+      "title": "`winml perf` uses RANDOM dummy inputs at perf-time independent of recipe `value_range` narrowing — eos-pooling / special-token-indexing models crash at perf even when their recipe builds. Workaround = custom Python perf script. First surfaced via bart-004.",
+      "observation": "After fixing bart-large-mnli's build with `value_range:[2,3]` for input_ids (bart-004), ran `winml perf -m examples/recipes/facebook_bart-large-mnli/text-classification_config.json --ep cpu --iterations 30 --warmup 5` — perf crashed at the first iteration with the SAME `Gather indices=-1` error that bart-003 surfaced at build. Investigation: `winml perf`'s dummy-input generator uses random sampling for each iteration and does NOT consult the recipe's `export.input_tensors[*].value_range`. So the build-time workaround does not propagate to perf-time, and 98% of perf iterations re-hit the eos-pooling crash. Fix used for this turn: hand-written perf script (temp/bart_mnli_perf.py) that builds real tokenized inputs via AutoTokenizer + measures latency directly via onnxruntime. 1637ms/iter on real input (vs crash on random input). Pattern is generic to any model whose forward() does positional index lookup on a special token (eos/bos/pad/sep).",
+      "scope": {
+        "validated_on": ["facebook/bart-large-mnli @ text-classification @ cpu — winml perf crashes with random inputs; custom script succeeds (2026-06-22 PM)"],
+        "falsified_on": [],
+        "refines": ["_meta-008", "bart-003", "bart-004"],
+        "not_yet_tested_on": ["other eos-pooling NLI checkpoints (xlm-roberta-large-xnli, deberta-v3-large-mnli)", "models with bos/sep/pad indexing in forward (e.g. BertForNextSentencePrediction)"]
+      },
+      "effort_tier_required": "n/a (CLI gap finding)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Build success ≠ perf success when the model has special-token-positional-index logic. Always re-run `winml perf` after a recipe-level workaround that targets dummy-input distribution.",
+        "Random perf inputs are the DEFAULT and aren't documented as such anywhere obvious. Contributors who succeed at build then run perf will see a confusing 'this worked yesterday' regression. Mention this prominently in SKILL.md perf section.",
+        "Custom-script perf workaround template: `import time, onnxruntime as ort; sess = ort.InferenceSession(path, providers=[ep]); inputs = real_tokenized_inputs(...); [sess.run(None, inputs) for _ in range(warmup)]; t0 = time.perf_counter(); [sess.run(None, inputs) for _ in range(iters)]; print((time.perf_counter()-t0)/iters * 1000, 'ms/iter')`.",
+        "Reviewers should NOT auto-reject a recipe whose `winml perf` evidence is a custom Python script instead of the `winml perf` CLI output — for eos-pooling and similar special-token-indexing models, the custom script is the only honest path."
+      ],
+      "feature_gaps_filed": [
+        "FILE: `winml perf` should honor the recipe's `export.input_tensors[*].value_range` when generating dummy inputs (same logic that build uses). One fix unblocks every special-token-pooling model.",
+        "FILE: `winml perf --inputs <path-to-real-input-pkl>` (or similar) flag — let producers supply pre-computed real inputs instead of relying on random sampling.",
+        "FILE: SKILL.md Goal-L1 row + REVIEW.md Goal-L1 check should both note that custom perf scripts are acceptable evidence for special-token-pooling models."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction trail: temp/bart_mnli_perf.py (real-input perf, 1637ms/iter, classification works correctly). Direct comparison with `winml perf` CLI = crash with `Gather indices=-1`. Same root cause as bart-003 (`input_ids.eq(eos_id).nonzero()[-1]` on empty result), now confirmed to also fire at perf time independent of recipe value_range.",
+      "resolution": "Documented as `_meta-017`. CLI-side fix (perf honoring value_range) is the durable resolution. Until then, custom perf scripts are the documented workaround.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "_meta-018",
+      "title": "Producer must march the Goal ladder under the committed ceiling without intermediate user prompts. Stopping at L1 and asking 'should I continue to L2?' is the same silent-skip failure mode as `_meta-007`, just in the producer\u2192user direction.",
+      "observation": "Iter-6 post-build session (2026-06-23): producer completed L0 (winml build for 3 recipes) and L1 (winml perf on CPU for all 3 including the bart-mnli custom-script workaround per `_meta-017`), then halted and asked the user 'L2 \u8fd8\u8981\u7ee7\u7eed\u5417?'. The user pushed back: \"\u4f60\u73b0\u5728\u6ca1\u6709\u81ea\u52a8\u53bb\u5b8c\u6210\u8fd9\u4e9b layer \u7684 goal?\" Root cause in SKILL.md: Step 0 said 'pick the highest tier you can honestly commit to' and 'downgrade publicly if blocked rather than silently skipping', but never explicitly said 'commit then march L0..ceiling in one pass'. Producer treated the ladder as a menu of optional next steps gated on user confirmation, when the contract is a sequence of mandatory verdicts. Fixed by adding (a) March-rule paragraph to SKILL.md Step 0 Goal-axis section, (b) Goal-ladder verdict table requirement to SKILL.md Step 6 hand-off package, (c) Goal-ladder coverage checkbox to REVIEW.md Goal-tier section requiring REQUEST_CHANGES when reported tiers < claimed ceiling without per-tier BLOCKED justification.",
+      "scope": {
+        "validated_on": ["iter-6 post-build session 2026-06-23: producer halted at L1 instead of marching to L2/L3"],
+        "falsified_on": [],
+        "refines": ["_meta-007", "_meta-006"],
+        "not_yet_tested_on": ["future producer-agent runs after this fix lands"]
+      },
+      "effort_tier_required": "n/a (methodology fix)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "The failure looks like politeness ('checking before I burn more compute on L2'). It is not \u2014 it shifts the under-claim risk onto the user, who must now drive each tier individually. Same root failure as `_meta-007`'s producer-grading-itself, just relocated to the producer\u2192user boundary.",
+        "The honest mid-ladder pause is a REPORT ('L1 PASS; L2 attempt aborted at 3 minutes because <reason>, downgrading Goal ceiling to L1; full evidence in <path>'), not a QUESTION.",
+        "A producer who commits to Goal ceiling = L3 and ships only L0+L1 evidence is structurally indistinguishable from one who never committed at all. Both are REQUEST_CHANGES under `_meta-018`.",
+        "Short-circuit clarification: a hard `FAIL` at `Lk` halts the march (downgrade ceiling to `L(k-1)`, do NOT attempt `L(k+1)`+). Higher-tier evidence on top of a broken lower tier is meaningless (L2 cosine on an artifact whose L1 perf crashes) or actively misleading (L3 accuracy on an artifact whose L0 silently shipped wrong-precision weights despite an `_fp16_` filename per `_meta-014`). A reported `Lk FAIL \u2192 L(k+1) PASS` is grounds for REJECT, not REQUEST_CHANGES.",
+        "Short-circuit does NOT apply to `BLOCKED` verdicts: a recipe with `L3 CLI-BLOCKED` (task missing from TASK_REGISTRY per `_meta-015`) can still legitimately ship `L2 PASS` from an ad-hoc script, because the artifact itself is sound. Only true artifact failures halt the march."
+      ],
+      "feature_gaps_filed": [
+        "FILE: Optional CLI helper `winml goal-ladder --recipe <path> --ceiling L3` that runs L0..L_ceiling sequentially and emits a verdict table \u2014 would mechanically enforce the march rule and make the hand-off table copy-pasteable."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct reproduction: this session's transcript. After L1 PASS the producer wrote 'L2 (PT-vs-ONNX cosine/SQNR) \u8fd8\u8981\u7ee7\u7eed\u5417?' instead of running it. User explicitly identified the gap. Fix verified by editing SKILL.md + REVIEW.md + this file in the same turn; next iter producer must execute against the updated contract.",
+      "resolution": "Documented as `_meta-018`. SKILL.md Step 0 + Step 6 + REVIEW.md Goal-tier section all updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-019",
+      "title": "Producer must scan the ENTIRE first user message including trailing paragraphs after a long visual list. L72 of this session's transcript contained a 3-sentence instruction (`\u4f60\u7684\u53c2\u8003\u6750\u6599\u662f\uff0crepo\u4e0b\u9762\u8ddf model scale \u76f8\u5173\u7684 PR / \u6bcf\u4e00\u4e2a model \u53ef\u4ee5\u7814\u7a76\u5f97\u4e45\u4e00\u70b9 / \u91cd\u70b9\u662f\u4f60\u8981\u770b\u770b\u4f60\u7684\u65b9\u6cd5\u8bba\u884c\u4e0d\u884c`) that the producer ignored for ~6h.",
+      "observation": "L72 (the first 10-model assignment, 2026-06-22 ~07:35) was followed by ~80 lines of HF model URLs in a flat list, then three concluding sentences instructing the producer to study repo PRs related to 'model scale', take time per model, and use the exercise to test/iterate the methodology. When the user asked at 17:22 'I previously asked you to study model-scale-related PRs, did you?', the producer's `Select-String` output truncated L72 mid-list and the producer reported 'no such instruction found', forcing the user to re-state the instruction at 17:34. Root cause: visual scan + Substring(0,400) truncation hiding the relevant tail; producer treated the L72 row as fully processed after seeing the leading model list. The deeper failure is that this PR-study exercise was the *entire frame* for the session and was never executed.",
+      "scope": {
+        "validated_on": ["session transcript 7519e90c-... L72 vs producer behavior 07:35\u201317:22"],
+        "falsified_on": [],
+        "refines": ["_meta-007", "_meta-006", "_meta-018"],
+        "not_yet_tested_on": ["future producer agents reading multi-paragraph instructions"]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Long visual lists in user messages hide trailing instructions. Always read the FULL content of the first user message (use `ConvertFrom-Json` and inspect `.data.content` rather than line-level Select-String preview).",
+        "When the user references something 'I asked before' that the producer cannot find, the prior assumption should be 'I missed it in a long block', not 'user is mistaken'. Default to re-reading the full first message and intermediate messages before pushing back.",
+        "PR-study / external-reference instructions are easy to silently skip because they have no immediate tool output and look like context-setting. Treat them as first-class deliverables."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 1 should add a 'Read repo PRs related to model-scale concerns' substep with a curated PR-area list (composite, external-data, task-resolution, memory, runtime-EP-options)."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction: this session, between 07:35 and 17:34. Producer's investigation chain at 17:22\u201317:30 (`Select-String` with 400-char Substring, then claiming 'no match found') is the artifact.",
+      "resolution": "Documented as `_meta-019`. SKILL.md Step 1 updated 2026-06-23 to require a PR-mining substep.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-020",
+      "title": "`composite` is a property of `TaskResolution.composite` (PR#878), gated on `WinMLEncoderDecoderModel` subclass AND task \u2208 {text2text-generation, image-to-text} \u2014 NOT on `config.is_encoder_decoder` (BLIP reports False but IS composite). SKILL.md was written single-graph-centric and never named this gate.",
+      "observation": "PR#850 (2026-06-11) gated `winml config` no-task composite auto-expansion on `WinMLEncoderDecoderModel` base class subclassing. The accompanying explanation cites BLIP as the reason `is_encoder_decoder` is not the right discriminator. PR#878 (2026-06-16) then promoted `composite` to a first-class field on `TaskResolution`, with `composite_pipeline_tasks` derived live from `COMPOSITE_MODEL_REGISTRY`. My iter-5/iter-6 happened to get the right recipe count by following `winml config`'s output but never explained the underlying gate \u2014 bart-large-mnli got 1 recipe (BartForSequenceClassification \u21d2 text-classification \u21d2 single), vit-gpt2 got 2 (VisionEncoderDecoderModel \u21d2 image-to-text \u21d2 composite expansion), m2m_100 was deferred but would have been 2 (M2M100ForConditionalGeneration \u21d2 text2text-generation \u21d2 composite expansion). The producer treated `winml config` as a black box.",
+      "scope": {
+        "validated_on": ["PR#850 + PR#878 read 2026-06-23; cross-validated against iter-6 vit-gpt2 + bart-mnli outcomes"],
+        "falsified_on": [],
+        "refines": ["_meta-008", "_meta-009"],
+        "not_yet_tested_on": ["BLIP captioning checkpoint (would be the textbook case where `is_encoder_decoder=False` but composite)", "Qwen3 decoder-only composite + CLIP/SigLIP dual-encoder composite (excluded from auto-expansion per PR#850 but still composite for perf-time #866)"]
+      },
+      "effort_tier_required": "n/a (architectural correction)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Auto-expansion in `winml config` no-task path is gated on TWO conditions, both required: (a) class is `WinMLEncoderDecoderModel` subclass; (b) detected task \u2208 {text2text-generation, image-to-text}. A non-generation head on a seq2seq architecture (BartForSequenceClassification, T5 encoder feature-extraction) is single-recipe.",
+        "Explicit `--task` ALWAYS bypasses auto-detection \u2014 the explicit-`--task` path serves every composite kind including decoder-only (qwen3) and dual-encoder (clip/siglip).",
+        "Decoder-only and dual-encoder composites are excluded from `winml config` auto-expansion but are STILL composite at perf time (PR#866 sub_models pathway) and at inspect time (PR#2f688a0a CompositeInfo). Two different definitions of 'composite' in two different layers."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 1 must explain the auto-expansion gate, the BLIP `is_encoder_decoder=False` counter-example, and the explicit-`--task` escape hatch.",
+        "FILE: `model_knowledge/<family>.json` for every seq2seq family (bart, marian, t5, m2m_100, vision-encoder-decoder, blip) should explicitly cite whether each task on the family triggers composite expansion."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Source files: `src/winml/modelkit/loader/resolution.py` (post-PR#878 `resolve_composite`), `src/winml/modelkit/commands/config.py` (post-PR#850), `src/winml/modelkit/models/winml/composite_model.py` (`WinMLEncoderDecoderModel` base).",
+      "resolution": "Documented as `_meta-020`. SKILL.md + REVIEW.md updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-021",
+      "title": "Optimum's `TasksManager` has known mislabels (`*ForConditionalGeneration \u2192 fill-mask`); winml ships correction layers (`_upgrade_fill_mask_for_seq2seq` per PR#851). The Optimum-coverage probe in `_meta-008` is necessary-not-sufficient on TWO axes: (a) build success (already noted) and (b) TASK-LABEL CORRECTNESS (new).",
+      "observation": "PR#851 documents that `BartForConditionalGeneration` is registered in Optimum as `fill-mask`, which is semantically wrong (it's seq2seq generation). WinML's `_upgrade_fill_mask_for_seq2seq` re-routes `(model_type='bart', task='fill-mask')` to `text2text-generation` when `config.is_encoder_decoder == True`. The correction lives at BOTH detection sites: `_detect_task_from_config` (inspect path) and `_detect_task_and_class_from_config` (build path; both replaced by `resolve_task` per PR#878). My Optimum-coverage probe at SKILL.md Step 1 prints `vendor[mt][onnx].keys()` \u2014 it would correctly show `fill-mask` for bart-large-cnn, but my methodology never flagged that the *label* is suspect. A contributor reading the probe output as 'optimum supports fill-mask on bart, great, build it' would ship a recipe with the wrong task tag and the wrong inference class.",
+      "scope": {
+        "validated_on": ["PR#851 + PR#878 read 2026-06-23; specific cases: facebook/bart-large-cnn (mislabeled), facebook/bart-large-mnli (correctly labeled text-classification via BartForSequenceClassification head)"],
+        "falsified_on": [],
+        "refines": ["_meta-008"],
+        "not_yet_tested_on": ["other `*ForConditionalGeneration` checkpoints (m2m_100, marian, t5 \u2014 already correctly labeled per PR#851 table)", "model types with multiple heads sharing a parent registry entry"]
+      },
+      "effort_tier_required": "n/a",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Two-step verification of the Optimum probe: (1) does the (model_type, task) key exist? (2) is the task LABEL correct given the checkpoint's HF model class? Step 2 requires loading the checkpoint config and reading `architectures[0]`.",
+        "WinML's correction layer fires ONLY when `is_encoder_decoder == True`. Partial/duck-typed configs that don't set this flag will NOT get the upgrade \u2014 a brittle invariant.",
+        "Post-PR#878 the correction lives inside `resolve_task` stage 'detection' substep \u2014 there's no longer a `_detect_task_from_config` function to grep for. SKILL.md Step 1 has to point at `resolve_task` and `loader/resolution.py`, not the deleted helpers."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 1 must add a substep: 'Cross-check the Optimum probe's task label against `architectures[0]` from the HF config; flag `*ForConditionalGeneration` as a known-mislabel candidate.'"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Code path: `src/winml/modelkit/loader/resolution.py::resolve_task` (post-PR#878). PR#851 result table cited as ground truth.",
+      "resolution": "Documented as `_meta-021`. SKILL.md updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-022",
+      "title": "Task detection refactored into `resolve_task` + `TaskResolution` (PR#878, 2026-06-16, 1748+/1306- LOC); SKILL.md still cites the three pre-refactor functions (`detect_task`, `resolve_task_and_model_class`, `_detect_task_and_class_from_config`) which no longer exist in the codebase as of main.",
+      "observation": "PR#878 unified three task-detection implementations into a single `resolve_task(config, *, task=None, model_class=None) -> TaskResolution` in `loader/resolution.py`. The 5-stage pipeline: user override \u2192 detection (override / no-architectures / TasksManager + fill-mask\u2192seq2seq correction / default) \u2192 model class \u2192 modality upgrade (detection path only) \u2192 composite tag. `TaskSource` is a new enum with semantic values (`tasks-manager`, `sentinel-default`, `model-id-default`, `wrapped-library`, `hf-task-default`, `user-task`, `user-class`). `TaskResolution` carries `(task, optimum_task, model_class, source, composite)`. Modality derives from the architecture class's `main_input_name` (`pixel_values \u2192 image-feature-extraction`, etc.). My SKILL.md Step 1 and `_meta-005` reference functions that no longer exist; the diagnostic instructions are valid in intent but dead at the API surface.",
+      "scope": {
+        "validated_on": ["PR#878 read 2026-06-23; cross-checked against current `loader/resolution.py` (exists) and `loader/task.py` (data tables only)"],
+        "falsified_on": [],
+        "refines": ["_meta-005"],
+        "not_yet_tested_on": ["future refactors of resolve_task"]
+      },
+      "effort_tier_required": "n/a",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "When SKILL.md says 'use detect_task' or similar, the post-PR#878 contributor will grep and find nothing. They will either reinvent the diagnostic or skip Step 1 entirely. SKILL.md must point at `resolve_task` + `TaskResolution`.",
+        "The 5-stage pipeline is the right mental model: contributors hitting an unexpected task tag need to know WHICH stage decided it (TaskSource value tells them).",
+        "Modality from `main_input_name` (not from config field names) is the key insight \u2014 the AST audio model misroute (cited in PR#878) is the textbook case. SKILL.md never said 'modality is per-model-class', it said 'pick by task family'."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 1 + `_meta-005` text must be rewritten to reference `resolve_task` and `TaskResolution`. The 5-stage pipeline should be quoted with a brief explanation of each stage's role.",
+        "FILE: Add a `loader/resolution.py::resolve_task` excerpt or signature to SKILL.md as a recipe-author quick reference."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct file read: `src/winml/modelkit/loader/resolution.py` exists at HEAD; the three legacy functions no longer exist (`git log --diff-filter=D` would show their removal in PR#878).",
+      "resolution": "Documented as `_meta-022`. SKILL.md Step 1 to be rewritten 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-023",
+      "title": "For >2GB ONNX models, `torch.onnx.export` writes UUID-named `.data` external data files RELATIVE to the export path. Relative export paths leak external data into CWD (PR#853 fixed it inside `HTPExporter._convert_model_to_onnx`). Recipe-authoring and `winml build -o <relative>` documentation should still surface this constraint.",
+      "observation": "PR#853 (2026-06-10) is a 3-line fix in `src/winml/modelkit/export/htp/exporter.py`: `output_path = Path(output_path).resolve()`. The original issue: `torch.onnx.export` for >2GB models silently writes UUID-named `.data` files alongside the model, and the cwd-vs-output-dir bug scattered these files. The fix is internal to HTPExporter so `winml build -o temp\\out\\` now works regardless of CWD. BUT \u2014 hand-written export scripts (the `temp/*_l2_compare.py` template family SKILL.md endorses for Goal-L2) still pass paths into `onnxruntime.InferenceSession()` and `torch.onnx.export()` and can repeat the bug. My SKILL.md's L2 section never mentions this.",
+      "scope": {
+        "validated_on": ["PR#853 read 2026-06-23; cross-checked against `src/winml/modelkit/export/htp/exporter.py` (now uses resolved absolute path)"],
+        "falsified_on": [],
+        "refines": [],
+        "not_yet_tested_on": ["recipe-authoring scenarios where contributor sets `quant.calibration_dataset_dir` to a relative path", "`winml export` command (separate from `winml build`)"]
+      },
+      "effort_tier_required": "n/a",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        ">2GB threshold is the onnx protobuf limit; below it, external data is optional and the issue doesn't surface. My iter-6 bart-mnli (~600 MB external) was below threshold but had external data due to `use_external_data=True` default in build/onnx.py:80.",
+        "Verification of external-data layout: `Get-ChildItem <out>` should show `model.onnx` + ZERO or more `.data` files (UUID-named). If `.data` files exist in CWD instead, the export wrote them wrong.",
+        "Custom Goal-L2 / Goal-L3 scripts that re-export ONNX (rare but possible) must call `output_path.resolve()` themselves or land in CWD."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 0 Goal-L0 row must add 'verify external data layout: `Get-ChildItem <out>` shows model.onnx + (optional) UUID `.data` files, NOT scattered in CWD'."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "PR#853 is 3 LOC: `src/winml/modelkit/export/htp/exporter.py` adds `output_path = Path(output_path).resolve()` before `torch.onnx.export`. The fix is durable.",
+      "resolution": "Documented as `_meta-023`. SKILL.md Goal-L0 row updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-024",
+      "title": "`winml perf --memory` (PR#861, default-on) measures RAM + VRAM phase deltas (baseline \u2192 model load \u2192 inference). Goal-L1 row in SKILL.md cites only latency; big-model contributions should ALSO report memory.",
+      "observation": "PR#861 (2026-06-16) added a `--memory` / `--no-memory` flag to `winml perf` and made it default-on. Output format: `RAM: <baseline> -> model load: +X | inference: +Y | total: +Z` and `VRAM: <local/shared> -> ...`. Phase boundaries: baseline after `_load_model()`, after `compile()`, after benchmark loop. VRAM uses PDH `\\GPU Process Memory` counters. My SKILL.md Goal-L1 row's pass criterion is 'latency reported (Avg / P50 / P90 / P99 / Throughput)' \u2014 a contribution that ships a 3.6 GB depth_pro recipe with NO memory data is honoring SKILL.md but not honoring the model-scale dimension the CLI now measures by default.",
+      "scope": {
+        "validated_on": ["PR#861 read 2026-06-23"],
+        "falsified_on": [],
+        "refines": ["_meta-016"],
+        "not_yet_tested_on": ["pre-PR#861 perf runs that did not capture memory"]
+      },
+      "effort_tier_required": "n/a",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "VRAM line only shows when device memory > 0; CPU-only runs see RAM only. Reviewer should NOT REQUEST_CHANGES on a CPU-only run for missing VRAM.",
+        "psutil RSS is process-level, includes any pre-existing python heap. Useful for delta but not absolute footprint.",
+        "Memory snapshots are between phases (no overhead in measurement window) but mean phase boundaries must be respected; a custom script that doesn't separate compile from inference cannot reproduce the same numbers."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Goal-L1 pass criterion must extend to '+ RAM delta per phase + (when applicable) VRAM delta per phase'. Big-model recipes (>500 MB artifact) must report memory."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "PR#861 file list: `src/winml/modelkit/commands/perf.py` (memory integration), `src/winml/modelkit/session/monitor/memory_tracker.py` (`get_rss_mb()` + `get_vram_mb()`). Default-on per the PR description.",
+      "resolution": "Documented as `_meta-024`. SKILL.md Goal-L1 row updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-025",
+      "title": "Composite encoder-decoder loop expects the encoder to expose an output called `last_hidden_state`. PR#863 ships an alias-injection so encoders with different output names still work, but hand-written composite recipes with custom output names are still fragile.",
+      "observation": "PR#863 (2026-06-10) is a 6-line fix in `src/winml/modelkit/models/winml/feature_extraction.py`: 'provide last_hidden_state if the underlying onnx model uses a different output name'. The triggering bug: PR#805 had removed the auto-population, breaking the encoder-decoder composite class. My iter-6 vit-gpt2 encoder declares its output as `encoder_hidden_states` (NOT `last_hidden_state`), and would have broken the composite encoder-decoder loop without #863's alias injection. The fix is at the INFERENCE class layer, not the recipe layer, so authors don't see it.",
+      "scope": {
+        "validated_on": ["PR#863 read 2026-06-23; cross-checked against iter-6 vit-gpt2 encoder output (`encoder_hidden_states`)"],
+        "falsified_on": [],
+        "refines": [],
+        "not_yet_tested_on": ["composite decoder consuming `encoder_hidden_states` directly (no alias) at inference time", "non-encoder-decoder composites (CLIP / SigLIP dual-encoder)"]
+      },
+      "effort_tier_required": "n/a",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Recipe-author shipping a composite encoder MUST verify the encoder's `output_tensors[*].name` is consumable by the decoder. Two safe choices: (a) name it `last_hidden_state` (matches WinMLEncoderDecoderModel default), (b) verify the alias-injection in `feature_extraction.py` covers the chosen name.",
+        "If composite loop breaks at runtime with 'KeyError: last_hidden_state', the recipe's encoder output name diverged AND the alias-injection didn't catch it.",
+        "This is one of multiple implicit cross-layer contracts (recipe \u2194 inference class). My SKILL.md never enumerated these contracts."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 3 (recipe writing) must add a 'composite encoder output naming contract' subsection: name the output `last_hidden_state` OR confirm the alias path covers your chosen name."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct file ref: `src/winml/modelkit/models/winml/feature_extraction.py` (the 6-line alias fix in PR#863).",
+      "resolution": "Documented as `_meta-025`. SKILL.md Step 3 updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-026",
+      "title": "`winml perf --ep-options KEY=VALUE` (PR#865, repeatable) is an independent runtime EP-tuning knob from build-time quant. Big-model L1 failures on NPU/GPU should retry with appropriate options (e.g. QNN `htp_performance_mode=burst`) BEFORE declaring L1 FAIL.",
+      "observation": "PR#865/#889 (2026-06-16) added `--ep-options KEY=VALUE` to `winml perf`. Options thread through `parse_ep_options() \u2192 BenchmarkConfig.ep_options \u2192 WinMLAutoModel.from_pretrained / from_onnx \u2192 WinMLSession \u2192 add_ep_for_device`. Runtime options merge OVER build-time `ep_config.provider_options` and do NOT flip EPContext persistence (`persist_jit`). The QNN HTP example (`htp_performance_mode=burst`) significantly affects latency on Snapdragon NPUs. My SKILL.md Goal-L1 row says only `winml perf -m <artifact>.onnx --device <target> --ep <ep>` \u2014 no mention of runtime tuning knobs.",
+      "scope": {
+        "validated_on": ["PR#865 read 2026-06-23"],
+        "falsified_on": [],
+        "refines": ["_meta-016"],
+        "not_yet_tested_on": ["any recipe attempting L1 on QNN NPU with default options vs `htp_performance_mode=burst`"]
+      },
+      "effort_tier_required": "n/a",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "QNN HTP `htp_performance_mode=burst` is the most common option. Other QNN options exist (`htp_graph_finalization_optimization_mode`, etc.).",
+        "Runtime options override build-time options BUT don't re-finalize the graph \u2014 they tune the runtime, not the compiled artifact.",
+        "Goal-L1 contract should be: 'tried default; if SLOW or FAILED, retry with documented EP options before claiming FAIL'. The default-only run is an incomplete L1 attempt for NPU/GPU."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Goal-L1 row + REVIEW.md Goal-L1 check should both mention `--ep-options`. Per-EP recommended options should be tabulated (`htp_performance_mode=burst` for QNN as the canonical example)."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "PR#865 file list incl. `src/winml/modelkit/utils/cli.py::parse_ep_options()`, `src/winml/modelkit/session/session.py::WinMLSession`.",
+      "resolution": "Documented as `_meta-026`. SKILL.md Goal-L1 row updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-027",
+      "title": "`winml inspect` JSON gained `pipeline_tasks` + `composite` fields (PR#2f688a0a, 2026-06-16). SKILL.md Step 1 still describes the pre-composite inspect output shape.",
+      "observation": "PR#2f688a0a added composite-pipeline rendering to `winml inspect`: a new 'Composite Pipeline' panel + JSON-additive fields `pipeline_tasks` (e.g. `['summarization', 'table-question-answering']`) and `composite` (component breakdown). The behavior is gated on `TaskResolution.composite` so only auto-detected composites surface the view; CLIP single-component exports look the same as before. My SKILL.md Step 1 says 'Save the JSON; cite it in the PR' but never tells the contributor what to look for in those new fields. A contributor inspecting a seq2seq model would see two new top-level keys and wouldn't know they encode pipeline structure.",
+      "scope": {
+        "validated_on": ["PR#2f688a0a read 2026-06-23"],
+        "falsified_on": [],
+        "refines": ["_meta-020"],
+        "not_yet_tested_on": ["actual `winml inspect -m <seq2seq-id> --format json` output post-PR"]
+      },
+      "effort_tier_required": "n/a",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "JSON contract is ADDITIVE \u2014 the granular `task` field is unchanged. Existing parsers don't break, but they miss the composite signal.",
+        "`pipeline_tasks` lives on the composite model_type, not on a per-component basis. A bart seq2seq inspect shows `['summarization', 'translation', 'text2text-generation']` even if only one of those is built.",
+        "API: `loader.composite_pipeline_tasks` is the public accessor; `inspect.CompositeInfo + resolve_composite_info` is the inspect-side type."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 1 must enumerate the new inspect JSON fields and show an example for a composite model."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "PR#2f688a0a file list incl. `src/winml/modelkit/inspect/formatter.py` (Composite Pipeline panel), `src/winml/modelkit/inspect/resolver.py` + `types.py` (CompositeInfo).",
+      "resolution": "Documented as `_meta-027`. SKILL.md Step 1 updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-028",
+      "title": "Cross-layer task-resolution invariant: `winml inspect`, `winml config`, and `winml build` MUST agree on the resolved task for a given (model_id, optional --task, optional --model-type) tuple. Integration test `test_task_consistency` enforces this. SKILL.md never named this invariant.",
+      "observation": "PR#841 (2026-06-09) made `detect_task` architecture-head-aware and added the `test_task_consistency` integration test. PR#878 (2026-06-16) consolidated this into a single `resolve_task` so the invariant is mechanically maintained. The result table in PR#841 is the canonical statement: bart-large-mnli, bart-large-cnn, bart-base, sam-vit-base, clip/siglip \u2014 each line shows inspect = config = build. A contributor seeing inspect-vs-config disagreement post-PR#878 is observing a regression bug, not methodology confusion.",
+      "scope": {
+        "validated_on": ["PR#841 + PR#878 read 2026-06-23; integration test `tests/integration/test_task_consistency.py` exists at HEAD"],
+        "falsified_on": [],
+        "refines": ["_meta-022"],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "n/a",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Pre-PR#841 contributors could see disagreement and interpret it as 'methodology requires a manual override' \u2014 wrong then, wrong now. Always pursue the disagreement to root cause; it's a bug, not a workflow.",
+        "If the resolver returns different tasks for `-m <hf-id>` vs `--model-type X`, that disagreement IS the bug.",
+        "The invariant only holds for `resolve_task` users \u2014 hand-written code paths that bypass it (e.g. some `e2e_eval` scripts pre-PR#878) can still disagree."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Step 1 must say: 'If `winml inspect -m X` and `winml config -m X` disagree on the resolved task, that's a winml bug \u2014 file it immediately, do not try to work around it.'"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Integration test path: `tests/integration/test_task_consistency.py`. Cited cases include bart-large-mnli, bart-large-cnn, sam-vit-base.",
+      "resolution": "Documented as `_meta-028`. SKILL.md Step 1 updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-029",
+      "title": "Project records eval-time TIMEOUT on big models as checked-in artifacts (`*_eval_result.timeout`) rather than treating them as build failures. Methodology must distinguish 'eval times out at scale' from 'eval failed at correctness' \u2014 these are different verdicts.",
+      "observation": "Commit 5e4a9b0a (2026-06-11) 'Update DML GPU eval results (19 new PASS, xlm-roberta-large fill-mask still TIMEOUT)' includes a `.../xlm-roberta-large/fill-mask_eval_result.timeout` empty-marker file alongside 19 PASS JSONs. xlm-roberta-large is ~560M params with a 250K vocab \u2014 the fill-mask output projection is the bottleneck. The project tracks 'this big model still times out on this EP' as DATA, not as a regression. My methodology Goal-L3 row says 'within tolerance, documented in PR' but treats failure as binary; the `*.timeout` convention says 'TIMEOUT is a tracked third state'.",
+      "scope": {
+        "validated_on": ["commit 5e4a9b0a read 2026-06-23 + the `.timeout` file convention"],
+        "falsified_on": [],
+        "refines": ["_meta-015"],
+        "not_yet_tested_on": ["other large models with output projections at the bottleneck (xlm-roberta-xxl, t5-3b, bart-large-cnn at higher batch)"]
+      },
+      "effort_tier_required": "n/a",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Goal-L3 verdict for big models has THREE states, not two: PASS / FAIL-correctness / TIMEOUT-at-scale. The third is the model-scale verdict; it does NOT block the contribution but does fingerprint the recipe.",
+        "TIMEOUT can be EP-specific: xlm-roberta-large fill-mask is PASS on QNN GPU (22e4f303), TIMEOUT on DML GPU (5e4a9b0a). Per-EP tracking is what makes `.timeout` files useful.",
+        "Conventionally `<model>/<task>_eval_result.timeout` is empty; the existence-as-data pattern."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Goal-L3 row must add the TIMEOUT verdict tier. REVIEW.md should accept `.timeout` evidence files."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct cite: `5e4a9b0a` diff shows 19 PASS JSONs alongside the `xlm-roberta-large/fill-mask_eval_result.timeout` empty file.",
+      "resolution": "Documented as `_meta-029`. SKILL.md Goal-L3 row updated 2026-06-23.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-030",
+      "title": "Producer's working branch may lag `main` by N commits; SKILL.md citations to files/APIs introduced by PRs on `main..HEAD-of-producer-branch` are forward-references, not current-state. Producer MUST classify every PR-citation as (a) IN-BRANCH (file exists, can be tested directly), (b) AHEAD-ON-MAIN (file does not exist yet on producer's branch; finding applies when contributor's branch merges main), or (c) HISTORIC (pre-branch-creation, fully merged everywhere).",
+      "observation": "While recording `_meta-019` through `_meta-029` from a PR-mining sweep on 2026-06-23, the producer (on branch `shzhen/skills_poc`) cited `src/winml/modelkit/loader/resolution.py` introduced by PR#878 (1d4feca3). VS Code's link-resolver flagged the file as missing. Investigation showed HEAD = `967ddccb` is 7 commits BEHIND `origin/main`; PR#878 is in main but NOT an ancestor of HEAD. Sweep results: 5/10 PRs read are IN-BRANCH (`#850 507c2696`, `#851 fc385310`, `#841 938a4ee3`, `#853 5ead5613`, `#863 22479743`), 5/10 are AHEAD-ON-MAIN (`#861 a8257d4c`, `inspect-composite-ui 2f688a0a`, `#878 1d4feca3`, `#865 58d135ed`, `#866 26fcc880`). Findings `_meta-022, _meta-024, _meta-026, _meta-027` and parts of `_meta-020` reference APIs that don't exist on the producer's working branch. A contributor following SKILL.md on this branch would hit dead links / missing functions and incorrectly conclude the skill is out of date \u2014 when in fact it's the branch that's behind.",
+      "scope": {
+        "validated_on": ["shzhen/skills_poc (HEAD 967ddccb) vs origin/main (489abdd4) on 2026-06-23"],
+        "falsified_on": [],
+        "refines": ["_meta-019"],
+        "not_yet_tested_on": ["future producer agents working on long-lived branches", "PRs that revert/refactor an already-merged change after the producer recorded a finding"]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Before citing a file path in SKILL.md or a finding, verify it exists on the producer's HEAD: `Test-Path <path>` (PowerShell) or `[ -f <path> ]` (bash). Dead links in methodology docs are silent producer-failures.",
+        "When a PR removes/renames an API (e.g. #878 removed `detect_task`), SKILL.md must cite BOTH the pre-PR and post-PR names with branch-state guard: 'on branches predating #PR, see <legacy-path>; post-#PR, see <new-path>'.",
+        "`git merge-base --is-ancestor <pr-commit> HEAD` is the verification command; exit 0 = in HEAD, exit 1 = ahead on main.",
+        "Forward-reference findings are LEGITIMATE \u2014 a producer reading PR history learns methodology lessons even from un-merged PRs. They must just be MARKED so the reader knows whether the cited API exists on their branch yet."
+      ],
+      "feature_gaps_filed": [
+        "FILE: Add a SKILL.md preamble checkbox to Step 1: 'Verify branch state: `git log --oneline HEAD..origin/main | Measure-Object -Line` should be reviewed before relying on SKILL citations; AHEAD-ON-MAIN findings carry a branch-state caveat.'",
+        "FILE: Future automation \u2014 a CI check that resolves every `[link](path)` in SKILL.md against the current commit and flags broken links would catch this class of error mechanically."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct reproduction: VS Code's get_errors tool on SKILL.md surfaced the broken `loader/resolution.py` link 2026-06-23 within minutes of the producer writing it. Without that diagnostic, the dead link would have been published.",
+      "resolution": "Documented as `_meta-030`. SKILL.md Step 1 PR-mining table entry for #878 updated 2026-06-23 to cite both pre-PR and post-PR paths with branch-state caveat. Per-finding branch-state classification is now part of the PR-mining workflow.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-031",
+      "title": "Methodology-evolution contract: every model-support contribution MUST emit either (a) one or more new `_meta-NNN` findings + matching SKILL.md/REVIEW.md edits PR-bundled with the model artifact, OR (b) an affirmative 'No methodology friction observed' declaration. Silence is `_meta-007` self-grading failure at the methodology level — reviewer issues REQUEST_CHANGES on absent declaration.",
+      "observation": "Pre-`_meta-031`, SKILL.md's Step 4 only required `model_knowledge/<family>.json` updates. Step-1 PR-mining and the L132 'file a _meta-NNN+1 in the same PR' clause encoded methodology-evolution duties but neither was wired to a reviewer check or a hand-off item; both were skippable. Result: iter-1..iter-5 (5 prior batch contributions) accumulated 17 `_meta-*` findings entirely through ad-hoc audits by the skill author, not by routine producer work. Iter-6 stress-tested this by running PR-mining + Goal-ladder closure as an explicit meta-experiment and produced 13 new findings (_meta-019..030) plus 7 reviewer checks in REVIEW.md — confirming that a producer who is *prompted* to reflect on methodology friction can produce skill-level evolution at the same cadence as model contributions, while a producer who isn't prompted produces zero. The fix: enumerate the 7 friction triggers, make Step 4b a named obligation alongside Step 4, and add a single REVIEW.md row whose default verdict on silence is REQUEST_CHANGES.",
+      "scope": {
+        "validated_on": ["iter-6 meta-experiment 2026-06-23 — PR-mining 10 PRs + Goal-ladder L0..L3 on bart-large-mnli + vit-gpt2 → 13 methodology findings + 7 REVIEW.md rows + first L3 PASS in repo"],
+        "falsified_on": ["implicit assumption in pre-iter-6 SKILL.md that methodology evolution would happen naturally without a producer obligation"],
+        "refines": ["_meta-007", "_meta-018"],
+        "not_yet_tested_on": ["iter-7 (first contribution under the _meta-031 contract) — will validate whether the 7-trigger taxonomy is complete or needs an 8th trigger row", "producer agents without read-access to recent PRs — trigger #7 (PR-mining) may need a fallback for offline-or-restricted producers"]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "The 7-trigger taxonomy is descriptive (compiled from iter-1..iter-6 audit history), not prescriptive. Iter-7+ contributions will likely surface trigger #8 — when they do, the producer owes a SKILL.md Step 4b table-edit adding the new row, not a workaround.",
+        "Trigger #7 (PR-mining) assumes the producer has read-access to the repo's recent PR history. Producers running against a frozen snapshot or in a restricted environment cannot satisfy #7 — the reviewer must downgrade #7 to 'not-applicable on this host' rather than REQUEST_CHANGES.",
+        "The declaration MUST be in the PR description (not buried in a finding's `gotchas`), because the reviewer reads PR description first and gates on it before opening the diff. A `_meta-NNN` cited without a PR-description declaration triggers the 'silence' verdict.",
+        "Affirmative 'No methodology friction observed' is NOT a hedge — the reviewer will spot-check by scanning the build log + chat transcript for `--help` invocations, custom-wrapper Python files in `temp/`, hand-stitched composite recipes, and incomplete hand-off packages. A producer who declares (b) dishonestly is in a worse state than one who declares (a) honestly."
+      ],
+      "feature_gaps_filed": [
+        "FILE: Automated PR-description linter — reject any PR touching `examples/recipes/` or `src/winml/modelkit/models/hf/` that lacks the methodology-evolution declaration sentence. Mechanical version of the reviewer check.",
+        "FILE: Iter-7 retrospective — after the first contribution under _meta-031 lands, audit whether the 7-trigger taxonomy covered everything the producer encountered. If yes, _meta-031 is mechanism_confirmed; if no, trigger #8 (or refined trigger boundaries) lands as a follow-up _meta-NNN.",
+        "FILE: `model_knowledge/<family>.json` vs `skill_meta/findings.json` disambiguation — reviewers occasionally see findings filed under the wrong scope. Worth a one-paragraph 'where does this go' decision tree at the top of Step 4b."
+      ],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Hypothesis: making methodology evolution a named, gated obligation (Step 4b + REVIEW.md audit + Step 6 declaration #9) causes every routine model contribution to produce skill-level evolution at a non-zero rate, whereas leaving it implicit causes zero. The hypothesis is grounded in iter-1..iter-6 evidence (zero evolution from unprompted producers vs 13 findings from the iter-6 meta-experiment), but the hypothesis is FALSIFIED if iter-7 produces a friction-laden contribution that still ships declaration (b). Re-evaluate after the first 2–3 post-_meta-031 contributions.",
+      "resolution": "SKILL.md gained a new Step 4b 'Capture methodology learnings' between Step 4 and Step 5 with the 7-trigger taxonomy + anti-trigger guidance + schema (2026-06-23). SKILL.md Step 6 hand-off package gained item #9 'Methodology-evolution declaration'. REVIEW.md gained a new top-level audit section 'Methodology-evolution audit' with 5 checks (declaration present, triggers map to taxonomy, edits PR-bundled, declaration honest, dead-link check). All three edits landed in the same commit as `_meta-031` itself, demonstrating the contract.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-032",
+      "title": "Outcome-axis contract extension: the structured contribution report (= the PR description, structured per Step 6 hand-off package's 9 items) is an explicit L0 deliverable inherited by L1/L2 — producing artifacts without producing the report is half-shipped; REVIEW.md REQUEST_CHANGES on missing PR-description-shaped report.",
+      "observation": "Pre-`_meta-032`, SKILL.md's Outcome axis (L0/L1/L2) named recipe + artifacts + README row + Goal numbers + appended findings — but did NOT name 'PR description' or 'structured contribution report' as a top-level deliverable. Step 6 hand-off package (9 items) was a process step; reviewers could see incomplete hand-offs without a contract row to cite. Iter-6 surfaced this when user asked 'generate report and PR each' for 3 models and noted 'report and PR should already be part of outcome — you shouldn't need me to ask': i.e. the contract was implicit. Fix: rewrite Outcome-axis table so EVERY tier has TWO columns — 'Code/recipe deliverable' AND 'Contribution report (= PR description)' — and explicitly state that Outcome at every tier ⇒ a structured report whose contents = Step 6 hand-off items #1–9 verbatim. Add a new REVIEW.md Outcome-L0 row checking for the PR-description-as-report structure (REQUEST_CHANGES on absence). Add a 'Report location' note: for offline/PR-less workflows, drop a mirror copy under `research/adding-model-support/iter<N>_reports/PR_<org>_<model>.md` so future contributors can read without GitHub access; mirror must be byte-identical to PR description at hand-off.",
+      "scope": {
+        "validated_on": ["iter-6 2026-06-23 — Outcome-axis edit + 2 mirror reports under research/adding-model-support/iter6_reports/ (bart-large-mnli + vit-gpt2 composite) demonstrating the new contract"],
+        "falsified_on": ["implicit pre-_meta-032 assumption that producers would spontaneously author PR-description-shaped reports without an Outcome-contract row naming the artifact"],
+        "refines": ["_meta-007", "_meta-018", "_meta-020", "_meta-031"],
+        "not_yet_tested_on": ["iter-7 first contribution under _meta-032 — will validate whether producers default to writing the 9-item report without prompting", "composite contributions on architectures other than encoder-decoder (BLIP captioning, audio composites) — composite-one-PR rule already in _meta-020 but interaction with the new 'mirror copy' clause is untested"]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "The 9 hand-off items from Step 6 are the report's required content — NOT a suggested outline. A report that paraphrases the items into a free-form paragraph fails the audit because reviewers can't grep for specific evidence rows. The 2 iter-6 mirror reports demonstrate the rigid-9-section format.",
+        "Composite-one-PR rule (`_meta-020`) takes precedence: encoder + decoder of a composite recipe pair ship as ONE report covering both halves in one Goal-ladder table with per-half rows. Splitting into two reports for the same composite recipe is REQUEST_CHANGES. The verdict-matrix rows expand per-half INSIDE the single report.",
+        "Mirror copy under `iter<N>_reports/` is for offline/PR-less audit only; the canonical artifact is the GitHub PR description. If they diverge after hand-off (e.g. PR description edited in response to reviewer comments), the producer must sync the mirror at merge time. Out-of-sync mirror = REQUEST_CHANGES on the next iter's contribution that cites it.",
+        "Methodology-evolution declaration (Step 6 item #9, per `_meta-031`) is ITEM 9 of the report's 9-item structure — not a separate artifact. A report that omits #9 is structurally incomplete; a report that includes #9 saying 'No methodology friction observed' is structurally complete (subject to reviewer honesty audit per `_meta-031` gotcha #4)."
+      ],
+      "feature_gaps_filed": [
+        "FILE: Iter-7 retrospective — confirm that the first post-_meta-032 contribution defaulted to producing the 9-item report without being asked. If the producer skipped sections or produced a free-form report, mechanism_confirmed=false and the next iteration is a stricter contract (e.g. PR-description template file in `research/adding-model-support/PR_TEMPLATE.md` that producers fill in section-by-section).",
+        "FILE: GitHub PR template — once iter-7 confirms producers honor the contract, lift the 9-item structure into `.github/PULL_REQUEST_TEMPLATE.md` for the repo so the structure is enforced at the GitHub UI level, not just at reviewer-audit time."
+      ],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Hypothesis: naming the report as an explicit Outcome-axis deliverable causes producers to default to producing it. Grounded in the iter-6 user feedback ('shouldn't need me to ask') + the parallel `_meta-031` mechanism (making methodology evolution a named obligation causes it to happen). Falsified if iter-7's first contribution ships artifacts without a 9-item report and the producer has to be re-prompted to write one.",
+      "resolution": "SKILL.md Outcome-axis table (2026-06-23) rewritten with two columns ('Code/recipe deliverable' + 'Contribution report'); L0 report row explicitly names all 9 Step 6 hand-off items as required content; composite-one-PR rule and 'mirror copy under iter<N>_reports/' clauses added. REVIEW.md Outcome-L0 section gained a new top check 'PR description (= contribution report) is structured per Step 6 hand-off package (all 9 items)' with REQUEST_CHANGES default verdict on absence. Iter-6 ships 2 mirror reports under `research/adding-model-support/iter6_reports/` demonstrating the contract.",
+      "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-033",
+      "title": "PR-shipment workflow contract: producer ships actual GitHub PRs as part of Outcome, not local mirrors alone. Two lanes (skill-only = push-to-working-branch; new-model = branch-per-PR off main) + scope-rules-matching-Effort-tier + composite-one-PR per `_meta-020`. Silence on PR URL at hand-off = `_meta-007` self-grading failure.",
+      "observation": "Pre-`_meta-033`, SKILL.md `_meta-032` declared the contribution report = PR description and required a mirror copy under `iter<N>_reports/`, but did NOT specify that the producer ACTUALLY OPENS THE PR as part of running the skill. Iter-6 surfaced this when user, after seeing the local mirrors, explicitly asked '我要的是pull request, 是contribute winml这个repo的PR' \u2014 i.e. the producer had produced the local mirror but stopped short of `git push` + `gh pr create`. User had to re-prompt. Same `_meta-007` self-grading failure mode as `_meta-031` / `_meta-032`: the contract was implicit (PR is part of outcome) but no Step bound the producer to executing the shipment. Fix: add Step 7 'Ship the PR (do not wait to be asked)' between Step 6 (reviewer hand-off) and Cross-references, with two lanes and shipment commands. Add a one-line cross-reference from the Outcome-axis report-location callout into Step 7. Land a corresponding REVIEW.md item ('PR URL pasted in hand-off message; mirror = PR description byte-identical at hand-off') in Outcome-L0 section.",
+      "scope": {
+        "validated_on": ["iter-6 user feedback 2026-06-23 ('\u6211\u8981\u7684\u662fpull request, \u662fcontribute winml\u8fd9\u4e2arepo\u7684PR') after producer shipped local mirrors per `_meta-032` but did not open real PRs"],
+        "falsified_on": ["implicit pre-`_meta-033` assumption that 'contribution report = PR description' (from `_meta-032`) would cause the producer to spontaneously execute `git push` + `gh pr create` without an explicit Step"],
+        "refines": ["_meta-007", "_meta-020", "_meta-031", "_meta-032"],
+        "not_yet_tested_on": ["iter-7 first contribution under `_meta-033` \u2014 will validate whether producers default to opening the PR without prompting, including handling push-failure escalation (Microsoft Enterprise SSO / 90-day token rule)", "L1+ contributions where the scope includes `src/winml/modelkit/models/hf/<model_type>.py` edits \u2014 the per-arch-code lane has not been exercised end-to-end under the new branch-per-PR rule"]
+      },
+      "effort_tier_required": "n/a (methodology)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "Lane A (skill-only updates push to working branch) vs Lane B (new model = branch off main) is a hard split. Mixing them \u2014 e.g. landing SKILL.md edits in a model PR \u2014 forces reviewers into context-switching between code-review and methodology-review modes. The producer who mixes lanes is in REQUEST_CHANGES at hand-off; the fix is to git-revert the skill edits from the model PR and re-commit them on the working branch.",
+        "Scope-rule-matching-Effort-tier is enforced at PR time, not at recipe-authoring time. A producer who hand-edited `src/winml/modelkit/models/hf/bart.py` but declared Effort L0\u2605 must either revert the .py edit (if it was speculative) or upgrade the declaration to L1 and stage the .py file in the same PR. Mismatched scope vs Effort = reviewer REJECT (not REQUEST_CHANGES \u2014 this is dishonest grading).",
+        "Composite-one-PR (`_meta-020`) interacts with branch-per-PR: enc + dec recipes share ONE branch AND ONE PR description AND ONE README row pair. The Goal-ladder verdict table expands per-half INSIDE the single PR. A producer who created two branches for one composite is in `_meta-020` REQUEST_CHANGES.",
+        "`git add -A` is banned in the Step 7 commands because the working tree typically contains months of unrelated uncommitted work (iter-6 had 6 recipe dirs + entire `research/adding-model-support/` tree untracked). Explicit per-file `git add` is the only safe form.",
+        "Push-failure escalation: Microsoft Enterprise + classic-PAT-with-90-day-rule frequently rejects push from agent-driven sessions. Producer MUST surface the exact stderr to the user with concrete recovery options, not silently fall back to local-mirror-only. A silent fallback is dishonest closure of the Outcome contract.",
+        "The `_meta-033` rule applies even when the user did not explicitly ask for a PR. The default is 'producer opens the PR'; the opt-out is the user saying 'don't push yet'. Reversing the default (asking 'should I push?' before every shipment) is friction the user explicitly objected to in the same conversation that surfaced `_meta-032`."
+      ],
+      "feature_gaps_filed": [
+        "FILE: PR template for the repo \u2014 once `_meta-033` is mechanism-confirmed (iter-7), lift the 9-item structure from Step 6 + the scope-rule table from Step 7 into `.github/PULL_REQUEST_TEMPLATE.md` so the contract is enforced at the GitHub UI level.",
+        "FILE: Pre-push hook \u2014 a Husky-style git hook in this repo that fails commits to a model-recipe branch if the diff contains SKILL.md / REVIEW.md / `skill_meta/findings.json` outside `model_knowledge/<family>.json`. Mechanical enforcement of the lane split.",
+        "FILE: Iter-7 retrospective \u2014 confirm that the first post-`_meta-033` contribution defaulted to opening the PR without re-prompting. If the producer skipped PR creation and stopped at the local mirror, mechanism_confirmed=false and the next iteration is a stricter contract (e.g. agent runtime hook that auto-invokes `gh pr create` on any branch touching `examples/recipes/`)."
+      ],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Hypothesis: naming PR shipment as a numbered Step (7) with concrete shipment commands + a self-check checklist + an explicit anti-pattern ('don't fall back to local-mirror-only on push failure') causes producers to default to opening the PR without re-prompting. Grounded in the parallel `_meta-031` / `_meta-032` mechanism (making each implicit contract a named obligation causes it to happen). Falsified if iter-7's first contribution ships local mirrors without a PR URL and the producer has to be re-prompted.",
+      "resolution": "SKILL.md gained a new Step 7 'Ship the PR (do not wait to be asked)' between Step 6 and Cross-references (2026-06-23) with two-lane workflow + shipment commands + push-failure escalation + self-check. Outcome-axis Report-location callout extended with a one-line cross-reference into Step 7. (REVIEW.md Outcome-L0 PR-URL check still pending \u2014 will land in the next skill-only push to working branch.)",
+      "last_updated": "2026-06-23"
+    }
+  ]
+}
+
+

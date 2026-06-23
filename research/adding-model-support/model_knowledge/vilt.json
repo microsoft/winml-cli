@@ -1,0 +1,62 @@
+{
+  "_meta": {
+    "family": "vilt",
+    "hf_model_type": "vilt",
+    "models_tested": [],
+    "diagnostic_only": ["dandelin/vilt-b32-finetuned-vqa"],
+    "last_updated": "2026-06-22",
+    "epistemics_warning": "Findings here are DIAGNOSTIC (read from repo state on 2026-06-22), not verified by running winml build/perf/eval. Re-validate before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "vilt-001",
+      "title": "ViLT has no @register_onnx_overwrite in the repo, AND no model in the repo registers visual-question-answering today — Effort-L1 (possibly L2)",
+      "observation": "No file matching vilt.py under src/winml/modelkit/models/hf/. Grep of '@register_onnx_overwrite' across all hf/*.py files returns zero results for model_type 'vilt' AND zero results for task 'visual-question-answering' on ANY model_type. BLIP only registers image-to-text / image-text-to-text / feature-extraction / text2text-generation; nothing else covers VQA. Inference-side TASK_REGISTRY['visual-question-answering'] exists (tasks.py line 417), but no export-side path exists end-to-end.",
+      "scope": {
+        "validated_on": [],
+        "falsified_on": [],
+        "not_yet_tested_on": ["dandelin/vilt-b32-finetuned-vqa @ * @ *"]
+      },
+      "effort_tier_required": "L1 (new vilt.py); risk of L2 if visual-question-answering is the FIRST VQA export path and shared infra (models/winml/) needs new dispatch — current shared-infra files are decoder_only.py, encoder_decoder.py, image_classification.py, sequence_classification.py, etc. — no vqa.py.",
+      "goal_tier_reached": "L0 (build will fail without new code)",
+      "recipe_template": "No template — ViLT would be the first VQA recipe. By architecture (single-stream multimodal transformer over patched image + tokenized text → classifier head over a fixed answer vocabulary), it most resembles a text-classification model with multi-modal input. Closest template is a text-classification recipe with an added pixel_values InputTensorSpec.",
+      "gotchas": [
+        "ViLT inputs are unusual: pixel_values + input_ids + attention_mask + pixel_mask + token_type_ids — all five must be declared in OnnxConfig.inputs.",
+        "VQA finetune (vilt-b32-finetuned-vqa) has a fixed 3129-way classification head (one logit per VQA answer). Output is logits over the answer vocabulary, NOT generated text — the task is technically classification framed as 'VQA'. Make sure TASK_REGISTRY['visual-question-answering'] postprocess can map argmax(logits) → answer string via the model's id2label.",
+        "Patch handling in optimum: confirm whether optimum.exporters.onnx ships a ViltOnnxConfig before re-implementing one. If yes, the @register_onnx_overwrite is a thin override; if not, write from scratch."
+      ],
+      "feature_gaps_filed": [
+        "FILE: add src/winml/modelkit/models/hf/vilt.py with @register_onnx_overwrite('vilt', 'visual-question-answering')",
+        "FILE: verify TASK_REGISTRY['visual-question-answering'] handles the 'classification-over-answer-vocab' VQA pattern (vs. generative VQA used by BLIP-2 / LLaVA / Pix2Struct). If only one pattern is supported, document the gap.",
+        "FILE: since this would be the first VQA export path, consider whether models/winml/visual_question_answering.py needs to exist as shared infra for future VQA models (Pix2Struct will hit this same question)"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Two-axis grep (no vilt file + no VQA registration anywhere) is definitive. ViLT architecture / output-head details from HF model card.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "vilt-002",
+      "title": "RESEARCH-ONLY confirmation: temp/probe_remaining.py 2026-06-22 PM — `vilt` model_type is NOT REGISTERED in TasksManager at all (neither vendor nor winml). This is the cleanest 'first-of-task-family' case in the iter-5 batch.",
+      "observation": "Iter-6 producer pass: re-ran the Optimum-coverage probe targeting model_type='vilt'. `TasksManager._SUPPORTED_MODEL_TYPE.get('vilt')` is None (no vendor coverage), and `src/winml/modelkit/models/hf/` has no vilt.py (no winml coverage). This is the only model in the iter-5 batch that's fully UNREGISTERED. Same conclusion as vilt-001. Re-confirmed that `visual-question-answering` task has zero export-side registrations across ALL model_types: grepping `@register_onnx_overwrite\\(.+visual-question-answering` returns 0 hits. The first VQA contributor (vilt OR pix2struct via a generative-VQA route) effectively creates a task family. Producer decision-point captured: should classification-VQA (ViLT, fixed-vocab answer head) and generative-VQA (Pix2Struct, decoder produces answer text) share TASK_REGISTRY['visual-question-answering'], or split into 'visual-question-answering' + 'generative-visual-question-answering'? Recommendation (NOT YET BUILT INTO CODE): keep one user-facing task name, dispatch on model arch internally (cf. how 'image-to-text' covers both VED-encoder-decoder and pix2struct-flattened-patches). Outcome-L2 (new task family) per SKILL.md. No build attempted this turn.",
+      "scope": {
+        "validated_on": ["optimum coverage @ 2026-06-22 PM via temp/probe_remaining.py — vilt model_type fully unregistered"],
+        "falsified_on": [],
+        "refines": ["vilt-001"],
+        "not_yet_tested_on": ["actual vilt.py implementation + dandelin/vilt-b32-finetuned-vqa build"]
+      },
+      "effort_tier_required": "L1 (new vilt.py with ViltOnnxConfig from scratch, since Optimum has no vendor reference to subclass) + Outcome-L2 (first VQA export-side registration in the repo — owes the task-family decision + possibly models/winml/visual_question_answering.py shared infra).",
+      "goal_tier_reached": "L0 unreachable without code; producer chose to not implement this turn (same reasoning as mgp_str-003).",
+      "recipe_template": "Hypothetical: examples/recipes/dandelin_vilt-b32-finetuned-vqa/visual-question-answering_config.json with input_tensors=[pixel_values[1,3,384,384], input_ids[1,40], attention_mask[1,40], pixel_mask[1,384,384], token_type_ids[1,40]] → output_tensors=[logits[1,3129]].",
+      "gotchas": [
+        "Five-input multimodal interface is the architectural novelty. Standard DummyInputGenerators don't combine vision + text + masks in one call — likely need a ViltDummyInputGenerator that bundles them, or chain multiple generators inside the OnnxConfig.",
+        "First-VQA-contributor decision (`_meta-003` was the prediction; vilt-002 is the validation) — the task-family split decision should be recorded as a `_meta-NNN` finding alongside the implementation, not buried in vilt.py.",
+        "Producer deferred this work for the same reason as mgp_str-003: L1+L2 scope, no rapid `winml config` iteration available, and the actionable scope is already documented. Reviewer should treat as research-only closure unless 'first VQA contribution' is explicitly in this turn's scope."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Probe at temp/probe_remaining.py. `TasksManager._SUPPORTED_MODEL_TYPE.get('vilt')` is None — definitive proof of zero registration. Grep `@register_onnx_overwrite.*visual-question-answering` in src/ returns 0 hits.",
+      "resolution": "RESEARCH-ONLY. Implementation scope + task-family decision documented for next-turn or follow-up producer. Recommended approach: ship ViLT first (classification-VQA, simpler), revisit task-family split when the first generative-VQA model is in scope.",
+      "last_updated": "2026-06-22"
+    }
+  ]
+}

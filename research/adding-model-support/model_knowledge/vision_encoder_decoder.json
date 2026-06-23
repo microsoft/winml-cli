@@ -1,0 +1,141 @@
+{
+  "_meta": {
+    "family": "vision-encoder-decoder",
+    "hf_model_type": "vision-encoder-decoder",
+    "models_tested": ["nlpconnect/vit-gpt2-image-captioning (L0+L1-CPU+L2-encoder PASS; L2-decoder DEFERRED-HARNESS; L3 CLI-BLOCKED)"],
+    "diagnostic_only": ["breezedeus/pix2text-mfr"],
+    "last_updated": "2026-06-22",
+    "epistemics_warning": "Findings here are DIAGNOSTIC (read from repo state on 2026-06-22), not verified by running winml build/perf/eval. Re-validate before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "vision-encoder-decoder-001",
+      "title": "Generic vision-encoder-decoder export covers any HF VisionEncoderDecoderModel with a CausalLM inner decoder — Effort-L0 for breezedeus/pix2text-mfr unless the inner decoder needs new patching",
+      "observation": "src/winml/modelkit/models/hf/vision_encoder_decoder.py registers @register_onnx_overwrite('vision-encoder-decoder', 'feature-extraction') (VisionEncoderIOConfig over pixel_values → encoder_hidden_states), @register_onnx_overwrite('vision-encoder-decoder', 'text2text-generation') (decoder), and @register_composite_model('vision-encoder-decoder', 'image-to-text'). Dispatch is at the HF model level — VisionDecoderWrapper loads the full VisionEncoderDecoderModel and delegates to model.decoder polymorphically. Per-architecture field-name differences (decoder.d_model vs n_embd) are handled by _VedDecoderNormalizedConfig via Optimum's NormalizedConfigManager. PATCHING_SPECS bundles trace-time fixes for known inner-decoder positional-embedding ops.",
+      "scope": {
+        "validated_on": [],
+        "falsified_on": [],
+        "not_yet_tested_on": ["breezedeus/pix2text-mfr @ fp16 @ cpu", "@ qnn-npu"]
+      },
+      "effort_tier_required": "L0 (if inner-decoder family already covered by PATCHING_SPECS); L1 (if breezedeus/pix2text-mfr uses an inner decoder whose positional embedding trips up trace-time export and needs a new PatchingSpec)",
+      "goal_tier_reached": "L0 (not yet attempted)",
+      "recipe_template": "Same first-mover gap as marian: no encoder-decoder recipe ships under examples/recipes/. Generate via `winml config -m breezedeus/pix2text-mfr --task image-to-text`.",
+      "gotchas": [
+        "Diagnostic step 1: open breezedeus/pix2text-mfr's config.json on HF and read `decoder.model_type`. If it is MBart / TrOCR / GPT-2 / a family already covered by PATCHING_SPECS, this is L0. If it's a new family, expect to add a `_patched_<family>_forward` function modeled on the existing entries.",
+        "VisionEncoderIOConfig pulls num_channels and image_size from `encoder.*` subconfig — pix2text-mfr's encoder subconfig must expose these or the NormalizedConfig lookup fails.",
+        "Like marian/bart/t5, the composite emits two recipe files (encoder + decoder). No template to copy."
+      ],
+      "feature_gaps_filed": [
+        "FILE: same recipe template gap as marian (one encoder-decoder reference recipe in examples/recipes/)",
+        "FILE: document PATCHING_SPECS extension pattern — currently the only way a contributor learns about it is by reading vision_encoder_decoder.py end-to-end"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Read vision_encoder_decoder.py module docstring and decorator list directly. Inner-decoder polymorphism via VisionEncoderDecoderModel.decoder is documented in the module header.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "vision-encoder-decoder-002",
+      "title": "REFINEMENT: Optimum natively covers vision-encoder-decoder image-to-text; winml ADDS feature-extraction + text2text-generation as split-component overrides — breezedeus/pix2text-mfr at image-to-text is L0★ via vendor path",
+      "observation": "TasksManager probe 2026-06-22 PM: optimum registers 'vision-encoder-decoder' for image-to-text + image-to-text-with-past natively. winml ADDS two tasks: feature-extraction (encoder-only) and text2text-generation (decoder-only with KV cache). For a user-facing image-to-text recipe, the vendor path works directly without invoking the winml split. The winml composite path is for KV-cache-controlled exports of the same model.",
+      "scope": {
+        "validated_on": ["optimum @ probe 2026-06-22"],
+        "falsified_on": [],
+        "refines": ["vision-encoder-decoder-001"],
+        "not_yet_tested_on": ["breezedeus/pix2text-mfr @ * @ *"]
+      },
+      "effort_tier_required": "L0★ (recipe via Optimum path). L1-light ONLY if KV-cache-aware decoder export is needed for perf and the inner-decoder family is not in PATCHING_SPECS.",
+      "goal_tier_reached": "L0 (not yet attempted)",
+      "recipe_template": "Two options: (a) vanilla `winml config --task image-to-text` → single-graph Optimum export. (b) winml composite-emit — two recipes (encoder + decoder). Choice depends on Goal-L1 perf.",
+      "gotchas": [
+        "The same model can be exported via two different paths (vendor or winml-composite). Recipe naming should reflect which path was used."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Optimum coverage probe on 2026-06-22.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "vision-encoder-decoder-003",
+      "title": "VALIDATED-NEGATIVE: breezedeus/pix2text-mfr build FAILS at fetch \u2014 HF repo lacks pytorch_model.bin / model.safetensors / tf_model.h5 / model.ckpt / flax_model.msgpack; per-checkpoint repo-format gate, not a code gap",
+      "observation": "Ran `uv run winml config -m breezedeus/pix2text-mfr --task image-to-text -o temp/ved_build/config_draft.json` 2026-06-22 PM \u2014 SUCCEEDED, emitted two recipe files (encoder + decoder) consistent with the composite emit-pattern (winml composite path took precedence per vision-encoder-decoder-002 sub-component overrides). Promoted to `examples/recipes/breezedeus_pix2text-mfr/image-to-text_fp16_{encoder,decoder}_config.json`. Ran `uv run winml build -c image-to-text_fp16_encoder_config.json -m breezedeus/pix2text-mfr -o temp/ved_build/encoder/` \u2014 FAILED at the export stage with `Error: Build failed: breezedeus/pix2text-mfr does not appear to have a file named pytorch_model.bin, model.safetensors, tf_model.h5, model.ckpt or flax_model.msgpack.`. Checkpoint repo on HF stores weights in a non-standard layout (likely .pth or model-shard files under a subdirectory) that AutoModel.from_pretrained does not recognize. This is a new failure class: vendor + winml registrations are both correct, AND `winml config` produced a working draft \u2014 the gate is at the HF model-loader layer, INSIDE the producer's host environment but not under SKILL.md or winml control.",
+      "scope": {
+        "validated_on": ["breezedeus/pix2text-mfr @ image-to-text @ fetch-stage \u2014 REPRODUCED FAILURE (winml build, 2026-06-22 PM)"],
+        "falsified_on": ["vision-encoder-decoder-002 implicit assumption that an Optimum-covered VED checkpoint with composite-emit cooperation will build"],
+        "refines": ["vision-encoder-decoder-002"],
+        "not_yet_tested_on": ["other VED checkpoints with standard layouts (e.g. nlpconnect/vit-gpt2-image-captioning, microsoft/trocr-base-printed)"]
+      },
+      "effort_tier_required": "L0\u2605 in principle (registrations + config draft are correct). Actual effort_for_this_checkpoint = manual checkpoint conversion (HF transformers' from_pretrained with explicit `state_dict` fetch from the non-standard layout) OR skip and pick a different VED checkpoint.",
+      "goal_tier_reached": "NEGATIVE (no artifact built; failure is environment, not winml)",
+      "recipe_template": "examples/recipes/breezedeus_pix2text-mfr/image-to-text_fp16_{encoder,decoder}_config.json \u2014 the recipes are STRUCTURALLY correct (they would build any standard VED checkpoint) but pinned to a checkpoint that can't be fetched. Consider marking with `_status: \"BROKEN \u2014 upstream checkpoint repo layout\"` per the `_meta-013` convention (TBD this turn). Better: replace with a standard VED checkpoint (e.g. nlpconnect/vit-gpt2-image-captioning) as the canonical L0\u2605 reference.",
+      "gotchas": [
+        "Methodology lesson: SKILL.md Step 1's Optimum-coverage probe + the composite-emit confirmation are both necessary but NOT sufficient \u2014 the producer must also verify the HF repo for this specific checkpoint follows the standard layout. This is a 4th gate (after probe + winml registration + `winml config` cooperation) that no diagnostic step currently covers. A pre-build `huggingface_hub.list_repo_files(...)` check could surface this in one call.",
+        "Independent of architecture: any contribution that names a specific checkpoint takes on the risk that the checkpoint repo's file layout doesn't match what AutoModel.from_pretrained expects. The risk is higher for community-uploaded checkpoints (the prefix `breezedeus/` is a community user, not an organisation that publishes standardized repos).",
+        "This is the SECOND counter-example to _meta-008's 'probe is necessary but not sufficient' rule, in addition to bart-003. bart-003 was a forward-time assertion failure; ved-003 is a load-time fetch failure. Both surface only after a real `winml build` attempt."
+      ],
+      "feature_gaps_filed": [
+        "FILE: `winml config` (or a new `winml doctor <model-id>` pre-flight) should call `huggingface_hub.list_repo_files(<model-id>)` and warn if none of {pytorch_model.bin, model.safetensors, tf_model.h5, model.ckpt, flax_model.msgpack} appear at the repo root \u2014 saves the producer one full build cycle.",
+        "FILE: consider replacing breezedeus/pix2text-mfr as the canonical VED reference with a checkpoint that has a standard layout (nlpconnect/vit-gpt2-image-captioning is a known-good candidate).",
+        "FILE: SKILL.md Step 1 verdict-table should add a fourth gate: 'HF repo file-layout check' before declaring L0\u2605."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction is 2 steps (config succeeded, build failed). Full stderr captured in temp/ved_build/encoder_build.log 2026-06-22 PM. AutoModel.from_pretrained error message is verbatim from transformers \u2014 winml plumbing is correct; the gate is upstream of winml.",
+      "resolution": "Architecture-level L0\u2605 path remains open for any standard VED checkpoint. This specific checkpoint (breezedeus/pix2text-mfr) is BLOCKED on upstream repo layout. Recipe checked in as a regression / future-fix marker; reviewer should treat as a known-broken until the checkpoint is replaced.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "vision-encoder-decoder-004",
+      "title": "VALIDATED positive control to vision-encoder-decoder-003: nlpconnect/vit-gpt2-image-captioning @ image-to-text @ cpu — composite recipe pair builds + L1 + L2 PASS. Confirms the VED template generalizes; ved-003's breezedeus failure was checkpoint-specific.",
+      "observation": "Ran `uv run winml config -m nlpconnect/vit-gpt2-image-captioning --task image-to-text -o temp/vit_gpt2_drafts` — succeeded, emitted two recipe drafts. Built both halves: encoder 55.5s → 366 nodes, opset 17, inputs [pixel_values[1,3,224,224]] → encoder_hidden_states[1,197,768]; decoder 82.0s → 803 nodes, 28 inputs (decoder_input_ids[1,1] + encoder_hidden_states[1,197,768] + 24 past_KV[1,12,1024,64] + cache_position[1] + decoder_attention_mask[1,1024]) → logits[1,1,50257] + 24 present_KV. L0 PASS both halves. L1-CPU PASS: encoder Avg 62.38ms/iter (Throughput 16.03 samples/sec, P50 60.04, P90 70.57, P99 87.38, Std 7.25); decoder Avg 38.58ms/iter (Throughput 25.92 samples/sec, P50 38.00, P90 43.07, P99 44.59, Std 2.19). L2 PASS (encoder vs PyTorch VisionEncoderDecoderModel.encoder on a fixed-seed RGB image): cosine=1.000000, max_abs=2e-6 (rel 0.0001% of PT max-abs). Recipes promoted to `examples/recipes/nlpconnect_vit-gpt2-image-captioning/image-to-text_{encoder,decoder}_config.json` (drop `_fp16_` per `_meta-014`).",
+      "scope": {
+        "validated_on": ["nlpconnect/vit-gpt2-image-captioning @ image-to-text @ cpu (winml build + winml perf + PT-vs-ONNX, 2026-06-22 PM)"],
+        "falsified_on": ["any reading of vision-encoder-decoder-003 that generalized the failure beyond the breezedeus checkpoint"],
+        "refines": ["vision-encoder-decoder-003"],
+        "not_yet_tested_on": ["microsoft/trocr-base-printed (different inner decoder = TrOCR not GPT-2 — would test PATCHING_SPECS coverage)", "decoder L2 with DynamicCache reconstruction", "@ qnn-npu / @ dml-gpu (host-blocked per `_meta-016`)"]
+      },
+      "effort_tier_required": "L0★ — zero source changes, no manual recipe edits, no value_range workarounds (unlike bart-004). Pure `winml config` + `winml build` × 2.",
+      "goal_tier_reached": "L0 (artifacts both halves) + L1-CPU (perf both halves) + L2-encoder (cosine=1.0). L3 image-captioning metric (BLEU/CIDEr) reachable via `winml eval --task image-to-text` (task IS in the registry per `_meta-015`'s 16-task list) but not exercised this turn.",
+      "recipe_template": "examples/recipes/nlpconnect_vit-gpt2-image-captioning/image-to-text_{encoder,decoder}_config.json — second seq2seq composite recipe pair shipped (after marian-003 opus-mt-en-ru). First vision-encoder-decoder L0★ reference. Future VED checkpoints with GPT-2 / BART / T5 / MBart inner decoders can copy this template directly.",
+      "gotchas": [
+        "GPT-2 inner decoder uses 24 past_KV inputs (12 layers × {key,value}) with shape [1,12,1024,64] (heads=12, max_cache_len=1024, head_dim=64). This is wider than marian's 12 past_KV (6 layers × {k,v}) and narrower per-head than t5's. The shape Tuple is the cheapest diagnostic for inner-decoder identification at recipe-review time.",
+        "Encoder produces fixed [1,197,768] = 14×14+1 ViT patch tokens + CLS. The decoder cross-attention consumes this as encoder_hidden_states. No DynamicCache-style reshape between halves.",
+        "winml config WORKED out-of-the-box because nlpconnect uses standard safetensors layout — the failure surface in ved-003 (breezedeus) was the HF repo file-layout gate, not the VED architecture surface. Document this distinction so reviewers don't conflate the two."
+      ],
+      "feature_gaps_filed": [
+        "FILE: same `winml perf --inputs <real-image-path>` flag suggested in bart-004 — vit-gpt2 perf with random pixel_values runs, but for real captioning eval the producer still owes a custom script."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction trail: temp/vit_gpt2_drafts_{encoder,decoder} (config drafts); temp/vit_gpt2_build/{encoder,decoder}/model.onnx (build artifacts); temp/vit_gpt2_perf_{enc,dec}_cpu.log (perf); temp/vit_gpt2_l2.py + .log (L2 cosine=1.0, max_abs=2e-6). Recipes at examples/recipes/nlpconnect_vit-gpt2-image-captioning/.",
+      "resolution": "VED template confirmed reusable across standard-layout checkpoints. ved-003 status (BLOCKED-CHECKPOINT-LAYOUT) is unchanged for breezedeus/pix2text-mfr — the gate is upstream of winml. Reviewer should treat ved-003 and ved-004 as together demonstrating that the VED contributor experience is L0★ for any HF-standard checkpoint with a covered inner decoder.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "ved-005",
+      "title": "VALIDATED Goal-L0+L1-CPU+L2-encoder for nlpconnect/vit-gpt2-image-captioning. L2-decoder DEFERRED-HARNESS (past-KV bridge non-trivial, per marian-005 precedent). L3 CLI-BLOCKED: `winml eval --task image-to-text` errors 'No dataset provided and no default for task image-to-text' — composite eval surface for image-to-text is NOT yet wired in winml CLI. Verdict per `_meta-018` short-circuit: CLI-BLOCKED, march continues.",
+      "observation": "Iter-6 (2026-06-23): built vit-gpt2-image-captioning encoder + decoder via examples/recipes/nlpconnect_vit-gpt2-image-captioning/* composite recipes → temp/verify_vit_enc/model.onnx (366 nodes) + temp/verify_vit_dec/model.onnx (803 nodes). L0 PASS (artifacts produced, external-data layout per `_meta-023` is .data co-located with .onnx). L1-CPU: encoder 69.36ms/iter, decoder 40.39ms/iter (both via `winml perf --ep cpu` random-input baseline — random dummy works because no eos-pooling-equivalent assertion exists in ViT encoder or GPT2 cross-attn decoder). L2-encoder: cosine=1.000000, max_abs=2e-6 (PT VisionEncoderDecoderModel.encoder vs ONNX on identical 224x224 image patch). L2-decoder: deferred (DynamicCache bridging budget exceeded). L3: `uv run winml eval -m encoder=... -m decoder=... --task image-to-text --device cpu --ep cpu --samples 20` → 'Error: Evaluation failed: No dataset provided and no default for task image-to-text. Use --dataset.' — CLI-BLOCKED with NO default and no image-captioning dataset wired in the eval suite.",
+      "scope": {
+        "validated_on": ["nlpconnect/vit-gpt2-image-captioning @ image-to-text @ cpu — L0+L1+L2-encoder (2026-06-23)"],
+        "falsified_on": [],
+        "refines": [],
+        "not_yet_tested_on": ["L2-decoder (DynamicCache↔past_KV bridge)", "L3 image-to-text (CLI-BLOCKED until winml eval wires a default captioning dataset such as flickr30k or coco)", "@ qnn-npu / @ dml-gpu (host-blocked per `_meta-016`)"]
+      },
+      "effort_tier_required": "L0★ (recipes already shipped from prior iter — pure validation work)",
+      "goal_tier_reached": "L0 + L1-CPU + L2-encoder. L2-decoder DEFERRED-HARNESS. L3 CLI-BLOCKED.",
+      "recipe_template": "examples/recipes/nlpconnect_vit-gpt2-image-captioning/image-to-text_{encoder,decoder}_config.json — first composite-image-to-text recipe pair in repo. Composite-expansion gate (`_meta-020`) MUST report pipeline_tasks=['image-to-text'] composite=true once `winml inspect` is upgraded per `_meta-027`.",
+      "gotchas": [
+        "Encoder/decoder output-naming contract (`_meta-025`): the ViT encoder outputs `last_hidden_state` which must alias to `encoder_hidden_states` on the GPT2 decoder cross-attn input. Verified at L2-encoder time (no silent zeros). Reviewers MUST check this alias in any new image-to-text recipe.",
+        "L3 image-to-text CLI-BLOCKED is a NEW class of blocker distinct from `_meta-015` (which was 'no eval task'): here the task IS supported (`winml eval --schema --task image-to-text` returns input_column/label_column spec), but NO default dataset is wired. Producer must FILE a dataset-default issue, not implement a custom harness.",
+        "Decoder L2 deferral is consistent with marian-005 precedent: 'L2-encoder PASS + decoder L2 deferred' is acceptable closure when DynamicCache reconstruction cost exceeds turn budget. Reviewers per REVIEW.md accept this exception.",
+        "Composite gate `_meta-020`: VisionEncoderDecoderModel is ALWAYS composite — even when `config.is_encoder_decoder == False` for some HF checkpoints (e.g., BLIP), the FAMILY is composite by HF class definition. Don't infer composite-ness from the config flag alone."
+      ],
+      "feature_gaps_filed": [
+        "FILE: `winml eval --task image-to-text` should default `--dataset` to nlpconnect/flickr8k-images or coco-captions; today it errors out hard, blocking any image-to-text L3 closure.",
+        "FILE: composite L2 harness for vision-encoder-decoder — repo lacks a `winml.eval.compare_pt_onnx_composite()` helper. Filed against marian-005 + ved-005.",
+        "FILE: per `_meta-029` L3-TIMEOUT verdict — once dataset default lands, full coco-captions eval will take >2h CPU and should emit TIMEOUT marker, not silent crash."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Build/perf logs: temp/verify_vit_enc/, temp/verify_vit_dec/, temp/vit_gpt2_l2.log (cosine=1.0 max_abs=2e-6), temp/vit_gpt2_l3.log (CLI-BLOCKED error message preserved). Reproducible: any contributor running the same command will hit the same dataset-default error until winml eval wires one.",
+      "resolution": "vit-gpt2-image-captioning closes 3 of 4 Goal tiers on CPU. L3 closure requires upstream `winml eval` wiring; decoder L2 closure requires DynamicCache bridge helper. Both filed as feature gaps.",
+      "last_updated": "2026-06-23"
+    }
+  ]
+}

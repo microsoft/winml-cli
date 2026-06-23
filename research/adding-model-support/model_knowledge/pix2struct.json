@@ -1,0 +1,150 @@
+{
+  "_meta": {
+    "family": "pix2struct",
+    "hf_model_type": "pix2struct",
+    "models_tested": ["google/pix2struct-ai2d-base (FAILED at config stage)"],
+    "diagnostic_only": ["google/deplot", "google/pix2struct-docvqa-base"],
+    "last_updated": "2026-06-22",
+    "epistemics_warning": "pix2struct-001 + pix2struct-002 are DIAGNOSTIC; pix2struct-003 is VALIDATED-NEGATIVE (winml config refuses to emit a draft for this family)."
+  },
+  "findings": [
+    {
+      "id": "pix2struct-001",
+      "title": "Pix2Struct has no @register_onnx_overwrite, AND has variable-resolution patching unlike any currently supported model — Effort-L2 (deeper than per-model code)",
+      "observation": "No pix2struct.py under src/winml/modelkit/models/hf/. Three target models all use model_type='pix2struct' (google/deplot, google/pix2struct-ai2d-base, google/pix2struct-docvqa-base) and the task is 'visual-question-answering' (or 'image-to-text' depending on the checkpoint). Pix2Struct uses a unique variable-resolution patching scheme: the image is rendered into a variable number of fixed-size patches that fit within a max-patches budget, encoded with 2D coordinate embeddings, and fed to a T5-style encoder + decoder. This is fundamentally different from vision-encoder-decoder.py (which assumes a fixed-shape vision backbone).",
+      "scope": {
+        "validated_on": [],
+        "falsified_on": [],
+        "not_yet_tested_on": ["google/deplot @ * @ *", "google/pix2struct-ai2d-base @ * @ *", "google/pix2struct-docvqa-base @ * @ *"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L0 (build will fail without new code)",
+      "recipe_template": "No close template. Encoder side resembles a custom vision encoder with token-like patch_ids + row/col 2D position embeddings rather than (B,C,H,W) pixel_values; decoder side resembles T5 (use t5.py as the closest decoder template). Composite registration would bind ('pix2struct', 'visual-question-answering') or ('pix2struct', 'image-to-text').",
+      "gotchas": [
+        "Variable patch count is fundamentally incompatible with a static-shape ONNX export unless the recipe pins max_patches and uses an attention_mask. Confirm the OnnxConfig declares (flattened_patches: [B, max_patches, patch_dim], attention_mask: [B, max_patches]) instead of pixel_values.",
+        "Encoder is essentially a T5-style encoder over patch tokens, NOT a CNN/ViT — DummyVisionInputGenerator does NOT apply; need a custom DummyInputGenerator that produces (max_patches, patch_dim) tensors.",
+        "Decoder shares T5's relative-position bias compute_bias (T5Attention.compute_bias) — the same compute_bias-bake or compute_bias-free pattern as t5.py is needed.",
+        "Three checkpoints (deplot / ai2d / docvqa) all share architecture but target different downstream tasks. One pix2struct.py + per-checkpoint recipes should cover all three.",
+        "Same first-VQA-on-export-side caveat as ViLT — TASK_REGISTRY['visual-question-answering'] is set up for classification-style VQA, but pix2struct VQA is generative (decoder produces answer text). Likely needs the 'image-to-text' inference path internally even when the user-facing task is 'visual-question-answering'."
+      ],
+      "feature_gaps_filed": [
+        "FILE: add src/winml/modelkit/models/hf/pix2struct.py modeled on t5.py (decoder) + a custom encoder OnnxConfig handling flattened_patches",
+        "FILE: write a Pix2StructDummyInputGenerator under models/winml/ (or alongside pix2struct.py) producing (max_patches, patch_dim) tensors",
+        "FILE: TASK_REGISTRY clarification — for generative VQA, route 'visual-question-answering' to the image-to-text-like pipeline or add a task variant 'generative-vqa'",
+        "FILE: encoder-decoder recipe template gap (shared with marian/bart/t5/m2m_100/vision-encoder-decoder)"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Grep is definitive for 'no registration'. Variable-patch architecture is from the Pix2Struct paper / HF modeling_pix2struct.py — contributor should diff the HF source against t5 to estimate the shared-vs-unique surface before committing the L2 estimate.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "pix2struct-002",
+      "title": "REFINEMENT of pix2struct-001: Optimum-native Pix2StructOnnxConfig covers image-to-text — Effort drops from L2 to L0★/L1 depending on VQA wiring",
+      "observation": "TasksManager probe 2026-06-22 PM: optimum's Pix2StructOnnxConfig registers 'image-to-text' + 'image-to-text-with-past' natively. Variable-resolution flattened-patches handling lives INSIDE Optimum's config — the L2 'no shared infra fits' claim in pix2struct-001 was wrong; Optimum already solved that piece. The remaining issue is task semantics: the three target checkpoints are tagged 'visual-question-answering' on HF, but the underlying model is generative-image-to-text-with-leading-question-prompt. Pix2Struct VQA is image-to-text where the question is prepended to the rendered image as a text overlay.",
+      "scope": {
+        "validated_on": ["optimum @ probe 2026-06-22"],
+        "falsified_on": ["pix2struct-001 'Effort L2' claim"],
+        "refines": ["pix2struct-001"],
+        "not_yet_tested_on": ["google/deplot @ * @ *", "google/pix2struct-ai2d-base @ * @ *", "google/pix2struct-docvqa-base @ * @ *"]
+      },
+      "effort_tier_required": "L0★ if the user-facing task can be 'image-to-text' (decode the question separately into the image). L1 if winml needs a 'visual-question-answering' → 'image-to-text' task-synonym routing OR a custom inference postprocess that handles the question-on-image pre-rendering.",
+      "goal_tier_reached": "L0 (not yet attempted)",
+      "recipe_template": "Optimum's Pix2StructOnnxConfig emits standard image-to-text ONNX. Same cross-family seq2seq recipe template gap.",
+      "gotchas": [
+        "Pix2Struct VQA inputs are NOT (image + question) at the ONNX level — the question is rasterized onto the image by the Pix2StructProcessor and fed as flattened_patches. The 'visual-question-answering' task tag on HF is misleading; ONNX-wise it's image-to-text.",
+        "My iter-1 'variable-patch needs new shared infra' claim was wrong — Optimum already handles the variable-patch dummy input generation. The L2 estimate was based on reading the HF source, not the Optimum source.",
+        "There may still be a TASK_REGISTRY question for the inference side: does the user invoke `winml run --task visual-question-answering` or `image-to-text`? If VQA must be the user-facing task, add TASK_SYNONYM_EXTENSIONS['visual-question-answering' for pix2struct only] — but that's a per-model exception, which CLAUDE.md prohibits in shared code. Cleaner path: keep user-facing task = image-to-text and document the question-prepending convention in the recipe."
+      ],
+      "feature_gaps_filed": [
+        "FILE: same encoder-decoder recipe template gap",
+        "FILE: clarify whether Pix2Struct VQA recipes should be tagged image-to-text or visual-question-answering at the recipe level; this is a P2 user-facing-naming decision, not a code blocker"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Optimum coverage probe on 2026-06-22.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "pix2struct-003",
+      "title": "VALIDATED-NEGATIVE: `winml config -m google/pix2struct-ai2d-base --task image-to-text` REFUSES to generate a draft — 'Preprocessors for pix2struct need to be available for the ONNX export to infer input static shapes. Got: None'",
+      "observation": "Ran `uv run winml config -m google/pix2struct-ai2d-base --task image-to-text -o temp/probe_drafts/pix2struct_draft.json` 2026-06-22 PM. Command exited with error: 'Preprocessors for pix2struct need to be available for the ONNX export to infer input static shapes. Got: None'. The flattened-patches variable-resolution scheme means the encoder OnnxConfig cannot derive a static input shape from the HF config alone — it needs the Pix2StructProcessor's `max_patches` parameter, which lives only on the processor instance. NO config_draft.json was produced. This is BEFORE the build stage — the Optimum-coverage probe (pix2struct-002) was right about Effort tier on paper, but the toolkit's auto-config path is BLOCKED upstream of the recipe.",
+      "scope": {
+        "validated_on": ["google/pix2struct-ai2d-base @ image-to-text @ config-stage — REPRODUCED REFUSAL (winml config, 2026-06-22 PM)"],
+        "falsified_on": ["pix2struct-002 implicit assumption that the L0★ path is unblocked"],
+        "refines": ["pix2struct-002"],
+        "not_yet_tested_on": ["a hand-written pix2struct recipe with max_patches pinned (e.g. 2048) and shape (B, max_patches, patch_dim)", "google/deplot / google/pix2struct-docvqa-base"]
+      },
+      "effort_tier_required": "L0★ in principle, BUT the auto-config path is dead-ended. Effort_actual = manual recipe + processor parameterization. Closer to L1-light in friction (one hand-written recipe) without being L1 in scope (no source changes required).",
+      "goal_tier_reached": "NEGATIVE (no recipe draft generated)",
+      "recipe_template": "None today. Next contributor must either: (a) pass `--processor-args max_patches=2048` to `winml config` (if such a flag exists — verify), or (b) hand-write the recipe with input_tensors=[{name:'flattened_patches', shape:[1, max_patches, patch_dim]}, {name:'attention_mask', shape:[1, max_patches]}] and decoder mirroring t5-style structure.",
+      "gotchas": [
+        "The failure is INSIDE Optimum's normalized-config path, not winml's. The error message comes from `optimum.exporters.tasks.TasksManager.get_exporter_config_constructor` or similar — Optimum knows pix2struct needs a processor to size flattened_patches, and refuses to invent one. winml's `winml config` could potentially construct the processor and pass it through (it already loads tokenizers for text tasks) — the gap is in winml's plumbing of HF AutoProcessor for image-task models with variable input shapes.",
+        "This is a NEW failure class not seen in any prior contribution: 'autoconfig path is hard-stopped at the upstream layer'. _meta-001 through _meta-006 all dealt with downstream failures (wrong command, missed artifacts, etc.). Methodology lesson for the skill: the (Effort × Goal) decision in Step 0 implicitly assumes `winml config` will produce SOME draft. When it refuses, even L0★ is locked out of the fast path.",
+        "Per pix2struct-002's analysis the *.onnx graph is image-to-text once you supply (flattened_patches, attention_mask). So the L0★ pathway is theoretically alive — but no contributor will find it without first writing a recipe by hand or extending `winml config` to pass an HF processor through. Either way, this contribution is now L1 in *effort to ship the first recipe*."
+      ],
+      "feature_gaps_filed": [
+        "FILE: `winml config` for image-task models with variable input shapes should load HF AutoProcessor and pass its size attributes (max_patches, patch_size, …) through to Optimum's OnnxConfig constructor. Without this, every flattened-patches / variable-resolution model (pix2struct, donut variants, fuyu, …) is blocked at the config stage.",
+        "FILE: improve the error message — 'Preprocessors for pix2struct need to be available' should additionally suggest the workaround (`--from-processor <local-path>` or `--processor-args max_patches=N`), or point to the relevant docs page.",
+        "FILE: docs/concepts/config-and-build.md should mention variable-shape / processor-dependent models explicitly as an exception class."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction is 1 step. Full stderr captured in turn output. The error comes from Optimum, not winml — verified by reading the error string (no winml.modelkit traceback present). Workarounds (a) and (b) NOT yet attempted in this session.",
+      "resolution": "UNRESOLVED. Pix2Struct L0★ contribution is gated on either (i) winml plumbing through AutoProcessor.max_patches, or (ii) a hand-written recipe template + processor configuration documented under examples/recipes/google_pix2struct-ai2d-base/. Neither is implemented today.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "pix2struct-004",
+      "title": "WORKAROUND-ATTEMPTED: `winml config --shape-config` accepts text/vision/audio dims only — NO `max_patches`/`patch_dim` keys — pix2struct workaround (a) is closed off; only path forward is hand-written recipe + upstream `winml config` fix",
+      "observation": "Iter-5 reviewer item #4 (2026-06-22 PM): the reviewer demanded that the producer attempt the two workarounds named in pix2struct-003 before declaring NEGATIVE. Workaround (a) was `--shape-config` to override flattened-patches dims. Probed via `uv run winml config --help`: `--shape-config` only accepts text dims `(seq_len, batch_size)`, vision dims `(num_channels, image_size, width, height)`, and audio dims `(audio_sequence_length, feature_size, nb_max_frames, nb_mel_bins)`. There is NO key for `max_patches` or `patch_dim` (pix2struct's input shape). Attempted anyway with `{\"height\":768,\"width\":768,\"num_channels\":3}` \u2014 same error as pix2struct-003: `Preprocessors for pix2struct need to be available for the ONNX export to infer input static shapes. Got: None`. The error happens BEFORE `--shape-config` is consulted, in Optimum's normalized-config layer when it tries to instantiate the OnnxConfig without a processor. Workaround (b) is a hand-written recipe; not attempted this turn (separate failure mode worth its own pix2struct-005 finding once executed). NET: pix2struct-003 is now formally downgraded to \"L0\u2605 BLOCKED pending winml AutoProcessor plumbing\" \u2014 the auto-config path has zero contributor-side workaround; only changes at the winml CLI layer or a hand-written recipe + processor-arg flag can unblock.",
+      "scope": {
+        "validated_on": ["google/pix2struct-ai2d-base @ image-to-text @ config-stage with --shape-config (2026-06-22 PM)"],
+        "falsified_on": ["pix2struct-003's implicit suggestion that `--processor-args max_patches=N` exists as a flag (it doesn't)"],
+        "refines": ["pix2struct-003"],
+        "not_yet_tested_on": ["hand-written recipe with `flattened_patches: [1, max_patches=4096, patch_dim=770]` + `attention_mask: [1, 4096]` (pix2struct-ai2d-base specs: patch_size=16, num_channels=3, max_patches per the processor default)"]
+      },
+      "effort_tier_required": "L0★ blocked at config layer. Hand-written recipe path = L1-light effort (manual JSON authoring + ensuring AutoProcessor is threaded for inference). True L0★ requires upstream `winml config` plumbing for AutoProcessor.",
+      "goal_tier_reached": "NEGATIVE (workaround (a) confirmed dead; workaround (b) not attempted this turn)",
+      "recipe_template": "None. The hand-written-recipe path requires the contributor to: (1) determine pix2struct's input names = {flattened_patches, attention_mask} from optimum.exporters.onnx.model_configs.Pix2StructOnnxConfig; (2) pick a max_patches budget (e.g. 4096 per AutoProcessor default for pix2struct-ai2d-base); (3) compute patch_dim = 2 (row/col coords) + patch_size² × num_channels = 2 + 256×3 = 770; (4) write a recipe with input_tensors=[{name:'flattened_patches', dtype:'float32', shape:[1, 4096, 770], value_range:[0,1]}, {name:'attention_mask', dtype:'int64', shape:[1, 4096], value_range:[0,1]}].",
+      "gotchas": [
+        "The `--shape-config` schema is hardcoded to text/vision/audio — extending it to flattened-patches dims is a winml CLI change, not a recipe-side workaround. Don't waste a turn trying.",
+        "Even the hand-written recipe path will hit a SECOND problem at the inference stage: AutoProcessor for pix2struct produces variable patch counts based on input image dims. A static-shape ONNX needs the processor to pad/truncate to `max_patches`. winml's InferenceEngine wiring for image tasks may or may not call the processor with the right pad arg. Verify before claiming L0★.",
+        "pix2struct-003 listed workarounds (a) and (b) without verifying that (a) is even possible. This is a `_meta-007` producer self-grading failure caught and fixed by the iter-5 reviewer. Future producer findings should grep the actual `--help` for the flag they're naming before listing it as a workaround."
+      ],
+      "feature_gaps_filed": [
+        "FILE: extend `--shape-config` to accept arbitrary input-tensor-name → shape mappings, not just the three hardcoded modalities. Unblocks pix2struct, donut, fuyu.",
+        "FILE: `winml config` should grow a `--processor-args key=val` flag that gets forwarded to AutoProcessor.from_pretrained(...), so contributors can override max_patches without hand-writing the entire recipe.",
+        "FILE: produce a pix2struct-005 finding once workaround (b) is actually attempted; document whether the inference path threads AutoProcessor's max_patches arg or not."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction is 2 commands: `uv run winml config --help` (verified --shape-config schema) + the workaround attempt. Error string is identical to pix2struct-003 — confirms the optimum-level gate is unconditional on shape-config presence.",
+      "resolution": "pix2struct-003 formally downgraded: 'L0★ in principle' is misleading; the actual contributor-facing status is 'BLOCKED pending winml config AutoProcessor threading'. Hand-written-recipe path remains untried; document as pix2struct-005 if/when attempted.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "pix2struct-005",
+      "title": "GENERALIZED: same `winml config` refusal reproduces on google/pix2struct-textcaps-base — the gate is family-wide, not checkpoint-specific. Also: visual-question-answering rejected with `Supported tasks are: image-to-text, image-to-text-with-past` — confirms pix2struct-002's task-naming claim.",
+      "observation": "Iter-6 producer pass 2026-06-22: ran `winml config -m google/pix2struct-textcaps-base --task visual-question-answering` → `Error: pix2struct doesn't support task visual-question-answering for the onnx backend. Supported tasks are: image-to-text, image-to-text-with-past.` Confirms pix2struct-002 — the user-facing 'VQA' label maps to image-to-text on the ONNX surface. Then `winml config -m google/pix2struct-textcaps-base --task image-to-text` → same error as pix2struct-003: `Error: Preprocessors for pix2struct need to be available for the ONNX export to infer input static shapes. Got: None`. Probed AutoProcessor independently: `Pix2StructProcessor.from_pretrained('google/pix2struct-textcaps-base')` succeeds (image_processor=Pix2StructImageProcessor, tokenizer=T5TokenizerFast) — so the processor EXISTS, but winml's `winml config` doesn't load it. Hand-written-recipe workaround-b NOT attempted this turn (deferred per cost/benefit — required model-config probe found vision.hidden_size=768, patch_embed_hidden_size=768, seq_len=4096, patch_size=16, num_channels=3, num_attention_heads=12, num_hidden_layers=12; text.vocab=50244, d_kv=64, num_heads=12, num_layers=12, decoder_start_token_id=0, eos=1, pad=0 — recorded in temp/pix2struct_probe.py).",
+      "scope": {
+        "validated_on": ["google/pix2struct-textcaps-base @ {visual-question-answering, image-to-text} @ config-stage (2026-06-22 PM)"],
+        "falsified_on": [],
+        "refines": ["pix2struct-003", "pix2struct-004"],
+        "not_yet_tested_on": ["hand-written recipe with flattened_patches[1,4096,770] + attention_mask[1,4096] then `winml build` — would test whether the runtime gate is also in build or only in config", "google/deplot / google/pix2struct-docvqa-base (likely same refusal)"]
+      },
+      "effort_tier_required": "L0★ blocked at config; hand-written-recipe path = L1-light effort. Unchanged from pix2struct-004.",
+      "goal_tier_reached": "NEGATIVE (same as pix2struct-003 / -004 — config refuses across checkpoints)",
+      "recipe_template": "None shipped. Probe data for the hand-written path is recorded in temp/pix2struct_probe.py (vision.* + text.* config dump).",
+      "gotchas": [
+        "Per-checkpoint reproduction confirms the gate is in Optimum's Pix2StructOnnxConfig instantiation path, not in any checkpoint-specific config.json field. ANY pix2struct contributor on ANY checkpoint hits this until winml threads AutoProcessor.",
+        "AutoProcessor load works fine via the transformers API — the gap is purely on winml's side. A 1-line patch in `winml config`'s image-task code path (load AutoProcessor, extract max_patches, pass to OnnxConfig) likely unblocks the entire family.",
+        "Workaround-b (hand-written recipe) is now well-specified: input_tensors=[{name:'flattened_patches', dtype:'float32', shape:[1, 4096, 770]}, {name:'attention_mask', dtype:'int64', shape:[1, 4096]}]. patch_dim = 2 (row/col coords) + 16² × 3 = 770. Next producer can attempt this with full coverage data in hand."
+      ],
+      "feature_gaps_filed": [
+        "FILE: `winml config` for variable-shape image-task models should load HF AutoProcessor and forward processor attributes (max_patches, patch_size, num_channels) to Optimum. ~10-line change; unblocks pix2struct family fully.",
+        "FILE: alternatively, ship a hand-written pix2struct recipe under examples/recipes/google_pix2struct-textcaps-base/ that documents the workaround-b template — would let downstream contributors copy without re-probing the model config."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproduction is 2 commands: VQA-task config (rejected as unsupported task) + image-to-text config (rejected at preprocessor gate). AutoProcessor probe confirms preprocessor IS available — the bridge gap is in `winml config`. Probe artifacts in temp/pix2struct_probe.py + temp/pix2struct_coverage.py.",
+      "resolution": "Family-wide refusal CONFIRMED across two checkpoints. Workaround-b path now has all required config data captured for whoever takes the next turn. CLI fix recommended over per-recipe hand-writes.",
+      "last_updated": "2026-06-22"
+    }
+  ]
+}

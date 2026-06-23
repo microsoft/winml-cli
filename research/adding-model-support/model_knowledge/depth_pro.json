@@ -1,0 +1,86 @@
+{
+  "_meta": {
+    "family": "depth_pro",
+    "hf_model_type": "depth_pro",
+    "models_tested": ["apple/DepthPro-hf"],
+    "diagnostic_only": [],
+    "last_updated": "2026-06-22",
+    "epistemics_warning": "depth_pro-001 was DIAGNOSTIC; depth_pro-002 is VALIDATED (winml build ran end-to-end on CPU). Per-EP perf (Goal-L1) still not measured."
+  },
+  "findings": [
+    {
+      "id": "depth_pro-001",
+      "title": "DepthPro OnnxConfig is already registered — apple/DepthPro-hf is a pure Effort-L0 recipe-only contribution",
+      "observation": "src/winml/modelkit/models/hf/depth_pro.py registers @register_onnx_overwrite('depth_pro', 'depth-estimation') with a NormalizedConfig subclass that computes image_size = patch_size / min(scaled_images_ratios) (e.g. 384/0.25 = 1536) so the standard DummyVisionInputGenerator picks up a valid minimum. Inputs: pixel_values [B, C, H, W]. Outputs: predicted_depth [B, H, W] + field_of_view [B]. Inference-side TASK_REGISTRY['depth-estimation'] exists (tasks.py line 262). All three winml-inspect-style facts (loader / exporter / inference) populate.",
+      "scope": {
+        "validated_on": [],
+        "falsified_on": [],
+        "not_yet_tested_on": ["apple/DepthPro-hf @ fp16 @ cpu", "apple/DepthPro-hf @ fp16 @ qnn-npu", "apple/DepthPro-hf @ w8a16 @ qnn-npu"]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L0 (not yet attempted)",
+      "recipe_template": "examples/recipes/facebook_dinov2-small/image-feature-extraction_fp16_config.json is the closest in spirit (DepthPro uses multiple DINOv2 backbones internally); adjust task to depth-estimation, output_tensors to predicted_depth + field_of_view, and confirm batch_size=1 with min H/W = 1536.",
+      "gotchas": [
+        "Multi-scale patching means input H/W has a hard minimum (patch_size / min(scaled_images_ratios)). A recipe declaring shape=[1,3,224,224] will fail at runtime even though the OnnxConfig accepts it. Use [1,3,1536,1536] as the recipe default.",
+        "DepthPro at 1536² is large — quantization calibration with samples=10 may not be representative; bump to 32+ for any Goal-L2/L3 check.",
+        "Two output tensors (predicted_depth + field_of_view) means downstream eval needs to know which to score; the inference pipeline returns both."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct read of src/winml/modelkit/models/hf/depth_pro.py — registration and computed image_size are explicit in source.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "depth_pro-002",
+      "title": "VALIDATED: apple/DepthPro-hf fp16 CPU build is a clean Effort-L0★ → L0 promotion (recipe template now published)",
+      "observation": "Ran `winml config -m apple/DepthPro-hf --task depth-estimation --precision fp16 --device cpu -o <recipe>` then `winml build -c <recipe> -m apple/DepthPro-hf -o temp/depth_pro_build` on 2026-06-22 PM. End-to-end success in 758s (Export 375s + Optimize 355s). Artifact: temp/depth_pro_build/model.onnx, 3.6 GB, IR 8 / opset 17, 2822 nodes after optimize (down from 8315 at export). Inputs/outputs match depth_pro-001's prediction exactly: pixel_values [1,3,1536,1536] f32 → predicted_depth [1,1536,1536] + field_of_view [1]. Optimize applied gelu_fusion + matmul_add_fusion via autoconf and converged in 2 iterations.",
+      "scope": {
+        "validated_on": ["apple/DepthPro-hf @ fp16 @ cpu @ 2026-06-22 PM"],
+        "falsified_on": [],
+        "refines": ["depth_pro-001"],
+        "not_yet_tested_on": ["apple/DepthPro-hf @ fp16 @ qnn-npu", "apple/DepthPro-hf @ w8a16 @ qnn-npu"]
+      },
+      "effort_tier_required": "L0 going forward (template now exists at examples/recipes/apple_DepthPro-hf/depth-estimation_fp16_config.json). Was L0★ for this contribution because no depth-estimation recipe existed prior.",
+      "goal_tier_reached": "L0 (build succeeded; artifact loads via onnx.load)",
+      "recipe_template": "examples/recipes/apple_DepthPro-hf/depth-estimation_fp16_config.json — the first depth-estimation recipe in the repo. The next depth-estimation contributor (e.g. apple/DepthPro-hf w8a16, or any future depth model) is plain L0.",
+      "gotchas": [
+        "`winml config` auto-resolved input shape to [1,3,1536,1536] correctly via the _DepthProNormalizedConfig computed-property pattern — the 'manual recipes that declare 224² will fail' gotcha in depth_pro-001 only bites contributors who hand-write the recipe instead of starting from `winml config`. Recommendation: SKILL.md Step 3 should explicitly say 'always emit starter via `winml config`, never hand-write from scratch'.",
+        "Artifact is 3.6 GB — not committable, no `winml build` cache by default. Contributors should run with `--use-cache` or document the `-o` output path in the PR description, not commit the artifact.",
+        "Optimize emits repeated 'No runtime check data found' warnings (3 in this run). Benign for L0 validation but the link in the warning (CONTRIBUTING.md) is the path to making this disappear — worth noting in the recipe README for the next contributor.",
+        "Symbolic-shape-inference warnings during export ('Cannot determine if Reshape_2106_o0__d1 - floor(Reshape_2106_o0__d2/4) < 0') appear ~5 times. Build completed despite them; presumably they bound but the symbolic engine couldn't prove it. Track for L1/L2 perf-tier if QNN partitioning is poor."
+      ],
+      "feature_gaps_filed": [
+        "FILE: SKILL.md Goal-L0 row says 'winml inspect -m <artifact>.onnx' but inspect refuses ONNX files with 'ONNX file inspection is not yet supported. Use winml config -m model.onnx for ONNX build config.' — Goal-L0 verification command needs fixing (now tracked in skill_meta/_meta-005).",
+        "FILE: `winml build` exits with PowerShell exit code 1 (non-zero) due to OpenVINO EP DLL load failure on stderr, even when the build itself completed cleanly. CI/scripted consumers cannot trust the exit code. Either suppress benign EP-install failures or split EP probe into a separate command."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Actual `winml build` invocation; log captured at temp/depth_pro_build.log; artifact structurally validated via onnx.load + opset/shape/node-count inspection.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "depth_pro-003",
+      "title": "Build-artifact mining: DepthPro is 3 independent DINOv2 backbones + neck/fov/fusion stages, 952M params, 100% vanilla ONNX ops, ~49% layout-move ops",
+      "observation": "Mined the 3 JSON artifacts in temp/depth_pro_build/ on 2026-06-22 PM (none of these were read in depth_pro-002 — second-pass knowledge capture).\n  - export_htp_metadata.json: total_parameters=951,991,330; total_modules=1449; modules_traced=621/1449 (43% trace coverage); execution_steps=1242. Module hierarchy confirms architecture: DepthProForDepthEstimation contains DepthProModel (with DepthProEncoder containing 3 INDEPENDENT Dinov2Model instances: patch_encoder + image_encoder + fov_encoder), neck (feature_projection + feature_upsample), fov_model (own Dinov2 + conv head), fusion_stage, head.\n  - winml_build_config.json: build autoconf REPLACED my empty `optim: {}` with `optim: {gelu_fusion: true, matmul_add_fusion: true}` (no other passes triggered). Added implicit `auto: false`. Compile remains null because recipe omitted it.\n  - analyze_result.json: 19 unique op types, 2822 total ops. Top contributors by count: Reshape 737 (26%), Gemm 433 (15%), Transpose 382 (14%), Mul 288, Slice 259, Add 161, LayerNormalization 147, MatMul 144, Softmax 72, Gelu 72, Conv 43, Concat 27, Relu 23, ConvTranspose 14, Resize 12, Gather 4, Pad 2, Split 1, Squeeze 1. ZERO custom ops, ZERO fused-attention ops. Layout-move ops (Reshape+Transpose+Slice) = 1378 = 48.8% of graph.",
+      "scope": {
+        "validated_on": ["apple/DepthPro-hf @ fp16 @ cpu build artifacts @ 2026-06-22 PM"],
+        "falsified_on": [],
+        "extends": ["depth_pro-001", "depth_pro-002"],
+        "not_yet_tested_on": ["apple/DepthPro-hf @ * @ qnn-npu", "apple/DepthPro-hf @ w8a16 quantization"]
+      },
+      "effort_tier_required": "n/a (post-build observation)",
+      "goal_tier_reached": "n/a",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "3 independent DINOv2 backbones means quantization calibration MUST hit all three. A naive calibration that only feeds the top-level image_encoder will leave patch_encoder and fov_encoder uncalibrated and silently broken. Anyone targeting w8a* must verify the calibration dataset exercises all three sub-encoders.",
+        "Cross-family knowledge dependency: depth_pro shares dinov2 weights structurally but not at the OnnxConfig level. A future DINOv2 OnnxConfig change could break DepthPro export without anyone noticing — the per-family files are independent today. Worth a regression test linking the two.",
+        "~49% of ops are layout moves (Reshape/Transpose/Slice). On QNN NPU this typically forces aggressive CPU fallback at the move boundaries unless the HTP backend coalesces. Goal-L1 perf on QNN may be heavily move-bound. Worth running `winml perf --partition-coverage` first thing.",
+        "433 Gemm + 144 MatMul = 577 matmul ops total, but no Attention-fused op — plain Softmax (72) + Gemm chains. Quantization-friendliness depends on per-MatMul calibration sensitivity. fp16 is safe; w8a8 may need extensive nodes_to_exclude.",
+        "Build autoconf chose only 2 optimization passes (gelu_fusion + matmul_add_fusion) despite the model having 147 LayerNormalization ops. If LN-fusion is implemented elsewhere in winml, autoconf isn't selecting it for this graph — worth investigating during Goal-L1 if perf is poor."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "All three artifacts read directly from temp/depth_pro_build/; counts and module hierarchy quoted verbatim from JSON.",
+      "last_updated": "2026-06-22"
+    }
+  ]
+}
