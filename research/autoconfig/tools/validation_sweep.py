@@ -37,8 +37,10 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
-BASE_DIR = Path(__file__).parent
-REPO_ROOT = BASE_DIR.parent.parent  # research/autoconfig/ → research/ → repo root
+# Autoconfig root = the dir holding ep_knowledge/; repo root is two levels above it.
+_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+BASE_DIR = _AGENT_ROOT
+REPO_ROOT = _AGENT_ROOT.parent.parent  # research/autoconfig/ → research/ → repo root
 WINML = str(REPO_ROOT / ".venv" / "Scripts" / "winml.exe")
 EP = "qnn"
 DEVICE = "npu"

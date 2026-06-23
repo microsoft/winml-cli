@@ -37,10 +37,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 
-from bench_utils import session_cv
+# Agent package bootstrap: make the autoconfig root importable for sibling packages.
+_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+if str(_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AGENT_ROOT))
+
+from skills.optimizer.bench_utils import session_cv  # noqa: E402
 
 # Effect-size multiplier — must match catalog_qnn_sweep.EFFECT_SIZE_CV_MULT.
 EFFECT_SIZE_CV_MULT = 2.0
@@ -239,8 +245,8 @@ def main() -> None:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path(__file__).resolve().parent,
-        help="autoconfig root containing catalog-*-sweep/ dirs (default: script dir)",
+        default=_AGENT_ROOT,
+        help="autoconfig root containing catalog-*-sweep/ dirs (default: agent root)",
     )
     parser.add_argument(
         "--out",

@@ -106,7 +106,7 @@ Configured at the top of the file (edit `MODEL_ID`, `TASK`, `EP`, `DEVICE`, `WOR
 
 ```bash
 # Default: facebook/convnext-tiny-224 on CPU
-python autoconfig.py
+python skills/orchestrator/autoconfig.py
 ```
 
 Results are written to `WORK_DIR/results.tsv` and per-hypothesis subdirectories.
@@ -116,13 +116,13 @@ The script reads `ep_knowledge/<ep>.json` to prune already-refuted configuration
 
 ```bash
 # Full catalog sweep (all 8 models, ~6-8 hours on X Elite)
-python catalog_qnn_sweep.py
+python tools/catalog_qnn_sweep.py
 
 # Single model
-python catalog_qnn_sweep.py --model microsoft/resnet-18
+python tools/catalog_qnn_sweep.py --model microsoft/resnet-18
 
 # Show available models
-python catalog_qnn_sweep.py --list
+python tools/catalog_qnn_sweep.py --list
 ```
 
 Results land in `catalog-qnn-sweep/<model-slug>/results.json` and a `SUMMARY.md` is
@@ -132,7 +132,7 @@ regenerated at the end of each sweep.
 
 ```bash
 # Edit the onnx path at the top of the file, then:
-python analyze_graph.py
+python skills/explorer/analyze_graph.py
 ```
 
 Prints Transpose patterns, residual branch structure, GELU variants, and op domain
@@ -187,7 +187,7 @@ And a `search_space_rules` object that `autoconfig.py` reads to prune configurat
 Implements the loop from [`docs/self-evolution-design.html`](docs/self-evolution-design.html) —
 how sweeps stabilize their own conclusions and promote findings without a human in the loop.
 
-### bench_utils.py — paired A/B + adaptive sampling
+### skills/optimizer/bench_utils.py — paired A/B + adaptive sampling
 
 Shared bench primitives used across sweeps:
 
@@ -207,10 +207,10 @@ The QNN sweep opts into paired A/B with `--paired-ab` (default off; the validate
 the sequential Phase B):
 
 ```bash
-python catalog_qnn_sweep.py --model apple/mobilevit-small --task image-classification --paired-ab
+python tools/catalog_qnn_sweep.py --model apple/mobilevit-small --task image-classification --paired-ab
 ```
 
-### promote_findings.py — confidence-gated KB promotion (L1 → L4)
+### skills/reviewer/promote_findings.py — confidence-gated KB promotion (L1 → L4)
 
 Post-processing script (Fix #4) that reads every `catalog-*-sweep/*/results.json` and applies
 the confidence ladder, writing a **draft** to `ep_knowledge/_auto_promoted.json` (it never
@@ -224,14 +224,14 @@ clobbers the curated `<ep>.json` files):
 | **L4** Cross-cutting | same `(ep, flags)` reaches L2 across ≥3 architecture classes |
 
 ```bash
-python promote_findings.py            # writes ep_knowledge/_auto_promoted.json
+python skills/reviewer/promote_findings.py   # writes ep_knowledge/_auto_promoted.json
 ```
 
 A human applies the promotion checklist in [`ep_knowledge/README.md`](ep_knowledge/README.md)
 (paired A/B, clean baseline, effect-size > noise floor, independent reruns, baseline-drift
 check) before merging any auto-promoted candidate into the curated KB.
 
-### analyze_insight.py — architecture-based pruning (Fix #3)
+### skills/explorer/analyze_insight.py — architecture-based pruning (Fix #3)
 
 `build_insight()` fuses graph fingerprint + `winml analyze` + KB rules into a `skip_set`
 (hypotheses to prune) and `priority_boosts` (reordering), cutting the 14-hypothesis matrix
@@ -251,7 +251,7 @@ Three actionable gaps in `winml-cli` surfaced by this research:
    that waits for device temperature to stabilize before measurements, and should report
    confidence intervals rather than a single p50.
 
-3. **Budget-aware sweep** — `catalog_qnn_sweep.py` exhausts the 20-min budget on models
+3. **Budget-aware sweep** — `tools/catalog_qnn_sweep.py` exhausts the 20-min budget on models
    > 50 ms baseline after just 2 hypotheses (YOLOS: 78 ms × 3×500 iters = 207 s/hypothesis).
    A `--quick` flag that reduces to 1×200-iter for large models is needed.
 
@@ -262,20 +262,36 @@ Three actionable gaps in `winml-cli` surfaced by this research:
 ```
 research/autoconfig/
 ├── README.md                    ← this file
-├── autoconfig.py                ← adaptive single-model config search loop
-├── catalog_qnn_sweep.py         ← fixed-hypothesis multi-model QNN sweep (--paired-ab)
-├── bench_utils.py               ← shared bench primitives (paired A/B, adaptive, thermal)
-├── promote_findings.py          ← L1→L4 confidence-gated KB promotion (draft sink)
-├── analyze_insight.py           ← graph + analyze + KB → skip_set / priority_boosts
-├── analyze_graph.py             ← ONNX graph pattern analysis helper
-├── autoconfig_diagram.html      ← Explorer/Optimizer/Reviewer architecture diagram
-├── gen_report_v3.py             ← HTML report generator for sweep results
-├── skills/                      ← composable skill defs for the loop roles
-│   ├── autoconfig-orchestrator/SKILL.md  ← the brain (Phase 0–3 lifecycle)
-│   ├── autoconfig-explorer/SKILL.md      ← what to try next (priority_queue + skip_set)
-│   ├── autoconfig-optimizer/SKILL.md     ← run it (build → screen → full bench → eval)
-│   └── autoconfig-reviewer/SKILL.md      ← judge it (ThroughputOnly verdict + KB draft)
+│
+├── skills/                      ← the agent loop, one folder per role (each has SKILL.md + its scripts)
+│   ├── orchestrator/            ← the brain: Phase 0–3 lifecycle
+│   │   ├── SKILL.md
+│   │   └── autoconfig.py        ← adaptive single-model search loop (Explorer/Optimizer/Reviewer classes)
+│   ├── explorer/                ← "what to try next": priority_queue + skip_set
+│   │   ├── SKILL.md
+│   │   ├── analyze_insight.py   ← graph + analyze + KB → skip_set / priority_boosts
+│   │   └── analyze_graph.py     ← ONNX graph pattern analysis helper
+│   ├── optimizer/               ← "run it": build → screen → full bench → eval
+│   │   ├── SKILL.md
+│   │   └── bench_utils.py       ← shared bench primitives (paired A/B, adaptive, thermal, verdict)
+│   └── reviewer/                ← "judge it": ThroughputOnly verdict + KB draft
+│       ├── SKILL.md
+│       └── promote_findings.py  ← L1→L4 confidence-gated KB promotion (draft sink)
+│
+├── lib/                         ← shared, role-agnostic helpers
+│   ├── report_gen.py            ← HTML/markdown report rendering
+│   └── gen_model_report.py      ← per-model report builder used by the sweeps
+│
+├── tools/                       ← batch drivers and one-off utilities
+│   ├── catalog_qnn_sweep.py     ← fixed-hypothesis multi-model QNN sweep (--paired-ab)
+│   ├── catalog_cpu_sweep.py     ← CPU EP catalog sweep
+│   ├── catalog_gpu_sweep.py     ← QNN GPU catalog sweep
+│   ├── validation_sweep.py      ← re-runs to validate KB findings
+│   └── gen_report_v3.py         ← legacy HTML report generator
+│
 ├── docs/                        ← design docs (self-evolution, agent, skills, cross-device)
+│   └── autoconfig_diagram.html  ← Explorer/Optimizer/Reviewer architecture diagram
+│
 ├── ep_knowledge/
 │   ├── README.md                ← epistemics guidelines + promotion checklist
 │   ├── _auto_promoted.json      ← promote_findings.py output (auto-generated draft)
@@ -283,14 +299,17 @@ research/autoconfig/
 │   ├── dml.json                 ← DirectML EP findings
 │   ├── qnn_gpu.json             ← QNN Adreno GPU findings
 │   └── qnn_npu.json             ← QNN HTP NPU findings (npu-001 through npu-007)
-└── catalog-qnn-sweep/
-    ├── SUMMARY.md               ← 8-model sweep results and cross-model analysis
-    ├── apple--mobilevit-small/results.json
-    ├── facebook--dinov2-small/results.json
-    ├── microsoft--resnet-18/results.json
-    ├── google--vit-base-patch16-224/results.json
-    ├── deepset--roberta-base-squad2/results.json
-    ├── distilbert--distilbert-base-uncased-finetuned-sst-2-english/results.json
-    ├── sentence-transformers--all-MiniLM-L6-v2/results.json
-    └── hustvl--yolos-small/results.json
+│
+├── catalog-qnn-sweep/           ← QNN NPU sweep results (also catalog-cpu-sweep/, catalog-gpu-sweep/)
+│   ├── SUMMARY.md               ← 8-model sweep results and cross-model analysis
+│   ├── apple--mobilevit-small/results.json
+│   ├── facebook--dinov2-small/results.json
+│   ├── microsoft--resnet-18/results.json
+│   ├── google--vit-base-patch16-224/results.json
+│   ├── deepset--roberta-base-squad2/results.json
+│   ├── distilbert--distilbert-base-uncased-finetuned-sst-2-english/results.json
+│   ├── sentence-transformers--all-MiniLM-L6-v2/results.json
+│   └── hustvl--yolos-small/results.json
+│
+└── catalog-cpu-sweep/, catalog-gpu-sweep/  ← analogous per-model results for CPU / QNN GPU
 ```

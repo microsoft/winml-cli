@@ -1,25 +1,27 @@
 ---
-name: autoconfig-reviewer
+name: reviewer
 description: >
-  Use this sub-skill (driven by autoconfig-orchestrator) to JUDGE the measurements an
-  autoconfig-optimizer produced for one hypothesis. It applies the ThroughputOnly
+  Use this sub-skill (driven by orchestrator) to JUDGE the measurements an
+  optimizer produced for one hypothesis. It applies the ThroughputOnly
   verdict policy with a noise-aware threshold (max(1% floor, 2x screen-CV)), enforces
   the accuracy floor, and returns KEEP / MARGINAL_KEEP / DISCARD / ACC_FAIL with a
   human-readable rationale. On a real, non-marginal win it drafts a KB entry
   (status="draft") for later human promotion. It never builds or benchmarks.
 ---
 
-# autoconfig-reviewer
+# reviewer
 
 The Reviewer is the **"judge it"** sub-skill of the autoconfig loop (Phase 2). It
 turns Optimizer measurements into a verdict. Mirrors the `Reviewer` class in
-`research/autoconfig/autoconfig.py` (wrapping `ThroughputOnly` from
+`skills/orchestrator/autoconfig.py` (wrapping `ThroughputOnly` from
 `bench_utils.py`) and the Reviewer box in
 `research/autoconfig/docs/autoconfig_diagram.html`.
 
+**Implementation in this folder:** `promote_findings.py` (confidence-gated KB
+promotion, L1→L4 — the offline counterpart to the in-loop KB drafts this skill writes).
 ## When to use
 
-Invoked by `autoconfig-orchestrator` after `autoconfig-optimizer` returns
+Invoked by `orchestrator` after `optimizer` returns
 benchmark + accuracy data. Not used standalone.
 
 ## Inputs

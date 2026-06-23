@@ -50,12 +50,20 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# Agent package bootstrap: make the autoconfig root importable for sibling packages.
+_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+if str(_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AGENT_ROOT))
+
 try:
-    from gen_model_report import generate_model_report
+    from lib.gen_model_report import generate_model_report  # noqa: E402
 except Exception:
     generate_model_report = None
 
-from bench_utils import adaptive_paired_ab_bench, run_perf_session
+from skills.optimizer.bench_utils import (  # noqa: E402
+    adaptive_paired_ab_bench,
+    run_perf_session,
+)
 
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
@@ -66,7 +74,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 NPU006_CONV_PCT_THRESHOLD = 20.0  # percent of total ops; above this = high npu-006 risk
 
 # ── constants ─────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).parent
+BASE_DIR = _AGENT_ROOT
 WINML = str(BASE_DIR / ".venv" / "Scripts" / "winml.exe")
 EP = "qnn"
 DEVICE = "npu"

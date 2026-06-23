@@ -1,23 +1,27 @@
 ---
-name: autoconfig-optimizer
+name: optimizer
 description: >
-  Use this sub-skill (driven by autoconfig-orchestrator) to RUN one winml-cli config
+  Use this sub-skill (driven by orchestrator) to RUN one winml-cli config
   hypothesis and produce raw measurements. It does winml build, a Phase A 200-iter
   screen with a CV stability gate and early-exit, a Phase B full bench (3 sessions x
   1000 iters with cool-down), and a winml eval accuracy check. It makes no keep/discard
-  decision — it only returns benchmark + accuracy data for the autoconfig-reviewer to judge.
+  decision — it only returns benchmark + accuracy data for the reviewer to judge.
 ---
 
-# autoconfig-optimizer
+# optimizer
 
 The Optimizer is the **"run it"** sub-skill of the autoconfig loop (Phase 2). It
 turns one hypothesis into measurements. Mirrors the `Optimizer` class in
-`research/autoconfig/autoconfig.py` and the Optimizer box in
+`skills/orchestrator/autoconfig.py` and the Optimizer box in
 `research/autoconfig/docs/autoconfig_diagram.html`.
+
+**Implementation in this folder:** `bench_utils.py` (the shared bench primitives —
+`bench_screen`, `bench_full`, `SessionManager`, and the `ThroughputOnly` verdict
+policy the Reviewer consumes).
 
 ## When to use
 
-Invoked by `autoconfig-orchestrator` after `autoconfig-explorer` yields a
+Invoked by `orchestrator` after `explorer` yields a
 hypothesis. Not used standalone.
 
 ## Inputs
@@ -41,7 +45,7 @@ hypothesis. Not used standalone.
 - `full_p50s` list + median p50 (Phase B).
 - `accuracy` (or None when the model/eval is unavailable).
 
-All handed to `autoconfig-reviewer` — the Optimizer never decides KEEP/DISCARD.
+All handed to `reviewer` — the Optimizer never decides KEEP/DISCARD.
 
 ## Constraints
 

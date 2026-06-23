@@ -1,23 +1,27 @@
 ---
-name: autoconfig-explorer
+name: explorer
 description: >
-  Use this sub-skill (driven by autoconfig-orchestrator) to decide WHAT to try next
+  Use this sub-skill (driven by orchestrator) to decide WHAT to try next
   in a winml-cli config search. It builds the hypothesis pool, applies confirmed-KB
   hard-blocks and the Phase 1 Insight Engine skip_set to prune dead-end passes, then
   ranks the survivors by Insight priority boost into a priority_queue and yields the
   next hypothesis. It never builds or benchmarks — it only chooses the next experiment.
 ---
 
-# autoconfig-explorer
+# explorer
 
 The Explorer is the **"what to try next"** sub-skill of the autoconfig loop
 (Phase 2). It owns search *order* only. Mirrors the `Explorer` class in
-`research/autoconfig/autoconfig.py` and the Explorer box in
+`skills/orchestrator/autoconfig.py` and the Explorer box in
 `research/autoconfig/docs/autoconfig_diagram.html`.
+
+**Implementation in this folder:** `analyze_insight.py` (the Phase 1 Insight Engine
+that produces the `skip_set` + `priority_boosts` this skill ranks by) and
+`analyze_graph.py` (ONNX graph-pattern helper).
 
 ## When to use
 
-Invoked by `autoconfig-orchestrator` at the top of each Phase 2 iteration to get
+Invoked by `orchestrator` at the top of each Phase 2 iteration to get
 the next candidate config delta. Not used standalone.
 
 ## Inputs

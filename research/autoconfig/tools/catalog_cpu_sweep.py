@@ -3,47 +3,28 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""catalog_gpu_sweep.py — QNN GPU optimization hypothesis sweep for winml catalog models.
+"""catalog_cpu_sweep.py — WinML CPU EP optimization sweep across catalog + recipe models.
 
-QNN GPU differs fundamentally from QNN NPU:
-  - NO quantization (gpu-004: QDQ graphs hang on QNN GPU EP)
-  - NO compile (gpu-003: EPContext compilation regresses ~34% on GPU)
-  - NO nhwc-transformer (gpu-002: Adreno X1-85 does not benefit)
-  - CV gating IS reliable on GPU (no DVFS noise unlike NPU)
-  - All findings from gpu-001..006 are ConvNext-specific — transformer fusions
-    (attention, matmul_add, layer_norm) are UNTESTED and may help
+Sweeps graph-optimization flags for CPU EP to find improvement opportunities beyond
+autoconf defaults. Based on patterns detected by analyze_insight.py (30+ fusion candidates).
 
-Hypothesis matrix (per model):
-  h0: baseline FP32 (auto-config, no quant, no compile)
-  h1: opset 17 explicit
-  h2: opset 19
-  h3: opset 21  ← tests gpu-006 (unknown territory)
+Key CPU constraints from ep_knowledge/cpu.json:
+  cpu-001: opset 19+ REGRESSES on CPU (3-4x slowdown, Transpose Optimizer bypass)
+           → h3/h4 included deliberately to test on transformer models (cpu-001 was ConvNext only)
+  cpu-002: matmul_add_fusion REGRESSES if model already has Gemm ops
+           → guarded by Gemm check before applying
+  cpu-003: transpose_optimizer is neutral on ConvNext (may help transformers)
+  cpu-004: nchwc_transformer neutral on Gemm-heavy models
+  cpu-005: baseline is optimal for ConvNext — transformers untested
 
-  Transformer/attention fusions (graph-analysis-driven):
-  h4: opset 17 + matmul_transpose_fusion  (24-36× on transformer optimized.onnx)
-  h5: opset 17 + attention_fusion
-  h6: opset 17 + bias_softmax_fusion      (12× on BERT-family)
-  h7: opset 17 + layer_norm_fusion
-  h8: opset 17 + skip_layer_norm_fusion
+Phase A: 200-iter screen, CV < 10% required (CPU is thermally stable).
+Phase B: 3 sessions × 300 iters, 2s cool-down.
+Phase C (confirmation): best hypothesis + 2 extra sessions.
+  All 5 p50s < baseline_min → CONFIRMED.
+KEEP criterion: median p50 >= 5% improvement.
 
-  Combined bundles:
-  h9:  opset 21 + matmul_transpose_fusion + attention_fusion
-  h10: opset 17 + layer_norm_fusion + skip_layer_norm_fusion + matmul_transpose_fusion
-  h11: opset 17 + gelu_fusion (already in autoconf baseline; test stability benefit — gpu-005)
-
-  Layout (Conv-heavy models only):
-  h12: opset 17 + transpose_optimizer
-
-2-phase bench (CV-gated, GPU is stable unlike NPU):
-  Phase A: 200-iter screen, CV < 15% required.
-  Phase B: 3 sessions × 300 iters, 5s cool-down.
-  Phase C (confirmation): KEEP candidates get 2 additional sessions.
-    All 5 sessions must show improvement → KEEP_CONFIRMED.
-    Fewer than 5/5 → MARGINAL_UNCONFIRMED.
-  KEEP criterion: median p50 >= 5% improvement AND CV < 5%.
-
-Results: catalog-gpu-sweep/<model_slug>/results.json
-Summary: catalog-gpu-sweep/SUMMARY.md
+Results: catalog-cpu-sweep/<model_slug>/results.json
+Summary: catalog-cpu-sweep/SUMMARY.md
 """
 
 from __future__ import annotations
@@ -57,8 +38,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# Agent package bootstrap: make the autoconfig root importable for sibling packages.
+_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+if str(_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AGENT_ROOT))
+
 try:
-    from gen_model_report import generate_model_report
+    from lib.gen_model_report import generate_model_report  # noqa: E402
 except Exception:
     generate_model_report = None
 
@@ -66,132 +52,110 @@ except Exception:
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 # ── constants ─────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).parent
+BASE_DIR = _AGENT_ROOT
 WINML = str(BASE_DIR / ".venv" / "Scripts" / "winml.exe")
-EP = "qnn"
-DEVICE = "gpu"
-RESULTS_DIR = BASE_DIR / "catalog-gpu-sweep"
+EP = "cpu"
+DEVICE = "cpu"
+RESULTS_DIR = BASE_DIR / "catalog-cpu-sweep"
 CHAMPION_DIR = BASE_DIR / "champion-configs"
 
-SCREEN_WARMUP = 20
+SCREEN_WARMUP = 10
 SCREEN_ITERS = 200
-SCREEN_CV_MAX = 0.15  # GPU is CV-stable, unlike NPU
+SCREEN_CV_MAX = 0.10  # CPU is stable — stricter than QNN
 
-FULL_WARMUP = 20
+FULL_WARMUP = 10
 FULL_ITERS = 300
-FULL_SESSIONS = 3  # baseline sessions per hypothesis
-CONFIRM_SESSIONS = 2  # extra sessions for KEEP candidates (Phase C)
-COOL_DOWN_S = 5  # GPU cools faster than NPU HTP
+FULL_SESSIONS = 3
+CONFIRM_SESSIONS = 2  # Phase C: extra sessions for best hypothesis
+COOL_DOWN_S = 2  # CPU cools quickly
 
-MIN_IMPROVEMENT_PCT = 5.0  # % gain required to declare KEEP
+MIN_IMPROVEMENT_PCT = 5.0
 
 BUILD_TIMEOUT_S = 10 * 60
-BENCH_TIMEOUT_S = 5 * 60
+BENCH_TIMEOUT_S = 8 * 60
 
-# gpu-004: no quantization allowed
-# gpu-003: no compile
-GPU_NO_QUANT = True
-GPU_NO_COMPILE = True
+# Gemm threshold: if model has Gemm ops, skip matmul_add_fusion (cpu-002)
+GEMM_SAFE_MATMUL_ADD = False  # Conservative default; overridden per model
 
-# Hypotheses: (id, label, opset_override, extra_optim)
-# extra_optim=None → keep auto-config optim unchanged
-# extra_optim=dict → merge ON TOP of auto-config optim
-HYPOTHESES = [
-    ("h0", "baseline FP32 (no quant, no compile)", None, None),
-    ("h1", "opset 17 explicit", 17, None),
-    ("h2", "opset 19", 19, None),
-    ("h3", "opset 21 (tests gpu-006)", 21, None),
-    # ── transformer/attention fusions (graph-analysis-driven) ──────────────
-    ("h4", "opset 17 + matmul_transpose_fusion", 17, {"matmul_transpose_fusion": True}),
-    ("h5", "opset 17 + attention_fusion", 17, {"attention_fusion": True}),
-    ("h6", "opset 17 + bias_softmax_fusion", 17, {"bias_softmax_fusion": True}),
-    (
-        "h7",
-        "opset 17 + layer_norm_fusion",
-        17,
-        {"layer_norm_fusion": True},
-    ),
-    (
-        "h8",
-        "opset 17 + skip_layer_norm_fusion",
-        17,
-        {"skip_layer_norm_fusion": True},
-    ),
-    # ── combined bundles ────────────────────────────────────────────────────
-    (
-        "h9",
-        "opset 21 + matmul_transpose + attention_fusion",
-        21,
-        {"matmul_transpose_fusion": True, "attention_fusion": True},
-    ),
+# Hypotheses: (id, label, opset_override, extra_optim, skip_if_gemm)
+# skip_if_gemm=True → skip if model.onnx already contains Gemm nodes (cpu-002 guard)
+HYPOTHESES: list[tuple[str, str, int | None, dict | None, bool]] = [
+    # ── Opset variants ─────────────────────────────────────────────────────
+    ("h0", "baseline (opset 17, autoconf defaults)", None, None, False),
+    ("h1", "opset 17 explicit", 17, None, False),
+    # cpu-001: opset 19/21 KNOWN to regress on ConvNext — included to test transformers
+    ("h2", "opset 19 (cpu-001 risk — transformer test)", 19, None, False),
+    ("h3", "opset 21 (cpu-001 risk — transformer test)", 21, None, False),
+    # ── Transformer fusions (graph-analysis-driven) ────────────────────────
+    ("h4", "opset 17 + attention_fusion", 17, {"attention_fusion": True}, False),
+    ("h5", "opset 17 + skip_layer_norm_fusion", 17, {"skip_layer_norm_fusion": True}, False),
+    ("h6", "opset 17 + layer_norm_fusion", 17, {"layer_norm_fusion": True}, False),
+    ("h7", "opset 17 + bias_softmax_fusion", 17, {"bias_softmax_fusion": True}, False),
+    # ── MatMul fusions ─────────────────────────────────────────────────────
+    # matmul_add_fusion: skip if Gemm already present (cpu-002)
+    ("h8", "opset 17 + matmul_add_fusion (cpu-002 guarded)", 17, {"matmul_add_fusion": True}, True),
+    ("h9", "opset 17 + matmul_transpose_fusion", 17, {"matmul_transpose_fusion": True}, False),
+    # ── Transformer bundle (best flags combined) ───────────────────────────
     (
         "h10",
-        "opset 17 + ln + skip_ln + matmul_transpose",
+        "opset 17 + attention + skip_layer_norm + layer_norm",
         17,
-        {
-            "layer_norm_fusion": True,
-            "skip_layer_norm_fusion": True,
-            "matmul_transpose_fusion": True,
-        },
+        {"attention_fusion": True, "skip_layer_norm_fusion": True, "layer_norm_fusion": True},
+        False,
     ),
-    # ── gelu stability (gpu-005) ────────────────────────────────────────────
-    # gelu_fusion is already in autoconf defaults, but test explicitly
-    # to confirm p90/std stability benefit on non-ConvNext models
-    ("h11", "opset 17 + gelu_fusion explicit", 17, {"gelu_fusion": True}),
-    # ── layout ──────────────────────────────────────────────────────────────
-    ("h12", "opset 17 + transpose_optimizer", 17, {"transpose_optimizer": True}),
+    # ── Conv / layout (vision models) ─────────────────────────────────────
+    # nchwc_transformer: neutral on Gemm-heavy models (cpu-004), may help Conv-heavy
+    (
+        "h11",
+        "opset 17 + nchwc_transformer (Conv-heavy models)",
+        17,
+        {"nchwc_transformer": True},
+        False,
+    ),
+    # ── Misc ───────────────────────────────────────────────────────────────
+    ("h12", "opset 17 + transpose_optimizer", 17, {"transpose_optimizer": True}, False),
+    ("h13", "opset 17 + gelu_fusion explicit", 17, {"gelu_fusion": True}, False),
 ]
 
-# Catalog models (same as NPU sweep + recipe models)
-ALL_MODELS: list[tuple[str, str, str]] = [
-    # Catalog 8
+# Catalog + recipe models (task, model_type)
+ALL_MODELS = [
     ("microsoft/resnet-18", "image-classification", "resnet"),
-    ("google/vit-base-patch16-224", "image-classification", "vit"),
     ("apple/mobilevit-small", "image-classification", "mobilevit"),
     ("facebook/dinov2-small", "image-feature-extraction", "dinov2"),
-    ("hustvl/yolos-small", "object-detection", "yolos"),
-    (
-        "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-        "text-classification",
-        "distilbert",
-    ),
-    ("sentence-transformers/all-MiniLM-L6-v2", "sentence-similarity", "bert"),
     ("deepset/roberta-base-squad2", "question-answering", "roberta"),
-    # Recipe models (from winml-cli examples/recipes)
-    ("microsoft/rad-dino", "image-feature-extraction", "dinov2"),
     ("deepset/tinyroberta-squad2", "question-answering", "roberta"),
     ("BAAI/bge-small-en-v1.5", "sentence-similarity", "bert"),
+    ("sentence-transformers/all-MiniLM-L6-v2", "sentence-similarity", "bert"),
+    ("microsoft/rad-dino", "image-feature-extraction", "dinov2"),
 ]
 
 
-# ── low-level helpers ─────────────────────────────────────────────────────────
+# ── subprocess helpers ────────────────────────────────────────────────────────
 
 
-def run_cmd(cmd: list[str], label: str = "", timeout: int = 600) -> tuple[int, str, float]:
-    """Run a command; return (returncode, combined_output, elapsed_s)."""
-    t0 = time.time()
-    print(f"  >> {label or cmd[1]}", flush=True)
+def run_cmd(cmd: list[str], label: str = "", timeout: int = 300) -> tuple[int, str, float]:
+    t0 = time.monotonic()
+    print(f"  >> {label or ' '.join(cmd[:3])}", flush=True)
     try:
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
+            timeout=timeout,
             encoding="utf-8",
             errors="replace",
-            timeout=timeout,
         )
-        elapsed = time.time() - t0
-        tag = "ok" if result.returncode == 0 else f"rc={result.returncode}"
-        print(f"     {elapsed:.0f}s [{tag}]", flush=True)
+        elapsed = time.monotonic() - t0
+        ok = "ok" if result.returncode == 0 else f"rc={result.returncode}"
+        print(f"     {elapsed:.0f}s [{ok}]", flush=True)
         if result.returncode != 0:
             stderr = result.stderr.strip()
             if stderr:
                 print(f"     stderr: {stderr[:200]}", flush=True)
         return result.returncode, result.stdout + result.stderr, elapsed
     except subprocess.TimeoutExpired:
-        elapsed = time.time() - t0
-        print(f"     TIMEOUT ({elapsed:.0f}s)", flush=True)
-        return -1, "TIMEOUT", elapsed
+        print(f"     TIMEOUT after {timeout}s", flush=True)
+        return -1, "TIMEOUT", timeout
 
 
 def _get_p50(perf_json: Path) -> float | None:
@@ -204,7 +168,6 @@ def _get_p50(perf_json: Path) -> float | None:
 
 
 def _get_cv(perf_json: Path) -> float | None:
-    """Return CV (std/p50). Returns None on parse error."""
     try:
         d = json.loads(perf_json.read_text(encoding="utf-8"))
         lat = d.get("latency_ms", d)
@@ -215,26 +178,21 @@ def _get_cv(perf_json: Path) -> float | None:
         return None
 
 
-# ── config helpers ────────────────────────────────────────────────────────────
+# ── config helpers ─────────────────────────────────────────────────────────────
 
 
-def _patch_for_gpu(cfg: dict) -> dict:
-    """Strip quantization and compile from a base config for GPU EP."""
+def _patch_for_cpu(cfg: dict) -> dict:
+    """Remove quantization and compile from CPU config."""
     cfg = copy.deepcopy(cfg)
     cfg["quant"] = None
     cfg["compile"] = None
-    # Remove nhwc-transformer (gpu-002)
-    optim = cfg.get("optim") or {}
-    optim.pop("nhwc_transformer", None)
-    cfg["optim"] = optim
     return cfg
 
 
 def get_base_config(model_id: str, task: str, model_type: str) -> dict | None:
-    """Call winml config for GPU EP and return the parsed config."""
     tmp_dir = RESULTS_DIR / "_tmp_config"
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    cfg_out = tmp_dir / f"{model_id.replace('/', '--')}_gpu.json"
+    cfg_out = tmp_dir / f"{model_id.replace('/', '--')}_cpu.json"
 
     rc, out, _ = run_cmd(
         [
@@ -253,29 +211,24 @@ def get_base_config(model_id: str, task: str, model_type: str) -> dict | None:
             "--output",
             str(cfg_out),
         ],
-        label="winml config --ep qnn --device gpu",
+        label=f"winml config --ep {EP}",
         timeout=300,
     )
     if rc != 0 or not cfg_out.exists():
-        # Try without --output (some versions write to stdout)
         for line in out.splitlines():
             line = line.strip()
             if line.startswith("{"):
                 try:
-                    cfg = json.loads(line)
-                    return _patch_for_gpu(cfg)
+                    return _patch_for_cpu(json.loads(line))
                 except Exception:
                     pass
         return None
-
-    cfg = json.loads(cfg_out.read_text(encoding="utf-8"))
-    return _patch_for_gpu(cfg)
+    return _patch_for_cpu(json.loads(cfg_out.read_text(encoding="utf-8")))
 
 
 def make_hypothesis_config(
     base_config: dict, opset_override: int | None, extra_optim: dict | None
 ) -> dict:
-    """Apply opset + extra_optim on top of base config."""
     cfg = copy.deepcopy(base_config)
     if opset_override is not None:
         cfg.setdefault("export", {})["opset_version"] = opset_override
@@ -285,11 +238,22 @@ def make_hypothesis_config(
     return cfg
 
 
-# ── build + bench ─────────────────────────────────────────────────────────────
+def _model_has_gemm(model_onnx: Path) -> bool:
+    """Check if an optimized.onnx has Gemm nodes (cpu-002 guard)."""
+    try:
+        import onnx
+
+        m = onnx.load(str(model_onnx))
+        return any(n.op_type == "Gemm" for n in m.graph.node)
+    except Exception:
+        return False  # Assume safe if can't check
+
+
+# ── build + bench ──────────────────────────────────────────────────────────────
 
 
 def run_build(model_id: str, cfg_path: Path, out_dir: Path) -> tuple[bool, str]:
-    """winml build --no-quant --no-compile --rebuild. Returns (ok, output)."""
+    """winml build --no-quant --no-compile --rebuild for CPU EP."""
     rc, out, _ = run_cmd(
         [
             WINML,
@@ -315,8 +279,7 @@ def run_build(model_id: str, cfg_path: Path, out_dir: Path) -> tuple[bool, str]:
 
 
 def run_perf_screen(onnx_path: Path, out_json: Path) -> tuple[float | None, float | None]:
-    """Phase A: 200-iter screen. Returns (p50_ms, cv)."""
-    rc, out, _ = run_cmd(
+    rc, _, _ = run_cmd(
         [
             WINML,
             "perf",
@@ -346,11 +309,10 @@ def run_perf_screen(onnx_path: Path, out_json: Path) -> tuple[float | None, floa
 
 
 def run_perf_full(onnx_path: Path, hyp_dir: Path) -> list[float]:
-    """Phase B: 2 × 300-iter sessions. Returns list of p50 values."""
     p50s = []
     for s in range(1, FULL_SESSIONS + 1):
         out_json = hyp_dir / f"full_s{s}.json"
-        rc, out, _ = run_cmd(
+        rc, _, _ = run_cmd(
             [
                 WINML,
                 "perf",
@@ -380,7 +342,7 @@ def run_perf_full(onnx_path: Path, hyp_dir: Path) -> list[float]:
     return p50s
 
 
-# ── sweep logic ───────────────────────────────────────────────────────────────
+# ── sweep logic ────────────────────────────────────────────────────────────────
 
 
 def sweep_model(
@@ -390,12 +352,10 @@ def sweep_model(
     only_hyp_ids: "set[str] | None" = None,
     reuse_h0_config: bool = False,
 ) -> dict:
-    """Run GPU hypotheses for one model. Returns results dict."""
     model_slug = model_id.replace("/", "--")
     model_dir = RESULTS_DIR / model_slug
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Resume from partial run
     results_path = model_dir / "results.json"
     if only_hyp_ids and results_path.exists():
         try:
@@ -416,23 +376,20 @@ def sweep_model(
             "device": DEVICE,
         }
     )
-    results.setdefault("baseline_opset", None)
     results.setdefault("hypotheses", {})
-    results.setdefault("best_hypothesis", None)
     results.setdefault("baseline_p50_ms", None)
     results.setdefault("best_p50_ms", None)
+    results.setdefault("best_hypothesis", None)
     results.setdefault("best_gain_pct", None)
-    results.setdefault("opset21_gain_pct", None)  # tests gpu-006
-    results.setdefault("feature_gaps", [])
     results.setdefault("errors", [])
 
     print(f"\n{'=' * 64}", flush=True)
-    print(f"  SWEEP [GPU]: {model_id}  [{task}]", flush=True)
+    print(f"  SWEEP [CPU]: {model_id}  [{task}]", flush=True)
     if only_hyp_ids:
         print(f"  (delta — only: {sorted(only_hyp_ids)})", flush=True)
     print(f"{'=' * 64}", flush=True)
 
-    # ── Step 1: base config ────────────────────────────────────────────────
+    # Step 1: base config
     print("\n[1/3] Generating base config…", flush=True)
     base_config = None
 
@@ -456,14 +413,15 @@ def sweep_model(
 
     baseline_opset = (base_config.get("export") or {}).get("opset_version", "?")
     results["baseline_opset"] = baseline_opset
-    print(f"  baseline opset={baseline_opset}  quant=NONE (GPU EP)  compile=NONE", flush=True)
+    print(f"  baseline opset={baseline_opset}  quant=NONE (CPU EP)  compile=NONE", flush=True)
 
-    # ── Step 2: hypothesis loop ────────────────────────────────────────────
+    # Step 2: hypothesis loop
     print(f"\n[2/3] Running {len(HYPOTHESES)} hypotheses…", flush=True)
 
     baseline_p50: float | None = results.get("baseline_p50_ms")
+    model_has_gemm: bool | None = None  # lazy-loaded for cpu-002 guard
 
-    for hyp_id, label, opset_override, extra_optim in HYPOTHESES:
+    for hyp_id, label, opset_override, extra_optim, skip_if_gemm in HYPOTHESES:
         if only_hyp_ids is not None and hyp_id not in only_hyp_ids:
             continue
 
@@ -504,6 +462,32 @@ def sweep_model(
                 results["errors"].append(f"{hyp_id}: build OK but no ONNX")
                 continue
 
+        # cpu-002 guard: skip matmul_add_fusion if model already has Gemm
+        if skip_if_gemm:
+            if model_has_gemm is None:
+                opt_onnx = hyp_dir / "optimized.onnx"
+                model_has_gemm = _model_has_gemm(opt_onnx) if opt_onnx.exists() else False
+            if model_has_gemm:
+                print(
+                    f"  [cpu-002] SKIP {hyp_id}: model has Gemm nodes — matmul_add_fusion likely harmful",
+                    flush=True,
+                )
+                results["hypotheses"][hyp_id] = {
+                    "status": "SKIPPED_CPU002",
+                    "label": label,
+                    "opset": opset_used,
+                    "reason": "cpu-002: model already has Gemm — matmul_add_fusion skipped",
+                }
+                continue
+
+        # Annotate cpu-001 risk
+        if opset_override is not None and opset_override >= 19:
+            print(
+                f"  [cpu-001] NOTE: opset={opset_override} may regress on Conv-heavy models"
+                f" (cpu-001 validated on ConvNext only — testing transformer behavior)",
+                flush=True,
+            )
+
         # Phase A: screen
         screen_json = hyp_dir / "screen_perf.json"
         screen_p50, screen_cv = run_perf_screen(onnx_path, screen_json)
@@ -514,9 +498,7 @@ def sweep_model(
             continue
 
         if screen_cv is not None and screen_cv > SCREEN_CV_MAX:
-            print(
-                f"  [warn] high CV={screen_cv:.3f} on GPU (unusual) — proceeding anyway", flush=True
-            )
+            print(f"  [warn] high CV={screen_cv:.3f} on CPU (unusual) — proceeding", flush=True)
 
         # Phase B: full bench
         p50s = run_perf_full(onnx_path, hyp_dir)
@@ -541,13 +523,11 @@ def sweep_model(
             "median_p50_ms": median_p50,
         }
 
-        # Track baseline
         if hyp_id == "h0":
             baseline_p50 = median_p50
             results["baseline_p50_ms"] = baseline_p50
             print(f"  [baseline] p50={baseline_p50:.2f}ms", flush=True)
 
-        # Compare to baseline
         if baseline_p50 and hyp_id != "h0":
             gain_pct = (baseline_p50 - median_p50) / baseline_p50 * 100
             hyp_data["gain_vs_baseline_pct"] = round(gain_pct, 2)
@@ -556,32 +536,30 @@ def sweep_model(
                 if gain_pct >= MIN_IMPROVEMENT_PCT
                 else ("MARGINAL" if gain_pct > 0 else "DISCARD")
             )
+            # cpu-001: flag known-regression hypotheses specially
+            if opset_override is not None and opset_override >= 19 and gain_pct <= -50:
+                verdict = "CPU001_REGRESSION"
             hyp_data["verdict"] = verdict
             print(
                 f"  [{verdict}] gain={gain_pct:+.1f}% ({baseline_p50:.2f}ms → {median_p50:.2f}ms)",
                 flush=True,
             )
 
-            # Track best
             best_p50 = results.get("best_p50_ms")
             if best_p50 is None or median_p50 < best_p50:
                 if gain_pct >= MIN_IMPROVEMENT_PCT:
                     results["best_p50_ms"] = median_p50
                     results["best_hypothesis"] = hyp_id
                     results["best_gain_pct"] = round(gain_pct, 2)
-
-            # gpu-006: track opset21 result
-            if opset_override == 21 and extra_optim is None:
-                results["opset21_gain_pct"] = round(gain_pct, 2)
         else:
             hyp_data["verdict"] = "BASELINE"
 
         results["hypotheses"][hyp_id] = hyp_data
 
-    # ── Step 2b: Phase C — confirmation runs for KEEP candidates ──────────────
+    # Step 2b: Phase C confirmation
     _run_confirmation_pass(results, model_dir, baseline_p50)
 
-    # ── Step 3: finalise ───────────────────────────────────────────────────
+    # Step 3: finalise
     _post_process(results)
     _save_results(results, model_dir)
     _emit_model_artifacts(results, model_dir)
@@ -589,12 +567,7 @@ def sweep_model(
 
 
 def _run_confirmation_pass(results: dict, model_dir: Path, baseline_p50: float | None) -> None:
-    """Phase C: re-run CONFIRM_SESSIONS additional sessions for every KEEP candidate.
-
-    If all (FULL_SESSIONS + CONFIRM_SESSIONS) sessions show >= MIN_IMPROVEMENT_PCT:
-      verdict stays KEEP_CONFIRMED.
-    Otherwise downgrade to MARGINAL_UNCONFIRMED.
-    """
+    """Phase C: CONFIRM_SESSIONS extra sessions for best hypothesis."""
     if not baseline_p50:
         return
     hyps = results.get("hypotheses", {})
@@ -611,14 +584,11 @@ def _run_confirmation_pass(results: dict, model_dir: Path, baseline_p50: float |
         hyp_data = hyps[hyp_id]
         onnx_path: Path | None = None
         hyp_dir = model_dir / hyp_id
-
-        # Find built ONNX from the hypothesis dir
-        for candidate in (hyp_dir / "optimized.onnx", hyp_dir / "quantized.onnx"):
+        for candidate in (hyp_dir / "model.onnx", hyp_dir / "optimized.onnx"):
             if candidate.exists():
                 onnx_path = candidate
                 break
         if onnx_path is None:
-            print(f"  [confirm] {hyp_id}: no onnx found, skipping", flush=True)
             continue
 
         print(f"  [confirm] {hyp_id} ({hyp_data['label']})", flush=True)
@@ -653,10 +623,9 @@ def _run_confirmation_pass(results: dict, model_dir: Path, baseline_p50: float |
                 time.sleep(COOL_DOWN_S)
 
         if not extra_p50s:
-            print(f"  [confirm] {hyp_id}: confirm bench failed, keeping KEEP", flush=True)
             continue
 
-        all_p50s: list[float] = hyp_data.get("full_p50s_ms", []) + extra_p50s
+        all_p50s = hyp_data.get("full_p50s_ms", []) + extra_p50s
         overall_median = sorted(all_p50s)[len(all_p50s) // 2]
         overall_gain = (baseline_p50 - overall_median) / baseline_p50 * 100
         wins = sum(
@@ -674,7 +643,7 @@ def _run_confirmation_pass(results: dict, model_dir: Path, baseline_p50: float |
             hyp_data["verdict"] = "KEEP_CONFIRMED"
             print(
                 f"  [KEEP_CONFIRMED] {hyp_id}: {wins}/{len(all_p50s)} sessions ≥ {MIN_IMPROVEMENT_PCT}%,"
-                f" overall gain={overall_gain:+.1f}%",
+                f" overall={overall_gain:+.1f}%",
                 flush=True,
             )
         else:
@@ -684,7 +653,6 @@ def _run_confirmation_pass(results: dict, model_dir: Path, baseline_p50: float |
                 flush=True,
             )
 
-        # Update best_hypothesis tracking
         if hyp_data["verdict"] == "KEEP_CONFIRMED":
             best_p50 = results.get("best_p50_ms")
             if best_p50 is None or overall_median < best_p50:
@@ -694,7 +662,6 @@ def _run_confirmation_pass(results: dict, model_dir: Path, baseline_p50: float |
 
 
 def _post_process(results: dict) -> None:
-    """Print summary and add cross-hypothesis notes."""
     hyps = results.get("hypotheses", {})
     baseline_p50 = results.get("baseline_p50_ms")
     if not baseline_p50:
@@ -704,25 +671,33 @@ def _post_process(results: dict) -> None:
     unconfirmed = [
         (hid, h) for hid, h in hyps.items() if h.get("verdict") == "MARGINAL_UNCONFIRMED"
     ]
+    regressions = [(hid, h) for hid, h in hyps.items() if h.get("verdict") == "CPU001_REGRESSION"]
+
     if keeps:
         print(f"\n  ✓ KEEP/KEEP_CONFIRMED: {[h[0] for h in keeps]}", flush=True)
     if unconfirmed:
-        print(
-            f"  ⚠ MARGINAL_UNCONFIRMED (failed confirmation): {[h[0] for h in unconfirmed]}",
-            flush=True,
-        )
-    if not keeps and not unconfirmed:
+        print(f"  ⚠ MARGINAL_UNCONFIRMED: {[h[0] for h in unconfirmed]}", flush=True)
+    if regressions:
+        print(f"  ✗ CPU001_REGRESSION: {[h[0] for h in regressions]}", flush=True)
+    if not keeps and not unconfirmed and not regressions:
         print("\n  No improvements found above 5% threshold.", flush=True)
 
-    # gpu-006 summary
-    opset21 = results.get("opset21_gain_pct")
-    if opset21 is not None:
-        if opset21 >= 5:
-            print(f"  [gpu-006] opset21 HELPS GPU: +{opset21:.1f}%", flush=True)
-        elif opset21 <= -5:
-            print(f"  [gpu-006] opset21 HURTS GPU: {opset21:.1f}%", flush=True)
-        else:
-            print(f"  [gpu-006] opset21 NEUTRAL on GPU: {opset21:.1f}%", flush=True)
+    # Cross-architecture cpu-001 check: does opset 19/21 regress on THIS model?
+    for hid in ("h2", "h3"):
+        h = hyps.get(hid, {})
+        if h.get("status") == "OK" and baseline_p50:
+            gain = h.get("gain_vs_baseline_pct", 0.0)
+            if gain < -50:
+                print(
+                    f"  [cpu-001] CONFIRMED regression on {hid} for this architecture: {gain:.1f}%",
+                    flush=True,
+                )
+            elif gain > -10:
+                print(
+                    f"  [cpu-001] NOT OBSERVED on {hid} for {results.get('model_type')} — "
+                    f"gain={gain:+.1f}% (ConvNext-specific?)",
+                    flush=True,
+                )
 
 
 def _save_results(results: dict, model_dir: Path) -> None:
@@ -789,24 +764,58 @@ def _emit_model_artifacts(results: dict, model_dir: Path) -> None:
 
 def write_summary(all_results: list[dict]) -> None:
     lines = [
-        "# QNN GPU Optimization Sweep — Catalog Models",
+        "# CPU EP Optimization Sweep — Catalog Models",
         "",
         f"Generated: {datetime.now().isoformat(timespec='seconds')}  ",
         f"EP: `{EP}` / device: `{DEVICE}`  ",
         f"Protocol: screen {SCREEN_ITERS} iters (CV<{SCREEN_CV_MAX * 100:.0f}%),"
-        f" full {FULL_ITERS}×{FULL_SESSIONS} sessions + {CONFIRM_SESSIONS} confirm sessions for KEEP  ",
-        "Constraints: NO quant (gpu-004), NO compile (gpu-003), NO nhwc (gpu-002)  ",
+        f" full {FULL_ITERS}×{FULL_SESSIONS} sessions"
+        f" + {CONFIRM_SESSIONS} confirm sessions for KEEP  ",
+        "Constraints: NO quant, NO compile  ",
         "",
         "---",
         "",
-        "## Per-Model Results",
+        "## cpu-001 Check: Does opset 19/21 Regress on Non-ConvNext Models?",
         "",
-        "| Model | Baseline p50 | Best p50 | Best config | Gain% | opset21 gain% | Notes |",
-        "|-------|-------------|----------|-------------|-------|--------------|-------|",
+        "| Model | type | h2(opset19) gain% | h3(opset21) gain% | cpu-001 fires? |",
+        "|-------|------|-------------------|-------------------|---------------|",
     ]
 
     for r in all_results:
-        model_id = r["model_id"]
+        model_id = r.get("model_id", "?")
+        mtype = r.get("model_type", "?")
+        h2 = r.get("hypotheses", {}).get("h2", {})
+        h3 = r.get("hypotheses", {}).get("h3", {})
+        g2 = (
+            f"{h2.get('gain_vs_baseline_pct', 'N/A'):+.1f}%"
+            if h2.get("gain_vs_baseline_pct") is not None
+            else h2.get("status", "N/A")
+        )
+        g3 = (
+            f"{h3.get('gain_vs_baseline_pct', 'N/A'):+.1f}%"
+            if h3.get("gain_vs_baseline_pct") is not None
+            else h3.get("status", "N/A")
+        )
+        fires = (
+            "YES ≤-50%"
+            if any(
+                r.get("hypotheses", {}).get(h, {}).get("gain_vs_baseline_pct", 0) <= -50
+                for h in ("h2", "h3")
+            )
+            else "no"
+        )
+        lines.append(f"| `{model_id}` | {mtype} | {g2} | {g3} | {fires} |")
+
+    lines += [
+        "",
+        "## Per-Model Results",
+        "",
+        "| Model | Baseline p50 | Best p50 | Best config | Gain% | Notes |",
+        "|-------|-------------|----------|-------------|-------|-------|",
+    ]
+
+    for r in all_results:
+        model_id = r.get("model_id", "?")
         baseline = f"{r['baseline_p50_ms']:.1f} ms" if r.get("baseline_p50_ms") else "N/A"
         best = f"{r['best_p50_ms']:.1f} ms" if r.get("best_p50_ms") else "N/A"
         best_h = r.get("best_hypothesis") or "N/A"
@@ -814,112 +823,70 @@ def write_summary(all_results: list[dict]) -> None:
         if best_h != "N/A":
             best_label = r.get("hypotheses", {}).get(best_h, {}).get("label", "")
         gain = f"{r['best_gain_pct']:.1f}%" if r.get("best_gain_pct") is not None else "N/A"
-        opset21 = r.get("opset21_gain_pct")
-        opset21_str = f"{opset21:+.1f}%" if opset21 is not None else "N/A"
         errors = "; ".join(r.get("errors", []))[:80] or "none"
         lines.append(
-            f"| `{model_id}` | {baseline} | {best} | {best_h} ({best_label}) | {gain} | {opset21_str} | {errors} |"
+            f"| `{model_id}` | {baseline} | {best} | {best_h} ({best_label}) | {gain} | {errors} |"
         )
 
-    lines += [
-        "",
-        "## gpu-006: opset 21 on QNN GPU",
-        "",
-        "Previously untested. This sweep provides first data across multiple architectures.",
-        "",
-    ]
-
-    opset21_helps = [r["model_id"] for r in all_results if (r.get("opset21_gain_pct") or 0) >= 5]
-    opset21_hurts = [r["model_id"] for r in all_results if (r.get("opset21_gain_pct") or 0) <= -5]
-    opset21_neutral = [
-        r["model_id"]
-        for r in all_results
-        if r.get("opset21_gain_pct") is not None and -5 < (r.get("opset21_gain_pct") or 0) < 5
-    ]
-    lines += [
-        f"- **Helps (≥5%):** {', '.join(opset21_helps) or 'none'}",
-        f"- **Hurts (≤-5%):** {', '.join(opset21_hurts) or 'none'}",
-        f"- **Neutral:** {', '.join(opset21_neutral) or 'none (no data yet)'}",
-        "",
-    ]
-
-    lines += ["## Feature Gaps", ""]
-    all_gaps = [
-        f"- **`{r['model_id']}`**: {g}" for r in all_results for g in r.get("feature_gaps", [])
-    ]
-    lines += all_gaps if all_gaps else ["- None observed"]
-
     summary_path = RESULTS_DIR / "SUMMARY.md"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"\n📄 Summary: {summary_path}", flush=True)
 
 
-# ── entry point ───────────────────────────────────────────────────────────────
+# ── CLI ────────────────────────────────────────────────────────────────────────
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="QNN GPU hypothesis sweep for winml catalog models"
-    )
-    parser.add_argument("--model", default=None)
-    parser.add_argument("--task", default=None)
-    parser.add_argument("--model-type", default="auto")
+    parser = argparse.ArgumentParser(description="CPU EP sweep across catalog models")
+    parser.add_argument("--model", help="Run a single model (HuggingFace model ID)")
+    parser.add_argument("--task", help="Task for single model run")
+    parser.add_argument("--model-type", dest="model_type", help="Model type for single model run")
     parser.add_argument(
-        "--only-hypotheses", default=None, help="Comma-separated h IDs, e.g. h3,h4,h9"
+        "--only-hypotheses",
+        dest="only_hyp",
+        help="Comma-separated list of hypothesis IDs to run (e.g. h4,h5,h10)",
     )
-    parser.add_argument("--reuse-h0-config", action="store_true")
+    parser.add_argument(
+        "--reuse-h0-config",
+        dest="reuse_h0",
+        action="store_true",
+        help="Load base config from existing h0/build_config.json",
+    )
     args = parser.parse_args()
 
-    only_hyp_ids: set[str] | None = None
-    if args.only_hypotheses:
-        only_hyp_ids = {h.strip() for h in args.only_hypotheses.split(",")}
+    only_hyp_ids = set(args.only_hyp.split(",")) if args.only_hyp else None
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Confirm QNN GPU EP
-    print("=== Confirming QNN GPU EP ===", flush=True)
-    rc, out, _ = run_cmd([WINML, "sys", "--list-ep"], label="winml sys --list-ep", timeout=30)
-    if "qnn" not in out.lower():
-        print("❌ QNN EP not detected! Aborting.", flush=True)
-        sys.exit(1)
-    print("✓ QNN EP available\n", flush=True)
+    all_results = []
 
     if args.model:
-        if not args.task:
-            print("Error: --task required with --model", flush=True)
+        if not args.task or not args.model_type:
+            print("ERROR: --task and --model-type required with --model", file=sys.stderr)
             sys.exit(1)
-        models_to_run = [(args.model, args.task, args.model_type)]
+        r = sweep_model(
+            args.model,
+            args.task,
+            args.model_type,
+            only_hyp_ids=only_hyp_ids,
+            reuse_h0_config=args.reuse_h0,
+        )
+        all_results.append(r)
     else:
-        models_to_run = ALL_MODELS  # type: ignore[assignment]
-
-    all_results: list[dict] = []
-
-    for model_id, task, model_type in models_to_run:
-        try:
-            result = sweep_model(
+        for model_id, task, model_type in ALL_MODELS:
+            r = sweep_model(
                 model_id,
                 task,
                 model_type,
                 only_hyp_ids=only_hyp_ids,
-                reuse_h0_config=args.reuse_h0_config,
+                reuse_h0_config=args.reuse_h0,
             )
-        except Exception as exc:
-            print(f"\n❌ Unexpected error for {model_id}: {exc}", flush=True)
-            result = {
-                "model_id": model_id,
-                "task": task,
-                "model_type": model_type,
-                "errors": [f"Unexpected exception: {exc}"],
-                "hypotheses": {},
-                "feature_gaps": [],
-            }
-        all_results.append(result)
-        write_summary(all_results)
+            all_results.append(r)
 
-    print("\n" + "=" * 64, flush=True)
-    print("  GPU SWEEP COMPLETE", flush=True)
-    print("=" * 64, flush=True)
     write_summary(all_results)
+    print("\n================================================================", flush=True)
+    print("  CPU SWEEP COMPLETE", flush=True)
+    print("================================================================", flush=True)
+    print(f"\n📄 Summary: {RESULTS_DIR / 'SUMMARY.md'}", flush=True)
 
 
 if __name__ == "__main__":

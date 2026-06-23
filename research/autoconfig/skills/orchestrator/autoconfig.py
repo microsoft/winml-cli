@@ -34,8 +34,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from analyze_insight import build_insight
-from bench_utils import (
+# Agent package bootstrap: make the autoconfig root (the dir holding ep_knowledge/)
+# importable so sibling skills/lib packages resolve when run as a standalone script.
+_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+if str(_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AGENT_ROOT))
+
+from lib.report_gen import generate_report  # noqa: E402
+from skills.explorer.analyze_insight import build_insight  # noqa: E402
+from skills.optimizer.bench_utils import (  # noqa: E402
     FULL_ITERS,
     FULL_SESSIONS,
     SCREEN_CV_MAX_STD,
@@ -48,7 +55,6 @@ from bench_utils import (
     median_p50,
     run_cmd,
 )
-from report_gen import generate_report
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
@@ -57,10 +63,10 @@ MODEL_ID = "facebook/convnext-tiny-224"
 TASK = "image-classification"
 EP = "cpu"
 DEVICE = "cpu"
-WINML = str(Path(__file__).parent / ".venv" / "Scripts" / "winml.exe")
-WORK_DIR = Path(__file__).parent / "convnext-search"
+WINML = str(_AGENT_ROOT / ".venv" / "Scripts" / "winml.exe")
+WORK_DIR = _AGENT_ROOT / "convnext-search"
 RESULTS_TSV = WORK_DIR / "results.tsv"
-KB_DIR = Path(__file__).parent / "ep_knowledge"
+KB_DIR = _AGENT_ROOT / "ep_knowledge"
 
 EVAL_SAMPLES = 50  # for accuracy gate
 ACCURACY_FLOOR = 0.70  # cosine drop below this → discard

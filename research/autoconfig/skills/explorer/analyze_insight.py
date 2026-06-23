@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
@@ -34,7 +35,12 @@ try:
 except ImportError:
     _ONNX_OK = False
 
-from bench_utils import run_cmd
+# Agent package bootstrap: make the autoconfig root importable for sibling packages.
+_AGENT_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "ep_knowledge").is_dir())
+if str(_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AGENT_ROOT))
+
+from skills.optimizer.bench_utils import run_cmd  # noqa: E402
 
 
 # ── data types ────────────────────────────────────────────────────────────────
