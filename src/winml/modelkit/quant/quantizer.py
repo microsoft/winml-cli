@@ -171,7 +171,8 @@ def quantize_onnx(
             quantizer.process()
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            quantized_model = quantizer.model
+            # MatMulNBitsQuantizer.model is an ONNXModel wrapper; extract the proto
+            quantized_model = quantizer.model.model
 
             # FP16 post-processing (if requested alongside RTN)
             if config.fp16:

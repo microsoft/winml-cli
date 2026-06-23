@@ -633,6 +633,12 @@ def build(
                     cfg.quant.activation_type = resolved_quant.activation_type
                     cfg.quant.fp16 = resolved_quant.fp16
                     cfg.quant.fp16_only = resolved_quant.fp16_only
+                    cfg.quant.algorithm = resolved_quant.algorithm
+                    if resolved_quant.algorithm == "rtn":
+                        cfg.quant.rtn_bits = resolved_quant.rtn_bits
+                        cfg.quant.rtn_block_size = resolved_quant.rtn_block_size
+                        cfg.quant.rtn_symmetric = resolved_quant.rtn_symmetric
+                        cfg.quant.rtn_accuracy_level = resolved_quant.rtn_accuracy_level
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -1183,6 +1189,39 @@ def _run_quantize_stage(
             sl.artifact(str(quantized_path), _safe_size(quantized_path))
             sl.blank()
         stage_timings.append(("FP16", _fp16_elapsed))
+        return current_path
+
+    # ── RTN weight-only path (no calibration) ────────────────────
+    if config.quant.algorithm == "rtn":
+        from ..quant import quantize_onnx
+        from ..utils.console import StageLive
+
+        with StageLive("quantize", console) as sl:
+            bits = config.quant.rtn_bits
+            sl.set_status(f"Quantizing (RTN {bits}-bit)...")
+            t0 = time.monotonic()
+            quant_result = quantize_onnx(
+                model_path=current_path,
+                output_path=quantized_path,
+                config=config.quant,
+                use_external_data=True,
+            )
+            if not quant_result.success:
+                errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
+                sl.set_error(errors)
+                raise RuntimeError(f"RTN quantization failed: {errors}")
+            current_path = quantized_path
+            _rtn_elapsed = time.monotonic() - t0
+            sl.set_done(_rtn_elapsed)
+            sl.kv("Algorithm:", f"[cyan]RTN[/cyan]  [dim](weight-only {bits}-bit)[/dim]")
+            sl.kv(
+                "Config:",
+                f"block_size={config.quant.rtn_block_size}, "
+                f"symmetric={config.quant.rtn_symmetric}",
+            )
+            sl.artifact(str(quantized_path), _safe_size(quantized_path))
+            sl.blank()
+        stage_timings.append(("Quantize", _rtn_elapsed))
         return current_path
 
     if is_quantized_onnx(current_path):
