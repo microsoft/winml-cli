@@ -304,6 +304,11 @@ def effective_batch_size(
     matching the "first dim is batch" convention used throughout this module.
     Falls back to ``requested`` when no batched input exists (e.g. all-scalar
     inputs), which preserves the prior behavior for that edge case.
+
+    Single-input assumption: only the first batched input is inspected. For
+    multimodal or encoder-decoder models whose batched inputs disagree on the
+    leading dim (e.g. an image batch of 4 alongside a differently batched
+    tensor), the reported value reflects only the first batched input.
     """
     for name in input_names:
         arr = inputs.get(name)
@@ -569,7 +574,7 @@ class PerfBenchmark:
             io_config["input_names"],
             self.config.batch_size,
         )
-        if self.config.batch_size != 1 and self._effective_batch != self.config.batch_size:
+        if self._effective_batch != self.config.batch_size:
             logger.warning(
                 "Requested --batch-size %d could not be applied: the model's "
                 "leading input dimension is statically %d. Throughput is scaled "
