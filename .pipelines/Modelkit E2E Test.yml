@@ -24,10 +24,10 @@
 #     an automatic E2E run. (Subsequent pushes to a release branch will
 #     also trigger a run, which is acceptable since release branches
 #     typically see few commits.) When triggered from a release branch,
-#     the ModelKitArtifacts repo is also checked out from the same-named
-#     release branch (see `resources.repositories.ModelKitArtifacts.ref`
-#     below); main is used for all other triggers (scheduled, manual on
-#     main, etc.).
+#     the job switches the checked-out ModelKitArtifacts repo to the
+#     same-named release branch at runtime (see the "Align ModelKitArtifacts
+#     with release branch" step in templates/e2e-test-jobs.yml); main is used
+#     for all other triggers (scheduled, manual on main, feature branches).
 #   * No PR trigger. Failures do not block PR merges.
 
 trigger:
@@ -44,29 +44,31 @@ schedules:
         - main
     always: true
 
-# Check out ModelKitArtifacts from the same branch this pipeline is running on
-# so the artifact content matches the modelkit branch:
-#   * release/* run (CI trigger or manual queue) -> same-named release branch
-#   * main run (daily schedule or manual queue on main) -> main
-# Build.SourceBranch is 'refs/heads/<name>' (e.g. 'refs/heads/release/<x>' or
-# 'refs/heads/main'), which is a valid `ref` for a GitHub repository resource.
+# ModelKitArtifacts is pinned to `main` here, and the matching release branch
+# (when this pipeline runs on release/*) is selected at runtime instead.
 #
-# IMPORTANT: a repository resource's `ref` may only contain template
-# expressions over `parameters` and *system predefined* variables — it CANNOT
-# read YAML- or UI-defined `variables`. The previous indirection
-# (`ref: ${{ variables.artifactsRef }}` fed by a compile-time `variables`
-# block) silently violated this rule, so the expression was ignored and the
-# resource always checked out its default branch (main) — even on release/*.
-# Referencing the Build.SourceBranch system variable directly is the
-# documented, supported pattern for matching the pipeline's own branch.
-# See: https://learn.microsoft.com/azure/devops/release-notes/2022/sprint-212-update#template-expressions-in-repository-resource-definition
+# Why not select the branch on this resource directly? A repository resource's
+# `ref` is resolved before the pipeline starts and only accepts template
+# expressions over `parameters` and *system predefined* variables — not
+# YAML/UI variables, and not conditional `${{ if }}` keys (those fail with
+# "A template expression is not allowed in this context"). Referencing
+# Build.SourceBranch directly (`ref: ${{ variables['Build.SourceBranch'] }}`)
+# does compile, but it makes the resource check out *whatever* branch the
+# pipeline runs on, which fails outright when ModelKitArtifacts has no such
+# branch — e.g. on feature branches or manual ad-hoc runs:
+#   "No commit found for SHA: refs/heads/<branch>".
+#
+# So the resource always checks out main (which always exists), and the
+# e2e-test job switches it to the same-named release/* branch at runtime,
+# falling back to main when no matching branch exists. See the
+# "Align ModelKitArtifacts with release branch" step in e2e-test-jobs.yml.
 resources:
   repositories:
     - repository: ModelKitArtifacts
       type: github
       endpoint: github.com_yuesu_microsoft
       name: gim-home/ModelKitArtifacts
-      ref: ${{ variables['Build.SourceBranch'] }}
+      ref: main
 
 parameters:
   # --------------------------------------------------------------------
