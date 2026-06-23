@@ -85,6 +85,11 @@ class PadInputGenerator(OpInputGenerator):
                 "pads": InputValueConstraint(np.array([0, 0, 1, 1, 0, 0, 1, 1], dtype=np.int64)),
                 "constant_value": InputValueConstraint(np.array(0.0, dtype=np.float32)),
             },
+            {
+                "data": InputShapeConstraint((2, 3, 4, 5)),
+                "pads": InputValueConstraint(np.array([0, 1, 2, 0, 1, 0, 0, 2], dtype=np.int64)),
+                "constant_value": InputValueConstraint(np.array(0.0, dtype=np.float32)),
+            },
             # ===== 5D Input =====
             {
                 "data": InputShapeConstraint((2, 3, 4, 4, 5)),

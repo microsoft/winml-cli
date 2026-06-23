@@ -112,7 +112,7 @@ Expand-Archive -Path .\rules-v0.0.3.zip -DestinationPath src\winml\modelkit\anal
 
 `gh release download` skips pre-releases unless you pass `--tag`, so the explicit `v0.0.3` is required.
 
-If you set `MODELKIT_RULES_DIR` anywhere (shell profile, CI pipeline, user env), rename it to `WINMLCLI_RULES_DIR`. Same `os.pathsep`-separated multi-directory semantics; relative paths still resolve from `src/winml/modelkit/analyze/utils/`.
+If you set `MODELKIT_RULES_DIR` anywhere (shell profile, CI pipeline, user env), rename it to `WINMLCLI_RULES_DIR`. It points to a single rules directory (not split on `os.pathsep`); relative paths still resolve from `src/winml/modelkit/analyze/utils/`.
 
 Related PRs: #411 (Parquet migration), #600 (rules zip in release), #627 (versioned filename), #587 (env var rename as part of ModelKit → WinML CLI Wave 1).
 
