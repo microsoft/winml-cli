@@ -1,0 +1,49 @@
+{
+  "_status": "BROKEN — DO NOT USE. winml build fails at fetch with `breezedeus/pix2text-mfr does not appear to have a file named pytorch_model.bin, model.safetensors, tf_model.h5, model.ckpt or flax_model.msgpack.` The HF repo stores weights in a non-standard layout. Recipe is structurally correct and would build any standard VED checkpoint; pinned here as regression coverage. See research/adding-model-support/model_knowledge/vision_encoder_decoder.json finding vision-encoder-decoder-003.",
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "pixel_values",
+        "dtype": "float32",
+        "shape": [
+          1,
+          3,
+          384,
+          384
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "encoder_hidden_states"
+      }
+    ]
+  },
+  "optim": {
+    "gelu_fusion": true,
+    "layer_norm_fusion": true,
+    "matmul_add_fusion": true,
+    "remove_isnan_in_attention_mask": true,
+    "reshape_mergedreshape": true
+  },
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "image-feature-extraction",
+    "model_class": "VisionEncoderWrapper",
+    "model_type": "vision-encoder-decoder"
+  }
+}

@@ -17,6 +17,7 @@ Each *(model, task)* includes:
 | Model | Task |
 |---|---|
 | BAAI/bge-large-en-v1.5 | sentence-similarity |
+| breezedeus/pix2text-mfr | image-to-text (BROKEN — upstream HF repo layout; see recipe `_status`) |
 | cardiffnlp/twitter-roberta-base-sentiment-latest | text-classification |
 | deepset/roberta-base-squad2 | question-answering |
 | deepset/tinyroberta-squad2 | question-answering |

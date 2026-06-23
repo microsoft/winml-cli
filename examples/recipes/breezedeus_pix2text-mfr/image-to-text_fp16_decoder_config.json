@@ -1,0 +1,279 @@
+{
+  "_status": "BROKEN — DO NOT USE. winml build fails at fetch with `breezedeus/pix2text-mfr does not appear to have a file named pytorch_model.bin, model.safetensors, tf_model.h5, model.ckpt or flax_model.msgpack.` The HF repo stores weights in a non-standard layout. Recipe is structurally correct and would build any standard VED checkpoint; pinned here as regression coverage. See research/adding-model-support/model_knowledge/vision_encoder_decoder.json finding vision-encoder-decoder-003.",
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "decoder_input_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          1
+        ],
+        "value_range": [
+          0,
+          1200
+        ]
+      },
+      {
+        "name": "encoder_hidden_states",
+        "dtype": "float32",
+        "shape": [
+          1,
+          577,
+          384
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "decoder_attention_mask",
+        "dtype": "int64",
+        "shape": [
+          1,
+          512
+        ]
+      },
+      {
+        "name": "cache_position",
+        "dtype": "int64",
+        "shape": [
+          1
+        ]
+      },
+      {
+        "name": "past_0_key",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_0_value",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_1_key",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_1_value",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_2_key",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_2_value",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_3_key",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_3_value",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_4_key",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_4_value",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_5_key",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "past_5_value",
+        "dtype": "float32",
+        "shape": [
+          1,
+          8,
+          512,
+          32
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      },
+      {
+        "name": "present_0_key"
+      },
+      {
+        "name": "present_0_value"
+      },
+      {
+        "name": "present_1_key"
+      },
+      {
+        "name": "present_1_value"
+      },
+      {
+        "name": "present_2_key"
+      },
+      {
+        "name": "present_2_value"
+      },
+      {
+        "name": "present_3_key"
+      },
+      {
+        "name": "present_3_value"
+      },
+      {
+        "name": "present_4_key"
+      },
+      {
+        "name": "present_4_value"
+      },
+      {
+        "name": "present_5_key"
+      },
+      {
+        "name": "present_5_value"
+      }
+    ]
+  },
+  "optim": {
+    "gelu_fusion": true,
+    "layer_norm_fusion": true,
+    "matmul_add_fusion": true,
+    "remove_isnan_in_attention_mask": true,
+    "reshape_mergedreshape": true
+  },
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "text2text-generation",
+    "model_class": "VisionDecoderWrapper",
+    "model_type": "vision-encoder-decoder"
+  }
+}
