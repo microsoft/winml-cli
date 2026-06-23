@@ -334,8 +334,16 @@ def quantize_onnx(
             logger.info("Restoring metadata from pre-quantization model...")
             restore_metadata(quantized_model, metadata_snapshot)
 
-        # Step 8: Save the fixed model back
-        save_onnx(quantized_model, output_path)
+        # ── FP16 post-processing ────────────────────────────────────────
+        if config.fp16:
+            from ..optim.fp16 import convert_to_fp16
+
+            logger.info("Applying FP16 post-processing to quantized model...")
+            quantized_model = convert_to_fp16(
+                quantized_model,
+                keep_io_types=config.fp16_keep_io_types,
+                op_block_list=config.fp16_op_block_list,
+            )
 
         postproc_time = time.perf_counter() - postproc_start
 
@@ -346,20 +354,8 @@ def quantize_onnx(
             1 for node in quantized_model.graph.node if node.op_type in QDQ_OP_TYPES
         )
 
-        # ── FP16 post-processing ────────────────────────────────────────
-        if config.fp16:
-            from ..onnx import load_onnx as _load
-            from ..onnx import save_onnx as _save
-            from ..optim.fp16 import convert_to_fp16
-
-            logger.info("Applying FP16 post-processing to quantized model...")
-            fp16_model = _load(output_path, validate=False)
-            fp16_model = convert_to_fp16(
-                fp16_model,
-                keep_io_types=config.fp16_keep_io_types,
-                op_block_list=config.fp16_op_block_list,
-            )
-            _save(fp16_model, output_path)
+        # Step 8: Save the final model
+        save_onnx(quantized_model, output_path, use_external_data=use_external_data)
 
         total_time = time.perf_counter() - start_time
 

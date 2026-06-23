@@ -201,15 +201,16 @@ def extract_weight_bits(precision: str) -> int:
     """Extract weight bit-width from a precision string.
 
     Used to derive ``rtn_bits`` from the precision (e.g., ``int4`` → 4).
+    Validates the precision format before extracting.
 
     Args:
-        precision: A valid precision string.
+        precision: A valid precision string (e.g., ``int4``, ``w4a16``, ``int8``).
 
     Returns:
         Weight bit-width as integer.
 
     Raises:
-        ValueError: If bit-width cannot be extracted.
+        ValueError: If precision is invalid or bit-width cannot be extracted.
     """
     p = precision.lower()
     preset_bits = {"int4": 4, "int8": 8, "int16": 16}
@@ -217,7 +218,12 @@ def extract_weight_bits(precision: str) -> int:
         return preset_bits[p]
     m = _MIXED_RE.match(p)
     if m:
-        return int(m.group(1))
+        w_bits, a_bits = int(m.group(1)), int(m.group(2))
+        if w_bits not in _VALID_WEIGHT_BITS or a_bits not in _VALID_ACTIVATION_BITS:
+            raise ValueError(
+                f"'{precision}' has unsupported bit-widths (weight={w_bits}, activation={a_bits})"
+            )
+        return w_bits
     raise ValueError(f"Cannot extract weight bits from '{precision}'")
 
 

@@ -56,7 +56,7 @@ class WinMLQuantizationConfig:
     # Quantization algorithm
     algorithm: Literal["static", "dynamic", "rtn"] = "static"
     # "static"  — Calibrated QDQ quantization (requires calibration data)
-    # "dynamic" — Dynamic quantization (no calibration)
+    # "dynamic" — Dynamic quantization (no calibration) [planned, not yet wired]
     # "rtn"     — Round-To-Nearest weight-only (no calibration, block-wise)
 
     mode: Literal["qdq", "static", "dynamic"] = "qdq"

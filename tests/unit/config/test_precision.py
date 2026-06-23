@@ -698,5 +698,11 @@ class TestExtractWeightBits:
     @pytest.mark.parametrize("precision", ["fp16", "fp32", "auto", "garbage"])
     def test_invalid_raises(self, precision: str) -> None:
         """Non-quantized precisions should raise ValueError."""
-        with pytest.raises(ValueError, match="Cannot extract weight bits"):
+        with pytest.raises(ValueError, match=r"Cannot extract weight bits"):
+            extract_weight_bits(precision)
+
+    @pytest.mark.parametrize("precision", ["w4a4", "w3a8", "w32a8"])
+    def test_unsupported_bits_raises(self, precision: str) -> None:
+        """Precisions with unsupported bit-widths should raise ValueError."""
+        with pytest.raises(ValueError, match=r"unsupported bit-widths"):
             extract_weight_bits(precision)
