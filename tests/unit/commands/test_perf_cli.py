@@ -29,10 +29,20 @@ from winml.modelkit.commands.perf import (
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device to avoid hardware detection in all perf CLI tests."""
-    with patch(
-        "winml.modelkit.sysinfo.resolve_device",
-        return_value=("cpu", ["cpu"]),
+    """Mock device/EP resolution to avoid hardware detection in all perf CLI tests.
+
+    perf() resolves the device (and, when --ep is omitted, derives a concrete EP
+    via resolve_eps) up front, so both are stubbed to a deterministic CPU result.
+    """
+    with (
+        patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            return_value=("cpu", ["cpu"]),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_eps",
+            return_value=["CPUExecutionProvider"],
+        ),
     ):
         yield
 
@@ -494,6 +504,105 @@ class TestPerfUnifiedPipeline:
 
         assert result.exit_code != 0
         assert "KEY=VALUE" in result.output
+
+    def test_load_model_no_ep_derives_concrete_ep(self, tmp_path: Path) -> None:
+        """Without an EP, PerfBenchmark resolves a concrete one before building.
+
+        Regression guard: previously ep stayed None down to the build, so the
+        static analyzer ran with ep=None and aggregated across all EPs (and
+        logged a warning). PerfBenchmark now resolves the EP from the device
+        (autouse fixture stubs resolve_eps -> ["CPUExecutionProvider"]) and
+        passes it to from_onnx. The config keeps the raw request (ep=None);
+        the resolved value lives on the instance.
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(model_id=str(onnx_file), task="image-classification")
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+            return_value=MagicMock(),
+        ) as mock_from_onnx:
+            benchmark._load_model()
+
+        assert mock_from_onnx.call_args.kwargs["ep"] == "CPUExecutionProvider"
+        assert benchmark._resolved_ep == "CPUExecutionProvider"
+        assert config.ep is None
+
+    def test_load_model_explicit_ep_passed_through_verbatim(self, tmp_path: Path) -> None:
+        """An explicit EP reaches from_onnx unchanged (no normalization).
+
+        Downstream build/session stages normalize aliases themselves, so
+        PerfBenchmark must not rewrite the user's value (e.g. 'qnn' stays 'qnn').
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(
+            model_id=str(onnx_file), task="image-classification", device="npu", ep="qnn"
+        )
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+            return_value=MagicMock(),
+        ) as mock_from_onnx:
+            benchmark._load_model()
+
+        assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
+        assert benchmark._resolved_ep == "qnn"
+
+    def test_load_model_unavailable_device_ep_fails_before_build(self, tmp_path: Path) -> None:
+        """An unavailable device/EP combo fails before the build pipeline runs.
+
+        PerfBenchmark resolves device+EP at the start of _load_model, so an
+        unavailable combo (resolve_device raises ValueError) surfaces before
+        from_onnx kicks off the build — the user does not wait for the whole
+        build only to fail at session.compile().
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(model_id=str(onnx_file), task="image-classification", device="npu")
+        benchmark = PerfBenchmark(config)
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                side_effect=ValueError("no compatible EP is available"),
+            ),
+            patch("winml.modelkit.models.auto.WinMLAutoModel.from_onnx") as mock_from_onnx,
+            pytest.raises(ValueError, match="no compatible EP is available"),
+        ):
+            benchmark._load_model()
+
+        mock_from_onnx.assert_not_called()
+
+    def test_cli_unavailable_device_ep_surfaces_error(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """The CLI surfaces the fail-fast resolution error with a non-zero exit."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                side_effect=ValueError("no compatible EP is available"),
+            ),
+            patch("winml.modelkit.models.auto.WinMLAutoModel.from_onnx") as mock_from_onnx,
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "--device", "npu", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "no compatible EP is available" in result.output
+        mock_from_onnx.assert_not_called()
 
     def test_help_shows_ep_options(self, runner: CliRunner) -> None:
         result = runner.invoke(perf, ["--help"])

@@ -303,6 +303,46 @@ class PerfBenchmark:
         self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
         self._memory: dict[str, float] | None = None
+        # Concrete device + EP resolved from the config's request, populated by
+        # _resolve_device_ep() on the first call (before the build). The config
+        # keeps the raw request (e.g. "auto"); these hold what actually drives
+        # the build and inference.
+        self._resolved_device: str | None = None
+        self._resolved_ep: EPNameOrAlias | None = None
+
+    def _resolve_device_ep(self) -> None:
+        """Resolve the concrete target device + EP, failing fast on a bad combo.
+
+        Idempotent: resolves once, then returns cached values. Called at the
+        start of model loading so an unavailable/invalid device+EP raises here —
+        before the export/optimize/quantize/compile pipeline runs — instead of
+        only surfacing at session.compile(). Deriving a concrete EP also lets the
+        build's static analyzer target one EP instead of aggregating across all
+        of them (WinMLAutoModel itself stays permissive: ep=None is a valid
+        library mode).
+
+        Raises:
+            ValueError: If the requested device/EP combination is unavailable
+                or invalid (propagated from ``resolve_device``).
+        """
+        if self._resolved_device is not None:
+            return
+
+        from ..sysinfo import resolve_device, resolve_eps
+
+        # resolve_device() availability-checks even when --ep is explicit, so a
+        # named-but-absent EP is caught here too.
+        resolved_device, _ = resolve_device(device=self.config.device, ep=self.config.ep)
+        if self.config.ep is not None:
+            # Keep the user's EP (alias or canonical) verbatim — downstream
+            # stages normalize it. Only derive one when the user gave none.
+            resolved_ep: EPNameOrAlias | None = self.config.ep
+        else:
+            device_eps = resolve_eps(resolved_device)
+            resolved_ep = device_eps[0] if device_eps else None
+
+        self._resolved_device = resolved_device
+        self._resolved_ep = resolved_ep
 
     @property
     def _is_composite(self) -> bool:
@@ -478,6 +518,10 @@ class PerfBenchmark:
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
 
+        # Resolve the concrete device + EP first so a bad combo fails fast,
+        # before from_pretrained/from_onnx kick off the build pipeline.
+        self._resolve_device_ep()
+
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx"
@@ -500,9 +544,9 @@ class PerfBenchmark:
         common_kwargs: dict[str, Any] = {
             "task": self.config.task,
             "config": override,
-            "device": self.config.device,
+            "device": self._resolved_device or self.config.device,
             "precision": self.config.precision,
-            "ep": self.config.ep,
+            "ep": self._resolved_ep,
             "provider_options": self.config.ep_options,
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
@@ -538,7 +582,7 @@ class PerfBenchmark:
             return None
 
         assert self._model is not None
-        device = self._single.device or self.config.device
+        device = self._single.device or self._resolved_device or self.config.device
         if device == "cpu":
             return None
 
@@ -739,7 +783,8 @@ def _perf_modules(
         monitor: If True, wrap each per-module benchmark with HWMonitor.
         device: Target device policy ("auto", "cpu", "gpu", "npu").
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
-            device-to-provider mapping when set.
+            device-to-provider mapping when set. When ``None``, a concrete EP is
+            derived from the resolved device so the analyzer targets one EP.
         ep_options: Runtime EP provider options (e.g. QNN
             ``htp_performance_mode``) forwarded to each per-module session.
         precision: Precision mode passed through to the build stage.
@@ -752,10 +797,17 @@ def _perf_modules(
 
     from ..build import build_hf_model
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
-    from ..sysinfo import resolve_device
+    from ..sysinfo import resolve_device, resolve_eps
     from .build import _instantiate_parent_model
 
     resolved_device, _ = resolve_device(device=device, ep=ep)
+    # Derive a concrete EP when none was given so each per-module build's static
+    # analyzer targets one EP instead of ep=None (which aggregates across all
+    # EPs and warns; see #931). An explicit EP is kept verbatim — downstream
+    # stages normalize it.
+    if ep is None:
+        device_eps = resolve_eps(resolved_device)
+        ep = device_eps[0] if device_eps else None
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -1514,6 +1566,8 @@ def perf(
                 "[yellow]Warning:[/yellow] --shape-config is not supported "
                 "in --module mode and will be ignored."
             )
+        # _perf_modules resolves the device + derives a concrete EP internally
+        # (it will fold into PerfBenchmark — see #939).
         _perf_modules(
             hf_model=hf_model,
             module_class=module_class,
@@ -1559,7 +1613,9 @@ def perf(
     if output is None:
         output = generate_output_path(hf_model)
 
-    # Create config
+    # Create config. The raw device/EP request is passed through unchanged;
+    # PerfBenchmark resolves the concrete device + EP internally (failing fast
+    # before the build), so the CLI does not pre-resolve here.
     config = BenchmarkConfig(
         model_id=hf_model,
         task=task,
