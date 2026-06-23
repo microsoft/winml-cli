@@ -19,17 +19,17 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    import onnx
+    from onnx import ModelProto
 
 logger = logging.getLogger(__name__)
 
 
 def convert_to_fp16(
-    model: onnx.ModelProto,
+    model: ModelProto,
     *,
     keep_io_types: bool = True,
     op_block_list: list[str] | None = None,
-) -> onnx.ModelProto:
+) -> ModelProto:
     """Convert an ONNX model from FP32 to FP16 precision.
 
     Uses onnxruntime.transformers.float16.convert_float_to_float16 internally.

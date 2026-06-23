@@ -16,8 +16,7 @@ Following Cardinal Rules:
 from __future__ import annotations
 
 import numpy as np
-import onnx
-from onnx import TensorProto, numpy_helper
+from onnx import ModelProto, TensorProto, helper, numpy_helper
 
 from winml.modelkit.optim import convert_to_fp16
 
@@ -27,25 +26,25 @@ from winml.modelkit.optim import convert_to_fp16
 # =============================================================================
 
 
-def _build_simple_fp32_model() -> onnx.ModelProto:
+def _build_simple_fp32_model() -> ModelProto:
     """Build a simple FP32 model: out = x + weight."""
-    x = onnx.helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])
-    out = onnx.helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 4])
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 4])
     weight = numpy_helper.from_array(np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32), "weight")
-    add = onnx.helper.make_node("Add", ["x", "weight"], ["out"], name="add")
-    graph = onnx.helper.make_graph([add], "simple", [x], [out], [weight])
-    return onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+    add = helper.make_node("Add", ["x", "weight"], ["out"], name="add")
+    graph = helper.make_graph([add], "simple", [x], [out], [weight])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
-def _build_multi_op_fp32_model() -> onnx.ModelProto:
+def _build_multi_op_fp32_model() -> ModelProto:
     """Build a model with multiple ops: out = Relu(x + weight)."""
-    x = onnx.helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])
-    out = onnx.helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 4])
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 4])
     weight = numpy_helper.from_array(np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32), "weight")
-    add = onnx.helper.make_node("Add", ["x", "weight"], ["add_out"], name="add")
-    relu = onnx.helper.make_node("Relu", ["add_out"], ["out"], name="relu")
-    graph = onnx.helper.make_graph([add, relu], "multi_op", [x], [out], [weight])
-    return onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+    add = helper.make_node("Add", ["x", "weight"], ["add_out"], name="add")
+    relu = helper.make_node("Relu", ["add_out"], ["out"], name="relu")
+    graph = helper.make_graph([add, relu], "multi_op", [x], [out], [weight])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
 # =============================================================================
@@ -114,13 +113,13 @@ class TestConvertToFP16:
     def test_skips_already_fp16_model(self) -> None:
         """If all floating-point initializers are already FP16, conversion is skipped."""
         # Build a model with FP16 initializers directly
-        x = onnx.helper.make_tensor_value_info("x", TensorProto.FLOAT16, [1, 4])
-        out = onnx.helper.make_tensor_value_info("out", TensorProto.FLOAT16, [1, 4])
+        x = helper.make_tensor_value_info("x", TensorProto.FLOAT16, [1, 4])
+        out = helper.make_tensor_value_info("out", TensorProto.FLOAT16, [1, 4])
         weight_data = np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float16)
         weight = numpy_helper.from_array(weight_data, "weight")
-        add = onnx.helper.make_node("Add", ["x", "weight"], ["out"], name="add")
-        graph = onnx.helper.make_graph([add], "fp16_model", [x], [out], [weight])
-        model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+        add = helper.make_node("Add", ["x", "weight"], ["out"], name="add")
+        graph = helper.make_graph([add], "fp16_model", [x], [out], [weight])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
         original_nodes = len(model.graph.node)
         result = convert_to_fp16(model)
@@ -131,15 +130,15 @@ class TestConvertToFP16:
 
     def test_skips_fp16_model_with_int_initializers(self) -> None:
         """FP16 model with non-float initializers (e.g. INT64 shapes) should still skip."""
-        x = onnx.helper.make_tensor_value_info("x", TensorProto.FLOAT16, [1, 4])
-        out = onnx.helper.make_tensor_value_info("out", TensorProto.FLOAT16, [1, 4])
+        x = helper.make_tensor_value_info("x", TensorProto.FLOAT16, [1, 4])
+        out = helper.make_tensor_value_info("out", TensorProto.FLOAT16, [1, 4])
         weight_data = np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float16)
         weight = numpy_helper.from_array(weight_data, "weight")
         # INT64 initializer (e.g., shape tensor) — should be ignored by skip logic
         shape_tensor = numpy_helper.from_array(np.array([1, 4], dtype=np.int64), "shape")
-        add = onnx.helper.make_node("Add", ["x", "weight"], ["out"], name="add")
-        graph = onnx.helper.make_graph([add], "fp16_mixed", [x], [out], [weight, shape_tensor])
-        model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+        add = helper.make_node("Add", ["x", "weight"], ["out"], name="add")
+        graph = helper.make_graph([add], "fp16_mixed", [x], [out], [weight, shape_tensor])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
         original_nodes = len(model.graph.node)
         result = convert_to_fp16(model)
