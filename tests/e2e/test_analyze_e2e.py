@@ -44,6 +44,7 @@ import pandas as pd
 import pytest
 from click.testing import CliRunner
 
+from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.analyze import analyze
 from winml.modelkit.utils.constants import EP_ALIASES as _EP_ALIASES
 from winml.modelkit.utils.constants import SUPPORTED_EPS
@@ -66,30 +67,44 @@ def _invoke(args: list[str]):
     return CliRunner().invoke(analyze, args, obj={}, catch_exceptions=False)
 
 
+def _build_rule_parquet_path(rules_dir: Path, ep: str, device: str, op: str) -> Path:
+    """Build parquet path using standard ``<EP>_<DEVICE>/<file>.parquet`` layout."""
+    provider_dir = rules_dir / f"{ep}_{device.upper()}"
+    provider_dir.mkdir(parents=True, exist_ok=True)
+    return provider_dir / f"{op}_{ep}_{device.upper()}_ai.onnx_opset13.parquet"
+
+
+def _write_rule_with_result(
+    rules_dir: Path,
+    ep: str,
+    device: str,
+    compile_run_success: tuple[bool, bool],
+    op: str = "MatMul",
+) -> Path:
+    """Write a parquet rule with the given compile/run tuple."""
+    parquet = _build_rule_parquet_path(rules_dir, ep, device, op)
+    pd.DataFrame([{"compile_run_success": compile_run_success}]).to_parquet(parquet, index=False)
+    return parquet
+
+
 def _write_supported_rule(rules_dir: Path, ep: str, device: str, op: str = "MatMul") -> Path:
     """Write a minimally-valid "always supported" parquet rule.
 
     The rule has no condition columns — only the ``compile_run_success``
     tuple — so it unconditionally matches every node of the named op.
     """
-    parquet = rules_dir / f"{op}_{ep}_{device}_ai.onnx_opset13.parquet"
-    pd.DataFrame([{"compile_run_success": (True, True)}]).to_parquet(parquet, index=False)
-    return parquet
+    return _write_rule_with_result(rules_dir, ep, device, (True, True), op)
 
 
 def _write_unsupported_rule(rules_dir: Path, ep: str, device: str, op: str = "MatMul") -> Path:
     """Write a parquet rule that classifies the op as unsupported (compile fails)."""
-    parquet = rules_dir / f"{op}_{ep}_{device}_ai.onnx_opset13.parquet"
-    pd.DataFrame([{"compile_run_success": (False, False)}]).to_parquet(parquet, index=False)
-    return parquet
+    return _write_rule_with_result(rules_dir, ep, device, (False, False), op)
 
 
 def _write_partial_rule(rules_dir: Path, ep: str, device: str, op: str = "MatMul") -> Path:
     """Write a parquet rule that classifies the op as partially supported
     (compile succeeds, run fails). No condition columns → unconditional match."""
-    parquet = rules_dir / f"{op}_{ep}_{device}_ai.onnx_opset13.parquet"
-    pd.DataFrame([{"compile_run_success": (True, False)}]).to_parquet(parquet, index=False)
-    return parquet
+    return _write_rule_with_result(rules_dir, ep, device, (True, False), op)
 
 
 @pytest.fixture
@@ -325,42 +340,42 @@ class TestAnalyzeHappyPath:
         self,
         onnx_model_path: Path,
         rules_dir: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Omitting ``--device`` resolves a single best device for the pinned EP.
 
-        ``auto`` now picks one target via the shared sysinfo helpers (like
-        build/run): for ``qnn`` locally available on NPU and GPU, the
-        highest-priority device (NPU) is chosen — a single ``(qnn, NPU)`` run.
+        ``auto`` picks one target via the shared sysinfo helpers (like
+        build/run). On a QNN-capable host the highest-priority device is NPU,
+        so ``--ep qnn`` with no ``--device`` resolves to a single ``(qnn, NPU)``
+        run that is fully supported.
 
-        The test is hardware-agnostic: local availability is controlled via the
-        ORT device->EP map monkeypatch rather than real machine capabilities.
+        Real end-to-end: gated on actual QNN availability via ``require_ep``
+        rather than monkeypatching local capabilities. The auto-resolution
+        logic itself is covered hardware-agnostically by the unit-level
+        selection-matrix test.
         """
-        monkeypatch.setattr(
-            "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
-            lambda: {
-                "npu": ("QNNExecutionProvider",),
-                "gpu": ("QNNExecutionProvider", "DmlExecutionProvider"),
-                "cpu": ("CPUExecutionProvider",),
-            },
-        )
+        require_ep("qnn")
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
         result = _invoke(["-m", str(onnx_model_path), "--ep", "qnn", "--quiet"])
         assert result.exit_code == 0
 
     def test_default_auto_selects_single_ep_when_ep_omitted(
-        self, onnx_model_path: Path, rules_dir: Path
+        self,
+        onnx_model_path: Path,
+        rules_dir: Path,
     ) -> None:
         """Omitting ``--ep`` resolves a single best EP from local availability.
 
-        With a synthetic rule present the run must complete cleanly; the auto
-        axis resolves from the real ORT device map (CPU EP is always available
-        as a fallback), so only documented exit codes are asserted."""
+        On a QNN-capable host the highest-priority device (NPU) and its
+        highest-priority EP (QNN) win, so bare ``auto`` resolves to ``(qnn,
+        NPU)`` and should be fully supported.
+
+        Real end-to-end: gated on actual QNN availability via ``require_ep``
+        rather than monkeypatching local capabilities.
+        """
+        require_ep("qnn")
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
         result = _invoke(["-m", str(onnx_model_path), "--quiet"])
-        # Aggregate result depends on whether the resolved EP is fully
-        # supported; only assert documented exit codes.
-        assert result.exit_code in {0, 1, 2}
+        assert result.exit_code == 0
 
 
 # ===========================================================================
