@@ -1457,7 +1457,7 @@ def _build_hf_pipeline(
 
     stage_timings.append(("Export", _export_elapsed))
 
-    _precision = extra_kwargs.pop("precision", None)
+    extra_kwargs.pop("precision", None)  # consumed by _patch_device earlier
 
     # ── Optimize stage ───────────────────────────────────────────
     current_path, _ = _run_optimize_stage(
@@ -1518,7 +1518,7 @@ def _build_onnx_pipeline(
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
     allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
-    _precision: str | None = extra_kwargs.pop("precision", None)
+    extra_kwargs.pop("precision", None)  # consumed by _patch_device earlier
 
     # ── Validate + setup ─────────────────────────────────────────
     if not onnx_path.exists():

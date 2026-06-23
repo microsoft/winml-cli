@@ -317,12 +317,12 @@ class TestResolveQuantTypes:
     # ---- Weight-only precision raises (should use RTN, not QDQ) ----
     def test_weight_only_precision_raises(self) -> None:
         """w4a16 is weight-only (RTN) — resolve_quant_types must raise."""
-        with pytest.raises(ValueError, match="weight-only.*RTN"):
+        with pytest.raises(ValueError, match=r"weight-only.*RTN"):
             resolve_quant_types("w4a16")
 
     def test_int4_raises(self) -> None:
         """int4 is weight-only (RTN) — resolve_quant_types must raise."""
-        with pytest.raises(ValueError, match="weight-only.*RTN"):
+        with pytest.raises(ValueError, match=r"weight-only.*RTN"):
             resolve_quant_types("int4")
 
     def test_unsupported_activation_bits_raises(self) -> None:
