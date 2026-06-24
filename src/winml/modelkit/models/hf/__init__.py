@@ -56,12 +56,12 @@ from .qwen import MODEL_CLASS_MAPPING as _QWEN_CLASS_MAPPING
 from .qwen import QWEN_CONFIG
 from .qwen import QwenGenIOConfig as _QwenGenIOConfig
 from .qwen import QwenPrefillIOConfig as _QwenPrefillIOConfig
-from .qwen_transformer_only import MODEL_CLASS_MAPPING as _QWEN_TO_CLASS_MAPPING
-from .qwen_transformer_only import QWEN_TRANSFORMER_ONLY_CONFIG
-from .qwen_transformer_only import (
+from .qwen3.qwen_transformer_only import MODEL_CLASS_MAPPING as _QWEN_TO_CLASS_MAPPING
+from .qwen3.qwen_transformer_only import QWEN_TRANSFORMER_ONLY_CONFIG
+from .qwen3.qwen_transformer_only import (
     QwenTransformerOnlyGenIOConfig as _QwenTransformerOnlyGenIOConfig,  # triggers registration
 )
-from .qwen_transformer_only import (
+from .qwen3.qwen_transformer_only import (
     # triggers registration
     QwenTransformerOnlyPrefillIOConfig as _QwenTransformerOnlyPrefillIOConfig,
 )

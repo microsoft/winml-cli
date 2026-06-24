@@ -5,7 +5,7 @@
 
 """Config-driven w8a16 calibration for the transformer-only Qwen3 build.
 
-The transformer-only export (``models.hf.qwen_transformer_only``) emits a graph
+The transformer-only export (``models.hf.qwen3.qwen_transformer_only``) emits a graph
 whose only quantization-relevant runtime inputs (the calibration feeds and the
 ``GroupQueryAttention`` node names to keep in float) can't be known until the
 ONNX exists. Rather than a standalone post-build script that reaches into

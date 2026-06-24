@@ -1711,3 +1711,124 @@ class TestRunCompileStageNoOutput:
 
         # current_path should be updated to compiled_path
         assert result == compiled_path
+
+
+class TestBuildHfPipelineModelType:
+    """Regression: the CLI HF pipeline must thread loader.model_type into _load_model.
+
+    Without this, a config requesting a derived model_type (e.g.
+    ``qwen3_transformer_only``) is silently loaded as its native type, so the
+    wrong model class is exported. See _build_hf_pipeline.
+    """
+
+    @patch("winml.modelkit.utils.console.StageLive")
+    @patch("winml.modelkit.export.export_onnx")
+    @patch("winml.modelkit.build.hf._load_model")
+    def test_load_model_receives_config_model_type(
+        self,
+        mock_load_model: MagicMock,
+        mock_export_onnx: MagicMock,
+        mock_stage_live: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import _build_hf_pipeline
+
+        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Stop the pipeline right after export so we only exercise the load call.
+        sentinel = RuntimeError("stop-after-export")
+        mock_export_onnx.side_effect = sentinel
+
+        config = MagicMock()
+        config.loader.model_type = "qwen3_transformer_only"
+        config.loader.task = "feature-extraction"
+        config.export = MagicMock()
+
+        with pytest.raises(RuntimeError, match="stop-after-export"):
+            _build_hf_pipeline(
+                config=config,
+                model_id="Qwen/Qwen3-0.6B",
+                output_dir=tmp_path / "out",
+                rebuild=True,
+                cache_key=None,
+                ep=None,
+                device="cpu",
+                extra_kwargs={},
+                preloaded_hf_config=None,
+            )
+
+        mock_load_model.assert_called_once()
+        assert mock_load_model.call_args.kwargs["model_type"] == "qwen3_transformer_only"
+
+    @patch("winml.modelkit.commands.build._run_compile_stage")
+    @patch("winml.modelkit.commands.build._run_quantize_stage")
+    @patch("winml.modelkit.quant.get_quant_finalizer")
+    @patch("winml.modelkit.commands.build._run_optimize_stage")
+    @patch("winml.modelkit.commands.build._show_io")
+    @patch("winml.modelkit.utils.console.StageLive")
+    @patch("winml.modelkit.export.export_onnx")
+    @patch("winml.modelkit.build.hf._load_model")
+    def test_quant_finalizer_applied_for_registered_model_type(
+        self,
+        mock_load_model: MagicMock,
+        mock_export_onnx: MagicMock,
+        mock_stage_live: MagicMock,
+        mock_show_io: MagicMock,
+        mock_optimize: MagicMock,
+        mock_get_finalizer: MagicMock,
+        mock_quantize: MagicMock,
+        mock_compile: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """The CLI HF pipeline must apply the registered quant finalizer.
+
+        Mirrors build.hf.build_hf_model: without this the CLI quantizes with the
+        default task-aware scheme instead of the model-type-specific policy.
+        """
+        from winml.modelkit.commands.build import _build_hf_pipeline
+
+        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+
+        pytorch_model = MagicMock()
+        pytorch_model.config.model_type = "qwen3_transformer_only"
+        mock_load_model.return_value = pytorch_model
+
+        optimized = tmp_path / "optimized.onnx"
+        mock_optimize.return_value = (optimized, None)
+
+        finalized_quant = MagicMock(name="finalized_quant_config")
+        finalizer = MagicMock()
+        finalizer.finalize.return_value = finalized_quant
+        mock_get_finalizer.return_value = finalizer
+
+        # Stop right after the quantize stage so we don't exercise compile.
+        mock_quantize.side_effect = RuntimeError("stop-after-quantize")
+
+        config = MagicMock()
+        config.loader.model_type = "qwen3_transformer_only"
+        config.loader.task = "text2text-generation"
+        config.loader.model_class = None
+        config.export = MagicMock()
+        config.quant = MagicMock(name="initial_quant_config")
+        config.to_dict.return_value = {}
+
+        with pytest.raises(RuntimeError, match="stop-after-quantize"):
+            _build_hf_pipeline(
+                config=config,
+                model_id="Qwen/Qwen3-0.6B",
+                output_dir=tmp_path / "out",
+                rebuild=True,
+                cache_key=None,
+                ep=None,
+                device="cpu",
+                extra_kwargs={},
+                preloaded_hf_config=None,
+            )
+
+        mock_get_finalizer.assert_called_once_with("qwen3_transformer_only")
+        finalizer.finalize.assert_called_once()
+        assert finalizer.finalize.call_args.kwargs["model_id"] == "Qwen/Qwen3-0.6B"
+        # config.quant must be replaced with the finalized scheme before quantize.
+        assert config.quant is finalized_quant
