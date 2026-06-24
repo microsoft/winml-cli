@@ -1,0 +1,438 @@
+parameters:
+  - name: agentName
+    type: string
+  - name: agentSuffix
+    type: string
+  - name: evalOutputBase
+    type: string
+    default: 'c:/eval_results'
+  - name: evalDate
+    type: string
+    default: ''
+  - name: continueRun
+    type: boolean
+    default: true
+  - name: retryFailed
+    type: boolean
+    default: false
+  - name: modelTimeout
+    type: number
+    default: 3600
+  # pairNames: list of EP/device pair keys defined in the catalog below.
+  # Each name resolves to {ep, device, displayName} at runtime in PowerShell.
+  # Catalog (kept in sync across all PowerShell blocks in this template):
+  #   qnn_npu     -> ep=qnn,      device=npu, displayName='QNN NPU'
+  #   qnn_gpu     -> ep=qnn,      device=gpu, displayName='QNN GPU'
+  #   vitisai_npu -> ep=vitisai,  device=npu, displayName='VitisAI NPU'
+  #   dml_gpu     -> ep=dml,      device=gpu, displayName='DML GPU'
+  #   mlas_cpu    -> ep=cpu,      device=cpu, displayName='MLAS CPU'
+  #   ov_cpu      -> ep=openvino, device=cpu, displayName='OV CPU'
+  #   ov_gpu      -> ep=openvino, device=gpu, displayName='OV GPU'
+  #   ov_npu      -> ep=openvino, device=npu, displayName='OV NPU'
+  - name: pairNames
+    type: object
+
+jobs:
+  - job: Prepare_${{ parameters.agentSuffix }}
+    displayName: 'Prepare Eval Matrix (${{ parameters.agentSuffix }})'
+    pool:
+      name: modelkit-selfhost-pool
+      demands:
+        - Agent.Name -equals ${{ parameters.agentName }}
+
+    steps:
+      - checkout: self
+        clean: false
+        fetchDepth: 1
+        path: s
+
+      - checkout: ModelKitArtifacts
+        fetchDepth: 1
+        lfs: true
+        path: artifacts
+
+      - powershell: |
+          Write-Host "Agent.BuildDirectory : $(Agent.BuildDirectory)"
+          Write-Host "Build.SourcesDirectory: $(Build.SourcesDirectory)"
+          $repoDir = "$(Agent.BuildDirectory)/artifacts"
+          if (-not (Test-Path "$repoDir/rules")) {
+            $repoDir = "$(Agent.BuildDirectory)/ModelKitArtifacts"
+          }
+          $src = "$repoDir/rules"
+          $dst = "$(Build.SourcesDirectory)/src/winml/modelkit/analyze/rules/runtime_check_rules"
+          if (Test-Path $src) {
+            New-Item -ItemType Directory -Path $dst -Force | Out-Null
+            $parquets = Get-ChildItem "$src" -Filter "*.parquet" -Recurse
+            foreach ($parquet in $parquets) {
+              $relativePath = $parquet.FullName.Substring($src.Length).TrimStart('\\')
+              $targetPath = Join-Path $dst $relativePath
+              New-Item -ItemType Directory -Path (Split-Path $targetPath -Parent) -Force | Out-Null
+              Copy-Item $parquet.FullName -Destination $targetPath -Force
+            }
+            Write-Host "Copied $($parquets.Count) rule parquet file(s) to $dst"
+            # Verify files are real data, not LFS pointers (~130 bytes)
+            $bad = $parquets | Where-Object { $_.Length -lt 1024 }
+            if ($bad) {
+              Write-Error "The following parquet files are suspiciously small (likely unresolved LFS pointers):"
+              $bad | ForEach-Object { Write-Host "  $($_.Name): $($_.Length) bytes" }
+              exit 1
+            }
+            $parquets | ForEach-Object { Write-Host "  $($_.Name): $([math]::Round($_.Length / 1KB, 1)) KB" }
+          } else {
+            Write-Error "Rules source not found at: $src"
+            Write-Host "Contents of $repoDir :"
+            Get-ChildItem $repoDir -Recurse -Depth 2 | Select-Object FullName
+            exit 1
+          }
+        displayName: 'Copy runtime check rules from ModelKitArtifacts'
+
+      - powershell: |
+          $uvBin = "$env:USERPROFILE\.local\bin"
+          if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+            Invoke-RestMethod https://astral.sh/uv/0.10.12/install.ps1 | Invoke-Expression
+            $env:PATH = "$uvBin;$env:PATH"
+          }
+          uv python install 3.11
+          Remove-Item -Recurse -Force "$(Build.SourcesDirectory)\.venv" -ErrorAction SilentlyContinue
+          uv venv $(Build.SourcesDirectory)\.venv --python 3.11
+          $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
+          Write-Host "##vso[task.prependpath]$uvBin"
+          Write-Host "##vso[task.prependpath]$venvDir"
+        displayName: 'Install uv 0.10.12 and Python'
+
+      - script: python --version
+        displayName: 'Check Python version'
+
+      - task: PipAuthenticate@1
+        inputs:
+          artifactFeeds: 'windows.ai.toolkit/Modelkit'
+        displayName: 'Authenticate pip with Azure Artifacts'
+
+      # NOTE: This is the single source of truth for installing project deps
+      # into the venv. Every later step uses `uv run --no-sync` to *skip*
+      # uv's lockfile sync and rely on what was installed here. Do NOT remove
+      # this step assuming `uv run` will install on demand -- it won't, with
+      # `--no-sync` -- and do NOT drop `--no-sync` below assuming it's a
+      # no-op: without it, `uv run` would re-resolve from uv.lock and may
+      # silently replace this editable install.
+      - script: |
+          uv pip install -e .[dev]
+        workingDirectory: $(Build.SourcesDirectory)
+        displayName: 'Install dependencies'
+
+      - powershell: |
+          $evalDate = '${{ parameters.evalDate }}'
+          if (-not $evalDate -or $evalDate -eq 'auto') { $evalDate = Get-Date -Format 'yyyy-MM-dd' }
+          $dir = "${{ parameters.evalOutputBase }}/$evalDate/${{ parameters.agentSuffix }}"
+          Write-Host "##vso[task.setvariable variable=EVAL_DIR;isOutput=true]$dir"
+          Write-Host "Eval output directory (base): $dir"
+        name: set_output_dir
+        displayName: 'Set eval output directory'
+
+      - ${{ each pairName in parameters.pairNames }}:
+          - powershell: |
+              $catalog = @{
+                  'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+                  'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
+                  'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
+                  'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
+                  'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
+                  'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
+                  'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
+                  'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
+              }
+              $name = '${{ pairName }}'
+              if (-not $catalog.ContainsKey($name)) {
+                  Write-Error "Unknown EP/device pair name: '$name'. Valid: $($catalog.Keys -join ', ')"
+                  exit 1
+              }
+              $pair = $catalog[$name]
+              Write-Host "Pair '$($pair.displayName)' (name=$name, ep='$($pair.ep)', device='$($pair.device)')"
+              $args = @(
+                  "run", "python", "scripts/e2e_eval/run_eval.py",
+                  "--list-json", "temp/model_list_$name.json",
+                  "--device", $pair.device
+              )
+              if ($pair.ep) {
+                  $args += @("--ep", $pair.ep)
+              }
+              $continueRun = ('${{ parameters.continueRun }}' -eq 'True')
+              $retryFailed = ('${{ parameters.retryFailed }}' -eq 'True')
+              if ($continueRun -or $retryFailed) {
+                  $args += @("--output-dir", "$(set_output_dir.EVAL_DIR)/$name")
+                  if ($continueRun) {
+                      $args += "--continue"
+                  }
+                  if ($retryFailed) {
+                      $args += "--retry-failed"
+                  }
+              }
+              & uv @args
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "Model list generation failed for pair '$name' (uv exit=$LASTEXITCODE)"
+                  exit 1
+              }
+            workingDirectory: $(Build.SourcesDirectory)
+            displayName: 'Generate model list (${{ pairName }})'
+
+      - powershell: |
+          $catalog = @{
+              'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+              'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
+              'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
+              'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
+              'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
+              'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
+              'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
+              'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
+          }
+          $pairNames = '${{ join(',', parameters.pairNames) }}' -split ','
+          $pairNames = @($pairNames | Where-Object { $_ -and $_.Trim() -ne '' } | ForEach-Object { $_.Trim() })
+          if (-not $pairNames -or $pairNames.Count -eq 0) {
+              Write-Error "No EP/device pair names configured for this stage"
+              exit 1
+          }
+          foreach ($name in $pairNames) {
+              if (-not $catalog.ContainsKey($name)) {
+                  Write-Error "Unknown EP/device pair name: '$name'. Valid: $($catalog.Keys -join ', ')"
+                  exit 1
+              }
+          }
+
+          # rowsByKey: matrix-key -> @{ entry = base-fields; pendingPairs = ordered list }
+          $rowsByKey = [ordered]@{}
+          $usedKeys = @{}
+
+          foreach ($name in $pairNames) {
+              $pair = $catalog[$name]
+              $listPath = "$(Build.SourcesDirectory)/temp/model_list_$name.json"
+              if (-not (Test-Path $listPath)) {
+                  Write-Error "Model list missing for pair '$($pair.displayName)' (name=$name) at $listPath"
+                  exit 1
+              }
+              $models = Get-Content $listPath | ConvertFrom-Json
+              if ($null -eq $models) { continue }
+              # Force collection even if a single object was returned
+              $models = @($models)
+              Write-Host "Pair '$($pair.displayName)' (name=$name): $($models.Count) pending models"
+
+              foreach ($m in $models) {
+                  $slug = (($m.hf_id + '_' + $m.task) -replace '[^A-Za-z0-9]', '_')
+                  if ($usedKeys.ContainsKey($slug)) {
+                      $key = $usedKeys[$slug]
+                  } else {
+                      $key = $slug
+                      $suffix = 2
+                      while ($rowsByKey.Contains($key)) {
+                          $key = "${slug}_${suffix}"
+                          $suffix++
+                      }
+                      $usedKeys[$slug] = $key
+                  }
+
+                  if (-not $rowsByKey.Contains($key)) {
+                      $rowsByKey[$key] = @{
+                          entry = @{
+                              hf_id = [string]$m.hf_id
+                              hf_task = [string]$m.task
+                              priority = [string]$m.priority
+                              model_type = [string]$m.model_type
+                              model_group = [string]$m.group
+                          }
+                          pendingPairs = New-Object System.Collections.Generic.List[string]
+                      }
+                  }
+                  $rowsByKey[$key].pendingPairs.Add($name)
+              }
+          }
+
+          $total = $rowsByKey.Count
+          if ($total -eq 0) {
+              Write-Host "All models already evaluated for all selected EP/device pairs - nothing to run"
+              Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]{}"
+              Write-Host "##vso[task.setvariable variable=skipEval;isOutput=true]true"
+              return
+          }
+
+          $matrix = @{}
+          foreach ($key in $rowsByKey.Keys) {
+              $row = $rowsByKey[$key]
+              $entry = $row.entry.Clone()
+              $entry['pairs_csv'] = ($row.pendingPairs -join ',')
+              $matrix[$key] = $entry
+          }
+
+          $json = $matrix | ConvertTo-Json -Compress -Depth 5
+          Write-Host "Prepared matrix for $total models across $($pairNames.Count) EP/device pair(s)"
+          Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]$json"
+        name: set_matrix
+        displayName: 'Create matrix variables'
+
+  - job: EvalModel_${{ parameters.agentSuffix }}
+    displayName: 'Eval (${{ parameters.agentSuffix }})'
+    dependsOn: Prepare_${{ parameters.agentSuffix }}
+    condition: and(succeeded(), ne(dependencies.Prepare_${{ parameters.agentSuffix }}.outputs['set_matrix.skipEval'], 'true'))
+    timeoutInMinutes: 90
+    cancelTimeoutInMinutes: 2
+    pool:
+      name: modelkit-selfhost-pool
+      demands:
+        - Agent.Name -equals ${{ parameters.agentName }}
+    variables:
+      EVAL_DIR: $[ dependencies.Prepare_${{ parameters.agentSuffix }}.outputs['set_output_dir.EVAL_DIR'] ]
+    strategy:
+      maxParallel: 1
+      matrix: $[ dependencies.Prepare_${{ parameters.agentSuffix }}.outputs['set_matrix.modelMatrix'] ]
+
+    steps:
+      - checkout: self
+        clean: false
+        fetchDepth: 1
+        path: s
+
+      - checkout: ModelKitArtifacts
+        clean: false
+        fetchDepth: 1
+        lfs: true
+        path: artifacts
+
+      - powershell: |
+          $uvBin = "$env:USERPROFILE\.local\bin"
+          $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
+          Write-Host "##vso[task.prependpath]$uvBin"
+          Write-Host "##vso[task.prependpath]$venvDir"
+        displayName: 'Activate Python environment'
+
+      - powershell: |
+          Write-Host "Agent.BuildDirectory : $(Agent.BuildDirectory)"
+          Write-Host "Build.SourcesDirectory: $(Build.SourcesDirectory)"
+          Write-Host "Model: $(hf_id) / $(hf_task)"
+          Write-Host "Priority: $(priority)"
+          Write-Host "Output base: $(EVAL_DIR)"
+          Write-Host "Pending EP/device pairs: $(pairs_csv)"
+
+          $catalog = @{
+              'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+              'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
+              'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
+              'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
+              'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
+              'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
+              'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
+              'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
+          }
+
+          $pairNames = '$(pairs_csv)' -split ','
+          $pairNames = @($pairNames | Where-Object { $_ -and $_.Trim() -ne '' } | ForEach-Object { $_.Trim() })
+          if (-not $pairNames -or $pairNames.Count -eq 0) {
+              Write-Warning "No pending EP/device pairs for $(hf_id) / $(hf_task) - skipping"
+              exit 0
+          }
+
+          for ($i = 0; $i -lt $pairNames.Count; $i++) {
+              $name = $pairNames[$i]
+              if (-not $catalog.ContainsKey($name)) {
+                  Write-Error "Unknown EP/device pair name: '$name'. Valid: $($catalog.Keys -join ', ')"
+                  exit 1
+              }
+              $pair = $catalog[$name]
+              $isLast = ($i -eq ($pairNames.Count - 1))
+              Write-Host "============================================================"
+              Write-Host "[$($i + 1)/$($pairNames.Count)] pair='$($pair.displayName)' name=$name ep='$($pair.ep)' device='$($pair.device)' (last=$isLast) for $(hf_id)"
+              Write-Host "============================================================"
+
+              $pairOutput = "$(EVAL_DIR)/$name"
+
+              $uvArgs = @(
+                  "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
+                  "--hf-model", "$(hf_id)",
+                  "--output-dir", $pairOutput,
+                  "--device", $pair.device,
+                  "--continue",
+                  "--verbose",
+                  "--timeout", "${{ parameters.modelTimeout }}",
+                  "--no-report"
+              )
+              if ('${{ parameters.retryFailed }}' -eq 'True') {
+                  $uvArgs += "--retry-failed"
+              }
+              if ($pair.ep) {
+                  $uvArgs += @("--ep", $pair.ep)
+              }
+              if ($isLast) {
+                  # Only clean cache after the LAST pair so HF download and
+                  # any reusable build artifacts can be shared across pairs
+                  # for this model.
+                  $uvArgs += "--clean-cache"
+              }
+              if ("$(hf_task)") {
+                  $uvArgs += @("--task", "$(hf_task)")
+              }
+
+              & uv @uvArgs
+              $evalExit = $LASTEXITCODE
+              if ($evalExit -ne 0) {
+                  Write-Warning "Model eval exited with code $evalExit for $(hf_id) / $(hf_task) on pair '$($pair.displayName)' (model failure - non-blocking)"
+              }
+          }
+          exit 0
+        workingDirectory: $(Build.SourcesDirectory)
+        displayName: 'Run eval for current model (all pending EP/device pairs)'
+
+  - ${{ each pairName in parameters.pairNames }}:
+      - job: Report_${{ parameters.agentSuffix }}_${{ pairName }}
+        displayName: 'Generate Eval Report (${{ parameters.agentSuffix }} / ${{ pairName }})'
+        dependsOn:
+          - Prepare_${{ parameters.agentSuffix }}
+          - EvalModel_${{ parameters.agentSuffix }}
+        condition: always()
+        pool:
+          name: modelkit-selfhost-pool
+          demands:
+            - Agent.Name -equals ${{ parameters.agentName }}
+        variables:
+          EVAL_DIR_BASE: $[ dependencies.Prepare_${{ parameters.agentSuffix }}.outputs['set_output_dir.EVAL_DIR'] ]
+
+        steps:
+          - checkout: self
+            clean: false
+            fetchDepth: 1
+            path: s
+
+          - checkout: ModelKitArtifacts
+            clean: false
+            fetchDepth: 1
+            lfs: true
+            path: artifacts
+
+          - powershell: |
+              $uvBin = "$env:USERPROFILE\.local\bin"
+              $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
+              Write-Host "##vso[task.prependpath]$uvBin"
+              Write-Host "##vso[task.prependpath]$venvDir"
+            displayName: 'Activate Python environment'
+
+          - powershell: |
+              $pairDir = "$(EVAL_DIR_BASE)/${{ pairName }}"
+              if (-not (Test-Path $pairDir)) {
+                  Write-Host "No results found at $pairDir - skipping report"
+                  Write-Host "##vso[task.setvariable variable=HAS_RESULTS]false"
+                  return
+              }
+              Write-Host "##vso[task.setvariable variable=HAS_RESULTS]true"
+              Write-Host "##vso[task.setvariable variable=PAIR_DIR]$pairDir"
+            displayName: 'Resolve output directory (${{ pairName }})'
+
+          - script: >
+              uv run --no-sync python scripts/e2e_eval/generate_report.py
+              --input-dir $(PAIR_DIR)
+            workingDirectory: $(Build.SourcesDirectory)
+            condition: and(succeeded(), eq(variables['HAS_RESULTS'], 'true'))
+            displayName: 'Generate evaluation report (${{ pairName }})'
+
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: $(PAIR_DIR)
+              artifactName: EvalReport_${{ parameters.agentSuffix }}_${{ pairName }}
+            condition: and(succeeded(), eq(variables['HAS_RESULTS'], 'true'))
+            displayName: 'Publish eval results as artifact (${{ pairName }})'

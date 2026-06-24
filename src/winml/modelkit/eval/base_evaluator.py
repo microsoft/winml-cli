@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..utils.eval_utils import DatasetValidationError, validate_dataset_columns
 
@@ -72,7 +72,7 @@ class WinMLEvaluator:
                     )
                 kwargs.pop(key)
 
-        return task_evaluator.compute(**kwargs)
+        return cast("dict[str, Any]", task_evaluator.compute(**kwargs))
 
     def prepare_data(self) -> Dataset:
         """Load dataset, shuffle, sample, and align labels."""
@@ -89,8 +89,9 @@ class WinMLEvaluator:
             ds.samples,
         )
         try:
-            if ds.path and Path(ds.path).is_dir():
-                dataset = load_from_disk(ds.path)
+            ds_path = Path(ds.path).expanduser() if ds.path else None
+            if ds_path and ds_path.is_dir():
+                dataset = load_from_disk(str(ds_path))
             else:
                 dataset = load_dataset(
                     ds.path,
@@ -121,6 +122,7 @@ class WinMLEvaluator:
                 )
             dataset = dataset.select(range(actual_samples))
 
+        assert self.config.task is not None, "config.task is required for evaluation"
         validate_dataset_columns(
             dataset, self.config.task, self.config.dataset.columns_mapping,
         )
@@ -130,18 +132,24 @@ class WinMLEvaluator:
         """Create HF pipeline for inference. Subclasses override to configure."""
         from transformers import pipeline
 
+        assert self.config.task is not None, "config.task is required to build pipeline"
         pipeline_task = _PIPELINE_TASK_MAP.get(self.config.task, self.config.task)
-        return pipeline(
-            pipeline_task,
-            model=self.model,
-            framework="pt",
-            tokenizer=self.config.model_id,
-            feature_extractor=self.config.model_id,
-            image_processor=self.config.model_id,
-            processor=self.config.model_id,
-            # "device" is for HF pipeline pytorch tensors, not ORT EP.
-            # WinMLSession handles device delegation for ORT.
-            device="cpu",
+        # transformers.pipeline has 60+ Literal overloads — runtime task strings
+        # can't be statically matched. The string-task fallback handles unknown tasks.
+        return cast(
+            "Pipeline",
+            pipeline(  # type: ignore[call-overload]
+                pipeline_task,
+                model=self.model,
+                framework="pt",
+                tokenizer=self.config.model_id,
+                feature_extractor=self.config.model_id,
+                image_processor=self.config.model_id,
+                processor=self.config.model_id,
+                # "device" is for HF pipeline pytorch tensors, not ORT EP.
+                # WinMLSession handles device delegation for ORT.
+                device="cpu",
+            ),
         )
 
     def _fixed_seq_length(self) -> int | None:

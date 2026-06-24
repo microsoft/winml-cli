@@ -39,7 +39,9 @@ _HEARTBEAT_FLAG = "_winmlcli_heartbeat_sent"
 class ActionGroup(click.Group):
     """Click group that auto-instruments every registered command."""
 
-    def resolve_command(self, ctx, args):
+    def resolve_command(
+        self, ctx: click.Context, args: list[str]
+    ) -> tuple[str | None, click.Command | None, list[str]]:
         """Wrap the resolved subcommand with telemetry instrumentation."""
         cmd_name, cmd, remaining = super().resolve_command(ctx, args)
         if cmd is None:
@@ -106,7 +108,8 @@ def _instrument(cmd: click.Command) -> click.Command:
                 success=success,
             )
 
-    cmd.invoke = wrapped_invoke
+    # Intentional per-instance monkeypatch to wrap this command's invoke().
+    cmd.invoke = wrapped_invoke  # type: ignore[method-assign]
     setattr(cmd, _INSTRUMENTED_ATTR, True)
     return cmd
 

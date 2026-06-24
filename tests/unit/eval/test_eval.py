@@ -86,6 +86,8 @@ class TestResolveTask:
         from winml.modelkit.eval.evaluate import _resolve_task
 
         fake_hf_config = MagicMock()
+        fake_resolution = MagicMock()
+        fake_resolution.task = "image-classification"
         config = WinMLEvaluationConfig(model_id="microsoft/resnet-50")
         with (
             patch(
@@ -93,34 +95,41 @@ class TestResolveTask:
                 return_value=fake_hf_config,
             ),
             patch(
-                "winml.modelkit.loader.task._detect_task_from_config",
-                return_value="image-classification",
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=fake_resolution,
             ),
         ):
             assert _resolve_task(config) == "image-classification"
 
-    def test_feature_extraction_mapped_to_hf_image_feature_extraction_for_vision_model(self):
-        """Vision FE model with --task feature-extraction is mapped to the HF
-        pipeline task image-feature-extraction so the evaluator registry
-        lookup succeeds."""
+    def test_explicit_feature_extraction_preserved_verbatim(self):
+        """Explicit --task is surfaced verbatim (explicit means explicit).
+
+        The old reverse io_config upgrade (feature-extraction -> image-feature-extraction
+        for vision models) is intentionally gone: per the canonical rule, a vision
+        model's task is image-feature-extraction, so an explicit feature-extraction is
+        out-of-domain and is not silently rewritten.
+        """
         from winml.modelkit.eval.evaluate import _resolve_task
 
-        fake_hf_config = MagicMock()
-        fake_hf_config.model_type = "dinov2"
-        fake_onnx_config = MagicMock()
-        fake_onnx_config.inputs = {"pixel_values": object()}
+        config = WinMLEvaluationConfig(model_id="facebook/dinov2-base", task="feature-extraction")
+        # feature-extraction is itself a registered (text) evaluator key, so resolution
+        # returns it as-is; a vision model would then fail downstream at eval-run.
+        assert _resolve_task(config) == "feature-extraction"
 
-        config = WinMLEvaluationConfig(
-            model_id="facebook/dinov2-base", task="feature-extraction"
-        )
+    def test_auto_detect_vision_feature_model_resolves_image_feature_extraction(self):
+        """Auto-detect (no --task) for a vision embedding model resolves the
+        modality-aware image-feature-extraction via resolve_task — the source-level
+        fix for #778 that replaces the reverse io_config reconstruction."""
+        from winml.modelkit.eval.evaluate import _resolve_task
+
+        fake_resolution = MagicMock()
+        fake_resolution.task = "image-feature-extraction"
+        config = WinMLEvaluationConfig(model_id="facebook/dinov2-base")  # no explicit task
         with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=MagicMock()),
             patch(
-                "transformers.AutoConfig.from_pretrained",
-                return_value=fake_hf_config,
-            ),
-            patch(
-                "winml.modelkit.export.io._get_onnx_config",
-                return_value=fake_onnx_config,
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=fake_resolution,
             ),
         ):
             assert _resolve_task(config) == "image-feature-extraction"
@@ -130,7 +139,7 @@ class TestGetEvaluatorClass:
     """Tests for get_evaluator_class registry lookup."""
 
     def test_registered_task_returns_class(self):
-        from winml.modelkit.eval import WinMLEvaluator, get_evaluator_class
+        from winml.modelkit.eval import WinMLEvaluationConfig, WinMLEvaluator, get_evaluator_class
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
 
         # _EVALUATOR_REGISTRY stores "module_path:ClassName" strings so that
@@ -142,29 +151,75 @@ class TestGetEvaluatorClass:
             assert isinstance(spec, str) and ":" in spec, (
                 f"Registry value for {task!r} must be a 'module:Class' string."
             )
-            cls = get_evaluator_class(task)
+            cls = get_evaluator_class(WinMLEvaluationConfig(task=task))
             assert isinstance(cls, type)
-            assert issubclass(cls, WinMLEvaluator)
+            # Task evaluators inherit from WinMLEvaluator; "compare-tensor"
+            # is a non-task entry (TensorSimilarityEvaluator) with its own
+            # shape and is exempt from the base-class check.
+            if task != "compare-tensor":
+                assert issubclass(cls, WinMLEvaluator)
             # The resolved class must match the qualified name in the spec.
             module_path, class_name = spec.rsplit(":", 1)
             assert cls.__module__ == module_path
             assert cls.__name__ == class_name
 
     def test_unsupported_task_raises_value_error(self):
-        from winml.modelkit.eval import get_evaluator_class
+        from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
 
         with pytest.raises(ValueError, match="not supported by `winml eval`"):
-            get_evaluator_class("made-up-task")
+            get_evaluator_class(WinMLEvaluationConfig(task="made-up-task"))
 
     def test_evaluator_registry_matches_schema_tasks(self):
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
         from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
 
-        assert set(_EVALUATOR_REGISTRY) == set(TASK_SCHEMAS)
+        # "compare-tensor" is a non-task evaluator entry (no labeled-dataset
+        # schema); exclude it from the task<->schema equivalence check.
+        assert set(_EVALUATOR_REGISTRY) - {"compare-tensor"} == set(TASK_SCHEMAS)
 
 
 class TestEvaluate:
     """Tests for evaluate() entry point."""
+
+    def test_invalid_mode_raises(self):
+        """evaluate() rejects unknown mode values with a clear error."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(model_id="test/model", task="feature-extraction")
+        config.mode = "hf"  # bypass dataclass type hint
+
+        with pytest.raises(ValueError, match="Invalid mode"):
+            eval_mod.evaluate(config)
+
+    def test_none_mode_normalizes_to_onnx(self):
+        """evaluate() treats mode=None as the default onnx mode."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="imagenet-1k"),
+        )
+        config.mode = None  # bypass dataclass type hint
+
+        evaluator = MagicMock()
+        evaluator.compute.return_value = {"accuracy": 1.0}
+        with (
+            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(eval_mod, "get_evaluator_class", return_value=lambda *_a, **_k: evaluator),
+        ):
+            result = eval_mod.evaluate(config)
+        assert result.config.mode == "onnx"
 
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""
@@ -1158,6 +1213,45 @@ class TestBuildEvalResultEpField:
         )
         assert result["ep"] == "qnn"
 
+    def test_sanitize_fn_preserves_raw_perf_output(self):
+        reporter = self._load_reporter()
+
+        perf_proc = {
+            "exit_code": 0,
+            "stdout": "Latency (ms): 12.5\nThroughput: 80 samples/sec\nsome error line",
+            "stderr": "warning: device busy",
+            "elapsed": 5.0,
+            "timeout": False,
+            "command": "winml perf",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+
+        def strip_perf(text: str) -> str:
+            return "\n".join(
+                line
+                for line in text.splitlines()
+                if "latency" not in line.lower() and "throughput" not in line.lower()
+            )
+
+        result = reporter.build_eval_result(
+            entry=self._make_entry(),
+            perf_proc=perf_proc,
+            device="cpu",
+            eval_types_run=["perf"],
+            accuracy_result=None,
+            ep=None,
+            sanitize_fn=strip_perf,
+        )
+
+        perf = result["perf"]
+        # sanitized output should not contain latency/throughput lines
+        assert "Latency" not in perf["stdout_output"]
+        assert "Throughput" not in perf["stdout_output"]
+        # raw output preserves the original perf data
+        assert "Latency (ms): 12.5" in perf["raw_stdout"]
+        assert "Throughput: 80 samples/sec" in perf["raw_stdout"]
+        assert perf["raw_stderr"] == "warning: device busy"
+
 
 class TestDefaultDatasetImmutability:
     """Tests that module-level _DEFAULT_DATASETS are not corrupted."""
@@ -1245,14 +1339,56 @@ class TestLoadModel:
         ):
             result = eval_mod._load_model(config)
 
+        # quant defaults to True -> no quant override (config=None); optimize/
+        # analyze default True with max_optim_iterations=None -> no extra build
+        # kwargs (build_pipeline_extra_kwargs returns {}).
         mock_auto.from_pretrained.assert_called_once_with(
             "test/model",
             task="image-classification",
             device="cpu",
             precision="auto",
             ep=None,
+            allow_unsupported_nodes=False,
+            config=None,
         )
         assert result is mock_model
+
+    def test_load_model_forwards_build_flags(self):
+        """--no-quant/--no-optimize/--max-optim-iterations reach from_pretrained."""
+        import importlib
+        import sys
+
+        from winml.modelkit.config import WinMLBuildConfig
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        mock_auto = MagicMock()
+        mock_auto.from_pretrained.return_value = MagicMock()
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            device="cpu",
+            quant=False,
+            optimize=False,
+            max_optim_iterations=5,
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+        ):
+            eval_mod._load_model(config)
+
+        kwargs = mock_auto.from_pretrained.call_args.kwargs
+        # --no-quant -> WinMLBuildConfig override with quant cleared.
+        assert isinstance(kwargs["config"], WinMLBuildConfig)
+        assert kwargs["config"].quant is None
+        # --no-optimize -> skip_optimize; --max-optim-iterations 5 forwarded.
+        assert kwargs["skip_optimize"] is True
+        assert kwargs["hack_max_optim_iterations"] == 5
 
     def test_load_model_from_onnx(self):
         """When model_path is set, calls from_onnx and attaches config."""

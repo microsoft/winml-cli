@@ -109,15 +109,7 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     optional_message="Overrides device-to-provider mapping. "
     "When used without --device, device is inferred from EP.",
 )
-@click.option(
-    "-p",
-    "--precision",
-    "precision",
-    type=str,
-    default="auto",
-    help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
-    "Default: auto (based on device when device is specified).",
-)
+@cli_utils.precision_option()
 @cli_utils.output_option("Output JSON file path (default: stdout)")
 @click.option(
     "--library",
@@ -125,17 +117,13 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
     default="transformers",
     help="Source library for TasksManager (default: transformers)",
 )
-@click.option(
-    "--no-quant",
-    is_flag=True,
-    default=False,
-    help="Exclude quantization from generated config (sets quant=None)",
+@cli_utils.quant_option(
+    help_text="Include quantization in generated config "
+    "(use --no-quant to exclude, sets quant=None)"
 )
-@click.option(
-    "--no-compile/--compile",
-    "no_compile",
+@cli_utils.compile_option(
     default=True,
-    help="Exclude compilation from generated config (sets compile=None). Default: exclude.",
+    help_text="Exclude compilation from generated config (sets compile=None). Default: exclude.",
 )
 @cli_utils.trust_remote_code_option()
 @cli_utils.verbosity_options()
@@ -156,7 +144,7 @@ def config(
     library_name: str,
     verbose: int,
     quiet: bool,
-    no_quant: bool,
+    quant: bool,
     no_compile: bool,
     trust_remote_code: bool,
 ) -> None:
@@ -289,7 +277,7 @@ def config(
             )
 
             # Apply --no-quant / --no-compile overrides
-            _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
+            _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
 
             output_data = config_obj.to_dict()
             _is_onnx_mode = True
@@ -319,43 +307,42 @@ def config(
                     precision=precision,
                     trust_remote_code=trust_remote_code,
                     ep=ep,
-                    no_quant=no_quant,
+                    no_quant=not quant,
                     no_compile=no_compile,
                     output=output,
                     console=console,
                 )
                 return
 
-            # Generate config(s) - module parameter selects overload:
-            # module=str → list[WinMLBuildConfig], module=None → WinMLBuildConfig.
-            # ``module`` is the only differing kwarg, so build a shared dict
-            # once and add it only on the list-returning branch. This keeps
-            # the overload dispatch but avoids repeating the other 10 kwargs.
-            _shared_kwargs: dict[str, Any] = {
-                "model_id": hf_model,
-                "task": task,
-                "model_class": model_class,
-                "model_type": model_type,
-                "override": override,
-                "shape_config": shape_config,
-                "library_name": library_name,
-                "device": device,
-                "precision": precision,
-                "trust_remote_code": trust_remote_code,
-                "ep": ep,
-            }
-            if module:
-                configs = generate_hf_build_config(module=module, **_shared_kwargs)
+            # Generate config(s). The ``module: str | None`` overload of
+            # generate_hf_build_config returns WinMLBuildConfig | list[...],
+            # which isinstance(result, list) narrows for the branches below.
+            result = generate_hf_build_config(
+                model_id=hf_model,
+                task=task,
+                model_class=model_class,
+                model_type=model_type,
+                module=module,
+                override=override,
+                shape_config=shape_config,
+                library_name=library_name,
+                device=device,
+                precision=precision,
+                trust_remote_code=trust_remote_code,
+                ep=ep,
+            )
+            if isinstance(result, list):
+                configs = result
                 for cfg in configs:
-                    _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
+                    _apply_stage_overrides(cfg, no_quant=not quant, no_compile=no_compile)
                 output_data = [cfg.to_dict() for cfg in configs]
                 _n_modules = len(configs)
                 # Use first config for display metadata
                 config_obj = configs[0] if configs else None
             else:
-                config_obj = generate_hf_build_config(**_shared_kwargs)
+                config_obj = result
                 configs = []
-                _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
+                _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
                 output_data = config_obj.to_dict()
                 _n_modules = 0
 
@@ -484,31 +471,33 @@ def _resolve_composite_model_components(
     task: str | None,
     trust_remote_code: bool = False,
 ) -> dict[str, str] | None:
-    """Check if (model_type, task) is a registered composite model.
+    """Resolve the composite ``_SUB_MODEL_CONFIG`` for a build, else None.
 
-    Returns _SUB_MODEL_CONFIG dict if found, None otherwise.
+    Explicit --task: direct registry lookup via ``resolve_composite``.
+    No --task: ``resolve_task`` detects + tags the composite (its ``.composite``
+    field carries the seq2seq bridge), so no-task routing matches --task routing.
     """
-    if task is None:
+    from transformers import AutoConfig
+
+    from ..loader.resolution import resolve_composite, resolve_task
+
+    if task is not None:
+        resolved_type = model_type
+        if resolved_type is None and hf_model is not None:
+            resolved_type = AutoConfig.from_pretrained(
+                hf_model, trust_remote_code=trust_remote_code
+            ).model_type
+        if resolved_type is None:
+            return None
+        return resolve_composite(resolved_type, task)
+
+    if hf_model is not None:
+        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+    elif model_type is not None:
+        config = AutoConfig.for_model(model_type)
+    else:
         return None
-
-    import winml.modelkit.models.hf  # noqa: F401  # trigger pipeline registrations
-
-    from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
-
-    # Resolve model_type from HF config if not provided
-    resolved_type = model_type
-    if resolved_type is None and hf_model is not None:
-        from transformers import AutoConfig
-
-        resolved_type = AutoConfig.from_pretrained(
-            hf_model, trust_remote_code=trust_remote_code
-        ).model_type
-
-    if resolved_type is None:
-        return None
-
-    cls = COMPOSITE_MODEL_REGISTRY.get((resolved_type, task))
-    return cls._SUB_MODEL_CONFIG if cls is not None else None
+    return resolve_task(config).composite
 
 
 def _generate_pipeline_configs(

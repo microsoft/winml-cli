@@ -10,15 +10,12 @@ Leverages existing loader, export, and models modules - NO NEW CONFIG LOGIC.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
+from ..loader.resolution import _get_custom_model_class
 from ..loader.task import (
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
-    WRAPPED_LIBRARY_MODEL_TYPES,
-    _detect_task_and_class_from_config,
-    _detect_task_from_config,
-    _get_custom_model_class,
     resolve_optimum_library,
 )
 from ..models import (
@@ -30,6 +27,7 @@ from ..models import (
 from .types import (
     CacheInfo,
     CacheStageInfo,
+    CompositeInfo,
     ExporterInfo,
     IOConfigInfo,
     LoaderInfo,
@@ -48,11 +46,6 @@ if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
 
 logger = logging.getLogger(__name__)
-
-# Task-detection provenance label returned by detect_task() for wrapped-library
-# model types (e.g. timm via "timm_wrapper"). Surfaced in `inspect` output as
-# "Task <task> (via <source>)" and in the JSON `task_source` field.
-WRAPPED_LIBRARY_SOURCE = "wrapped-library"
 
 # Mapping from pipeline stage verbs to the filenames build_hf_model() produces.
 # "export" is omitted because its stage name equals its filename — the
@@ -112,52 +105,10 @@ def validate_task(task: str) -> None:
         raise ValueError(f"Unknown task '{task}'. Known tasks: {', '.join(sorted_tasks)}")
 
 
-def detect_task(config: PretrainedConfig) -> tuple[str, str]:
-    """Detect task from HF config.
-
-    Args:
-        config: HuggingFace PretrainedConfig
-
-    Returns:
-        Tuple of (task_name, detection_source)
-    """
-    model_type = getattr(config, "model_type", "unknown")
-    model_type_normalized = model_type.lower().replace("_", "-")
-
-    # Check if we have explicit mapping for this model_type
-    for mt, task in HF_MODEL_CLASS_MAPPING:
-        if mt == model_type_normalized:
-            return task, "HF_MODEL_CLASS_MAPPING"
-
-    # Wrapped-library model types (e.g. timm via "timm_wrapper") carry no
-    # `architectures`; reuse the loader's resolution to derive the real task
-    # instead of falling through to the HF_TASK_DEFAULTS mislabel below.
-    if model_type in WRAPPED_LIBRARY_MODEL_TYPES and not getattr(config, "architectures", None):
-        try:
-            task, _ = _detect_task_and_class_from_config(config)
-            return task, WRAPPED_LIBRARY_SOURCE
-        except Exception:
-            logger.debug("wrapped-library task detection failed for %s", model_type, exc_info=True)
-
-    # Use TasksManager detection
-    try:
-        task = _detect_task_from_config(config)
-        return task, "TasksManager"
-    except ValueError:
-        pass
-
-    # Fallback to task defaults
-    if HF_TASK_DEFAULTS:
-        first_task = next(iter(HF_TASK_DEFAULTS.keys()))
-        return first_task, "HF_TASK_DEFAULTS"
-
-    return "unknown", "none"
-
-
 def resolve_loader(model_type: str, task: str) -> LoaderInfo:
     """Resolve loader configuration for a model.
 
-    Uses _get_custom_model_class() from loader/task.py which looks up
+    Uses _get_custom_model_class() from loader/resolution.py which looks up
     MODEL_CLASS_MAPPING for (model_type, task) overrides.
 
     Args:
@@ -319,7 +270,14 @@ def resolve_exporter(
     # Check MODEL_BUILD_CONFIGS for predefined config
     if model_type_normalized in MODEL_BUILD_CONFIGS:
         config: WinMLBuildConfig = MODEL_BUILD_CONFIGS[model_type_normalized]
+        # MODEL_BUILD_CONFIGS entries are HF export configs; export is None only on
+        # the direct-ONNX build path, which never reaches this registry lookup.
         export_config = config.export
+        if export_config is None:
+            raise ValueError(
+                f"MODEL_BUILD_CONFIGS entry for {model_type_normalized!r} is missing an "
+                "export config (export is None only on the direct-ONNX build path)."
+            )
 
         # Extract input tensors
         input_tensors: list[TensorInfo] = []
@@ -376,8 +334,8 @@ def resolve_exporter(
                 config_name = onnx_config_cls.__name__
 
             # Extract tensor specs via resolve_io_specs (shared with config command)
-            input_tensors: list[TensorInfo] = []
-            output_tensors: list[TensorInfo] = []
+            input_tensors = []
+            output_tensors = []
 
             if hf_config is not None:
                 try:
@@ -631,6 +589,42 @@ def resolve_cache(model_id: str) -> CacheInfo:
     )
 
 
+def resolve_composite_info(
+    model_type: str, detected_components: dict[str, str] | None = None
+) -> CompositeInfo | None:
+    """Composite pipeline structure for a *resolved* model, or ``None``.
+
+    Returns ``None`` unless the model's resolved task bridges to a composite — i.e.
+    ``detected_components`` (from :attr:`TaskResolution.composite`) is set. This scopes
+    the composite view to genuine multi-component / non-runnable-half exports (a seq2seq
+    decoder, etc.) and avoids flagging every model_type that merely *could* serve a
+    composite pipeline (e.g. a CLIP inspected for plain feature-extraction).
+
+    ``pipeline_tasks`` (the higher-level pipelines the model_type serves) come from the
+    live composite registry; ``components`` is the resolver's detected breakdown.
+    """
+    # `is None` (not falsy): only the un-set case means "composite path not taken".
+    # An empty dict would be a genuine (if currently unproduced) composite with no
+    # component breakdown — the pipeline_tasks guard below still protects rendering.
+    if detected_components is None:
+        return None
+
+    from ..loader import composite_pipeline_tasks
+
+    pipeline_tasks = composite_pipeline_tasks(model_type)
+    if not pipeline_tasks:
+        # Registry-divergence guard: the resolver detected a composite but the registry
+        # yields no pipeline tasks for this model_type (e.g. a future registration the
+        # WinMLCompositeModel filter excludes). A CompositeInfo with empty pipeline_tasks
+        # would render a broken "[composite]" Task row, so treat it as non-composite.
+        return None
+
+    return CompositeInfo(
+        pipeline_tasks=pipeline_tasks,
+        components=dict(detected_components),
+    )
+
+
 def _find_nested_configs(config: PretrainedConfig) -> list:
     """Discover all nested PretrainedConfig objects dynamically.
 
@@ -745,8 +739,12 @@ def resolve_io_config(
 
     def get_config_attr(
         attr_name: str,
-    ) -> int | tuple[int, int] | list | None:
-        """Get attribute from main config or any nested config."""
+    ) -> Any:
+        """Get attribute from main config or any nested config.
+
+        Returns ``Any``: HF config attributes are dynamically typed (int, tuple,
+        list, str, ...), so each call site narrows to its target field type.
+        """
         value = getattr(config, attr_name, None)
         if value is not None:
             return value
@@ -812,14 +810,16 @@ def resolve_io_config(
         if val is not None:
             extra[attr] = val
 
-    # Step 5: Fallback — read image_size from preprocessor_config.json
-    # for models like ResNet where HF config lacks image_size
+    # Step 5: Fallback — read image_size from a preprocessor-style dict
+    # (preprocessor_config.json on the hub, or synthesized from a nested
+    # dict on hf_config such as TimmWrapperConfig.pretrained_cfg) when the
+    # top-level HF config lacks image_size.
     if image_size is None and model_id is not None:
         try:
             from ..export.io import _populate_image_size_from_preprocessor
 
             shape_kwargs: dict = {}
-            _populate_image_size_from_preprocessor(model_id, shape_kwargs)
+            _populate_image_size_from_preprocessor(model_id, shape_kwargs, config)
             if "height" in shape_kwargs:
                 h, w = shape_kwargs["height"], shape_kwargs["width"]
                 image_size = h if h == w else (h, w)
@@ -1000,7 +1000,7 @@ def _resolve_processor_from_hub_configs(model_id: str) -> _HubConfigResult:
     from pathlib import Path
 
     from huggingface_hub import hf_hub_download
-    from huggingface_hub.utils import EntryNotFoundError, RepositoryNotFoundError
+    from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
 
     processor_class: str | None = None
     tokenizer_class: str | None = None

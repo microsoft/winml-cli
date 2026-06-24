@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Literal, TypeAlias, get_args
+from typing import Literal, TypeAlias, cast, get_args
 
 
 if sys.platform == "win32":
@@ -47,6 +47,21 @@ EPAlias = Literal[
 
 # Either an alias or a full name — what user-facing entry points accept before normalization.
 EPNameOrAlias: TypeAlias = EPName | EPAlias
+
+
+# Compile backends selectable via ``--compiler`` (see commands/compile.py):
+#   "ort"          -> ort.ModelCompiler (default)
+#   "ort_session"  -> ort.InferenceSession (ep.context_enable)
+#   "qairt"        -> QAIRT SDK compiler
+CompilerName = Literal["ort", "ort_session", "qairt"]
+
+# The ``--compiler`` choice that selects the ort.InferenceSession backend (the others
+# go through ort.ModelCompiler / the QAIRT SDK). Referenced wherever the backend is
+# branched on, so the magic string lives in exactly one place.
+ORT_SESSION_COMPILER: CompilerName = "ort_session"
+
+# Runtime-iterable form of ``CompilerName`` (e.g. for the CLI choice list).
+COMPILER_NAMES: tuple[CompilerName, ...] = get_args(CompilerName)
 
 
 # Supported execution providers — derived from the ``EPName`` Literal above so
@@ -122,7 +137,9 @@ def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
     # the prior membership check narrowed ``ep_lower`` so the alias mapping is
     # total in this branch.
     ep_lower = ep.lower()
-    canonical = EP_ALIASES.get(ep_lower)  # type: ignore[arg-type]
+    # ep_lower is an arbitrary lowercased string; cast to the key type for the
+    # lookup (.get tolerates non-alias keys, returning None).
+    canonical = EP_ALIASES.get(cast("EPAlias", ep_lower))
     if canonical is not None:
         return canonical
 

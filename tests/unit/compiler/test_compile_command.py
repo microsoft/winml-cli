@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 from click.testing import CliRunner
 
 from winml.modelkit.cli import main
+from winml.modelkit.utils.constants import ORT_SESSION_COMPILER
 
 
 @pytest.fixture
@@ -340,6 +341,132 @@ class TestCompileCommand:
         config = mock_compile_onnx.call_args.kwargs["config"]
         assert config.ep_config.provider_options.get("device_type") == "NPU"
         assert config.ep_config.device == "npu"
+
+    def test_multiple_models_reject_output_file(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Multiple -m inputs with -o/--output (a file) are rejected: use --output-dir.
+
+        Several models share one EP context and are written by filename into a
+        directory, so a single output file path is ambiguous.
+        """
+        m1 = tmp_path / "m1.onnx"
+        m2 = tmp_path / "m2.onnx"
+        self._create_simple_onnx(m1)
+        self._create_simple_onnx(m2)
+        out_file = tmp_path / "out.onnx"
+
+        result = runner.invoke(main, ["compile", "-m", str(m1), "-m", str(m2), "-o", str(out_file)])
+
+        assert result.exit_code != 0
+        assert "output-dir" in result.output.lower(), result.output
+
+    def test_multiple_models_require_output_dir(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Multiple -m inputs with neither -o nor --output-dir are rejected.
+
+        --output-dir is mandatory for multi-model compiles (the compiled models are
+        written by filename into that directory).
+        """
+        m1 = tmp_path / "m1.onnx"
+        m2 = tmp_path / "m2.onnx"
+        self._create_simple_onnx(m1)
+        self._create_simple_onnx(m2)
+
+        result = runner.invoke(main, ["compile", "-m", str(m1), "-m", str(m2)])
+
+        assert result.exit_code != 0
+        assert "output-dir" in result.output.lower(), result.output
+
+    @patch("winml.modelkit.compiler.compile_multiple_onnx")
+    def test_multiple_models_with_output_dir_calls_compile_multiple(
+        self,
+        mock_compile_multiple: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Multiple -m inputs with --output-dir compile via compile_multiple_onnx."""
+        m1 = tmp_path / "m1.onnx"
+        m2 = tmp_path / "m2.onnx"
+        self._create_simple_onnx(m1)
+        self._create_simple_onnx(m2)
+        out_dir = tmp_path / "out"
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = out_dir / "m2_ctx.onnx"
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+        mock_compile_multiple.return_value = [mock_result, mock_result]
+
+        result = runner.invoke(
+            main,
+            [
+                "compile",
+                "-m",
+                str(m1),
+                "-m",
+                str(m2),
+                "--device",
+                "npu",
+                "--ep",
+                "qnn",
+                "--output-dir",
+                str(out_dir),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert mock_compile_multiple.called
+        call_args = mock_compile_multiple.call_args
+        # First positional arg is the ordered list of input models.
+        passed_models = call_args.args[0]
+        assert [str(m) for m in passed_models] == [str(m1), str(m2)]
+        # Second positional arg is the output target — the --output-dir directory.
+        assert call_args.args[1] == out_dir
+        # Backend is carried on the config's compiler; defaults to "ort" (ModelCompiler).
+        assert call_args.args[2].ep_config.compiler == "ort"
+
+    @patch("winml.modelkit.compiler.compile_multiple_onnx")
+    def test_ort_session_compiler_sets_config(
+        self,
+        mock_compile_multiple: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """--compiler ort_session is carried on the config used for compilation."""
+        m1 = tmp_path / "m1.onnx"
+        m2 = tmp_path / "m2.onnx"
+        self._create_simple_onnx(m1)
+        self._create_simple_onnx(m2)
+        out_dir = tmp_path / "out"
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = out_dir / "m2_ctx.onnx"
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+        mock_compile_multiple.return_value = [mock_result, mock_result]
+
+        result = runner.invoke(
+            main,
+            [
+                "compile",
+                "-m",
+                str(m1),
+                "-m",
+                str(m2),
+                "--device",
+                "npu",
+                "--ep",
+                "qnn",
+                "--output-dir",
+                str(out_dir),
+                "--compiler",
+                ORT_SESSION_COMPILER,
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        # The compiler choice is applied onto the config that drives compilation.
+        assert mock_compile_multiple.call_args.args[2].ep_config.compiler == ORT_SESSION_COMPILER
 
     def _create_simple_onnx(self, path: Path) -> None:
         """Create a simple ONNX model for testing."""

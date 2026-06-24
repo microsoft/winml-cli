@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import ClassVar, TypeVar
 
 
-T = TypeVar("T")
+T = TypeVar("T", bound=type)
 
 
 class DataRegistry:

@@ -16,7 +16,7 @@ import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
-from ..utils.eval_utils import TASK_SCHEMAS, TaskSchema
+from ..utils.eval_utils import EVAL_MODES, TASK_SCHEMAS, EvalMode, TaskSchema
 from ..utils.logging import configure_logging
 
 
@@ -82,15 +82,20 @@ logger = logging.getLogger(__name__)
     help="Device to run on. 'auto' detects the best available device.",
 )
 @cli_utils.ep_option(required=False)
-@click.option(
-    "--precision",
-    type=str,
-    default="auto",
-    show_default=True,
-    help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
-    "Applied during model build (fp16/fp32 skip quantization). "
-    "Ignored for pre-built ONNX inputs (precision is already baked in).",
+@cli_utils.precision_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs "
+    "(precision is already baked in).",
 )
+@cli_utils.quant_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
+)
+@cli_utils.optimize_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
+)
+@cli_utils.analyze_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
+)
+@cli_utils.max_optim_iterations_option(optional_message="Ignored for pre-built ONNX inputs.")
 @click.option(
     "--samples",
     type=int,
@@ -112,9 +117,9 @@ logger = logging.getLogger(__name__)
     help="Shuffle dataset before sampling.",
 )
 @click.option(
-    "--streaming",
-    is_flag=True,
+    "--streaming/--no-streaming",
     default=False,
+    show_default=True,
     help="Stream dataset instead of downloading fully.",
 )
 @click.option(
@@ -142,6 +147,7 @@ logger = logging.getLogger(__name__)
     help="Path to a Python script that builds the evaluation dataset.",
 )
 @cli_utils.trust_remote_code_option(optional_message="Required when --dataset-script is used.")
+@cli_utils.allow_unsupported_nodes_option()
 @click.option(
     "--schema",
     "show_schema",
@@ -149,6 +155,20 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Print expected dataset schema for the given --task and exit.",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(EVAL_MODES, case_sensitive=False),
+    default="onnx",
+    show_default=True,
+    help=(
+        "Evaluation mode. "
+        "'onnx' (default): evaluate the ONNX candidate on the dataset. "
+        "'compare': compare ONNX vs HF reference output tensors on identical "
+        "random inputs and report tensor-similarity metrics per output tensor."
+    ),
+)
+@cli_utils.skip_build_option()
+@cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @click.pass_context
@@ -162,6 +182,10 @@ def eval(
     task: str | None,
     device: str,
     precision: str,
+    quant: bool,
+    optimize: bool,
+    analyze: bool,
+    max_optim_iterations: int | None,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,
@@ -170,12 +194,16 @@ def eval(
     column: tuple[str, ...],
     label_mapping_path: Path | None,
     output: Path | None,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     dataset_script: str | None,
     trust_remote_code: bool,
+    allow_unsupported_nodes: bool,
     show_schema: bool,
+    mode: EvalMode,
     config_file: Path | None,
+    skip_build: bool,
 ) -> None:
     r"""Evaluate a model for a task.
 
@@ -231,10 +259,12 @@ def eval(
 
     logger.debug("Effective eval config: %s", cfg.to_dict())
 
+    json_mode = output_format == "json"
+
     # ── 3. Evaluate ──
     try:
         result = evaluate(cfg)
-        _write_and_display(result, cfg.output_path)
+        _write_and_display(result, cfg.output_path, json_mode=json_mode)
     except Exception as e:
         if verbose:
             logger.exception("Evaluation failed")
@@ -332,7 +362,7 @@ def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
 
     from ..sysinfo import resolve_device
 
-    console = Console()
+    console = Console(stderr=True)
     console.print("[bold]Detecting available devices...[/bold]")
     resolved, _ = resolve_device(cfg.device)
     cfg.device = resolved
@@ -373,7 +403,7 @@ def _run_dataset_script(cfg: WinMLEvaluationConfig, trust_remote_code: bool) -> 
 
     cmd = [sys.executable, str(script_path), "--output", str(Path(cfg.dataset.path).expanduser())]
 
-    Console().print(f"[bold]Building dataset via {script_path.name}...[/bold]")
+    Console(stderr=True).print(f"[bold]Building dataset via {script_path.name}...[/bold]")
     result = subprocess.run(  # noqa: S603
         cmd,
         capture_output=True,
@@ -387,16 +417,21 @@ def _run_dataset_script(cfg: WinMLEvaluationConfig, trust_remote_code: bool) -> 
         )
 
 
-def _write_and_display(result: EvalResult, output_path: Path | None) -> None:
+def _write_and_display(
+    result: EvalResult, output_path: Path | None, *, json_mode: bool = False
+) -> None:
     """Display evaluation results and optionally save to JSON."""
-    console = Console()
-    display_eval_report(result, console)
+    if json_mode:
+        click.echo(json.dumps(result.to_dict(), indent=2, default=_json_default))
+    else:
+        console = Console()
+        display_eval_report(result, console)
 
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
             json.dump(result.to_dict(), f, indent=2, default=_json_default)
-        console.print(f"[green]Results saved to:[/green] {output_path}")
+        Console(stderr=True).print(f"[green]Results saved to:[/green] {output_path}")
 
 
 def _resolve_model_path(
@@ -510,7 +545,8 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
     console.print(f"[dim]Device:[/dim]     {cfg.device}")
-    console.print(f"[dim]Dataset:[/dim]    {ds.path}")
+    if ds.path:
+        console.print(f"[dim]Dataset:[/dim]    {ds.path}")
     console.print(f"[dim]Samples:[/dim]    {ds.samples}")
     if cfg.model_path:
         console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")

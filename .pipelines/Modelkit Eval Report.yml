@@ -1,0 +1,102 @@
+trigger: none
+
+schedules:
+  - cron: '0 0 * * Fri'
+    displayName: 'Weekly run — Friday 08:00 (UTC+8)'
+    branches:
+      include:
+        - main
+    always: true
+
+resources:
+  repositories:
+    - repository: ModelKitArtifacts
+      type: github
+      endpoint: github.com_yuesu_microsoft
+      name: gim-home/ModelKitArtifacts
+      ref: main
+
+parameters:
+  - name: evalDate
+    displayName: 'Eval date (auto = today, e.g. 2026-04-01)'
+    type: string
+    default: 'auto'
+  - name: continueRun
+    displayName: 'Skip already-evaluated models (--continue)'
+    type: boolean
+    default: true
+  - name: retryFailed
+    displayName: 'Retry previously failed models (--retry-failed)'
+    type: boolean
+    default: false
+  - name: qnnAgentName
+    displayName: 'QNN: self-hosted agent name (Agent.Name)'
+    type: string
+    default: NPU-QNN
+  - name: qnnPairs
+    displayName: 'QNN: EP/device pairs (any of: qnn_npu, qnn_gpu)'
+    type: object
+    default:
+      - qnn_npu
+      - qnn_gpu
+  - name: ovAgentName
+    displayName: 'OV: self-hosted agent name (Agent.Name)'
+    type: string
+    default: NPU-OV2
+  - name: ovPairs
+    displayName: 'OV: EP/device pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
+    type: object
+    default:
+      - dml_gpu
+      - mlas_cpu
+      - ov_cpu
+      - ov_gpu
+      - ov_npu
+  - name: amdAgentName
+    displayName: 'AMD: self-hosted agent name (Agent.Name)'
+    type: string
+    default: NPU-AMD
+  - name: amdPairs
+    displayName: 'AMD: EP/device pairs (any of: vitisai_npu)'
+    type: object
+    default:
+      - vitisai_npu
+
+stages:
+  - stage: NPU_QNN
+    displayName: 'Eval Report — QNN'
+    jobs:
+      - template: templates/eval-report-jobs.yml
+        parameters:
+          agentName: ${{ parameters.qnnAgentName }}
+          agentSuffix: qnn
+          evalDate: ${{ parameters.evalDate }}
+          continueRun: ${{ parameters.continueRun }}
+          retryFailed: ${{ parameters.retryFailed }}
+          pairNames: ${{ parameters.qnnPairs }}
+
+  - stage: NPU_OV
+    displayName: 'Eval Report — OV'
+    dependsOn: []
+    jobs:
+      - template: templates/eval-report-jobs.yml
+        parameters:
+          agentName: ${{ parameters.ovAgentName }}
+          agentSuffix: ov
+          evalDate: ${{ parameters.evalDate }}
+          continueRun: ${{ parameters.continueRun }}
+          retryFailed: ${{ parameters.retryFailed }}
+          pairNames: ${{ parameters.ovPairs }}
+
+  - stage: NPU_AMD
+    displayName: 'Eval Report — AMD'
+    dependsOn: []
+    jobs:
+      - template: templates/eval-report-jobs.yml
+        parameters:
+          agentName: ${{ parameters.amdAgentName }}
+          agentSuffix: amd
+          evalDate: ${{ parameters.evalDate }}
+          continueRun: ${{ parameters.continueRun }}
+          retryFailed: ${{ parameters.retryFailed }}
+          pairNames: ${{ parameters.amdPairs }}

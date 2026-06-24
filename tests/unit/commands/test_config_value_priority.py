@@ -279,7 +279,12 @@ def _run_perf(
     json_dict: dict | None,
     tmp_path: Path,
 ) -> dict[str, Any]:
-    """Drive ``winml perf`` (ONNX-file branch) and capture ``BenchmarkConfig``."""
+    """Drive ``winml perf`` and capture ``BenchmarkConfig``.
+
+    Both HF and ONNX inputs now flow through ``PerfBenchmark`` (see PR #596
+    ``fix(perf): unify HF and ONNX paths``), so this adapter patches the
+    class itself and captures the ``BenchmarkConfig`` from its constructor.
+    """
     from winml.modelkit.commands.perf import perf as perf_cmd
 
     model = _make_fake_onnx(tmp_path)
@@ -287,9 +292,12 @@ def _run_perf(
 
     captured: dict[str, Any] = {}
 
-    def fake_run(model_path, *, config=None, **_kw):
+    def fake_benchmark(config):
         captured["config"] = config
-        return MagicMock()
+        instance = MagicMock()
+        instance.run.return_value = MagicMock()
+        captured["instance"] = instance
+        return instance
 
     args = ["-m", str(model), *cli_args]
     if config_path is not None:
@@ -297,8 +305,8 @@ def _run_perf(
 
     with (
         patch(
-            "winml.modelkit.commands.perf._run_onnx_benchmark",
-            side_effect=fake_run,
+            "winml.modelkit.commands.perf.PerfBenchmark",
+            side_effect=fake_benchmark,
         ),
         patch("winml.modelkit.commands.perf.display_console_report"),
         patch("winml.modelkit.commands.perf.write_json_report"),
@@ -310,8 +318,16 @@ def _run_perf(
         r = CliRunner().invoke(perf_cmd, args, obj={}, catch_exceptions=False)
     assert r.exit_code == 0, r.output
 
+    # Guard against the perf command short-circuiting before the benchmark
+    # runs (e.g. an early return after constructing PerfBenchmark): the
+    # captured BenchmarkConfig would still let the priority assertions pass
+    # but the command wouldn't be exercising the real flow.
+    assert captured["instance"].run.call_count == 1, (
+        "PerfBenchmark was constructed but .run() was never invoked"
+    )
+
     cfg = captured["config"]
-    return {"ep": cfg.ep}
+    return {"ep": cfg.ep, "skip_build": cfg.skip_build}
 
 
 def _run_analyze(
@@ -353,14 +369,16 @@ def _run_analyze(
             return_value=True,
         ),
         patch(
-            "winml.modelkit.commands.analyze._discover_runtime_rule_parquet_files",
-            return_value=(
-                [Path("runtime_check_rules")],
-                [Path("runtime_check_rules/mock.parquet")],
-            ),
+            "winml.modelkit.analyze.utils.ep_utils.has_any_rule_data",
+            return_value=True,
         ),
-        # Deterministic Tier-3 default: when ep stays "auto" through the
-        # merge block, _get_available_eps -> QNN so target_ep is fixed.
+        # Deterministic Tier-3 default: when ep stays "auto" through the merge
+        # block, analyze resolves it via resolve_eps(resolved_device)[0]. Pin the
+        # ORT device->EP map so npu -> QNN, fixing the resolved target EP.
+        patch(
+            "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
+            return_value={"npu": ("QNNExecutionProvider",)},
+        ),
         patch(
             "winml.modelkit.sysinfo.device._get_available_eps",
             return_value=["QNNExecutionProvider"],
@@ -529,6 +547,7 @@ def _run_eval(
         "ep": cfg.ep,
         "task": cfg.task,
         "device": cfg.device,
+        "skip_build": cfg.skip_build,
         "dataset_samples": cfg.dataset.samples,
         "dataset_name": cfg.dataset.name,
     }
@@ -704,15 +723,11 @@ class TestCompilePriority:
         _check_t2_beats_t3(_run_compile, case, tmp_path)
 
     @pytest.mark.parametrize("case", COMPILE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_compile, case, tmp_path)
 
     @pytest.mark.parametrize("case", COMPILE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_compile, case, tmp_path)
 
 
@@ -728,16 +743,39 @@ class TestPerfPriority:
         _check_t2_beats_t3(_run_perf, case, tmp_path)
 
     @pytest.mark.parametrize("case", PERF_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_perf, case, tmp_path)
 
     @pytest.mark.parametrize("case", PERF_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_perf, case, tmp_path)
+
+    # ------------------------------------------------------------------
+    # Targeted tests for the ``--skip-build/--no-skip-build`` toggle.
+    # Unlike ``ep``, ``skip_build`` has NO JSON config source: perf's merge
+    # block (perf.py) only reads ``task`` and ``execution_provider`` from
+    # the ``-c`` file, so ``skip_build`` flows CLI -> BenchmarkConfig
+    # directly with no Tier-2 path. That, plus the boolean flag not fitting
+    # the FieldCase ``[flag, value]`` shape, is why it's tested explicitly
+    # here rather than as a PERF_CASES FieldCase. These guard against a
+    # param-name mismatch in the ``perf()`` signature and against the CLI
+    # option default drifting from the BenchmarkConfig field default.
+    # ------------------------------------------------------------------
+
+    def test_skip_build_default_is_true(self, tmp_path: Path) -> None:
+        """No flag -> cfg.skip_build keeps the True default."""
+        eff = _run_perf([], None, tmp_path)
+        assert eff["skip_build"] is True
+
+    def test_no_skip_build_flag_sets_false(self, tmp_path: Path) -> None:
+        """``--no-skip-build`` -> cfg.skip_build is False."""
+        eff = _run_perf(["--no-skip-build"], None, tmp_path)
+        assert eff["skip_build"] is False
+
+    def test_skip_build_flag_sets_true(self, tmp_path: Path) -> None:
+        """``--skip-build`` -> cfg.skip_build is True."""
+        eff = _run_perf(["--skip-build"], None, tmp_path)
+        assert eff["skip_build"] is True
 
 
 class TestAnalyzePriority:
@@ -752,15 +790,11 @@ class TestAnalyzePriority:
         _check_t2_beats_t3(_run_analyze, case, tmp_path)
 
     @pytest.mark.parametrize("case", ANALYZE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_analyze, case, tmp_path)
 
     @pytest.mark.parametrize("case", ANALYZE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_analyze, case, tmp_path)
 
 
@@ -776,15 +810,11 @@ class TestExportPriority:
         _check_t2_beats_t3(_run_export, case, tmp_path)
 
     @pytest.mark.parametrize("case", EXPORT_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_export, case, tmp_path)
 
     @pytest.mark.parametrize("case", EXPORT_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_export, case, tmp_path)
 
     # ------------------------------------------------------------------
@@ -797,13 +827,9 @@ class TestExportPriority:
     # explicitly here.
     # ------------------------------------------------------------------
 
-    def test_json_export_enable_hierarchy_tags_false_applies(
-        self, tmp_path: Path
-    ) -> None:
+    def test_json_export_enable_hierarchy_tags_false_applies(self, tmp_path: Path) -> None:
         """JSON ``{"export": {"enable_hierarchy_tags": false}}`` reaches cfg."""
-        eff = _run_export(
-            [], {"export": {"enable_hierarchy_tags": False}}, tmp_path
-        )
+        eff = _run_export([], {"export": {"enable_hierarchy_tags": False}}, tmp_path)
         assert eff["enable_hierarchy_tags"] is False
 
     def test_empty_export_section_keeps_enable_hierarchy_tags_cli_default(
@@ -823,9 +849,7 @@ class TestExportPriority:
         eff = _run_export([], {"export": {"dynamo": True}}, tmp_path)
         assert eff["dynamo"] is True
 
-    def test_empty_export_section_keeps_dynamo_cli_default(
-        self, tmp_path: Path
-    ) -> None:
+    def test_empty_export_section_keeps_dynamo_cli_default(self, tmp_path: Path) -> None:
         """JSON ``{"export": {}}`` must NOT change ``dynamo``.
 
         Guards the same fix as ``enable_hierarchy_tags`` above.
@@ -846,15 +870,11 @@ class TestQuantizePriority:
         _check_t2_beats_t3(_run_quantize, case, tmp_path)
 
     @pytest.mark.parametrize("case", QUANTIZE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_quantize, case, tmp_path)
 
     @pytest.mark.parametrize("case", QUANTIZE_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_quantize, case, tmp_path)
 
 
@@ -877,20 +897,42 @@ class TestEvalPriority:
         _check_t2_beats_t3(_run_eval, case, tmp_path)
 
     @pytest.mark.parametrize("case", EVAL_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_empty_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_empty_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_empty_section(_run_eval, case, tmp_path)
 
     @pytest.mark.parametrize("case", EVAL_CASES, ids=lambda c: c.field)
-    def test_t3_not_shadowed_by_absent_section(
-        self, case: FieldCase, tmp_path: Path
-    ) -> None:
+    def test_t3_not_shadowed_by_absent_section(self, case: FieldCase, tmp_path: Path) -> None:
         _check_t3_not_shadowed_by_absent_section(_run_eval, case, tmp_path)
 
-    def test_empty_quant_section_does_not_leak_to_dataset_samples(
-        self, tmp_path: Path
-    ) -> None:
+    # ------------------------------------------------------------------
+    # Targeted tests for the ``--skip-build/--no-skip-build`` toggle.
+    # Unlike perf's ``skip_build`` (no JSON source -> CLI-only), eval's
+    # ``skip_build`` has a full Tier-2 path: ``{"eval": {"skip_build": ...}}``
+    # flows through ``merge_config(cfg, eval_data)`` in ``_build_eval_config``,
+    # and the CLI layer (``collect_cli_overrides``) overrides it. The boolean
+    # flag doesn't fit the FieldCase ``[flag, value]`` shape, so the full
+    # CLI > config-file > default contract is verified explicitly here.
+    # ------------------------------------------------------------------
+
+    def test_skip_build_default_is_true(self, tmp_path: Path) -> None:
+        """Tier 3: no flag, no JSON -> cfg.skip_build keeps the True default."""
+        assert _run_eval([], None, tmp_path)["skip_build"] is True
+
+    def test_no_skip_build_flag_sets_false(self, tmp_path: Path) -> None:
+        """Tier 1: ``--no-skip-build`` -> cfg.skip_build is False."""
+        assert _run_eval(["--no-skip-build"], None, tmp_path)["skip_build"] is False
+
+    def test_json_skip_build_false_applies(self, tmp_path: Path) -> None:
+        """Tier 2: config file ``{"eval": {"skip_build": false}}`` must take effect."""
+        eff = _run_eval([], {"eval": {"skip_build": False}}, tmp_path)
+        assert eff["skip_build"] is False
+
+    def test_cli_beats_json_skip_build(self, tmp_path: Path) -> None:
+        """Tier 1 > Tier 2: explicit CLI ``--skip-build`` must win over JSON False."""
+        eff = _run_eval(["--skip-build"], {"eval": {"skip_build": False}}, tmp_path)
+        assert eff["skip_build"] is True
+
+    def test_empty_quant_section_does_not_leak_to_dataset_samples(self, tmp_path: Path) -> None:
         """JSON ``{"quant": {}}`` must NOT change ``cfg.dataset.samples``.
 
         Pins Bug 2a: today ``WinMLQuantizationConfig.samples`` default ``10``
@@ -903,9 +945,7 @@ class TestEvalPriority:
             f"expected CLI default 100, got {eff['dataset_samples']!r}"
         )
 
-    def test_explicit_quant_samples_does_not_leak_to_dataset_samples(
-        self, tmp_path: Path
-    ) -> None:
+    def test_explicit_quant_samples_does_not_leak_to_dataset_samples(self, tmp_path: Path) -> None:
         """JSON ``{"quant": {"samples": 50}}`` must NOT change
         ``cfg.dataset.samples``.
 

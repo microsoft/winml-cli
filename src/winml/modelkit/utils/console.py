@@ -15,13 +15,18 @@ for machine-readable output (JSON configs, build manifests).
 
 from __future__ import annotations
 
+import functools
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.text import Text
+
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 if TYPE_CHECKING:
@@ -112,12 +117,12 @@ def print_io_specs_detail(
 
     for i, t in enumerate(inputs):
         name = t.name or "(unnamed)"
-        shape_str = str(list(t.shape)) if getattr(t, "shape", None) else "dynamic"
+        shape_str = str(list(t.shape)) if t.shape else "dynamic"
         dtype_str = getattr(t, "dtype", None) or "?"
         label = "Input:        " if i == 0 else "              "
         console.print(f"   {label}[cyan]{name:<18}[/cyan] {shape_str:<14} [dim]{dtype_str}[/dim]")
-    for i, t in enumerate(outputs):
-        name = t.name or "(unnamed)"
+    for i, out_t in enumerate(outputs):
+        name = out_t.name or "(unnamed)"
         # Fix #3: OutputTensorSpec only has name — show name only
         label = "Output:       " if i == 0 else "              "
         console.print(f"   {label}[cyan]{name}[/cyan]")
@@ -266,6 +271,67 @@ def get_onnx_total_size(onnx_path: Path) -> int:
 # ══════════════════════════════════════════════════════════════════════════
 
 
+class _SafeLive(Live):
+    """A :class:`rich.live.Live` that survives Windows console hiccups.
+
+    Some native dependencies (e.g. OpenVINO / ONNX Runtime EPs) can put
+    the Windows console handle into a state where ANSI/control writes
+    fail with ``OSError: [WinError 1]`` ("Incorrect function").  That
+    error is raised from Rich's daemon refresh thread, which then dies
+    and dumps an ugly traceback into the middle of build output even
+    though the build itself succeeds.
+
+    This subclass catches :class:`OSError` in :meth:`refresh` and, after
+    the first failure, disables further refreshes for the lifetime of
+    this Live instance.  ``start``/``stop``/``update`` are also wrapped
+    so callers can use ``_SafeLive`` exactly like :class:`Live`.  The
+    visible effect is that the final frame may not animate further, but
+    no traceback escapes and the surrounding pipeline continues normally.
+    """
+
+    @staticmethod
+    def _swallow_oserror(method: F) -> F:
+        """Decorator: invoke ``method`` and swallow console ``OSError``."""
+
+        @functools.wraps(method)
+        def wrapper(self: _SafeLive, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return method(self, *args, **kwargs)
+            except OSError:
+                logger.debug("Ignoring OSError from Live.%s", method.__name__, exc_info=True)
+                return None
+
+        return wrapper  # type: ignore[return-value]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._refresh_disabled: bool = False
+
+    def refresh(self) -> None:
+        if self._refresh_disabled:
+            return
+        try:
+            super().refresh()
+        except OSError:
+            # Console handle is unusable (typically VT/handle state damaged
+            # by a native library).  Disable further refreshes so the
+            # daemon thread does not spam tracebacks.
+            self._refresh_disabled = True
+            logger.debug("Disabling Live refresh after OSError", exc_info=True)
+
+    @_swallow_oserror
+    def start(self, refresh: bool = False) -> None:
+        super().start(refresh=refresh)
+
+    @_swallow_oserror
+    def stop(self) -> None:
+        super().stop()
+
+    @_swallow_oserror
+    def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:
+        super().update(renderable, refresh=refresh)
+
+
 class StageLive:
     """Live region for a single build stage.
 
@@ -287,13 +353,13 @@ class StageLive:
         self._name = name
         self._console = console
         self._lines: list[RenderableType] = []
-        self._live: Live | None = None
+        self._live: _SafeLive | None = None
         self._status_idx: int = 0
 
     def __enter__(self) -> StageLive:
         self._lines = [self._make_running_line()]
         self._status_idx = 0
-        self._live = Live(
+        self._live = _SafeLive(
             self._render(),
             console=self._console,
             refresh_per_second=15,

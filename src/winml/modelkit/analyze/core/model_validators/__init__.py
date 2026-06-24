@@ -12,6 +12,7 @@ opportunities and quality issues.
 from __future__ import annotations
 
 from .base import ModelValidator
+from .batched_const_matmul_validator import BatchedConstMatMulValidator
 from .constant_folding_validator import ConstantFoldingValidator
 from .dynamic_input_validator import DynamicInputValidator
 from .model_validator_manager import ModelValidatorManager
@@ -21,6 +22,7 @@ from .shape_inference_validator import ShapeInferenceValidator
 
 
 __all__ = [
+    "BatchedConstMatMulValidator",
     "ConstantFoldingValidator",
     "DynamicInputValidator",
     "ModelValidator",

@@ -1,0 +1,281 @@
+# Job template for the Modelkit E2E Test (daily scheduled) pipeline.
+#
+# Two phases run on each agent, after a shared env setup:
+#
+#   1. winml perf loop — gated by `runEval`. One step per (model × pair).
+#   2. pytest e2e suites — one step per entry in `pytestTargets`. Each
+#      writes a junit XML; one PublishTestResults task at the end
+#      aggregates them into the ADO Tests tab.
+#
+# Each test step uses `condition: always()` so later steps run even if
+# an earlier one failed (we want to see every failure in a daily run).
+# Steps still propagate their real exit codes, so the job is marked
+# failed whenever any step fails.
+parameters:
+  - name: agentName
+    type: string
+  - name: agentSuffix
+    type: string
+  # See catalog in `eval-report-jobs.yml`. Valid names:
+  #   qnn_npu, qnn_gpu, vitisai_npu, dml_gpu,
+  #   mlas_cpu, ov_cpu, ov_gpu, ov_npu
+  - name: pairNames
+    type: object
+  # Inline list of models to test. Each entry: { hf_id: <str>, task: <str> }.
+  # `task` is optional — omit (or leave empty) to let winml infer.
+  - name: models
+    type: object
+  - name: modelTimeout
+    type: number
+    default: 1800
+
+  - name: runEval
+    type: boolean
+    default: true
+
+  # List of pytest e2e test short names. Each entry `<name>` runs
+  # `tests/e2e/test_<name>_e2e.py`. Empty list skips the pytest phase.
+  - name: pytestTargets
+    type: object
+    default: []
+
+  - name: pytestTimeout
+    type: number
+    default: 1000
+
+jobs:
+  - job: E2ETest_${{ parameters.agentSuffix }}
+    displayName: 'E2E Test (${{ parameters.agentSuffix }})'
+    pool:
+      name: modelkit-selfhost-pool
+      demands:
+        - Agent.Name -equals ${{ parameters.agentName }}
+    timeoutInMinutes: 360
+    cancelTimeoutInMinutes: 2
+
+    steps:
+      - checkout: self
+        clean: false
+        fetchDepth: 1
+        path: s
+
+      - checkout: ModelKitArtifacts
+        fetchDepth: 1
+        lfs: true
+        path: artifacts
+        # Keep the GitHub auth token in the repo's git config so the runtime
+        # step below can fetch/checkout the matching release branch.
+        persistCredentials: true
+
+      # The ModelKitArtifacts resource is pinned to `main` (a repository
+      # resource `ref` cannot be conditionally chosen from the running branch).
+      # When this pipeline runs on a release/* branch, switch the already
+      # checked-out artifacts repo to the same-named release branch so its
+      # content matches the modelkit release. Fall back to main (with a
+      # warning) when no such branch exists — e.g. feature/ad-hoc branches.
+      - powershell: |
+          $srcBranch = "$(Build.SourceBranch)"
+          if ($srcBranch -notlike 'refs/heads/release/*') {
+            Write-Host "Source branch '$srcBranch' is not a release branch; using ModelKitArtifacts@main."
+            exit 0
+          }
+          $relBranch = $srcBranch -replace '^refs/heads/', ''
+          $repoDir = "$(Agent.BuildDirectory)/artifacts"
+          if (-not (Test-Path "$repoDir/.git")) {
+            $repoDir = "$(Agent.BuildDirectory)/ModelKitArtifacts"
+          }
+          Push-Location $repoDir
+          try {
+            Write-Host "Fetching ModelKitArtifacts branch '$relBranch'..."
+            git fetch --depth 1 origin "${relBranch}:${relBranch}"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "ModelKitArtifacts has no branch '$relBranch' (or fetch failed); staying on main."
+              exit 0
+            }
+            git checkout $relBranch
+            if ($LASTEXITCODE -ne 0) { Write-Error "Failed to checkout ModelKitArtifacts '$relBranch'."; exit 1 }
+            git lfs pull
+            if ($LASTEXITCODE -ne 0) { Write-Error "git lfs pull failed for ModelKitArtifacts '$relBranch'."; exit 1 }
+            Write-Host "Switched ModelKitArtifacts to '$relBranch'."
+          } finally {
+            Pop-Location
+          }
+        displayName: 'Align ModelKitArtifacts with release branch'
+
+      - powershell: |
+          Write-Host "Agent.BuildDirectory : $(Agent.BuildDirectory)"
+          Write-Host "Build.SourcesDirectory: $(Build.SourcesDirectory)"
+          $repoDir = "$(Agent.BuildDirectory)/artifacts"
+          if (-not (Test-Path "$repoDir/rules")) {
+            $repoDir = "$(Agent.BuildDirectory)/ModelKitArtifacts"
+          }
+          $src = "$repoDir/rules"
+          $dst = "$(Build.SourcesDirectory)/src/winml/modelkit/analyze/rules/runtime_check_rules"
+          if (Test-Path $src) {
+            New-Item -ItemType Directory -Path $dst -Force | Out-Null
+            $parquets = Get-ChildItem "$src" -Filter "*.parquet" -Recurse
+            foreach ($parquet in $parquets) {
+              $relativePath = $parquet.FullName.Substring($src.Length).TrimStart('\\')
+              $targetPath = Join-Path $dst $relativePath
+              New-Item -ItemType Directory -Path (Split-Path $targetPath -Parent) -Force | Out-Null
+              Copy-Item $parquet.FullName -Destination $targetPath -Force
+            }
+            Write-Host "Copied $($parquets.Count) rule parquet file(s) to $dst"
+            $bad = $parquets | Where-Object { $_.Length -lt 1024 }
+            if ($bad) {
+              Write-Error "The following parquet files are suspiciously small (likely unresolved LFS pointers):"
+              $bad | ForEach-Object { Write-Host "  $($_.Name): $($_.Length) bytes" }
+              exit 1
+            }
+          } else {
+            Write-Error "Rules source not found at: $src"
+            Get-ChildItem $repoDir -Recurse -Depth 2 | Select-Object FullName
+            exit 1
+          }
+        displayName: 'Copy runtime check rules from ModelKitArtifacts'
+
+      - powershell: |
+          $uvBin = "$env:USERPROFILE\.local\bin"
+          if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+            Invoke-RestMethod https://astral.sh/uv/0.10.12/install.ps1 | Invoke-Expression
+            $env:PATH = "$uvBin;$env:PATH"
+          }
+          uv python install 3.11
+          Remove-Item -Recurse -Force "$(Build.SourcesDirectory)\.venv" -ErrorAction SilentlyContinue
+          uv venv $(Build.SourcesDirectory)\.venv --python 3.11
+          $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
+          Write-Host "##vso[task.prependpath]$uvBin"
+          Write-Host "##vso[task.prependpath]$venvDir"
+        displayName: 'Install uv 0.10.12 and Python'
+
+      - script: python --version
+        displayName: 'Check Python version'
+
+      - task: PipAuthenticate@1
+        inputs:
+          artifactFeeds: 'windows.ai.toolkit/Modelkit'
+        displayName: 'Authenticate pip with Azure Artifacts'
+
+      # NOTE: This is the single source of truth for installing project deps
+      # into the venv. Every later step uses `uv run --no-sync` to *skip*
+      # uv's lockfile sync and rely on what was installed here. Do NOT remove
+      # this step assuming `uv run` will install on demand -- it won't, with
+      # `--no-sync` -- and do NOT drop `--no-sync` below assuming it's a
+      # no-op: without it, `uv run` would re-resolve from uv.lock and may
+      # silently replace this editable install.
+      - script: |
+          uv pip install -e .[dev]
+        workingDirectory: $(Build.SourcesDirectory)
+        displayName: 'Install dependencies'
+
+      # ----------------------------------------------------------------------
+      # Phase 1: winml perf (gated by runEval).
+      # One step per (model × pair); template-time expanded for granular UI.
+      # All `uv run` calls below use `--no-sync` -- see install step above.
+      # ----------------------------------------------------------------------
+      - ${{ if eq(parameters.runEval, true) }}:
+          - ${{ each model in parameters.models }}:
+              - ${{ each pairName in parameters.pairNames }}:
+                  - powershell: |
+                      $catalog = @{
+                          'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+                          'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
+                          'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
+                          'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
+                          'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
+                          'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
+                          'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
+                          'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
+                      }
+                      $name = '${{ pairName }}'
+                      if (-not $catalog.ContainsKey($name)) {
+                          Write-Error "Unknown EP/device pair name: '$name'. Valid: $($catalog.Keys -join ', ')"
+                          exit 1
+                      }
+                      $pair = $catalog[$name]
+
+                      $hfModel = '${{ model.hf_id }}'
+                      $task    = '${{ model.task }}'
+                      $output  = "$(Agent.TempDirectory)/e2e-test/$name"
+
+                      # Determine if this is the LAST pair for this model so we
+                      # only clean caches once per model -- HF download and WinML
+                      # build cache are reused across EPs for the same model.
+                      # ADO template expressions have no arithmetic so we can't
+                      # compute "last index" at compile time, but `join()` IS
+                      # supported and lets us pass the full pair list as a CSV
+                      # string for runtime PowerShell to inspect. This mirrors
+                      # the pattern in eval-report-jobs.yml (which does the same
+                      # check via a single PowerShell `for` loop over pairs).
+                      $allPairs = @(('${{ join(',', parameters.pairNames) }}' -split ',') |
+                                    Where-Object { $_ -and $_.Trim() -ne '' } |
+                                    ForEach-Object { $_.Trim() })
+                      $isLastPair = ($name -eq $allPairs[-1])
+
+                      Write-Host "============================================================"
+                      Write-Host "Eval: $hfModel  (task='$task')  on  $($pair.displayName) [name=$name, last=$isLastPair]"
+                      Write-Host "============================================================"
+
+                      $uvArgs = @(
+                          "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
+                          "--hf-model", $hfModel,
+                          "--device", $pair.device,
+                          "--ep", $pair.ep,
+                          "--eval-type", "perf",
+                          "--no-report",
+                          "--verbose",
+                          "--timeout", "${{ parameters.modelTimeout }}",
+                          "--output-dir", $output
+                      )
+                      if ($task) {
+                          $uvArgs += @("--task", $task)
+                      }
+                      if ($isLastPair) {
+                          $uvArgs += "--clean-cache"
+                      }
+
+                      & uv @uvArgs
+                      $code = $LASTEXITCODE
+                      if ($code -ne 0) {
+                          Write-Error "Eval FAILED: $hfModel (task='$task') on $($pair.displayName) (exit=$code)"
+                      } else {
+                          Write-Host "Eval PASSED: $hfModel (task='$task') on $($pair.displayName)"
+                      }
+                      exit $code
+                    workingDirectory: $(Build.SourcesDirectory)
+                    # Always run so a failure on one pair does not hide failures on others.
+                    # The job is still marked failed by ADO because of the non-zero exit.
+                    condition: always()
+                    displayName: 'Eval: ${{ model.hf_id }} / ${{ model.task }} on ${{ pairName }}'
+
+      # ----------------------------------------------------------------------
+      # Phase 2: pytest e2e suites. One step per entry in `pytestTargets`.
+      # Each `<name>` runs `tests/e2e/test_<name>_e2e.py` and writes a
+      # per-step junit XML; aggregated by PublishTestResults at the end.
+      # Tests use `require_ep()` to self-skip on irrelevant EPs, so it is
+      # safe to run all of them on every agent.
+      # ----------------------------------------------------------------------
+      - ${{ each target in parameters.pytestTargets }}:
+          - powershell: |
+              uv run --no-sync python -m pytest tests/e2e/test_${{ target }}_e2e.py -m e2e --timeout=${{ parameters.pytestTimeout }} --junitxml="$(Agent.TempDirectory)/junit-${{ parameters.agentSuffix }}-${{ target }}.xml" -v
+              exit $LASTEXITCODE
+            workingDirectory: $(Build.SourcesDirectory)
+            condition: always()
+            displayName: 'pytest: test_${{ target }}_e2e.py'
+
+      # ----------------------------------------------------------------------
+      # Publish all pytest junit XMLs as ADO test results. Runs always so
+      # we see partial results even when an earlier step failed.
+      # failTaskOnFailedTests is false because the pytest step itself
+      # already failed the job on non-zero exit; we don't want a second
+      # failure source from this aggregator.
+      # ----------------------------------------------------------------------
+      - task: PublishTestResults@2
+        condition: always()
+        inputs:
+          testResultsFormat: 'JUnit'
+          testResultsFiles: '$(Agent.TempDirectory)/junit-${{ parameters.agentSuffix }}-*.xml'
+          testRunTitle: 'pytest e2e (${{ parameters.agentSuffix }})'
+          mergeTestResults: true
+          failTaskOnFailedTests: false
+        displayName: 'Publish pytest e2e results'

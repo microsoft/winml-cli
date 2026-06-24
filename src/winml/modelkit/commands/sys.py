@@ -566,16 +566,24 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
     console = _get_console()
     console.print("\n[bold blue]Available Devices (priority order)[/bold blue]")
     for dev in devices:
+        # highlight=False keeps Rich's auto-highlighter (which would otherwise
+        # colorize numbers, IDs, paths, etc.) off the device name. Markup styles
+        # ([bold], [cyan]) on the prefix still apply.
         console.print(
-            f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {dev['name']}"
+            f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {dev['name']}",
+            highlight=False,
         )
         details = dev.get("details", {})
         if "error" in details:
             console.print(f"             [red]Error: {details['error']}[/red]")
         elif dev["type"] in ("NPU", "GPU"):
+            # Explicit [green] markup with highlight=False — Rich's auto-highlighter
+            # mis-styles driver version strings, so opt out of it here and apply
+            # the green via markup we control.
             console.print(
-                f"             Driver: {details.get('driver', 'N/A')} | "
-                f"Manufacturer: {details.get('manufacturer', 'N/A')}"
+                f"             Driver: [bold bright_green]{details.get('driver', 'N/A')}[/] | "
+                f"Manufacturer: {details.get('manufacturer', 'N/A')}",
+                highlight=False,
             )
         elif dev["type"] == "CPU":
             console.print(
@@ -658,14 +666,7 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
 
 
 @click.command()
-@click.option(
-    "--format",
-    "-f",
-    "output_format",
-    type=click.Choice(["text", "json", "compact"], case_sensitive=False),
-    default="text",
-    help="Output format: text (human-readable), json, or compact",
-)
+@cli_utils.format_option(choices=["text", "json", "compact"], default="text")
 @click.option(
     "--list-device",
     is_flag=True,
@@ -682,7 +683,7 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
 @click.pass_context
 def sysinfo(
     ctx: click.Context,
-    output_format: str,
+    output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
     list_device: bool,
@@ -726,7 +727,7 @@ def sysinfo(
     # them.
     configure_logging(verbosity=verbose, quiet=quiet)
 
-    use_json = output_format.lower() == "json"
+    use_json = output_format == "json"
 
     # Logging is configured via the shared, idempotent configure_logging above;
     # no per-command logger snapshot/restore is needed (every other command
@@ -751,7 +752,7 @@ def sysinfo(
                     msg = f"Error detecting execution providers: {e}"
                     raise click.ClickException(msg) from e
             click.echo(json.dumps(result, indent=2))
-        elif output_format.lower() == "compact":
+        elif output_format == "compact":
             if list_device:
                 try:
                     devices = _gather_device_info()
@@ -806,7 +807,7 @@ def sysinfo(
             except Exception:
                 info["executionProviders"] = []
             _output_json(info)
-        elif output_format.lower() == "compact":
+        elif output_format == "compact":
             _output_compact(info)
         else:
             _output_text(info, verbose=bool(verbose))

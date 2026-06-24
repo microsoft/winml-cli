@@ -123,6 +123,8 @@ def build_hf_model(
             - ``hack_max_optim_iterations`` (int, default 3): TEMPORARY HACK —
               Max analyzer iterations. 0 disables analyzer.
               TODO: Move to global env / build config.
+            - ``allow_unsupported_nodes`` (bool, default False): If True, warn
+              instead of raising when unsupported nodes persist after analysis.
             - ``use_external_data`` (bool, default True): Whether to use ONNX
               external data format. Default True for large model compatibility.
               TODO: Move to global env / build config.
@@ -137,6 +139,7 @@ def build_hf_model(
     """
     # TODO: Move hack_max_optim_iterations to global env config
     hack_max_optim_iterations: int = kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = kwargs.pop("allow_unsupported_nodes", False)
 
     # ONNX-level kwargs forwarded to export, optimize, quantize stages
     onnx_kwargs = {
@@ -217,6 +220,9 @@ def build_hf_model(
     # =========================================================================
     logger.info("Exporting to ONNX...")
     t0 = time.monotonic()
+    # config.export is None only for the ONNX build path (build_onnx_model);
+    # this is the HF path so the field must be populated.
+    assert config.export is not None, "build_hf_model requires config.export"
     export_onnx(
         model=pytorch_model,
         output_path=export_path,
@@ -277,6 +283,7 @@ def build_hf_model(
             ep=ep,
             device=device,
             max_optim_iterations=hack_max_optim_iterations,
+            allow_unsupported_nodes=allow_unsupported_nodes,
             analyze_output_path=analyze_result_path,
             **onnx_kwargs,
         )
@@ -488,7 +495,7 @@ def _load_model(
             hf_config = AutoConfig.for_model(model_type)
 
         # Prefer explicit model_class from loader config (set by winml config),
-        # fall back to resolve_task_and_model_class for auto-detection.
+        # fall back to resolve_hf_model_class for auto-detection.
         # Annotated Any: resolvers return bare `type`, but the actual classes are
         # HF model classes with extra methods (from_config, from_pretrained, etc.)
         # that bare `type` doesn't expose.
@@ -505,9 +512,9 @@ def _load_model(
                 )
 
         if model_class is None:
-            from ..loader import resolve_task_and_model_class
+            from ..loader.resolution import resolve_task
 
-            _, model_class = resolve_task_and_model_class(hf_config, task=task)
+            model_class = resolve_task(hf_config, task=task).model_class
 
         model_label = model_id or config.loader.model_type
         logger.info("Creating random-weight model: %s (from %s)", model_class.__name__, model_label)

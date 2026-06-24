@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -39,10 +39,6 @@ from click.testing import CliRunner
 from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.perf import perf
 from winml.modelkit.utils.constants import EP_ALIASES
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 pytestmark = [pytest.mark.e2e]
@@ -108,7 +104,9 @@ def _build_perf_args(
     ep: str | None = None,
     module: str | None = None,
     monitor: bool = False,
+    memory: bool | None = None,
     verbose: bool = False,
+    no_skip_build: bool = False,
 ) -> list[str]:
     """Build the argv list passed to the perf CLI.
 
@@ -135,8 +133,14 @@ def _build_perf_args(
         args += ["--module", module]
     if monitor:
         args.append("--monitor")
+    if memory is True:
+        args.append("--memory")
+    elif memory is False:
+        args.append("--no-memory")
     if verbose:
         args.append("--verbose")
+    if no_skip_build:
+        args.append("--no-skip-build")
     return args
 
 
@@ -210,6 +214,12 @@ class _PerfBenchmarkSuite:
         assert binfo["iterations"] == 3
         assert binfo["warmup"] == 1
         assert binfo["device"] == "cpu"
+        assert binfo["precision"] == "auto"
+
+        # The real ONNX model ORT loaded is recorded and points at a file
+        running_model = Path(binfo["running_model_path"])
+        assert running_model.suffix == ".onnx"
+        assert running_model.exists()
 
         # Verify latency stats are populated
         latency = data["latency_ms"]
@@ -223,6 +233,7 @@ class _PerfBenchmarkSuite:
         assert len(minfo["input_names"]) >= 1
         assert isinstance(minfo["output_names"], list)
         assert len(minfo["output_names"]) >= 1
+        assert minfo["precision"] == "fp32"
 
         # Verify raw samples count matches iterations
         assert len(data["raw_samples_ms"]) == 3
@@ -243,6 +254,125 @@ class _PerfBenchmarkSuite:
         assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
         assert output_file.exists()
         assert "Results saved to" in result.output
+
+    def test_benchmark_cpu_build(self, tmp_path: Path, model_arg: str):
+        """Benchmark with --no-skip-build should succeed and show debug output."""
+        output_file = tmp_path / "perf_cpu_build.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="cpu", no_skip_build=True
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        assert output_file.exists()
+        assert "Results saved to" in result.output
+
+    def test_benchmark_cpu_memory(self, tmp_path: Path, model_arg: str):
+        """Benchmark with --memory produces memory profile in JSON output.
+
+        Verifies the JSON contains 'memory' section with RAM delta fields.
+        """
+        output_file = tmp_path / "perf_cpu_memory.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="cpu", memory=True
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists()
+        data = json.loads(output_file.read_text())
+
+        # Memory section must be present
+        assert "memory" in data, f"No 'memory' key in JSON output. Keys: {list(data.keys())}"
+        mem = data["memory"]
+
+        # Required RAM fields
+        assert "rss_baseline_mb" in mem
+        assert "rss_after_compile_mb" in mem
+        assert "rss_after_inference_mb" in mem
+        assert "rss_model_load_delta_mb" in mem
+        assert "rss_inference_delta_mb" in mem
+        assert "rss_total_delta_mb" in mem
+
+        # Values should be positive floats
+        assert mem["rss_after_inference_mb"] > 0
+        assert mem["rss_baseline_mb"] > 0
+
+        # Console output should contain Memory section
+        assert "Memory:" in result.output
+        assert "RAM:" in result.output
+
+    def test_benchmark_cpu_no_memory(self, tmp_path: Path, model_arg: str):
+        """Benchmark with --no-memory omits memory profile from JSON output."""
+        output_file = tmp_path / "perf_cpu_no_memory.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="cpu", memory=False
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists()
+        data = json.loads(output_file.read_text())
+
+        # Memory section must NOT be present
+        assert "memory" not in data
+
+        # Console output should NOT contain Memory section
+        assert "Memory:" not in result.output
+
+    def test_benchmark_npu_memory(self, tmp_path: Path, model_arg: str):
+        """Benchmark on NPU with --memory produces VRAM fields.
+
+        Verifies VRAM local/shared fields are present in JSON output.
+        """
+        _require_npu()
+        output_file = tmp_path / "perf_npu_memory.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="npu", memory=True
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists()
+        data = json.loads(output_file.read_text())
+
+        assert "memory" in data
+        mem = data["memory"]
+
+        # RAM fields
+        assert mem["rss_after_inference_mb"] > 0
+        assert "rss_model_load_delta_mb" in mem
+
+        # VRAM fields (NPU exposes device memory fields, but values depend on driver)
+        assert "vram_local_after_inference_mb" in mem
+        assert "vram_shared_after_inference_mb" in mem
+        assert "vram_local_model_load_delta_mb" in mem
+        assert "vram_shared_model_load_delta_mb" in mem
+        assert "vram_local_inference_delta_mb" in mem
+        assert "vram_shared_inference_delta_mb" in mem
 
     def test_benchmark_cpu_monitor(self, tmp_path: Path, model_arg: str):
         """Benchmark on CPU with --monitor.
@@ -419,9 +549,7 @@ class _PerfBenchmarkSuite:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(
-            data, device="gpu", ep=EP_ALIASES[ep], require_utilization=False
-        )
+        _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep], require_utilization=False)
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, model_arg: str):
@@ -448,9 +576,7 @@ class _PerfBenchmarkSuite:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         # Tiny synthetic fixture: below PDH utilization-publish floor.
-        _assert_monitor_result(
-            data, device="npu", ep=EP_ALIASES[ep], require_utilization=False
-        )
+        _assert_monitor_result(data, device="npu", ep=EP_ALIASES[ep], require_utilization=False)
 
 
 # ===========================================================================
@@ -518,7 +644,9 @@ class TestPerfHuggingFace:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
-        _assert_monitor_result(data, device="gpu")
+        # Not all EPs bump PDH GPU-engine counters (OpenVINO routes via its own
+        # compute path); validate structure only, not utilization magnitude.
+        _assert_monitor_result(data, device="gpu", require_utilization=False)
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
@@ -542,7 +670,9 @@ class TestPerfHuggingFace:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
-        _assert_monitor_result(data, device="npu")
+        # Not all EPs bump PDH NPU-engine counters reliably for short runs;
+        # validate structure only, not utilization magnitude.
+        _assert_monitor_result(data, device="npu", require_utilization=False)
 
 
 # ===========================================================================

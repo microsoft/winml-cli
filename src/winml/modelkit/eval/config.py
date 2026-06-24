@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..utils.constants import EPNameOrAlias
+from ..utils.eval_utils import EvalMode
 
 
 @dataclass
@@ -93,6 +94,13 @@ class WinMLEvaluationConfig:
             device-to-provider mapping when provided.
         dataset: Dataset configuration.
         output_path: Path to write JSON results.
+        mode: Evaluation mode (see :data:`EvalMode`).
+
+            - ``"onnx"`` (default): evaluate the ONNX candidate on the
+              labeled dataset.
+            - ``"compare"``: compare ONNX vs HF reference output tensors
+              on identical random inputs and report tensor-similarity
+              metrics per output tensor.
 
     Usage:
         config = WinMLEvaluationConfig(
@@ -107,8 +115,17 @@ class WinMLEvaluationConfig:
     device: str = "auto"
     precision: str = "auto"
     ep: EPNameOrAlias | None = None
+    allow_unsupported_nodes: bool = False
+    # Build-pipeline toggles, applied when building from model_id (ignored for
+    # pre-built ONNX inputs). Shared semantics with winml build/perf.
+    quant: bool = True
+    optimize: bool = True
+    analyze: bool = True
+    max_optim_iterations: int | None = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
+    mode: EvalMode = "onnx"
+    skip_build: bool = True
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -124,9 +141,24 @@ class WinMLEvaluationConfig:
             result["precision"] = self.precision
         if self.ep is not None:
             result["ep"] = self.ep
+        if self.allow_unsupported_nodes:
+            result["allow_unsupported_nodes"] = self.allow_unsupported_nodes
+        # Emit build toggles only when they deviate from the default so the
+        # serialized config stays minimal.
+        if not self.quant:
+            result["quant"] = self.quant
+        if not self.optimize:
+            result["optimize"] = self.optimize
+        if not self.analyze:
+            result["analyze"] = self.analyze
+        if self.max_optim_iterations is not None:
+            result["max_optim_iterations"] = self.max_optim_iterations
         result["dataset"] = self.dataset.to_dict()
         if self.output_path is not None:
             result["output_path"] = str(self.output_path)
+        if self.mode != "onnx":
+            result["mode"] = self.mode
+        result["skip_build"] = self.skip_build
         return result
 
     @classmethod
@@ -153,6 +185,13 @@ class WinMLEvaluationConfig:
             device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),
             ep=data.get("ep"),
+            allow_unsupported_nodes=data.get("allow_unsupported_nodes", False),
+            quant=data.get("quant", True),
+            optimize=data.get("optimize", True),
+            analyze=data.get("analyze", True),
+            max_optim_iterations=data.get("max_optim_iterations"),
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
+            mode=data.get("mode", "onnx"),
+            skip_build=data.get("skip_build", True),
         )

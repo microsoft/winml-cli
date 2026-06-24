@@ -6,7 +6,8 @@
 """Tests for WinMLModelForFeatureExtraction.
 
 Validates forward pass I/O contract: accepts arbitrary **kwargs (architecture-agnostic),
-returns BaseModelOutput with last_hidden_state.
+returns a ModelOutput subclass whose fields mirror the ONNX exporter's declared
+output names and order.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import torch
-from transformers.modeling_outputs import BaseModelOutput
+from transformers.utils import ModelOutput
 
 
 def create_mock_model():
@@ -57,11 +58,11 @@ class TestWinMLModelForFeatureExtractionBasic:
 
 
 class TestForwardLastHiddenState:
-    def test_returns_base_model_output(self):
+    def test_returns_model_output(self):
         model = create_mock_model()
         input_ids = torch.ones(1, 8, dtype=torch.long)
         result = model.forward(input_ids=input_ids)
-        assert isinstance(result, BaseModelOutput)
+        assert isinstance(result, ModelOutput)
 
     def test_last_hidden_state_shape(self):
         model = create_mock_model()
@@ -70,6 +71,7 @@ class TestForwardLastHiddenState:
         }
         result = model.forward(input_ids=torch.ones(1, 8, dtype=torch.long))
         assert result.last_hidden_state.shape == (1, 8, 384)
+        assert result[0].shape == (1, 8, 384)
 
     def test_optional_inputs_forwarded(self):
         model = create_mock_model()
@@ -96,10 +98,10 @@ class TestForwardLastHiddenState:
         assert "token_type_ids" not in call_kwargs
 
 
-class TestForwardSentenceEmbedding:
-    """When ONNX exports a pre-pooled sentence_embedding, it should be wrapped."""
+class TestForwardPreservesOnnxOutputNames:
+    """ONNX output names and shapes are exposed verbatim (no rename, no unsqueeze)."""
 
-    def test_sentence_embedding_unsqueezed(self):
+    def test_pre_pooled_output_preserved(self):
         from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
 
         model = WinMLModelForFeatureExtraction.__new__(WinMLModelForFeatureExtraction)
@@ -119,21 +121,22 @@ class TestForwardSentenceEmbedding:
 
         result = model.forward(input_ids=torch.ones(1, 8, dtype=torch.long))
 
-        # [B, hidden_dim] -> [B, 1, hidden_dim]
-        assert result.last_hidden_state.shape == (1, 1, 384)
+        assert result.sentence_embedding.shape == (1, 384)
+        assert result[0].shape == (1, 384)
 
-    def test_generic_2d_output_unsqueezed(self):
-        """Any unknown 2-D output is wrapped as [B, 1, H]."""
+    def test_multi_output_preserves_order_and_names(self):
+        """CLIP-style export with projected embedding first, hidden states second."""
         from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
 
         model = WinMLModelForFeatureExtraction.__new__(WinMLModelForFeatureExtraction)
         mock_session = MagicMock()
         mock_session.io_config = {
-            "input_names": ["input_ids"],
-            "output_names": ["pooler_output"],
+            "input_names": ["input_ids", "attention_mask"],
+            "output_names": ["text_embeds", "last_hidden_state"],
         }
         mock_session.run.return_value = {
-            "pooler_output": np.zeros((1, 768), dtype=np.float32),
+            "text_embeds": np.zeros((1, 768), dtype=np.float32),
+            "last_hidden_state": np.zeros((1, 77, 768), dtype=np.float32),
         }
         mock_session.device = "cpu"
         model._session = mock_session
@@ -141,5 +144,9 @@ class TestForwardSentenceEmbedding:
         model._onnx_path = "mock.onnx"
         model._device = "cpu"
 
-        result = model.forward(input_ids=torch.ones(1, 8, dtype=torch.long))
-        assert result.last_hidden_state.shape == (1, 1, 768)
+        result = model.forward(input_ids=torch.ones(1, 77, dtype=torch.long))
+
+        assert result.text_embeds.shape == (1, 768)
+        assert result.last_hidden_state.shape == (1, 77, 768)
+        # HF pipelines consume output[0]; must match exporter's first output.
+        assert result[0].shape == (1, 768)

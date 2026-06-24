@@ -32,7 +32,7 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from optimum.exporters.tasks import TasksManager
 from optimum.utils.input_generators import (
@@ -92,7 +92,7 @@ map_task_synonym = to_optimum_task
 # =============================================================================
 # Custom Input Generators
 # =============================================================================
-class MaxLengthTextInputGenerator(DummyTextInputGenerator):
+class MaxLengthTextInputGenerator(DummyTextInputGenerator):  # type: ignore[misc]
     """Text input generator that uses max_position_embeddings as sequence_length.
 
     Optimum's DummyTextInputGenerator uses a hardcoded default of 16 for
@@ -116,8 +116,8 @@ class MaxLengthTextInputGenerator(DummyTextInputGenerator):
         task: str,
         normalized_config: NormalizedTextConfig,
         sequence_length: int | None = None,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initialize with sequence_length from normalized_config.
 
         Args:
@@ -206,16 +206,22 @@ def _get_onnx_config(
 def _populate_image_size_from_preprocessor(
     model_id: str | None,
     shape_kwargs: dict,
+    hf_config: PretrainedConfig | None = None,
 ) -> None:
-    """Populate height/width in shape_kwargs from preprocessor_config.json.
+    """Populate height/width in shape_kwargs from preprocessor metadata.
 
     Optimum's DummyVisionInputGenerator falls back to 64x64 when model config
-    lacks image_size (e.g., ResNet). This reads the correct size from
-    preprocessor_config.json and injects it into shape_kwargs.
+    lacks image_size (e.g., ResNet, timm). This reads the correct size from
+    a preprocessor_config-style dict obtained via :func:`_get_preprocessor_dict`
+    (which consults the hub's ``preprocessor_config.json`` first and, when that
+    is unavailable, synthesizes one from wrapper-config metadata such as
+    ``TimmWrapperConfig.pretrained_cfg``).
 
     Args:
         model_id: HuggingFace model identifier (e.g., "microsoft/resnet-50")
         shape_kwargs: Mutable dict to update with height/width if found
+        hf_config: HuggingFace PretrainedConfig used to synthesize a
+            preprocessor dict when ``preprocessor_config.json`` is missing.
     """
     if not model_id:
         return
@@ -223,31 +229,91 @@ def _populate_image_size_from_preprocessor(
     if "height" in shape_kwargs or "width" in shape_kwargs:
         return
 
+    config = _get_preprocessor_dict(model_id, hf_config)
+    size = config.get("size")
+
+    if isinstance(size, int):
+        shape_kwargs["height"] = size
+        shape_kwargs["width"] = size
+    elif isinstance(size, dict):
+        if "height" in size:
+            shape_kwargs["height"] = size["height"]
+            shape_kwargs["width"] = size["width"]
+        elif "shortest_edge" in size:
+            shape_kwargs["height"] = size["shortest_edge"]
+            shape_kwargs["width"] = size["shortest_edge"]
+
+    if "height" in shape_kwargs:
+        logger.debug(
+            "Loaded image size from preprocessor dict: %dx%d",
+            shape_kwargs["height"],
+            shape_kwargs["width"],
+        )
+
+
+def _get_preprocessor_dict(
+    model_id: str | None,
+    hf_config: PretrainedConfig | None,
+) -> dict:
+    """Return a ``preprocessor_config.json``-style dict for the model.
+
+    Resolution order:
+
+    1. ``preprocessor_config.json`` fetched from the hub (standard HF vision),
+       used only when it carries a ``size`` key.
+    2. Synthesized from a nested plain-dict attribute on ``hf_config``
+       carrying ``input_size`` or ``image_size`` (e.g.
+       ``TimmWrapperConfig.pretrained_cfg``). Reached when the hub file is
+       unavailable *or* present but missing ``size`` (a partial config).
+
+    Returns the dict in the standard preprocessor schema (``{"size": ...}``)
+    so downstream parsing logic does not need to know which source it came
+    from. Returns an empty dict when neither source yields a usable size.
+    """
     try:
-        from transformers.image_processing_utils import ImageProcessingMixin
+        if model_id is None:
+            raise OSError("No model_id provided")
+        from transformers.image_processing_utils import (  # type: ignore[attr-defined]
+            ImageProcessingMixin,
+        )
 
         config, _ = ImageProcessingMixin.get_image_processor_dict(model_id)
-        size = config.get("size")
-
-        if isinstance(size, int):
-            shape_kwargs["height"] = size
-            shape_kwargs["width"] = size
-        elif isinstance(size, dict):
-            if "height" in size:
-                shape_kwargs["height"] = size["height"]
-                shape_kwargs["width"] = size["width"]
-            elif "shortest_edge" in size:
-                shape_kwargs["height"] = size["shortest_edge"]
-                shape_kwargs["width"] = size["shortest_edge"]
-
-        if "height" in shape_kwargs:
-            logger.debug(
-                "Loaded image size from preprocessor_config.json: %dx%d",
-                shape_kwargs["height"],
-                shape_kwargs["width"],
-            )
+        if "size" in config:
+            return config
+        # Partial preprocessor_config.json without a "size" key: fall through
+        # to synthesis so we don't silently use Optimum's 64x64 default.
     except (OSError, ValueError, KeyError) as e:
         logger.debug("Could not load preprocessor_config.json for %s: %s", model_id, e)
+
+    if hf_config is not None:
+        return _synthesize_preprocessor_dict(hf_config)
+    return {}
+
+
+def _synthesize_preprocessor_dict(hf_config: PretrainedConfig) -> dict:
+    """Build a ``preprocessor_config.json``-style dict from ``hf_config.pretrained_cfg``.
+
+    timm wrapper configs (``TimmWrapperConfig``) stash shape metadata in a
+    ``pretrained_cfg`` dict carrying ``input_size = [C, H, W]``. Optimum's
+    NormalizedConfig only walks ``PretrainedConfig`` children, so this
+    dict-wrapped value is invisible to the dummy-input generator and it
+    falls back to 64x64.
+
+    Preprocessing keys (``mean``/``std``/``interpolation``/``crop_pct``)
+    don't affect export tensor shapes and are intentionally ignored.
+    """
+    pretrained_cfg = getattr(hf_config, "pretrained_cfg", None)
+    if not isinstance(pretrained_cfg, dict):
+        return {}
+
+    input_size = pretrained_cfg.get("input_size")
+    if isinstance(input_size, (list, tuple)):
+        if len(input_size) == 3:
+            return {"size": {"height": input_size[1], "width": input_size[2]}}
+        if len(input_size) == 1:
+            return {"size": input_size[0]}
+
+    return {}
 
 
 # Practical cap for export dummy input sequence length.
@@ -339,7 +405,7 @@ def generate_dummy_inputs(
     onnx_config.float_dtype = float_dtype
 
     shape_kwargs["batch_size"] = batch_size
-    _populate_image_size_from_preprocessor(model_id, shape_kwargs)
+    _populate_image_size_from_preprocessor(model_id, shape_kwargs, hf_config)
     _populate_sequence_length_from_config(hf_config, shape_kwargs)
 
     logger.debug(
@@ -348,7 +414,11 @@ def generate_dummy_inputs(
         shape_kwargs,
     )
 
-    return onnx_config.generate_dummy_inputs(framework="pt", **shape_kwargs)
+    # Optimum's OnnxConfig is untyped; the dummy-inputs dict matches our return type.
+    return cast(
+        "dict[str, torch.Tensor]",
+        onnx_config.generate_dummy_inputs(framework="pt", **shape_kwargs),
+    )
 
 
 def resolve_io_specs(
@@ -402,7 +472,7 @@ def resolve_io_specs(
 
     # Populate shapes from model config / preprocessor
     shape_kwargs["batch_size"] = batch_size
-    _populate_image_size_from_preprocessor(model_id, shape_kwargs)
+    _populate_image_size_from_preprocessor(model_id, shape_kwargs, hf_config)
     _populate_sequence_length_from_config(hf_config, shape_kwargs)
 
     # Generate dummy inputs for concrete shapes and dtypes,
@@ -414,7 +484,9 @@ def resolve_io_specs(
     input_dtypes = [str(t.dtype).replace("torch.", "") for t in dummy_inputs.values()]
 
     # Build value_range dict: {name: (min, max)} from intercepted data
-    value_ranges = {name: (info["min"], info["max"]) for name, info in value_ranges.items()}
+    value_range_tuples = {
+        name: (info["min"], info["max"]) for name, info in value_ranges.items()
+    }
 
     return {
         "inputs": onnx_config.inputs,
@@ -424,5 +496,5 @@ def resolve_io_specs(
         "dynamic_axes": {**onnx_config.inputs, **onnx_config.outputs},
         "input_shapes": input_shapes,
         "input_dtypes": input_dtypes,
-        "value_ranges": value_ranges,
+        "value_ranges": value_range_tuples,
     }

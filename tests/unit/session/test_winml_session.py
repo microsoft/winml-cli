@@ -680,13 +680,68 @@ class TestWinMLSessionExplicitProviders:
         assert options in captured, f"provider_options not forwarded; got calls with: {captured}"
         assert "C" in outputs
 
+    def test_runtime_provider_options_forwarded(
+        self,
+        simple_matmul_onnx: Path,
+        sample_input: dict[str, np.ndarray],
+    ):
+        """Runtime ``provider_options`` kwarg is forwarded to add_provider_for_devices."""
+        from unittest.mock import patch
+
+        import onnxruntime as ort
+
+        options = {"runtime_only_key": "runtime_only_value"}
+        captured: list[dict[str, str]] = []
+        real_method = ort.SessionOptions.add_provider_for_devices
+
+        def spy(self_sess, ep_devices, provider_opts):
+            captured.append(dict(provider_opts))
+            return real_method(self_sess, ep_devices, provider_opts)
+
+        with patch.object(ort.SessionOptions, "add_provider_for_devices", spy):
+            session = WinMLSession(
+                onnx_path=simple_matmul_onnx,
+                device="cpu",
+                provider_options=options,
+            )
+            outputs = session.run(sample_input)
+
+        assert options in captured, f"provider_options not forwarded; got calls with: {captured}"
+        assert "C" in outputs
+
+    def test_runtime_provider_options_override_ep_config(
+        self,
+        simple_matmul_onnx: Path,
+    ):
+        """Runtime ``provider_options`` merge on top of and override ep_config options."""
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            device="cpu",
+            ep_config=EPConfig(
+                provider="cpu",
+                provider_options={"shared": "from_build", "build_only": "x"},
+            ),
+            provider_options={"shared": "from_runtime", "runtime_only": "y"},
+        )
+
+        # Runtime value wins for the shared key; both source-specific keys survive.
+        assert session._provider_options == {
+            "shared": "from_runtime",
+            "build_only": "x",
+            "runtime_only": "y",
+        }
+
     def test_explicit_ep_and_device_both_required(self, simple_matmul_onnx: Path):
-        """Regression: ep=qnn + device=cpu must bind QNN-on-CPU, not QNN-on-NPU.
+        """Regression: ep=qnn + device=gpu must bind QNN-on-GPU, not QNN-on-NPU.
 
         When both filters are set, ``add_ep_for_device`` must match ep_name
         AND device_type. Previously the explicit-EP path ignored device, so
         listing order in ``ort.get_ep_devices()`` decided the binding and
-        ``--ep qnn --device cpu`` could silently land on QNN-on-NPU.
+        ``--ep qnn --device gpu`` could silently land on QNN-on-NPU.
+
+        Both ``(npu, qnn)`` and ``(gpu, qnn)`` are policy-valid per
+        ``EP_SUPPORTED_DEVICES`` — that's what makes the disambiguation
+        ambiguous and the regression possible.
         """
         from types import SimpleNamespace
         from unittest.mock import patch
@@ -695,14 +750,14 @@ class TestWinMLSessionExplicitProviders:
 
         from winml.modelkit.sysinfo.device import _get_device_ep_map_from_ort
 
-        # NPU listed first (the trap); CPU second (the correct pick).
+        # NPU listed first (the trap); GPU second (the correct pick).
         npu_dev = SimpleNamespace(
             ep_name="QNNExecutionProvider",
             device=SimpleNamespace(type=ort.OrtHardwareDeviceType.NPU),
         )
-        cpu_dev = SimpleNamespace(
+        gpu_dev = SimpleNamespace(
             ep_name="QNNExecutionProvider",
-            device=SimpleNamespace(type=ort.OrtHardwareDeviceType.CPU),
+            device=SimpleNamespace(type=ort.OrtHardwareDeviceType.GPU),
         )
         captured: list = []
 
@@ -712,11 +767,11 @@ class TestWinMLSessionExplicitProviders:
         _get_device_ep_map_from_ort.cache_clear()
         try:
             with (
-                patch("onnxruntime.get_ep_devices", return_value=[npu_dev, cpu_dev]),
+                patch("onnxruntime.get_ep_devices", return_value=[npu_dev, gpu_dev]),
                 patch(
                     "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
                     return_value={
-                        "cpu": ("QNNExecutionProvider",),
+                        "gpu": ("QNNExecutionProvider",),
                         "npu": ("QNNExecutionProvider",),
                     },
                 ),
@@ -724,16 +779,16 @@ class TestWinMLSessionExplicitProviders:
             ):
                 session = WinMLSession(
                     onnx_path=simple_matmul_onnx,
-                    device="cpu",
+                    device="gpu",
                     ep="qnn",
                 )
                 # Drive the binding without building a real InferenceSession,
                 # since the mock ep_devices would not load.
-                session._build_session_options("cpu")
+                session._build_session_options("gpu")
         finally:
             _get_device_ep_map_from_ort.cache_clear()
 
-        assert captured == [ort.OrtHardwareDeviceType.CPU], (
+        assert captured == [ort.OrtHardwareDeviceType.GPU], (
             f"binding picked the wrong device: {captured}"
         )
 

@@ -217,9 +217,9 @@ class WinMLBuildConfig:
             errors.append("loader.task is required for full model builds")
         # export=None is valid for ONNX builds
 
-        # 2. optim config always required
+        # 2. optim config always required (runtime callers may pass None despite the type)
         if self.optim is None:
-            errors.append("optim config is required")
+            errors.append("optim config is required")  # type: ignore[unreachable]
 
         # 3. quant validation (when present)
         # Exceptions: ONNX builds (export=None) don't need quant.task/model_name
@@ -347,9 +347,9 @@ def resolve_quant_compile_config(
     if policy.device == "auto":
         return None, None
 
-    # Quant config
+    # Quant config (weight_type and activation_type are always both-None or both-set)
     quant_config: WinMLQuantizationConfig | None = None
-    if policy.weight_type is not None:
+    if policy.weight_type is not None and policy.activation_type is not None:
         quant_config = WinMLQuantizationConfig()
         quant_config.weight_type = policy.weight_type
         quant_config.activation_type = policy.activation_type
@@ -373,6 +373,7 @@ def generate_onnx_build_config(
     precision: str = "auto",
     ep: EPNameOrAlias | None = None,
     override: WinMLBuildConfig | None = None,
+    no_compile: bool = False,
 ) -> WinMLBuildConfig:
     """Generate build config for a pre-exported ONNX model (Scenario D).
 
@@ -388,6 +389,8 @@ def generate_onnx_build_config(
             "int16", or "w{x}a{y}" e.g. "w8a16").
         ep: Explicit execution provider override.
         override: Partial WinMLBuildConfig to merge on top of auto-detected.
+        no_compile: If True, drop the compile stage (compile=None) regardless
+            of device/precision policy or override. Applied last so it always wins.
 
     Returns:
         WinMLBuildConfig with export=None and device/precision applied.
@@ -443,6 +446,10 @@ def generate_onnx_build_config(
         # "already exported, skip export stage".
         config.export = None
 
+    # no_compile overrides policy and override — applied last so it always wins
+    if no_compile:
+        config.compile = None
+
     return config
 
 
@@ -489,6 +496,29 @@ def generate_hf_build_config(
 ) -> list[WinMLBuildConfig]: ...
 
 
+@overload
+def generate_hf_build_config(
+    model_id: str | None = None,
+    *,
+    task: str | None = None,
+    model_class: str | None = None,
+    model_type: str | None = None,
+    # Catch-all for callers that hold ``module`` as ``str | None`` (e.g. the
+    # ``generate_build_config`` dispatcher). Without this overload, mypy can't
+    # resolve the call against the two narrower overloads above and fails with
+    # "too many union combinations".
+    module: str | None,
+    override: WinMLBuildConfig | None = None,
+    shape_config: dict | None = None,
+    library_name: str = "transformers",
+    device: str = "auto",
+    precision: str = "auto",
+    trust_remote_code: bool = False,
+    ep: EPNameOrAlias | None = None,
+    no_compile: bool = False,
+) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
+
+
 def generate_hf_build_config(
     model_id: str | None = None,
     *,
@@ -517,7 +547,8 @@ def generate_hf_build_config(
         Tier 3 (LOWEST):  Optimum/HF defaults via loader/export modules
 
     Orchestration Flow:
-        1. loader.resolve_loader_config()   -> (WinMLLoaderConfig, hf_config, resolved_class)
+        1. loader.resolve_loader_config()
+           -> (WinMLLoaderConfig, hf_config, resolved_class, TaskResolution)
            (includes sub-config consolidation for multimodal)
         2. MODEL_BUILD_CONFIGS.get() — registry lookup (may short-circuit step 3)
         3. export._resolve_export_config_from_specs() OR registered export config
@@ -558,7 +589,7 @@ def generate_hf_build_config(
         from ..utils.cli import warn_trust_remote_code
 
         warn_trust_remote_code()
-    loader_config, hf_config, resolved_class = resolve_loader_config(
+    loader_config, hf_config, resolved_class, _resolution = resolve_loader_config(
         model_id,
         task=task,
         model_class=model_class,
@@ -566,6 +597,9 @@ def generate_hf_build_config(
         trust_remote_code=_trust_remote_code,
         library_name=library_name,
     )
+    # resolve_loader_config guarantees both fields are populated (it raises otherwise).
+    assert loader_config.model_type is not None
+    assert loader_config.task is not None
 
     # =========================================================================
     # STEP 2: Lookup registered config FIRST (may short-circuit Optimum)
@@ -648,7 +682,7 @@ def generate_hf_build_config(
     # Apply policy: resolve_device() always returns a concrete device so
     # policy.device is never "auto" here.
     # Quant config (weight_type and activation_type are always both-None or both-set)
-    if policy.weight_type is not None:
+    if policy.weight_type is not None and policy.activation_type is not None:
         if parent_config.quant is None:
             parent_config.quant = WinMLQuantizationConfig()
         parent_config.quant.weight_type = policy.weight_type
@@ -679,11 +713,12 @@ def generate_hf_build_config(
             model = resolved_class(hf_config)
         except OSError as e:
             logger.debug("Direct construction failed (%s), using from_config()", e)
-            model = resolved_class.from_config(hf_config)
+            # HF Auto* classes expose from_config(); base `type` annotation can't see it.
+            model = resolved_class.from_config(hf_config)  # type: ignore[attr-defined]
 
         # Extract input shapes and dtypes from export_config -- NO HARDCODED VALUES
         input_tensors = [t for t in (export_config.input_tensors or []) if t.shape is not None]
-        input_shapes = [t.shape for t in input_tensors]
+        input_shapes = [t.shape for t in input_tensors if t.shape is not None]
         input_dtypes = [t.dtype for t in input_tensors]
         if not input_shapes:
             raise ValueError(
@@ -800,6 +835,10 @@ def generate_build_config(
             ep=ep,
             override=override,
         )
+    # Single call resolves against generate_hf_build_config's `module: str | None`
+    # overload, which returns WinMLBuildConfig | list[WinMLBuildConfig] — matching
+    # this dispatcher's implementation return type. The dispatcher's own
+    # narrowing overloads above still tighten the return type for its callers.
     return generate_hf_build_config(
         model_id,
         task=task,

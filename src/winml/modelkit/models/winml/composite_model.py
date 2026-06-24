@@ -49,6 +49,7 @@ from .base import PreTrainedModel
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     from transformers import PretrainedConfig
@@ -69,6 +70,13 @@ def register_composite_model(model_type: str, task: str):
     """Class decorator that registers a composite model for `winml config`."""
 
     def decorator(cls: type) -> type:
+        if not issubclass(cls, WinMLCompositeModel):
+            raise TypeError(
+                f"{cls.__name__} cannot register as a composite model for "
+                f"{(model_type, task)!r}: it must subclass WinMLCompositeModel. "
+                f"This invariant lets every registry consumer trust the registry "
+                f"without re-filtering by type."
+            )
         key = (model_type, task)
         if key in COMPOSITE_MODEL_REGISTRY:
             raise ValueError(
@@ -198,7 +206,9 @@ class WinMLCompositeModel(PreTrainedModel):
     @classmethod
     def from_onnx(
         cls,
-        onnx_path: dict[str, str | Path],
+        # Mapping (not dict) so dict[str, str] from configs is accepted
+        # without a cast — dict is invariant on value type, Mapping is covariant.
+        onnx_path: Mapping[str, str | Path],
         *,
         task: str | None = None,
         hf_config: PretrainedConfig | None = None,

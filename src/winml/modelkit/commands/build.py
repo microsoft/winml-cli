@@ -141,7 +141,7 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
     """
     from ..loader import resolve_loader_config
 
-    _, hf_config, resolved_class_typed = resolve_loader_config(
+    _, hf_config, resolved_class_typed, _resolution = resolve_loader_config(
         model_type=model_type,
         task=task,
     )
@@ -166,6 +166,7 @@ def _build_modules(
     rebuild: bool = False,
     ep: EPNameOrAlias | None = None,
     device: str | None = None,
+    allow_unsupported_nodes: bool = False,
 ) -> list[BuildResult]:
     """Build each module config using init-weight parent for submodule extraction.
 
@@ -182,6 +183,8 @@ def _build_modules(
         rebuild: If True, overwrite existing artifacts.
         ep: Target execution provider for analyzer.
         device: Target device for analyzer.
+        allow_unsupported_nodes: If True, warn instead of failing the build when
+            the analyzer reports unsupported nodes that persist.
 
     Returns:
         List of BuildResult in the same order as *configs*.
@@ -222,6 +225,7 @@ def _build_modules(
             rebuild=rebuild,
             ep=ep,
             device=device,
+            allow_unsupported_nodes=allow_unsupported_nodes,
         )
         results.append(result)
 
@@ -432,28 +436,21 @@ def _validate_loader_tasks_for_model(
     help="Output directory for all build artifacts",
 )
 @click.option(
-    "--use-cache",
-    is_flag=True,
+    "--use-cache/--no-use-cache",
     default=False,
+    show_default=True,
     help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
 )
 @click.option(
-    "--rebuild",
-    is_flag=True,
+    "--rebuild/--no-rebuild",
     default=False,
+    show_default=True,
     help="Overwrite existing artifacts and rebuild",
 )
-@click.option(
-    "--no-quant",
-    is_flag=True,
-    default=False,
-    help="Skip quantization (overrides config)",
-)
-@click.option(
-    "--no-compile/--compile",
-    "no_compile",
+@cli_utils.quant_option()
+@cli_utils.compile_option(
     default=None,
-    help="Override compilation. --compile forces enable (config must have a compile section). "
+    help_text="Override compilation. --compile forces enable (config must have a compile section). "
     "--no-compile forces skip. Default: inherit from config; when auto-generating "
     "config (no -c), compilation is off unless --compile is passed.",
 )
@@ -467,25 +464,13 @@ def _validate_loader_tasks_for_model(
     include_auto=True,
     optional_message="Default: auto-detect.",
 )
-@click.option(
-    "--no-analyze",
-    is_flag=True,
-    default=False,
-    help="Skip analyzer loop during build",
+@cli_utils.precision_option(
+    optional_message="With -c, applied only when --device or --precision is passed.",
 )
-@click.option(
-    "--no-optimize",
-    is_flag=True,
-    default=False,
-    help="Skip optimization (for pre-quantized ONNX models)",
-)
-@click.option(
-    "--max-optim-iterations",
-    "max_optim_iterations",
-    type=int,
-    default=None,
-    help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
-)
+@cli_utils.analyze_option()
+@cli_utils.optimize_option()
+@cli_utils.max_optim_iterations_option()
+@cli_utils.allow_unsupported_nodes_option()
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
@@ -498,13 +483,15 @@ def build(
     output_dir: str | None,
     use_cache: bool,
     rebuild: bool,
-    no_quant: bool,
+    quant: bool,
     no_compile: bool | None,
-    no_optimize: bool,
+    optimize: bool,
     ep: EPNameOrAlias | None,
     device: str,
-    no_analyze: bool,
+    precision: str,
+    analyze: bool,
     max_optim_iterations: int | None,
+    allow_unsupported_nodes: bool,
     trust_remote_code: bool,
     verbose: int,
     quiet: bool,
@@ -524,6 +511,12 @@ def build(
 
         # Full pipeline with explicit config
         winml build -c config.json -m microsoft/resnet-50 -o output/
+
+        # Device-aware auto precision (npu->w8a16, gpu/cpu->fp16)
+        winml build -m microsoft/resnet-50 -o output/ --device npu --precision auto
+
+        # Force fp16 (skips quantization)
+        winml build -m bert-base-uncased -o output/ --device gpu --precision fp16
 
         # Build from pre-exported ONNX file
         winml build -c config.json -m model.onnx -o output/
@@ -573,7 +566,7 @@ def build(
         if config_file is not None:
             config_or_configs = _load_config(
                 config_file,
-                no_quant=no_quant,
+                no_quant=not quant,
                 no_compile=no_compile,
             )
         else:
@@ -585,8 +578,9 @@ def build(
                 model_id,
                 trust_remote_code=trust_remote_code,
                 device=device,
+                precision=precision,
             )
-            if no_quant:
+            if not quant:
                 config_or_configs.quant = None
             # Auto-generated configs: compile disabled by default unless
             # --compile was explicitly passed (no_compile=False).
@@ -595,16 +589,18 @@ def build(
             if no_compile:
                 config_or_configs.compile = None
 
-        # If --device was explicitly provided, patch compile config and clear
-        # quant for CPU/GPU (neither device uses quantization by default).
-        if cli_utils.is_cli_provided(ctx, "device") and device:
+        # If --device or --precision was explicitly provided, patch quant/compile
+        # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.
+        if cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision"):
             from ..compiler.configs import WinMLCompileConfig
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
-                resolved_quant, _ = resolve_quant_compile_config(device=device)
-                if no_quant or resolved_quant is None:
+                resolved_quant, _ = resolve_quant_compile_config(
+                    device=device, precision=precision, ep=ep
+                )
+                if not quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
@@ -637,9 +633,7 @@ def build(
         # scratch state when the user passes the wrong file or a
         # hand-edited config (#P1 UX).
         _configs_to_validate: list[WinMLBuildConfig] = (
-            config_or_configs
-            if isinstance(config_or_configs, list)
-            else [config_or_configs]
+            config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
         )
         try:
             for _cfg in _configs_to_validate:
@@ -653,16 +647,19 @@ def build(
             trust_remote_code=trust_remote_code,
         )
 
-        # Build extra kwargs for pipeline control
-        extra_kwargs: dict[str, Any] = {}
-        if no_optimize:
-            extra_kwargs["skip_optimize"] = True
-        if no_analyze:
-            extra_kwargs["hack_max_optim_iterations"] = 0
-        elif max_optim_iterations is not None:
-            extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
+        # Build extra kwargs for pipeline control. The optimize/analyze/max-optim
+        # mapping is shared with perf and eval via build_pipeline_extra_kwargs.
+        extra_kwargs: dict[str, Any] = cli_utils.build_pipeline_extra_kwargs(
+            optimize=optimize,
+            analyze=analyze,
+            max_optim_iterations=max_optim_iterations,
+        )
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
+        # Always set (even when False) so downstream pipeline functions can rely
+        # on the key being present, matching the module-mode path which passes
+        # allow_unsupported_nodes explicitly regardless of its value.
+        extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
@@ -697,6 +694,7 @@ def build(
                 rebuild=rebuild,
                 ep=ep,
                 device=device,
+                allow_unsupported_nodes=allow_unsupported_nodes,
             )
 
             # Report per-module results
@@ -967,6 +965,7 @@ def _run_optimize_stage(
     stage_timings: list[tuple[str, float | None]],
     show_io_first: bool = False,
     analyze_output_path: Path | None = None,
+    allow_unsupported_nodes: bool = False,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -1075,6 +1074,7 @@ def _run_optimize_stage(
             ep=ep,
             device=device,
             max_optim_iterations=max_iters,
+            allow_unsupported_nodes=allow_unsupported_nodes,
             on_ep_start=_on_ep_start,
             on_node_result=_on_node_result,
             on_iteration_start=_on_iteration_start,
@@ -1296,6 +1296,7 @@ def _build_hf_pipeline(
     from ..utils.console import StageLive
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
     model_label = model_id or "random-init"
 
     # ── Validate + setup ─────────────────────────────────────────
@@ -1341,6 +1342,8 @@ def _build_hf_pipeline(
             config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
         )
         t0 = time.monotonic()
+        # config.export is None only for the ONNX build path; this is the HF path.
+        assert config.export is not None, "HF build path requires config.export"
         export_onnx(
             model=pytorch_model,
             output_path=export_path,
@@ -1374,6 +1377,7 @@ def _build_hf_pipeline(
         stage_timings=stage_timings,
         show_io_first=False,
         analyze_output_path=analyze_result_path,
+        allow_unsupported_nodes=allow_unsupported_nodes,
     )
 
     # Persist config after autoconf
@@ -1420,6 +1424,7 @@ def _build_onnx_pipeline(
     from ..onnx import copy_onnx_model
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+    allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
 
     # ── Validate + setup ─────────────────────────────────────────
     if not onnx_path.exists():
@@ -1468,6 +1473,7 @@ def _build_onnx_pipeline(
         stage_timings=stage_timings,
         show_io_first=True,
         analyze_output_path=analyze_result_path,
+        allow_unsupported_nodes=allow_unsupported_nodes,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))

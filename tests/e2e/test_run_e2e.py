@@ -65,7 +65,13 @@ if TYPE_CHECKING:
 
     from click.testing import CliRunner
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.network, pytest.mark.timeout(3600)]
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.e2e_run,
+    pytest.mark.slow,
+    pytest.mark.network,
+    pytest.mark.timeout(3600),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +202,7 @@ class TestFeatureImageClassification:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert data["task"] == "image-classification"
         assert isinstance(data["predictions"], list)
         assert len(data["predictions"]) > 0
@@ -227,7 +233,7 @@ class TestFeatureImageClassification:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert len(data["predictions"]) > 0
 
 
@@ -274,7 +280,7 @@ class TestFeatureTextClassification:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert "predictions" in data
 
     def test_pipeline_param(self, runner: CliRunner, text_model: str) -> None:
@@ -295,7 +301,7 @@ class TestFeatureTextClassification:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert "predictions" in data
 
 
@@ -327,7 +333,7 @@ class TestFeatureOutputFormats:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert {"task", "predictions", "latency_ms", "device"}.issubset(data.keys())
 
     def test_output_to_file(
@@ -363,7 +369,7 @@ class TestFeatureSchema:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert "task" in data
         assert isinstance(data["inputs"], list)
 
@@ -404,7 +410,7 @@ class TestSchemaAllModels:
             catch_exceptions=False,
         )
         assert result.exit_code == 0, f"--schema failed (exit {result.exit_code}):\n{result.output}"
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert "task" in data
         assert isinstance(data["inputs"], list)
         if data["inputs"]:
@@ -446,7 +452,7 @@ class TestInferenceAllModels:
         assert schema_result.exit_code == 0, (
             f"--schema failed (exit {schema_result.exit_code}):\n{schema_result.output}"
         )
-        schema = json.loads(schema_result.output)
+        schema = json.loads(schema_result.stdout)
 
         # Step 2: Build inference args
         input_args = _build_inference_args(schema["inputs"], task, test_image)
@@ -465,7 +471,7 @@ class TestInferenceAllModels:
         assert result.exit_code == 0, (
             f"Inference failed (exit {result.exit_code}):\n{result.output}"
         )
-        data = _extract_json(result.output)
+        data = _extract_json(result.stdout)
         assert "task" in data
         assert "latency_ms" in data
         assert data["latency_ms"] > 0

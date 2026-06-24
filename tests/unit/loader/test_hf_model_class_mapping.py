@@ -42,7 +42,7 @@ class TestHFModelClassMappingDesign:
 
     def test_clip_feature_extraction_returns_text_model(self):
         """CLIP with feature-extraction should return CLIPTextModelWithProjection."""
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         result = _get_custom_model_class(
             model_type="clip",
@@ -52,7 +52,7 @@ class TestHFModelClassMappingDesign:
 
     def test_clip_image_feature_extraction_returns_vision_model(self):
         """CLIP with image-feature-extraction should return CLIPVisionModelWithProjection."""
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         result = _get_custom_model_class(
             model_type="clip",
@@ -62,7 +62,7 @@ class TestHFModelClassMappingDesign:
 
     def test_segformer_image_segmentation_returns_semantic_segmentation(self):
         """Segformer with image-segmentation should return AutoModelForSemanticSegmentation."""
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         result = _get_custom_model_class(
             model_type="segformer",
@@ -79,7 +79,7 @@ class TestHFModelClassMappingDesign:
 
         NSP is not supported by Optimum's TasksManager, so we provide a default.
         """
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         # Should work for any model type (bert, etc.)
         result = _get_custom_model_class(
@@ -90,7 +90,7 @@ class TestHFModelClassMappingDesign:
 
     def test_next_sentence_prediction_any_model_type(self):
         """NSP mapping should work for any BERT-family model type."""
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         for model_type in ["bert", "roberta", "albert", "distilbert"]:
             result = _get_custom_model_class(
@@ -109,7 +109,7 @@ class TestHFModelClassMappingDesign:
         When there's no specialization and no task default, the function
         returns None, signaling to use TasksManager's default behavior.
         """
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         # Standard image classification - no special mapping needed
         class_name = _get_custom_model_class(
@@ -120,7 +120,7 @@ class TestHFModelClassMappingDesign:
 
     def test_standard_text_classification(self):
         """Standard text-classification should return None for TasksManager."""
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         class_name = _get_custom_model_class(
             model_type="bert",
@@ -137,7 +137,7 @@ class TestHFModelClassMappingDesign:
         # All these should return the same class
         from transformers import CLIPTextModelWithProjection
 
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         assert _get_custom_model_class("CLIP", "feature-extraction") is CLIPTextModelWithProjection
         assert _get_custom_model_class("Clip", "feature-extraction") is CLIPTextModelWithProjection
@@ -145,7 +145,7 @@ class TestHFModelClassMappingDesign:
 
     def test_model_type_underscore_normalization(self):
         """Model type with underscores should be normalized to hyphens."""
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         # clip_vision_model should match clip-vision-model
         class_name = _get_custom_model_class(
@@ -218,7 +218,7 @@ class TestHFModelClassMappingIntegration:
 
     def test_clip_specialization_returns_class_directly(self):
         """CLIP specialization should return class directly, not go through TasksManager."""
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         result = _get_custom_model_class("clip", "image-feature-extraction")
         assert result is not None
@@ -226,7 +226,7 @@ class TestHFModelClassMappingIntegration:
 
     def test_segformer_specialization_returns_class_directly(self):
         """Segformer specialization should return class directly, not go through TasksManager."""
-        from winml.modelkit.loader.task import _get_custom_model_class
+        from winml.modelkit.loader.resolution import _get_custom_model_class
 
         result = _get_custom_model_class("segformer", "image-segmentation")
         assert result is not None

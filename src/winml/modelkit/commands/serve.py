@@ -54,9 +54,9 @@ if TYPE_CHECKING:
     help="Unload session after N seconds idle (0 = never)",
 )
 @click.option(
-    "--multi",
-    is_flag=True,
+    "--multi/--no-multi",
     default=False,
+    show_default=True,
     help="Enable multi-model manager",
 )
 @click.option(
@@ -67,9 +67,9 @@ if TYPE_CHECKING:
     help="Memory budget in MB for multi-model manager",
 )
 @click.option(
-    "--auto-reload",
-    is_flag=True,
+    "--auto-reload/--no-auto-reload",
     default=False,
+    show_default=True,
     hidden=True,
     help="Dev mode: auto-reload on file changes",
 )

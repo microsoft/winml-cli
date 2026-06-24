@@ -109,11 +109,13 @@ def make_evaluator(
 
 class TestRegistry:
     def test_evaluator_registered(self) -> None:
+        from winml.modelkit.eval import WinMLEvaluationConfig
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY, get_evaluator_class
 
         assert "zero-shot-classification" in _EVALUATOR_REGISTRY
         assert (
-            get_evaluator_class("zero-shot-classification") is WinMLZeroShotClassificationEvaluator
+            get_evaluator_class(WinMLEvaluationConfig(task="zero-shot-classification"))
+            is WinMLZeroShotClassificationEvaluator
         )
 
     def test_default_dataset_registered(self) -> None:

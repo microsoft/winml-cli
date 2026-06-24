@@ -34,7 +34,7 @@ from collections import deque
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .tasks import BINARY_TYPES, TASK_REGISTRY, InputField, PipelineMapping
 from .types import Prediction, PredictionResult
@@ -192,7 +192,7 @@ def _resolve_hf_task(model_id: str, task: str | None) -> str | None:
 
     When *task* is provided, normalises it and returns immediately.
     Otherwise downloads the small ``config.json`` from the Hub and infers
-    the task via ``resolve_task_and_model_class``.
+    the task via ``resolve_task``.
     """
     if task is not None:
         # If the task has its own entry in TASK_REGISTRY (e.g.
@@ -211,10 +211,9 @@ def _resolve_hf_task(model_id: str, task: str | None) -> str | None:
 
         config = AutoConfig.from_pretrained(model_id)
 
-        from ..loader import resolve_task_and_model_class
+        from ..loader.resolution import resolve_task
 
-        resolved_task, _ = resolve_task_and_model_class(config)
-        return resolved_task
+        return resolve_task(config).task
     except Exception as exc:
         logger.warning("Could not detect task for %s: %s", model_id, exc)
         return None
@@ -234,7 +233,7 @@ def _discover_pipeline_params_from_task(task: str | None) -> list[dict]:
     try:
         from transformers.pipelines import SUPPORTED_TASKS
 
-        task_info = SUPPORTED_TASKS.get(task)
+        task_info = cast("dict[str, Any] | None", SUPPORTED_TASKS.get(task))
         if not task_info:
             return []
         pipeline_class = task_info.get("impl")
@@ -298,6 +297,8 @@ class InferenceEngine:
         task: str | None = None,
         device: str = "auto",
         ep: EPNameOrAlias | None = None,
+        skip_build: bool = True,
+        allow_unsupported_nodes: bool = False,
     ) -> None:
         """Load model from model_path.
 
@@ -306,10 +307,22 @@ class InferenceEngine:
             task: Required when model_path is a raw .onnx file.
             device: "auto" | "cpu" | "gpu" | "npu".
             ep: Explicit EP short name (e.g. "dml", "qnn").  Overrides device.
+            skip_build: When True (default), use a raw .onnx file as-is.
+                When False, run the build pipeline
+                (optimize/quantize/compile) before inference. Honored only
+                for raw .onnx paths; ignored for HF model IDs and pre-built
+                build directories. A build directory always loads its
+                cached ONNX as-is — to re-run the build pipeline on a
+                model already in a build dir, point ``model_path`` at the
+                explicit .onnx file inside it.
+            allow_unsupported_nodes: If True, warn instead of raising when the
+                analyzer reports unsupported nodes during an HF build. Note: has
+                no effect on raw .onnx files or pre-built build directories
+                (no build/analyze step runs in those paths).
         """
         self._model_path = str(model_path)
-        self._device = device
         self._ep = ep
+        self._device = device
         self._load_start = time.time()
 
         path = Path(model_path)
@@ -330,13 +343,25 @@ class InferenceEngine:
                         path,
                         model_id,
                     )
-                    self._load_from_hf(model_id, task=task, device=device, ep=ep)
+                    self._load_from_hf(
+                        model_id,
+                        task=task,
+                        device=device,
+                        ep=ep,
+                        allow_unsupported_nodes=allow_unsupported_nodes,
+                    )
                 else:
                     raise
         elif path.suffix == ".onnx" and path.exists():
-            self._load_from_onnx(path, task=task, device=device, ep=ep)
+            self._load_from_onnx(path, task=task, device=device, ep=ep, skip_build=skip_build)
         else:
-            self._load_from_hf(str(model_path), task=task, device=device, ep=ep)
+            self._load_from_hf(
+                str(model_path),
+                task=task,
+                device=device,
+                ep=ep,
+                allow_unsupported_nodes=allow_unsupported_nodes,
+            )
 
         # Create HF pipeline for preprocess + postprocess
         self._pipeline = self._create_pipeline()
@@ -844,7 +869,10 @@ class InferenceEngine:
         # output transformation without any if/else branching here.
         spec = TASK_REGISTRY.get(task or "")
         if spec and spec.postprocess is not None:
-            return spec.postprocess(raw, pipeline=self._pipeline, inputs=inputs)
+            return cast(
+                "list[Prediction] | dict[str, Any]",
+                spec.postprocess(raw, pipeline=self._pipeline, inputs=inputs),
+            )
 
         if isinstance(raw, list) and raw and isinstance(raw[0], dict):
             # Classification / detection: list of {"label": ..., "score": ...}
@@ -860,10 +888,10 @@ class InferenceEngine:
             # Sanitize numpy scalars so pydantic/JSON serialization works
             # (NER pipelines return np.float32 scores).
             result = raw[0] if len(raw) == 1 else {"results": raw}
-            return _sanitize_numpy(result)
+            return cast("dict[str, Any]", _sanitize_numpy(result))
         # Other tasks: return as-is dict
         if isinstance(raw, dict):
-            return _sanitize_numpy(raw)
+            return cast("dict[str, Any]", _sanitize_numpy(raw))
         # Fallback
         return {"raw": str(raw)}
 
@@ -876,6 +904,7 @@ class InferenceEngine:
         import numpy as np
         import torch
 
+        assert self._model is not None, "_predict_raw_tensors called before model loaded"
         inputs_torch = {
             k: torch.from_numpy(np.array(v)) if not isinstance(v, torch.Tensor) else v
             for k, v in tensor_inputs.items()
@@ -935,10 +964,10 @@ class InferenceEngine:
     def _resolve_model_id_from_dir(build_dir: Path) -> str | None:
         """Extract model_id from any manifest in the directory (task-agnostic)."""
         for manifest_path in build_dir.glob("*build_manifest.json"):
-            manifest = json.loads(manifest_path.read_text())
+            manifest: dict[str, Any] = json.loads(manifest_path.read_text())
             model_id = manifest.get("model_id")
             if model_id:
-                return model_id
+                return str(model_id)
         return None
 
     def _load_from_onnx(
@@ -948,15 +977,16 @@ class InferenceEngine:
         task: str | None,
         device: str,
         ep: EPNameOrAlias | None,
+        skip_build: bool = True,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 
         self._task = task
         self._model_id = None
         self._model = WinMLAutoModel.from_onnx(
-            onnx_path, task=task, device=device, ep=ep, skip_build=True
+            onnx_path, task=task, device=device, ep=ep, skip_build=skip_build
         )
-        logger.info("Loaded from ONNX: %s task=%s", onnx_path, task)
+        logger.info("Loaded from ONNX: %s task=%s skip_build=%s", onnx_path, task, skip_build)
 
     def _load_from_hf(
         self,
@@ -965,11 +995,18 @@ class InferenceEngine:
         task: str | None,
         device: str,
         ep: EPNameOrAlias | None,
+        allow_unsupported_nodes: bool = False,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 
         self._model_id = model_id
-        self._model = WinMLAutoModel.from_pretrained(model_id, task=task, device=device, ep=ep)
+        self._model = WinMLAutoModel.from_pretrained(
+            model_id,
+            task=task,
+            device=device,
+            ep=ep,
+            allow_unsupported_nodes=allow_unsupported_nodes,
+        )
         self._task = (
             task
             or getattr(self._model, "task", None)

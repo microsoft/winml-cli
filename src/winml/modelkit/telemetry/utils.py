@@ -19,7 +19,11 @@ import os
 import re
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
 _PACKAGE_ROOT = "winml/modelkit"
@@ -199,7 +203,12 @@ class _ExclusiveFileLock:
         self._fd = fd
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         import msvcrt
 
         if self._fd is None:

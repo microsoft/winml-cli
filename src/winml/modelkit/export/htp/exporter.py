@@ -30,7 +30,7 @@ import torch
 import torch.nn as nn
 from rich.console import Console
 
-from ...core.onnx_node_tagger import create_node_tagger_from_hierarchy
+from ...core.onnx_node_tagger import ONNXNodeTagger, create_node_tagger_from_hierarchy
 from ...core.onnx_utils import infer_output_names
 from .base_writer import ExportStep
 from .hierarchy import TracingHierarchyBuilder
@@ -140,17 +140,17 @@ class HTPExporter:
         self.strategy = HTPConfig.STRATEGY_NAME
 
         # Core components
-        self._hierarchy_builder = None
-        self._node_tagger = None
-        self._hierarchy_data = {}
-        self._tagged_nodes = {}
-        self._tagging_stats = {}
+        self._hierarchy_builder: TracingHierarchyBuilder | None = None
+        self._node_tagger: ONNXNodeTagger | None = None
+        self._hierarchy_data: dict[str, Any] = {}
+        self._tagged_nodes: dict[str, str] = {}
+        self._tagging_stats: dict[str, Any] = {}
 
         # Export statistics
         self._export_stats = HTPConfig.DEFAULT_EXPORT_STATS.copy()
 
         # Export monitor will be initialized in export()
-        self._monitor = None
+        self._monitor: HTPExportMonitor | None = None
 
         # Rich console for tree rendering
         self.console = Console(width=HTPConfig.CONSOLE_WIDTH)
@@ -398,6 +398,9 @@ class HTPExporter:
         task: str | None = None,
     ) -> None:
         """Export to ONNX using WinMLExportConfig."""
+        # Resolve to absolute path so torch.onnx.export writes external data
+        # files (.data) next to the model, not in the current working directory.
+        output_path = str(Path(output_path).resolve())
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Input names from config, fallback to inputs dict keys
@@ -444,7 +447,8 @@ class HTPExporter:
             # get_export_args(inputs) → tuple of positional args.
             # Default: pass inputs dict as kwargs.
             if hasattr(model, "get_export_args"):
-                export_args = model.get_export_args(inputs)
+                # hasattr-gated optional protocol; not in nn.Module's static type.
+                export_args = model.get_export_args(inputs)  # type: ignore[operator]
                 torch.onnx.export(model, export_args, output_path, **onnx_kwargs)
             else:
                 torch.onnx.export(model, (), output_path, kwargs=inputs, **onnx_kwargs)
@@ -468,6 +472,9 @@ class HTPExporter:
         model_type = getattr(model_config, "model_type", None) if model_config else None
         if not model_type:
             logger.debug("Model has no config.model_type; skipping Optimum patcher.")
+            return contextlib.nullcontext()
+        if task is None:
+            logger.debug("No task provided; skipping Optimum patcher.")
             return contextlib.nullcontext()
 
         # TasksManager expects Optimum-canonical task names
@@ -529,6 +536,9 @@ class HTPExporter:
 
     def _apply_hierarchy_tags(self, onnx_model: onnx.ModelProto) -> None:
         """Tag nodes internally."""
+        assert self._node_tagger is not None, (
+            "_apply_hierarchy_tags called before _initialize_node_tagger"
+        )
         # Store ONNX model for later use in displaying operations
         self._onnx_model = onnx_model
         self._tagged_nodes = self._node_tagger.tag_all_nodes(onnx_model)
