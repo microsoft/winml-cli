@@ -5,11 +5,7 @@
 """FP16 conversion utility for ONNX models.
 
 Provides a single entry point for FP32→FP16 model conversion, used by
-all CLI commands (optimize, build, export) at the command layer.
-
-This is NOT an optimizer pipe — FP16 is a precision transformation (like
-quantization), not a graph optimization. It runs after optimization and
-before quantization in the build pipeline.
+the quantizer's ``algorithm="fp16"`` path.
 """
 
 from __future__ import annotations

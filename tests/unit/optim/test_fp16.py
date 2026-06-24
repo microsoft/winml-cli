@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 from onnx import ModelProto, TensorProto, helper, numpy_helper
 
-from winml.modelkit.optim import convert_to_fp16
+from winml.modelkit.quant.fp16 import convert_to_fp16
 
 
 # =============================================================================

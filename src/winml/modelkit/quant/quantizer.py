@@ -230,7 +230,7 @@ def _quantize_single_pass(
         # ── Pure FP16 fast path (no quantization, only FP16 conversion) ──
         if config.algorithm == "fp16":
             from ..onnx import load_onnx, save_onnx
-            from ..optim.fp16 import convert_to_fp16
+            from .fp16 import convert_to_fp16
 
             if config.calibration_data is not None:
                 logger.warning(
