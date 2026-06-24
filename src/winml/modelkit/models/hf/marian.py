@@ -85,7 +85,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
@@ -106,6 +106,9 @@ from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDe
 # from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
+
+if TYPE_CHECKING:
+    from transformers import GenerationConfig, PretrainedConfig
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +180,7 @@ logger = logging.getLogger(__name__)
 
 
 def _patched_marian_sinusoidal_forward(
-    self,
+    self: Any,  # monkey-patched onto MarianSinusoidalPositionalEmbedding (HF internal)
     input_ids_shape: torch.Size,
     past_key_values_length: int = 0,
     position_ids: torch.Tensor | None = None,
@@ -262,10 +265,14 @@ class MarianEncoderWrapper(nn.Module):
         attention_mask: torch.Tensor,
     ) -> torch.Tensor:
         """Return encoder last hidden state."""
-        return self.encoder(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        ).last_hidden_state
+        # self.encoder is a torch submodule (untyped __call__ -> Any).
+        return cast(
+            "torch.Tensor",
+            self.encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            ).last_hidden_state,
+        )
 
 
 class MarianDecoderWrapper(nn.Module):
@@ -301,7 +308,9 @@ class MarianDecoderWrapper(nn.Module):
         self.model = model
         self.num_layers = num_layers
         # Expose config for OnnxConfig / NormalizedConfig access
-        self.config = model.config
+        # model is typed nn.Module, so torch's __getattr__ types .config as
+        # Tensor | Module; it is really the model's PretrainedConfig.
+        self.config = cast("PretrainedConfig", model.config)
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> MarianDecoderWrapper:
@@ -440,7 +449,8 @@ class _MarianDecoderNormalizedConfig(NormalizedConfig):  # type: ignore[misc]  #
 
     @property
     def head_dim(self) -> int:
-        return self.hidden_size // self.num_attention_heads
+        # hidden_size / num_attention_heads come from the untyped NormalizedConfig base.
+        return cast("int", self.hidden_size // self.num_attention_heads)
 
 
 @register_onnx_overwrite("marian", "text2text-generation", library_name="transformers")
@@ -554,7 +564,7 @@ class WinMLMarianModel(WinMLEncoderDecoderModel):
         return WinMLStaticCache  # static cache (index_put_ → ScatterND)
 
     @property
-    def generation_config(self):  # noqa: D102
+    def generation_config(self) -> GenerationConfig:  # noqa: D102
         if not hasattr(self, "_generation_config"):
             from transformers import GenerationConfig
 

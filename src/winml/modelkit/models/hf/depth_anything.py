@@ -23,7 +23,7 @@ from optimum.utils.input_generators import DummyVisionInputGenerator
 from ...export import register_onnx_overwrite
 
 
-class _DepthAnythingVisionInputGenerator(DummyVisionInputGenerator):
+class _DepthAnythingVisionInputGenerator(DummyVisionInputGenerator):  # type: ignore[misc]  # optimum/transformers base is untyped
     """Vision input generator that lets explicit height/width override config.image_size.
 
     Optimum's DummyVisionInputGenerator prioritizes normalized_config.image_size
@@ -62,7 +62,7 @@ class _DepthAnythingVisionInputGenerator(DummyVisionInputGenerator):
 
 
 @register_onnx_overwrite("depth_anything", "depth-estimation", library_name="transformers")
-class DepthAnythingIOConfig(OnnxConfig):
+class DepthAnythingIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum/transformers base is untyped
     """ONNX config for Depth Anything depth estimation.
 
     Model: depth-anything/Depth-Anything-V2-Small-hf

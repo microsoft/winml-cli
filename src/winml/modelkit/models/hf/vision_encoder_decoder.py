@@ -104,7 +104,7 @@ class VisionEncoderWrapper(nn.Module):
 @register_onnx_overwrite(
     "vision-encoder-decoder", "feature-extraction", library_name="transformers"
 )
-class VisionEncoderIOConfig(OnnxConfig):
+class VisionEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum/transformers base is untyped
     """ONNX config for the vision encoder."""
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -243,7 +243,7 @@ def _build_ved_patching_specs() -> list[PatchingSpec]:
 # =============================================================================
 
 
-class _VedDecoderNormalizedConfig(NormalizedConfig):
+class _VedDecoderNormalizedConfig(NormalizedConfig):  # type: ignore[misc]  # optimum/transformers base is untyped
     """VED decoder NormalizedConfig.
 
     Per-architecture field paths (``decoder.d_model`` vs ``decoder.n_embd``

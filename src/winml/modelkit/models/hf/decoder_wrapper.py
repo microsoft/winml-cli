@@ -156,7 +156,7 @@ class WinMLDecoderWrapper(nn.Module, ABC):
         """Call the HF decoder with ``past_key_values=<cache>``.  Returns logits."""
 
 
-class WinMLStaticCacheDecoderIOConfig(OnnxConfig):
+class WinMLStaticCacheDecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum/transformers base is untyped
     """Semantic-name contract used by ``WinMLDecoderWrapper._make_cache``.
 
     Subclasses declare their own ``inputs`` / ``outputs`` bodies (each
