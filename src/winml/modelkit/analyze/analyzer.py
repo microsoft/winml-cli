@@ -795,7 +795,7 @@ class ONNXStaticAnalyzer:
         if device is not None and device.lower() == "auto":
             from ..sysinfo import resolve_device
 
-            resolved, _ = resolve_device("auto", ep=None)
+            resolved, _ = resolve_device("auto", ep=ep_normalized)
             device_to_use = resolved.upper()
             logger.info("Device 'auto' resolved to: %s", device_to_use)
         else:

@@ -364,7 +364,7 @@ def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
 
     console = Console(stderr=True)
     console.print("[bold]Detecting available devices...[/bold]")
-    resolved, _ = resolve_device(cfg.device, ep=None)
+    resolved, _ = resolve_device(cfg.device, ep=cfg.ep)
     cfg.device = resolved
     console.print(f"[dim]Using device:[/dim] {resolved}")
 

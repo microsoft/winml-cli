@@ -553,7 +553,7 @@ def build(
         from ..sysinfo import resolve_check_device_ep
 
         try:
-            resolved_device, _, available_eps = resolve_check_device_ep(device=device, ep=None)
+            resolved_device, _, available_eps = resolve_check_device_ep(device=device, ep=ep)
         except ValueError as e:
             raise click.UsageError(str(e)) from e
         device = resolved_device
