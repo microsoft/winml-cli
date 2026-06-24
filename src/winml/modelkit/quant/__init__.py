@@ -24,12 +24,16 @@ from .config import QuantizeResult, WinMLQuantizationConfig
 __all__ = [
     "QuantizeResult",
     "WinMLQuantizationConfig",
+    "get_quant_finalizer",
     "quantize_onnx",
+    "register_quant_finalizer",
 ]
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "quantize_onnx": (".quantizer", "quantize_onnx"),
+    "get_quant_finalizer": (".calibration", "get_quant_finalizer"),
+    "register_quant_finalizer": (".calibration", "register_quant_finalizer"),
 }
 
 

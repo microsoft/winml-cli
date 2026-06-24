@@ -7,11 +7,12 @@
 Replaces the former root-level ``test_qwen.py`` / ``qwen3_transformer_only_quantize.py``
 scripts. Quantization is now driven entirely through the standard build
 pipeline (``WinMLAutoModel.from_pretrained(..., precision="w8a16")``): the
-device/precision policy enables the quantize stage, and
-``QwenTransformerOnlyDecoderWrapper.winml_finalize_quant_config`` finalizes the
-reference-matched scheme (int8-symmetric weights, uint16 activations,
-GroupQueryAttention excluded from QDQ) plus the decode-trajectory calibration
-reader.
+device/precision policy enables the quantize stage, and the
+``qwen3_transformer_only`` quant policy registered in
+``winml.modelkit.quant.calibration`` (resolved via ``get_quant_finalizer``)
+finalizes the reference-matched scheme (int8-symmetric weights, uint16
+activations, GroupQueryAttention excluded from QDQ) plus the decode-trajectory
+calibration reader.
 
 These tests download Qwen3-0.6B from HuggingFace and run a full CPU export +
 quantize, so they are gated behind ``slow`` + ``network`` and excluded from the

@@ -317,22 +317,28 @@ def build_hf_model(
         else:
             logger.info("Quantizing model...")
             t0 = time.monotonic()
-            # Some model wrappers can only finalize their quant config once the
-            # exported ONNX exists (e.g. calibration feeds / nodes-to-exclude
-            # derived from the graph). Give the wrapper a chance to populate
-            # those runtime-only fields here.
-            # Resolve the optional hook on the model's *class* (not the
-            # instance): a genuine wrapper defines it at class scope, whereas a
-            # raw HF model — or a test double whose attributes are synthesized
-            # per-instance — does not, so this avoids firing spuriously.
-            finalize_quant_config = getattr(
-                type(pytorch_model), "winml_finalize_quant_config", None
+            # Some model types finalize their quant config only once the
+            # exported ONNX exists (calibration feeds / nodes-to-exclude derived
+            # from the graph). Resolve the model-type-specific quant policy from
+            # the quant registry, keyed on the live ``model_type``. Unregistered
+            # types return None → the quantizer uses its standard task-aware
+            # DatasetCalibrationReader.
+            from ..quant import get_quant_finalizer
+
+            resolved_model_type = (
+                getattr(getattr(pytorch_model, "config", None), "model_type", None) or model_type
             )
-            if callable(finalize_quant_config):
-                config.quant = finalize_quant_config(
-                    pytorch_model, config.quant, onnx_path=current_path, model_id=model_id
+            quant_finalizer = get_quant_finalizer(resolved_model_type)
+            if quant_finalizer is not None:
+                # Generic id fallback: the policy loads a fresh reference model
+                # for calibration, so feed it the best-known HF id/path.
+                resolved_model_id = model_id or getattr(
+                    getattr(pytorch_model, "config", None), "_name_or_path", None
                 )
-                # The hook may overwrite the quant scheme (dtypes, symmetry,
+                config.quant = quant_finalizer.finalize(
+                    config.quant, onnx_path=current_path, model_id=resolved_model_id
+                )
+                # The policy may overwrite the quant scheme (dtypes, symmetry,
                 # nodes-to-exclude) authoritatively, so re-persist the config
                 # to keep config.json consistent with what was actually applied.
                 config_path.write_text(json.dumps(config.to_dict(), indent=2))

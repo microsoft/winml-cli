@@ -5,12 +5,13 @@
 
 """Config-driven w8a16 calibration for the transformer-only Qwen3 build.
 
-The transformer-only export (:mod:`qwen_transformer_only`) emits a graph whose
-only quantization-relevant runtime inputs (the calibration feeds and the
+The transformer-only export (``models.hf.qwen_transformer_only``) emits a graph
+whose only quantization-relevant runtime inputs (the calibration feeds and the
 ``GroupQueryAttention`` node names to keep in float) can't be known until the
 ONNX exists. Rather than a standalone post-build script that reaches into
-``composite.sub_models[...]._onnx_path``, this module plugs into the normal
-build pipeline: :meth:`QwenTransformerOnlyDecoderWrapper.winml_finalize_quant_config`
+``composite.sub_models[...]._onnx_path``, this module registers a quant policy
+keyed on ``model_type`` (:class:`Qwen3TransformerOnlyQuantFinalizer`). The build
+pipeline resolves it via :func:`~winml.modelkit.quant.get_quant_finalizer` and
 calls :func:`finalize_transformer_only_quant_config` just before
 ``quantize_onnx`` runs (see ``build/hf.py``), populating the live
 :class:`WinMLQuantizationConfig` with the right
@@ -43,7 +44,8 @@ import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from ...quant.config import CalibrationDataReader, WinMLQuantizationConfig
+from ..config import CalibrationDataReader, WinMLQuantizationConfig
+from .registry import register_quant_finalizer
 
 
 if TYPE_CHECKING:
@@ -418,3 +420,27 @@ def finalize_transformer_only_quant_config(
     gc.collect()
 
     return quant
+
+
+@register_quant_finalizer("qwen3_transformer_only")
+class Qwen3TransformerOnlyQuantFinalizer:
+    """Registered quant policy for the ``qwen3_transformer_only`` model_type.
+
+    Adapts :func:`finalize_transformer_only_quant_config` to the
+    :class:`~winml.modelkit.quant.calibration.base.QuantConfigFinalizer`
+    protocol so the build pipeline resolves the model-specific w8a16 scheme +
+    calibration reader through the quant registry (keyed on ``model_type``)
+    rather than a hardcoded hook on the export wrapper.
+    """
+
+    def finalize(
+        self,
+        quant: WinMLQuantizationConfig,
+        *,
+        onnx_path: Path,
+        model_id: str | None = None,
+    ) -> WinMLQuantizationConfig:
+        """Populate ``quant`` with the transformer-only w8a16 scheme + reader."""
+        return finalize_transformer_only_quant_config(
+            quant, onnx_path=onnx_path, model_id=model_id or DEFAULT_MODEL_ID
+        )

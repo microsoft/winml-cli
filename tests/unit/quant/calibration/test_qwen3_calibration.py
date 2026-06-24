@@ -19,7 +19,7 @@ import numpy as np
 import onnx
 import torch
 
-from winml.modelkit.models.hf.qwen_transformer_only_quant import (
+from winml.modelkit.quant.calibration.qwen3_transformer_only import (
     Qwen3DecodeTrajectoryCalibReader,
     Qwen3TransformerOnlyCalibReader,
     _gqa_node_names,

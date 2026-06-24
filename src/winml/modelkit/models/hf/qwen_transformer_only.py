@@ -125,27 +125,6 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
             out.extend([k, v])
         return tuple(out)
 
-    def winml_finalize_quant_config(
-        self, quant: Any, *, onnx_path: Any, model_id: str | None = None
-    ) -> Any:
-        """Build-pipeline hook: attach the calibration reader + GQA exclusions.
-
-        Called by ``build_hf_model`` just before ``quantize_onnx`` (see
-        ``build/hf.py``). The exported transformer-only graph determines the
-        calibration feeds (shapes, KV buffers) and which GroupQueryAttention
-        nodes stay in float, so the live :class:`WinMLQuantizationConfig` can
-        only be finalized here — not at config-construction time.
-        """
-        from .qwen_transformer_only_quant import (
-            DEFAULT_MODEL_ID,
-            finalize_transformer_only_quant_config,
-        )
-
-        resolved_id = model_id or getattr(self.config, "_name_or_path", None) or DEFAULT_MODEL_ID
-        return finalize_transformer_only_quant_config(
-            quant, onnx_path=onnx_path, model_id=resolved_id
-        )
-
 
 # =============================================================================
 # Dummy input generators (transformer-only I/O)
