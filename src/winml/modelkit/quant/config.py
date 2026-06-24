@@ -60,7 +60,7 @@ class WinMLQuantizationConfig:
     # "rtn"     — Round-To-Nearest weight-only (no calibration, block-wise)
     # "fp16"    — Pure FP16 conversion only (no quantization)
 
-    mode: Literal["qdq", "static", "dynamic"] = "qdq"
+    mode: Literal["qdq", "static", "dynamic"] = "qdq"  # Deprecated: use `algorithm` instead
 
     # Calibration settings (static/dynamic)
     samples: int = 10
