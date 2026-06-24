@@ -98,7 +98,12 @@ from .vision_encoder_decoder import (
     VisionDecoderIOConfig as _VisionDecoderIOConfig,  # triggers registration
 )
 from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
+<<<<<<< HEAD
 from .vitpose import MODEL_CLASS_MAPPING as _VITPOSE_CLASS_MAPPING
+=======
+from .vilt import MODEL_CLASS_MAPPING as _VILT_CLASS_MAPPING
+from .vilt import ViltVqaOnnxConfig as _ViltVqaOnnxConfig  # triggers registration
+>>>>>>> a2426c79 (Add ViLT (dandelin/vilt-b32-finetuned-vqa) visual-question-answering support)
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
@@ -131,6 +136,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _SIGLIP_CLASS_MAPPING,
         _T5_CLASS_MAPPING,
         _VED_CLASS_MAPPING,
+        _VILT_CLASS_MAPPING,
         _VITPOSE_CLASS_MAPPING,
     )
     for _key, _model_cls in _sub_mapping.items()
