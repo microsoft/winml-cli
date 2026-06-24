@@ -68,9 +68,11 @@ class KeypointAPMetric:
             keypoint_names: Keypoint names for the category definition.
 
         Returns:
-            Dict with ``AP``, ``AP50``, ``AP75``, ``AP_medium``, ``AP_large``,
-            ``AR``, ``AR50``, ``AR75``, plus ``num_predictions``,
-            ``num_ground_truths`` and ``num_images``.
+            Dict with ``map``, ``map_50``, ``map_75``, ``map_medium``,
+            ``map_large``, ``mar``, ``mar_50``, ``mar_75``, plus
+            ``num_predictions``, ``num_ground_truths`` and ``num_images``.
+            Keys mirror the object-detection ``MAPMetric`` so downstream
+            reporting treats both COCO metrics the same way.
         """
         import contextlib
         import io
@@ -122,14 +124,14 @@ class KeypointAPMetric:
 
         stats = coco_eval.stats
         return {
-            "AP": float(stats[0]),
-            "AP50": float(stats[1]),
-            "AP75": float(stats[2]),
-            "AP_medium": float(stats[3]),
-            "AP_large": float(stats[4]),
-            "AR": float(stats[5]),
-            "AR50": float(stats[6]),
-            "AR75": float(stats[7]),
+            "map": float(stats[0]),
+            "map_50": float(stats[1]),
+            "map_75": float(stats[2]),
+            "map_medium": float(stats[3]),
+            "map_large": float(stats[4]),
+            "mar": float(stats[5]),
+            "mar_50": float(stats[6]),
+            "mar_75": float(stats[7]),
             "num_predictions": len(detections),
             "num_ground_truths": len(gt_dict["annotations"]),
             "num_images": len(image_ids),
@@ -193,14 +195,14 @@ class KeypointAPMetric:
     ) -> dict[str, float]:
         """Return zeroed metrics when there is nothing to score."""
         return {
-            "AP": 0.0,
-            "AP50": 0.0,
-            "AP75": 0.0,
-            "AP_medium": 0.0,
-            "AP_large": 0.0,
-            "AR": 0.0,
-            "AR50": 0.0,
-            "AR75": 0.0,
+            "map": 0.0,
+            "map_50": 0.0,
+            "map_75": 0.0,
+            "map_medium": 0.0,
+            "map_large": 0.0,
+            "mar": 0.0,
+            "mar_50": 0.0,
+            "mar_75": 0.0,
             "num_predictions": len(predictions),
             "num_ground_truths": len(references),
             "num_images": len(image_ids),

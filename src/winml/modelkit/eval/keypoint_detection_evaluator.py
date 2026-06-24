@@ -62,6 +62,19 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         self._area_key: str = area_key
         self._box_format: str = box_format
 
+        # Optional non-COCO keypoint layout: a model with a different keypoint
+        # set (e.g. SynthPose's 52 anatomical markers) can be scored by this
+        # same evaluator by supplying matching OKS sigmas and keypoint names
+        # through the dataset config. Absent -> the metric's COCO 17 defaults.
+        raw_sigmas = mapping.get("sigmas")
+        raw_names = mapping.get("keypoint_names")
+        self._sigmas: tuple[float, ...] | None = (
+            tuple(float(s) for s in self._as_list(raw_sigmas)) if raw_sigmas else None
+        )
+        self._keypoint_names: tuple[str, ...] | None = (
+            tuple(str(n) for n in self._as_list(raw_names)) if raw_names else None
+        )
+
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> BaseImageProcessor:
@@ -129,7 +142,14 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         if skipped:
             logger.warning("Skipped %d samples with missing image or annotations.", skipped)
 
-        return KeypointAPMetric().compute(predictions=predictions, references=references)
+        metric_kwargs: dict[str, Any] = {}
+        if self._sigmas is not None:
+            metric_kwargs["sigmas"] = self._sigmas
+        if self._keypoint_names is not None:
+            metric_kwargs["keypoint_names"] = self._keypoint_names
+        return KeypointAPMetric().compute(
+            predictions=predictions, references=references, **metric_kwargs
+        )
 
     def _predict_poses(
         self,
@@ -170,6 +190,13 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         if heatmaps is None:
             heatmaps = next(iter(outputs.values()))
         return heatmaps
+
+    @staticmethod
+    def _as_list(value: Any) -> list[Any]:
+        """Coerce a comma-separated string or an existing sequence into a list."""
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return list(value)
 
     def _to_xywh(self, box: Any) -> list[float]:
         """Normalize a person box to COCO ``[x, y, w, h]``."""

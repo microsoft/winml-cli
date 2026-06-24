@@ -27,6 +27,8 @@ def _make_evaluator(box_format: str = "xywh") -> WinMLKeypointDetectionEvaluator
     ev._bbox_key = "bbox"
     ev._area_key = "area"
     ev._box_format = box_format
+    ev._sigmas = None
+    ev._keypoint_names = None
     return ev
 
 
@@ -114,7 +116,7 @@ class TestComputeLoop:
 
         result = ev.compute()
 
-        assert "AP" in result
+        assert "map" in result
         assert result["num_images"] == 2
         assert result["num_predictions"] == 3
         assert result["num_ground_truths"] == 3

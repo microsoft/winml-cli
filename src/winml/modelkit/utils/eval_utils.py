@@ -320,6 +320,18 @@ _KEYPOINT_DETECTION_SCHEMA = TaskSchema(
             "box_format", "person bounding box layout",
             default="xywh", remap_hint="<xywh|xyxy>",
         ),
+        SchemaItem(
+            "sigmas",
+            "per-keypoint OKS sigmas as comma-separated floats; "
+            "defaults to the COCO 17-keypoint constants",
+            default="COCO 17 sigmas", remap_hint="<s1,s2,...>",
+        ),
+        SchemaItem(
+            "keypoint_names",
+            "keypoint names in index order as comma-separated strings; "
+            "defaults to the COCO 17 names",
+            default="COCO 17 names", remap_hint="<name1,name2,...>",
+        ),
     ),
 )
 

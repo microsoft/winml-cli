@@ -46,8 +46,8 @@ class TestKeypointAPMetricPerfectMatch:
             ],
         )
 
-        assert result["AP"] == pytest.approx(1.0, abs=0.01)
-        assert result["AP50"] == pytest.approx(1.0, abs=0.01)
+        assert result["map"] == pytest.approx(1.0, abs=0.01)
+        assert result["map_50"] == pytest.approx(1.0, abs=0.01)
         assert result["num_predictions"] == 1
         assert result["num_ground_truths"] == 1
         assert result["num_images"] == 1
@@ -70,7 +70,7 @@ class TestKeypointAPMetricPerfectMatch:
 
         result = KeypointAPMetric().compute(predictions=preds, references=refs)
 
-        assert result["AP"] == pytest.approx(1.0, abs=0.01)
+        assert result["map"] == pytest.approx(1.0, abs=0.01)
         assert result["num_images"] == 2
 
 
@@ -99,7 +99,7 @@ class TestKeypointAPMetricImperfect:
             ],
         )
 
-        assert result["AP"] < 0.5
+        assert result["map"] < 0.5
 
     def test_no_predictions_returns_zero(self) -> None:
         kpts = _coco_person_keypoints(100.0, 100.0)
@@ -115,7 +115,7 @@ class TestKeypointAPMetricImperfect:
             ],
         )
 
-        assert result["AP"] == 0.0
+        assert result["map"] == 0.0
         assert result["num_predictions"] == 0
         assert result["num_ground_truths"] == 1
 
@@ -140,4 +140,37 @@ class TestKeypointAPMetricMismatch:
                     }
                 ],
             )
+
+
+class TestKeypointAPMetricCustomLayout:
+    """A non-COCO keypoint layout scores when matching sigmas are supplied."""
+
+    def test_custom_layout_scores_with_matching_sigmas(self) -> None:
+        # A 5-keypoint layout (not COCO's 17): perfect predictions should still
+        # score map ~= 1.0 once sigmas/keypoint_names describe that layout. This
+        # is what lets one evaluator handle non-COCO models (e.g. SynthPose).
+        sigmas = (0.05, 0.05, 0.05, 0.05, 0.05)
+        names = ("a", "b", "c", "d", "e")
+        offsets = [(0, 0), (10, 0), (0, 10), (-10, 0), (0, -10)]
+        gt_flat: list[float] = []
+        for dx, dy in offsets:
+            gt_flat.extend([100.0 + dx, 100.0 + dy, 2.0])
+        pred_flat = [v if (i % 3) != 2 else 1.0 for i, v in enumerate(gt_flat)]
+
+        result = KeypointAPMetric().compute(
+            predictions=[{"image_id": 1, "keypoints": pred_flat, "score": 0.9}],
+            references=[
+                {
+                    "image_id": 1,
+                    "keypoints": gt_flat,
+                    "bbox": [80.0, 80.0, 40.0, 40.0],
+                    "area": 1600.0,
+                }
+            ],
+            sigmas=sigmas,
+            keypoint_names=names,
+        )
+
+        assert result["map"] == pytest.approx(1.0, abs=0.01)
+        assert result["num_ground_truths"] == 1
 

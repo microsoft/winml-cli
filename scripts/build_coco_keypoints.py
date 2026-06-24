@@ -26,6 +26,7 @@ Usage:
 import argparse
 import io
 import json
+import random
 import shutil
 import sys
 import urllib.request
@@ -76,7 +77,7 @@ def _fetch_image(file_name: str) -> bytes:
         return resp.read()
 
 
-def build(output_dir: Path, num_images: int, cache_dir: Path) -> None:
+def build(output_dir: Path, num_images: int, cache_dir: Path, seed: int = 42) -> None:
     """Build and save the COCO keypoints dataset to ``output_dir``."""
     from datasets import Dataset, Features, Image, Sequence, Value
     from PIL import Image as PILImage
@@ -87,6 +88,10 @@ def build(output_dir: Path, num_images: int, cache_dir: Path) -> None:
 
     image_ids = sorted(by_image)
     if num_images > 0:
+        # Shuffle before truncating so a small subset is a representative random
+        # sample of the validation set rather than the lowest image ids. Seeded
+        # so repeated builds produce the same subset.
+        random.Random(seed).shuffle(image_ids)
         image_ids = image_ids[:num_images]
     print(f"Building {len(image_ids)} images with keypoint annotations...")
 
@@ -145,8 +150,14 @@ def main() -> int:
         default=DEFAULT_CACHE,
         help="Where to cache the downloaded annotations zip.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for selecting the image subset (used when --num-images > 0).",
+    )
     args = parser.parse_args()
-    build(args.output_dir, args.num_images, args.cache_dir)
+    build(args.output_dir, args.num_images, args.cache_dir, args.seed)
     return 0
 
 
