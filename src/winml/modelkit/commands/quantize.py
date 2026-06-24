@@ -40,17 +40,7 @@ console = Console()
 
 def _warn_ignored_calibration_options(ctx: click.Context, reason: str) -> None:
     """Warn if the user passed calibration-related CLI options that are ignored."""
-    ignored = []
-    if cli_utils.is_cli_provided(ctx, "samples"):
-        ignored.append("--samples")
-    if cli_utils.is_cli_provided(ctx, "method"):
-        ignored.append("--method")
-    if cli_utils.is_cli_provided(ctx, "weight_type"):
-        ignored.append("--weight-type")
-    if cli_utils.is_cli_provided(ctx, "activation_type"):
-        ignored.append("--activation-type")
-    if ignored:
-        console.print(f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — {reason}")
+    cli_utils.warn_ignored_calibration_options(ctx, reason, console=console)
 
 
 @click.command()
