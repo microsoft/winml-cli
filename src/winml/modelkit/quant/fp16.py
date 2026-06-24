@@ -5,7 +5,7 @@
 """FP16 conversion utility for ONNX models.
 
 Provides a single entry point for FP32→FP16 model conversion, used by
-the quantizer's ``algorithm="fp16"`` path.
+the quantizer's ``mode="fp16"`` path.
 """
 
 from __future__ import annotations

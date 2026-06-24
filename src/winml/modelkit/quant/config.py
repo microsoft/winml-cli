@@ -49,18 +49,16 @@ class WinMLQuantizationConfig:
         result = quantize_onnx("model.onnx", config)
 
         # FP16 conversion (pure FP16, no quantization)
-        config = WinMLQuantizationConfig(algorithm="fp16")
+        config = WinMLQuantizationConfig(mode="fp16")
         result = quantize_onnx("model.onnx", config)
     """
 
-    # Quantization algorithm
-    algorithm: Literal["static", "dynamic", "rtn", "fp16"] = "static"
+    # Quantization mode
+    mode: Literal["static", "dynamic", "rtn", "fp16"] = "static"
     # "static"  — Calibrated QDQ quantization (requires calibration data)
     # "dynamic" — Dynamic quantization (no calibration) [planned, not yet wired]
     # "rtn"     — Round-To-Nearest weight-only (no calibration, block-wise)
     # "fp16"    — Pure FP16 conversion only (no quantization)
-
-    mode: Literal["qdq", "static", "dynamic"] = "qdq"  # Deprecated: use `algorithm` instead
 
     # Calibration settings (static/dynamic)
     samples: int = 10
@@ -93,13 +91,13 @@ class WinMLQuantizationConfig:
     op_types_to_quantize: list[str] | None = None
     nodes_to_exclude: list[str] | None = None
 
-    # RTN-specific settings (only used when algorithm="rtn")
+    # RTN-specific settings (only used when mode="rtn")
     rtn_bits: int = 4
     rtn_block_size: int = 128
     rtn_symmetric: bool = True
     rtn_accuracy_level: int = 0
 
-    # FP16 conversion settings (only used when algorithm="fp16")
+    # FP16 conversion settings (only used when mode="fp16")
     fp16_keep_io_types: bool = True
     fp16_op_block_list: list[str] | None = None
 
@@ -112,7 +110,6 @@ class WinMLQuantizationConfig:
         to keep submodule configs clean.
         """
         result: dict = {
-            "algorithm": self.algorithm,
             "mode": self.mode,
             "samples": self.samples,
             "calibration_method": self.calibration_method,
@@ -138,12 +135,12 @@ class WinMLQuantizationConfig:
             result["model_name"] = self.model_name
         if self.dataset_name is not None:
             result["dataset_name"] = self.dataset_name
-        if self.algorithm == "rtn":
+        if self.mode == "rtn":
             result["rtn_bits"] = self.rtn_bits
             result["rtn_block_size"] = self.rtn_block_size
             result["rtn_symmetric"] = self.rtn_symmetric
             result["rtn_accuracy_level"] = self.rtn_accuracy_level
-        if self.algorithm == "fp16":
+        if self.mode == "fp16":
             result["fp16_keep_io_types"] = self.fp16_keep_io_types
             result["fp16_op_block_list"] = self.fp16_op_block_list
         return result
@@ -158,9 +155,15 @@ class WinMLQuantizationConfig:
         Returns:
             WinMLQuantizationConfig instance.
         """
+        # Backward compat: prefer "algorithm" (authoritative in old configs)
+        # over deprecated "mode" (which defaulted to "qdq").
+        # Map legacy "qdq" value to "static".
+        raw_mode = data["algorithm"] if "algorithm" in data else data.get("mode", "static")
+        if raw_mode == "qdq":
+            raw_mode = "static"
+
         return cls(
-            algorithm=data.get("algorithm", "static"),
-            mode=data.get("mode", "qdq"),
+            mode=raw_mode,
             samples=data.get("samples", data.get("calibration_samples", 10)),
             calibration_method=data.get("calibration_method", "minmax"),
             task=data.get("task"),

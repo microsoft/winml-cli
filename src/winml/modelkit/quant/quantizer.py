@@ -34,14 +34,14 @@ def quantize_onnx(
     needs to invoke this function once.
 
     When ``precision`` is None, falls back to single-pass execution based on
-    ``config.algorithm``.
+    ``config.mode``.
 
     Args:
         model_path: Path to input ONNX model.
         output_path: Path for output model (defaults to {model_stem}_qdq.onnx).
         config: Quantization configuration (uses defaults if None).
         precision: Optional precision string (e.g., "fp16", "int4", "w4a16").
-            When set, overrides config.algorithm routing with multi-pass
+            When set, overrides config.mode routing with multi-pass
             expansion logic.
 
     Returns:
@@ -57,7 +57,7 @@ def quantize_onnx(
         # Single-pass FP16 only
         result = quantize_onnx("model.onnx", precision="fp16")
 
-        # Legacy: use config.algorithm directly
+        # Legacy: use config.mode directly
         result = quantize_onnx("model.onnx", config=WinMLQuantizationConfig(samples=100))
     """
     from ..config.precision import expand_precision
@@ -156,7 +156,7 @@ def _make_pass_config(
     """Build a config for a single pass based on precision string."""
     if step_prec == "fp16":
         return WinMLQuantizationConfig(
-            algorithm="fp16",
+            mode="fp16",
             fp16_keep_io_types=base_config.fp16_keep_io_types,
             fp16_op_block_list=base_config.fp16_op_block_list,
         )
@@ -228,14 +228,13 @@ def _quantize_single_pass(
 
     try:
         # ── Pure FP16 fast path (no quantization, only FP16 conversion) ──
-        if config.algorithm == "fp16":
+        if config.mode == "fp16":
             from ..onnx import load_onnx, save_onnx
             from .fp16 import convert_to_fp16
 
             if config.calibration_data is not None:
                 logger.warning(
-                    "calibration_data is set but algorithm='fp16' — "
-                    "calibration data will be ignored."
+                    "calibration_data is set but mode='fp16' — calibration data will be ignored."
                 )
 
             logger.info("Running FP16-only conversion (no quantization)...")
@@ -264,15 +263,14 @@ def _quantize_single_pass(
             )
 
         # ── RTN weight-only path ──────────────────────────────────────
-        if config.algorithm == "rtn":
+        if config.mode == "rtn":
             from onnxruntime.quantization.matmul_nbits_quantizer import MatMulNBitsQuantizer
 
             from ..onnx import load_onnx, save_onnx
 
             if config.calibration_data is not None:
                 logger.warning(
-                    "calibration_data is set but algorithm='rtn' — "
-                    "calibration data will be ignored."
+                    "calibration_data is set but mode='rtn' — calibration data will be ignored."
                 )
 
             logger.info(

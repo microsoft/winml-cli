@@ -631,8 +631,8 @@ def build(
                     # and other calibration settings from the existing config.
                     cfg.quant.weight_type = resolved_quant.weight_type
                     cfg.quant.activation_type = resolved_quant.activation_type
-                    cfg.quant.algorithm = resolved_quant.algorithm
-                    if resolved_quant.algorithm == "rtn":
+                    cfg.quant.mode = resolved_quant.mode
+                    if resolved_quant.mode == "rtn":
                         cfg.quant.rtn_bits = resolved_quant.rtn_bits
                         cfg.quant.rtn_block_size = resolved_quant.rtn_block_size
                         cfg.quant.rtn_symmetric = resolved_quant.rtn_symmetric
@@ -1166,7 +1166,7 @@ def _run_quantize_stage(
         return current_path
 
     # QDQ skip check: if model already has QDQ nodes and we're doing static/dynamic
-    if config.quant.algorithm in ("static", "dynamic") and is_quantized_onnx(current_path):
+    if config.quant.mode in ("static", "dynamic") and is_quantized_onnx(current_path):
         print_stage_skip(console, "quantize", "(QDQ nodes already present)")
         stage_timings.append(("Quantize", None))
         return current_path
@@ -1181,7 +1181,7 @@ def _run_quantize_stage(
         # Show status based on what we're about to do
         if is_fp16_only:
             sl.set_status("Converting to FP16...")
-        elif config.quant.algorithm == "rtn":
+        elif config.quant.mode == "rtn":
             sl.set_status(f"Quantizing (RTN {config.quant.rtn_bits}-bit)...")
             if precision and "a16" in precision.lower():
                 sl.detail("[dim]Multi-pass: int4 → fp16[/dim]")
@@ -1200,7 +1200,7 @@ def _run_quantize_stage(
 
         # Suppress tqdm/datasets progress bars for QDQ calibration
         _datasets_available = False
-        if config.quant.algorithm in ("static", "dynamic"):
+        if config.quant.mode in ("static", "dynamic"):
             try:
                 import datasets
 
@@ -1235,7 +1235,7 @@ def _run_quantize_stage(
         # Show algorithm-specific result details
         if is_fp16_only:
             sl.detail("[dim]I/O types preserved as FP32[/dim]")
-        elif config.quant.algorithm == "rtn":
+        elif config.quant.mode == "rtn":
             sl.kv(
                 "Algorithm:",
                 f"[cyan]RTN[/cyan]  [dim](weight-only {config.quant.rtn_bits}-bit)[/dim]",

@@ -236,7 +236,7 @@ class TestGenerateBuildConfigOnnxPath:
 
         assert config.export is None
         assert config.quant is not None
-        assert config.quant.algorithm == "fp16"
+        assert config.quant.mode == "fp16"
         assert config.compile is None
 
     def test_quantized_onnx_skips_quant(self, tmp_path) -> None:
@@ -581,7 +581,7 @@ class TestGenerateBuildConfigOnnxPath:
             config = generate_onnx_build_config(str(onnx_file))
 
         assert config.quant is not None
-        assert config.quant.algorithm == "fp16"
+        assert config.quant.mode == "fp16"
         assert config.compile is None
 
     def test_compiled_does_not_call_resolve_quant_compile(self, tmp_path) -> None:
@@ -621,7 +621,7 @@ class TestGenerateBuildConfigOnnxPath:
 
         # GPU auto-precision is fp16 -> fp16 algorithm quant config; DML has no EPContext step
         assert config.quant is not None
-        assert config.quant.algorithm == "fp16"
+        assert config.quant.mode == "fp16"
         assert config.compile is None
 
     def test_ep_override_forwarded(self, tmp_path) -> None:
@@ -670,7 +670,7 @@ class TestResolveQuantCompileConfig:
             quant, compile_cfg = resolve_quant_compile_config()
 
         assert isinstance(quant, WinMLQuantizationConfig)
-        assert quant.algorithm == "fp16"
+        assert quant.mode == "fp16"
         assert compile_cfg is None
 
     def test_npu_returns_quant_and_compile(self) -> None:
@@ -696,7 +696,7 @@ class TestResolveQuantCompileConfig:
             quant, compile_cfg = resolve_quant_compile_config(device="gpu")
 
         assert isinstance(quant, WinMLQuantizationConfig)
-        assert quant.algorithm == "fp16"
+        assert quant.mode == "fp16"
         assert compile_cfg is None
 
     def test_cpu_returns_fp16_quant_and_none_compile(self) -> None:
@@ -708,7 +708,7 @@ class TestResolveQuantCompileConfig:
             quant, compile_cfg = resolve_quant_compile_config(device="cpu")
 
         assert isinstance(quant, WinMLQuantizationConfig)
-        assert quant.algorithm == "fp16"
+        assert quant.mode == "fp16"
         assert compile_cfg is None
 
     def test_ep_override_changes_provider(self) -> None:

@@ -202,7 +202,7 @@ def quantize(
         console.print(f"[bold blue]Output:[/bold blue] {output}")
         console.print("[bold blue]Precision:[/bold blue] fp16")
 
-        config = WinMLQuantizationConfig(algorithm="fp16")
+        config = WinMLQuantizationConfig(mode="fp16")
 
         try:
             console.print("\n[bold]Converting to FP16...[/bold]")
@@ -254,7 +254,7 @@ def quantize(
         console.print(f"[bold blue]Algorithm:[/bold blue] RTN (weight-only, {rtn_bits}-bit)")
 
         rtn_config = WinMLQuantizationConfig(
-            algorithm="rtn",
+            mode="rtn",
             rtn_bits=rtn_bits,
         )
 

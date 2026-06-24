@@ -235,7 +235,7 @@ class WinMLBuildConfig:
         # Algorithms that skip calibration (fp16, rtn, dynamic) also don't
         # need task/model_name since they don't generate calibration datasets.
         if self.quant is not None:
-            needs_calibration = self.quant.algorithm == "static"
+            needs_calibration = self.quant.mode == "static"
             needs_quant_ids = not is_onnx_build and not is_submodule and needs_calibration
             if needs_quant_ids and not self.quant.task:
                 errors.append("quant.task is required when quant is enabled for HF builds")
@@ -368,11 +368,11 @@ def resolve_quant_compile_config(
         quant_config.activation_type = policy.activation_type
     elif policy.precision == "fp16":
         # Pure FP16: no QDQ quantization, only FP16 conversion
-        quant_config = WinMLQuantizationConfig(algorithm="fp16")
+        quant_config = WinMLQuantizationConfig(mode="fp16")
     elif is_weight_only_precision(policy.precision):
         # Weight-only (RTN): derive rtn_bits from precision
         quant_config = WinMLQuantizationConfig(
-            algorithm="rtn",
+            mode="rtn",
             rtn_bits=extract_weight_bits(policy.precision),
         )
 
@@ -715,11 +715,11 @@ def generate_hf_build_config(
         parent_config.quant.activation_type = policy.activation_type
     elif policy.precision == "fp16":
         # Pure FP16: no QDQ, only FP16 conversion via quantize stage
-        parent_config.quant = WinMLQuantizationConfig(algorithm="fp16")
+        parent_config.quant = WinMLQuantizationConfig(mode="fp16")
     elif policy.precision and is_weight_only_precision(policy.precision):
         # RTN weight-only quantization (e.g. int4, w4a16, w4a32)
         parent_config.quant = WinMLQuantizationConfig(
-            algorithm="rtn",
+            mode="rtn",
             rtn_bits=extract_weight_bits(policy.precision),
         )
     else:

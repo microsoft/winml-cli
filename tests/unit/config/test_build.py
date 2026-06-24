@@ -2021,12 +2021,12 @@ class TestDevicePrecisionIntegration:
             assert result.quant is not None, (
                 f"Expected quant config for device={device}, precision={precision}"
             )
-            if result.quant.algorithm != "fp16":
+            if result.quant.mode != "fp16":
                 assert result.quant.weight_type == expect_weight
                 assert result.quant.activation_type == expect_act
             else:
                 # FP16 algorithm: quant stage does FP16 conversion, not QDQ
-                assert result.quant.algorithm == "fp16"
+                assert result.quant.mode == "fp16"
         else:
             assert result.quant is None, (
                 f"Expected no quant for device={device}, precision={precision}"
@@ -2222,7 +2222,7 @@ class TestDevicePrecisionCli:
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
         assert data["quant"] is not None
-        assert data["quant"]["algorithm"] == "fp16"
+        assert data["quant"]["mode"] == "fp16"
         assert data["compile"] is None
 
     def test_device_cpu_precision_fp32(self, tmp_path) -> None:
@@ -2418,7 +2418,7 @@ class TestGenerateBuildConfigOnnxPath:
 
         assert config.export is None
         assert config.quant is not None
-        assert config.quant.algorithm == "fp16"
+        assert config.quant.mode == "fp16"
         assert config.compile is None
 
     def test_quantized_onnx_skips_quant(self, tmp_path) -> None:
@@ -2765,7 +2765,7 @@ class TestGenerateBuildConfigOnnxPath:
 
         # EP resolves to CPU, auto-precision=fp16 → fp16 algorithm quant config
         assert config.quant is not None
-        assert config.quant.algorithm == "fp16"
+        assert config.quant.mode == "fp16"
         assert config.compile is None
 
     def test_compiled_does_not_call_resolve_quant_compile(self, tmp_path) -> None:
@@ -2802,7 +2802,7 @@ class TestGenerateBuildConfigOnnxPath:
         # GPU auto-precision is fp16 -> fp16 algorithm quant config, no
         # compile (DML has no offline step)
         assert config.quant is not None
-        assert config.quant.algorithm == "fp16"
+        assert config.quant.mode == "fp16"
         assert config.compile is None
 
     def test_ep_override_forwarded(self, tmp_path) -> None:
@@ -2854,7 +2854,7 @@ class TestResolveQuantCompileConfig:
             quant, compile_cfg = resolve_quant_compile_config()
 
         assert isinstance(quant, WinMLQuantizationConfig)
-        assert quant.algorithm == "fp16"
+        assert quant.mode == "fp16"
         assert compile_cfg is None
 
     def test_npu_returns_quant_and_compile(self) -> None:
@@ -2880,7 +2880,7 @@ class TestResolveQuantCompileConfig:
             quant, compile_cfg = resolve_quant_compile_config(device="gpu")
 
         assert isinstance(quant, WinMLQuantizationConfig)
-        assert quant.algorithm == "fp16"
+        assert quant.mode == "fp16"
         assert compile_cfg is None
 
     def test_cpu_returns_fp16_quant_and_none_compile(self) -> None:
@@ -2892,7 +2892,7 @@ class TestResolveQuantCompileConfig:
             quant, compile_cfg = resolve_quant_compile_config(device="cpu")
 
         assert isinstance(quant, WinMLQuantizationConfig)
-        assert quant.algorithm == "fp16"
+        assert quant.mode == "fp16"
         assert compile_cfg is None
 
     def test_ep_override_changes_provider(self) -> None:

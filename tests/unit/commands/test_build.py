@@ -600,7 +600,7 @@ class TestBuildFlagPassthrough:
         assert result.exit_code == 0, result.output
         quant = mock_run_single_build.call_args.kwargs["config"].quant
         assert quant is not None
-        assert quant.algorithm == "fp16"
+        assert quant.mode == "fp16"
 
     def test_precision_alone_triggers_quant_patch(
         self, tmp_path: Path, mock_run_single_build: MagicMock
@@ -638,7 +638,7 @@ class TestBuildFlagPassthrough:
         assert result.exit_code == 0, result.output
         quant = mock_run_single_build.call_args.kwargs["config"].quant
         assert quant is not None
-        assert quant.algorithm == "fp16"
+        assert quant.mode == "fp16"
 
     def test_trust_remote_code_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--trust-remote-code`` is forwarded via ``extra_kwargs``."""
