@@ -187,166 +187,99 @@ def quantize(
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
 
-    # ── FP16 fast path ───────────────────────────────────────────
-    is_fp16 = precision and precision.lower() == "fp16"
+    # ── Build config based on precision ──────────────────────────
+    precision_lower = precision.lower() if precision else None
 
-    if is_fp16:
+    if precision_lower == "fp16":
+        # FP16 conversion
         _warn_ignored_calibration_options(ctx, "FP16 conversion does not use calibration data.")
-
-        # Determine output path
         if output is None:
             output = model.parent / f"{model.stem}_fp16.onnx"
-        output.parent.mkdir(parents=True, exist_ok=True)
-
-        console.print(f"[bold blue]Input:[/bold blue] {model}")
-        console.print(f"[bold blue]Output:[/bold blue] {output}")
-        console.print("[bold blue]Precision:[/bold blue] fp16")
-
         config = WinMLQuantizationConfig(mode="fp16")
+        label = "FP16 conversion"
 
-        try:
-            console.print("\n[bold]Converting to FP16...[/bold]")
-            result = quantize_onnx(model, output_path=output, config=config)
+    elif precision_lower and _is_weight_only(precision_lower):
+        # RTN weight-only
+        from ..config.precision import extract_weight_bits
 
-            if result.success:
-                console.print("\n[bold green]Success![/bold green] Model converted to FP16")
-                console.print(f"[dim]Output: {result.output_path}[/dim]")
-                console.print(f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]")
-            else:
-                console.print("\n[bold red]FP16 conversion failed:[/bold red]")
-                for error in result.errors:
-                    console.print(f"  {error}")
-                raise click.ClickException("FP16 conversion failed")
-
-        except click.ClickException:
-            raise
-        except Exception as e:
-            console.print(f"\n[bold red]FP16 conversion failed:[/bold red] {e}")
-            logger.exception("FP16 conversion failed")
-            raise click.ClickException(f"FP16 conversion failed: {e}") from e
-
-        return
-
-    # ── Weight-only (RTN) path ───────────────────────────────────
-    from ..config.precision import (
-        extract_weight_bits,
-        is_weight_only_precision,
-    )
-
-    is_rtn = precision and is_weight_only_precision(precision.lower())
-
-    if is_rtn:
         _warn_ignored_calibration_options(
             ctx, "RTN weight-only quantization does not use calibration data."
         )
-
-        assert precision is not None  # guaranteed by is_rtn check
-        rtn_bits = extract_weight_bits(precision.lower())
-
-        # Determine output path
+        rtn_bits = extract_weight_bits(precision_lower)
         if output is None:
             output = model.parent / f"{model.stem}_int{rtn_bits}.onnx"
-        output.parent.mkdir(parents=True, exist_ok=True)
+        config = WinMLQuantizationConfig(mode="rtn", rtn_bits=rtn_bits)
+        label = f"RTN {rtn_bits}-bit quantization"
 
-        console.print(f"[bold blue]Input:[/bold blue] {model}")
-        console.print(f"[bold blue]Output:[/bold blue] {output}")
-        console.print(f"[bold blue]Precision:[/bold blue] {precision}")
-        console.print(f"[bold blue]Algorithm:[/bold blue] RTN (weight-only, {rtn_bits}-bit)")
-
-        rtn_config = WinMLQuantizationConfig(
-            mode="rtn",
-            rtn_bits=rtn_bits,
+    else:
+        # QDQ calibrated quantization
+        resolved_weight, resolved_activation = _resolve_quant_types(
+            precision, weight_type, activation_type
         )
+        if output is None:
+            output = model.parent / f"{model.stem}_qdq.onnx"
+        config = WinMLQuantizationConfig(
+            samples=samples,
+            calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
+            weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
+            activation_type=cast(
+                'Literal["uint8", "int8", "uint16", "int16"]', resolved_activation
+            ),
+            per_channel=per_channel,
+            symmetric=symmetric,
+            task=task,
+            model_name=model_name,
+        )
+        label = "Quantization"
 
-        try:
-            console.print(f"\n[bold]Running RTN {rtn_bits}-bit quantization...[/bold]")
-            result = quantize_onnx(
-                model, output_path=output, config=rtn_config, precision=precision.lower()
-            )
+        # Display QDQ-specific info
+        console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
+        console.print(f"[bold blue]Activation type:[/bold blue] {resolved_activation}")
+        console.print(f"[bold blue]Samples:[/bold blue] {samples}")
+        console.print(f"[bold blue]Method:[/bold blue] {method}")
+        if config.dataset_name:
+            _dataset_display = config.dataset_name
+        elif config.task and config.task != "random":
+            _dataset_display = f"Default for task '{config.task}'"
+        else:
+            _dataset_display = "Random data (synthetic from ONNX I/O specs)"
+        console.print(f"[bold blue]Dataset:[/bold blue] {_dataset_display}")
 
-            if not result.success:
-                console.print("\n[bold red]RTN quantization failed:[/bold red]")
-                for error in result.errors:
-                    console.print(f"  {error}")
-                raise click.ClickException("RTN quantization failed")
-
-            console.print(f"\n[bold green]Success![/bold green] Model quantized ({precision})")
-            console.print(f"[dim]Output: {output}[/dim]")
-            console.print(f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]")
-
-        except click.ClickException:
-            raise
-        except Exception as e:
-            console.print(f"\n[bold red]RTN quantization failed:[/bold red] {e}")
-            logger.exception("RTN quantization failed")
-            raise click.ClickException(f"RTN quantization failed: {e}") from e
-
-        return
-
-    # ── QDQ quantization path ────────────────────────────────────
-    # Resolve weight/activation types from --precision or explicit flags
-    resolved_weight, resolved_activation = _resolve_quant_types(
-        precision, weight_type, activation_type
-    )
-
-    # Determine output path
-    if output is None:
-        output = model.parent / f"{model.stem}_qdq.onnx"
+    # ── Shared execution: print header, run, report ──────────────
     output.parent.mkdir(parents=True, exist_ok=True)
-
-    # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Output:[/bold blue] {output}")
     console.print(f"[bold blue]Precision:[/bold blue] {precision or 'auto'}")
-    console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
-    console.print(f"[bold blue]Activation type:[/bold blue] {resolved_activation}")
-    console.print(f"[bold blue]Samples:[/bold blue] {samples}")
-    console.print(f"[bold blue]Method:[/bold blue] {method}")
-
-    # Create config (output_path is passed separately to API).
-    # Click's Choice validates these strings at parse time, so cast acknowledges
-    # the Literal[] contract that mypy can't see through the str return type.
-    config = WinMLQuantizationConfig(
-        samples=samples,
-        calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
-        weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
-        activation_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_activation),
-        per_channel=per_channel,
-        symmetric=symmetric,
-        task=task,
-        model_name=model_name,
-    )
-
-    # Display dataset info from config
-    if config.dataset_name:
-        _dataset_display = config.dataset_name
-    elif config.task and config.task != "random":
-        _dataset_display = f"Default for task '{config.task}'"
-    else:
-        _dataset_display = "Random data (synthetic from ONNX I/O specs)"
-    console.print(f"[bold blue]Dataset:[/bold blue] {_dataset_display}")
 
     try:
-        console.print("\n[bold]Running quantization...[/bold]")
-        result = quantize_onnx(model, output_path=output, config=config)
+        console.print(f"\n[bold]Running {label.lower()}...[/bold]")
+        result = quantize_onnx(model, output_path=output, config=config, precision=precision_lower)
 
         if result.success:
-            console.print("\n[bold green]Success![/bold green] Model quantized")
+            console.print(f"\n[bold green]Success![/bold green] {label} complete")
             console.print(f"[dim]Output: {result.output_path}[/dim]")
-            console.print(f"[dim]QDQ nodes inserted: {result.nodes_quantized}[/dim]")
+            if result.nodes_quantized:
+                console.print(f"[dim]QDQ nodes inserted: {result.nodes_quantized}[/dim]")
             console.print(f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]")
         else:
-            console.print("\n[bold red]Quantization failed:[/bold red]")
+            console.print(f"\n[bold red]{label} failed:[/bold red]")
             for error in result.errors:
                 console.print(f"  {error}")
-            raise click.ClickException("Quantization failed")
+            raise click.ClickException(f"{label} failed")
 
     except click.ClickException:
         raise
     except Exception as e:
-        console.print(f"\n[bold red]Quantization failed:[/bold red] {e}")
-        logger.exception("Quantization failed")
-        raise click.ClickException(f"Quantization failed: {e}") from e
+        console.print(f"\n[bold red]{label} failed:[/bold red] {e}")
+        logger.exception("%s failed", label)
+        raise click.ClickException(f"{label} failed: {e}") from e
+
+
+def _is_weight_only(precision: str) -> bool:
+    """Check if precision requires weight-only (RTN) quantization."""
+    from ..config.precision import is_weight_only_precision
+
+    return is_weight_only_precision(precision)
 
 
 def _resolve_quant_types(
@@ -363,9 +296,8 @@ def _resolve_quant_types(
         Tuple of (weight_type, activation_type).
     """
     from ..config import is_quantized_precision, resolve_quant_types
-    from ..config.precision import is_weight_only_precision
 
-    if precision and is_weight_only_precision(precision.lower()):
+    if precision and _is_weight_only(precision.lower()):
         # Should not reach here — RTN path returns early above.
         raise click.BadParameter(
             f"'{precision}' is a weight-only precision (use RTN path).",
