@@ -631,8 +631,7 @@ def build(
                     # and other calibration settings from the existing config.
                     cfg.quant.weight_type = resolved_quant.weight_type
                     cfg.quant.activation_type = resolved_quant.activation_type
-                    cfg.quant.fp16 = resolved_quant.fp16
-                    cfg.quant.fp16_only = resolved_quant.fp16_only
+                    cfg.quant.fp16_postprocess = resolved_quant.fp16_postprocess
                     cfg.quant.algorithm = resolved_quant.algorithm
                     if resolved_quant.algorithm == "rtn":
                         cfg.quant.rtn_bits = resolved_quant.rtn_bits
@@ -1164,7 +1163,7 @@ def _run_quantize_stage(
         return current_path
 
     # ── FP16-only fast path (no calibration / QDQ) ───────────────
-    if config.quant.fp16_only:
+    if config.quant.algorithm == "fp16":
         with StageLive("fp16", console) as sl:
             sl.set_status("Converting to FP16...")
             t0 = time.monotonic()

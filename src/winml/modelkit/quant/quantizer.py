@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 def _should_run_quantization(config: WinMLQuantizationConfig) -> bool:
     """Return True if quantization (QDQ/dynamic/RTN) should run.
 
-    Pure FP16 configs (fp16=True, fp16_only=True) skip quantization
+    Pure FP16 configs (algorithm="fp16") skip quantization
     entirely and only run FP16 conversion.
     """
-    return not config.fp16_only
+    return config.algorithm != "fp16"
 
 
 def quantize_onnx(
@@ -104,13 +104,14 @@ def quantize_onnx(
 
     try:
         # ── Pure FP16 fast path (no quantization, only FP16 conversion) ──
-        if config.fp16 and not _should_run_quantization(config):
+        if config.algorithm == "fp16":
             from ..onnx import load_onnx, save_onnx
             from ..optim.fp16 import convert_to_fp16
 
             if config.calibration_data is not None:
                 logger.warning(
-                    "calibration_data is set but fp16_only=True — calibration data will be ignored."
+                    "calibration_data is set but algorithm='fp16' — "
+                    "calibration data will be ignored."
                 )
 
             logger.info("Running FP16-only conversion (no quantization)...")
@@ -174,7 +175,7 @@ def quantize_onnx(
             quantized_model = quantizer.model.model
 
             # FP16 post-processing (if requested alongside RTN)
-            if config.fp16:
+            if config.fp16_postprocess:
                 from ..optim.fp16 import convert_to_fp16
 
                 logger.info("Applying FP16 post-processing to RTN quantized model...")
@@ -335,7 +336,7 @@ def quantize_onnx(
             restore_metadata(quantized_model, metadata_snapshot)
 
         # ── FP16 post-processing ────────────────────────────────────────
-        if config.fp16:
+        if config.fp16_postprocess:
             from ..optim.fp16 import convert_to_fp16
 
             logger.info("Applying FP16 post-processing to quantized model...")

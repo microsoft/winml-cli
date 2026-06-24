@@ -589,8 +589,10 @@ class TestBuildFlagPassthrough:
         assert passed.quant is not None
         assert passed.quant.weight_type == "uint8"
 
-    def test_precision_fp16_clears_quant(self, tmp_path: Path, mock_run_single_build: MagicMock):
-        """``--precision fp16`` sets fp16_only quant config (no QDQ, just FP16 conversion)."""
+    def test_precision_fp16_sets_fp16_algorithm(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """``--precision fp16`` sets an fp16 algorithm quant config."""
         cfg = _make_minimal_config_file(tmp_path)
         result = _invoke(
             [*self._base_args(cfg, tmp_path), "--device", "npu", "--precision", "fp16"]
@@ -598,13 +600,14 @@ class TestBuildFlagPassthrough:
         assert result.exit_code == 0, result.output
         quant = mock_run_single_build.call_args.kwargs["config"].quant
         assert quant is not None
-        assert quant.fp16_only is True
+        assert quant.algorithm == "fp16"
 
     def test_precision_alone_triggers_quant_patch(
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):
-        """``--precision`` without ``--device`` still patches quant (here, clears it)."""
-        # Config ships an explicit quant section; fp16 must clear it even though
+        """``--precision`` without ``--device`` still patches quant to the fp16 algorithm."""
+        # Config ships an explicit quant section; fp16 must switch it to the
+        # fp16 algorithm even though
         # --device was not passed (precision alone triggers the patch path).
         config = {
             "loader": {"task": "image-classification"},
@@ -635,7 +638,7 @@ class TestBuildFlagPassthrough:
         assert result.exit_code == 0, result.output
         quant = mock_run_single_build.call_args.kwargs["config"].quant
         assert quant is not None
-        assert quant.fp16_only is True
+        assert quant.algorithm == "fp16"
 
     def test_trust_remote_code_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--trust-remote-code`` is forwarded via ``extra_kwargs``."""

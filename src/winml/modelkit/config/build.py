@@ -225,11 +225,11 @@ class WinMLBuildConfig:
         # Exceptions: ONNX builds (export=None) don't need quant.task/model_name
         # because the ONNX model is pre-exported. Submodule builds (module_path
         # set) use RandomDataset which only needs the ONNX model_path.
-        # Algorithms that skip calibration (fp16_only, rtn, dynamic) also don't
+        # Algorithms that skip calibration (fp16, rtn, dynamic) also don't
         # need task/model_name since they don't generate calibration datasets.
         if self.quant is not None:
             is_submodule = bool(self.loader and self.loader.module_path)
-            needs_calibration = not self.quant.fp16_only and self.quant.algorithm == "static"
+            needs_calibration = self.quant.algorithm == "static"
             needs_quant_ids = not is_onnx_build and not is_submodule and needs_calibration
             if needs_quant_ids and not self.quant.task:
                 errors.append("quant.task is required when quant is enabled for HF builds")
@@ -363,7 +363,7 @@ def resolve_quant_compile_config(
         quant_config.activation_type = policy.activation_type
     elif policy.precision == "fp16":
         # Pure FP16: no QDQ quantization, only FP16 conversion
-        quant_config = WinMLQuantizationConfig(fp16=True, fp16_only=True)
+        quant_config = WinMLQuantizationConfig(algorithm="fp16")
     elif is_weight_only_precision(policy.precision):
         # Weight-only (RTN): derive rtn_bits from precision
         # If activation is 16-bit (e.g. w4a16), also apply FP16 post-processing
@@ -371,7 +371,7 @@ def resolve_quant_compile_config(
         quant_config = WinMLQuantizationConfig(
             algorithm="rtn",
             rtn_bits=extract_weight_bits(policy.precision),
-            fp16=a_bits == 16,
+            fp16_postprocess=a_bits == 16,
         )
 
     # Compile config
@@ -714,14 +714,14 @@ def generate_hf_build_config(
         parent_config.quant.activation_type = policy.activation_type
     elif policy.precision == "fp16":
         # Pure FP16: no QDQ, only FP16 conversion via quantize stage
-        parent_config.quant = WinMLQuantizationConfig(fp16=True, fp16_only=True)
+        parent_config.quant = WinMLQuantizationConfig(algorithm="fp16")
     elif policy.precision and is_weight_only_precision(policy.precision):
         # RTN weight-only quantization (e.g. int4, w4a16, w4a32)
         a_bits = extract_activation_bits(policy.precision)
         parent_config.quant = WinMLQuantizationConfig(
             algorithm="rtn",
             rtn_bits=extract_weight_bits(policy.precision),
-            fp16=a_bits == 16,
+            fp16_postprocess=a_bits == 16,
         )
     else:
         # CPU/GPU: precision is float (fp32) — no quantization

@@ -49,15 +49,16 @@ class WinMLQuantizationConfig:
         result = quantize_onnx("model.onnx", config)
 
         # FP16 post-processing (mixed precision INT8 + FP16)
-        config = WinMLQuantizationConfig(fp16=True)
+        config = WinMLQuantizationConfig(fp16_postprocess=True)
         result = quantize_onnx("model.onnx", config)
     """
 
     # Quantization algorithm
-    algorithm: Literal["static", "dynamic", "rtn"] = "static"
+    algorithm: Literal["static", "dynamic", "rtn", "fp16"] = "static"
     # "static"  — Calibrated QDQ quantization (requires calibration data)
     # "dynamic" — Dynamic quantization (no calibration) [planned, not yet wired]
     # "rtn"     — Round-To-Nearest weight-only (no calibration, block-wise)
+    # "fp16"    — Pure FP16 conversion only (no quantization)
 
     mode: Literal["qdq", "static", "dynamic"] = "qdq"
 
@@ -98,11 +99,10 @@ class WinMLQuantizationConfig:
     rtn_symmetric: bool = True
     rtn_accuracy_level: int = 0
 
-    # FP16 post-processing (can combine with any algorithm)
+    # FP16 post-processing (can combine with rtn or static algorithm)
     # When True, remaining FP32 tensors/ops are converted to FP16 after
-    # quantization. This produces mixed-precision models (e.g. INT8 + FP16).
-    fp16: bool = False
-    fp16_only: bool = False  # When True, skip quantization and only do FP16
+    # quantization. This produces mixed-precision models (e.g. RTN int4 + FP16).
+    fp16_postprocess: bool = False
     fp16_keep_io_types: bool = True
     fp16_op_block_list: list[str] | None = None
 
@@ -134,8 +134,7 @@ class WinMLQuantizationConfig:
             ),
             "op_types_to_quantize": self.op_types_to_quantize,
             "nodes_to_exclude": self.nodes_to_exclude,
-            "fp16": self.fp16,
-            "fp16_only": self.fp16_only,
+            "fp16_postprocess": self.fp16_postprocess,
         }
         if self.task is not None:
             result["task"] = self.task
@@ -148,7 +147,7 @@ class WinMLQuantizationConfig:
             result["rtn_block_size"] = self.rtn_block_size
             result["rtn_symmetric"] = self.rtn_symmetric
             result["rtn_accuracy_level"] = self.rtn_accuracy_level
-        if self.fp16:
+        if self.fp16_postprocess:
             result["fp16_keep_io_types"] = self.fp16_keep_io_types
             result["fp16_op_block_list"] = self.fp16_op_block_list
         return result
@@ -190,8 +189,7 @@ class WinMLQuantizationConfig:
             rtn_block_size=data.get("rtn_block_size", 128),
             rtn_symmetric=data.get("rtn_symmetric", True),
             rtn_accuracy_level=data.get("rtn_accuracy_level", 0),
-            fp16=data.get("fp16", False),
-            fp16_only=data.get("fp16_only", False),
+            fp16_postprocess=data.get("fp16_postprocess", data.get("fp16", False)),
             fp16_keep_io_types=data.get("fp16_keep_io_types", True),
             fp16_op_block_list=data.get("fp16_op_block_list"),
         )
