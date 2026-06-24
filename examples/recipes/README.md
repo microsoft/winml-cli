@@ -23,6 +23,7 @@ Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) bu
 | BAAI/bge-large-en-v1.5 | sentence-similarity |
 | BAAI/bge-m3 | feature-extraction |
 | BAAI/bge-m3 | sentence-similarity |
+| alibaba-damo/mgp-str-base | image-to-text (scene-text-recognition; requires L1-light registration in `src/winml/modelkit/models/hf/mgp_str.py`) |
 | BAAI/bge-small-en-v1.5 | feature-extraction |
 | BAAI/bge-small-en-v1.5 | sentence-similarity |
 | Babelscape/wikineural-multilingual-ner | token-classification |

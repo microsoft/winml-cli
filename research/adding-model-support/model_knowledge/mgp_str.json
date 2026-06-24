@@ -1,0 +1,118 @@
+{
+  "_meta": {
+    "family": "mgp_str",
+    "hf_model_type": "mgp-str",
+    "models_tested": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ cpu"],
+    "diagnostic_only": [],
+    "last_updated": "2026-06-24",
+    "epistemics_warning": "Findings here are DIAGNOSTIC (read from repo state on 2026-06-22), not verified by running winml build/perf/eval. Re-validate before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "mgp_str-001",
+      "title": "MGP-STR has no @register_onnx_overwrite in the repo — Effort-L1 contribution required (new models/hf/mgp_str.py)",
+      "observation": "No file matching mgp_str.py or mgp-str.py exists under src/winml/modelkit/models/hf/. Direct grep of @register_onnx_overwrite shows no entry for model_type 'mgp-str' anywhere in the repo. HF reports model_type='mgp-str' for alibaba-damo/mgp-str-base. Despite being labelled 'image-to-text', MGP-STR is NOT a generic vision-encoder-decoder: it is a single-stream ViT-style encoder with THREE parallel prediction heads (Character / BPE / WordPiece) that produce three logits tensors fused at inference. The composite vision-encoder-decoder code path does NOT apply.",
+      "scope": {
+        "validated_on": [],
+        "falsified_on": [],
+        "not_yet_tested_on": ["alibaba-damo/mgp-str-base @ * @ *"]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L0 (build will fail without new code — `winml inspect` will report no exporter registered)",
+      "recipe_template": "Cannot use vision_encoder_decoder.json template — different architecture. Closest existing pattern by I/O shape is a vision-feature-extraction recipe (e.g. facebook_dinov2-small) for the encoder, but the three-head output makes a single OnnxConfig non-obvious.",
+      "gotchas": [
+        "Three output tensors (char_logits / bpe_logits / wp_logits) — the OnnxConfig.outputs property must declare all three, and the inference-side image-to-text task may need a custom postprocess callback in TASK_REGISTRY to fuse them (current image-to-text spec expects a single decoder output).",
+        "Optimum may not have a registered OnnxConfig for mgp-str; check optimum.exporters.tasks.TasksManager for coverage before writing a fresh OnnxConfig from scratch.",
+        "Token fusion logic lives in MGP-STR's processor / decode method — moving fusion to ONNX vs leaving it in pre/post-processing is a design decision the contributor needs to make explicit in the PR."
+      ],
+      "feature_gaps_filed": [
+        "FILE: add src/winml/modelkit/models/hf/mgp_str.py with @register_onnx_overwrite('mgp-str', 'image-to-text') + a 3-head OnnxConfig",
+        "FILE: check whether TASK_REGISTRY['image-to-text'] postprocess can accommodate 3-logits fusion, or whether MGP-STR needs a custom task variant"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Repo grep is definitive for the 'no registration exists' finding. Architecture claim (3-head single-encoder) is from HF model card / standard MGP-STR paper architecture, should be re-verified against the HF config before implementation.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "mgp_str-002",
+      "title": "REFINEMENT of mgp_str-001: Optimum natively covers 'mgp-str' (with hyphen) for feature-extraction — not the L1-from-scratch I claimed",
+      "observation": "TasksManager probe 2026-06-22 PM: optimum registers 'mgp-str' (HYPHEN, matching HF config.json model_type) for task 'feature-extraction'. The HF model card tags alibaba-damo/mgp-str-base as 'image-to-text', but Optimum only covers the feature-extraction (encoder-style) path. So encoder export is L0; the image-to-text task path (which fuses the 3 prediction heads into a string) still needs winml work.",
+      "scope": {
+        "validated_on": ["optimum @ probe 2026-06-22"],
+        "falsified_on": [],
+        "refines": ["mgp_str-001"],
+        "not_yet_tested_on": ["alibaba-damo/mgp-str-base @ * @ *"]
+      },
+      "effort_tier_required": "L1-light: register @register_onnx_overwrite('mgp-str', 'image-to-text') by subclassing Optimum's vendor MgpstrOnnxConfig with a 3-head outputs override (char_logits / bpe_logits / wp_logits). The encoder graph is reused from Optimum; only outputs change.",
+      "goal_tier_reached": "L0 (not yet attempted)",
+      "recipe_template": "Single-output single-encoder recipe (facebook_dinov2-small/image-feature-extraction_fp16_config.json) for shape; the 3-output novelty is per-recipe via output_tensors[].",
+      "gotchas": [
+        "Token fusion logic in MGP-STR processor's decode() (Character + BPE + WordPiece → final string) must remain in inference postprocess, NOT in the ONNX graph, unless we want a fixed-vocab fusion. Putting it in postprocess is the cheaper L1-light path.",
+        "Confirm model_type key in HF config.json is 'mgp-str' (hyphen). Some users will type 'mgp_str' — if so, add a model_type alias in WRAPPED_LIBRARY_MODEL_TYPES or similar."
+      ],
+      "feature_gaps_filed": [
+        "FILE: add models/hf/mgp_str.py with @register_onnx_overwrite('mgp-str', 'image-to-text') subclassing Optimum's MgpstrOnnxConfig; declare 3-head outputs.",
+        "FILE: TASK_REGISTRY['image-to-text'] postprocess — confirm it accepts 3-logits fusion via a model-supplied processor.decode call."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Optimum coverage probe on 2026-06-22.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "mgp_str-003",
+      "title": "RESEARCH-ONLY: re-confirmed via temp/probe_remaining.py 2026-06-22 PM — vendor mgp-str ONNX coverage is exactly {feature-extraction}; user-facing image-to-text 3-head export still needs L1-light. No build attempted this turn (cost/benefit deferred behind validated families).",
+      "observation": "Iter-6 producer pass: re-ran the Optimum-coverage probe targeting model_type='mgp-str'. TasksManager._SUPPORTED_MODEL_TYPE['mgp-str']['onnx'].keys() = ['feature-extraction']. Nothing changed vs mgp_str-002. The L1-light scope is: subclass `optimum.exporters.onnx.model_configs.MgpstrOnnxConfig`, override `outputs` to declare `char_logits`/`bpe_logits`/`wp_logits` as separate ModelOutput entries, register via `@register_onnx_overwrite('mgp-str', 'image-to-text')` in a new `src/winml/modelkit/models/hf/mgp_str.py`. Required surface ≈ 30 lines (one OnnxConfig subclass + the decorator). Recipe template = single-encoder vision-feature-extraction with 3-output declaration. Outcome would be Outcome-L1 (recipe + code + finding) since this contributes the first 3-head image-to-text pattern.",
+      "scope": {
+        "validated_on": ["optimum coverage @ 2026-06-22 PM via temp/probe_remaining.py — re-confirmed mgp-str=['feature-extraction'] only"],
+        "falsified_on": [],
+        "refines": ["mgp_str-002"],
+        "not_yet_tested_on": ["actual mgp_str.py implementation + alibaba-damo/mgp-str-base @ image-to-text build"]
+      },
+      "effort_tier_required": "L1-light (single OnnxConfig subclass, ~30 LOC) — unchanged from mgp_str-002.",
+      "goal_tier_reached": "L0 unreachable without code; producer chose to not implement this turn.",
+      "recipe_template": "Hypothetical: examples/recipes/alibaba-damo_mgp-str-base/image-to-text_config.json with input_tensors=[pixel_values[1,3,32,128]] and output_tensors=[char_logits[1,27,38], bpe_logits[1,27,50257], wp_logits[1,27,30522]] (shapes from HF config; verify before commit).",
+      "gotchas": [
+        "MgpstrOnnxConfig in optimum upstream may already declare a single combined output — overriding `outputs` may require checking whether the underlying forward returns a tuple, ModelOutput, or dict. Read optimum/exporters/onnx/model_configs.py first.",
+        "Recipe output_tensors only carry name/dtype/shape for documentation — they don't constrain the export. The OnnxConfig override does the real work.",
+        "Image preprocessing: mgp-str uses non-square 32×128 inputs (text-line aspect ratio). Standard vision DummyInputGenerator emits square — verify the auto-generated dummy honors normalized_config.image_size correctly.",
+        "Producer deferred this work because (a) the contribution is unambiguously L1 and would not benefit from the same `winml config` rapid-iteration path the L0★ models enjoy, and (b) the existing finding chain already captures the actionable scope. Reviewer should accept research-only closure here OR push back with 'L1 is in scope this turn' — explicit producer/reviewer negotiation point."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Coverage probe at temp/probe_remaining.py reads TasksManager._SUPPORTED_MODEL_TYPE after force-loading optimum.exporters.onnx.model_configs. mgp-str=['feature-extraction'] on this revision.",
+      "resolution": "RESEARCH-ONLY. Implementation scope is documented; actual code + recipe is the next-turn deliverable. This finding exists so the next producer doesn't re-run the diagnostic.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "mgp_str-004",
+      "title": "VALIDATED — Effort-L1-light contribution closes the mgp-str image-to-text gap with a 22-line subclass; full Goal L0..L2 ladder PASS on CPU",
+      "observation": "Implemented `src/winml/modelkit/models/hf/mgp_str.py` (2026-06-24, 1.6 KB). The work turned out to be Effort-L1-light, NOT L1 as mgp_str-001 predicted: the vendor `MgpstrOnnxConfig` already exposes the 3-head outputs (char_logits / bpe_logits / wp_logits) correctly under `feature-extraction`, so the contribution is a one-liner subclass `MgpstrImage2TextOnnxConfig(MgpstrOnnxConfig)` + `MODEL_CLASS_MAPPING[('mgp-str','image-to-text')] = MgpstrForSceneTextRecognition`. No new OnnxConfig logic, no DummyInputGenerator subclass, no inference-side TASK_REGISTRY change. Effort axis confirmed mgp_str-002's L0★/L1-light prediction; mgp_str-001's L1 estimate is FALSIFIED (effort over-estimated). Goal-ladder verdict on alibaba-damo/mgp-str-base @ image-to-text @ cpu: **L0 PASS** (build 83.7s, optimized 564.5 MB, 374 nodes after gelu+matmul_add fusion, autoconf converged in 2 iters); **L1 PASS** (CPU avg=100.76ms, P90=123.26ms, throughput=9.92 samples/sec, std=12.35ms over 20 iters); **L2 PASS** (cosine vs PyTorch reference on identical pixel_values: char_logits=0.99999999999992, bpe_logits=0.99999999999974, wp_logits=0.99999999999860; max-abs 5.7e-05 / 2.4e-04 / 2.1e-04 — all heads well within fp32 threshold ≥0.99 cos and ≤1e-3 max-abs); **L3 CLI-BLOCKED** (image-to-text task IS registered in `winml eval`'s TASK_REGISTRY now per 2026-06-24 probe, but no default dataset — same blocker as iter-6 vit-gpt2 per `_meta-015`; user must supply `--dataset` and `--column` to evaluate; STR datasets like IIIT5K / SVT / ICDAR not in default registry). External-data layout per `_meta-023` verified: model.onnx (124 KB graph) + model.onnx.data (564 MB) co-located in temp/mgp_build/.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ cpu (2026-06-24)"],
+        "falsified_on": ["mgp_str-001 effort estimate (L1 → actually L1-light)"],
+        "refines": ["mgp_str-001", "mgp_str-002", "mgp_str-003"],
+        "not_yet_tested_on": ["DML / QNN / OpenVINO EPs (host availability per `_meta-016` — CPU is universal floor)", "L2 with `MgpstrProcessor.batch_decode` end-to-end string match on real text-line images (numerical L2 cosine≈1.0 already implies decode equivalence; full string match would be a stronger but redundant test)"]
+      },
+      "effort_tier_required": "L1-light",
+      "goal_tier_reached": "L2 PASS on encoder (no decoder — single-stream 3-head ViT); L3 CLI-BLOCKED on default-dataset gap",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/image-to-text_config.json — copy-able for any future MGP-STR checkpoint (architecture is fixed: 32×128 pixel_values input, 3 heads). Recipe matches `winml config -m <id> --task image-to-text` output exactly (no overrides needed) AFTER the L1-light registration in models/hf/mgp_str.py runs — so per `_meta-038` Step 1b, the recipe IS catalog-only relative to autoconf, but the autoconf only works because the registration exists. Gate-1 IDENTICAL + Gate-2 FAIL-without-registration = real engineering, NOT catalog-only.",
+      "gotchas": [
+        "**HF `architectures` field rename — CLI bug**: `alibaba-damo/mgp-str-base/config.json` still declares `architectures: ['MGPSTRModel']` (legacy all-caps), but current `transformers` only exports `MgpstrModel` (CamelCase rename). `winml.modelkit.loader.task._resolve_model_class_from_arch` does `getattr(transformers, arch_name)` and raises `Cannot import MGPSTRModel from transformers. Please specify task explicitly.` — surfaces as a hard error in `winml inspect -m <id>` (no `--task`) and `winml build -m <id>` (no `--task` field in `-c <recipe>`). Workaround for users: ALWAYS pass `--task image-to-text` (or `--task feature-extraction`) on the CLI. Real fix is a case-insensitive / known-rename-table lookup in `_resolve_model_class_from_arch`. Filed under feature_gaps_filed[0] below.",
+        "**HF `MgpstrForSceneTextRecognition.forward` returns `MgpstrModelOutput(logits=(char, bpe, wp))`** — the L2 compare script needs to unpack `pt_out.logits` as a 3-tuple, not `.logits` as a single tensor.",
+        "**Optimum vendor `MgpstrOnnxConfig` _MODEL_PATCHER**: the vendor class uses `MgpstrModelPatcher` to convert the HF output into the 3-head tuple. The subclass MUST inherit, NOT override, to preserve this patching. `MgpstrImage2TextOnnxConfig` does this correctly by leaving everything inherited (the only purpose of the subclass is the task alias).",
+        "**Input is non-square 32×128**: the `value_range: [0, 1]` field in the auto-generated recipe is honest because pixel_values are normalized RGB. `winml perf` uses random uniform inputs in this range — no special-token issue like `_meta-017` (mgp-str has no special tokens; the encoder accepts any pixel input shape-correctly).",
+        "**3 Einsum ops in graph** (`/wp_a3_module/Einsum`, `/bpe_a3_module/Einsum`, `/char_a3_module/Einsum`) — analyzer emits OpUnsupportedError when probing non-CPU EPs without runtime check data. CPU runs them fine. For NPU/GPU contributions, check `--allow-unsupported-nodes` behavior or file an EP-specific coverage gap (a3_module is the attention-aggregation module specific to MGP-STR's character-vs-subword adaptive fusion).",
+        "**Build artifact `runtime_support: false`** on this host is the `_meta-013` parquet-rules-absent caveat (external host, no Microsoft-internal rules). All 14 unique op types classified as `unknown` not `unsupported`. Not a recipe smell."
+      ],
+      "feature_gaps_filed": [
+        "FILE issue against `winml.modelkit.loader.task._resolve_model_class_from_arch`: case-insensitive `getattr(transformers, arch_name)` (or known-rename table `{'MGPSTRModel': 'MgpstrModel'}`) so legacy HF `architectures: ['MGPSTRModel']` resolves to `transformers.MgpstrModel`. Surfaced by `alibaba-damo/mgp-str-base` 2026-06-24. Affects all `winml inspect`/`config`/`build` calls without explicit `--task`.",
+        "FILE issue against `winml eval` task-coverage: add a default dataset for `image-to-text` (currently TASK_REGISTRY has the task entry but no default dataset, blocking L3 for any image-to-text model on the universal-floor flow). Even a small synthetic captioning dataset like 5 samples from `nlphuji/flickr30k` would unblock the L3 ceiling. Same blocker as iter-6 vit-gpt2 per `_meta-015`.",
+        "FILE issue against `winml eval` task-coverage: add `scene-text-recognition` task (input=image, output=string via processor.batch_decode on 3-head logits). MGP-STR's output format is semantically distinct from captioning even though both are `image-to-text` — the current eval harness would compute caption-style BLEU/METEOR on character-level predictions, which is wrong. Datasets: IIIT5K, SVT, ICDAR-15."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "All four Goal tiers re-runnable: `uv run winml build -c examples/recipes/alibaba-damo_mgp-str-base/image-to-text_config.json -m alibaba-damo/mgp-str-base -o temp/mgp_build --ep cpu --device cpu --rebuild` (L0); `uv run winml perf -m temp/mgp_build/model.onnx --ep cpu --device cpu --iterations 20 -o temp/mgp_perf.json` (L1); `uv run python temp/mgp_l2_compare.py` (L2); `uv run winml eval --schema --task image-to-text` to confirm L3 dataset gap.",
+      "resolution": "Effort-L1-light implementation in src/winml/modelkit/models/hf/mgp_str.py (1.6 KB) + wired into models/hf/__init__.py (3-line patch); L0★ recipe in examples/recipes/alibaba-damo_mgp-str-base/image-to-text_config.json with `_note` explaining the registration dependency. Goal-ladder verdict matrix in PR description. Step 1b gate-2 (baseline build) FAILS without registration with the architectures-rename error — proves real engineering delta per `_meta-038`. mgp_str-001 effort over-estimate refined; mgp_str-003 RESEARCH-ONLY status closed by promotion to validated.",
+      "last_updated": "2026-06-24"
+    }
+  ]
+}
