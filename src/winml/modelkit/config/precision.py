@@ -270,6 +270,35 @@ def extract_activation_bits(precision: str) -> int:
     raise ValueError(f"Cannot extract activation bits from '{precision}'")
 
 
+def expand_precision(precision: str) -> list[str]:
+    """Expand a composite precision into an ordered list of single-operation passes.
+
+    Only weight-only precisions with FP16 activation (w4a16) expand into
+    multiple passes. QDQ precisions like w8a16 are a single QDQ operation
+    (activation=uint16), NOT "int8 then FP16".
+
+    Args:
+        precision: A precision string (e.g., "w4a16", "int4", "fp16", "int8").
+
+    Returns:
+        List of single-pass precision strings in execution order.
+
+    Examples:
+        >>> expand_precision("w4a16")
+        ['int4', 'fp16']
+        >>> expand_precision("int4")
+        ['int4']
+        >>> expand_precision("fp16")
+        ['fp16']
+        >>> expand_precision("w8a16")
+        ['w8a16']
+    """
+    p = precision.lower()
+    if p == "w4a16":
+        return ["int4", "fp16"]
+    return [p]
+
+
 @dataclass
 class PrecisionPolicy:
     """Resolved precision policy for a build.

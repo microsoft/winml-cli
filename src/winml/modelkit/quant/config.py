@@ -48,8 +48,8 @@ class WinMLQuantizationConfig:
         config = WinMLQuantizationConfig(samples=100, weight_type="int8")
         result = quantize_onnx("model.onnx", config)
 
-        # FP16 post-processing (mixed precision INT8 + FP16)
-        config = WinMLQuantizationConfig(fp16_postprocess=True)
+        # FP16 conversion (pure FP16, no quantization)
+        config = WinMLQuantizationConfig(algorithm="fp16")
         result = quantize_onnx("model.onnx", config)
     """
 
@@ -99,10 +99,7 @@ class WinMLQuantizationConfig:
     rtn_symmetric: bool = True
     rtn_accuracy_level: int = 0
 
-    # FP16 post-processing (can combine with rtn or static algorithm)
-    # When True, remaining FP32 tensors/ops are converted to FP16 after
-    # quantization. This produces mixed-precision models (e.g. RTN int4 + FP16).
-    fp16_postprocess: bool = False
+    # FP16 conversion settings (only used when algorithm="fp16")
     fp16_keep_io_types: bool = True
     fp16_op_block_list: list[str] | None = None
 
@@ -134,7 +131,6 @@ class WinMLQuantizationConfig:
             ),
             "op_types_to_quantize": self.op_types_to_quantize,
             "nodes_to_exclude": self.nodes_to_exclude,
-            "fp16_postprocess": self.fp16_postprocess,
         }
         if self.task is not None:
             result["task"] = self.task
@@ -147,7 +143,7 @@ class WinMLQuantizationConfig:
             result["rtn_block_size"] = self.rtn_block_size
             result["rtn_symmetric"] = self.rtn_symmetric
             result["rtn_accuracy_level"] = self.rtn_accuracy_level
-        if self.fp16_postprocess:
+        if self.algorithm == "fp16":
             result["fp16_keep_io_types"] = self.fp16_keep_io_types
             result["fp16_op_block_list"] = self.fp16_op_block_list
         return result
@@ -189,7 +185,6 @@ class WinMLQuantizationConfig:
             rtn_block_size=data.get("rtn_block_size", 128),
             rtn_symmetric=data.get("rtn_symmetric", True),
             rtn_accuracy_level=data.get("rtn_accuracy_level", 0),
-            fp16_postprocess=data.get("fp16_postprocess", data.get("fp16", False)),
             fp16_keep_io_types=data.get("fp16_keep_io_types", True),
             fp16_op_block_list=data.get("fp16_op_block_list"),
         )

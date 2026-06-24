@@ -174,17 +174,6 @@ def quantize_onnx(
             # MatMulNBitsQuantizer.model is an ONNXModel wrapper; extract the proto
             quantized_model = quantizer.model.model
 
-            # FP16 post-processing (if requested alongside RTN)
-            if config.fp16_postprocess:
-                from ..optim.fp16 import convert_to_fp16
-
-                logger.info("Applying FP16 post-processing to RTN quantized model...")
-                quantized_model = convert_to_fp16(
-                    quantized_model,
-                    keep_io_types=config.fp16_keep_io_types,
-                    op_block_list=config.fp16_op_block_list,
-                )
-
             save_onnx(quantized_model, output_path, use_external_data=use_external_data)
 
             total_time = time.perf_counter() - start_time
@@ -334,17 +323,6 @@ def quantize_onnx(
         if metadata_snapshot.node_count > 0:
             logger.info("Restoring metadata from pre-quantization model...")
             restore_metadata(quantized_model, metadata_snapshot)
-
-        # ── FP16 post-processing ────────────────────────────────────────
-        if config.fp16_postprocess:
-            from ..optim.fp16 import convert_to_fp16
-
-            logger.info("Applying FP16 post-processing to quantized model...")
-            quantized_model = convert_to_fp16(
-                quantized_model,
-                keep_io_types=config.fp16_keep_io_types,
-                op_block_list=config.fp16_op_block_list,
-            )
 
         postproc_time = time.perf_counter() - postproc_start
 

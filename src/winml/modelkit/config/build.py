@@ -136,6 +136,10 @@ class WinMLBuildConfig:
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
     auto: bool = True
+    # Original precision string (e.g., "w4a16", "int4", "fp16") used to derive
+    # the quantization pass sequence via expand_precision(). Set during config
+    # resolution; None means legacy config without precision info.
+    precision: str | None = None
 
     def __post_init__(self) -> None:
         # Lazy import: inject into module globals so typing.get_type_hints()
@@ -169,6 +173,7 @@ class WinMLBuildConfig:
             ),
             eval=eval_cfg,
             auto=config_dict.get("auto", True),
+            precision=config_dict.get("precision"),
         )
 
     def to_dict(self) -> dict:
@@ -176,6 +181,8 @@ class WinMLBuildConfig:
         result: dict = {}
         if not self.auto:
             result["auto"] = False
+        if self.precision is not None:
+            result["precision"] = self.precision
         result.update(
             {
                 "export": self.export.to_dict() if self.export is not None else None,
@@ -331,7 +338,6 @@ def resolve_quant_compile_config(
     """
     from ..sysinfo import resolve_check_device_ep
     from .precision import (
-        extract_activation_bits,
         extract_weight_bits,
         is_weight_only_precision,
         resolve_precision,
@@ -366,12 +372,9 @@ def resolve_quant_compile_config(
         quant_config = WinMLQuantizationConfig(algorithm="fp16")
     elif is_weight_only_precision(policy.precision):
         # Weight-only (RTN): derive rtn_bits from precision
-        # If activation is 16-bit (e.g. w4a16), also apply FP16 post-processing
-        a_bits = extract_activation_bits(policy.precision)
         quant_config = WinMLQuantizationConfig(
             algorithm="rtn",
             rtn_bits=extract_weight_bits(policy.precision),
-            fp16_postprocess=a_bits == 16,
         )
 
     # Compile config
@@ -681,7 +684,6 @@ def generate_hf_build_config(
     # =========================================================================
     from ..sysinfo import resolve_check_device_ep
     from .precision import (
-        extract_activation_bits,
         extract_weight_bits,
         is_weight_only_precision,
         resolve_precision,
@@ -717,15 +719,16 @@ def generate_hf_build_config(
         parent_config.quant = WinMLQuantizationConfig(algorithm="fp16")
     elif policy.precision and is_weight_only_precision(policy.precision):
         # RTN weight-only quantization (e.g. int4, w4a16, w4a32)
-        a_bits = extract_activation_bits(policy.precision)
         parent_config.quant = WinMLQuantizationConfig(
             algorithm="rtn",
             rtn_bits=extract_weight_bits(policy.precision),
-            fp16_postprocess=a_bits == 16,
         )
     else:
         # CPU/GPU: precision is float (fp32) — no quantization
         parent_config.quant = None
+
+    # Store resolved precision for multi-pass expansion
+    parent_config.precision = policy.precision
 
     # Compile config
     parent_config.compile = WinMLCompileConfig.for_provider(

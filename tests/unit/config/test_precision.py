@@ -17,6 +17,7 @@ import logging
 import pytest
 
 from winml.modelkit.config.precision import (
+    expand_precision,
     extract_activation_bits,
     extract_weight_bits,
     is_quantized_precision,
@@ -748,3 +749,37 @@ class TestExtractActivationBits:
         """Unsupported activation bit-width should raise ValueError."""
         with pytest.raises(ValueError, match=r"unsupported activation bit-width"):
             extract_activation_bits("w4a4")
+
+
+# =============================================================================
+# TestExpandPrecision - Multi-pass precision expansion
+# =============================================================================
+
+
+class TestExpandPrecision:
+    """Test expand_precision() function."""
+
+    @pytest.mark.parametrize(
+        ("precision", "expected"),
+        [
+            ("w4a16", ["int4", "fp16"]),
+            ("W4A16", ["int4", "fp16"]),
+            ("int4", ["int4"]),
+            ("w4a32", ["w4a32"]),
+            ("fp16", ["fp16"]),
+            ("int8", ["int8"]),
+            ("w8a16", ["w8a16"]),
+            ("w8a8", ["w8a8"]),
+            ("int16", ["int16"]),
+        ],
+    )
+    def test_expand_precision(self, precision: str, expected: list[str]) -> None:
+        """Verify precision expansion produces correct pass sequences."""
+        assert expand_precision(precision) == expected
+
+    def test_w4a16_is_only_multi_pass(self) -> None:
+        """Only w4a16 should produce more than one pass."""
+        single_pass_cases = ["int4", "int8", "int16", "fp16", "w4a32", "w8a16", "w8a8"]
+        for prec in single_pass_cases:
+            result = expand_precision(prec)
+            assert len(result) == 1, f"{prec} should be single-pass but got {result}"

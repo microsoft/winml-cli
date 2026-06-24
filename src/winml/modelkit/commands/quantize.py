@@ -239,7 +239,7 @@ def quantize(
 
     # ── Weight-only (RTN) path ───────────────────────────────────
     from ..config.precision import (
-        extract_activation_bits,
+        expand_precision,
         extract_weight_bits,
         is_weight_only_precision,
     )
@@ -252,8 +252,8 @@ def quantize(
         )
 
         assert precision is not None  # guaranteed by is_rtn check
+        passes = expand_precision(precision.lower())
         rtn_bits = extract_weight_bits(precision.lower())
-        a_bits = extract_activation_bits(precision.lower())
 
         # Determine output path
         if output is None:
@@ -264,28 +264,59 @@ def quantize(
         console.print(f"[bold blue]Output:[/bold blue] {output}")
         console.print(f"[bold blue]Precision:[/bold blue] {precision}")
         console.print(f"[bold blue]Algorithm:[/bold blue] RTN (weight-only, {rtn_bits}-bit)")
+        if len(passes) > 1:
+            console.print(f"[bold blue]Passes:[/bold blue] {' → '.join(passes)}")
 
-        config = WinMLQuantizationConfig(
+        rtn_config = WinMLQuantizationConfig(
             algorithm="rtn",
             rtn_bits=rtn_bits,
-            fp16_postprocess=a_bits == 16,
         )
 
         try:
             console.print(f"\n[bold]Running RTN {rtn_bits}-bit weight-only quantization...[/bold]")
-            result = quantize_onnx(model, output_path=output, config=config)
+            # First pass: RTN quantization
+            rtn_output = output if len(passes) == 1 else model.parent / f"{model.stem}_rtn.onnx"
+            result = quantize_onnx(model, output_path=rtn_output, config=rtn_config)
 
-            if result.success:
+            if not result.success:
+                console.print("\n[bold red]RTN quantization failed:[/bold red]")
+                for error in result.errors:
+                    console.print(f"  {error}")
+                raise click.ClickException("RTN quantization failed")
+
+            console.print(f"[dim]RTN pass complete: {result.total_time_seconds:.2f}s[/dim]")
+
+            # Second pass: FP16 conversion (if w4a16)
+            if len(passes) > 1 and passes[1] == "fp16":
+                console.print("\n[bold]Applying FP16 conversion...[/bold]")
+                fp16_config = WinMLQuantizationConfig(algorithm="fp16")
+                fp16_result = quantize_onnx(rtn_output, output_path=output, config=fp16_config)
+
+                if not fp16_result.success:
+                    console.print("\n[bold red]FP16 conversion failed:[/bold red]")
+                    for error in fp16_result.errors:
+                        console.print(f"  {error}")
+                    raise click.ClickException("FP16 conversion failed")
+
+                # Clean up intermediate file
+                if rtn_output != output and rtn_output.exists():
+                    rtn_output.unlink()
+                    ext_data = rtn_output.parent / f"{rtn_output.name}.data"
+                    if ext_data.exists():
+                        ext_data.unlink()
+
+                console.print(
+                    f"\n[bold green]Success![/bold green] "
+                    f"Model quantized (RTN {rtn_bits}-bit + FP16)"
+                )
+                console.print(f"[dim]Output: {output}[/dim]")
+                console.print(f"[dim]Total time: {fp16_result.total_time_seconds:.2f}s[/dim]")
+            else:
                 console.print(
                     f"\n[bold green]Success![/bold green] Model quantized (RTN {rtn_bits}-bit)"
                 )
                 console.print(f"[dim]Output: {result.output_path}[/dim]")
                 console.print(f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]")
-            else:
-                console.print("\n[bold red]RTN quantization failed:[/bold red]")
-                for error in result.errors:
-                    console.print(f"  {error}")
-                raise click.ClickException("RTN quantization failed")
 
         except click.ClickException:
             raise

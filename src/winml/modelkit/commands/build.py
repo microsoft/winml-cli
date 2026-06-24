@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
     from ..build import BuildResult
     from ..config import WinMLBuildConfig
+    from ..quant import WinMLQuantizationConfig
     from ..utils.constants import EPName, EPNameOrAlias
 
 logger = logging.getLogger(__name__)
@@ -631,13 +632,15 @@ def build(
                     # and other calibration settings from the existing config.
                     cfg.quant.weight_type = resolved_quant.weight_type
                     cfg.quant.activation_type = resolved_quant.activation_type
-                    cfg.quant.fp16_postprocess = resolved_quant.fp16_postprocess
                     cfg.quant.algorithm = resolved_quant.algorithm
                     if resolved_quant.algorithm == "rtn":
                         cfg.quant.rtn_bits = resolved_quant.rtn_bits
                         cfg.quant.rtn_block_size = resolved_quant.rtn_block_size
                         cfg.quant.rtn_symmetric = resolved_quant.rtn_symmetric
                         cfg.quant.rtn_accuracy_level = resolved_quant.rtn_accuracy_level
+                # Store the original precision string for multi-pass expansion
+                if precision:
+                    cfg.precision = precision.lower()
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -1143,8 +1146,8 @@ def _run_quantize_stage(
 ) -> Path:
     """Run the quantize stage inside a StageLive context (if quant is configured).
 
-    Handles QDQ skip detection, shows dataset/calibration/precision details,
-    and appends timing to stage_timings.
+    Supports multi-pass precision (e.g., w4a16 expands to [int4, fp16]).
+    Each pass calls quantize_onnx once with a single-operation config.
 
     Args:
         config: Build configuration.
@@ -1155,70 +1158,158 @@ def _run_quantize_stage(
     Returns:
         Updated current_path (quantized_path if quantization ran, else unchanged).
     """
+    from ..config.precision import expand_precision
     from ..onnx import is_quantized_onnx
-    from ..quant import quantize_onnx
-    from ..utils.console import StageLive
+    from ..quant import WinMLQuantizationConfig
 
     if config.quant is None:
         return current_path
 
-    # ── FP16-only fast path (no calibration / QDQ) ───────────────
-    if config.quant.algorithm == "fp16":
-        with StageLive("fp16", console) as sl:
-            sl.set_status("Converting to FP16...")
-            t0 = time.monotonic()
-            quant_result = quantize_onnx(
-                model_path=current_path,
-                output_path=quantized_path,
-                config=config.quant,
-                use_external_data=True,
-            )
-            if not quant_result.success:
-                errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
-                sl.set_error(errors)
-                raise RuntimeError(f"FP16 conversion failed: {errors}")
-            current_path = quantized_path
-            _fp16_elapsed = time.monotonic() - t0
-            sl.set_done(_fp16_elapsed)
-            sl.detail("[dim]I/O types preserved as FP32[/dim]")
-            sl.artifact(str(quantized_path), _safe_size(quantized_path))
-            sl.blank()
-        stage_timings.append(("FP16", _fp16_elapsed))
-        return current_path
+    # Determine pass sequence from stored precision string
+    passes = expand_precision(config.precision) if config.precision else [config.quant.algorithm]
 
-    # ── RTN weight-only path (no calibration) ────────────────────
-    if config.quant.algorithm == "rtn":
-        with StageLive("quantize", console) as sl:
-            bits = config.quant.rtn_bits
-            sl.set_status(f"Quantizing (RTN {bits}-bit)...")
-            t0 = time.monotonic()
-            quant_result = quantize_onnx(
-                model_path=current_path,
-                output_path=quantized_path,
+    for step_idx, step_prec in enumerate(passes):
+        # Determine output path for this pass
+        if len(passes) == 1:
+            step_output = quantized_path
+        else:
+            suffix = f"_pass{step_idx}"
+            step_output = quantized_path.parent / (
+                f"{quantized_path.stem}{suffix}{quantized_path.suffix}"
+            )
+
+        if step_prec == "fp16":
+            fp16_config = WinMLQuantizationConfig(
+                algorithm="fp16",
+                fp16_keep_io_types=config.quant.fp16_keep_io_types,
+                fp16_op_block_list=config.quant.fp16_op_block_list,
+            )
+            current_path = _run_single_fp16_pass(
+                config=fp16_config,
+                current_path=current_path,
+                output_path=step_output,
+                stage_timings=stage_timings,
+            )
+        elif step_prec in ("int4", "w4a32") or config.quant.algorithm == "rtn":
+            current_path = _run_single_rtn_pass(
                 config=config.quant,
-                use_external_data=True,
+                current_path=current_path,
+                output_path=step_output,
+                stage_timings=stage_timings,
             )
-            if not quant_result.success:
-                errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
-                sl.set_error(errors)
-                raise RuntimeError(f"RTN quantization failed: {errors}")
-            current_path = quantized_path
-            _rtn_elapsed = time.monotonic() - t0
-            sl.set_done(_rtn_elapsed)
-            sl.kv("Algorithm:", f"[cyan]RTN[/cyan]  [dim](weight-only {bits}-bit)[/dim]")
-            sl.kv(
-                "Config:",
-                f"block_size={config.quant.rtn_block_size}, symmetric={config.quant.rtn_symmetric}",
+        else:
+            # QDQ (static/dynamic)
+            current_path = _run_single_qdq_pass(
+                config=config,
+                current_path=current_path,
+                output_path=step_output,
+                stage_timings=stage_timings,
+                is_quantized_onnx=is_quantized_onnx,
             )
-            sl.artifact(str(quantized_path), _safe_size(quantized_path))
-            sl.blank()
-        stage_timings.append(("Quantize", _rtn_elapsed))
-        return current_path
+
+    # Rename final pass output to expected quantized_path if different
+    if current_path != quantized_path and current_path.exists():
+        import shutil
+
+        shutil.move(str(current_path), str(quantized_path))
+        # Also move external data file if present
+        ext_data = current_path.parent / f"{current_path.name}.data"
+        if ext_data.exists():
+            shutil.move(str(ext_data), str(quantized_path.parent / f"{quantized_path.name}.data"))
+        current_path = quantized_path
+
+    return current_path
+
+
+def _run_single_fp16_pass(
+    *,
+    config: WinMLQuantizationConfig,
+    current_path: Path,
+    output_path: Path,
+    stage_timings: list[tuple[str, float | None]],
+) -> Path:
+    """Run a single FP16 conversion pass."""
+    from ..quant import quantize_onnx
+    from ..utils.console import StageLive
+
+    with StageLive("fp16", console) as sl:
+        sl.set_status("Converting to FP16...")
+        t0 = time.monotonic()
+        quant_result = quantize_onnx(
+            model_path=current_path,
+            output_path=output_path,
+            config=config,
+            use_external_data=True,
+        )
+        if not quant_result.success:
+            errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
+            sl.set_error(errors)
+            raise RuntimeError(f"FP16 conversion failed: {errors}")
+        elapsed = time.monotonic() - t0
+        sl.set_done(elapsed)
+        sl.detail("[dim]I/O types preserved as FP32[/dim]")
+        sl.artifact(str(output_path), _safe_size(output_path))
+        sl.blank()
+    stage_timings.append(("FP16", elapsed))
+    return output_path
+
+
+def _run_single_rtn_pass(
+    *,
+    config: WinMLQuantizationConfig,
+    current_path: Path,
+    output_path: Path,
+    stage_timings: list[tuple[str, float | None]],
+) -> Path:
+    """Run a single RTN weight-only quantization pass."""
+    from ..quant import quantize_onnx
+    from ..utils.console import StageLive
+
+    with StageLive("quantize", console) as sl:
+        bits = config.rtn_bits
+        sl.set_status(f"Quantizing (RTN {bits}-bit)...")
+        t0 = time.monotonic()
+        quant_result = quantize_onnx(
+            model_path=current_path,
+            output_path=output_path,
+            config=config,
+            use_external_data=True,
+        )
+        if not quant_result.success:
+            errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
+            sl.set_error(errors)
+            raise RuntimeError(f"RTN quantization failed: {errors}")
+        elapsed = time.monotonic() - t0
+        sl.set_done(elapsed)
+        sl.kv("Algorithm:", f"[cyan]RTN[/cyan]  [dim](weight-only {bits}-bit)[/dim]")
+        sl.kv(
+            "Config:",
+            f"block_size={config.rtn_block_size}, symmetric={config.rtn_symmetric}",
+        )
+        sl.artifact(str(output_path), _safe_size(output_path))
+        sl.blank()
+    stage_timings.append(("Quantize", elapsed))
+    return output_path
+
+
+def _run_single_qdq_pass(
+    *,
+    config: WinMLBuildConfig,
+    current_path: Path,
+    output_path: Path,
+    stage_timings: list[tuple[str, float | None]],
+    is_quantized_onnx: Any,
+) -> Path:
+    """Run a single QDQ (static/dynamic) quantization pass."""
+    from ..quant import quantize_onnx
+    from ..utils.console import StageLive
 
     if is_quantized_onnx(current_path):
         print_stage_skip(console, "quantize", "(QDQ nodes already present)")
         stage_timings.append(("Quantize", None))
         return current_path
+
+    assert config.quant is not None
 
     with StageLive("quantize", console) as sl:
         wt = config.quant.weight_type
@@ -1235,7 +1326,6 @@ def _run_quantize_stage(
             f"  [dim]({config.quant.calibration_method})[/dim]",
         )
         # Suppress tqdm/datasets progress bars during quantize
-        # to keep Live display clean
         _datasets_available = False
         try:
             import datasets
@@ -1243,13 +1333,13 @@ def _run_quantize_stage(
             datasets.disable_progress_bars()
             _datasets_available = True
         except ImportError:
-            pass  # datasets package not installed; progress bar suppression not needed
+            pass
 
         t0 = time.monotonic()
         try:
             quant_result = quantize_onnx(
                 model_path=current_path,
-                output_path=quantized_path,
+                output_path=output_path,
                 config=config.quant,
                 use_external_data=True,
             )
@@ -1260,7 +1350,6 @@ def _run_quantize_stage(
             errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
             sl.set_error(errors)
             raise RuntimeError(f"Quantization failed: {errors}")
-        current_path = quantized_path
         _quant_elapsed = time.monotonic() - t0
         sl.set_done(_quant_elapsed)
         sl.kv(
@@ -1270,12 +1359,12 @@ def _run_quantize_stage(
             f"  [dim](weight/activation)[/dim]",
         )
         sl.artifact(
-            str(quantized_path),
-            _safe_size(quantized_path),
+            str(output_path),
+            _safe_size(output_path),
         )
         sl.blank()
     stage_timings.append(("Quantize", _quant_elapsed))
-    return current_path
+    return output_path
 
 
 def _run_compile_stage(
