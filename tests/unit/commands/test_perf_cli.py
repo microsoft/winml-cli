@@ -385,6 +385,47 @@ class TestPerfUnifiedPipeline:
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
 
+    def test_cli_openvino_requires_onnx(self, runner: CliRunner) -> None:
+        """--runtime openvino rejects a non-ONNX (HF) model id."""
+        result = runner.invoke(
+            perf,
+            ["-m", "microsoft/resnet-50", "--runtime", "openvino"],
+            obj={},
+        )
+        assert result.exit_code != 0
+        assert "requires an onnx" in result.output.lower()
+
+    def test_cli_openvino_rejects_module(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--runtime openvino does not support per-module benchmarking."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+        result = runner.invoke(
+            perf,
+            ["-m", str(onnx_file), "--runtime", "openvino", "--module", "BertAttention"],
+            obj={},
+        )
+        assert result.exit_code != 0
+        assert "module" in result.output.lower()
+
+    def test_cli_openvino_routes_to_adapter(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--runtime openvino builds an _OpenVINOModel, bypassing WinMLAutoModel."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(model_id=str(onnx_file), device="cpu", runtime="openvino")
+        benchmark = PerfBenchmark(config)
+
+        mock_session = MagicMock()
+        with patch(
+            "winml.modelkit.session.openvino.openvino_session.OpenVINOSession",
+            return_value=mock_session,
+        ) as mock_ov:
+            benchmark._load_model()
+
+        mock_ov.assert_called_once()
+        assert benchmark._model is not None
+        assert benchmark._model.task is None
+
     def test_onnx_load_model_passes_ep(self, tmp_path: Path) -> None:
         """EP argument should be forwarded to from_onnx."""
         onnx_file = tmp_path / "model.onnx"

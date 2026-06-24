@@ -92,6 +92,9 @@ class BenchmarkConfig:
     ep: EPNameOrAlias | None = None
     ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
+    # Inference runtime backend: "ort" (ONNX Runtime, default) or "openvino"
+    # (OpenVINO Runtime on the raw ONNX file, for ORT-vs-OV comparison).
+    runtime: str = "ort"
 
 
 @dataclass
@@ -321,6 +324,54 @@ def effective_batch_size(
 
 
 # =============================================================================
+# OpenVINO runner adapter
+# =============================================================================
+
+
+class _OpenVINOModel:
+    """Minimal single-session model backed by OpenVINO Runtime.
+
+    Exposes the same surface ``PerfBenchmark._run_single`` reads from a
+    ``WinMLPreTrainedModel`` (``io_config`` / ``device`` / ``ep_name`` /
+    ``task`` / ``running_model_path`` and an ``_session`` with
+    ``compile`` / ``run`` / ``perf``), delegating to an ``OpenVINOSession``.
+    This lets the shared benchmark engine drive OpenVINO without a
+    WinMLAutoModel build — OpenVINO reads the raw ONNX directly.
+    """
+
+    def __init__(
+        self,
+        onnx_path: Path,
+        device: str,
+        provider_options: dict[str, str] | None = None,
+    ) -> None:
+        from ..session.openvino.openvino_session import OpenVINOSession
+
+        self._session = OpenVINOSession(onnx_path, device=device, provider_options=provider_options)
+
+    @property
+    def io_config(self) -> dict:
+        return self._session.io_config
+
+    @property
+    def device(self) -> str:
+        return self._session.device
+
+    @property
+    def ep_name(self) -> EPName | None:
+        return self._session.ep_name
+
+    @property
+    def task(self) -> str | None:
+        # OpenVINO runs the raw ONNX with no task metadata.
+        return None
+
+    @property
+    def running_model_path(self) -> Path:
+        return self._session.running_model_path
+
+
+# =============================================================================
 # Benchmark Engine
 # =============================================================================
 
@@ -341,7 +392,7 @@ class PerfBenchmark:
     def __init__(self, config: BenchmarkConfig) -> None:
         """Initialize benchmark with configuration."""
         self.config = config
-        self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
+        self._model: WinMLPreTrainedModel | WinMLCompositeModel | _OpenVINOModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
         self._effective_batch: int = config.batch_size
         self._memory: dict[str, float] | None = None
@@ -560,13 +611,31 @@ class PerfBenchmark:
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
 
+        model_id = self.config.model_id
+        model_path = Path(model_id)
+        is_onnx = model_path.suffix.lower() == ".onnx"
+
+        # OpenVINO runner: read the raw ONNX directly (no build, no ORT EP
+        # resolution — OpenVINO is independent of ORT's execution providers).
+        # ONNX input only; the CLI guards non-ONNX inputs earlier.
+        if self.config.runtime == "openvino":
+            if not is_onnx:
+                raise ValueError(
+                    f"--runtime openvino requires an ONNX (.onnx) model file, got: {model_id}"
+                )
+            if not model_path.exists():
+                raise FileNotFoundError(f"ONNX file not found: {model_path}")
+            self._model = _OpenVINOModel(
+                model_path,
+                device=self.config.device,
+                provider_options=self.config.ep_options,
+            )
+            return
+
         # Resolve the concrete device + EP first so a bad combo fails fast,
         # before from_pretrained/from_onnx kick off the build pipeline.
         self._resolve_device_ep()
 
-        model_id = self.config.model_id
-        model_path = Path(model_id)
-        is_onnx = model_path.suffix.lower() == ".onnx"
         if is_onnx and not model_path.exists():
             # Surface a clear error for programmatic callers. The CLI guards
             # this earlier, but without this check from_pretrained would fall
@@ -1469,6 +1538,15 @@ def _run_simple_loop(
 @cli_utils.ep_options_option(
     optional_message="Applied to both HuggingFace model IDs and ONNX file inputs.",
 )
+@click.option(
+    "--runtime",
+    type=click.Choice(["ort", "openvino"]),
+    default="ort",
+    show_default=True,
+    help="Inference runtime backend. 'ort' = ONNX Runtime (InferenceSession). "
+    "'openvino' runs the raw ONNX file directly via OpenVINO Runtime for an "
+    "ORT-vs-OV comparison (ONNX input only; build/quant/--ep flags are ignored).",
+)
 @cli_utils.output_option(
     "Output JSON file path. Defaults to "
     "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
@@ -1554,6 +1632,7 @@ def perf(
     precision: str,
     ep: EPNameOrAlias | None,
     ep_options: tuple[str, ...],
+    runtime: str,
     output: Path | None,
     batch_size: int,
     shape_config_path: Path | None,
@@ -1612,6 +1691,17 @@ def perf(
         raise click.UsageError("A model is required via -m/--model.")
 
     hf_model = model
+
+    # OpenVINO runner: ONNX input only, and no per-module path (submodule
+    # discovery walks a live nn.Module graph, which OpenVINO never builds).
+    if runtime == "openvino":
+        if Path(hf_model).suffix.lower() != ".onnx":
+            raise click.UsageError(
+                "--runtime openvino requires an ONNX (.onnx) model file "
+                f"(not a HuggingFace model ID), got: {hf_model}"
+            )
+        if module_class:
+            raise click.UsageError("--runtime openvino does not support --module benchmarking.")
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
@@ -1731,6 +1821,7 @@ def perf(
         ep=ep,
         ep_options=ep_provider_options,
         shape_config=shape_config,
+        runtime=runtime,
     )
 
     try:
