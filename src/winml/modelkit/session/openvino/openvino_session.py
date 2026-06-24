@@ -106,7 +106,13 @@ class OpenVINOSession:
             logger.debug("Already compiled for %s", self._device)
             return
 
-        import openvino as ov
+        try:
+            import openvino as ov
+        except ImportError as exc:
+            raise ImportError(
+                "OpenVINO is not installed but --runtime openvino was requested. "
+                "Install it with: pip install winml-cli[openvino]"
+            ) from exc
 
         requested = _OV_DEVICE_MAP.get(self._device, self._device.upper())
         core = ov.Core()

@@ -95,6 +95,19 @@ class TestOpenVINOSession:
         with pytest.raises(FileNotFoundError):
             OpenVINOSession(tmp_path / "does_not_exist.onnx")
 
+    def test_missing_openvino_prompts_install(
+        self, simple_matmul_onnx: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When the openvino package is absent, compile() raises a clear
+        install hint instead of a bare ModuleNotFoundError. Simulates absence
+        by shadowing the module so ``import openvino`` fails."""
+        import sys
+
+        monkeypatch.setitem(sys.modules, "openvino", None)
+        session = OpenVINOSession(simple_matmul_onnx, device="cpu")
+        with pytest.raises(ImportError, match=r"pip install winml-cli\[openvino\]"):
+            session.compile()
+
     def test_unavailable_device_raises_friendly_error(self, simple_matmul_onnx: Path) -> None:
         """A device absent from Core().available_devices fails fast with a
         readable message instead of a raw backend stack trace. Uses a bogus
