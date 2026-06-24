@@ -1218,6 +1218,18 @@ def _run_quantize_stage(
             shutil.move(str(ext_data), str(quantized_path.parent / f"{quantized_path.name}.data"))
         current_path = quantized_path
 
+    # Clean up intermediate pass files (all except the final output)
+    if len(passes) > 1:
+        for i in range(len(passes) - 1):
+            intermediate = quantized_path.parent / (
+                f"{quantized_path.stem}_pass{i}{quantized_path.suffix}"
+            )
+            if intermediate.exists():
+                intermediate.unlink()
+            ext_data = intermediate.parent / f"{intermediate.name}.data"
+            if ext_data.exists():
+                ext_data.unlink()
+
     return current_path
 
 
