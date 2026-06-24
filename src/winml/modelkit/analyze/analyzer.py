@@ -140,10 +140,7 @@ def _build_runtime_debug_details_summary(
                     level_bucket[node_stable_key] = candidate_entry
                     continue
 
-                if (
-                    existing_entry.case_indices is None
-                    and candidate_entry.case_indices is not None
-                ):
+                if existing_entry.case_indices is None and candidate_entry.case_indices is not None:
                     existing_entry.case_indices = candidate_entry.case_indices
 
                 if existing_entry.table_path is None and candidate_entry.table_path is not None:
@@ -798,7 +795,7 @@ class ONNXStaticAnalyzer:
         if device is not None and device.lower() == "auto":
             from ..sysinfo import resolve_device
 
-            resolved, _ = resolve_device("auto")
+            resolved, _ = resolve_device("auto", ep=ep_normalized)
             device_to_use = resolved.upper()
             logger.info("Device 'auto' resolved to: %s", device_to_use)
         else:

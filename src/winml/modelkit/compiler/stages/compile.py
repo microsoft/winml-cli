@@ -176,7 +176,9 @@ class CompileStage(BaseStage):
         sess_options = context.shared_session_options
         if sess_options is None:
             register_execution_providers(ort=True)
-            resolved_device, _ = resolve_device(context.config.get("device", "auto"))
+            resolved_device, _ = resolve_device(
+                context.get_config("device", "auto"), ep=context.execution_provider
+            )
             ep = normalize_ep_name(ep_config.provider) or resolve_eps(resolved_device)[0]
             device_type = DEVICE_TO_DEVICE_TYPE.get(resolved_device.upper())
 
