@@ -1,11 +1,11 @@
-# Model compatibility report
+# Model accuracy report
 
-This folder hosts the **model compatibility report** published to the public
+This folder hosts the **model accuracy report** published to the public
 winml-cli GitHub Pages site, plus the script used to refresh it.
 
 | File | Purpose |
 | --- | --- |
-| `model_compatibility_report.html` | The self-contained report page (all data embedded inline). |
+| `model_accuracy_report.html` | The self-contained report page (all data embedded inline). |
 | `download_report.py` | Fetches the latest report from the private artifacts repo. |
 | `README.md` | This file. |
 
@@ -17,7 +17,7 @@ winml-cli GitHub Pages site, plus the script used to refresh it.
 ## Source
 
 The report is generated in the private `gim-home/ModelKitArtifacts` repo and
-lives at `e2e_model_coverage_result/model_compatibility_report.html` on its
+lives at `e2e_model_coverage_result/model_accuracy_report.html` on its
 `site-src` branch. The page embeds all of its data inline, so only this one
 file needs to be published — no JSON or other assets are fetched at runtime.
 
@@ -42,7 +42,7 @@ cd ../wmlcli-ghpages/reports
 
 Then run the script from this `reports/` folder. It uses only the Python
 standard library — no project dependencies or `uv` required. By default it
-overwrites `model_compatibility_report.html` next to the script:
+overwrites `model_accuracy_report.html` next to the script:
 
 ```powershell
 python download_report.py --account <your_gim-home_account>
@@ -57,12 +57,12 @@ fetches — it does not commit or push.
 Commit and push the refreshed report on `gh-pages`:
 
 ```powershell
-git add reports/model_compatibility_report.html
-git commit -m "Update model compatibility report"
+git add reports/model_accuracy_report.html
+git commit -m "Update model accuracy report"
 git push origin gh-pages
 ```
 
-The report is then available at `.../reports/model_compatibility_report.html`.
+The report is then available at `.../reports/model_accuracy_report.html`.
 GitHub Pages redeploys automatically within a minute or two of the push.
 
 If you used a worktree, clean it up afterwards:
