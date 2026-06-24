@@ -105,6 +105,8 @@ from .vision_encoder_decoder import (
     VisionDecoderIOConfig as _VisionDecoderIOConfig,  # triggers registration
 )
 from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
+from .vilt import MODEL_CLASS_MAPPING as _VILT_CLASS_MAPPING
+from .vilt import ViltVqaOnnxConfig as _ViltVqaOnnxConfig  # triggers registration
 from .vitpose import MODEL_CLASS_MAPPING as _VITPOSE_CLASS_MAPPING
 from .wav2vec2 import MODEL_CLASS_MAPPING as _WAV2VEC2_CLASS_MAPPING
 from .wav2vec2 import (
@@ -144,6 +146,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _T5_CLASS_MAPPING,
         _UNLIMITED_OCR_CLASS_MAPPING,
         _VED_CLASS_MAPPING,
+        _VILT_CLASS_MAPPING,
         _VITPOSE_CLASS_MAPPING,
         _WAV2VEC2_CLASS_MAPPING,
     )
