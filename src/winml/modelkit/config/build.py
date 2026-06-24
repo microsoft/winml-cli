@@ -235,7 +235,6 @@ class WinMLBuildConfig:
         # Algorithms that skip calibration (fp16, rtn, dynamic) also don't
         # need task/model_name since they don't generate calibration datasets.
         if self.quant is not None:
-            is_submodule = bool(self.loader and self.loader.module_path)
             needs_calibration = self.quant.algorithm == "static"
             needs_quant_ids = not is_onnx_build and not is_submodule and needs_calibration
             if needs_quant_ids and not self.quant.task:
