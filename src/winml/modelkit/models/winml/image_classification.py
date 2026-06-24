@@ -11,7 +11,7 @@ Pipeline execution (export/optimize/compile) is done by WinMLAutoModel factory.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from transformers.modeling_outputs import ImageClassifierOutput
 
@@ -32,7 +32,7 @@ class WinMLModelForImageClassification(WinMLPreTrainedModel):
     Pipeline execution is done by WinMLAutoModel factory.
     """
 
-    def forward(
+    def forward(  # type: ignore[override]  # HF-pipeline base uses generic **kwargs; task-specific signature
         self,
         pixel_values: torch.Tensor | np.ndarray,
         **kwargs: Any,
@@ -53,7 +53,9 @@ class WinMLModelForImageClassification(WinMLPreTrainedModel):
         # Get logits (by name or first output)
         logits = outputs.get("logits", next(iter(outputs.values())))
 
-        return ImageClassifierOutput(logits=logits)
+        # transformers' Output fields are annotated FloatTensor (legacy, over-narrow);
+        # the ONNX session returns a real float Tensor.
+        return ImageClassifierOutput(logits=cast("torch.FloatTensor", logits))
 
     @property
     def num_labels(self) -> int:

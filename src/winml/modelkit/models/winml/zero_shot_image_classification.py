@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 import torch
-from transformers.utils import ModelOutput
+from transformers.utils.generic import ModelOutput
 
 from .composite_model import WinMLCompositeModel, register_composite_model
 
