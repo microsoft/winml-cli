@@ -48,12 +48,11 @@ from ..onnx import ONNXDomain
 from .base import (
     Pattern,
     PatternInputGenerator,
-    PatternMatchResult,
     PatternSchema,
     Skeleton,
-    SkeletonMatchResult,
     register_pattern_input_generator,
 )
+from .match import PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint
 
 
@@ -539,7 +538,7 @@ class ExpandedAttentionPatternInputGenerator(PatternInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputShapeConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns input combinations for expanded attention with mask pattern testing.
 
         Provides various 4D input shapes for Q, K, V, and attn_mask tensors.
@@ -596,7 +595,7 @@ class TransposeAttentionPatternInputGenerator(PatternInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputShapeConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns input combinations for Transpose+Attention pattern testing.
 
         Provides various 4D input shapes for Q, K, V, and attn_mask tensors.
