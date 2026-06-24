@@ -101,73 +101,26 @@ def _configure() -> None:
     )
 
     # =========================================================================
-    # py.warnings logger filters (for warnings routed via logging.captureWarnings)
+    # huggingface_hub: suppress the Windows "symlinks not supported" notice
     # =========================================================================
-
-    class _HFSymlinksInfoFilter(logging.Filter):
-        r"""Downgrade the huggingface_hub symlinks UserWarning from WARNING to INFO.
-
-        On Windows without Developer Mode, huggingface_hub warns that symlinks
-        are unsupported and the cache will use copies instead. This is cosmetic —
-        the cache still works, just without deduplication. WARNING is misleading
-        here; INFO is the appropriate level.
-
-        When warnings are routed via logging.captureWarnings(True), Python's
-        warnings.formatwarning() embeds the source filename in the log message
-        body ("path/to/huggingface_hub/file_download.py:1: UserWarning: ..."),
-        so we match against getMessage() rather than record.pathname (which
-        is always warnings.py in that path).
-
-        Before (WARNING level, always visible):
-            [09:12:34] WARNING  C:\\...\\huggingface_hub\\file_download.py:1:
-                                UserWarning: `huggingface_hub` cache-system uses
-                                symlinks by default to efficiently store
-                                duplicated files but your machine does not
-                                support them
-
-        After (INFO level, only visible with --verbose or -v):
-            [09:12:34] INFO     C:\\...\\huggingface_hub\\file_download.py:1:
-                                UserWarning: `huggingface_hub` cache-system uses
-                                symlinks by default to efficiently store
-                                duplicated files but your machine does not
-                                support them
-        """
-
-        def filter(self, record: logging.LogRecord) -> bool:
-            msg = record.getMessage()
-            if "symlinks" in msg and "huggingface_hub" in msg:
-                record.levelno = logging.INFO
-                record.levelname = "INFO"
-            return True
-
-    logging.getLogger("py.warnings").addFilter(_HFSymlinksInfoFilter())
-
-    # Suppress the huggingface_hub symlinks warning at the Python warnings level
-    # so it is hidden even before captureWarnings(True) is activated in build.py.
-    # When captureWarnings(True) is active, _HFSymlinksInfoFilter above handles
-    # the same message for loggers that need it at INFO (e.g. with --verbose).
+    # On Windows without Developer Mode, huggingface_hub emits a UserWarning that
+    # its cache will use file copies instead of symlinks. This is cosmetic — the
+    # cache still works, just without deduplication. Drop it at the Python
+    # warnings layer so it is hidden in every verbosity mode; this also stops it
+    # before captureWarnings(True) (activated in build.py) could route it to the
+    # py.warnings logger.
     warnings.filterwarnings(
         "ignore",
         message=r".*huggingface_hub.*cache-system.*symlinks.*",
         category=UserWarning,
     )
 
-    class _TasksManagerFilter(logging.Filter):
-        """Downgrade optimum TasksManager architecture-mismatch notice to INFO.
-
-        optimum logs a WARNING when TasksManager selects a different Auto class
-        than the one in config.architectures (e.g. AutoModelForSequenceClassification
-        vs RobertaForSequenceClassification).  This is expected behaviour for
-        WinML models and is purely informational.
-        """
-
-        def filter(self, record: logging.LogRecord) -> bool:
-            if "TasksManager returned" in record.getMessage():
-                record.levelno = logging.INFO
-                record.levelname = "INFO"
-            return True
-
-    logging.getLogger("optimum.exporters.tasks").addFilter(_TasksManagerFilter())
+    # NOTE: optimum's informational WARNINGs (e.g. "TasksManager returned ...",
+    # "No model type passed for the task ...") are gated by the verbosity-
+    # conditional ERROR floor on the `optimum` logger in utils/logging.py
+    # (configure_logging): hidden by default, shown at -v/-vv. A demote-to-INFO
+    # filter here would only relabel a record after the root-level gate has
+    # already passed it through — it would not suppress anything — so none is used.
 
     class _TransformersWeightsFilter(logging.Filter):
         """Suppress the transformers "weights not used" notice.
