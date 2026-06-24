@@ -536,6 +536,7 @@ class CatalogSweep:
         gemm_known: bool | None = None
         baseline_onnx: Path | None = None
         baseline_sig: dict | None = None
+        seen_sigs: dict[str, dict] = {}  # op_sig for every hypothesis built so far
 
         for hyp in self.hyps:
             hyp_id = hyp["id"]
@@ -592,6 +593,8 @@ class CatalogSweep:
             op_sig = self._op_signature(hyp_dir)
             if hyp_id == self.baseline_id:
                 baseline_sig = op_sig
+            if op_sig is not None:
+                seen_sigs[hyp_id] = op_sig
 
             # NO-OP short-circuit: a non-baseline hypothesis whose built graph is
             # byte-for-byte identical to the baseline (same opset + op counts) cannot
@@ -634,6 +637,53 @@ class CatalogSweep:
                     self._prune_hyp_artifacts(hyp_dir)
                     self._prune_runnable_except_best(results, model_dir)
                 continue
+
+            # Duplicate-graph skip (npu-011 extension): a non-baseline hypothesis whose
+            # graph matches a prior non-baseline build — e.g. opset21+fusion when the
+            # fusion has no applicable ops → identical graph to opset21-alone.  The
+            # build was already needed to discover this; only bench is spared.
+            if hyp_id != self.baseline_id and op_sig is not None:
+                dup_ref = next(
+                    (
+                        rid
+                        for rid, rsig in seen_sigs.items()
+                        if rid != hyp_id
+                        and rid != self.baseline_id
+                        and self._same_graph(op_sig, rsig)
+                    ),
+                    None,
+                )
+                if dup_ref is not None:
+                    ref_bench = results["hypotheses"].get(dup_ref, {})
+                    noop = {
+                        "status": "NOOP_SKIPPED",
+                        "verdict": "NO_OP",
+                        "label": label,
+                        "opset": opset_used,
+                        "optim": hyp.get("optim") or {},
+                        "build_flags": build_flags,
+                        "op_signature": op_sig,
+                        "graph_changed": False,
+                        "noop_note": (
+                            f"graph identical to {dup_ref} (opset + op counts match) — "
+                            "flag did not fire; bench skipped, prior perf reused"
+                        ),
+                    }
+                    ref_full = ref_bench.get("full")
+                    if ref_full:
+                        noop["full_ref"] = dup_ref
+                        noop["assumed_median_p50_ms"] = ref_full.get("median_p50_ms")
+                    results["hypotheses"][hyp_id] = noop
+                    print(
+                        f"  [no-op] {hyp_id} graph == {dup_ref} "
+                        f"(ops={op_sig.get('total_operators')}, opset={op_sig.get('opset')}); "
+                        "bench skipped",
+                        flush=True,
+                    )
+                    if self.prune_artifacts:
+                        self._prune_hyp_artifacts(hyp_dir)
+                        self._prune_runnable_except_best(results, model_dir)
+                    continue
 
             # Guard: skip_if_gemm (cpu-002)
             if guard.get("type") == "skip_if_gemm":
@@ -1140,6 +1190,18 @@ class CatalogSweep:
         freed = 0
         for pat in ("export.onnx", "export.onnx.data", "optimized.onnx", "optimized.onnx.data"):
             p = hyp_dir / pat
+            if p.exists():
+                try:
+                    freed += p.stat().st_size
+                    p.unlink()
+                except OSError:
+                    pass
+        # Also remove shape-inference temp files that winml build writes to CWD
+        # (the autoconfig root): sym_shape_infer_temp.onnx and UUID-named *.data
+        # files produced by the ONNX external-data shape-inference pass.  These
+        # accumulate across hypotheses since the per-hypothesis prune above only
+        # covers files written inside the hypothesis output folder.
+        for p in list(_AGENT_ROOT.glob("*.data")) + [_AGENT_ROOT / "sym_shape_infer_temp.onnx"]:
             if p.exists():
                 try:
                     freed += p.stat().st_size
