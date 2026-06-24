@@ -41,17 +41,17 @@ class WinMLQwen3RMSNorm(nn.Module):
     """RMSNorm export variant — ``onnx::LpNormalization`` body."""
 
     def prepare_for_onnx_export(self) -> None:
+        """Fold the RMSNorm gain into the weight (LpNorm has unit gain)."""
         # Pre-multiply the gain into the weight (LpNorm has unit gain).
         # ``scale`` is shape ``[1]`` and broadcasts over ``self.weight``
         # (shape ``[hidden_size]``), so the result keeps the per-channel
         # shape even when the original weights are all ones.
         n = self.weight.numel()
-        scale = torch.sqrt(
-            torch.tensor([n], device=self.weight.device, dtype=self.weight.dtype)
-        )
+        scale = torch.sqrt(torch.tensor([n], device=self.weight.device, dtype=self.weight.dtype))
         self.weight = nn.Parameter(scale * self.weight)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Apply the LpNormalization-based RMSNorm body."""
         out = LpNormOnnxExport.apply(hidden_states, -1, 2)
         return self.weight * out
 
@@ -60,6 +60,7 @@ class WinMLQwen3MLP(nn.Module):
     """MLP export variant — 1x1 Conv projections (forward unchanged)."""
 
     def prepare_for_onnx_export(self, *, matmul_to_conv: bool) -> None:
+        """Optionally swap the MLP's linear projections for 1x1 convs."""
         if not matmul_to_conv:
             return
         self.gate_proj = TransposeConv2d1x1Transpose.from_linear_module(self.gate_proj)
@@ -71,12 +72,13 @@ class WinMLQwen3Attention(nn.Module):
     """Attention export variant — fused ``GroupQueryAttention`` op."""
 
     def prepare_for_onnx_export(self, *, matmul_to_conv: bool) -> None:
+        """Optionally swap the Q/K/V/O projections for 1x1 convs."""
         if matmul_to_conv:
             self.q_proj = TransposeConv2d1x1Transpose.from_linear_module(self.q_proj)
             self.k_proj = TransposeConv2d1x1Transpose.from_linear_module(self.k_proj)
             self.v_proj = TransposeConv2d1x1Transpose.from_linear_module(self.v_proj)
             self.o_proj = TransposeConv2d1x1Transpose.from_linear_module(self.o_proj)
-        self._matmul_to_conv = matmul_to_conv  # noqa: SLF001
+        self._matmul_to_conv = matmul_to_conv
 
     def forward(
         self,
@@ -84,8 +86,9 @@ class WinMLQwen3Attention(nn.Module):
         past_key_value: tuple[torch.Tensor, torch.Tensor] | None = None,
         past_seq_len: torch.Tensor | None = None,
         total_seq_len: torch.Tensor | None = None,
-        **kwargs: Any,  # noqa: ARG002
+        **kwargs: Any,
     ) -> tuple[torch.Tensor, None, tuple[torch.Tensor, torch.Tensor]]:
+        """Run fused GQA attention and return (output, None, present_kv)."""
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
@@ -167,8 +170,9 @@ class WinMLQwen3DecoderLayer(nn.Module):
         past_seq_len: torch.Tensor | None = None,
         total_seq_len: torch.Tensor | None = None,
         use_cache: bool = True,
-        **kwargs: Any,  # noqa: ARG002
+        **kwargs: Any,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        """Run the decoder layer (attention + MLP) with residual adds."""
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
         attn_out, _, present_kv = self.self_attn(
@@ -194,7 +198,8 @@ class WinMLQwen3Model(nn.Module):
     """Model export variant — transformer-only body (no embeddings / lm_head)."""
 
     def prepare_for_onnx_export(self, *, matmul_to_conv: bool) -> None:
-        self._matmul_to_conv = matmul_to_conv  # noqa: SLF001
+        """Record whether projections use the 1x1-conv (NHWC) path."""
+        self._matmul_to_conv = matmul_to_conv
 
     def forward(
         self,
@@ -204,6 +209,7 @@ class WinMLQwen3Model(nn.Module):
         total_seq_len: torch.Tensor,
         use_cache: bool = True,
     ) -> tuple[torch.Tensor, tuple[tuple[torch.Tensor, torch.Tensor], ...]]:
+        """Run the transformer-only body, returning hidden states + KV."""
         hidden_states = inputs_embeds
         if self._matmul_to_conv:
             hidden_states = hidden_states.unsqueeze(0)  # NHWC for Conv path

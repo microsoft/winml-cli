@@ -120,9 +120,12 @@ def _graph_shapes(onnx_path: Path) -> tuple[int, int]:
             seq_len = dims[1].dim_value
         elif inp.name == "past_keys_0" and len(dims) >= 3:
             max_cache_len = dims[2].dim_value
-    if seq_len is None or max_cache_len is None:
+    # A symbolic/dynamic axis yields dim_value == 0 (not None), so treat any
+    # non-positive value as "not a usable static shape" and fail loudly rather
+    # than silently building zero-length calibration feeds.
+    if not seq_len or not max_cache_len:
         raise ValueError(
-            f"Could not read seq_len/max_cache_len from {onnx_path.name}; "
+            f"Could not read static seq_len/max_cache_len from {onnx_path.name}; "
             f"found seq_len={seq_len}, max_cache_len={max_cache_len}"
         )
     return seq_len, max_cache_len

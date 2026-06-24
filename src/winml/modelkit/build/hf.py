@@ -325,6 +325,10 @@ def build_hf_model(
                 config.quant = pytorch_model.winml_finalize_quant_config(
                     config.quant, onnx_path=current_path, model_id=model_id
                 )
+                # The hook may overwrite the quant scheme (dtypes, symmetry,
+                # nodes-to-exclude) authoritatively, so re-persist the config
+                # to keep config.json consistent with what was actually applied.
+                config_path.write_text(json.dumps(config.to_dict(), indent=2))
             quant_result = quantize_onnx(
                 model_path=current_path,
                 output_path=quantized_path,

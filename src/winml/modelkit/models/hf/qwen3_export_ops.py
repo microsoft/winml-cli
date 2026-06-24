@@ -2,8 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Custom ONNX export ops + the entry point that reshapes HF's Qwen3 modules
-for the transformer-only export.
+"""Custom ONNX export ops that reshape HF's Qwen3 modules for export.
 
 These reshape the standard HF Qwen3 modules so winml-cli can produce a
 QNN-friendly, transformer-only graph:
@@ -20,6 +19,8 @@ module attributes.
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 import torch.nn as nn
 from torch.onnx import symbolic_helper
@@ -34,7 +35,8 @@ class LpNormOnnxExport(torch.autograd.Function):
     """RMSNorm body → ONNX ``LpNormalization`` (p=2 along last dim)."""
 
     @staticmethod
-    def symbolic(g, input, axis, p):  # noqa: D401
+    def symbolic(g, input, axis, p) -> Any:
+        """Emit the ONNX ``LpNormalization`` node during export."""
         output_type = input.type().with_sizes(symbolic_helper._get_tensor_sizes(input))
         output = g.op(
             "onnx::LpNormalization",
@@ -45,12 +47,14 @@ class LpNormOnnxExport(torch.autograd.Function):
         return output.setType(output_type)
 
     @staticmethod
-    def forward(ctx, input, axis, p):  # noqa: ARG004
-        # Shape-only tracing placeholder. The real op is emitted by
-        # ``symbolic`` during ONNX export; ``forward`` exists solely so the
-        # TorchScript exporter (and Optimum's pre-export dry run) can trace
-        # output shapes. It returns ``input`` unchanged on purpose and is NOT a
-        # correct eager RMSNorm — do not call this module for real inference.
+    def forward(ctx, input, axis, p) -> Any:
+        """Shape-only tracing placeholder; returns ``input`` unchanged.
+
+        The real op is emitted by ``symbolic`` during ONNX export; ``forward``
+        exists solely so the TorchScript exporter (and Optimum's pre-export dry
+        run) can trace output shapes. It is NOT a correct eager RMSNorm — do
+        not call this module for real inference.
+        """
         return input
 
 
@@ -72,8 +76,19 @@ class GroupQueryAttentionOnnxExport(torch.autograd.Function):
         do_rotary,
         kv_num_heads,
         num_heads,
-    ):
-        args = [query, key, value, past_key, past_value, seqlens_k, total_sequence_length, cos_cache, sin_cache]
+    ) -> Any:
+        """Emit the fused ``com.microsoft::GroupQueryAttention`` node."""
+        args = [
+            query,
+            key,
+            value,
+            past_key,
+            past_value,
+            seqlens_k,
+            total_sequence_length,
+            cos_cache,
+            sin_cache,
+        ]
         attention_output, present_keys, present_values = g.op(
             "com.microsoft::GroupQueryAttention",
             *args,
@@ -85,8 +100,12 @@ class GroupQueryAttentionOnnxExport(torch.autograd.Function):
 
         query_sizes = symbolic_helper._get_tensor_sizes(query)
         attention_output.setType(query.type().with_sizes(query_sizes))
-        present_keys.setType(past_key.type().with_sizes(symbolic_helper._get_tensor_sizes(past_key)))
-        present_values.setType(past_value.type().with_sizes(symbolic_helper._get_tensor_sizes(past_value)))
+        present_keys.setType(
+            past_key.type().with_sizes(symbolic_helper._get_tensor_sizes(past_key))
+        )
+        present_values.setType(
+            past_value.type().with_sizes(symbolic_helper._get_tensor_sizes(past_value))
+        )
         return attention_output, present_keys, present_values
 
     @staticmethod
@@ -104,13 +123,14 @@ class GroupQueryAttentionOnnxExport(torch.autograd.Function):
         do_rotary,
         kv_num_heads,
         num_heads,
-    ):  # noqa: ARG004
-        # Shape-only tracing placeholder. The real op is emitted by
-        # ``symbolic`` during ONNX export; ``forward`` exists solely so the
-        # TorchScript exporter (and Optimum's pre-export dry run) can trace
-        # output shapes. It returns the inputs as stand-in present-KV on
-        # purpose and is NOT correct attention — do not call this module for
-        # real inference.
+    ) -> Any:
+        """Shape-only tracing placeholder; returns stand-in (output, KV).
+
+        The real op is emitted by ``symbolic`` during ONNX export; ``forward``
+        exists solely so the TorchScript exporter (and Optimum's pre-export dry
+        run) can trace output shapes. It is NOT correct attention — do not call
+        this module for real inference.
+        """
         return query, past_key, past_value  # placeholder shapes
 
 
@@ -135,6 +155,7 @@ class TransposeConv2d1x1Transpose(nn.Module):
         self.bias = bias
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the 1x1 conv with NHWC<->NCHW permutes (+ optional bias)."""
         x = x.permute(0, 3, 1, 2)  # NHWC -> NCHW
         x = torch.nn.functional.conv2d(x, self.weight)
         x = x.permute(0, 2, 3, 1)  # NCHW -> NHWC
@@ -144,6 +165,7 @@ class TransposeConv2d1x1Transpose(nn.Module):
 
     @classmethod
     def from_linear_module(cls, linear: nn.Linear) -> TransposeConv2d1x1Transpose:
+        """Build a 1x1-conv replacement from an existing ``nn.Linear``."""
         return cls(linear.in_features, linear.out_features, linear.weight, linear.bias)
 
 

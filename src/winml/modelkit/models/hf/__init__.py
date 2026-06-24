@@ -62,7 +62,8 @@ from .qwen_transformer_only import (
     QwenTransformerOnlyGenIOConfig as _QwenTransformerOnlyGenIOConfig,  # triggers registration
 )
 from .qwen_transformer_only import (
-    QwenTransformerOnlyPrefillIOConfig as _QwenTransformerOnlyPrefillIOConfig,  # triggers registration
+    # triggers registration
+    QwenTransformerOnlyPrefillIOConfig as _QwenTransformerOnlyPrefillIOConfig,
 )
 from .roberta import ROBERTA_FAMILY_CONFIG
 from .roberta import RobertaIOConfig as _RobertaIOConfig  # triggers registration
