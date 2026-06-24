@@ -10,9 +10,13 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .config import QuantizeResult, WinMLQuantizationConfig
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 logger = logging.getLogger(__name__)
@@ -203,7 +207,7 @@ def _quantize_single_pass(
 
     try:
         # Dispatch to the appropriate single-mode handler
-        _mode_handlers: dict[str, Any] = {
+        _mode_handlers: dict[str, Callable[..., QuantizeResult]] = {
             "fp16": _quantize_fp16,
             "rtn": _quantize_rtn,
         }
