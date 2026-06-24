@@ -80,6 +80,11 @@ WINML = str(_AGENT_ROOT / ".venv" / "Scripts" / "winml.exe")
 
 _OK = ("OK", "OK_HIGH_CV")
 
+# Windows process crash exit code: exit(-1) → UINT32_MAX (distinct from timeout, which is -1
+# from TimeoutExpired). Observed on QNN NPU with bias_softmax_fusion under sustained load
+# (npu-013). Guarded in bench_full with a configurable reduced-iter retry.
+_WIN_CRASH_RC = 4294967295
+
 
 # ── small perf-json helpers ────────────────────────────────────────────────────
 
@@ -309,6 +314,9 @@ class CatalogSweep:
     def bench_full(self, onnx: Path) -> list[float]:
         p50s: list[float] = []
         n, cd = self.full["sessions"], self.full["cool_down_s"]
+        # npu-013: retry a session with fewer iters when the runtime crashes (rc=UINT32_MAX).
+        # Configured via sweep_config.bench_crash_retry_iters; 0 disables the guard.
+        crash_retry_iters = int(self.cfg.get("bench_crash_retry_iters", 0))
         for s in range(1, n + 1):
             out_json = onnx.parent / f"full_perf_s{s}.json"
             rc, _ = self.run_cmd(
@@ -331,6 +339,37 @@ class CatalogSweep:
                 label=f"perf full s{s}/{n} ({self.full['iters']} iters)",
                 timeout=self.timeouts["bench_s"],
             )
+            if (
+                rc == _WIN_CRASH_RC
+                and crash_retry_iters > 0
+                and self.full["iters"] > crash_retry_iters
+            ):
+                print(
+                    f"     [crash-guard] rc=0xFFFFFFFF on s{s} — retrying with"
+                    f" {crash_retry_iters} iters (npu-013)",
+                    flush=True,
+                )
+                out_json = onnx.parent / f"full_perf_s{s}_retry.json"
+                rc, _ = self.run_cmd(
+                    [
+                        WINML,
+                        "perf",
+                        "-m",
+                        str(onnx),
+                        "--ep",
+                        self.ep,
+                        "--device",
+                        self.device,
+                        "--warmup",
+                        str(self.full["warmup"]),
+                        "--iterations",
+                        str(crash_retry_iters),
+                        "-o",
+                        str(out_json),
+                    ],
+                    label=f"perf full s{s} retry ({crash_retry_iters} iters)",
+                    timeout=self.timeouts["bench_s"],
+                )
             p50, cv = _latency(out_json) if rc == 0 and out_json.exists() else (None, None)
             if p50 is not None:
                 print(f"     full s{s}: p50={p50:.2f}ms  CV={cv:.3f}", flush=True)
