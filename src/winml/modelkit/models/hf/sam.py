@@ -593,7 +593,7 @@ _SAM2_PATCH_TARGETS = {
 }
 
 
-class Sam2ModelPatcher(ModelPatcher):
+class Sam2ModelPatcher(ModelPatcher):  # type: ignore[misc]  # optimum base is untyped
     """Custom ModelPatcher that applies SAM2 QNN-compatible patches during export.
 
     Patches Sam2MultiScaleBlock and Sam2PromptEncoder forward methods on all
@@ -636,7 +636,7 @@ class Sam2ModelPatcher(ModelPatcher):
 # =============================================================================
 # Custom Dummy Input Generators for SAM2
 # =============================================================================
-class Sam2PointsInputGenerator(DummyInputGenerator):
+class Sam2PointsInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Points input generator for SAM2 decoder.
 
     Generates:
@@ -684,7 +684,7 @@ class Sam2PointsInputGenerator(DummyInputGenerator):
         )
 
 
-class Sam2EmbeddingsInputGenerator(DummyInputGenerator):
+class Sam2EmbeddingsInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Embeddings input generator for SAM2 mask generation decoder.
 
     Generates raw (pre-projection) encoder outputs:
@@ -728,7 +728,7 @@ class Sam2EmbeddingsInputGenerator(DummyInputGenerator):
         return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
 
 
-class Sam2MaskInputGenerator(DummyInputGenerator):
+class Sam2MaskInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Mask input generator for SAM2 decoder refinement.
 
     Generates:
@@ -767,7 +767,7 @@ class Sam2MaskInputGenerator(DummyInputGenerator):
 # =============================================================================
 # Normalized Config with Default Image Size
 # =============================================================================
-class Sam2NormalizedVisionConfig(NormalizedVisionConfig):
+class Sam2NormalizedVisionConfig(NormalizedVisionConfig):  # type: ignore[misc]  # optimum base is untyped
     """NormalizedVisionConfig with default image_size for SAM2.
 
     SAM2 uses 1024x1024 input images by default.
@@ -798,7 +798,7 @@ class Sam2NormalizedVisionConfig(NormalizedVisionConfig):
 @register_onnx_overwrite("sam2", "feature-extraction", library_name="transformers")
 @register_onnx_overwrite("sam2_video", "feature-extraction", library_name="transformers")
 @register_onnx_overwrite("sam2_vision_model", "feature-extraction", library_name="transformers")
-class Sam2ImageEncoderIOConfig(OnnxConfig):
+class Sam2ImageEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SAM2 image encoder (vision_encoder component).
 
     Task: image-feature-extraction (encoder-only export)
@@ -839,7 +839,7 @@ class Sam2ImageEncoderIOConfig(OnnxConfig):
 # -----------------------------------------------------------------------------
 @register_onnx_overwrite("sam2", "image-segmentation", library_name="transformers")
 @register_onnx_overwrite("sam2_video", "image-segmentation", library_name="transformers")
-class Sam2IOConfig(OnnxConfig):
+class Sam2IOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SAM2 full model (encoder + decoder monolith).
 
     Task: image-segmentation (full model export)
@@ -885,7 +885,7 @@ class Sam2IOConfig(OnnxConfig):
 # -----------------------------------------------------------------------------
 @register_onnx_overwrite("sam2", "mask-generation", library_name="transformers")
 @register_onnx_overwrite("sam2_video", "mask-generation", library_name="transformers")
-class Sam2MaskGenerationIOConfig(OnnxConfig):
+class Sam2MaskGenerationIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SAM2MaskGeneration (decoder with raw FPN inputs).
 
     Model: facebook/sam2-hiera-small (decoder wrapper)
@@ -941,7 +941,7 @@ class Sam2MaskGenerationIOConfig(OnnxConfig):
 # =============================================================================
 # SAM v1 Custom Dummy Input Generators
 # =============================================================================
-class SamEmbeddingsInputGenerator(DummyInputGenerator):
+class SamEmbeddingsInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Embeddings input generator for SAM v1 mask generation decoder.
 
     Generates:
@@ -982,7 +982,7 @@ class SamEmbeddingsInputGenerator(DummyInputGenerator):
 # Mask generation export (SAMMaskGeneration wrapper) - SAM v1
 # -----------------------------------------------------------------------------
 @register_onnx_overwrite("sam", "mask-generation", library_name="transformers")
-class SamMaskGenerationIOConfig(OnnxConfig):
+class SamMaskGenerationIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SAMMaskGeneration (SAM v1 decoder).
 
     Model: facebook/sam-vit-huge, facebook/sam-vit-large, facebook/sam-vit-base

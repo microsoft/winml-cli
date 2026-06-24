@@ -122,7 +122,7 @@ class _RobertaPositionOffsetMixin:
 
 
 @register_onnx_overwrite("roberta", *COMMON_TEXT_TASKS, library_name="transformers")
-class RobertaIOConfig(_RobertaPositionOffsetMixin, RobertaOnnxConfig):
+class RobertaIOConfig(_RobertaPositionOffsetMixin, RobertaOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Roberta OnnxConfig with position-offset-adjusted sequence_length.
 
     Inputs (same as DistilBERT — no token_type_ids):
@@ -137,17 +137,17 @@ class RobertaIOConfig(_RobertaPositionOffsetMixin, RobertaOnnxConfig):
 
 
 @register_onnx_overwrite("xlm-roberta", *COMMON_TEXT_TASKS, library_name="transformers")
-class XLMRobertaIOConfig(_RobertaPositionOffsetMixin, XLMRobertaOnnxConfig):
+class XLMRobertaIOConfig(_RobertaPositionOffsetMixin, XLMRobertaOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """XLM-Roberta OnnxConfig with position-offset-adjusted sequence_length."""
 
 
 @register_onnx_overwrite("camembert", *COMMON_TEXT_TASKS, library_name="transformers")
-class CamemBERTIOConfig(_RobertaPositionOffsetMixin, CamembertOnnxConfig):
+class CamemBERTIOConfig(_RobertaPositionOffsetMixin, CamembertOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """CamemBERT OnnxConfig with position-offset-adjusted sequence_length."""
 
 
 @register_onnx_overwrite("mpnet", *COMMON_TEXT_TASKS, library_name="transformers")
-class MPNetIOConfig(_RobertaPositionOffsetMixin, MPNetOnnxConfig):
+class MPNetIOConfig(_RobertaPositionOffsetMixin, MPNetOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """MPNet OnnxConfig with position-offset-adjusted sequence_length.
 
     MPNet, like Roberta-family models, sets:

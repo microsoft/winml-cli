@@ -203,7 +203,7 @@ class T5DecoderWrapper(nn.Module):
 
 
 @register_onnx_overwrite("t5", "feature-extraction", library_name="transformers")
-class T5EncoderIOConfig(OnnxConfig):
+class T5EncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for T5 encoder (feature-extraction task).
 
     Inputs:  input_ids, attention_mask
@@ -231,7 +231,7 @@ class T5EncoderIOConfig(OnnxConfig):
 
 
 @register_onnx_overwrite("t5", "text2text-generation", library_name="transformers")
-class T5DecoderIOConfig(OnnxConfig):
+class T5DecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for T5 decoder with sliding-window KV cache.
 
     Inputs:  decoder_input_ids, encoder_hidden_states, attention_mask,

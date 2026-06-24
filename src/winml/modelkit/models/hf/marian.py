@@ -398,7 +398,7 @@ class MarianDecoderWrapper(nn.Module):
 
 
 @register_onnx_overwrite("marian", "feature-extraction", library_name="transformers")
-class MarianEncoderIOConfig(OnnxConfig):
+class MarianEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Marian encoder (feature-extraction task).
 
     Inputs:  input_ids, attention_mask
@@ -425,7 +425,7 @@ class MarianEncoderIOConfig(OnnxConfig):
         }
 
 
-class _MarianDecoderNormalizedConfig(NormalizedConfig):
+class _MarianDecoderNormalizedConfig(NormalizedConfig):  # type: ignore[misc]  # optimum base is untyped
     """NormalizedConfig for Marian decoder-side export.
 
     Maps NormalizedConfig attributes to MarianConfig's decoder-side attrs.
@@ -444,7 +444,7 @@ class _MarianDecoderNormalizedConfig(NormalizedConfig):
 
 
 @register_onnx_overwrite("marian", "text2text-generation", library_name="transformers")
-class MarianDecoderIOConfig(OnnxConfig):
+class MarianDecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Marian decoder with sliding-window KV cache.
 
     Inputs:  decoder_input_ids, encoder_hidden_states, attention_mask,

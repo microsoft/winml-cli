@@ -358,7 +358,7 @@ class BartDecoderWrapper(nn.Module):
 
 
 @register_onnx_overwrite("bart", "feature-extraction", library_name="transformers")
-class BartEncoderIOConfig(OnnxConfig):
+class BartEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for BART encoder (feature-extraction task).
 
     Inputs:  input_ids, attention_mask
@@ -385,7 +385,7 @@ class BartEncoderIOConfig(OnnxConfig):
         }
 
 
-class _BartDecoderNormalizedConfig(NormalizedConfig):
+class _BartDecoderNormalizedConfig(NormalizedConfig):  # type: ignore[misc]  # optimum base is untyped
     """NormalizedConfig for BART decoder-side export.
 
     Maps NormalizedConfig attributes to BartConfig's decoder-side attrs.
@@ -404,7 +404,7 @@ class _BartDecoderNormalizedConfig(NormalizedConfig):
 
 
 @register_onnx_overwrite("bart", "text2text-generation", library_name="transformers")
-class BartDecoderIOConfig(OnnxConfig):
+class BartDecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for BART decoder with sliding-window KV cache.
 
     Inputs:  decoder_input_ids, encoder_hidden_states, attention_mask,

@@ -30,7 +30,7 @@ from optimum.utils.input_generators import DummyVisionInputGenerator
 from ...export import register_onnx_overwrite
 
 
-class _DepthProNormalizedConfig(NormalizedConfig):
+class _DepthProNormalizedConfig(NormalizedConfig):  # type: ignore[misc]  # optimum base is untyped
     """Normalized config for DepthPro with computed image_size.
 
     image_size is derived from patch_size / min(scaled_images_ratios),
@@ -47,7 +47,7 @@ class _DepthProNormalizedConfig(NormalizedConfig):
 
 
 @register_onnx_overwrite("depth_pro", "depth-estimation", library_name="transformers")
-class DepthProIOConfig(OnnxConfig):
+class DepthProIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for DepthPro depth estimation.
 
     Model: apple/DepthPro-hf

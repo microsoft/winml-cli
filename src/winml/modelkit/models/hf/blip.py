@@ -85,7 +85,7 @@ BLIP_CONFIG = WinMLBuildConfig(
 
 @register_onnx_overwrite("blip", "image-to-text", library_name="transformers")
 @register_onnx_overwrite("blip", "image-text-to-text", library_name="transformers")
-class BlipCaptioningIOConfig(OnnxConfig):
+class BlipCaptioningIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Monolithic ONNX config for BLIP captioning — single-graph fallback.
 
     Traces ``BlipForConditionalGeneration.forward`` with pixel_values +
@@ -148,7 +148,7 @@ class BlipVisionEncoderWrapper(nn.Module):
 
 
 @register_onnx_overwrite("blip", "feature-extraction", library_name="transformers")
-class BlipVisionEncoderIOConfig(OnnxConfig):
+class BlipVisionEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for the BLIP vision encoder.
 
     ``image-feature-extraction`` is a synonym that Optimum's TasksManager

@@ -102,7 +102,7 @@ def _build_patching_specs() -> list[PatchingSpec]:
     "image-classification",
     library_name="transformers",
 )
-class ConvNextIOConfig(ConvNextOnnxConfig):
+class ConvNextIOConfig(ConvNextOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ConvNextOnnxConfig override that adds a LayerNorm fusion patch.
 
     Inherits all I/O specs from Optimum's ``ConvNextOnnxConfig``.  The only

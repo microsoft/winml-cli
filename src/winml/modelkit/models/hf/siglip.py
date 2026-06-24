@@ -64,7 +64,7 @@ SIGLIP_CONFIG = WinMLBuildConfig(
 # Optimum ONNX Export Config Registrations
 # =============================================================================
 @register_onnx_overwrite("siglip_text_model", "feature-extraction", library_name="transformers")
-class SiglipTextModelIOConfig(SiglipTextOnnxConfig):
+class SiglipTextModelIOConfig(SiglipTextOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SiglipTextModel (text encoder only).
 
     Uses ``max_position_embeddings`` (64 for SigLIP) as the fixed sequence
@@ -83,7 +83,7 @@ class SiglipTextModelIOConfig(SiglipTextOnnxConfig):
 
 
 @register_onnx_overwrite("siglip_vision_model", "feature-extraction", library_name="transformers")
-class SiglipVisionModelIOConfig(SiglipVisionModelOnnxConfig):
+class SiglipVisionModelIOConfig(SiglipVisionModelOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SiglipVisionModel (vision encoder only).
 
     Uses Optimum defaults; no overrides needed.

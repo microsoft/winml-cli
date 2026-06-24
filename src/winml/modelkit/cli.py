@@ -23,8 +23,13 @@ import ast
 import logging
 from importlib import import_module
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
+
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 from . import __version__
 from .telemetry import ActionGroup
@@ -78,7 +83,7 @@ def _gradient_color(t: float) -> tuple[int, int, int]:
     return _GRADIENT[-1][1]
 
 
-def _print_banner(version: str, *, _console: object | None = None) -> None:
+def _print_banner(version: str, *, _console: Console | None = None) -> None:
     """Print the WinML CLI gradient banner to stderr using Rich."""
     from rich.console import Console  # lazy import - keeps startup fast
     from rich.text import Text
@@ -205,7 +210,9 @@ class LazyGroup(ActionGroup):
                 discovered = attr
         return discovered
 
-    def resolve_command(self, ctx: click.Context, args: list[str]):
+    def resolve_command(
+        self, ctx: click.Context, args: list[str]
+    ) -> tuple[str | None, click.Command | None, list[str]]:
         """Seed ``self.commands`` so Click can emit a did-you-mean hint on typos."""
         # Click's NoSuchCommand exception uses self.commands to find suggestions.
         for name in self.list_commands(ctx):

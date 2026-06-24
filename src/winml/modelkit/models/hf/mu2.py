@@ -194,7 +194,7 @@ class Mu2DecoderWrapper(nn.Module):
 
 
 @register_onnx_overwrite("mu2", "feature-extraction", library_name="transformers")
-class Mu2EncoderIOConfig(OnnxConfig):
+class Mu2EncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Mu2 encoder (feature-extraction task)."""
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -218,7 +218,7 @@ class Mu2EncoderIOConfig(OnnxConfig):
 
 
 @register_onnx_overwrite("mu2", "text2text-generation", library_name="transformers")
-class Mu2DecoderIOConfig(OnnxConfig):
+class Mu2DecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Mu2 decoder with static KV cache."""
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(

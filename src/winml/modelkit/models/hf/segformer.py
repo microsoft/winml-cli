@@ -32,7 +32,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 }
 
 
-class _SegformerVisionInputGenerator(DummyVisionInputGenerator):
+class _SegformerVisionInputGenerator(DummyVisionInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Vision input generator that uses preprocessor resolution over config.image_size.
 
     Optimum's DummyVisionInputGenerator prioritizes normalized_config.image_size
@@ -74,7 +74,7 @@ class _SegformerVisionInputGenerator(DummyVisionInputGenerator):
 
 
 @register_onnx_overwrite("segformer", "image-segmentation", library_name="transformers")
-class SegformerIOConfig(OnnxConfig):
+class SegformerIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Segformer semantic segmentation.
 
     Model: nvidia/segformer-b0-finetuned-ade-512-512
