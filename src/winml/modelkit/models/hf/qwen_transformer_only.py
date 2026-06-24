@@ -28,7 +28,6 @@ module so the entries land in ``MODEL_CLASS_MAPPING`` / ``MODEL_BUILD_CONFIGS``.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, ClassVar
 
 import torch
@@ -47,8 +46,6 @@ from ..winml.decoder_only import WinMLDecoderOnlyModel
 from ..winml.kv_cache import WinMLSlidingWindowCache
 from .qwen3_modeling import apply_transformer_only_export_prep
 
-
-logger = logging.getLogger(__name__)
 
 # Distinct model_type for this variant. The underscore form is what the
 # exporter sees on ``model.config.model_type`` and what Optimum's TasksManager

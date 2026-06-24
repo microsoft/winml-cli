@@ -48,14 +48,15 @@ class LpNormOnnxExport(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, input, axis, p) -> Any:
-        """Shape-only tracing placeholder; returns ``input`` unchanged.
+        """Real ``LpNormalization`` (``input / ||input||_p`` along ``axis``).
 
-        The real op is emitted by ``symbolic`` during ONNX export; ``forward``
-        exists solely so the TorchScript exporter (and Optimum's pre-export dry
-        run) can trace output shapes. It is NOT a correct eager RMSNorm — do
-        not call this module for real inference.
+        The exported node comes from ``symbolic``; this eager body computes the
+        same value so any eager execution (unit tests, calibration debug runs,
+        the exporter's own shape-tracing pass) gets correctly normalized output
+        instead of a silent identity. It matches the ONNX op faithfully (no
+        RMSNorm epsilon), since that is exactly what ``symbolic`` emits.
         """
-        return input
+        return input / torch.linalg.vector_norm(input, ord=p, dim=axis, keepdim=True)
 
 
 class GroupQueryAttentionOnnxExport(torch.autograd.Function):
@@ -124,14 +125,22 @@ class GroupQueryAttentionOnnxExport(torch.autograd.Function):
         kv_num_heads,
         num_heads,
     ) -> Any:
-        """Shape-only tracing placeholder; returns stand-in (output, KV).
+        """Shape-only tracing placeholder; returns a stand-in ``(output, KV)``.
 
-        The real op is emitted by ``symbolic`` during ONNX export; ``forward``
-        exists solely so the TorchScript exporter (and Optimum's pre-export dry
-        run) can trace output shapes. It is NOT correct attention — do not call
-        this module for real inference.
+        The real op is emitted by ``symbolic`` during ONNX export; this body
+        only needs to return tensors of the right shape/dtype. It deliberately
+        does NOT raise on eager execution, even though that yields a stale
+        (never-advanced) KV cache: the HTP export pipeline runs a real eager
+        ``forward`` pass to capture the module hierarchy (see
+        ``export/htp/hierarchy.py::trace_model_execution``), and that pass is
+        indistinguishable from misuse — ``torch.jit.is_tracing()`` and
+        ``torch.onnx.is_in_onnx_export()`` are both False there — so raising
+        would break the actual build. There is also no cheap faithful eager
+        equivalent (correct attention would grow the sequence axis that the
+        static-shape export freezes). This module is export-only by design and
+        is never run for real inference; calibration loads a fresh real model.
         """
-        return query, past_key, past_value  # placeholder shapes
+        return query, past_key, past_value  # placeholder shapes (export-only)
 
 
 # =============================================================================

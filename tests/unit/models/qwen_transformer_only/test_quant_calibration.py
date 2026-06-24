@@ -18,7 +18,6 @@ from types import SimpleNamespace
 import numpy as np
 import onnx
 import torch
-from onnx import TensorProto, helper
 
 from winml.modelkit.models.hf.qwen_transformer_only_quant import (
     Qwen3DecodeTrajectoryCalibReader,
@@ -48,26 +47,26 @@ def _fake_config() -> SimpleNamespace:
 def _build_tiny_onnx(path, *, seq_len: int, max_cache_len: int) -> None:
     """Write a minimal graph carrying the inputs the readers introspect."""
     inputs = [
-        helper.make_tensor_value_info(
-            "input_hidden_states", TensorProto.FLOAT, [1, seq_len, HIDDEN]
+        onnx.helper.make_tensor_value_info(
+            "input_hidden_states", onnx.TensorProto.FLOAT, [1, seq_len, HIDDEN]
         ),
-        helper.make_tensor_value_info(
-            "past_keys_0", TensorProto.FLOAT16, [1, NUM_KV_HEADS, max_cache_len, HEAD_DIM]
+        onnx.helper.make_tensor_value_info(
+            "past_keys_0", onnx.TensorProto.FLOAT16, [1, NUM_KV_HEADS, max_cache_len, HEAD_DIM]
         ),
     ]
-    out = helper.make_tensor_value_info(
-        "output_hidden_states", TensorProto.FLOAT, [1, seq_len, HIDDEN]
+    out = onnx.helper.make_tensor_value_info(
+        "output_hidden_states", onnx.TensorProto.FLOAT, [1, seq_len, HIDDEN]
     )
-    gqa = helper.make_node(
+    gqa = onnx.helper.make_node(
         "GroupQueryAttention",
         ["input_hidden_states"],
         ["attn_out"],
         name="gqa_layer_0",
         domain="com.microsoft",
     )
-    identity = helper.make_node("Identity", ["attn_out"], ["output_hidden_states"])
-    graph = helper.make_graph([gqa, identity], "tiny", inputs, [out])
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+    identity = onnx.helper.make_node("Identity", ["attn_out"], ["output_hidden_states"])
+    graph = onnx.helper.make_graph([gqa, identity], "tiny", inputs, [out])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 18)])
     onnx.save(model, str(path))
 
 

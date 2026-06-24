@@ -51,9 +51,17 @@ def _qnn_available() -> bool:
 
 
 def _decoder_onnx_path(model) -> str:
-    """Locate the quantized decode ONNX behind the composite handle."""
-    sub = model.sub_models["decoder_gen"]
-    return str(sub._onnx_path)
+    """Locate the quantized decode ONNX behind the model handle.
+
+    The decode-only build (``seq_len=1``) returns a single
+    ``WinMLModelForGenericTask`` whose ``onnx_path`` is the quantized graph; a
+    full composite build instead exposes it under ``sub_models["decoder_gen"]``.
+    Handle both so the test does not depend on which wrapper the build picks.
+    """
+    sub_models = getattr(model, "sub_models", None)
+    if sub_models and "decoder_gen" in sub_models:
+        return str(sub_models["decoder_gen"].onnx_path)
+    return str(model.onnx_path)
 
 
 def _qdq_counts(onnx_path: str) -> dict[str, int]:
