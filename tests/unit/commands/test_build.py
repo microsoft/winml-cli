@@ -1212,17 +1212,17 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """resolve_device raising (explicit device w/ no compatible EP) -> UsageError.
+        """resolve_check_device_ep raising (explicit device w/ no compatible EP) -> UsageError.
 
         Uses default ``--device auto`` (no CLI flag) so the downstream
-        device-patch path isn't triggered; the only resolve_device call is
-        the one inside the auto-select block.
+        device-patch path isn't triggered; the only resolution call is the
+        ``resolve_check_device_ep`` inside the auto-select block.
         """
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            side_effect=ValueError("simulated resolve_device failure"),
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            side_effect=ValueError("simulated resolve failure"),
         ):
             result = runner.invoke(
                 build,
@@ -1230,7 +1230,7 @@ class TestBuildEpAutoSelection:
                 obj={"debug": False},
             )
         assert result.exit_code != 0
-        assert "simulated resolve_device failure" in result.output
+        assert "simulated resolve failure" in result.output
         mock_build_api.assert_not_called()
 
     def test_auto_selection_respects_resolve_eps_priority(
@@ -1240,17 +1240,15 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """First element of resolve_eps(resolved_device) is selected, not later ones."""
+        """First element of resolve_check_device_ep's available_eps is selected."""
         from winml.modelkit.commands.build import build
 
-        with (
-            patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("gpu", ["gpu", "cpu"]),
-            ),
-            patch(
-                "winml.modelkit.sysinfo.resolve_eps",
-                return_value=["DmlExecutionProvider", "OpenVINOExecutionProvider"],
+        with patch(
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            return_value=(
+                "gpu",
+                ["gpu", "cpu"],
+                ["DmlExecutionProvider", "OpenVINOExecutionProvider"],
             ),
         ):
             result = runner.invoke(

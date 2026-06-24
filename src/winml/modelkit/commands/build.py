@@ -545,20 +545,19 @@ def build(
     # hardware -- analyzing for the wrong EP leaves black nodes that block a
     # later build targeting the actual device (#663).
     #
-    # resolve_device() either returns a device with >=1 available EP (auto-mode
-    # walks the priority list, falls back to cpu which is always valid), or
-    # raises ValueError for an explicit device with no compatible EP. So the
-    # following resolve_eps()[0] is safe whenever resolve_device returns.
+    # resolve_check_device_ep() either returns a device with >=1 available EP
+    # (auto-mode walks the priority list, falls back to cpu which is always
+    # valid), or raises ValueError for an explicit device with no compatible EP.
+    # So the following available_eps[0] is safe whenever it returns.
     if ep is None:
-        from ..sysinfo import resolve_device as _resolve_device
-        from ..sysinfo import resolve_eps as _resolve_eps
+        from ..sysinfo import resolve_check_device_ep
 
         try:
-            resolved_device, _ = _resolve_device(device=device, ep=None)
+            resolved_device, _, available_eps = resolve_check_device_ep(device=device, ep=None)
         except ValueError as e:
             raise click.UsageError(str(e)) from e
         device = resolved_device
-        ep = _resolve_eps(resolved_device)[0]
+        ep = available_eps[0]
         logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
@@ -1013,11 +1012,15 @@ def _run_optimize_stage(
             _header_shown[0] = False
 
         # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
-        # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        # doesn't search for non-existent "*_AUTO_*.parquet" files. Use
+        # resolve_check_device_ep so an explicit device+ep is validated
+        # statically (no availability cross-check): a --no-compile build may
+        # target a device absent on this machine (cross-compile), and this call
+        # only needs a concrete device name for the rule-data lookup.
         from ..analyze.utils.ep_utils import has_rule_data_for_ep
-        from ..sysinfo import resolve_device as _resolve_device
+        from ..sysinfo import resolve_check_device_ep
 
-        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+        _resolved_device, _, _ = resolve_check_device_ep(device=device or "auto", ep=ep)
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep
