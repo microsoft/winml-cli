@@ -98,6 +98,15 @@
       "optim": {
         "matmul_transpose_fusion": true
       }
+    },
+    {
+      "id": "h8",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": null,
+      "optim": null,
+      "build_flags": [
+        "--no-analyze"
+      ]
     }
   ],
   "models": [

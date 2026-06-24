@@ -152,6 +152,15 @@
       "optim": {
         "transpose_optimizer": true
       }
+    },
+    {
+      "id": "h13",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": null,
+      "optim": null,
+      "build_flags": [
+        "--no-analyze"
+      ]
     }
   ],
   "models": [

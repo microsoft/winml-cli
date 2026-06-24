@@ -117,7 +117,9 @@ def _session_cv(p50s: list[float]) -> float:
 class CatalogSweep:
     """JSON-driven sweep driver for one (ep, device) combination."""
 
-    def __init__(self, ep: str, device: str, paired_ab: bool = False) -> None:
+    def __init__(
+        self, ep: str, device: str, paired_ab: bool = False, prune_artifacts: bool = False
+    ) -> None:
         kb_path = KB_DIR / f"{ep}_{device}.json"
         if not kb_path.exists():
             raise SystemExit(f"ERROR: knowledge base not found: {kb_path}")
@@ -134,6 +136,7 @@ class CatalogSweep:
         self.full = self.cfg["full"]
         self.timeouts = self.cfg["timeouts"]
         self.baseline_id = (self.cfg.get("baseline_priority") or ["h0"])[0]
+        self.prune_artifacts = prune_artifacts
         self.paired_ab = paired_ab and self.cfg.get("paired_ab_available", False)
         if paired_ab and adaptive_paired_ab_bench is None:
             print(
@@ -232,7 +235,13 @@ class CatalogSweep:
             cfg["optim"] = {**(cfg.get("optim") or {}), **optim}
         return cfg
 
-    def run_build(self, model_id: str, cfg_path: Path, out_dir: Path) -> tuple[bool, str]:
+    def run_build(
+        self,
+        model_id: str,
+        cfg_path: Path,
+        out_dir: Path,
+        build_flags: list[str] | None = None,
+    ) -> tuple[bool, str]:
         out_dir.mkdir(parents=True, exist_ok=True)
         cmd = [
             WINML,
@@ -252,6 +261,8 @@ class CatalogSweep:
             cmd += ["--no-quant"]
         if not self.cfg.get("compile"):
             cmd += ["--no-compile"]
+        if build_flags:
+            cmd += list(build_flags)
         cmd += ["--rebuild"]
         rc, out = self.run_cmd(
             cmd, label=f"winml build [{out_dir.name}]", timeout=self.timeouts["build_s"]
@@ -401,6 +412,42 @@ class CatalogSweep:
         ctx = list(hyp_dir.glob("*_ctx*.onnx")) + list(hyp_dir.glob("model_npu*.onnx"))
         return ctx[0] if ctx else None
 
+    @staticmethod
+    def _op_signature(hyp_dir: Path) -> dict | None:
+        """Read the post-optimize op inventory (total_operators + operator_counts +
+        opset) that ``winml build`` emits to ``analyze_result.json``. This is the
+        ground truth for whether an optim/fusion flag actually changed the graph, so
+        a hypothesis can be diffed against the baseline build. Returns None when the
+        analyze artifact is missing or malformed."""
+        f = hyp_dir / "analyze_result.json"
+        if not f.exists():
+            return None
+        try:
+            md = (json.loads(f.read_text(encoding="utf-8")) or {}).get("metadata") or {}
+        except Exception:
+            return None
+        total = md.get("total_operators")
+        counts = md.get("operator_counts")
+        if total is None or counts is None:
+            return None
+        return {
+            "total_operators": total,
+            "operator_counts": dict(counts),
+            "opset": md.get("opset_version"),
+        }
+
+    @staticmethod
+    def _same_graph(a: dict | None, b: dict | None) -> bool:
+        """True when two op signatures are identical (same opset, total op count and
+        per-op-type counts) — i.e. the flag under test was a NO-OP versus baseline."""
+        if not a or not b:
+            return False
+        return (
+            a.get("opset") == b.get("opset")
+            and a.get("total_operators") == b.get("total_operators")
+            and a.get("operator_counts") == b.get("operator_counts")
+        )
+
     # ── per-model sweep ─────────────────────────────────────────────────────────
 
     def sweep_model(
@@ -488,6 +535,7 @@ class CatalogSweep:
         )
         gemm_known: bool | None = None
         baseline_onnx: Path | None = None
+        baseline_sig: dict | None = None
 
         for hyp in self.hyps:
             hyp_id = hyp["id"]
@@ -508,14 +556,16 @@ class CatalogSweep:
                 base_config, hyp.get("opset"), hyp.get("optim")
             )
             opset_used = (hyp_config.get("export") or {}).get("opset_version", "?")
-            print(f"  opset={opset_used}  optim={hyp.get('optim')}", flush=True)
+            build_flags = hyp.get("build_flags") or []
+            extra = f"  flags={build_flags}" if build_flags else ""
+            print(f"  opset={opset_used}  optim={hyp.get('optim')}{extra}", flush=True)
 
             hyp_dir = model_dir / hyp_id
             hyp_dir.mkdir(parents=True, exist_ok=True)
             cfg_path = hyp_dir / "build_config.json"
             cfg_path.write_text(json.dumps(hyp_config, indent=2), encoding="utf-8")
 
-            build_ok, build_out = self.run_build(model_id, cfg_path, hyp_dir)
+            build_ok, build_out = self.run_build(model_id, cfg_path, hyp_dir, build_flags)
             if not build_ok:
                 is_to = "TIMEOUT" in build_out
                 results["hypotheses"][hyp_id] = {
@@ -535,6 +585,54 @@ class CatalogSweep:
             if onnx_path is None:
                 results["hypotheses"][hyp_id] = {"status": "NO_ONNX", "label": label}
                 results["errors"].append(f"{hyp_id}: build OK but no ONNX produced")
+                continue
+
+            # Op-count / topology signature of the built graph (npu-011): the first
+            # cut for benefit-gating is "did the flag actually change the graph?".
+            op_sig = self._op_signature(hyp_dir)
+            if hyp_id == self.baseline_id:
+                baseline_sig = op_sig
+
+            # NO-OP short-circuit: a non-baseline hypothesis whose built graph is
+            # byte-for-byte identical to the baseline (same opset + op counts) cannot
+            # differ in perf — the flag never fired. Skip the expensive screen+full
+            # bench and reuse the baseline numbers. This is what separates
+            # "applied-but-no-benefit" from "never-applied" (see npu-011) and it
+            # saves one screen + N full sessions per dead hypothesis.
+            if (
+                hyp_id != self.baseline_id
+                and baseline_sig is not None
+                and self._same_graph(op_sig, baseline_sig)
+            ):
+                base_bench = results["hypotheses"].get(self.baseline_id, {})
+                noop = {
+                    "status": "NOOP_SKIPPED",
+                    "verdict": "NO_OP",
+                    "label": label,
+                    "opset": opset_used,
+                    "optim": hyp.get("optim") or {},
+                    "build_flags": build_flags,
+                    "op_signature": op_sig,
+                    "graph_changed": False,
+                    "noop_note": (
+                        "graph identical to baseline (opset + op counts unchanged) — "
+                        "flag did not fire; bench skipped, baseline perf assumed"
+                    ),
+                }
+                base_full = base_bench.get("full")
+                if base_full:
+                    noop["full_ref"] = self.baseline_id
+                    noop["assumed_median_p50_ms"] = base_full.get("median_p50_ms")
+                results["hypotheses"][hyp_id] = noop
+                print(
+                    f"  [no-op] {hyp_id} graph == baseline "
+                    f"(ops={op_sig.get('total_operators')}, opset={op_sig.get('opset')}); "
+                    "bench skipped",
+                    flush=True,
+                )
+                if self.prune_artifacts:
+                    self._prune_hyp_artifacts(hyp_dir)
+                    self._prune_runnable_except_best(results, model_dir)
                 continue
 
             # Guard: skip_if_gemm (cpu-002)
@@ -591,6 +689,12 @@ class CatalogSweep:
                 "label": label,
                 "opset": opset_used,
                 "optim": hyp.get("optim") or {},
+                "op_signature": op_sig,
+                "graph_changed": (
+                    None
+                    if (op_sig is None or baseline_sig is None or hyp_id == self.baseline_id)
+                    else not self._same_graph(op_sig, baseline_sig)
+                ),
                 "screen": {"p50_ms": p50_screen, "cv": round(cv_screen, 4), "stable": stable},
             }
             if expected_regression:
@@ -655,8 +759,22 @@ class CatalogSweep:
                 print(f"  [paired-A/B] {pa['verdict']} mean={pa['mean_gain_pct']}%", flush=True)
 
             results["hypotheses"][hyp_id] = bench
+            if self.prune_artifacts:
+                self._prune_hyp_artifacts(hyp_dir)
+                self._prune_runnable_except_best(results, model_dir)
 
         # Step 3: verdicts, cross-checks, confirmation
+        # npu-011 roll-up: which flags fired vs were dead no-ops on this model.
+        noop_ids = [
+            hid for hid, h in results["hypotheses"].items() if h.get("status") == "NOOP_SKIPPED"
+        ]
+        if noop_ids:
+            results["noop_hypotheses"] = noop_ids
+            print(
+                f"  [npu-011] {len(noop_ids)} no-op hypotheses (graph == baseline, bench skipped): "
+                f"{', '.join(noop_ids)}",
+                flush=True,
+            )
         print("\n[3/3] Computing verdicts…", flush=True)
         self._compute_verdicts(results)
         self._run_cross_checks(results)
@@ -1010,6 +1128,73 @@ class CatalogSweep:
                     continue
         return None
 
+    @staticmethod
+    def _prune_hyp_artifacts(hyp_dir: Path) -> None:
+        """Delete bulky intermediate ONNX artifacts after a hypothesis is benched.
+
+        Keeps the runnable ``model.onnx``/``quantized.onnx`` (+ ``.data``) — needed
+        by the Phase-C confirm re-bench — and all small JSON/metadata. Removes the
+        large export/optimized graphs (often hundreds of MB each) so long multi-model
+        sweeps don't exhaust disk. Best-effort; failures are ignored.
+        """
+        freed = 0
+        for pat in ("export.onnx", "export.onnx.data", "optimized.onnx", "optimized.onnx.data"):
+            p = hyp_dir / pat
+            if p.exists():
+                try:
+                    freed += p.stat().st_size
+                    p.unlink()
+                except OSError:
+                    pass
+        if freed:
+            print(
+                f"     [prune] freed {freed / 1024 / 1024:.0f} MB of build intermediates",
+                flush=True,
+            )
+
+    def _prune_runnable_except_best(self, results: dict, model_dir: Path) -> None:
+        """Keep only the running-best (and baseline) hypothesis' runnable ONNX.
+
+        The Phase-C confirm only re-benches the single best non-baseline hypothesis,
+        so retaining every hypothesis' ``model.onnx``/``quantized.onnx`` is wasteful —
+        for large models (~1-2 GB each) that accumulation exhausts disk mid-sweep.
+        After each hypothesis benches we therefore delete the runnable graphs of every
+        hypothesis except the current lowest-median one and the baseline.
+        """
+        best_id: str | None = None
+        best_med: float | None = None
+        for hid, h in results["hypotheses"].items():
+            if h.get("status") in _OK:
+                med = h.get("full", {}).get("median_p50_ms")
+                if med is not None and (best_med is None or med < best_med):
+                    best_id, best_med = hid, med
+        if best_id is None:
+            return
+        keep = {best_id, self.baseline_id}
+        freed = 0
+        for hyp_dir in model_dir.glob("h*"):
+            if not hyp_dir.is_dir() or hyp_dir.name in keep:
+                continue
+            for pat in (
+                "model.onnx",
+                "model.onnx.data",
+                "quantized.onnx",
+                "quantized.onnx.data",
+            ):
+                p = hyp_dir / pat
+                if p.exists():
+                    try:
+                        freed += p.stat().st_size
+                        p.unlink()
+                    except OSError:
+                        pass
+        if freed:
+            print(
+                f"     [prune] freed {freed / 1024 / 1024:.0f} MB runnable onnx "
+                f"(keeping best={best_id}, baseline={self.baseline_id})",
+                flush=True,
+            )
+
     def write_summary(self, all_results: list[dict]) -> None:
         lines = [
             f"# {self.ep.upper()} / {self.device.upper()} EP Optimization Sweep — Catalog Models",
@@ -1100,9 +1285,18 @@ def main() -> None:
         help="enable opt-in paired A/B (if the EP supports it)",
     )
     parser.add_argument("--list", action="store_true", help="list catalog models and exit")
+    parser.add_argument(
+        "--prune-artifacts",
+        dest="prune_artifacts",
+        action="store_true",
+        help="delete bulky export/optimized ONNX intermediates after each hypothesis"
+        " is benched (keeps runnable model.onnx + JSONs); use for long disk-bound sweeps",
+    )
     args = parser.parse_args()
 
-    sweep = CatalogSweep(args.ep, args.device, paired_ab=args.paired_ab)
+    sweep = CatalogSweep(
+        args.ep, args.device, paired_ab=args.paired_ab, prune_artifacts=args.prune_artifacts
+    )
 
     if args.list:
         print(f"Catalog models for {args.ep}/{args.device}:")

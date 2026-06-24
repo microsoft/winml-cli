@@ -162,6 +162,15 @@
       "optim": {
         "gelu_fusion": true
       }
+    },
+    {
+      "id": "h14",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": null,
+      "optim": null,
+      "build_flags": [
+        "--no-analyze"
+      ]
     }
   ],
   "models": [

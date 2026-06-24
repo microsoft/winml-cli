@@ -265,7 +265,7 @@ to the few that matter per architecture.
 
 ## Feature Gaps Identified
 
-Three actionable gaps in `winml-cli` surfaced by this research:
+Four actionable gaps in `winml-cli` surfaced by this research:
 
 1. **FusedConv detection in `winml analyze`** — `analyze` should detect Conv ops that
    would CPU-fallback on QNN NPU after fusion (npu-006), and either warn or suppress
@@ -278,6 +278,16 @@ Three actionable gaps in `winml-cli` surfaced by this research:
 3. **Budget-aware sweep** — `tools/catalog_sweep.py` exhausts the 20-min budget on models
    > 50 ms baseline after just 2 hypotheses (YOLOS: 78 ms × 3×500 iters = 207 s/hypothesis).
    A `--quick` flag that reduces to 1×200-iter for large models is needed.
+
+4. **Benefit-gated fusion in `winml analyze`** — the analyzer currently auto-applies a fusion
+   whenever the graph pattern matches, but a fusion *firing* (op count drops / graph topology
+   changes after the flag) does **not** imply a perf win. Many fusions fire cleanly yet land
+   within measurement noise (e.g. BERT/ConvNeXt on QNN NPU — graph changes, p50 unchanged, see
+   npu-011). The analyzer should: (a) confirm a fusion actually fired by diffing pre/post-optimize
+   op counts and graph topology (not just pattern-match the input graph), and (b) gate retention
+   of that fusion on a measured perf delta beyond the noise band — applied-but-not-beneficial
+   fusions should be dropped (or flagged) rather than kept, since they add build cost and EP risk
+   for no return. This research records such cases so they can train that benefit gate.
 
 ---
 

@@ -53,11 +53,11 @@
       "h1"
     ],
     "timeouts": {
-      "config_s": 120,
-      "build_s": 480,
-      "bench_s": 480,
+      "config_s": 240,
+      "build_s": 900,
+      "bench_s": 720,
       "eval_s": 360,
-      "model_s": 10800
+      "model_s": 14400
     }
   },
   "hypotheses": [
@@ -69,9 +69,12 @@
     },
     {
       "id": "h1",
-      "label": "opset 17 explicit",
-      "opset": 17,
-      "optim": null
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": null,
+      "optim": null,
+      "build_flags": [
+        "--no-analyze"
+      ]
     },
     {
       "id": "h2",
@@ -656,6 +659,21 @@
       "autoconfig_action": "Hard-block highdimRTR for models with Gemm->Reshape->Transpose hybrid sequences. analyze_insight.py should detect this pattern and add highdimRTR to skip_set.",
       "added": "2026-06-18",
       "source": "catalog_qnn_sweep.py h6-h10 delta sweep + ONNX graph diff (MobileViT h0 vs h9 node count comparison)"
+    },
+    {
+      "id": "npu-011",
+      "title": "Fusions that fire (graph topology changes) but yield no perf benefit should be recorded and benefit-gated, not auto-kept",
+      "confidence": "medium",
+      "scope": "Cross-architecture on QNN NPU. Observed strongest on transformer/attention models (BERT, ConvNeXt) where conv/attention fusions fire cleanly but p50 is unchanged. Distinct from npu-006 (fusion fires AND regresses) and npu-001 (change helps).",
+      "observation": "A fusion flag can be confirmed *applicable* — after enabling it the post-optimize op count drops and graph topology changes vs the baseline build — yet the measured p50 delta stays inside the DVFS noise band (|delta| < CV-derived threshold). BERT-base h2/h3/h4 on NPU: graphs change per hypothesis but full-session p50s all land 39-43ms with CV 0.6-1.1, indistinguishable from h0 baseline. ConvNeXt-tiny: every hypothesis within 0.24% of baseline. These are 'applied-but-not-beneficial' fusions: real graph transforms with zero perf return.",
+      "criterion": "Classify a fusion as APPLIED when pre-vs-post-optimize op count and/or graph topology change (the fusion fired); classify as BENEFICIAL only when median p50 improves beyond the noise band. APPLIED && !BENEFICIAL = record here. Use op-count + topology diff (not input-graph pattern match) to prove the fusion fired, and session-averaged p50 with CV-derived threshold to judge benefit. IMPORTANT first cut: many neutral fusions are not 'applied but useless' — they are NO-OPS that never fired. The op-count diff is what separates the two.",
+      "evidence": "BERT-base QNN NPU recipe sweep 2026-06-24 (winml analyze metadata.total_operators per hypothesis): h0 baseline opset17 = 392 ops; h4 opset17+conv_fusions = 392 ops IDENTICAL op breakdown (MatMul 24 / Gelu 13 / Add 38 / LayerNorm 26 unchanged) → the conv-fusion flag was a complete NO-OP (BERT has no Conv ops to fuse). h5 opset21+conv_fusions = 440 ops = same as h3 opset21 ALONE (440) → conv fusion again added zero ops on top of the opset bump. The only thing that changed BERT's graph was the opset export (opset17 = 392 ops; opset19/21 = 440 ops, +48 nodes) — and that topology change did NOT improve p50 (opset21 medians no better than baseline, within thermal noise). So BERT's 'neutral conv fusions' are NOT npu-011 instances at all — they never fired; the genuine npu-011 instance here is opset17->21 (+48 ops, no benefit). Without the op-count diff one would have wrongly logged a 'neutral fusion' when nothing happened.",
+      "perf_reliability_note": "BERT per-session p50s were thermally dominated: h0 and h1 have IDENTICAL build configs (both 392 ops, same resolved optim) yet h1's 3 sessions read 50/42/82ms vs h0's clean 29.1/29.5/29.5ms — pure DVFS throttling because hypotheses run back-to-back and the chip heats up, biasing later hypotheses slower. The current 'median of 3 back-to-back session p50s' is not robust for benefit-gating; interleaved or cooldown-separated sampling is required (reinforces npu-007).",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "Fused ops are dispatchable by the QNN EP (no CPU fallback, unlike npu-006) so correctness/perf is preserved, but the fused kernel is not faster than the unfused sequence on HTP for these shapes — the win the fusion targets (CPU EP op-dispatch overhead) does not exist on NPU. Net effect is neutral, while build time and EP-mapping risk still increase.",
+      "autoconfig_action": "The analyzer should not auto-keep a fusion merely because its pattern matches the input graph. Steps: (1) build with and without the flag, diff op counts + topology to confirm the fusion fired; (2) compare session-averaged p50 against the noise band; (3) if it fired but delta is within noise, drop the fusion from the emitted config (or flag it 'neutral — omitted') rather than retaining it. Retaining neutral fusions costs build time and adds EP-dispatch risk for no return. This benefit gate is feature gap #4 in the README.",
+      "added": "2026-06-24",
+      "source": "catalog_qnn_sweep.py recipe NPU sweep — BERT-base + ConvNeXt-tiny (fusions fire, p50 within noise)"
     }
   ],
   "search_space_rules": {
