@@ -18,40 +18,173 @@ from .config import QuantizeResult, WinMLQuantizationConfig
 logger = logging.getLogger(__name__)
 
 
-def _should_run_quantization(config: WinMLQuantizationConfig) -> bool:
-    """Return True if quantization (QDQ/dynamic/RTN) should run.
-
-    Pure FP16 configs (algorithm="fp16") skip quantization
-    entirely and only run FP16 conversion.
-    """
-    return config.algorithm != "fp16"
-
-
 def quantize_onnx(
     model_path: str | Path,
     output_path: str | Path | None = None,
     config: WinMLQuantizationConfig | None = None,
+    *,
+    precision: str | None = None,
     **kwargs: Any,
 ) -> QuantizeResult:
-    """Quantize ONNX model by inserting QDQ nodes.
+    """Quantize ONNX model with optional multi-pass precision support.
+
+    When ``precision`` is provided (e.g., "w4a16"), the function internally
+    expands it into sequential passes (e.g., ["int4", "fp16"]) and runs each
+    in order, managing intermediate files automatically. The caller only
+    needs to invoke this function once.
+
+    When ``precision`` is None, falls back to single-pass execution based on
+    ``config.algorithm``.
 
     Args:
-        model_path: Path to input float32 ONNX model
-        output_path: Path for output quantized model (defaults to {model_stem}_qdq.onnx)
-        config: Quantization configuration (uses defaults if None)
+        model_path: Path to input ONNX model.
+        output_path: Path for output model (defaults to {model_stem}_qdq.onnx).
+        config: Quantization configuration (uses defaults if None).
+        precision: Optional precision string (e.g., "fp16", "int4", "w4a16").
+            When set, overrides config.algorithm routing with multi-pass
+            expansion logic.
 
     Returns:
-        QuantizeResult with path to quantized model and metrics
+        QuantizeResult with path to final output model and aggregated metrics.
 
     Examples:
-        # Quick quantize with defaults (10 samples, uint8)
-        result = quantize_onnx("model.onnx")
+        # Single-pass RTN int4
+        result = quantize_onnx("model.onnx", precision="int4", config=rtn_config)
 
-        # Quantize with explicit output path
-        result = quantize_onnx("model.onnx", "model_quantized.onnx")
+        # Multi-pass w4a16 (int4 + fp16)
+        result = quantize_onnx("model.onnx", precision="w4a16", config=rtn_config)
 
-        # Quantize with custom config
+        # Single-pass FP16 only
+        result = quantize_onnx("model.onnx", precision="fp16")
+
+        # Legacy: use config.algorithm directly
         result = quantize_onnx("model.onnx", config=WinMLQuantizationConfig(samples=100))
+    """
+    from ..config.precision import expand_precision
+
+    model_path = Path(model_path)
+    config = config or WinMLQuantizationConfig()
+
+    if output_path is not None:
+        output_path = Path(output_path)
+    else:
+        output_path = model_path.parent / f"{model_path.stem}_qdq.onnx"
+
+    # If precision is provided, expand and run multi-pass
+    if precision is not None:
+        passes = expand_precision(precision)
+        return _run_multi_pass(
+            model_path=model_path,
+            output_path=output_path,
+            config=config,
+            passes=passes,
+            **kwargs,
+        )
+
+    # Single-pass: delegate to internal implementation
+    return _quantize_single_pass(
+        model_path=model_path,
+        output_path=output_path,
+        config=config,
+        **kwargs,
+    )
+
+
+def _run_multi_pass(
+    *,
+    model_path: Path,
+    output_path: Path,
+    config: WinMLQuantizationConfig,
+    passes: list[str],
+    **kwargs: Any,
+) -> QuantizeResult:
+    """Run a sequence of quantization passes, managing intermediate files.
+
+    Each pass produces a QuantizeResult; the final result aggregates timing
+    from all passes.
+    """
+    current_path = model_path
+    total_time = 0.0
+    all_warnings: list[str] = []
+    intermediates: list[Path] = []
+
+    for step_idx, step_prec in enumerate(passes):
+        # Determine output for this step
+        if step_idx == len(passes) - 1:
+            step_output = output_path
+        else:
+            step_output = output_path.parent / (
+                f"{output_path.stem}_pass{step_idx}{output_path.suffix}"
+            )
+            intermediates.append(step_output)
+
+        # Build config for this step
+        step_config = _make_pass_config(step_prec, config)
+
+        result = _quantize_single_pass(
+            model_path=current_path,
+            output_path=step_output,
+            config=step_config,
+            **kwargs,
+        )
+
+        if not result.success:
+            # Clean up intermediates on failure
+            _cleanup_intermediates(intermediates)
+            return result
+
+        total_time += result.total_time_seconds
+        all_warnings.extend(result.warnings)
+        current_path = step_output
+
+    # Clean up intermediate files
+    _cleanup_intermediates(intermediates)
+
+    return QuantizeResult(
+        success=True,
+        output_path=output_path,
+        total_time_seconds=total_time,
+        nodes_quantized=result.nodes_quantized,
+        errors=[],
+        warnings=all_warnings,
+    )
+
+
+def _make_pass_config(
+    step_prec: str, base_config: WinMLQuantizationConfig
+) -> WinMLQuantizationConfig:
+    """Build a config for a single pass based on precision string."""
+    if step_prec == "fp16":
+        return WinMLQuantizationConfig(
+            algorithm="fp16",
+            fp16_keep_io_types=base_config.fp16_keep_io_types,
+            fp16_op_block_list=base_config.fp16_op_block_list,
+        )
+    # int4, w4a32, or any RTN/QDQ pass — use base config as-is
+    return base_config
+
+
+def _cleanup_intermediates(intermediates: list[Path]) -> None:
+    """Remove intermediate pass files and their external data sidecars."""
+    for path in intermediates:
+        if path.exists():
+            path.unlink()
+        ext_data = path.parent / f"{path.name}.data"
+        if ext_data.exists():
+            ext_data.unlink()
+
+
+def _quantize_single_pass(
+    *,
+    model_path: Path,
+    output_path: Path,
+    config: WinMLQuantizationConfig,
+    **kwargs: Any,
+) -> QuantizeResult:
+    """Run a single quantization pass (FP16, RTN, or QDQ).
+
+    This is the internal workhorse — callers should use ``quantize_onnx()``
+    which handles multi-pass expansion and path resolution.
     """
     from onnxruntime.quantization import (
         CalibrationMethod,
@@ -78,12 +211,9 @@ def quantize_onnx(
         "percentile": CalibrationMethod.Percentile,
     }
 
-    # TODO: Move to global env config
     use_external_data: bool = kwargs.pop("use_external_data", True)
 
     start_time = time.perf_counter()
-    model_path = Path(model_path)
-    config = config or WinMLQuantizationConfig()
 
     # Validate input
     if not model_path.exists():
@@ -92,12 +222,6 @@ def quantize_onnx(
             output_path=None,
             errors=[f"Model not found: {model_path}"],
         )
-
-    # Determine output path
-    if output_path is not None:
-        output_path = Path(output_path)
-    else:
-        output_path = model_path.parent / f"{model_path.stem}_qdq.onnx"
 
     errors: list[str] = []
     warnings: list[str] = []
