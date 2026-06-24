@@ -47,3 +47,23 @@ class TestVitPoseMapping:
         assert resolution.task == "keypoint-detection"
         assert resolution.model_class.__name__ == "VitPoseForPoseEstimation"
 
+    def test_sentinel_resolves_default_task_without_explicit_task(self):
+        """With no --task, the (vitpose, None) sentinel defaults to keypoint-detection."""
+        config = MagicMock()
+        config.model_type = "vitpose"
+        config.architectures = ["VitPoseForPoseEstimation"]
+        config._name_or_path = "usyd-community/vitpose-base-simple"
+
+        resolution = resolve_task(config)
+
+        assert resolution.task == "keypoint-detection"
+        assert resolution.model_class.__name__ == "VitPoseForPoseEstimation"
+
+    def test_sentinel_registered_in_mapping(self):
+        """The (vitpose, None) sentinel shares the keypoint-detection class."""
+        assert ("vitpose", None) in MODEL_CLASS_MAPPING
+        assert (
+            MODEL_CLASS_MAPPING[("vitpose", None)]
+            is MODEL_CLASS_MAPPING[("vitpose", "keypoint-detection")]
+        )
+
