@@ -1081,19 +1081,35 @@ class CatalogSweep:
         onnx_path = self._find_onnx(hyp_dir)
         if onnx_path is None:
             return
+        # Interleaved confirm needs the baseline ONNX too (kept by the per-hyp prune).
+        base_id = self.baseline_id
+        for hid in self.cfg.get("baseline_priority", ["h0"]):
+            if results["hypotheses"].get(hid, {}).get("status") in _OK:
+                base_id = hid
+                break
+        base_onnx = self._find_onnx(model_dir / base_id)
         best_hyp = results["hypotheses"].get(best_h, {})
-        print(f"\n  ── Phase C: confirming {best_h} ({n} extra sessions) ──", flush=True)
 
-        cd = self.full["cool_down_s"]
-        confirm: list[float] = []
-        for s in range(1, n + 1):
-            out_json = hyp_dir / f"confirm_s{s}.json"
+        # Round-robin so any slow drift (thermal/DVFS/cross-tenant) hits champion and
+        # baseline equally, and the baseline is RE-MEASURED every round rather than
+        # compared against its stale cold-start number (npu-014: sequential confirm
+        # inflated the swinv2 win ~2x by benching the baseline first/cold).
+        rounds = max(n, 3)
+        if base_onnx is None:
+            print(
+                f"  [confirm] baseline onnx for {base_id} unavailable — "
+                "falling back to champion-only re-bench (NOT drift-controlled)",
+                flush=True,
+            )
+
+        def _bench(onnx: Path, tag: str) -> float | None:
+            out_json = hyp_dir / f"{tag}.json"
             rc, _ = self.run_cmd(
                 [
                     WINML,
                     "perf",
                     "-m",
-                    str(onnx_path),
+                    str(onnx),
                     "--ep",
                     self.ep,
                     "--device",
@@ -1105,44 +1121,86 @@ class CatalogSweep:
                     "-o",
                     str(out_json),
                 ],
-                label=f"confirm s{s}/{n}",
+                label=tag,
                 timeout=self.timeouts["bench_s"],
             )
             p50, _ = _latency(out_json) if rc == 0 and out_json.exists() else (None, None)
-            if p50 is not None:
-                print(f"     confirm s{s}: p50={p50:.2f}ms", flush=True)
-                confirm.append(p50)
-            if s < n:
-                time.sleep(cd)
-        if not confirm:
+            return p50
+
+        cd = self.full["cool_down_s"]
+        print(
+            f"\n  ── Phase C: interleaved confirm {best_h} vs {base_id} "
+            f"({rounds} round-robin rounds) ──",
+            flush=True,
+        )
+        champ_p50s: list[float] = []
+        base_fresh: list[float] = []
+        for r in range(1, rounds + 1):
+            cp = _bench(onnx_path, f"confirm_champ_s{r}")
+            if cp is not None:
+                champ_p50s.append(cp)
+            time.sleep(cd)
+            if base_onnx is not None:
+                bp = _bench(base_onnx, f"confirm_base_s{r}")
+                if bp is not None:
+                    base_fresh.append(bp)
+                if r < rounds:
+                    time.sleep(cd)
+                print(f"     round {r}/{rounds}: champ={cp}  baseline={bp}", flush=True)
+            else:
+                print(f"     round {r}/{rounds}: champ={cp}", flush=True)
+        if not champ_p50s:
             return
 
-        # Baseline session range for the non-overlap test
-        base_h: dict = {}
-        for hid in self.cfg.get("baseline_priority", ["h0"]):
-            if results["hypotheses"].get(hid, {}).get("status") in _OK:
-                base_h = results["hypotheses"][hid]
-                break
-        base_p50s = base_h.get("full", {}).get("p50s_ms", [baseline_p50])
-        all_p50s = best_hyp.get("full", {}).get("p50s_ms", []) + confirm
-        overall_median = _median(all_p50s)
-        overall_gain = (baseline_p50 - overall_median) / baseline_p50 * 100
-        confirmed = max(all_p50s) < min(base_p50s) if base_p50s else False
+        # Fresh interleaved baseline if we have one; else stale recorded value.
+        base_ref = _median(base_fresh) if base_fresh else baseline_p50
+        champ_median = _median(champ_p50s)
+        overall_gain = (base_ref - champ_median) / base_ref * 100
 
-        best_hyp["confirm_p50s_ms"] = [round(p, 3) for p in confirm]
-        best_hyp["all_p50s_ms"] = [round(p, 3) for p in all_p50s]
-        best_hyp["overall_median_p50_ms"] = round(overall_median, 3)
+        best_hyp["confirm_method"] = (
+            "interleaved_round_robin" if base_fresh else "champion_only_fallback"
+        )
+        best_hyp["confirm_rounds"] = rounds
+        best_hyp["confirm_champ_p50s_ms"] = [round(p, 3) for p in champ_p50s]
+        best_hyp["confirm_champ_median_ms"] = round(champ_median, 3)
+        if base_fresh:
+            paired = [round(b - c, 3) for b, c in zip(base_fresh, champ_p50s) if b and c]
+            faster = sum(1 for d in paired if d > 0)
+            ranges_separated = max(champ_p50s) < min(base_fresh)
+            paired_pass = len(paired) > 0 and faster / len(paired) >= 0.66
+            best_hyp["confirm_baseline_p50s_ms"] = [round(p, 3) for p in base_fresh]
+            best_hyp["confirm_baseline_median_ms"] = round(base_ref, 3)
+            best_hyp["confirm_paired_delta_ms"] = paired
+            best_hyp["confirm_rounds_faster"] = f"{faster}/{len(paired)}"
+            best_hyp["confirm_ranges_separated"] = ranges_separated
+            results["confirm_baseline_p50_ms"] = round(base_ref, 3)
+            confirmed = paired_pass and overall_gain >= self.cfg["min_improvement_pct"]
+        else:
+            # No drift control possible — fall back to the old self-consistency check.
+            base_p50s = best_hyp.get("full", {}).get("p50s_ms", [baseline_p50])
+            ranges_separated = max(champ_p50s) < min(base_p50s) if base_p50s else False
+            confirmed = ranges_separated and overall_gain >= self.cfg["min_improvement_pct"]
+
+        best_hyp["overall_median_p50_ms"] = round(champ_median, 3)
         best_hyp["overall_gain_pct"] = round(overall_gain, 2)
         if confirmed:
-            best_hyp["confirm_verdict"] = "CONFIRMED"
+            best_hyp["confirm_verdict"] = "CONFIRMED" if ranges_separated else "CONFIRMED_WEAK"
             results["best_gain_pct"] = round(overall_gain, 2)
+            results["best_p50_ms"] = round(champ_median, 3)
             print(
-                f"  [CONFIRMED] {best_h}: gain={overall_gain:+.1f}% (ranges non-overlapping)",
+                f"  [{best_hyp['confirm_verdict']}] {best_h}: gain={overall_gain:+.1f}% "
+                f"vs fresh baseline {base_ref:.1f}ms "
+                f"({best_hyp.get('confirm_rounds_faster', 'n/a')} rounds faster)",
                 flush=True,
             )
         else:
             best_hyp["confirm_verdict"] = "MARGINAL_UNCONFIRMED"
-            print(f"  [MARGINAL_UNCONFIRMED] {best_h}: ranges overlap — DVFS noise", flush=True)
+            results["best_gain_pct"] = round(overall_gain, 2)
+            print(
+                f"  [MARGINAL_UNCONFIRMED] {best_h}: gain={overall_gain:+.1f}% "
+                "fails interleaved gate (drift/noise)",
+                flush=True,
+            )
 
     # ── outputs ─────────────────────────────────────────────────────────────────
 
@@ -1256,11 +1314,12 @@ class CatalogSweep:
     def _prune_runnable_except_best(self, results: dict, model_dir: Path) -> None:
         """Keep only the running-best (and baseline) hypothesis' runnable ONNX.
 
-        The Phase-C confirm only re-benches the single best non-baseline hypothesis,
-        so retaining every hypothesis' ``model.onnx``/``quantized.onnx`` is wasteful —
-        for large models (~1-2 GB each) that accumulation exhausts disk mid-sweep.
-        After each hypothesis benches we therefore delete the runnable graphs of every
-        hypothesis except the current lowest-median one and the baseline.
+        The Phase-C interleaved confirm re-benches the best non-baseline hypothesis
+        AND the baseline (round-robin, npu-014), so retaining every other hypothesis'
+        ``model.onnx``/``quantized.onnx`` is wasteful — for large models (~1-2 GB each)
+        that accumulation exhausts disk mid-sweep. After each hypothesis benches we
+        therefore delete the runnable graphs of every hypothesis except the current
+        lowest-median one and the baseline.
         """
         best_id: str | None = None
         best_med: float | None = None
