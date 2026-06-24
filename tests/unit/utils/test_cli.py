@@ -212,9 +212,9 @@ class TestMaxOptimIterationsOption:
     """Tests for the shared max_optim_iterations_option() decorator."""
 
     @staticmethod
-    def _make_cmd() -> click.Command:
+    def _make_cmd(optional_message: str | None = None) -> click.Command:
         @click.command()
-        @max_optim_iterations_option()
+        @max_optim_iterations_option(optional_message=optional_message)
         def cmd(max_optim_iterations: int | None) -> None:
             click.echo(repr(max_optim_iterations))
 
@@ -229,6 +229,13 @@ class TestMaxOptimIterationsOption:
 
     def test_rejects_non_int(self) -> None:
         assert CliRunner().invoke(self._make_cmd(), ["--max-optim-iterations", "x"]).exit_code != 0
+
+    def test_optional_message_appended_with_period_separator(self) -> None:
+        """optional_message joins the base help with '. ', matching sibling helpers."""
+        result = CliRunner().invoke(self._make_cmd(optional_message="Extra note."), ["--help"])
+        # Click reflows --help text, so assert on the joined token rather than line layout.
+        joined = " ".join(result.output.split())
+        assert "to 0. Extra note." in joined
 
 
 class TestBuildPipelineExtraKwargs:

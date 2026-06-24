@@ -631,9 +631,9 @@ def max_optim_iterations_option(optional_message: str | None = None) -> Callable
     Returns:
         Decorator function.
     """
-    base_help = "Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0."
+    base_help = "Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0"
     if optional_message:
-        base_help = f"{base_help} {optional_message}"
+        base_help = f"{base_help}. {optional_message}"
     return click.option(
         "--max-optim-iterations",
         "max_optim_iterations",
