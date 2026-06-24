@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .base import QuantConfigFinalizer
 
 
@@ -37,7 +39,7 @@ _KNOWN_FINALIZER_MODULES: dict[str, str] = {
 }
 
 
-def register_quant_finalizer(model_type: str):
+def register_quant_finalizer(model_type: str) -> Callable[[type], type]:
     """Class decorator registering a :class:`QuantConfigFinalizer` for ``model_type``."""
 
     def decorator(cls: type) -> type:
