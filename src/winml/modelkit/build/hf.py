@@ -321,9 +321,16 @@ def build_hf_model(
             # exported ONNX exists (e.g. calibration feeds / nodes-to-exclude
             # derived from the graph). Give the wrapper a chance to populate
             # those runtime-only fields here.
-            if pytorch_model is not None and hasattr(pytorch_model, "winml_finalize_quant_config"):
-                config.quant = pytorch_model.winml_finalize_quant_config(
-                    config.quant, onnx_path=current_path, model_id=model_id
+            # Resolve the optional hook on the model's *class* (not the
+            # instance): a genuine wrapper defines it at class scope, whereas a
+            # raw HF model — or a test double whose attributes are synthesized
+            # per-instance — does not, so this avoids firing spuriously.
+            finalize_quant_config = getattr(
+                type(pytorch_model), "winml_finalize_quant_config", None
+            )
+            if callable(finalize_quant_config):
+                config.quant = finalize_quant_config(
+                    pytorch_model, config.quant, onnx_path=current_path, model_id=model_id
                 )
                 # The hook may overwrite the quant scheme (dtypes, symmetry,
                 # nodes-to-exclude) authoritatively, so re-persist the config

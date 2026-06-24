@@ -142,8 +142,13 @@ class TestResolveLoaderConfig:
         mock_create.assert_called_once_with("bert")
         assert loader_config.task == "feature-extraction"
 
-    def test_hf_config_never_mutated(self) -> None:
-        """hf_config is never mutated — model_type param does not override it."""
+    def test_explicit_model_type_overrides_hf_config(self) -> None:
+        """An explicit model_type (with a model_id) overrides the resolved type.
+
+        Needed so a variant model_type such as ``qwen3_transformer_only`` selects
+        the variant rather than the architecture's native type. The override only
+        applies when a model_id is present and the requested type differs.
+        """
         mock_config = MagicMock()
         mock_config.model_type = "original_type"
         mock_class = MagicMock(spec=[])
@@ -164,10 +169,10 @@ class TestResolveLoaderConfig:
                 "some-model", model_type="gpt2", task="text-generation"
             )
 
-        # hf_config retains its original model_type — never mutated
-        assert hf_config.model_type == "original_type"
-        # loader_config.model_type reflects the REAL hf_config, not the param
-        assert loader_config.model_type == "original_type"
+        # The explicit model_type wins over the architecture's native type.
+        assert hf_config.model_type == "gpt2"
+        # loader_config.model_type reflects the overridden type.
+        assert loader_config.model_type == "gpt2"
 
     def test_auto_detect_task_from_model_type(self) -> None:
         """model_type without task auto-detects first supported task."""
