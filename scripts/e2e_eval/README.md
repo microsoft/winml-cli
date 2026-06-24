@@ -130,38 +130,50 @@ uv run python scripts/e2e_eval/run_eval.py --build-only --hf-model microsoft/res
 Composite models (multiple sub-components) are built into per-component subdirectories
 under each EP subdir.
 
-**Export dedup**: the `export.onnx` stage is EP/device-independent, so it is identical
-across all matrix combos. It is stored once under `<model_dir>/_shared/export.onnx`
-and removed from each `<ep>_<device>/` subdir, keeping only one copy on disk.
+**Export dedup** (without `--upload`): the `export.onnx` stage is EP/device-independent,
+so it is identical across all matrix combos. It is stored once under
+`<model_dir>/_shared/export.onnx` and removed from each `<ep>_<device>/` subdir,
+keeping only one copy on disk. With `--upload` each combo is published and deleted on
+its own, so there is nothing to share and dedup is skipped.
 
 #### Streaming upload to the Azure Artifacts feed (`--upload`)
 
 Running the full matrix over many models fills the local disk fast. `--upload`
-publishes each model's artifacts to the **`Modelkit`** Azure Artifacts feed
-(Universal Package) as soon as its combos are built, then deletes the local copy —
-so peak disk stays at roughly one model's matrix.
+publishes each **EP/device combo** to the **`Modelkit`** Azure Artifacts feed
+(Universal Package) as soon as it is built, then deletes that combo's local copy —
+so peak disk stays at roughly one combo, and a large/slow upload of one combo can't
+fill the disk.
 
 - **Auth**: uses `az login` (Entra ID) — no PAT. The script verifies the
   `azure-devops` az extension is installed (auto-adds it) and that you're logged in;
   if not, it aborts (so disk isn't silently filled).
-- **Package**: one package `winml-cli-models`, **one version per model**, named
-  `0.0.0-<run-stamp>-<model-slug>` where the run-stamp is a date (default today,
-  `YYYYMMDD`). e.g. `0.0.0-20260609-microsoft-resnet-50-image-classification`
-  (the `0.0.0-` core keeps it valid SemVer 2.0; the stamp+slug are the
-  pre-release segment). The shared run-stamp prefix groups a batch together.
-- A `build_only_uploads.json` manifest (version → run-stamp → combos → status) is
-  written in the output dir; it drives `--continue`.
+- **Package**: one package `winml-cli-models`, **one version per combo**, named
+  `0.0.0-<run-stamp>-<ep>-<device>-<model-slug>` where the run-stamp is a date
+  (default today, `YYYYMMDD`). e.g.
+  `0.0.0-20260609-qnn-npu-microsoft-resnet-50-image-classification` (the `0.0.0-`
+  core keeps it valid SemVer 2.0; the rest is the pre-release segment). Uploading
+  per combo keeps each package small, which lowers the per-upload timeout risk and
+  lets a single combo be retried on its own.
+- **Disk is always bounded**: each combo's local dir is deleted after *every*
+  outcome — uploaded, version-exists, upload-failed, **timed-out**, or build-failed
+  — unless `--keep-local`. A failed or timed-out combo is recorded and the run
+  continues; a host-level az failure (not logged in / token expired) aborts so you
+  can re-auth and resume.
+- A `build_only_results.json` log (combo version → build status + upload status +
+  error tail + timestamps) is written in the output dir for *every* run (with or
+  without `--upload`), so you can audit which combos succeeded, failed, or timed
+  out. It also drives `--continue` (skips combos already in the feed).
 
 ```bash
 # Build the matrix and stream each model to the feed, deleting locals
 uv run python scripts/e2e_eval/run_eval.py --build-only --upload --priority P0
 
-# Resume an interrupted batch: same run-stamp + --continue skips models already
-# uploaded (per the manifest) without rebuilding them.
+# Resume an interrupted batch: same run-stamp + --continue skips combos already
+# uploaded (per the results log / feed) without rebuilding them.
 uv run python scripts/e2e_eval/run_eval.py --build-only --upload --continue \
   --run-stamp 20260609 --priority P0
 
-# --upload-skip-existing: if the feed already has a version (e.g. manifest lost),
+# --upload-skip-existing: if the feed already has a version (e.g. results log lost),
 # treat the publish conflict as done and delete the local copy.
 uv run python scripts/e2e_eval/run_eval.py --build-only --upload --upload-skip-existing
 
@@ -175,20 +187,20 @@ Download a specific model's specific file later with `--file-filter`:
 az artifacts universal download \
   --organization https://dev.azure.com/microsoft --project windows.ai.toolkit \
   --scope project --feed Modelkit --name winml-cli-models \
-  --version 0.0.0-20260609-microsoft-resnet-50-image-classification \
-  --path ./out --file-filter 'qnn_npu/quantized.onnx'
+  --version 0.0.0-20260609-qnn-npu-microsoft-resnet-50-image-classification \
+  --path ./out --file-filter 'quantized.onnx'
 ```
 
 | Upload flag | Default | Description |
 |---|---|---|
-| `--upload` | off | Publish each model dir to the feed, then delete it locally |
+| `--upload` | off | Publish each EP/device combo to the feed, then delete it locally |
 | `--run-stamp` | today (`YYYYMMDD`) | Version prefix; pass the same stamp + `--continue` to resume |
-| `--continue` | off | Skip models already uploaded for this run-stamp (no rebuild) |
+| `--continue` | off | Skip combos already uploaded for this run-stamp (no rebuild) |
 | `--feed` | `Modelkit` | Azure Artifacts feed name |
 | `--feed-org` | `https://dev.azure.com/microsoft` | Azure DevOps org URL |
 | `--feed-project` | `windows.ai.toolkit` | Project for the project-scoped feed |
 | `--package-name` | `winml-cli-models` | Universal Package name |
-| `--keep-local` | off | Upload but do not delete the local dir |
+| `--keep-local` | off | Upload but do not delete local combos (also keeps build-failed combos) |
 | `--upload-skip-existing` | off | Treat an existing feed version as done (feed-based resume) |
 
 ### `generate_report.py` — Regenerate Reports

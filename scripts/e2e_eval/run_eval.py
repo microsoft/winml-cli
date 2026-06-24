@@ -724,7 +724,9 @@ def _hash_files(paths: list[Path]) -> str:
     return h.hexdigest()
 
 
-def _dedup_export(build_dir: Path, shared_dir: Path, canonical_hash: str | None, label: str) -> str | None:
+def _dedup_export(
+    build_dir: Path, shared_dir: Path, canonical_hash: str | None, label: str
+) -> str | None:
     """Deduplicate this combo's export.onnx(+sidecar) against a per-model canonical.
 
     The export stage is EP/device-independent, so every combo produces an
@@ -747,7 +749,9 @@ def _dedup_export(build_dir: Path, shared_dir: Path, canonical_hash: str | None,
         shared_dir.mkdir(parents=True, exist_ok=True)
         for f in export_files:
             shutil.move(str(f), str(shared_dir / f.name))
-        safe_print(f"  [dedup] export -> {shared_dir.name}/ (canonical, {len(export_files)} file(s))")
+        safe_print(
+            f"  [dedup] export -> {shared_dir.name}/ (canonical, {len(export_files)} file(s))"
+        )
         return h
     if h == canonical_hash:
         for f in export_files:
@@ -811,16 +815,22 @@ def _slugify_version(text: str) -> str:
     return re.sub(r"-{2,}", "-", s).strip("-")
 
 
-def _feed_version_for(entry: ModelEntry, run_stamp: str) -> str:
-    """Per-model Universal Package version: ``0.0.0-<run-stamp>-<model-slug>``.
+def _feed_version_for(entry: ModelEntry, run_stamp: str, combo_label: str) -> str:
+    """Per-combo Universal Package version (one per EP/device pair).
 
-    Universal Packages require a valid lowercase SemVer 2.0 version, so the
-    ``major.minor.patch`` core is fixed at ``0.0.0`` and the batch stamp + model
-    identity live in the pre-release segment. The run stamp (a date like
-    ``20260609``) groups a batch under a common prefix and lets an interrupted
-    batch resume by re-using the same stamp (see ``--run-stamp`` / ``--continue``).
+    The version is ``0.0.0-<run-stamp>-<ep>-<device>-<model-slug>``. Universal
+    Packages require a valid lowercase SemVer 2.0 version, so the
+    ``major.minor.patch`` core is fixed at ``0.0.0`` and the batch stamp, the
+    EP/device combo, and the model identity live in the pre-release segment. The
+    run stamp (a date like ``20260609``) groups a batch under a common prefix;
+    ``combo_label`` (e.g. ``qnn_npu``) scopes the version to a single EP/device
+    pair so each model uploads one (smaller) package per combo instead of one
+    large package for the whole matrix -- which both lowers the per-upload
+    timeout risk and lets an interrupted combo be retried on its own. An
+    interrupted batch resumes by re-using the same stamp (see ``--run-stamp`` /
+    ``--continue``).
     """
-    parts = [run_stamp, entry.hf_id]
+    parts = [run_stamp, combo_label, entry.hf_id]
     if entry.task:
         parts.append(entry.task)
     return "0.0.0-" + _slugify_version("-".join(parts))
@@ -852,15 +862,19 @@ def _is_az_unavailable(proc: dict) -> bool:
     """True if an ``az`` invocation failed because the CLI/login is unavailable.
 
     Distinguishes a host-level Azure CLI problem (not installed, not logged in,
-    token expired, or the CLI hung and was killed) from a per-package publish
-    error (a one-off network blip or a version conflict). The former recurs for
-    every remaining model, so the caller aborts the whole run instead of marking
-    the model ``failed`` and keeping the local copy — otherwise every subsequent
-    "kept local" dir piles up and fills the disk.
+    token expired) from a per-package publish error (a one-off network blip, a
+    slow/timed-out transfer, or a version conflict). A host-level problem recurs
+    for every remaining combo, so the caller aborts the whole run; a per-combo
+    error is recorded and the run continues.
+
+    A bare timeout is deliberately *not* treated as "unavailable": with per-combo
+    uploads a timeout is almost always a slow/large transfer, which the caller
+    handles as a per-combo ``timeout`` (clean up + continue). Only an explicit
+    auth marker (below) or ``az`` missing from PATH triggers an abort -- so a
+    hung re-auth that still emits an auth marker is caught, while a plain slow
+    upload is not.
     """
     if proc.get("exit_code") == 127:  # az not found on PATH (see _run_az)
-        return True
-    if proc.get("timeout"):  # az hung (e.g. blocked on interactive re-auth) and was killed
         return True
     blob = (proc.get("stdout", "") + proc.get("stderr", "")).lower()
     return any(
@@ -882,7 +896,9 @@ def _is_az_unavailable(proc: dict) -> bool:
     )
 
 
-def _upload_model_dir(args: argparse.Namespace, model_dir: Path, version: str, timeout: int) -> dict:
+def _upload_model_dir(
+    args: argparse.Namespace, model_dir: Path, version: str, timeout: int
+) -> dict:
     """Publish a model dir to the feed as a Universal Package version."""
     return _run_az(
         [
@@ -910,17 +926,54 @@ def _upload_model_dir(args: argparse.Namespace, model_dir: Path, version: str, t
     )
 
 
-def _load_upload_manifest(path: Path) -> dict:
-    """Load the build_only_uploads.json manifest, or {} on any error."""
+def _classify_upload(up: dict, args: argparse.Namespace) -> str:
+    """Classify an ``az universal publish`` result into an upload status.
+
+    Pure (no side effects) so the caller owns printing, recording, counters, and
+    cleanup. Returns one of:
+
+    - ``uploaded``: published successfully.
+    - ``exists-skipped``: version already on the feed and --upload-skip-existing.
+    - ``auth-abort``: host-level az failure (not installed / not logged in /
+      token expired) -> the caller cleans up and aborts the whole run.
+    - ``timeout``: the publish was killed by the timeout (slow/large transfer)
+      -> the caller cleans up and continues with the next combo.
+    - ``failed``: any other per-combo publish error -> clean up and continue.
+    """
+    if up.get("exit_code") == 0:
+        return "uploaded"
+    conflict = _is_publish_conflict(up)
+    if conflict and args.upload_skip_existing:
+        return "exists-skipped"
+    if not conflict and _is_az_unavailable(up):
+        return "auth-abort"
+    if up.get("timeout"):
+        return "timeout"
+    return "failed"
+
+
+def _load_results(path: Path) -> dict:
+    """Load the build_only_results.json log, or {} on any error."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 
 
-def _write_upload_manifest(path: Path, manifest: dict) -> None:
-    """Persist the upload manifest (model version -> details)."""
-    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+def _write_results(path: Path, results: dict) -> None:
+    """Persist the build-only results log (combo version -> outcome)."""
+    path.write_text(json.dumps(results, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _safe_rmtree(path: Path) -> None:
+    """Remove a directory tree to bound disk usage; warn (never raise) on error."""
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path)
+        safe_print(f"  [cleanup] Removed local: {path}")
+    except OSError as exc:
+        safe_print(f"  [cleanup] Warning: could not remove {path}: {exc}")
 
 
 def _feed_org_name(feed_org: str) -> str:
@@ -961,8 +1014,7 @@ def _fetch_feed_versions(
     """
     org = _feed_org_name(args.feed_org)
     base = (
-        f"https://feeds.dev.azure.com/{org}/{args.feed_project}"
-        f"/_apis/packaging/feeds/{args.feed}"
+        f"https://feeds.dev.azure.com/{org}/{args.feed_project}/_apis/packaging/feeds/{args.feed}"
     )
 
     def _get_json(url: str) -> dict | None:
@@ -1010,26 +1062,33 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
 
     When neither --ep nor --device is pinned, every model is built once per EP in
     :data:`_BUILD_ONLY_EP_MATRIX`, each into a ``<model_dir>/<ep>_<device>/``
-    subdir. The identical ``export.onnx`` is deduped into ``<model_dir>/_shared/``.
-    When --ep or --device is pinned, a single build is written directly into
-    ``<model_dir>`` (no dedup). Precision per combo follows the same policy as the
-    eval path (NPU defaults to w8a16; CPU/GPU omit the flag; native-quant EPs skip).
+    subdir. When --ep or --device is pinned, a single build is written directly
+    into ``<model_dir>``. Precision per combo follows the same policy as the eval
+    path (NPU defaults to w8a16; CPU/GPU omit the flag; native-quant EPs skip).
 
-    With ``--upload``, each model's dir is published to the Azure Artifacts feed as
-    a Universal Package version (``<package-name>@0.0.0-<run-stamp>-<model-slug>``)
-    and then deleted locally to bound disk usage.
+    Every (model, combo) outcome -- build status and (when uploading) upload
+    status -- is recorded to ``build_only_results.json`` so a partially-failing or
+    interrupted run can be audited afterwards.
+
+    With ``--upload``, each combo's dir is published to the Azure Artifacts feed as
+    its own Universal Package version
+    (``<package-name>@0.0.0-<run-stamp>-<ep>-<device>-<model-slug>``) as soon as it
+    is built, then deleted locally -- so peak disk stays at ~one combo and a
+    failed/timed-out upload of one combo cannot fill the disk. The identical
+    ``export.onnx`` dedup applies only to the non-upload matrix path (uploaded
+    combos are self-contained and deleted, so there is nothing to share).
     """
     output_dir = args.output_dir or Path(f"eval_results/{date.today().isoformat()}")
     output_dir.mkdir(parents=True, exist_ok=True)
     save_environment_info(output_dir / "environment.json")
 
-    # Resume in build-only mode is upload-driven (manifest + feed). Without
-    # --upload there is no local-disk resume, so --continue rebuilds everything;
-    # warn rather than silently no-op.
+    # Results are recorded for EVERY run (upload or not) so failures/timeouts are
+    # auditable. --continue resume, however, is upload-driven: without --upload
+    # there is no feed to resume from, so all models are rebuilt.
     if args.continue_run and not args.upload:
         safe_print(
             "[warn] --continue has no effect in --build-only without --upload: "
-            "no local-disk resume exists, so all models will be rebuilt."
+            "no feed resume exists, so all models will be rebuilt."
         )
 
     use_matrix = args.ep is None and args.device == "auto"
@@ -1040,41 +1099,40 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
     # matrix does for its explicit *_npu combos.
     combos = list(_BUILD_ONLY_EP_MATRIX) if use_matrix else [("", args.ep, args.device)]
 
+    results_path = output_dir / "build_only_results.json"
+    results: dict = _load_results(results_path)
+    run_stamp = _slugify_version(args.run_stamp or date.today().strftime("%Y%m%d"))
+
     # Verify feed prerequisites once, up front. --upload exists to keep disk
     # bounded, so a broken az setup must abort (not silently fall back to
     # keeping everything local, which would fill the disk it was meant to save).
-    manifest: dict = {}
-    manifest_path = output_dir / "build_only_uploads.json"
-    run_stamp = _slugify_version(args.run_stamp or date.today().strftime("%Y%m%d"))
     if args.upload:
         err = _ensure_feed_ready()
         if err is not None:
             safe_print(f"[upload] Cannot upload: {err}")
             sys.exit(2)
-        manifest = _load_upload_manifest(manifest_path)
         safe_print(
             f"[upload] Feed ready: {args.feed_org} / {args.feed_project} / "
             f"feed={args.feed} / package={args.package_name} | run-stamp={run_stamp}"
         )
         if args.continue_run:
-            safe_print("[upload] Continue: skipping models already uploaded for this run-stamp")
-            # Seed the manifest from the feed: a fresh --output-dir has no local
-            # manifest, so the feed is the source of truth for what's published.
-            # Best-effort — a query failure falls back to local-manifest-only.
+            safe_print("[upload] Continue: skipping combos already uploaded for this run-stamp")
+            # Seed results from the feed: a fresh --output-dir has no local
+            # results, so the feed is the source of truth for what's published.
+            # Best-effort — a query failure falls back to local-results-only.
             feed_versions = _fetch_feed_versions(args, run_stamp)
             if feed_versions is None:
-                safe_print(
-                    "[upload] Continue: could not query feed; relying on local manifest only"
-                )
+                safe_print("[upload] Continue: could not query feed; relying on local results only")
             else:
                 seeded = 0
                 for feed_version in feed_versions:
-                    if feed_version not in manifest:
-                        manifest[feed_version] = {"status": "uploaded", "source": "feed"}
+                    prev = results.get(feed_version)
+                    if not prev or prev.get("upload_status") not in ("uploaded", "exists-skipped"):
+                        results[feed_version] = {"upload_status": "uploaded", "source": "feed"}
                         seeded += 1
                 safe_print(
                     f"[upload] Continue: feed has {len(feed_versions)} version(s) for "
-                    f"run-stamp {run_stamp}; {seeded} not in local manifest -> will skip"
+                    f"run-stamp {run_stamp}; {seeded} not in local results -> will skip"
                 )
 
     safe_print(f"Build-only: {len(entries)} models -> {output_dir}")
@@ -1090,130 +1148,197 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
         )
 
     total_builds = len(entries) * len(combos)
-    succeeded = 0
+    built_ok = 0
+    build_fail = 0
     uploaded = 0
+    upload_fail = 0
+    upload_timeout = 0
     interrupted = False
+
+    def _record(
+        combo_version: str,
+        entry: ModelEntry,
+        ep: str | None,
+        device: str,
+        combo_label: str,
+        build_status: str,
+        build_stage: str,
+        upload_status: str,
+        error: str = "",
+    ) -> None:
+        """Record one (model, combo) outcome and flush the results log to disk."""
+        rec: dict = {
+            "hf_id": entry.hf_id,
+            "task": entry.task,
+            "ep": ep,
+            "device": device,
+            "combo": combo_label or "(pinned)",
+            "package": args.package_name,
+            "run_stamp": run_stamp,
+            "build_status": build_status,
+            "build_stage": build_stage,
+            "upload_status": upload_status,
+            "recorded_at": _utc_now(),
+        }
+        if error:
+            rec["error"] = error
+        results[combo_version] = rec
+        _write_results(results_path, results)
 
     for i, entry in enumerate(entries, 1):
         label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
         model_dir = model_result_dir(output_dir, entry.hf_id, entry.task)
         shared_dir = model_dir / "_shared"
         canonical_hash: str | None = None
-        built_labels: list[str] = []
-        version = _feed_version_for(entry, run_stamp)
-
-        # Resume: skip models already uploaded for this run-stamp (manifest is
-        # the source of truth; failed/unrecorded models are (re)built). Skipping
-        # here avoids the expensive 8-EP rebuild, not just the upload.
-        if args.upload and args.continue_run:
-            prev = manifest.get(version)
-            if prev and prev.get("status") in ("uploaded", "exists-skipped"):
-                origin = " via feed" if prev.get("source") == "feed" else ""
-                safe_print(
-                    f"\n[{i}/{len(entries)}] {label}  "
-                    f"(SKIP - {prev['status']}{origin}: {version})"
-                )
-                continue
 
         safe_print(f"\n[{i}/{len(entries)}] {label}  ({entry.priority}, {entry.group})")
 
         for combo_label, ep, device in combos:
             build_dir = model_dir / combo_label if combo_label else model_dir
             tag = f"  [{combo_label}]" if combo_label else ""
+            effective_label = combo_label or f"{ep or 'auto'}_{device}"
+            combo_version = _feed_version_for(entry, run_stamp, effective_label)
+
+            # Per-combo resume (upload mode): skip combos already in the feed so a
+            # rerun only (re)builds the missing/failed ones, not the whole matrix.
+            if args.upload and args.continue_run:
+                prev = results.get(combo_version)
+                if prev and prev.get("upload_status") in ("uploaded", "exists-skipped"):
+                    origin = " via feed" if prev.get("source") == "feed" else ""
+                    safe_print(f"  [skip]{tag} {prev['upload_status']}{origin}: {combo_version}")
+                    continue
+
             precision = _resolve_precision(device, entry.precision, ep=ep)
             try:
                 build = _run_build(
-                    entry,
-                    device,
-                    precision,
-                    args.timeout,
-                    build_dir,
-                    ep=ep,
-                    build_only=True,
+                    entry, device, precision, args.timeout, build_dir, ep=ep, build_only=True
                 )
             except KeyboardInterrupt:
                 safe_print("\n\n[Ctrl+C] Interrupted.")
                 interrupted = True
                 break
 
-            if build["success"]:
-                succeeded += 1
-                built_labels.append(combo_label or "(pinned)")
-                safe_print(f"  [OK]{tag} artifacts -> {build_dir}")
+            # ---- Build failed (non-zero exit) or was killed by the timeout ----
+            if not build["success"]:
+                proc = build.get("proc") or {}
+                is_timeout = bool(proc.get("timeout"))
+                build_status = "timeout" if is_timeout else "failed"
+                stage = build.get("stage", "build")
+                build_fail += 1
+                safe_print(f"  [BUILD {build_status.upper()} @ {stage}]{tag}")
+                combined = (proc.get("stdout", "") + proc.get("stderr", "")).strip()
+                err_tail = "\n".join(combined.splitlines()[-12:]) if combined else ""
+                if args.verbose and combined:
+                    for line in combined.splitlines()[-12:]:
+                        safe_print(f"    {line}")
+                # Upload mode bounds disk: drop the failed combo's partial
+                # artifacts. Non-upload mode keeps them for inspection.
+                if args.upload and not args.keep_local:
+                    _safe_rmtree(build_dir)
+                _record(
+                    combo_version,
+                    entry,
+                    ep,
+                    device,
+                    combo_label,
+                    build_status=build_status,
+                    build_stage=stage,
+                    upload_status="skipped" if args.upload else "n/a",
+                    error=err_tail,
+                )
+                continue
+
+            # ---- Build succeeded ----
+            built_ok += 1
+            safe_print(f"  [OK]{tag} artifacts -> {build_dir}")
+
+            if not args.upload:
                 # Dedup the EP-independent export into _shared/ (matrix only).
                 if use_matrix:
                     canonical_hash = _dedup_export(
                         build_dir, shared_dir, canonical_hash, combo_label
                     )
-            else:
-                safe_print(f"  [FAIL @ {build['stage']}]{tag}")
-                if args.verbose:
-                    proc = build.get("proc") or {}
-                    combined = (proc.get("stdout", "") + proc.get("stderr", "")).strip()
-                    for line in combined.splitlines()[-12:]:
+                _record(
+                    combo_version,
+                    entry,
+                    ep,
+                    device,
+                    combo_label,
+                    build_status="ok",
+                    build_stage="complete",
+                    upload_status="n/a",
+                )
+                continue
+
+            # ---- Upload this combo, then drop it locally to bound disk usage ----
+            safe_print(f"  [upload]{tag} {args.package_name}@{combo_version} ...")
+            up = _upload_model_dir(args, build_dir, combo_version, args.timeout)
+            upload_status = _classify_upload(up, args)
+            err_tail = ""
+            if upload_status in ("timeout", "failed", "auth-abort"):
+                blob = (up.get("stderr", "") or up.get("stdout", "")).strip()
+                err_tail = "\n".join(blob.splitlines()[-12:])
+
+            if upload_status == "uploaded":
+                uploaded += 1
+                safe_print(f"  [upload OK]{tag} {combo_version}")
+            elif upload_status == "exists-skipped":
+                uploaded += 1
+                safe_print(f"  [upload SKIP]{tag} version exists: {combo_version}")
+            elif upload_status == "timeout":
+                # A timed-out upload is almost always a slow/large transfer, not a
+                # host-level az problem. Drop the local copy to bound disk and
+                # continue; retry later with --continue + the same --run-stamp.
+                upload_timeout += 1
+                safe_print(f"  [upload TIMEOUT]{tag} {combo_version} (cleaned, continuing)")
+            else:  # "failed" or "auth-abort"
+                upload_fail += 1
+                safe_print(f"  [upload FAIL]{tag} {args.package_name}@{combo_version}")
+                if args.verbose or upload_status == "auth-abort":
+                    for line in err_tail.splitlines():
                         safe_print(f"    {line}")
+
+            # An auth failure is recorded as a plain "failed" outcome (the combo is
+            # not in the feed); the distinction only drives the abort below.
+            _record(
+                combo_version,
+                entry,
+                ep,
+                device,
+                combo_label,
+                build_status="ok",
+                build_stage="complete",
+                upload_status="failed" if upload_status == "auth-abort" else upload_status,
+                error=err_tail,
+            )
+
+            # Bound disk: drop the local copy after every outcome -- the artifacts
+            # are either safely in the feed or intentionally discarded.
+            # --keep-local opts out for debugging.
+            if not args.keep_local:
+                _safe_rmtree(build_dir)
+
+            # A host-level az failure (not logged in, token expired) recurs for
+            # every remaining combo, so abort now -- already-uploaded combos are
+            # skipped on resume via --continue + the same --run-stamp.
+            if upload_status == "auth-abort":
+                safe_print(
+                    "\n[upload] ABORT: Azure CLI is unavailable "
+                    "(not logged in / token expired). Re-run 'az login', then "
+                    f"resume with --continue and the same --run-stamp {run_stamp}."
+                )
+                sys.exit(3)
 
         if interrupted:
             break
 
-        # Upload the whole model dir, then delete locally to bound disk usage.
-        if args.upload and built_labels:
-            safe_print(f"  [upload] {args.package_name}@{version} ...")
-            up = _upload_model_dir(args, model_dir, version, args.timeout)
-            ok = up["exit_code"] == 0
-            conflict = (not ok) and _is_publish_conflict(up)
-            # A host-level az failure (not logged in, token expired, CLI hung)
-            # will recur for every remaining model, and each "kept local" copy
-            # would accumulate and fill the disk. Abort immediately so the user
-            # can re-auth and resume (already-uploaded models are skipped via
-            # --continue + the same --run-stamp).
-            if not ok and not conflict and _is_az_unavailable(up):
-                safe_print(f"  [upload FAIL] {args.package_name}@{version}")
-                detail = (up.get("stderr", "") or up.get("stdout", "")).strip()
-                for line in detail.splitlines()[-12:]:
-                    safe_print(f"    {line}")
-                reason = "timed out (hung)" if up.get("timeout") else "unavailable"
-                safe_print(
-                    f"\n[upload] ABORT: Azure CLI is {reason} "
-                    "(not logged in / token expired / az hung). "
-                    "Re-run 'az login', then resume with --continue and the same "
-                    f"--run-stamp {run_stamp}. "
-                    f"The current model's local artifacts were kept at: {model_dir}"
-                )
-                sys.exit(3)
-            status: str
-            if ok:
-                status = "uploaded"
-                uploaded += 1
-                safe_print(f"  [upload OK] {args.package_name}@{version}")
-            elif conflict and args.upload_skip_existing:
-                status = "exists-skipped"
-                safe_print(f"  [upload SKIP] version exists: {version}")
-            else:
-                status = "failed"
-                safe_print(f"  [upload FAIL] {args.package_name}@{version} (kept local)")
-                if args.verbose:
-                    for line in (up.get("stderr", "")).strip().splitlines()[-12:]:
-                        safe_print(f"    {line}")
-
-            manifest[version] = {
-                "hf_id": entry.hf_id,
-                "task": entry.task,
-                "package": args.package_name,
-                "run_stamp": run_stamp,
-                "combos": built_labels,
-                "status": status,
-                "uploaded_at": _utc_now(),
-            }
-            _write_upload_manifest(manifest_path, manifest)
-
-            # Delete local copy only when the artifacts are safely in the feed.
-            if status in ("uploaded", "exists-skipped") and not args.keep_local:
-                try:
-                    shutil.rmtree(model_dir)
-                    safe_print(f"  [upload] Removed local: {model_dir}")
-                except OSError as exc:
-                    safe_print(f"  [upload] Warning: could not remove {model_dir}: {exc}")
+        # Drop a now-empty model dir (all combos uploaded + deleted in upload mode).
+        if args.upload and not args.keep_local and model_dir.exists():
+            try:
+                if not any(model_dir.iterdir()):
+                    model_dir.rmdir()
+            except OSError:
+                pass
 
         # Clean caches once per model (after all EP combos finish), not per
         # combo: combos share the same HF download, so clearing between
@@ -1221,8 +1346,16 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
         if args.clean_cache:
             _clear_disk_caches()
 
-    tail = f" | uploaded {uploaded} models" if args.upload else ""
-    safe_print(f"\nBuild-only complete: {succeeded}/{total_builds} builds -> {output_dir}{tail}")
+    tail = (
+        f" | uploaded {uploaded}, upload-failed {upload_fail}, upload-timeout {upload_timeout}"
+        if args.upload
+        else ""
+    )
+    safe_print(
+        f"\nBuild-only complete: built {built_ok}/{total_builds} "
+        f"(build-failed {build_fail}){tail} -> {output_dir}\n"
+        f"Results log: {results_path}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1797,9 +1930,10 @@ def parse_args() -> argparse.Namespace:
         dest="upload",
         action="store_true",
         help=(
-            "Build-only only: after each model's combos are built, publish the "
-            "model dir to an Azure Artifacts feed (Universal Package) and delete "
-            "it locally to bound disk usage. Auth via 'az login' (no PAT)."
+            "Build-only only: as each EP/device combo is built, publish that combo "
+            "to an Azure Artifacts feed as its own Universal Package version and "
+            "delete it locally to bound disk usage (peak disk ~= one combo). Auth "
+            "via 'az login' (no PAT)."
         ),
     )
     parser.add_argument(
@@ -1827,7 +1961,8 @@ def parse_args() -> argparse.Namespace:
         dest="run_stamp",
         default=None,
         help=(
-            "Batch stamp used as the feed version prefix (<stamp>-<model-slug>). "
+            "Batch stamp used as the feed version prefix "
+            "(<stamp>-<ep>-<device>-<model-slug>). "
             "Defaults to today's date (YYYYMMDD). Pass the SAME stamp with "
             "--continue to resume an interrupted batch."
         ),
@@ -1836,7 +1971,10 @@ def parse_args() -> argparse.Namespace:
         "--keep-local",
         dest="keep_local",
         action="store_true",
-        help="With --upload, do NOT delete the local model dir after a successful upload.",
+        help=(
+            "With --upload, do NOT delete local combo dirs after any outcome "
+            "(uploaded / failed / timed-out / build-failed). For debugging."
+        ),
     )
     parser.add_argument(
         "--upload-skip-existing",
