@@ -110,6 +110,20 @@ class OpenVINOSession:
 
         requested = _OV_DEVICE_MAP.get(self._device, self._device.upper())
         core = ov.Core()
+
+        # Friendly fail-fast when the requested device isn't present, instead of
+        # a raw backend stack trace from compile_model. AUTO is a virtual plugin
+        # (always selectable); concrete devices may be listed plain ("GPU") or
+        # indexed ("GPU.0"), so match on the base name.
+        available = core.available_devices
+        if requested != "AUTO" and not any(
+            dev == requested or dev.startswith(f"{requested}.") for dev in available
+        ):
+            raise RuntimeError(
+                f"OpenVINO device '{requested}' (from --device {self._device}) is "
+                f"not available. OpenVINO sees: {available}"
+            )
+
         model = core.read_model(str(self._onnx_path))
         self._compiled = core.compile_model(model, requested, self._provider_options)
 

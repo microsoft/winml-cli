@@ -94,3 +94,11 @@ class TestOpenVINOSession:
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             OpenVINOSession(tmp_path / "does_not_exist.onnx")
+
+    def test_unavailable_device_raises_friendly_error(self, simple_matmul_onnx: Path) -> None:
+        """A device absent from Core().available_devices fails fast with a
+        readable message instead of a raw backend stack trace. Uses a bogus
+        device name so the test is hardware-independent."""
+        session = OpenVINOSession(simple_matmul_onnx, device="bogus")
+        with pytest.raises(RuntimeError, match=r"not available\. OpenVINO sees"):
+            session.compile()

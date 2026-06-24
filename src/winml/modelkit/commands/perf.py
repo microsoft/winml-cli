@@ -28,7 +28,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ..utils import cli as cli_utils
-from ..utils.constants import EPName, EPNameOrAlias
+from ..utils.constants import RUNTIME_NAMES, EPName, EPNameOrAlias, RuntimeName
 from ..utils.logging import configure_logging
 from ._live_chart import LiveMonitorDisplay
 
@@ -94,7 +94,7 @@ class BenchmarkConfig:
     shape_config: dict | None = None
     # Inference runtime backend: "ort" (ONNX Runtime, default) or "openvino"
     # (OpenVINO Runtime on the raw ONNX file, for ORT-vs-OV comparison).
-    runtime: str = "ort"
+    runtime: RuntimeName = "ort"
 
 
 @dataclass
@@ -1540,7 +1540,7 @@ def _run_simple_loop(
 )
 @click.option(
     "--runtime",
-    type=click.Choice(["ort", "openvino"]),
+    type=click.Choice(list(RUNTIME_NAMES)),
     default="ort",
     show_default=True,
     help="Inference runtime backend. 'ort' = ONNX Runtime (InferenceSession). "
@@ -1632,7 +1632,7 @@ def perf(
     precision: str,
     ep: EPNameOrAlias | None,
     ep_options: tuple[str, ...],
-    runtime: str,
+    runtime: RuntimeName,
     output: Path | None,
     batch_size: int,
     shape_config_path: Path | None,
