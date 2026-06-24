@@ -1,37 +1,58 @@
-"""Transformer-only w8a16 quantization for Qwen3.
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 
-Targets the transformer-only ONNX produced by the
-``qwen3_transformer_only`` build variant (see ``test_qwen.py``):
+"""Config-driven w8a16 calibration for the transformer-only Qwen3 build.
 
-  - **No embedding/lm_head surgery.** The export already excludes both,
-    so we feed ``WinMLQuantization`` the file directly.
-  - **Transformer-shaped calibration feeds.** ``input_hidden_states`` (FP32),
-    ``past_seq_len`` / ``total_seq_len`` (INT32), ``past_keys_{i}`` /
-    ``past_values_{i}`` (FP16) — names + dtypes match the exported graph.
+The transformer-only export (:mod:`qwen_transformer_only`) emits a graph whose
+only quantization-relevant runtime inputs (the calibration feeds and the
+``GroupQueryAttention`` node names to keep in float) can't be known until the
+ONNX exists. Rather than a standalone post-build script that reaches into
+``composite.sub_models[...]._onnx_path``, this module plugs into the normal
+build pipeline: :meth:`QwenTransformerOnlyDecoderWrapper.winml_finalize_quant_config`
+calls :func:`finalize_transformer_only_quant_config` just before
+``quantize_onnx`` runs (see ``build/hf.py``), populating the live
+:class:`WinMLQuantizationConfig` with the right
+:class:`~winml.modelkit.quant.config.CalibrationDataReader` and
+``nodes_to_exclude``.
 
-Run via ``test_qwen.py``.
+The two readers match the exported graph exactly:
+
+  - ``input_hidden_states`` (FP32), ``past_seq_len`` / ``total_seq_len``
+    (INT32), ``past_keys_{i}`` / ``past_values_{i}`` (FP16, full cache buffer).
+  - The prefill reader (``seq_len > 1``) embeds real prompt prefixes.
+  - The decode reader (``seq_len == 1``) drives a fresh FP reference model
+    through a real prefill + decode trajectory so MinMax sees representative
+    mid-generation activation ranges (a single repeated token + zeroed KV
+    collapses the ranges and degenerates generation).
+
+The export wrapper surgically replaces its own ``self.model`` (RMSNorm ->
+LpNorm-identity, attention -> GQA placeholder, Linear -> 1x1 Conv), so it can't
+run real inference; calibration loads a *fresh* ``AutoModelForCausalLM``.
 """
 
 from __future__ import annotations
 
-import logging
 import gc
+import logging
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from winml.modelkit.models.winml.composite_model import WinMLCompositeModel
-from winml.modelkit.quant import WinMLQuantizationConfig, quantize_onnx
-from winml.modelkit.quant.config import CalibrationDataReader
+from ...quant.config import CalibrationDataReader, WinMLQuantizationConfig
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_ID = "Qwen/Qwen3-0.6B"
-DEFAULT_MAX_CACHE = 256
 DEFAULT_PREFILL_SEQ = 64
 DEFAULT_GEN_SEQ = 1
 DEFAULT_NUM_SAMPLES = 30
@@ -40,16 +61,6 @@ DEFAULT_CALIB_DATASET = "openai/gsm8k"
 DEFAULT_CALIB_DATASET_CONFIG = "main"
 DEFAULT_CALIB_SPLIT = "train"
 DEFAULT_CALIB_SEED = 42
-
-# Map an ONNX quantization dtype to the bit-width suffix used in artifact
-# filenames (e.g. int8 -> "8", uint16 -> "16"), instead of brittle string
-# slicing of the dtype name.
-_DTYPE_BITS = {
-    "int8": "8",
-    "uint8": "8",
-    "int16": "16",
-    "uint16": "16",
-}
 
 
 def _load_gsm8k_prompts(num_samples: int) -> list[str]:
@@ -61,8 +72,79 @@ def _load_gsm8k_prompts(num_samples: int) -> list[str]:
     return [row["question"] for row in split.select(range(num_samples))]
 
 
+def _tokenize_prompts(tokenizer: Any, prompts: list[str], num_samples: int) -> list[torch.Tensor]:
+    out: list[torch.Tensor] = []
+    for i in range(num_samples):
+        prompt = prompts[i % len(prompts)]
+        text = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        ids = tokenizer([text], return_tensors="pt").input_ids
+        out.append(ids)
+    return out
+
+
+def _gqa_node_names(onnx_path: Path) -> list[str]:
+    """Return the names of every GroupQueryAttention node in ``onnx_path``.
+
+    These nodes are excluded from quantization so ORT leaves both their
+    inputs and output in float (``... -> Cast -> GQA -> Cast``), matching
+    the reference graph which keeps attention entirely out of QDQ.
+    """
+    import onnx
+
+    model = onnx.load(str(onnx_path), load_external_data=False)
+    return [n.name for n in model.graph.node if n.op_type == "GroupQueryAttention" and n.name]
+
+
+def _graph_shapes(onnx_path: Path) -> tuple[int, int]:
+    """Read ``(seq_len, max_cache_len)`` from the exported graph's static inputs.
+
+    ``seq_len`` is the query length (``input_hidden_states`` dim 1) and
+    ``max_cache_len`` is the KV buffer length (``past_keys_0`` dim 2). The
+    transformer-only export keeps both axes static, so these fully determine
+    whether the sub-model is prefill (``seq_len > 1``) or decode (``seq_len == 1``)
+    and the size of the fixed KV buffers the calibration feeds must match.
+    """
+    import onnx
+
+    model = onnx.load(str(onnx_path), load_external_data=False)
+    seq_len: int | None = None
+    max_cache_len: int | None = None
+    for inp in model.graph.input:
+        dims = inp.type.tensor_type.shape.dim
+        if inp.name == "input_hidden_states" and len(dims) >= 2:
+            seq_len = dims[1].dim_value
+        elif inp.name == "past_keys_0" and len(dims) >= 3:
+            max_cache_len = dims[2].dim_value
+    if seq_len is None or max_cache_len is None:
+        raise ValueError(
+            f"Could not read seq_len/max_cache_len from {onnx_path.name}; "
+            f"found seq_len={seq_len}, max_cache_len={max_cache_len}"
+        )
+    return seq_len, max_cache_len
+
+
+def _layer_kv(past: Any, i: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """Extract layer ``i``'s (key, value) from an HF cache, version-agnostic.
+
+    Handles the legacy tuple-of-tuples cache, the older ``DynamicCache``
+    (``.key_cache`` / ``.value_cache``), and the newer per-layer
+    ``DynamicCache`` (``.layers[i].keys`` / ``.values``).
+    """
+    if hasattr(past, "key_cache") and hasattr(past, "value_cache"):
+        return past.key_cache[i], past.value_cache[i]
+    if hasattr(past, "layers"):
+        layer = past.layers[i]
+        return layer.keys, layer.values
+    return past[i][0], past[i][1]
+
+
 class Qwen3TransformerOnlyCalibReader(CalibrationDataReader):
-    """Yields calibration feeds for the transformer-only ONNX.
+    """Prefill calibration feeds for the transformer-only ONNX.
 
     Feeds match the exported graph exactly: ``input_hidden_states`` (FP32),
     ``past_seq_len`` (INT32 ``[1,1]``), ``total_seq_len`` (INT32 ``[1]``),
@@ -95,9 +177,7 @@ class Qwen3TransformerOnlyCalibReader(CalibrationDataReader):
             ids = ids[:, : self.seq_len]
             real_len = ids.shape[1]
             if real_len < self.seq_len:
-                pad = torch.zeros(
-                    (1, self.seq_len - real_len), dtype=ids.dtype, device=ids.device
-                )
+                pad = torch.zeros((1, self.seq_len - real_len), dtype=ids.dtype, device=ids.device)
                 ids = torch.cat([ids, pad], dim=1)
 
             with torch.no_grad():
@@ -107,10 +187,10 @@ class Qwen3TransformerOnlyCalibReader(CalibrationDataReader):
                 "input_hidden_states": embeds.astype(np.float32),
                 # seqlens_k for GQA = (valid context length - 1), i.e.
                 # ``embeddings.shape[1] - 1``. We pad to seq_len, so the query
-                # has seq_len valid positions → past_seq_len = seq_len - 1.
+                # has seq_len valid positions -> past_seq_len = seq_len - 1.
                 # (Using 0 here declares only 1 valid token while feeding a
                 # seq_len-token query, which makes the GQA prefill kernel read
-                # out of bounds → native access violation.)
+                # out of bounds -> native access violation.)
                 "past_seq_len": np.array([[self.seq_len - 1]], dtype=np.int32),
                 "total_seq_len": np.array([self.max_cache_len], dtype=np.int32),
             }
@@ -122,28 +202,15 @@ class Qwen3TransformerOnlyCalibReader(CalibrationDataReader):
             yield feed
 
     def get_next(self) -> dict[str, np.ndarray] | None:
+        """Return the next calibration feed, or None when exhausted."""
         try:
             return next(self._iter) if self._iter is not None else None
         except StopIteration:
             return None
 
     def rewind(self) -> None:
+        """Reset the iterator so calibration can run another pass."""
         self._iter = iter(self._samples)
-
-
-def _layer_kv(past: Any, i: int) -> tuple[torch.Tensor, torch.Tensor]:
-    """Extract layer ``i``'s (key, value) from an HF cache, version-agnostic.
-
-    Handles the legacy tuple-of-tuples cache, the older ``DynamicCache``
-    (``.key_cache`` / ``.value_cache``), and the newer per-layer
-    ``DynamicCache`` (``.layers[i].keys`` / ``.values``).
-    """
-    if hasattr(past, "key_cache") and hasattr(past, "value_cache"):
-        return past.key_cache[i], past.value_cache[i]
-    if hasattr(past, "layers"):
-        layer = past.layers[i]
-        return layer.keys, layer.values
-    return past[i][0], past[i][1]
 
 
 class Qwen3DecodeTrajectoryCalibReader(CalibrationDataReader):
@@ -174,7 +241,7 @@ class Qwen3DecodeTrajectoryCalibReader(CalibrationDataReader):
         *,
         prefill_seq: int,
         max_cache_len: int,
-        decode_steps: int = 16,
+        decode_steps: int = DEFAULT_DECODE_STEPS,
     ) -> None:
         self.num_layers = config.num_hidden_layers
         self.num_kv_heads = config.num_key_value_heads
@@ -199,9 +266,7 @@ class Qwen3DecodeTrajectoryCalibReader(CalibrationDataReader):
         feed: dict[str, np.ndarray] = {}
         for i in range(self.num_layers):
             k, v = _layer_kv(past, i)
-            kbuf = np.zeros(
-                (1, self.num_kv_heads, self.max_cache_len, self.head_dim), np.float16
-            )
+            kbuf = np.zeros((1, self.num_kv_heads, self.max_cache_len, self.head_dim), np.float16)
             vbuf = np.zeros_like(kbuf)
             kbuf[:, :, :cur_len, :] = k[:, :, :cur_len, :].to(torch.float16).cpu().numpy()
             vbuf[:, :, :cur_len, :] = v[:, :, :cur_len, :].to(torch.float16).cpu().numpy()
@@ -256,179 +321,97 @@ class Qwen3DecodeTrajectoryCalibReader(CalibrationDataReader):
                 cur_len += 1
 
     def get_next(self) -> dict[str, np.ndarray] | None:
+        """Return the next calibration feed, or None when exhausted."""
         try:
             return next(self._iter) if self._iter is not None else None
         except StopIteration:
             return None
 
     def rewind(self) -> None:
+        """Reset the iterator so calibration can run another pass."""
         self._iter = iter(self._samples)
 
 
-def _tokenize_prompts(tokenizer: Any, prompts: list[str], num_samples: int) -> list[torch.Tensor]:
-    out: list[torch.Tensor] = []
-    for i in range(num_samples):
-        prompt = prompts[i % len(prompts)]
-        text = tokenizer.apply_chat_template(
-            [{"role": "user", "content": prompt}],
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        )
-        ids = tokenizer([text], return_tensors="pt").input_ids
-        out.append(ids)
-    return out
-
-
-def _gqa_node_names(onnx_path: Path) -> list[str]:
-    """Return the names of every GroupQueryAttention node in ``onnx_path``.
-
-    These nodes are excluded from quantization so ORT leaves both their
-    inputs and output in float (``... -> Cast -> GQA -> Cast``), matching
-    the reference graph which keeps attention entirely out of QDQ.
-    """
-    import onnx
-
-    model = onnx.load(str(onnx_path), load_external_data=False)
-    return [
-        n.name
-        for n in model.graph.node
-        if n.op_type == "GroupQueryAttention" and n.name
-    ]
-
-
-def quantize_built_model(
-    model: WinMLCompositeModel,
+def finalize_transformer_only_quant_config(
+    quant: WinMLQuantizationConfig,
     *,
+    onnx_path: Path,
     model_id: str = DEFAULT_MODEL_ID,
-    max_cache_len: int = DEFAULT_MAX_CACHE,
     prefill_seq: int = DEFAULT_PREFILL_SEQ,
-    num_samples: int = DEFAULT_NUM_SAMPLES,
-    weight_type: str = "int8",
-    activation_type: str = "uint16",
     decode_steps: int = DEFAULT_DECODE_STEPS,
-) -> dict[str, Path]:
-    """Quantize the transformer-only ONNX files in-place.
+) -> WinMLQuantizationConfig:
+    """Populate ``quant`` with the transformer-only w8a16 scheme + runtime fields.
 
-    Returns ``{sub_model_name: quantized_path}``.
+    The build pipeline's device/precision policy only enables quantization and
+    picks generic dtypes; the transformer-only scheme is fixed and reference-
+    matched, so this hook is authoritative:
+
+      - **int8-symmetric weights** (zp=0) + **uint16 asymmetric activations**,
+      - **MinMax** calibration,
+      - GroupQueryAttention nodes excluded from QDQ (read from the graph),
+      - the matching :class:`CalibrationDataReader` (prefill vs. decode-trajectory,
+        chosen by the graph's ``seq_len``).
+
+    Reads static shapes + GQA nodes from ``onnx_path`` and loads a fresh FP
+    reference model for calibration (the export wrapper's own weights are
+    surgically replaced and can't run real inference).
     """
-    # Locate the un-compiled ONNX for each sub-model (no surgery — file is
-    # already transformer-only).
-    sub_paths: dict[str, Path] = {}
-    for name, sub in model.sub_models.items():
-        final_path = Path(sub._onnx_path)
-        if final_path.name.endswith("_model.onnx"):
-            stem = final_path.name[: -len("_model.onnx")]
-            optimized = final_path.with_name(f"{stem}_optimized.onnx")
-            if optimized.exists():
-                sub_paths[name] = optimized
-                continue
-            print(
-                f"WARNING: {optimized.name} not found next to {final_path.name}; "
-                "falling back to the compiled model."
-            )
-        sub_paths[name] = final_path
+    onnx_path = Path(onnx_path)
+    seq_len, max_cache_len = _graph_shapes(onnx_path)
+    gqa_nodes = _gqa_node_names(onnx_path)
 
-    for name, p in sub_paths.items():
-        print(f"  {name}: {p}")
+    # Fixed, reference-matched w8a16 scheme (authoritative over policy dtypes).
+    quant.weight_type = "int8"
+    quant.activation_type = "uint16"
+    quant.weight_symmetric = True
+    quant.activation_symmetric = False
+    quant.calibration_method = "minmax"
+    num_samples = quant.samples or DEFAULT_NUM_SAMPLES
 
-    print("\n=== Loading HF embed_tokens for calibration ===")
-    hf_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float32)
+    logger.info(
+        "Finalizing transformer-only quant config for %s "
+        "(seq_len=%d, max_cache_len=%d, %d GQA nodes excluded, %d samples)",
+        onnx_path.name,
+        seq_len,
+        max_cache_len,
+        len(gqa_nodes),
+        num_samples,
+    )
+
+    hf_model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.float32)
     hf_model.eval()
     embed_tokens = hf_model.get_input_embeddings()
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-    print(
-        f"=== Loading {num_samples} GSM8K calibration prompts "
-        f"({DEFAULT_CALIB_DATASET}/{DEFAULT_CALIB_DATASET_CONFIG}, "
-        f"split={DEFAULT_CALIB_SPLIT}, seed={DEFAULT_CALIB_SEED}) ==="
-    )
     prompts = _load_gsm8k_prompts(num_samples)
     token_ids_list = _tokenize_prompts(tokenizer, prompts, num_samples)
 
-    seq_by_sub = {
-        "decoder_prefill": prefill_seq,
-        "decoder_gen": DEFAULT_GEN_SEQ,
-    }
-
-    quant_paths: dict[str, Path] = {}
-    for sub_name, fused_path in sub_paths.items():
-        if sub_name not in seq_by_sub:
-            print(f"\n--- Skipping unknown sub-model {sub_name!r} ---")
-            continue
-
-        seq_len = seq_by_sub[sub_name]
-        quant_path = fused_path.with_name(
-            fused_path.stem
-            + f"_w{_DTYPE_BITS[weight_type]}a{_DTYPE_BITS[activation_type]}.quant.onnx"
+    reader: CalibrationDataReader
+    if seq_len == DEFAULT_GEN_SEQ:
+        # Decode sub-model: calibrate on a real prefill+decode trajectory.
+        reader = Qwen3DecodeTrajectoryCalibReader(
+            hf_model,
+            embed_tokens,
+            hf_model.config,
+            token_ids_list,
+            prefill_seq=prefill_seq,
+            max_cache_len=max_cache_len,
+            decode_steps=decode_steps,
+        )
+    else:
+        reader = Qwen3TransformerOnlyCalibReader(
+            embed_tokens,
+            hf_model.config,
+            token_ids_list,
+            seq_len=seq_len,
+            max_cache_len=max_cache_len,
         )
 
-        print(f"\n=== Quantize (transformer-only): {sub_name} (seq_len={seq_len}) ===")
-        print(f"  in : {fused_path}")
-        print(f"  out: {quant_path}")
-        gqa_nodes = _gqa_node_names(fused_path)
-        print(
-            f"  excluding {len(gqa_nodes)} GroupQueryAttention nodes from "
-            "quantization (inputs + output stay float, Cast -> GQA -> Cast)"
-        )
-        if sub_name == "decoder_gen":
-            # The iter model only sees mid-generation states. Calibrate it on a
-            # real prefill+decode trajectory (true tokens, accumulated KV,
-            # growing past_seq_len) instead of one token + zeroed KV, which
-            # would under-range the MinMax activation scales and collapse
-            # generation.
-            print(
-                f"  calibrating on decode trajectory ({decode_steps} steps/prompt, "
-                f"prefill_seq={prefill_seq})"
-            )
-            reader: CalibrationDataReader = Qwen3DecodeTrajectoryCalibReader(
-                hf_model,
-                embed_tokens,
-                hf_model.config,
-                token_ids_list,
-                prefill_seq=prefill_seq,
-                max_cache_len=max_cache_len,
-                decode_steps=decode_steps,
-            )
-        else:
-            reader = Qwen3TransformerOnlyCalibReader(
-                embed_tokens,
-                hf_model.config,
-                token_ids_list,
-                seq_len=seq_len,
-                max_cache_len=max_cache_len,
-            )
-        cfg = WinMLQuantizationConfig(
-            samples=num_samples,
-            weight_type=weight_type,  # type: ignore[arg-type]
-            activation_type=activation_type,  # type: ignore[arg-type]
-            calibration_method="minmax",
-            calibration_data=reader,
-            # w8a16: symmetric int8 weights (zp=0) + asymmetric uint16
-            # activations, matching the reference quantization.
-            weight_symmetric=True,
-            activation_symmetric=False,
-            # ORT treats GroupQueryAttention as quantizable and wraps both its
-            # inputs and output in QDQ. The reference keeps attention entirely
-            # in float (Cast -> GQA -> Cast), so exclude the GQA nodes from
-            # quantization so no QDQ is inserted around them.
-            nodes_to_exclude=gqa_nodes,
-        )
-        result = quantize_onnx(fused_path, output_path=quant_path, config=cfg)
-        if not result.success:
-            print("  FAILED:")
-            for err in result.errors:
-                print(f"    {err}")
-            raise SystemExit(1)
-        print(
-            f"  ok — {result.nodes_quantized} QDQ nodes inserted in "
-            f"{result.total_time_seconds:.1f}s"
-        )
-        quant_paths[sub_name] = quant_path
+    quant.calibration_data = reader
+    quant.nodes_to_exclude = gqa_nodes
 
-    # Free the FP reference model now that calibration is done.
+    # Readers materialize all samples eagerly, so the FP reference is no longer
+    # needed once they're built.
     del hf_model, embed_tokens
     gc.collect()
 
-    print("\n=== Done ===")
-    return quant_paths
+    return quant

@@ -310,6 +310,14 @@ def build_hf_model(
         else:
             logger.info("Quantizing model...")
             t0 = time.monotonic()
+            # Some model wrappers can only finalize their quant config once the
+            # exported ONNX exists (e.g. calibration feeds / nodes-to-exclude
+            # derived from the graph). Give the wrapper a chance to populate
+            # those runtime-only fields here.
+            if pytorch_model is not None and hasattr(pytorch_model, "winml_finalize_quant_config"):
+                config.quant = pytorch_model.winml_finalize_quant_config(
+                    config.quant, onnx_path=current_path, model_id=model_id
+                )
             quant_result = quantize_onnx(
                 model_path=current_path,
                 output_path=quantized_path,

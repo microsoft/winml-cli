@@ -85,7 +85,10 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
         self.config.model_type = TRANSFORMER_ONLY_MODEL_TYPE
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> QwenTransformerOnlyDecoderWrapper:
+    def from_pretrained(
+        cls, model_name_or_path: str, **kwargs: Any
+    ) -> QwenTransformerOnlyDecoderWrapper:
+        """Load the HF model and wrap it for transformer-only export."""
         kwargs.setdefault("torch_dtype", torch.float32)
         model = AutoModelForCausalLM.from_pretrained(model_name_or_path, **kwargs)
         model.config._attn_implementation = "eager"
@@ -94,24 +97,23 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
         return wrapper
 
     def get_export_args(self, inputs: dict[str, torch.Tensor]) -> tuple[torch.Tensor, ...]:
+        """Flatten the dummy-input dict into positional export args."""
         return tuple(inputs.values())
 
     def forward(self, *args: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Positional inputs (order matches OnnxConfig.inputs):
+        """Run the decoder stack on positional inputs (order matches OnnxConfig.inputs).
 
-            past_keys_0, past_values_0, ..., past_keys_{L-1}, past_values_{L-1},
-            input_hidden_states, past_seq_len, total_seq_len
-
-        Returns ``(output_hidden_states, present_keys_0, present_values_0, ...)``.
+        Positional inputs are ``past_keys_0, past_values_0, ...,
+        past_keys_{L-1}, past_values_{L-1}, input_hidden_states, past_seq_len,
+        total_seq_len``. Returns ``(output_hidden_states, present_keys_0,
+        present_values_0, ...)``.
         """
         kv_args = args[: 2 * self.num_layers]
         input_hidden_states = args[2 * self.num_layers]
         past_seq_len = args[2 * self.num_layers + 1]
         total_seq_len = args[2 * self.num_layers + 2]
 
-        past_key_values = [
-            (kv_args[2 * i], kv_args[2 * i + 1]) for i in range(self.num_layers)
-        ]
+        past_key_values = [(kv_args[2 * i], kv_args[2 * i + 1]) for i in range(self.num_layers)]
 
         hidden_states, present_kvs = self.model.model(
             inputs_embeds=input_hidden_states,
@@ -125,6 +127,27 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
         for k, v in present_kvs:
             out.extend([k, v])
         return tuple(out)
+
+    def winml_finalize_quant_config(
+        self, quant: Any, *, onnx_path: Any, model_id: str | None = None
+    ) -> Any:
+        """Build-pipeline hook: attach the calibration reader + GQA exclusions.
+
+        Called by ``build_hf_model`` just before ``quantize_onnx`` (see
+        ``build/hf.py``). The exported transformer-only graph determines the
+        calibration feeds (shapes, KV buffers) and which GroupQueryAttention
+        nodes stay in float, so the live :class:`WinMLQuantizationConfig` can
+        only be finalized here — not at config-construction time.
+        """
+        from .qwen_transformer_only_quant import (
+            DEFAULT_MODEL_ID,
+            finalize_transformer_only_quant_config,
+        )
+
+        resolved_id = model_id or getattr(self.config, "_name_or_path", None) or DEFAULT_MODEL_ID
+        return finalize_transformer_only_quant_config(
+            quant, onnx_path=onnx_path, model_id=resolved_id
+        )
 
 
 # =============================================================================
@@ -151,7 +174,13 @@ class _TransformerOnlyHiddenStateGenerator(DummyInputGenerator):
         self.hidden_size = normalized_config.hidden_size
         self.seq_len = seq_len or getattr(normalized_config, "seq_len", self._default_seq_len)
 
-    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32") -> torch.Tensor:  # noqa: ARG002
+    def generate(
+        self,
+        input_name: str,
+        framework: str = "pt",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+    ) -> torch.Tensor:
         if input_name == "input_hidden_states":
             return torch.randn(self.batch_size, self.seq_len, self.hidden_size, dtype=torch.float32)
         raise ValueError(f"Unknown input: {input_name}")
@@ -166,10 +195,16 @@ class _TransformerOnlySeqLenGenerator(DummyInputGenerator):
 
     SUPPORTED_INPUT_NAMES = ("past_seq_len", "total_seq_len")
 
-    def __init__(self, task: str, normalized_config: Any, **kwargs: Any) -> None:  # noqa: ARG002
+    def __init__(self, task: str, normalized_config: Any, **kwargs: Any) -> None:
         self.max_cache_len = normalized_config.max_cache_len
 
-    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32") -> torch.Tensor:  # noqa: ARG002
+    def generate(
+        self,
+        input_name: str,
+        framework: str = "pt",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+    ) -> torch.Tensor:
         if input_name == "past_seq_len":
             return torch.zeros((1, 1), dtype=torch.int32)
         if input_name == "total_seq_len":
@@ -192,14 +227,22 @@ class _TransformerOnlyKvCacheGenerator(DummyInputGenerator):
     ) -> None:
         self.batch_size = batch_size
         self.num_layers: int = normalized_config.num_layers
-        self.num_heads: int = normalized_config.num_attention_heads  # KV heads (NormalizedConfig maps it)
+        self.num_heads: int = (
+            normalized_config.num_attention_heads
+        )  # KV heads (NormalizedConfig maps it)
         self.head_dim: int = normalized_config.head_dim
         self.max_cache_len: int = max_cache_len or normalized_config.max_cache_len
         self.SUPPORTED_INPUT_NAMES = tuple(
             name for i in range(self.num_layers) for name in (f"past_keys_{i}", f"past_values_{i}")
         )
 
-    def generate(self, input_name: str, framework: str = "pt", int_dtype: str = "int64", float_dtype: str = "fp32") -> torch.Tensor:  # noqa: ARG002
+    def generate(
+        self,
+        input_name: str,
+        framework: str = "pt",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+    ) -> torch.Tensor:
         shape = (self.batch_size, self.num_heads, self.max_cache_len, self.head_dim)
         return torch.zeros(shape, dtype=torch.float16)
 
@@ -220,7 +263,9 @@ _QWEN_TRANSFORMER_ONLY_NORMALIZED = NormalizedConfig.with_args(
 )
 
 
-def _transformer_only_inputs(num_layers: int, kv_seq_axis: str = "max_seq_len") -> dict[str, dict[int, str]]:
+def _transformer_only_inputs(
+    num_layers: int, kv_seq_axis: str = "max_seq_len"
+) -> dict[str, dict[int, str]]:
     """Input ordering: past KV pairs, then hidden states, then seq lens."""
     result: dict[str, dict[int, str]] = {}
     for i in range(num_layers):
@@ -232,7 +277,9 @@ def _transformer_only_inputs(num_layers: int, kv_seq_axis: str = "max_seq_len") 
     return result
 
 
-def _transformer_only_outputs(num_layers: int, kv_seq_axis: str = "max_seq_len") -> dict[str, dict[int, str]]:
+def _transformer_only_outputs(
+    num_layers: int, kv_seq_axis: str = "max_seq_len"
+) -> dict[str, dict[int, str]]:
     result: dict[str, dict[int, str]] = {"output_hidden_states": {1: "seq_len"}}
     for i in range(num_layers):
         result[f"present_keys_{i}"] = {2: kv_seq_axis}
@@ -255,10 +302,12 @@ class QwenTransformerOnlyPrefillIOConfig(OnnxConfig):
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:
+        """ONNX input axes (past KV pairs, hidden states, seq lengths)."""
         return _transformer_only_inputs(self._normalized_config.num_layers)
 
     @property
     def outputs(self) -> dict[str, dict[int, str]]:
+        """ONNX output axes (hidden states then present KV pairs)."""
         return _transformer_only_outputs(self._normalized_config.num_layers)
 
 
@@ -277,10 +326,12 @@ class QwenTransformerOnlyGenIOConfig(OnnxConfig):
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:
+        """ONNX input axes (past KV pairs, hidden states, seq lengths)."""
         return _transformer_only_inputs(self._normalized_config.num_layers)
 
     @property
     def outputs(self) -> dict[str, dict[int, str]]:
+        """ONNX output axes (hidden states then present KV pairs)."""
         return _transformer_only_outputs(self._normalized_config.num_layers)
 
 
@@ -320,6 +371,7 @@ class WinMLQwen3TransformerOnlyModel(WinMLDecoderOnlyModel):
 
     @classmethod
     def get_cache_class(cls) -> type:
+        """Return the KV-cache class used during generation."""
         return WinMLSlidingWindowCache
 
 
@@ -336,8 +388,12 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 }
 
 # Inference specialization (GenericTask — the wrapper returns raw hidden states / KV).
-register_specialization(TRANSFORMER_ONLY_MODEL_TYPE, "feature-extraction", "WinMLModelForGenericTask")
-register_specialization(TRANSFORMER_ONLY_MODEL_TYPE, "text2text-generation", "WinMLModelForGenericTask")
+register_specialization(
+    TRANSFORMER_ONLY_MODEL_TYPE, "feature-extraction", "WinMLModelForGenericTask"
+)
+register_specialization(
+    TRANSFORMER_ONLY_MODEL_TYPE, "text2text-generation", "WinMLModelForGenericTask"
+)
 
 
 __all__ = [
