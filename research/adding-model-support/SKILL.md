@@ -418,7 +418,7 @@ If NONE of triggers 1–7 fired, you do NOT owe a `_meta-NNN`. A no-friction con
 
 Use the same finding schema as Step 4 with these required fields tightened:
 
-- `id`: `_meta-NNN` where `NNN` = `(max existing id) + 1`. Currently next id = **`_meta-039` (post-iter-6 + catalog-only audit, 2026-06-23)** — grep `findings.json` for the actual max before assigning.
+- `id`: `_meta-NNN` where `NNN` = `(max existing id) + 1`. Currently next id = **`_meta-040` (post-iter-7 mgp-str-base, 2026-06-24)** — grep `findings.json` for the actual max before assigning.
 - `scope.validated_on`: cite the exact run that surfaced the friction (model id, command, error message or wrong-output diff).
 - `scope.refines` / `scope.falsified_on`: if your finding supersedes an existing `_meta-NNN`, name it here. Append, don't rewrite (same rule as Step 4).
 - `mechanism_confirmed`: `true` only if you re-ran with the fix and confirmed the friction is gone. Otherwise `false` with hypothesis in `mechanism_notes`.

@@ -2,7 +2,7 @@
   "_meta": {
     "family": "_meta",
     "purpose": "Methodology-level findings about this skill itself. Not a model family. Lives alongside per-family files so the dialectical record covers the framework too.",
-    "last_updated": "2026-06-23 (added _meta-038: auto-config-diff + baseline-build gates)",
+    "last_updated": "2026-06-24 (added _meta-039: HF architectures-rename CLI gap from mgp-str-base iter-7 trigger)",
     "epistemics_warning": "These are observations about SKILL.md, not about any model. Update when the skill's own claims are refuted."
   },
   "findings": [
@@ -1017,6 +1017,41 @@
       "mechanism_notes": "Mechanism empirically confirmed 2026-06-23: 6 PRs ran both gates; 5 of 6 caught (#934 #943 #944 #945 #946 all closed with explanatory comment), 1 of 6 caught after follow-up investigation (#933 \u2014 initially survived gate-1 due to `value_range` delta, fell to gate-2 because the field is inert per `_meta-017`). All 6 closed as catalog-only. No replacement PRs needed; the CLI on `main` already serves these users.",
       "resolution": "SKILL.md gained 'Step 1b \u2014 Catalog vs real-engineering gate (BEFORE any recipe work)' immediately after Step 1, runs both gates upfront so producer never starts down the catalog-only path. Step 0 Effort table got a new disambiguator on L0/L0\u2605: 'if `winml config` auto-output is IDENTICAL to your planned recipe AND `winml build` PASSes out-of-box on `main`, this is NOT a contribution \u2014 do not file the PR'. Step 0 Goal table got a guardrail line on every tier: 'Lx evidence is meaningful only when both gates from Step 1b have been run and at least one shows a real delta'. findings.json updated. Pushed to `shzhen/skills_poc` in the same commit as the 6 PR closures.",
       "last_updated": "2026-06-23"
+    },
+    {
+      "id": "_meta-039",
+      "title": "When a HuggingFace model card's `config.json::architectures[0]` uses a legacy class-name spelling that current `transformers` has since renamed (camelCase rename, prefix drop, etc.), `winml`'s task auto-detection hard-fails at `getattr(transformers, arch_name)` with the unhelpful `Cannot import <Name> from transformers. Please specify task explicitly.` \u2014 silently blocking every Step 1 diagnostic command (`inspect`, `config`, `build` without `-c`). This is a CLI robustness gap separate from the model-support gap, and it makes Step 1b Gate-2 baseline-build LOOK like a real engineering need when it is actually a Trigger-#1 CLI surprise.",
+      "observation": "On 2026-06-24 (iter-7 first new-model contribution, `alibaba-damo/mgp-str-base`) Step 1 diagnosis crashed with `Cannot import MGPSTRModel from transformers. Please specify task explicitly.` Root cause: HF model card config.json declares `architectures: ['MGPSTRModel']` (legacy all-caps spelling from the original 2023 PR), but current `transformers` only exports `MgpstrModel` and `MgpstrForSceneTextRecognition` (CamelCase rename done upstream sometime between the model's upload and 2026-06-24). `winml.modelkit.loader.task._resolve_model_class_from_config` at line 234-238 does plain `getattr(transformers_module, arch_name)` with no fallback, so the AttributeError bubbles up. Cascade effect on the Step 1b gate workflow: (1) Gate-1 (`winml config -m alibaba-damo/mgp-str-base --task image-to-text`) fails BEFORE it can emit the recipe to diff against; (2) Gate-2 baseline build (`winml build -m alibaba-damo/mgp-str-base ...`) fails for the SAME architectures-rename reason, not for the underlying 'mgp-str doesn't support image-to-text task in TasksManager' reason that the L1-light registration is meant to fix. So Gate-2 reads FAIL but the failure is a CLI-surprise, not the model-coverage gap. The producer must run a SECOND Gate-2 variant with `--task image-to-text` explicit to surface the real coverage gap (which then fails with `mgp-str doesn't support task image-to-text for the onnx backend. Supported tasks are: feature-extraction.` \u2014 THAT is what the L1-light contribution fixes).",
+      "scope": {
+        "validated_on": [
+          "2026-06-24 `alibaba-damo/mgp-str-base` \u2014 architectures field is `['MGPSTRModel']` (legacy), current transformers exports `MgpstrModel` (camel). Reproduces via `uv run winml inspect -m alibaba-damo/mgp-str-base` with no `--task` flag."
+        ],
+        "falsified_on": [],
+        "refines": ["_meta-038"],
+        "not_yet_tested_on": [
+          "Other models with stale architectures fields (cast a wide net via `huggingface_hub` API: find configs where `architectures[0]` is NOT importable from current `transformers` version)",
+          "Models with multiple entries in `architectures` (current loader picks `architectures[0]` only \u2014 if entry 0 is stale but entry 1 is current, the fallback would help)"
+        ]
+      },
+      "effort_tier_required": "L2 (CLI fix \u2014 not a model-coverage fix)",
+      "goal_tier_reached": "n/a (methodology + CLI bug)",
+      "recipe_template": "n/a",
+      "gotchas": [
+        "When Step 1 / Step 1b Gate-2 crashes with `Cannot import <ArchName> from transformers`, the producer's FIRST move must be `pip show transformers` + `python -c 'import transformers; print(hasattr(transformers, \"<ArchName>\"))'` + grep transformers source for a renamed equivalent (case-insensitive). Do NOT immediately assume 'this is a model-coverage gap that needs new code in models/hf/' \u2014 the gap might be entirely CLI-side.",
+          "ALWAYS re-run Step 1b Gate-2 with explicit `--task <task>` after seeing this error, to surface what the REAL coverage gap is (if any). Without the explicit `--task`, the architectures-rename error masks every downstream issue.",
+        "The error message 'Please specify task explicitly' is misleading because passing `--task` does NOT route around the bug for all commands \u2014 `winml inspect` and `winml config` accept `--task`, but in earlier versions `winml build` did not (verified 2026-06-24: `winml build` DOES accept `--task` now via `--task <task>` flag on the loader CLI surface, but contributors testing on older revisions may hit the gap).",
+        "When filing a model_knowledge finding that depends on this CLI-surprise unmasking, ALWAYS quote both error messages in the gotchas section so the next producer knows which one is the architectures-rename CLI bug vs which one is the real model-coverage gap.",
+        "The fix in `_resolve_model_class_from_config` should be: try `getattr(transformers, arch_name)`; on AttributeError, try a case-insensitive scan of `dir(transformers)` matching `arch_name.lower()`; on still-AttributeError, try a known-rename table (small dict shipped with `winml`, e.g. `{'MGPSTRModel': 'MgpstrModel'}`); only THEN raise the current error. This is mechanical to implement; the harder part is keeping the known-rename table current as transformers renames classes."
+      ],
+      "feature_gaps_filed": [
+        "FILE: Patch `src/winml/modelkit/loader/task.py::_resolve_model_class_from_config` (lines 232-238) with the 3-tier fallback (case-insensitive scan + known-rename table). Add unit test using `alibaba-damo/mgp-str-base` config as fixture. Ship as standalone L2 PR (Lane A) separate from any model-coverage PR (Lane B) per `_meta-033`.",
+        "FILE: Expand `_meta-038` Step 1b Gate-2 instructions to require BOTH `winml build -m <id>` (no --task) AND `winml build -m <id> --task <task>` to disambiguate architectures-rename CLI bug from model-coverage gap. Without both variants, producers will mis-classify CLI surprises as model-coverage needs and the resulting Lane B contribution will incorrectly claim to fix problem A when it actually fixes problem B.",
+        "FILE: Audit `examples/recipes/` for other models whose HF config.json has a stale `architectures` field. Quick screen: any recipe whose `loader.model_class` value differs in case-pattern from the `architectures[0]` value at the HF source is a candidate."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reproducible: `uv run winml inspect -m alibaba-damo/mgp-str-base` raises `ValueError: Cannot import MGPSTRModel from transformers. Please specify task explicitly.` on this revision (2026-06-24). Adding `--task image-to-text` after the L1-light registration in `models/hf/mgp_str.py` bypasses the bug because the task is supplied directly and `_resolve_model_class_from_config` is not invoked. Bug location: `src/winml/modelkit/loader/task.py:232-238` (function `_resolve_model_class_from_config`).",
+      "resolution": "OPEN. Documented here to (1) record the Trigger-#1 CLI-surprise per Step 4b, (2) refine `_meta-038` Gate-2 instructions, (3) flag the patch site for the next Lane A contribution. Not blocking the mgp-str-base Lane B PR \u2014 that PR ships with `--task image-to-text` in the recipe loader field, which avoids the bug. Cross-link: `model_knowledge/mgp_str.json::mgp_str-004` documents the user-facing workaround.",
+      "last_updated": "2026-06-24"
     }
   ]
 }

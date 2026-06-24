@@ -16,7 +16,13 @@ Each *(model, task)* includes:
 
 | Model | Task |
 |---|---|
+| alibaba-damo/mgp-str-base | image-to-text (scene-text-recognition; requires L1-light registration in `src/winml/modelkit/models/hf/mgp_str.py`) |
+| apple/DepthPro-hf | depth-estimation |
 | BAAI/bge-large-en-v1.5 | sentence-similarity |
+| breezedeus/pix2text-mfr | image-to-text (BROKEN — upstream HF repo layout; see recipe `_status`) |
+| facebook/bart-large-mnli | text-classification |
+| Helsinki-NLP/opus-mt-en-ru | translation |
+| Helsinki-NLP/opus-mt-fr-en | translation |
 | cardiffnlp/twitter-roberta-base-sentiment-latest | text-classification |
 | deepset/roberta-base-squad2 | question-answering |
 | deepset/tinyroberta-squad2 | question-answering |
@@ -25,6 +31,7 @@ Each *(model, task)* includes:
 | google/vit-base-patch16-224-in21k | image-feature-extraction |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction |
 | microsoft/rad-dino | image-feature-extraction |
+| nlpconnect/vit-gpt2-image-captioning | image-to-text |
 | openai/clip-vit-base-patch16 | feature-extraction |
 | sentence-transformers/all-MiniLM-L6-v2 | feature-extraction |
 | sentence-transformers/all-MiniLM-L6-v2 | sentence-similarity |

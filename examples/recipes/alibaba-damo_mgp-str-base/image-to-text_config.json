@@ -1,0 +1,49 @@
+{
+  "_note": "MGP-STR scene-text-recognition recipe under the image-to-text task label. Requires the L1-light registration in src/winml/modelkit/models/hf/mgp_str.py (MgpstrImage2TextOnnxConfig). Vendor MgpstrOnnxConfig is only registered for feature-extraction, so without that registration `winml config -m <id> --task image-to-text` refuses with 'mgp-str doesn't support task image-to-text for the onnx backend'. The 3-head outputs (char/bpe/wp logits) come from MgpstrForSceneTextRecognition unchanged; the alias only changes the user-facing task label.",
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "pixel_values",
+        "dtype": "float32",
+        "shape": [
+          1,
+          3,
+          32,
+          128
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "char_logits"
+      },
+      {
+        "name": "bpe_logits"
+      },
+      {
+        "name": "wp_logits"
+      }
+    ]
+  },
+  "optim": {},
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "image-to-text",
+    "model_class": "MgpstrForSceneTextRecognition",
+    "model_type": "mgp-str"
+  }
+}
