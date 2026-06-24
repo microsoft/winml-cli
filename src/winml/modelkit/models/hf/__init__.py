@@ -75,6 +75,8 @@ from .vision_encoder_decoder import (
     VisionDecoderIOConfig as _VisionDecoderIOConfig,  # triggers registration
 )
 from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
+from .vilt import MODEL_CLASS_MAPPING as _VILT_CLASS_MAPPING
+from .vilt import ViltVqaOnnxConfig as _ViltVqaOnnxConfig  # triggers registration
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
@@ -97,6 +99,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
     **_SIGLIP_CLASS_MAPPING,
     **_T5_CLASS_MAPPING,
     **_VED_CLASS_MAPPING,
+    **_VILT_CLASS_MAPPING,
 }
 
 # Registry: model_type -> WinMLBuildConfig
