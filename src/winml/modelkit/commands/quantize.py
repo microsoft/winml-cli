@@ -238,7 +238,11 @@ def quantize(
         return
 
     # ── Weight-only (RTN) path ───────────────────────────────────
-    from ..config.precision import extract_weight_bits, is_weight_only_precision
+    from ..config.precision import (
+        extract_activation_bits,
+        extract_weight_bits,
+        is_weight_only_precision,
+    )
 
     is_rtn = precision and is_weight_only_precision(precision.lower())
 
@@ -249,6 +253,7 @@ def quantize(
 
         assert precision is not None  # guaranteed by is_rtn check
         rtn_bits = extract_weight_bits(precision.lower())
+        a_bits = extract_activation_bits(precision.lower())
 
         # Determine output path
         if output is None:
@@ -263,6 +268,7 @@ def quantize(
         config = WinMLQuantizationConfig(
             algorithm="rtn",
             rtn_bits=rtn_bits,
+            fp16=a_bits == 16,
         )
 
         try:

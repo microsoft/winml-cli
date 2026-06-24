@@ -78,9 +78,10 @@ _MIXED_RE = re.compile(r"^w(\d+)a(\d+)$")
 
 # Valid bit widths for w{x}a{y} validation.
 # Weight supports 4-bit (RTN weight-only) plus 8/16-bit (QDQ).
-# Activation only supports 8/16-bit (no 4-bit activation quantization).
+# Activation supports 8/16-bit for QDQ, plus 32-bit (meaning "keep FP32, no
+# activation quantization") which is only valid with weight-only (4-bit RTN).
 _VALID_WEIGHT_BITS = frozenset({4, 8, 16})
-_VALID_ACTIVATION_BITS = frozenset({8, 16})
+_VALID_ACTIVATION_BITS = frozenset({8, 16, 32})
 
 
 def resolve_quant_types(precision: str) -> tuple[QuantType, QuantType]:
@@ -141,7 +142,7 @@ def is_quantized_precision(precision: str) -> bool:
     """Return True if precision implies quantization (not float).
 
     Includes both QDQ precisions (int8, int16, w8a8) and weight-only
-    precisions (int4, w4a16) that use RTN.
+    precisions (int4, w4a16, w4a32) that use RTN.
     """
     p = precision.lower()
     if p in ("fp16", "fp32", "auto"):
@@ -154,7 +155,10 @@ def is_quantized_precision(precision: str) -> bool:
     if not m:
         return False
     w_bits, a_bits = int(m.group(1)), int(m.group(2))
-    return w_bits in _VALID_WEIGHT_BITS and a_bits in _VALID_ACTIVATION_BITS
+    if w_bits not in _VALID_WEIGHT_BITS or a_bits not in _VALID_ACTIVATION_BITS:
+        return False
+    # a_bits=32 (keep FP32) only valid with weight-only (4-bit) RTN
+    return not (a_bits == 32 and w_bits in _BITS_TO_WEIGHT_TYPE)
 
 
 def _is_valid_precision(precision: str) -> bool:
@@ -165,7 +169,10 @@ def _is_valid_precision(precision: str) -> bool:
     if not m:
         return False
     w_bits, a_bits = int(m.group(1)), int(m.group(2))
-    return w_bits in _VALID_WEIGHT_BITS and a_bits in _VALID_ACTIVATION_BITS
+    if w_bits not in _VALID_WEIGHT_BITS or a_bits not in _VALID_ACTIVATION_BITS:
+        return False
+    # a_bits=32 (keep FP32) only valid with weight-only (4-bit) RTN
+    return not (a_bits == 32 and w_bits in _BITS_TO_WEIGHT_TYPE)
 
 
 def is_weight_only_precision(precision: str) -> bool:
@@ -175,8 +182,10 @@ def is_weight_only_precision(precision: str) -> bool:
     MatMulNBits ops instead of QDQ (QuantizeLinear/DequantizeLinear).
 
     Rules:
-        - ``int4`` → weight-only 4-bit RTN
-        - ``w4a{y}`` → weight 4-bit RTN (y must be a valid activation bit-width)
+        - ``int4`` → weight-only 4-bit RTN (equivalent to ``w4a32``)
+        - ``w4a32`` → weight 4-bit RTN, activation stays FP32
+        - ``w4a16`` → weight 4-bit RTN + FP16 post-processing on activations
+        - ``w4a8`` → weight 4-bit RTN + 8-bit activation (reserved)
         - All other precisions → False (use QDQ or FP16)
 
     Only returns True for valid precisions — ``w4a4`` returns False because
@@ -223,8 +232,42 @@ def extract_weight_bits(precision: str) -> int:
             raise ValueError(
                 f"'{precision}' has unsupported bit-widths (weight={w_bits}, activation={a_bits})"
             )
+        # a_bits=32 only valid with weight-only (4-bit) — reject w8a32, w16a32
+        if a_bits == 32 and w_bits in _BITS_TO_WEIGHT_TYPE:
+            raise ValueError(
+                f"'{precision}' is invalid: a32 (keep FP32) is only valid with "
+                "weight-only precisions (4-bit RTN)"
+            )
         return w_bits
     raise ValueError(f"Cannot extract weight bits from '{precision}'")
+
+
+def extract_activation_bits(precision: str) -> int:
+    """Extract activation bit-width from a precision string.
+
+    For named presets: ``int4`` → 32 (activation stays FP32).
+    For mixed format: ``w4a16`` → 16, ``w4a32`` → 32.
+
+    Args:
+        precision: A valid precision string.
+
+    Returns:
+        Activation bit-width as integer (8, 16, or 32).
+
+    Raises:
+        ValueError: If activation bits cannot be extracted.
+    """
+    p = precision.lower()
+    # Named presets: int4 means activation stays FP32
+    if p == "int4":
+        return 32
+    m = _MIXED_RE.match(p)
+    if m:
+        a_bits = int(m.group(2))
+        if a_bits not in _VALID_ACTIVATION_BITS:
+            raise ValueError(f"'{precision}' has unsupported activation bit-width: {a_bits}")
+        return a_bits
+    raise ValueError(f"Cannot extract activation bits from '{precision}'")
 
 
 @dataclass

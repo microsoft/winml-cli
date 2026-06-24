@@ -17,6 +17,7 @@ import logging
 import pytest
 
 from winml.modelkit.config.precision import (
+    extract_activation_bits,
     extract_weight_bits,
     is_quantized_precision,
     is_weight_only_precision,
@@ -649,7 +650,7 @@ class TestQuantizeCliResolveQuant:
 class TestIsWeightOnlyPrecision:
     """Test is_weight_only_precision() function."""
 
-    @pytest.mark.parametrize("precision", ["int4", "w4a16", "w4a8"])
+    @pytest.mark.parametrize("precision", ["int4", "w4a16", "w4a8", "w4a32"])
     def test_weight_only_true(self, precision: str) -> None:
         """Weight-only precisions should return True."""
         assert is_weight_only_precision(precision) is True
@@ -657,6 +658,11 @@ class TestIsWeightOnlyPrecision:
     @pytest.mark.parametrize("precision", ["int8", "int16", "w8a16", "w8a8", "w16a16"])
     def test_qdq_precisions_false(self, precision: str) -> None:
         """QDQ precisions should return False."""
+        assert is_weight_only_precision(precision) is False
+
+    @pytest.mark.parametrize("precision", ["w8a32", "w16a32"])
+    def test_a32_with_qdq_weight_false(self, precision: str) -> None:
+        """a32 (keep FP32) is only valid with weight-only (4-bit), not QDQ weights."""
         assert is_weight_only_precision(precision) is False
 
     @pytest.mark.parametrize("precision", ["fp16", "fp32", "auto"])
@@ -686,6 +692,7 @@ class TestExtractWeightBits:
             ("int16", 16),
             ("w4a16", 4),
             ("w4a8", 4),
+            ("w4a32", 4),
             ("w8a8", 8),
             ("w8a16", 8),
             ("w16a16", 16),
@@ -706,3 +713,38 @@ class TestExtractWeightBits:
         """Precisions with unsupported bit-widths should raise ValueError."""
         with pytest.raises(ValueError, match=r"unsupported bit-widths"):
             extract_weight_bits(precision)
+
+
+# =============================================================================
+# TestExtractActivationBits - activation bit extraction
+# =============================================================================
+
+
+class TestExtractActivationBits:
+    """Test extract_activation_bits() function."""
+
+    @pytest.mark.parametrize(
+        ("precision", "expected"),
+        [
+            ("int4", 32),  # int4 preset = w4a32 (activation stays FP32)
+            ("w4a32", 32),
+            ("w4a16", 16),
+            ("w4a8", 8),
+            ("w8a8", 8),
+            ("w8a16", 16),
+        ],
+    )
+    def test_extract_activation_bits(self, precision: str, expected: int) -> None:
+        """Should extract correct activation bit-width."""
+        assert extract_activation_bits(precision) == expected
+
+    @pytest.mark.parametrize("precision", ["fp16", "fp32", "auto", "garbage"])
+    def test_invalid_raises(self, precision: str) -> None:
+        """Non-mixed precisions should raise ValueError."""
+        with pytest.raises(ValueError, match=r"Cannot extract activation bits"):
+            extract_activation_bits(precision)
+
+    def test_unsupported_activation_raises(self) -> None:
+        """Unsupported activation bit-width should raise ValueError."""
+        with pytest.raises(ValueError, match=r"unsupported activation bit-width"):
+            extract_activation_bits("w4a4")

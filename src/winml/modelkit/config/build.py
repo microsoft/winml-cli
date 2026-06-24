@@ -330,7 +330,12 @@ def resolve_quant_compile_config(
         policy does not require that stage (e.g., CPU with fp32).
     """
     from ..sysinfo import resolve_check_device_ep
-    from .precision import extract_weight_bits, is_weight_only_precision, resolve_precision
+    from .precision import (
+        extract_activation_bits,
+        extract_weight_bits,
+        is_weight_only_precision,
+        resolve_precision,
+    )
 
     resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
     logger.info(
@@ -361,9 +366,12 @@ def resolve_quant_compile_config(
         quant_config = WinMLQuantizationConfig(fp16=True, fp16_only=True)
     elif is_weight_only_precision(policy.precision):
         # Weight-only (RTN): derive rtn_bits from precision
+        # If activation is 16-bit (e.g. w4a16), also apply FP16 post-processing
+        a_bits = extract_activation_bits(policy.precision)
         quant_config = WinMLQuantizationConfig(
             algorithm="rtn",
             rtn_bits=extract_weight_bits(policy.precision),
+            fp16=a_bits == 16,
         )
 
     # Compile config
@@ -672,7 +680,12 @@ def generate_hf_build_config(
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
     from ..sysinfo import resolve_check_device_ep
-    from .precision import extract_weight_bits, is_weight_only_precision, resolve_precision
+    from .precision import (
+        extract_activation_bits,
+        extract_weight_bits,
+        is_weight_only_precision,
+        resolve_precision,
+    )
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
     # blindly default to QNN on machines without an NPU (#412).
@@ -703,10 +716,12 @@ def generate_hf_build_config(
         # Pure FP16: no QDQ, only FP16 conversion via quantize stage
         parent_config.quant = WinMLQuantizationConfig(fp16=True, fp16_only=True)
     elif policy.precision and is_weight_only_precision(policy.precision):
-        # RTN weight-only quantization (e.g. int4, w4a16)
+        # RTN weight-only quantization (e.g. int4, w4a16, w4a32)
+        a_bits = extract_activation_bits(policy.precision)
         parent_config.quant = WinMLQuantizationConfig(
             algorithm="rtn",
             rtn_bits=extract_weight_bits(policy.precision),
+            fp16=a_bits == 16,
         )
     else:
         # CPU/GPU: precision is float (fp32) — no quantization
