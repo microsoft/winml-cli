@@ -257,6 +257,20 @@ def eval(
             cfg.precision,
         )
 
+    # The build-pipeline flags only take effect when eval rebuilds the model.
+    # With a pre-built ONNX path and skip_build (the default), they are no-ops
+    # forwarded to from_onnx, so warn the user that they were ignored — mirrors
+    # the --precision warning above. Shared with perf via utils/cli.py.
+    build_flags_warning = cli_utils.ignored_build_flags_warning(
+        skip_build_onnx=cfg.model_path is not None and cfg.skip_build,
+        quant=cfg.quant,
+        optimize=cfg.optimize,
+        analyze=cfg.analyze,
+        max_optim_iterations=cfg.max_optim_iterations,
+    )
+    if build_flags_warning:
+        logger.warning(build_flags_warning)
+
     logger.debug("Effective eval config: %s", cfg.to_dict())
 
     json_mode = output_format == "json"

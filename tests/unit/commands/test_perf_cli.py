@@ -374,6 +374,72 @@ class TestPerfUnifiedPipeline:
         assert "Benchmarking ONNX" in result.output
         assert captured["config"].shape_config is None
 
+    def test_cli_onnx_warns_ignored_build_flags(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Build-pipeline flags are no-ops for a pre-built ONNX with skip_build,
+        so the CLI surfaces a warning naming the flags the user set."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        def capture_config(_config: BenchmarkConfig) -> MagicMock:
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--no-quant",
+                    "--no-optimize",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "--no-quant" in result.output
+        assert "--no-optimize" in result.output
+        assert "pre-built ONNX" in result.output
+
+    def test_cli_onnx_no_build_flag_warning_at_defaults(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """No ignored-build-flags warning when the flags are left at defaults."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        def capture_config(_config: BenchmarkConfig) -> MagicMock:
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "ignored for pre-built ONNX inputs (no build runs" not in result.output
+
     def test_cli_onnx_not_found_error(self, runner: CliRunner, tmp_path: Path) -> None:
         """CLI with non-existent .onnx file should raise FileNotFoundError."""
         missing = tmp_path / "missing.onnx"

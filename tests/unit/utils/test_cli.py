@@ -13,6 +13,7 @@ from click.testing import CliRunner
 from winml.modelkit.utils.cli import (
     analyze_option,
     build_pipeline_extra_kwargs,
+    ignored_build_flags_warning,
     max_optim_iterations_option,
     optimize_option,
     parse_ep_options,
@@ -212,9 +213,9 @@ class TestMaxOptimIterationsOption:
     """Tests for the shared max_optim_iterations_option() decorator."""
 
     @staticmethod
-    def _make_cmd() -> click.Command:
+    def _make_cmd(optional_message: str | None = None) -> click.Command:
         @click.command()
-        @max_optim_iterations_option()
+        @max_optim_iterations_option(optional_message=optional_message)
         def cmd(max_optim_iterations: int | None) -> None:
             click.echo(repr(max_optim_iterations))
 
@@ -229,6 +230,13 @@ class TestMaxOptimIterationsOption:
 
     def test_rejects_non_int(self) -> None:
         assert CliRunner().invoke(self._make_cmd(), ["--max-optim-iterations", "x"]).exit_code != 0
+
+    def test_optional_message_appended_with_period_separator(self) -> None:
+        """optional_message joins the base help with '. ', matching sibling helpers."""
+        result = CliRunner().invoke(self._make_cmd(optional_message="Extra note."), ["--help"])
+        # Click reflows --help text, so assert on the joined token rather than line layout.
+        joined = " ".join(result.output.split())
+        assert "to 0. Extra note." in joined
 
 
 class TestBuildPipelineExtraKwargs:
@@ -256,3 +264,53 @@ class TestBuildPipelineExtraKwargs:
     def test_combined_optimize_and_analyze(self) -> None:
         result = build_pipeline_extra_kwargs(optimize=False, analyze=False)
         assert result == {"skip_optimize": True, "hack_max_optim_iterations": 0}
+
+
+class TestIgnoredBuildFlagsWarning:
+    """Tests for the shared ignored_build_flags_warning() helper."""
+
+    def test_returns_none_when_build_runs(self) -> None:
+        """No warning when a build will run, even with flags set."""
+        assert (
+            ignored_build_flags_warning(
+                skip_build_onnx=False,
+                quant=False,
+                optimize=False,
+                analyze=False,
+                max_optim_iterations=5,
+            )
+            is None
+        )
+
+    def test_returns_none_when_no_flags_set(self) -> None:
+        """No warning when all flags are at their defaults."""
+        assert ignored_build_flags_warning(skip_build_onnx=True) is None
+
+    def test_names_each_set_flag(self) -> None:
+        msg = ignored_build_flags_warning(
+            skip_build_onnx=True,
+            quant=False,
+            optimize=False,
+            analyze=False,
+            max_optim_iterations=5,
+        )
+        assert msg is not None
+        for flag in ("--no-quant", "--no-optimize", "--no-analyze", "--max-optim-iterations"):
+            assert flag in msg
+        assert "pre-built ONNX" in msg
+        assert "--no-skip-build" in msg
+
+    def test_only_includes_set_flags(self) -> None:
+        """Unset flags are not named."""
+        msg = ignored_build_flags_warning(skip_build_onnx=True, quant=False)
+        assert msg is not None
+        assert "--no-quant" in msg
+        assert "--no-optimize" not in msg
+        assert "--no-analyze" not in msg
+        assert "--max-optim-iterations" not in msg
+
+    def test_max_optim_zero_counts_as_set(self) -> None:
+        """An explicit 0 is a user-set value (only None is the default)."""
+        msg = ignored_build_flags_warning(skip_build_onnx=True, max_optim_iterations=0)
+        assert msg is not None
+        assert "--max-optim-iterations" in msg
