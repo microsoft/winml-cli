@@ -185,7 +185,16 @@ def get_onnx_model_hash(model_path: str | Path) -> str:
         hash_obj.update(b"\0external-data\0")
         hash_obj.update(location.replace("\\", "/").encode("utf-8"))
         hash_obj.update(b"\0")
-        _update_hash_from_path_metadata(hash_obj, data_path)
+        try:
+            _update_hash_from_path_metadata(hash_obj, data_path)
+        except FileNotFoundError:
+            logger.debug(
+                "ONNX external data file referenced by %s is missing: %s",
+                model_path,
+                data_path,
+            )
+            hash_obj.update(b"missing")
+            hash_obj.update(str(data_path.resolve(strict=False)).encode("utf-8", "surrogatepass"))
 
     return hash_obj.hexdigest()[:16]
 

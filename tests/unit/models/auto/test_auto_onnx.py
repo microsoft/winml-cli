@@ -333,6 +333,42 @@ class TestFromOnnxCacheDirAndKey:
 
         assert get_onnx_model_hash(onnx_path) != original_hash
 
+    def test_missing_external_data_does_not_crash_cache_resolution(
+        self, fake_onnx: Path, tmp_path: Path
+    ):
+        """Missing external data sidecars do not crash from_onnx cache-dir resolution."""
+        with (
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
+            patch(
+                "winml.modelkit.onnx.external_data.get_external_data_files",
+                return_value=["missing.data"],
+            ),
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.precision.resolve_eps",
+                return_value=["CPUExecutionProvider"],
+            ),
+            patch("winml.modelkit.build.build_onnx_model") as mock_build,
+            patch("winml.modelkit.models.auto.get_winml_class") as mock_get_class,
+            patch("winml.modelkit.models.auto.get_model_dir") as mock_get_model_dir,
+        ):
+            mock_build.return_value = _make_build_result(tmp_path)
+            mock_get_class.return_value = lambda **kw: MagicMock()
+            mock_get_model_dir.return_value = tmp_path / "model_dir"
+
+            WinMLAutoModel.from_onnx(
+                fake_onnx,
+                task="image-classification",
+                device="cpu",
+            )
+
+        mock_get_model_dir.assert_called_once()
+        assert mock_get_model_dir.call_args.args[0].startswith("onnx-")
+
     def test_passes_cache_key_to_build_onnx_model(self, fake_onnx: Path, tmp_path: Path):
         """from_onnx computes and passes a cache_key to build_onnx_model."""
         with (
