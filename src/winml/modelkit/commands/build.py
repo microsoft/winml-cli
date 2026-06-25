@@ -1168,9 +1168,8 @@ def _run_quantize_stage(
         stage_timings.append(("Quantize", None))
         return current_path
 
-    # Determine stage label from precision/algorithm
-    precision = config.precision
-    is_fp16_only = precision and precision.lower() == "fp16"
+    # Determine stage label from quant mode
+    is_fp16_only = config.quant.mode == "fp16"
     stage_label = "fp16" if is_fp16_only else "quantize"
     stage_name = "FP16" if is_fp16_only else "Quantize"
 

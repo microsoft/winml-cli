@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, cast
 import click
 from rich.console import Console
 
+from ..config.precision import is_weight_only_precision
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
 
@@ -195,7 +196,7 @@ def quantize(
         config = WinMLQuantizationConfig(mode="fp16")
         label = "FP16 conversion"
 
-    elif precision_lower and _is_weight_only(precision_lower):
+    elif precision_lower and is_weight_only_precision(precision_lower):
         # RTN weight-only
         from ..config.precision import extract_weight_bits
 
@@ -272,13 +273,6 @@ def quantize(
         raise click.ClickException(f"{label} failed: {e}") from e
 
 
-def _is_weight_only(precision: str) -> bool:
-    """Check if precision requires weight-only (RTN) quantization."""
-    from ..config.precision import is_weight_only_precision
-
-    return is_weight_only_precision(precision)
-
-
 def _resolve_quant_types(
     precision: str | None,
     weight_type: str | None,
@@ -294,12 +288,6 @@ def _resolve_quant_types(
     """
     from ..config import is_quantized_precision, resolve_quant_types
 
-    if precision and _is_weight_only(precision.lower()):
-        # Should not reach here — RTN path returns early above.
-        raise click.BadParameter(
-            f"'{precision}' is a weight-only precision (use RTN path).",
-            param_hint="'-p' / '--precision'",
-        )
     if precision and is_quantized_precision(precision):
         default_w, default_a = resolve_quant_types(precision)
     elif precision is None or precision.lower() == "auto":
