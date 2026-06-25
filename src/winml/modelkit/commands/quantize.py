@@ -246,6 +246,9 @@ def quantize(
         console.print(f"[bold blue]Dataset:[/bold blue] {_dataset_display}")
 
     # ── Shared execution: print header, run, report ──────────────
+    # Refuse to clobber an existing output unless the user opted in. Runs after
+    # the per-precision default path is resolved, before any mkdir/work.
+    cli_utils.guard_output(output, overwrite)
     output.parent.mkdir(parents=True, exist_ok=True)
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Output:[/bold blue] {output}")
