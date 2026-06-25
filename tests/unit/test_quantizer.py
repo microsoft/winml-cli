@@ -39,6 +39,11 @@ class _FakeOrtQuantizationModule(ModuleType):
     QuantType: Any
     get_qdq_config: Any
     quantize: Any
+    quant_utils: ModuleType
+
+
+class _FakeOrtQuantUtilsModule(ModuleType):
+    add_pre_process_metadata: Any
 
 
 class _FakeOnnxModule(ModuleType):
@@ -74,9 +79,13 @@ def _install_fake_ort_quantization(monkeypatch: pytest.MonkeyPatch, *, quantize_
     )
     quant_module.get_qdq_config = lambda **_: SimpleNamespace(use_external_data_format=False)
     quant_module.quantize = quantize_impl
+    quant_utils_module = _FakeOrtQuantUtilsModule("onnxruntime.quantization.quant_utils")
+    quant_utils_module.add_pre_process_metadata = lambda _model: None
+    quant_module.quant_utils = quant_utils_module
     ort_module.quantization = quant_module
     monkeypatch.setitem(sys.modules, "onnxruntime", ort_module)
     monkeypatch.setitem(sys.modules, "onnxruntime.quantization", quant_module)
+    monkeypatch.setitem(sys.modules, "onnxruntime.quantization.quant_utils", quant_utils_module)
 
 
 def test_quantize_onnx_removes_only_exact_external_data_sidecar(
@@ -92,8 +101,12 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
     exact_sidecar.write_text("stale")
     extra_suffix_sidecar.write_text("keep")
 
-    def fake_quantize(*, model_input: str, model_output: str, quant_config) -> None:
-        assert model_input == str(model_path.resolve())
+    # The quantizer hands the in-memory input model (not the path) to ORT so it
+    # can tag it as pre-processed without mutating the user's input file.
+    input_model = SimpleNamespace()
+
+    def fake_quantize(*, model_input, model_output: str, quant_config) -> None:
+        assert model_input is input_model
         assert model_output == str(output_path.resolve())
         assert quant_config.use_external_data_format is True
         assert not exact_sidecar.exists()
@@ -106,7 +119,7 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
     quantized_model = SimpleNamespace(
         graph=SimpleNamespace(node=[SimpleNamespace(op_type="QuantizeLinear")])
     )
-    load_results = [SimpleNamespace(), quantized_model]
+    load_results = [input_model, quantized_model]
     fake_onnx_module.capture_metadata = lambda _model: SimpleNamespace(node_count=0)
     fake_onnx_module.load_onnx = lambda *_args, **_kwargs: load_results.pop(0)
     fake_onnx_module.restore_metadata = lambda *_args, **_kwargs: None

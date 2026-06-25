@@ -1749,6 +1749,18 @@ def perf(
                     "pre-exported ONNX files (shapes are baked into the model)."
                 )
                 config.shape_config = None
+            # Build-pipeline flags are forwarded to from_onnx but no-op when the
+            # build is skipped (the default). Warn so the silent no-op is visible
+            # — shared detection with eval via utils/cli.py.
+            build_flags_warning = cli_utils.ignored_build_flags_warning(
+                skip_build_onnx=skip_build,
+                quant=quant,
+                optimize=optimize,
+                analyze=analyze,
+                max_optim_iterations=max_optim_iterations,
+            )
+            if build_flags_warning:
+                console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
         else:
             if precision != "auto":
