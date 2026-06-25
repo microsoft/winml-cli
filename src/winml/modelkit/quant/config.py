@@ -155,10 +155,8 @@ class WinMLQuantizationConfig:
         Returns:
             WinMLQuantizationConfig instance.
         """
-        # Backward compat: prefer "algorithm" (authoritative in old configs)
-        # over deprecated "mode" (which defaulted to "qdq").
-        # Map legacy "qdq" value to "static".
-        raw_mode = data["algorithm"] if "algorithm" in data else data.get("mode", "static")
+        # Backward compat: map legacy "qdq" value to "static" (removal tracked in #971).
+        raw_mode = data.get("mode", "static")
         if raw_mode == "qdq":
             raw_mode = "static"
 
