@@ -178,23 +178,23 @@
 <p class="meta">
   Hardware: Snapdragon X Elite CRD &nbsp;|&nbsp; ORT: 1.24.5 (onnxruntime-windowsml) &nbsp;|&nbsp;
   QNN SDK: Hexagon HTP (NPU) + Adreno X1-85 (GPU) &nbsp;|&nbsp;
-  Last updated: 2026-06-22 &nbsp;|&nbsp; 15 models (QNN NPU), 8 models (QNN GPU), 4 models (CPU partial) &nbsp;|&nbsp; npu-001 revised: MobileViT opset21 NEUTRAL on clean rerun
+  Last updated: 2026-06-25 &nbsp;|&nbsp; 15 models (QNN NPU), 8+5 models (QNN GPU), 4 models (CPU partial) &nbsp;|&nbsp; QNN GPU recipe sweep: all 5 BASELINE_IS_BEST (10-round interleaved A/B); gpu-007 transpose_optimizer downgraded to unverified
 </p>
 
 <div class="stats-bar">
-  <div class="stat"><div class="stat-n">31</div><div class="stat-l">total findings</div></div>
-  <div class="stat"><div class="stat-n" style="color:#1b5e20">11</div><div class="stat-l">visible (multi-model / cross-EP)</div></div>
+<div class="stat"><div class="stat-n">34</div><div class="stat-l">total findings</div></div>
+<div class="stat"><div class="stat-n" style="color:#1b5e20">14</div><div class="stat-l">visible (multi-model / cross-EP)</div></div>
   <div class="stat"><div class="stat-n" style="color:#9fa8da">20</div><div class="stat-l">hidden (single-model)</div></div>
   <div class="stat"><div class="stat-n">15</div><div class="stat-l">NPU models tested</div></div>
-  <div class="stat"><div class="stat-n">8</div><div class="stat-l">GPU models tested</div></div>
+<div class="stat"><div class="stat-n">13</div><div class="stat-l">GPU models tested</div></div>
   <div class="stat"><div class="stat-n">8</div><div class="stat-l">feature requests</div></div>
 </div>
 
 <div class="caveat">
   <strong>Scope warning:</strong> All findings from 1 hardware device (Snapdragon X Elite CRD, Oryon CPU + Adreno X1-85 + Hexagon HTP NPU).
   DML EP not available on this device (package conflict with onnxruntime-windowsml).
-  QNN NPU: 15 models tested (8 catalog + 3 recipe + 4 validation). QNN GPU: 8 models (full catalog sweep 2026-06-18).
-  CPU: partial sweep (4/8 models done; ResNet-18/MobileViT/DINOv2/rad-dino; BERT/NLP in progress 2026-06-18).
+  QNN NPU: 15 models tested (8 catalog + 3 recipe + 4 validation). QNN GPU: 8 catalog (2026-06-18) + 5 recipe (2026-06-25, all BASELINE_IS_BEST under 10-round interleaved A/B).
+  CPU: partial sweep (4/8 models 2026-06-18) + 5-model recipe sweep in progress (2026-06-25).
   Always re-validate on new model architectures before using findings to prune search space.
 </div>
 
@@ -652,7 +652,7 @@
 <div class="ep-section gpu">
   <div class="ep-header">
     QNN GPU EP &nbsp;&mdash;&nbsp; Adreno X1-85 via QNN SDK
-    &nbsp;<span style="font-weight:400;font-size:11px;color:#bf360c">8 models, 3&times;300-iter sessions + Phase C confirmation | catalog_gpu_sweep.py h0-h12 (2026-06-18)</span>
+    &nbsp;<span style="font-weight:400;font-size:11px;color:#bf360c">8 catalog models (2026-06-18) + 5 recipe models (2026-06-25) | 3&times;300-iter sessions + 10-round interleaved A/B | catalog_sweep.py + ab_gpu_segformer.py</span>
   </div>
   <div class="ep-body">
 
@@ -676,9 +676,9 @@
 
     <div class="finding">
       <div class="find-id">gpu-006</div>
-      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed<br>7 models</span></div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed<br>7+5 models</span></div>
       <div class="find-body">
-        <div class="find-title">opset 21 is neutral-to-negative on QNN GPU &mdash; CONFIRMED across 7 models</div>
+        <div class="find-title">opset 21 is neutral-to-negative on QNN GPU &mdash; CONFIRMED across 7 catalog + 5 recipe models</div>
         <div class="find-detail">
           Full sweep 2026-06-18 (h3 = opset21):
           DINOv2 <span class="data">+1.2%</span>, ResNet-18 <span class="data">+3.3%</span> (both MARGINAL),
@@ -686,7 +686,9 @@
           tinyroberta <span class="warn">&minus;2.7%</span>, rad-dino <span class="warn">&minus;2.6%</span>, bge-small +0.2%.
           Range: &minus;5.4% to +3.3%. No KEEP verdict. All MARGINAL or DISCARD.
           <span class="warn">Opposite of QNN NPU: DINOv2 +30% on NPU vs +1.2% on GPU.</span>
-          <div><span class="scope">Scope: QNN GPU EP. Confirmed across 7 diverse architectures (CNN, ViT, transformer, NLP).</span></div>
+          <strong>Recipe reconfirm 2026-06-25:</strong> all 5 recipe models BASELINE_IS_BEST; dedicated 10-round
+          interleaved A/B on segformer (h3 opset21) = <span class="warn">&minus;2.39% NOISE_NO_GAIN</span>.
+          <div><span class="scope">Scope: QNN GPU EP. Confirmed across 12 diverse architectures (CNN, ViT, transformer, NLP, segmentation).</span></div>
         </div>
       </div>
       <div class="find-action">
@@ -700,23 +702,23 @@
 
     <div class="finding">
       <div class="find-id">gpu-007</div>
-      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed<br>DINOv2</span></div>
+      <div class="find-conf"><span class="conf conf-low">LOW<br>DOWNGRADED<br>unverified</span></div>
       <div class="find-body">
-        <div class="find-title">transpose_optimizer gives +8&ndash;17% on Conv/ViT models on QNN GPU &mdash; KEEP_CONFIRMED on DINOv2</div>
+        <div class="find-title">transpose_optimizer p50 gain on QNN GPU is UNVERIFIED &mdash; sequential-only, never interleaved-confirmed, no-ops on recipe transformers</div>
         <div class="find-detail">
-          DINOv2-small h12 (<code>transpose_optimizer</code>): <span class="data">26.4ms &rarr; 22.0ms = +16.67%</span> (KEEP_CONFIRMED &mdash; all 5 sessions passed Phase C).
-          ResNet-18 h12: <span class="data">6.82ms &rarr; 6.25ms = +8.38%</span> (MARGINAL_UNCONFIRMED &mdash; Phase C inconclusive).
-          gelu_fusion explicit (h11) also KEEP_CONFIRMED on DINOv2: <span class="data">+13.86%</span>.
-          NLP models (roberta, bge-small): mostly BUILD_FAIL with transpose_optimizer &mdash; likely IR incompatibility.
-          <div><span class="scope">Scope: Conv-dominant and ViT models. NLP: BUILD_FAIL needs investigation.</span></div>
+          <span class="warn">Downgraded 2026-06-25.</span> Original +8&ndash;17% claim (DINOv2 h12 26.4&rarr;22.0ms, ResNet-18 h12 6.82&rarr;6.25ms)
+          came from <strong>sequential per-hypothesis benching</strong>, which inflates gains ~2&times; via thermal/DVFS/contention drift.
+          The gain was <strong>never reproduced under a 10-round interleaved round-robin A/B</strong>.
+          On the 5 recipe transformers (koelectra, swinv2, all-mpnet, clip-vit, segformer) <code>transpose_optimizer</code> is a
+          <strong>no-op</strong> (graph unchanged / pass never fires) &mdash; no model improved; all BASELINE_IS_BEST.
+          <div><span class="scope">Scope: was Conv/ViT only. Treat as UNVERIFIED until an interleaved A/B confirms a real op-count change AND p50 gain.</span></div>
         </div>
       </div>
       <div class="find-action">
         <div class="action-label">Autoconfig action</div>
         <div class="action-text">
-          Apply <code>transpose_optimizer</code> as default for QNN GPU on Conv/ViT models.
-          Skip for NLP models until BUILD_FAIL is resolved.
-          Feature gap: diagnose why transpose_optimizer causes BUILD_FAIL on BERT/RoBERTa.
+          Do NOT apply <code>transpose_optimizer</code> as a default. <code>mechanism_confirmed=false</code> &mdash; does not prune the search space.
+          Re-test only via interleaved A/B (op-count must change first); report a gain only after &ge;10-round confirmation.
         </div>
       </div>
     </div>
@@ -739,6 +741,60 @@
       </div>
     </div>
 
+    <div class="finding">
+      <div class="find-id">gpu-009</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>cross-EP</span></div>
+      <div class="find-body">
+        <div class="find-title">NPU&rarr;GPU non-transfer: opset21 + matmul_transpose_fusion wins on NPU REVERSE on GPU</div>
+        <div class="find-detail">
+          swinv2-tiny: the opset21 + <code>matmul_transpose_fusion</code> combo that gave <span class="data">+12% on QNN NPU</span>
+          <span class="warn">reverses to ~&minus;26% on QNN GPU</span>. Confirmed via the recipe sweep + interleaved A/B.
+          Adreno's shader compiler already folds these transposes; forcing the fusion adds redundant work.
+          <div><span class="scope">Scope: cross-EP transfer hazard. EP-winning recipes must be re-validated per device &mdash; never copied NPU&rarr;GPU.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Do not seed GPU search space with NPU-winning recipes. Validate opset/fusion recipes independently per EP+device.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">gpu-010</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">skip_layer_norm_fusion is a 2&ndash;4&times; latency hazard on QNN GPU</div>
+        <div class="find-detail">
+          On transformer recipe models, enabling <code>skip_layer_norm_fusion</code> for QNN GPU produced a
+          <span class="warn">2&ndash;4&times; slowdown</span> (op-count confirmed the pass fired &mdash; not a no-op).
+          The fused SkipLayerNorm op falls back to a slow path on Adreno.
+          <div><span class="scope">Scope: QNN GPU EP, transformer/LayerNorm models. Added to search_space_rules.graph_passes.skip.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Block <code>skip_layer_norm_fusion</code> for QNN GPU. <code>mechanism_confirmed=true</code> &mdash; prunes the search space.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">gpu-011</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">Analyzer defaults are perf-neutral on QNN GPU &mdash; keep the analyzer ON</div>
+        <div class="find-detail">
+          <code>--no-analyze</code> (dropping the analyzer's auto-injected gelu_fusion + matmul_add_fusion) yielded
+          <span class="data">no measurable gain</span> on the recipe models &mdash; segformer 10-round A/B: <span class="data">&minus;0.01% NOISE_NO_GAIN</span>.
+          The analyzer's default passes are perf-neutral (neither help nor hurt) on QNN GPU, so there is no reason to disable it.
+          <div><span class="scope">Scope: QNN GPU EP. Keep analyzer enabled; do not add <code>--no-analyze</code> to the GPU search space.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Keep analyzer ON for QNN GPU. Drop <code>--no-analyze</code> from the search space &mdash; it produces nothing.</div>
+      </div>
+    </div>
+
     <div class="sm-divider">
       <span class="sm-count">4 single-model findings hidden (gpu-001/002/003/005 &mdash; ConvNext only)</span>
       <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
@@ -751,7 +807,7 @@
         <div class="find-title">FP32 baseline is already optimal for ConvNext on QNN GPU &mdash; no optimization pass helps</div>
         <div class="find-detail">
           11-pass sweep on ConvNext: all 0% node reduction or worse. 251/0/0/0 analyze output.
-          <div><span class="scope">Scope: ConvNext-class. Transformer models may benefit (see gpu-007).</span></div>
+          <div><span class="scope">Scope: ConvNext-class. Recipe sweep + A/B found no graph pass helps transformers either (gpu-007 transpose_optimizer downgraded; all recipe models BASELINE_IS_BEST).</span></div>
         </div>
       </div>
       <div class="find-action">
