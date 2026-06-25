@@ -21,6 +21,7 @@ import onnx
 import onnxruntime as ort
 import pytest
 
+from tests.fixtures.create_test_models import create_fake_segmentation_model
 from winml.modelkit.commands.quantize import quantize as quantize_cmd
 
 
@@ -58,72 +59,6 @@ def _build_tiny_onnx(path: Path, *, with_metadata: bool = True) -> None:
         meta = model.metadata_props.add()
         meta.key = "test_marker"
         meta.value = "preserved"
-    onnx.checker.check_model(model)
-    onnx.save(model, str(path))
-
-
-# Image-segmentation I/O contract shared by HF semantic-segmentation exports
-# (e.g. nvidia/segformer-*-ade-*): pixel_values [batch, 3, height, width] ->
-# logits [batch, num_labels, height/4, width/4]. 150 = ADE20K class count.
-_SEG_NUM_CHANNELS = 3
-_SEG_NUM_LABELS = 150
-
-
-def _build_fake_segmentation_onnx(path: Path) -> None:
-    """Build a tiny FP32 ONNX with segmentation-identical I/O and random weights.
-
-    Replaces a real HF segmentation export (heavy backbone that can randomly
-    hang on QNN hosts during calibration) with a small conv stack that keeps the
-    same input/output contract: ``pixel_values`` [batch, 3, height, width] ->
-    ``logits`` [batch, num_labels, height/4, width/4]. Spatial dims stay dynamic
-    so the model accepts both calibration inputs (e.g. 512x512) and the test's
-    degenerate 1x1 inference probe. Two stride-2 convs reproduce the /4 logits
-    resolution; a 1x1 conv acts as the classifier head.
-    """
-    rng = np.random.default_rng(1234)
-    pixel_values = onnx.helper.make_tensor_value_info(
-        "pixel_values",
-        onnx.TensorProto.FLOAT,
-        ["batch_size", _SEG_NUM_CHANNELS, "height", "width"],
-    )
-    logits = onnx.helper.make_tensor_value_info(
-        "logits",
-        onnx.TensorProto.FLOAT,
-        ["batch_size", _SEG_NUM_LABELS, "height_out", "width_out"],
-    )
-
-    def _w(shape: tuple[int, ...], name: str) -> onnx.TensorProto:
-        return onnx.numpy_helper.from_array(
-            (rng.standard_normal(shape) * 0.1).astype(np.float32), name
-        )
-
-    w1 = _w((8, _SEG_NUM_CHANNELS, 3, 3), "seg_W1")
-    b1 = _w((8,), "seg_B1")
-    w2 = _w((16, 8, 3, 3), "seg_W2")
-    b2 = _w((16,), "seg_B2")
-    w3 = _w((_SEG_NUM_LABELS, 16, 1, 1), "seg_W3")
-    b3 = _w((_SEG_NUM_LABELS,), "seg_B3")
-    nodes = [
-        onnx.helper.make_node(
-            "Conv", ["pixel_values", "seg_W1", "seg_B1"], ["c1"],
-            name="Conv_1", kernel_shape=[3, 3], strides=[2, 2], pads=[1, 1, 1, 1],
-        ),
-        onnx.helper.make_node("Relu", ["c1"], ["r1"], name="Relu_1"),
-        onnx.helper.make_node(
-            "Conv", ["r1", "seg_W2", "seg_B2"], ["c2"],
-            name="Conv_2", kernel_shape=[3, 3], strides=[2, 2], pads=[1, 1, 1, 1],
-        ),
-        onnx.helper.make_node("Relu", ["c2"], ["r2"], name="Relu_2"),
-        onnx.helper.make_node(
-            "Conv", ["r2", "seg_W3", "seg_B3"], ["logits"],
-            name="Classifier", kernel_shape=[1, 1], strides=[1, 1], pads=[0, 0, 0, 0],
-        ),
-    ]
-    graph = onnx.helper.make_graph(
-        nodes, "fake_segmentation", [pixel_values], [logits], [w1, b1, w2, b2, w3, b3]
-    )
-    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
-    model.ir_version = 8
     onnx.checker.check_model(model)
     onnx.save(model, str(path))
 
@@ -228,14 +163,15 @@ def onnx_imgseg(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     The real ``nvidia/segformer-b0-finetuned-ade-512-512`` export ran as the
     calibration model here, but its heavy backbone caused random hangs on QNN
-    hosts. This builds a tiny model with identical segmentation I/O instead, so
-    calibration still exercises the ImageSegmentationDataset path without running
-    a large model. The dataset itself (image processor + samples) is still loaded
-    from the real ``--model-name`` in the test.
+    hosts. ``create_fake_segmentation_model`` builds a tiny model with identical
+    segmentation I/O instead, so calibration still exercises the
+    ImageSegmentationDataset path without running a large model. The dataset
+    itself (image processor + samples) is still loaded from the real
+    ``--model-name`` in the test.
     """
     d = tmp_path_factory.mktemp("fake_imgseg")
     p = d / "model.onnx"
-    _build_fake_segmentation_onnx(p)
+    onnx.save(create_fake_segmentation_model(), str(p))
     return p
 
 
