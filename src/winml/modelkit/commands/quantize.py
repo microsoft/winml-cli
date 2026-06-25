@@ -38,11 +38,6 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 
-def _warn_ignored_calibration_options(ctx: click.Context, reason: str) -> None:
-    """Warn if the user passed calibration-related CLI options that are ignored."""
-    cli_utils.warn_ignored_calibration_options(ctx, reason, console=console)
-
-
 @click.command()
 @click.option(
     "--model",
@@ -192,7 +187,9 @@ def quantize(
 
     if precision_lower == "fp16":
         # FP16 conversion
-        _warn_ignored_calibration_options(ctx, "FP16 conversion does not use calibration data.")
+        cli_utils.warn_ignored_calibration_options(
+            ctx, "FP16 conversion does not use calibration data.", console=console
+        )
         if output is None:
             output = model.parent / f"{model.stem}_fp16.onnx"
         config = WinMLQuantizationConfig(mode="fp16")
@@ -202,8 +199,8 @@ def quantize(
         # RTN weight-only
         from ..config.precision import extract_weight_bits
 
-        _warn_ignored_calibration_options(
-            ctx, "RTN weight-only quantization does not use calibration data."
+        cli_utils.warn_ignored_calibration_options(
+            ctx, "RTN weight-only quantization does not use calibration data.", console=console
         )
         rtn_bits = extract_weight_bits(precision_lower)
         if output is None:

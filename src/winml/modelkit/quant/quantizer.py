@@ -319,13 +319,13 @@ def _quantize_qdq(
         extra_options=extra_options,
     )
 
-    from ..onnx import capture_metadata, load_onnx, restore_metadata, save_onnx
-    from .qdq_fix import fix_qdq_dtype_info
-
     # Load the input model, capture its metadata snapshot (ORT rebuilds the
     # graph during quantization, so we restore afterwards), and tag it as
     # pre-processed so quantize_static() does not emit a warning.
     from onnxruntime.quantization.quant_utils import add_pre_process_metadata
+
+    from ..onnx import capture_metadata, load_onnx, restore_metadata, save_onnx
+    from .qdq_fix import fix_qdq_dtype_info
 
     input_model = load_onnx(model_path, validate=False)
     metadata_snapshot = capture_metadata(input_model)
