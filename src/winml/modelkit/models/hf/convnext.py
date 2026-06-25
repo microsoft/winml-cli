@@ -24,6 +24,7 @@ the ``ConvNextLayerNorm`` instance as ``self`` automatically -- no
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _patched_layernorm_forward(self, x: torch.Tensor) -> torch.Tensor:
+def _patched_layernorm_forward(self: Any, x: torch.Tensor) -> torch.Tensor:
     """ConvNextLayerNorm.forward replacement that enables ONNX LayerNorm fusion.
 
     The stock implementation branches on ``data_format`` with code paths

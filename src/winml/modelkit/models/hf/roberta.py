@@ -23,6 +23,7 @@ This module provides:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from optimum.exporters.onnx.model_configs import (
     COMMON_TEXT_TASKS,
@@ -57,7 +58,7 @@ ROBERTA_FAMILY_CONFIG = WinMLBuildConfig(
 # =============================================================================
 
 
-def _adjust_position_embeddings(config) -> None:
+def _adjust_position_embeddings(config: Any) -> None:
     """Adjust max_position_embeddings for Roberta-style position offset.
 
     Roberta-family models define:
@@ -116,9 +117,11 @@ class _RobertaPositionOffsetMixin:
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (MaxLengthTextInputGenerator,)
 
-    def __init__(self, config, task, **kwargs):
+    def __init__(self, config: Any, task: str, **kwargs: Any) -> None:
         _adjust_position_embeddings(config)
-        super().__init__(config, task, **kwargs)
+        # Mixin is first in MRO; super() resolves to the (untyped) OnnxConfig
+        # base at runtime, which mypy can't see, so it thinks super() is object.
+        super().__init__(config, task, **kwargs)  # type: ignore[call-arg]
 
 
 @register_onnx_overwrite("roberta", *COMMON_TEXT_TASKS, library_name="transformers")

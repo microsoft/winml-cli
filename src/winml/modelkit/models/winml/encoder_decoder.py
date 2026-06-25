@@ -294,8 +294,6 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
             return past_key_values
 
         # (3) Create fresh cache and reset
-        if self.config is None:
-            raise ValueError("Encoder-decoder generation requires an HF config to build the KV cache.")
         kv_shape = self._dec_expected["past_0_key"]
         cache = self.get_cache_class().create(self.config, kv_shape, self._kv_dtype)
         cache.reset()

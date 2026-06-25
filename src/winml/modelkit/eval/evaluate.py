@@ -20,6 +20,7 @@ from .config import WinMLEvaluationConfig
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..models.winml.composite_model import WinMLCompositeModel
     from .base_evaluator import WinMLEvaluator
 
 logger = logging.getLogger(__name__)
@@ -190,7 +191,7 @@ class EvalResult:
         }
 
 
-def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
+def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCompositeModel:
     """Load model from ONNX path or HF model ID."""
     from ..models import WinMLAutoModel
     from ..utils import cli as cli_utils

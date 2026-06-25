@@ -108,7 +108,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
     return class_map[class_name]
 
 
-def get_winml_class(model_type: str | None, task: str) -> type[WinMLPreTrainedModel]:
+def get_winml_class(model_type: str | None, task: str | None) -> type[WinMLPreTrainedModel]:
     """Get appropriate WinML class using three-level mapping.
 
     Level 1: Check class mapping (model_type, task) -> specialized class
@@ -126,7 +126,7 @@ def get_winml_class(model_type: str | None, task: str) -> type[WinMLPreTrainedMo
     model_type_normalized = model_type.lower().replace("_", "-") if model_type else None
 
     # Level 1: Check for (model_type, task) class mapping
-    if model_type_normalized is not None:
+    if model_type_normalized is not None and task is not None:
         specialized_name = WINML_MODEL_CLASS_MAPPING.get((model_type_normalized, task))
     else:
         specialized_name = None
@@ -135,7 +135,7 @@ def get_winml_class(model_type: str | None, task: str) -> type[WinMLPreTrainedMo
         return _import_winml_class(specialized_name)
 
     # Level 2: Universal class by task
-    class_name = TASK_TO_WINML_CLASS.get(task)
+    class_name = TASK_TO_WINML_CLASS.get(task) if task is not None else None
     if class_name is not None:
         # Try to import the class - if not implemented, fall through to Level 3
         try:

@@ -16,6 +16,8 @@ The config resolves image_size and num_channels from the nested backbone_config
 
 from __future__ import annotations
 
+from typing import Any
+
 from optimum.exporters.onnx import OnnxConfig
 from optimum.utils import DEFAULT_DUMMY_SHAPES, NormalizedConfig
 from optimum.utils.input_generators import DummyVisionInputGenerator
@@ -37,13 +39,13 @@ class _DepthAnythingVisionInputGenerator(DummyVisionInputGenerator):  # type: ig
     def __init__(
         self,
         task: str,
-        normalized_config,
+        normalized_config: NormalizedConfig,
         batch_size: int = DEFAULT_DUMMY_SHAPES["batch_size"],
         num_channels: int = DEFAULT_DUMMY_SHAPES["num_channels"],
         width: int = DEFAULT_DUMMY_SHAPES["width"],
         height: int = DEFAULT_DUMMY_SHAPES["height"],
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         super().__init__(
             task,
             normalized_config,

@@ -24,6 +24,7 @@ Design Principles
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,13 +36,12 @@ from .winml import get_supported_tasks, get_winml_class
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from transformers import PretrainedConfig
 
     from ..config import WinMLBuildConfig
     from ..utils.constants import EPNameOrAlias
     from .winml.base import WinMLPreTrainedModel
+    from .winml.composite_model import WinMLCompositeModel
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ class WinMLAutoModel:
         session_options: Any | None = None,
         hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
-    ) -> WinMLPreTrainedModel | WinMLCompositeModel:  # noqa: F821
+    ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Build from a pre-exported ONNX file.
 
         Runs optimize -> [quantize] -> [compile] via ``build_onnx_model()``.
@@ -149,7 +149,7 @@ class WinMLAutoModel:
         Returns:
             WinMLPreTrainedModel inference wrapper.
         """
-        if isinstance(onnx_path, dict):
+        if isinstance(onnx_path, Mapping):
             from .winml.composite_model import WinMLCompositeModel
 
             return WinMLCompositeModel.from_onnx(
@@ -268,7 +268,7 @@ class WinMLAutoModel:
         no_compile: bool = False,
         allow_unsupported_nodes: bool = False,
         **kwargs: Any,
-    ) -> WinMLPreTrainedModel:
+    ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Load appropriate WinML model based on task detection.
 
         Supports two input modes:
@@ -402,6 +402,8 @@ class WinMLAutoModel:
 
         resolved_task = build_config.loader.task
         logger.debug("Generated config with task: %s", resolved_task)
+        if resolved_task is None:
+            raise ValueError(f"Could not resolve a task for model {model_id!r}.")
 
         config = build_config
         task = resolved_task

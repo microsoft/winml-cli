@@ -60,7 +60,11 @@ class ONNXConfigNotFoundError(ValueError):
 # Create register with overwrite_existing=True to override Optimum's defaults.
 # Optimum's register_tasks_manager_onnx uses overwrite_existing=False, which means
 # registrations are silently skipped if a config already exists for the model/task.
-register_onnx_overwrite = TasksManager.create_register("onnx", overwrite_existing=True)
+# Explicit annotation: the RHS is Any (optimum is untyped), and the import cycle
+# export.io -> models.hf -> export makes the *inferred* type undeterminable in a
+# combined mypy run ([has-type] at every @register_onnx_overwrite site). Declaring
+# the type breaks that ordering dependency.
+register_onnx_overwrite: Any = TasksManager.create_register("onnx", overwrite_existing=True)
 
 
 def ensure_hf_models_registered() -> None:

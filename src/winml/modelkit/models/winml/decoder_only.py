@@ -258,8 +258,6 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         if isinstance(past_key_values, WinMLCache):
             return past_key_values
 
-        if self.config is None:
-            raise ValueError("Decoder-only generation requires an HF config to build the KV cache.")
         kv_shape = [1, self._num_kv_heads, self._max_cache_len, self._head_dim]
         cache = self.get_cache_class().create(self.config, kv_shape, self._kv_dtype)
         cache.reset()

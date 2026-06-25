@@ -109,7 +109,7 @@ class WinMLCompositeModel(PreTrainedModel):
     def __init__(
         self,
         sub_models: dict[str, Any],
-        config: PretrainedConfig | None,
+        config: PretrainedConfig,
         device: str = "cpu",
     ) -> None:
         self.sub_models = sub_models
@@ -267,6 +267,8 @@ class WinMLCompositeModel(PreTrainedModel):
             merged = {**kwargs, "task": component_task, **per_component.get(name, {})}
             sub_models[name] = WinMLAutoModel.from_onnx(Path(path), **merged)
 
+        if hf_config is None:
+            raise ValueError("Composite model construction requires an HF config (hf_config).")
         return resolved_cls(sub_models=sub_models, config=hf_config)
 
     @property
