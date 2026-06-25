@@ -41,8 +41,7 @@ from ....config import WinMLBuildConfig
 from ....export import register_onnx_overwrite
 from ....export.config import WinMLExportConfig
 from ...winml import register_specialization
-from ...winml.composite_model import register_composite_model
-from ...winml.decoder_only import WinMLDecoderOnlyModel
+from ...winml.composite_model import WinMLCompositeModel, register_composite_model
 from ...winml.kv_cache import WinMLSlidingWindowCache
 from .qwen3_modeling import apply_transformer_only_export_prep
 
@@ -324,20 +323,32 @@ QWEN_TRANSFORMER_ONLY_CONFIG = WinMLBuildConfig(
 
 
 # =============================================================================
-# Composite inference wrapper (placeholder so the build pipeline finds a
-# composite class — generation isn't yet wired for the transformer-only
-# I/O signature).
+# Composite handle for the transformer-only build.
+#
+# This variant is EXPORT-ONLY: it produces the prefill + decode transformer
+# ONNX for downstream quantization. It extends ``WinMLCompositeModel`` (not
+# ``WinMLDecoderOnlyModel``) on purpose — the decoder-only base wires a full
+# generation runtime from the eager KV I/O signature (``past_0_key`` etc.),
+# which does not match the transformer-only graph (``past_keys_0`` + symbolic
+# axes). Inheriting it would make ``from_pretrained`` crash while constructing
+# the handle, even though both sub-model ONNX built fine. The plain composite
+# base just stores the built sub-models, so ``from_pretrained`` returns a usable
+# handle exposing ``.sub_models[name].onnx_path``.
 # =============================================================================
 
 
 @register_composite_model(TRANSFORMER_ONLY_MODEL_TYPE, "text-generation")
-class WinMLQwen3TransformerOnlyModel(WinMLDecoderOnlyModel):
-    """Composite handle for the transformer-only Qwen3 build (export only).
+class WinMLQwen3TransformerOnlyModel(WinMLCompositeModel):
+    """Export-only composite handle for the transformer-only Qwen3 build.
+
+    ``from_pretrained`` builds both sub-models (``decoder_prefill`` seq=64,
+    ``decoder_gen`` seq=1) and returns this handle; the built ONNX paths are
+    available via ``self.sub_models[name].onnx_path``.
 
     ``generate()`` is **not** functional with this build path — the inference
-    feeds and KV update logic still target the eager I/O signature. Use the
-    eager :class:`WinMLQwen3Model` for generation; use this class to produce
-    the transformer-only ONNX for downstream quantization.
+    feeds and KV update logic target the eager I/O signature. Use the eager
+    :class:`WinMLQwen3Model` for generation; use this class to produce the
+    transformer-only ONNX for downstream quantization.
     """
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
@@ -347,8 +358,30 @@ class WinMLQwen3TransformerOnlyModel(WinMLDecoderOnlyModel):
 
     @classmethod
     def get_cache_class(cls) -> type:
-        """Return the KV-cache class used during generation."""
+        """KV-cache class the decode model targets at runtime (sliding window)."""
         return WinMLSlidingWindowCache
+
+    @classmethod
+    def from_pretrained(  # type: ignore[override]
+        cls,
+        model_id: str,
+        task: str = "text-generation",
+        *,
+        model_type: str | None = None,
+        **kwargs: Any,
+    ) -> WinMLCompositeModel:
+        """Build both transformer-only sub-models and return the composite handle.
+
+        Forces ``model_type="qwen3_transformer_only"`` for every sub-model so the
+        composite builds the transformer-only variant instead of silently falling
+        back to the native (full) ``qwen3`` architecture when the caller omits it.
+        """
+        return super().from_pretrained(
+            model_id,
+            task,
+            model_type=model_type or TRANSFORMER_ONLY_MODEL_TYPE,
+            **kwargs,
+        )
 
 
 # =============================================================================
