@@ -13,6 +13,8 @@ are available via ``modelkit.onnx.inspection`` for diagnostic use.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .domains import ONNXDomain
 from .dtypes import SupportedONNXType, remove_optional_from_type_annotation
 from .external_data import copy_onnx_model, get_onnx_model_hash
@@ -54,7 +56,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load detection module to avoid circular import with compiler."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]

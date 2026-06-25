@@ -83,7 +83,7 @@ class TestGetAvailableDevices:
     def test_returns_empty_when_enumeration_fails(self) -> None:
         """If EP enumeration raises, return empty tuple (no devices visible).
 
-        ``resolve_device("auto")`` is responsible for the CPU fallback when no
+        ``resolve_device("auto", ep=None)`` is responsible for the CPU fallback when no
         devices are reachable; ``_get_available_devices`` only reports what is
         actually registered.
         """
@@ -214,7 +214,7 @@ class TestResolveDevice:
                 "cpu": ("CPUExecutionProvider",),
             }
         ):
-            device, available = resolve_device("auto")
+            device, available = resolve_device("auto", ep=None)
 
         assert device == "npu"
         assert available == ["npu", "gpu", "cpu"]
@@ -227,7 +227,7 @@ class TestResolveDevice:
                 "cpu": ("CPUExecutionProvider",),
             }
         ):
-            device, available = resolve_device("auto")
+            device, available = resolve_device("auto", ep=None)
 
         assert device == "gpu"
         assert available == ["gpu", "cpu"]
@@ -235,7 +235,7 @@ class TestResolveDevice:
     def test_resolve_device_auto_cpu_fallback(self) -> None:
         """Auto mode: only CPU EP registered -> returns "cpu"."""
         with _patch_device_ep_map({"cpu": ("CPUExecutionProvider",)}):
-            device, available = resolve_device("auto")
+            device, available = resolve_device("auto", ep=None)
 
         assert device == "cpu"
         assert available == ["cpu"]
@@ -248,7 +248,7 @@ class TestResolveDevice:
                 "cpu": ("CPUExecutionProvider",),
             }
         ):
-            device, available = resolve_device("gpu")
+            device, available = resolve_device("gpu", ep=None)
 
         assert device == "gpu"
         assert available == ["gpu", "cpu"]
@@ -256,7 +256,7 @@ class TestResolveDevice:
     def test_resolve_device_explicit_invalid(self) -> None:
         """Unrecognized device "tpu" -> raises ValueError."""
         with pytest.raises(ValueError, match="Unknown device 'tpu'"):
-            resolve_device("tpu")
+            resolve_device("tpu", ep=None)
 
     def test_resolve_device_explicit_no_ep_error_names_missing_eps(self) -> None:
         """Error message must name the compatible EPs so users know what to install."""
@@ -268,7 +268,7 @@ class TestResolveDevice:
             ),
             pytest.raises(ValueError) as exc_info,
         ):
-            resolve_device("npu")
+            resolve_device("npu", ep=None)
 
         message = str(exc_info.value)
         assert "no compatible EP" in message
@@ -278,7 +278,7 @@ class TestResolveDevice:
     def test_resolve_device_case_insensitive(self) -> None:
         """Device argument should be case-insensitive."""
         with _patch_device_ep_map({"cpu": ("CPUExecutionProvider",)}):
-            device, _ = resolve_device("CPU")
+            device, _ = resolve_device("CPU", ep=None)
 
         assert device == "cpu"
 
@@ -293,7 +293,7 @@ class TestResolveDevice:
             _patch_device_ep_map({}),
             pytest.raises(RuntimeError, match="No execution providers detected"),
         ):
-            resolve_device("auto")
+            resolve_device("auto", ep=None)
 
 
 class TestResolveDeviceWithEp:

@@ -13,7 +13,9 @@ concurrency:
 jobs:
   lint:
     runs-on: windows-latest
-    timeout-minutes: 5
+    # Bumped from 5: combined mypy on 24 packages cold-starts at ~3-4 min on
+    # Windows runners; the original 5-min ceiling cancelled mid-run.
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +36,15 @@ jobs:
       - name: Lint
         run: uv run ruff check src/ tests/
 
-      # Required type check: these folders are clean against the strict
+      # Required type check: these packages are clean against the strict
       # config in pyproject.toml. Any new mypy error here blocks the PR.
       # Expand the package list as more folders are cleaned up.
+      #
+      # Single mypy invocation across all packages — a per-package loop pays
+      # cold typeshed/plugin startup per package and tipped the job past the
+      # 5-minute timeout once the list grew to 12. The combined summary still
+      # reports total error/file counts; error lines include file paths so
+      # the failing package is identifiable without per-package groups.
       - name: Type check (required)
         run: >-
           uv run mypy
@@ -48,9 +56,19 @@ jobs:
           -p winml.modelkit.config
           -p winml.modelkit.core
           -p winml.modelkit.data
-
-      # Advisory type check for the rest of the tree: surfaces type issues
-      # in CI logs without blocking PRs while the backlog is worked down.
-      - name: Type check (advisory, full package)
-        continue-on-error: true
-        run: uv run mypy -p winml.modelkit
+          -p winml.modelkit.datasets
+          -p winml.modelkit.eval
+          -p winml.modelkit.export
+          -p winml.modelkit.inference
+          -p winml.modelkit.inspect
+          -p winml.modelkit.loader
+          -p winml.modelkit.onnx
+          -p winml.modelkit.optim
+          -p winml.modelkit.optracing
+          -p winml.modelkit.pattern
+          -p winml.modelkit.quant
+          -p winml.modelkit.serve
+          -p winml.modelkit.session
+          -p winml.modelkit.sysinfo
+          -p winml.modelkit.telemetry
+          -p winml.modelkit.utils

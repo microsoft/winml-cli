@@ -578,6 +578,61 @@ class TestBuildFlagPassthrough:
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["device"] == "npu"
 
+    def test_precision_flag_sets_quant(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--precision int8`` populates the quant config for the target device."""
+        cfg = _make_minimal_config_file(tmp_path)  # quant=None
+        result = _invoke(
+            [*self._base_args(cfg, tmp_path), "--device", "gpu", "--precision", "int8"]
+        )
+        assert result.exit_code == 0, result.output
+        passed = mock_run_single_build.call_args.kwargs["config"]
+        assert passed.quant is not None
+        assert passed.quant.weight_type == "uint8"
+
+    def test_precision_fp16_clears_quant(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--precision fp16`` skips quantization even on a quantizing device."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke(
+            [*self._base_args(cfg, tmp_path), "--device", "npu", "--precision", "fp16"]
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].quant is None
+
+    def test_precision_alone_triggers_quant_patch(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """``--precision`` without ``--device`` still patches quant (here, clears it)."""
+        # Config ships an explicit quant section; fp16 must clear it even though
+        # --device was not passed (precision alone triggers the patch path).
+        config = {
+            "loader": {"task": "image-classification"},
+            "export": {"opset_version": 17, "batch_size": 1},
+            "optim": {},
+            "quant": {
+                "mode": "qdq",
+                "samples": 10,
+                "task": "image-classification",
+                "model_name": "test",
+            },
+            "compile": None,
+        }
+        cfg = tmp_path / "withquant.json"
+        cfg.write_text(json.dumps(config))
+        result = _invoke(
+            [
+                "-c",
+                str(cfg),
+                "-m",
+                "microsoft/resnet-50",
+                "-o",
+                str(tmp_path / "out"),
+                "--precision",
+                "fp16",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].quant is None
+
     def test_trust_remote_code_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--trust-remote-code`` is forwarded via ``extra_kwargs``."""
         cfg = _make_minimal_config_file(tmp_path)
@@ -1157,17 +1212,17 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """resolve_device raising (explicit device w/ no compatible EP) -> UsageError.
+        """resolve_check_device_ep raising (explicit device w/ no compatible EP) -> UsageError.
 
         Uses default ``--device auto`` (no CLI flag) so the downstream
-        device-patch path isn't triggered; the only resolve_device call is
-        the one inside the auto-select block.
+        device-patch path isn't triggered; the only resolution call is the
+        ``resolve_check_device_ep`` inside the auto-select block.
         """
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            side_effect=ValueError("simulated resolve_device failure"),
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            side_effect=ValueError("simulated resolve failure"),
         ):
             result = runner.invoke(
                 build,
@@ -1175,7 +1230,7 @@ class TestBuildEpAutoSelection:
                 obj={"debug": False},
             )
         assert result.exit_code != 0
-        assert "simulated resolve_device failure" in result.output
+        assert "simulated resolve failure" in result.output
         mock_build_api.assert_not_called()
 
     def test_auto_selection_respects_resolve_eps_priority(
@@ -1185,17 +1240,15 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """First element of resolve_eps(resolved_device) is selected, not later ones."""
+        """First element of resolve_check_device_ep's available_eps is selected."""
         from winml.modelkit.commands.build import build
 
-        with (
-            patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("gpu", ["gpu", "cpu"]),
-            ),
-            patch(
-                "winml.modelkit.sysinfo.resolve_eps",
-                return_value=["DmlExecutionProvider", "OpenVINOExecutionProvider"],
+        with patch(
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            return_value=(
+                "gpu",
+                ["gpu", "cpu"],
+                ["DmlExecutionProvider", "OpenVINOExecutionProvider"],
             ),
         ):
             result = runner.invoke(
@@ -1656,3 +1709,34 @@ class TestRunCompileStageNoOutput:
 
         # current_path should be updated to compiled_path
         assert result == compiled_path
+
+
+class TestBuildEpResolution:
+    """--ep forwarding into config generation + the compile EP-availability gate."""
+
+    def _base_args(self, cfg: str, tmp_path: Path) -> list[str]:
+        return ["-c", cfg, "-m", "microsoft/resnet-50", "-o", str(tmp_path / "out")]
+
+    def test_ep_forwarded_to_generate_build_config(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """On the auto-config path (-m, no -c), --ep reaches generate_build_config.
+
+        Regression: the build command dropped --ep when auto-generating a config,
+        so the requested EP never influenced the generated config (it failed or
+        analyzed/compiled for the wrong EP).
+        """
+        fake_cfg = MagicMock()
+        fake_cfg.compile = None  # no compile -> EP-availability gate is skipped
+        with (
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg) as mock_gen,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(
+                ["-m", "microsoft/resnet-50", "--ep", "openvino", "-o", str(tmp_path / "out")]
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_gen.call_args.kwargs["ep"] == "openvino"

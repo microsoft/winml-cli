@@ -12,6 +12,8 @@ read.
 
 from __future__ import annotations
 
+from typing import cast
+
 
 _REGISTRY_KEY = r"SOFTWARE\Microsoft\DeveloperTools\.modelkit"
 
@@ -27,7 +29,7 @@ def read_key(name: str) -> str | None:
         return None
     if value_type != winreg.REG_SZ:
         return None
-    return value  # already str for REG_SZ
+    return cast("str", value)  # already str for REG_SZ
 
 
 def write_key(name: str, value: str) -> None:

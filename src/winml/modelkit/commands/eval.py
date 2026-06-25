@@ -82,15 +82,20 @@ logger = logging.getLogger(__name__)
     help="Device to run on. 'auto' detects the best available device.",
 )
 @cli_utils.ep_option(required=False)
-@click.option(
-    "--precision",
-    type=str,
-    default="auto",
-    show_default=True,
-    help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
-    "Applied during model build (fp16/fp32 skip quantization). "
-    "Ignored for pre-built ONNX inputs (precision is already baked in).",
+@cli_utils.precision_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs "
+    "(precision is already baked in).",
 )
+@cli_utils.quant_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
+)
+@cli_utils.optimize_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
+)
+@cli_utils.analyze_option(
+    optional_message="Applied during model build. Ignored for pre-built ONNX inputs."
+)
+@cli_utils.max_optim_iterations_option(optional_message="Ignored for pre-built ONNX inputs.")
 @click.option(
     "--samples",
     type=int,
@@ -177,6 +182,10 @@ def eval(
     task: str | None,
     device: str,
     precision: str,
+    quant: bool,
+    optimize: bool,
+    analyze: bool,
+    max_optim_iterations: int | None,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,
@@ -355,7 +364,7 @@ def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
 
     console = Console(stderr=True)
     console.print("[bold]Detecting available devices...[/bold]")
-    resolved, _ = resolve_device(cfg.device)
+    resolved, _ = resolve_device(cfg.device, ep=cfg.ep)
     cfg.device = resolved
     console.print(f"[dim]Using device:[/dim] {resolved}")
 

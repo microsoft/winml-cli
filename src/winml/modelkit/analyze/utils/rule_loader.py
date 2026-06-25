@@ -17,9 +17,13 @@ from ..models.runtime_checks import RuntimeCheckRule
 
 logger = logging.getLogger(__name__)
 
-#: Environment variable for additional runtime check rules directories.
-#: Use ``os.pathsep`` (`;` on Windows, `:` on Unix) to separate multiple paths.
+#: Environment variable for the runtime check rules directory.
+#: Holds a single directory path; it is not split on ``os.pathsep``.
 WINMLCLI_RULES_DIR_ENV = "WINMLCLI_RULES_DIR"
+
+#: Environment variable for the runtime debug rule directory.
+#: Holds a single directory path; it is not split on ``os.pathsep``.
+WINMLCLI_RULES_DIR_FOR_DEBUG_ENV = "WINMLCLI_RULES_DIR_FOR_DEBUG"
 
 # Directory containing this module file. Relative env-var entries are resolved from here.
 _RULE_LOADER_DIR: Path = Path(__file__).resolve().parent
@@ -42,39 +46,59 @@ def _resolve_env_rules_dir_entry(entry: str) -> Path:
     return (_RULE_LOADER_DIR / entry_path).resolve()
 
 
-def get_runtime_rules_search_dirs() -> list[Path]:
-    """Return ordered list of directories to search for runtime rule artifacts.
+def _get_env_rules_dir(env_name: str) -> Path | None:
+    """Resolve the single directory configured in ``env_name``.
 
-    The search order is:
-        1. Any extra directories listed in the :data:`WINMLCLI_RULES_DIR` env var
-            (separated by ``os.pathsep``). Absolute paths are used directly;
-            relative paths are resolved relative to this module file directory.
-      2. Default embedded directory (``src/winml/modelkit/analyze/rules/runtime_check_rules/``)
+    The value is treated as one directory path and is intentionally not split
+    on ``os.pathsep`` -- only a single rules directory is supported. Returns
+    ``None`` when the env var is unset or blank.
+    """
+    env_val = os.environ.get(env_name, "").strip()
+    if not env_val:
+        return None
+    return _resolve_env_rules_dir_entry(env_val)
+
+
+def get_runtime_rules_search_dirs() -> list[Path]:
+    """Return the directory to search for runtime rule artifacts.
+
+    Selection behavior:
+        1. If :data:`WINMLCLI_RULES_DIR` is set, use only that directory.
+            Absolute paths are used directly; a relative path is resolved
+            relative to this module file directory.
+        2. If :data:`WINMLCLI_RULES_DIR` is unset/empty, use the embedded default
+            directory (``src/winml/modelkit/analyze/rules/runtime_check_rules/``).
 
     Returns:
-        List of directory Paths (may include non-existent ones; callers filter).
+        Single-element list with the selected directory (the embedded default
+        when the env var is unset). The directory may not exist; callers filter.
     """
-    dirs: list[Path] = []
-    env_val = os.environ.get(WINMLCLI_RULES_DIR_ENV, "").strip()
-    if env_val:
-        for entry in env_val.split(os.pathsep):
-            entry = entry.strip()
-            if entry:
-                dirs.append(_resolve_env_rules_dir_entry(entry))
-    dirs.append(_DEFAULT_RUNTIME_RULES_DIR)
-    return dirs
+    env_dir = _get_env_rules_dir(WINMLCLI_RULES_DIR_ENV)
+    if env_dir is not None:
+        return [env_dir]
+    return [_DEFAULT_RUNTIME_RULES_DIR]
 
 
-def resolve_rule_parquet_path(parquet_filename: str) -> Path:
-    """Resolve a parquet runtime-rule artifact by searching known directories.
+def get_runtime_rules_debug_search_dirs() -> list[Path]:
+    """Return the debug-rule directory from the env var only.
+
+    Unlike :func:`get_runtime_rules_search_dirs`, this intentionally has no
+    embedded default fallback: an empty list is returned when
+    :data:`WINMLCLI_RULES_DIR_FOR_DEBUG` is unset.
+    """
+    env_dir = _get_env_rules_dir(WINMLCLI_RULES_DIR_FOR_DEBUG_ENV)
+    return [env_dir] if env_dir is not None else []
+
+
+def resolve_rule_parquet_path(parquet_filename: str, for_debug: bool = False) -> Path:
+    """Resolve preferred parquet runtime-rule path from ``<EP>_<DEVICE>/`` subdirs.
 
     Args:
         parquet_filename: Bare file name, e.g.
             ``Split_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet``
 
     Returns:
-        Resolved Path to the parquet file if found. If not found, returns the
-        path under the first search directory to preserve deterministic debug output.
+        Preferred candidate Path in search order. Existence is not checked here.
     """
 
     def _infer_ep_device_subdir(filename: str) -> str | None:
@@ -88,28 +112,23 @@ def resolve_rule_parquet_path(parquet_filename: str) -> Path:
             return None
         return f"{match.group('ep')}_{match.group('device')}"
 
-    search_dirs = get_runtime_rules_search_dirs()
     ep_device_subdir = _infer_ep_device_subdir(parquet_filename)
+    relative_path = (
+        Path(ep_device_subdir) / parquet_filename
+        if ep_device_subdir is not None
+        else Path(parquet_filename)
+    )
 
-    for search_dir in search_dirs:
-        candidate = search_dir / parquet_filename
-        if candidate.exists():
-            return candidate
+    if for_debug:
+        debug_dirs = get_runtime_rules_debug_search_dirs()
+        if debug_dirs:
+            return debug_dirs[0] / relative_path
 
-        if ep_device_subdir is not None:
-            candidate_in_subdir = search_dir / ep_device_subdir / parquet_filename
-            if candidate_in_subdir.exists():
-                return candidate_in_subdir
-
-        # Backward-compatible fallback for any one-level nested layout.
-        nested_matches = sorted(search_dir.glob(f"*/{parquet_filename}"))
-        if nested_matches:
-            return nested_matches[0]
-
+    search_dirs = get_runtime_rules_search_dirs()
     if search_dirs:
-        return search_dirs[0] / parquet_filename
+        return search_dirs[0] / relative_path
 
-    return _DEFAULT_RUNTIME_RULES_DIR / parquet_filename
+    return relative_path
 
 
 class RuleLoader:

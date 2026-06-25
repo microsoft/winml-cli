@@ -1516,11 +1516,11 @@ class TestLiveMonitorDisplay:
         )
         # Adapter line / device-memory line gone; CPU + Mem remain.
         assert "CPU: 12.5%" in status
-        assert "Mem: 8000 MB" in status
+        assert "RAM: 8000 MB" in status
         assert "NPU:" not in status
         assert "GPU:" not in status
         assert "Adapter:" not in status
-        assert "Device Mem:" not in status
+        assert "VRAM:" not in status
 
     def test_cpu_only_chart_legend_omits_adapter_swatch(self):
         """The chart legend should advertise only CPU when no adapter polled."""
@@ -1554,4 +1554,4 @@ class TestLiveMonitorDisplay:
             ram_mb=8000.0,
         )
         assert "GPU: 42.0% avg" in status
-        assert "Device Mem:" in status
+        assert "VRAM:" in status

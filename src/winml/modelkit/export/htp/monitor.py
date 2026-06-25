@@ -83,6 +83,7 @@ class HTPExportMonitor:
         self.writers.append(self.metadata_writer)
 
         # Report writer (optional) - now using MarkdownReportWriter
+        self.report_writer: MarkdownReportWriter | None
         if enable_report:
             self.report_writer = MarkdownReportWriter(output_path)
             self.writers.append(self.report_writer)

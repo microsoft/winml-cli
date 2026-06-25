@@ -43,6 +43,7 @@ def mock_inspect_result() -> MagicMock:
     result.cache = None
     result.processor = None
     result.io_config = None
+    result.composite = None
     result.loader = MagicMock(
         hf_model_class="BertForMaskedLM",
         hf_model_class_source="task_defaults",
@@ -120,9 +121,7 @@ class TestInspectCliInterface:
         from winml.modelkit.commands.inspect import inspect
 
         with patch(_INSPECT_MODEL) as mock_api:
-            result = runner.invoke(
-                inspect, ["-m", "test", "--task", "bogus-task"], obj={}
-            )
+            result = runner.invoke(inspect, ["-m", "test", "--task", "bogus-task"], obj={})
             assert result.exit_code == 2, f"Expected exit 2, got {result.exit_code}"
             mock_api.assert_not_called()
             # User-facing error must name the bad value and point to --list-tasks,
@@ -376,3 +375,14 @@ class TestInspectErrors:
         assert "does not exist" not in result.output, (
             "dotted HF ID was misclassified as a local path"
         )
+
+
+def test_seq2seq_source_is_tasks_manager_not_class_mapping():
+    from transformers import AutoConfig
+
+    from winml.modelkit.loader.resolution import TaskSource, resolve_task
+
+    cfg = AutoConfig.for_model("bart")
+    cfg.architectures = ["BartForConditionalGeneration"]
+    cfg.is_encoder_decoder = True
+    assert resolve_task(cfg).source == TaskSource.TASKS_MANAGER

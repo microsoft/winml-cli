@@ -43,10 +43,12 @@ if TYPE_CHECKING:
     from click.testing import CliRunner
 
 
-# 900 s per-test timeout (overrides the global 300 s in pyproject.toml).
-# Cold runs build the model end-to-end (export -> optimize -> quantize ->
-# compile), which can exceed 300 s for larger composite models (e.g. BLIP).
-pytestmark = [pytest.mark.e2e, pytest.mark.timeout(900)]
+# Per-test timeout is driven by the --timeout CLI option, falling back to the
+# e2e default in tests/e2e/conftest.py when none is passed (an explicit
+# --timeout always wins). Cold runs build the model end-to-end (export ->
+# optimize -> quantize -> compile), which can exceed the global 300 s ini
+# default for larger composite models (e.g. BLIP) or cold NPU compiles.
+pytestmark = [pytest.mark.e2e]
 
 # 10 samples keeps each e2e run short while giving enough signal for
 # range-based assertions. Shuffle uses a fixed seed=42 (see

@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
 from rich.console import Console
@@ -67,26 +68,8 @@ _COLORS = {
 }
 
 
-def _discover_runtime_rule_parquet_files() -> tuple[list[Path], list[Path]]:
-    """Return runtime-rule search directories and discovered parquet files.
-
-    The runtime checker supports both flat and one-level nested layouts.
-    """
-    from ..analyze.utils.rule_loader import get_runtime_rules_search_dirs
-
-    search_dirs = get_runtime_rules_search_dirs()
-    parquet_files: list[Path] = []
-
-    for search_dir in search_dirs:
-        if not search_dir.is_dir():
-            continue
-        parquet_files.extend(sorted(search_dir.glob("*.parquet")))
-        parquet_files.extend(sorted(search_dir.glob("*/*.parquet")))
-
-    return search_dirs, parquet_files
-
-
 _TRAILING_PAREN_RE = re.compile(r" \([^()]*\)$")
+_RUNTIME_DEBUG_LEVELS = ("unsupported", "partial", "supported")
 
 
 def _display_name(pattern_id: str) -> str:
@@ -628,6 +611,106 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     return f"{ep_name} ({device_name.upper()})"
 
 
+def _empty_runtime_debug_summary_payload() -> dict[str, Any]:
+    """Create empty runtime debug summary payload with fixed top-level keys.
+
+    ``unknown`` is intentionally the first key and holds a list of node keys
+    (no case_indices); the remaining levels map node keys to detail entries.
+    """
+    payload: dict[str, Any] = {"unknown": []}
+    payload.update({level: {} for level in _RUNTIME_DEBUG_LEVELS})
+    return payload
+
+
+def _normalize_runtime_debug_summary_payload(
+    summary_payload: object,
+) -> dict[str, Any]:
+    """Normalize runtime debug summary payload to fixed JSON schema."""
+    normalized = _empty_runtime_debug_summary_payload()
+    if not isinstance(summary_payload, dict):
+        return normalized
+
+    raw_unknown = summary_payload.get("unknown")
+    if isinstance(raw_unknown, list):
+        normalized["unknown"] = [str(node) for node in raw_unknown]
+    elif isinstance(raw_unknown, dict):
+        # Tolerate a dict-shaped unknown payload by keeping node keys only.
+        normalized["unknown"] = [str(node) for node in raw_unknown]
+
+    for level in _RUNTIME_DEBUG_LEVELS:
+        raw_level_entries = summary_payload.get(level)
+        if not isinstance(raw_level_entries, dict):
+            continue
+
+        level_entries: dict[str, dict[str, object | None]] = {}
+        for node_stable_key, raw_entry in raw_level_entries.items():
+            if not isinstance(raw_entry, dict):
+                continue
+
+            level_entries[str(node_stable_key)] = {
+                "case_indices": raw_entry.get("case_indices"),
+                "table_path": raw_entry.get("table_path"),
+                "table_file": raw_entry.get("table_file"),
+            }
+
+        normalized[level] = level_entries
+
+    return normalized
+
+
+def _extract_runtime_debug_summary_payload_for_pair(
+    run_result: Any,
+    ep_name: str,
+    device_name: str,
+) -> dict[str, Any]:
+    """Extract runtime debug summary payload for one EP/device pair."""
+    empty_payload = _empty_runtime_debug_summary_payload()
+
+    try:
+        result_json = json.loads(run_result.to_json())
+    except Exception:
+        logger.debug("Failed to deserialize run_result for runtime debug payload", exc_info=True)
+        return empty_payload
+
+    raw_results = result_json.get("results")
+    if not isinstance(raw_results, list):
+        return empty_payload
+
+    target_device = str(device_name).upper()
+
+    # Prefer exact EP/device match first.
+    for ep_result in raw_results:
+        if not isinstance(ep_result, dict):
+            continue
+        if ep_result.get("ep_type") != ep_name:
+            continue
+
+        result_device = str(ep_result.get("device_type") or "").upper()
+        if result_device and result_device != target_device:
+            continue
+
+        return _normalize_runtime_debug_summary_payload(
+            ep_result.get("runtime_debug_details_summary")
+        )
+
+    # Fallback: first available runtime_debug_details_summary in this run.
+    for ep_result in raw_results:
+        if not isinstance(ep_result, dict):
+            continue
+        if "runtime_debug_details_summary" in ep_result:
+            return _normalize_runtime_debug_summary_payload(
+                ep_result.get("runtime_debug_details_summary")
+            )
+
+    return empty_payload
+
+
+def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name: str) -> Path:
+    """Build debug summary output path near the model file."""
+    filename = f"{model_path.stem}.analyze.{ep_name}.{str(device_name).upper()}.debug.json"
+    return model_path.parent / filename
+
+
 # ── Click command ─────────────────────────────────────────────────────────
 
 
@@ -642,7 +725,8 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     type=click.Choice([*ALL_EP_NAMES, "all", "auto"], case_sensitive=False),
     help=(
         "Target execution provider. Supports canonical names, aliases, and all/auto. "
-        "all = evaluate all rule-data-backed EPs; auto = infer from local availability"
+        "all = evaluate all rule-data-backed EPs; "
+        "auto = infer a single best target from local availability"
     ),
 )
 @click.option(
@@ -653,7 +737,8 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     type=click.Choice([*SUPPORTED_DEVICES, "all", "auto"], case_sensitive=False),
     help=(
         "Target device type. Supports CPU/GPU/NPU and all/auto. "
-        "all = all rule-data-backed devices; auto = infer from local availability"
+        "all = all rule-data-backed devices; "
+        "auto = infer a single best target from local availability"
     ),
 )
 @cli_utils.verbosity_options()
@@ -675,6 +760,15 @@ def _ep_name_device_display_name(ep_name: str, device_name: str) -> str:
     "--run-unknown-op/--no-run-unknown-op",
     default=False,
     help="Run unknown operators on local machine if possible (default: disabled)",
+)
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help=(
+        "Enable runtime debug mode. Requires WINMLCLI_RULES_DIR_FOR_DEBUG "
+        "to point to a rules_debug directory containing */*.parquet files."
+    ),
 )
 @click.option(
     "--save-node",
@@ -703,6 +797,7 @@ def analyze(
     config_file: Path | None,
     htp_metadata: Path | None,
     run_unknown_op: bool,
+    debug: bool,
     save_node: tuple[str, ...],
     optim_config: Path | None,
 ) -> None:
@@ -746,78 +841,152 @@ def analyze(
             logger.error("ONNX model file not found: %s", model)
             sys.exit(2)
 
-        search_dirs, parquet_files = _discover_runtime_rule_parquet_files()
-        if not parquet_files:
+        from ..analyze.utils.ep_utils import (
+            has_any_rule_data,
+            has_rule_data_for_ep,
+        )
+        from ..analyze.utils.rule_loader import (
+            WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+            get_runtime_rules_debug_search_dirs,
+            get_runtime_rules_search_dirs,
+        )
+
+        for_debug = debug
+        if for_debug:
+            debug_search_dirs = get_runtime_rules_debug_search_dirs()
+            has_debug_parquet = any(
+                debug_dir.is_dir() and any(debug_dir.glob("*/*.parquet"))
+                for debug_dir in debug_search_dirs
+            )
+            if not has_debug_parquet:
+                configured_debug_dir = os.environ.get(WINMLCLI_RULES_DIR_FOR_DEBUG_ENV, "").strip()
+                logger.error(
+                    "--debug requires %s to be configured and point to a rules_debug "
+                    "directory containing */*.parquet files; otherwise --debug cannot "
+                    "take effect.",
+                    WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                )
+                logger.error(
+                    "%s configured: %s",
+                    WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                    "yes" if configured_debug_dir else "no",
+                )
+                if configured_debug_dir:
+                    logger.error(
+                        "Configured %s raw value: %s",
+                        WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                        configured_debug_dir,
+                    )
+                    if debug_search_dirs:
+                        logger.error(
+                            "Resolved absolute path(s) from %s:",
+                            WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                        )
+                        for resolved_debug_dir in debug_search_dirs:
+                            logger.error("  - %s", resolved_debug_dir)
+                    else:
+                        logger.error(
+                            "Resolved absolute path(s) from %s: (none)",
+                            WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
+                        )
+                sys.exit(2)
+
+        search_dirs = get_runtime_rules_search_dirs()
+        if not has_any_rule_data():
             searched = ", ".join(str(p) for p in search_dirs) if search_dirs else "(none)"
             logger.error("No runtime rule parquet files were found.")
             logger.error("Please reinstall winml-cli, or manually download rule parquet files.")
             logger.error("Searched directories: %s", searched)
             sys.exit(2)
 
-        from ..analyze.utils.ep_utils import (
-            has_rule_data_for_ep,
+        # Resolve the EP/device selection. `all` keeps the full rule-data-backed
+        # set (fan-out, unchanged). `auto` resolves to a single best target from
+        # local availability via the shared sysinfo helpers — the same path
+        # build/run/perf use. A concrete value is used as-is.
+        from ..sysinfo import resolve_device, resolve_eps
+
+        # Only a pinned (concrete) EP can constrain device auto-resolution.
+        # ``ep`` is a concrete EP/alias here unless it is the "auto"/"all"
+        # sentinel; the cast drops those sentinels from the type for resolve_*.
+        ep_hint: EPNameOrAlias | None = (
+            None if ep in ("auto", "all") or ep is None else cast("EPNameOrAlias", ep)
         )
 
         devices: list[str]
-        if device == "auto":
-            from ..sysinfo.device import _get_available_devices
-
-            devices = list(_get_available_devices())
-        elif device == "all":
+        if device == "all":
             devices = list(SUPPORTED_DEVICES)
+        elif device == "auto":
+            try:
+                resolved_device, _ = resolve_device(device="auto", ep=ep_hint)
+            except (ValueError, RuntimeError) as e:
+                logger.error("Could not auto-select a device: %s", e)
+                sys.exit(2)
+            devices = [resolved_device]
         elif device is not None:
             devices = [device]
         else:
             devices = []
         devices = sorted(d.upper() for d in devices)
 
-        eps: list[EPName | None]
-        if ep == "auto":
-            from ..sysinfo.device import _get_available_eps
-
-            eps = list(_get_available_eps())
-        elif ep == "all":
-            eps = list(SUPPORTED_EPS)
-        else:
-            # ep is a specific EP or alias
-            eps = [normalize_ep_name(ep)]
-
-        # Build with a for-loop rather than a single nested comprehension so
-        # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
-        # narrowing carries through to the appended tuple's type (EPName,
-        # not str). The inner generator stays a comprehension to satisfy
-        # ruff PERF401.
-        execution_pairs: list[tuple[EPName, str]] = []
-        for candidate_ep in eps:
-            if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
-                continue
-            execution_pairs.extend(
-                (candidate_ep, candidate_device)
-                for candidate_device in devices
-                if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+        execution_pairs: list[tuple[EPName, str]]
+        if ep == "auto" and device == "all":
+            # auto + all: resolve the best available EP per device rather than
+            # picking a single EP from one ref device and fanning it across
+            # unrelated devices. resolve_eps() already returns only EPs that are
+            # valid and locally available for the given device, so the resulting
+            # pairs need no further EP_SUPPORTED_DEVICES filtering.
+            execution_pairs = _sort_ep_device_pairs(
+                [
+                    (device_eps[0], target_device)
+                    for target_device in devices
+                    if (device_eps := resolve_eps(target_device))
+                ]
             )
-        execution_pairs = _sort_ep_device_pairs(execution_pairs)
+        else:
+            eps: list[EPName | None]
+            if ep == "all":
+                eps = list(SUPPORTED_EPS)
+            elif ep == "auto":
+                # Single highest-priority EP available on the target device.
+                # device == "all" is handled above, so a concrete device context
+                # exists here -- but guard against an empty device list (e.g. a
+                # programmatic ``device=None`` call) so we exit cleanly instead
+                # of raising an unguarded IndexError on ``devices[0]``.
+                ref_device = devices[0] if devices else None
+                if not ref_device:
+                    logger.error("No device context available for EP auto-resolution.")
+                    sys.exit(2)
+                compatible_eps = resolve_eps(ref_device)
+                if not compatible_eps:
+                    logger.error(
+                        "No execution provider is available for device '%s'.", ref_device
+                    )
+                    sys.exit(2)
+                eps = [compatible_eps[0]]
+            else:
+                # ep is a specific EP or alias
+                eps = [normalize_ep_name(ep)]
 
+            # Build with a for-loop rather than a single nested comprehension so
+            # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
+            # narrowing carries through to the appended tuple's type (EPName,
+            # not str). The inner generator stays a comprehension to satisfy
+            # ruff PERF401.
+            execution_pairs = []
+            for candidate_ep in eps:
+                if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
+                    continue
+                execution_pairs.extend(
+                    (candidate_ep, candidate_device)
+                    for candidate_device in devices
+                    if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+                )
+            execution_pairs = _sort_ep_device_pairs(execution_pairs)
+
+        # Local pairs are still needed to gate --run-unknown-op probing
+        # (_resolve_run_unknown_op). Single-target `auto` selection is already
+        # local by construction, so no extra intersection/warning is required.
         local_pairs = set(_get_local_ep_device_pairs())
-
-        if device == "auto" and ep == "auto":
-            execution_pairs = [pair for pair in execution_pairs if pair in local_pairs]
-        elif device == "auto":
-            unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
-            if unsupported_pairs:
-                logger.warning(
-                    "--device auto resolves from local availability, but --ep is pinned;"
-                    " the following pairs are not available on this machine: %s",
-                    ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
-                )
-        elif ep == "auto":
-            unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
-            if unsupported_pairs:
-                logger.warning(
-                    "--ep auto resolves from local availability, but --device is pinned;"
-                    " the following pairs are not available on this machine: %s",
-                    ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
-                )
 
         if not execution_pairs:
             logger.error("No EP/device combination matched the current selection.")
@@ -1099,6 +1268,7 @@ def analyze(
                         device=target_device,
                         enable_information=information,
                         htp_metadata_path=str(htp_metadata) if htp_metadata else None,
+                        for_debug=for_debug,
                         run_unknown_op=run_unknown_op_for_ep,
                         save_node_types=save_node_types,
                         on_node_result=on_node_result,
@@ -1158,6 +1328,7 @@ def analyze(
                     device=target_device,
                     enable_information=information,
                     htp_metadata_path=str(htp_metadata) if htp_metadata else None,
+                    for_debug=for_debug,
                     run_unknown_op=run_unknown_op_for_ep,
                     save_node_types=save_node_types,
                 )
@@ -1184,6 +1355,33 @@ def analyze(
             except Exception as e:
                 logger.error("Failed to serialize results to JSON: %s", e)
                 logger.debug("JSON serialization traceback:", exc_info=True)
+
+        # Save runtime debug summary JSON next to model when debug mode is enabled.
+        if for_debug:
+            try:
+                for (target_ep, target_device), run_result in zip(
+                    execution_pairs, analysis_results, strict=True
+                ):
+                    debug_payload = _extract_runtime_debug_summary_payload_for_pair(
+                        run_result=run_result,
+                        ep_name=target_ep,
+                        device_name=target_device,
+                    )
+                    debug_output = _build_runtime_debug_output_path(
+                        model_path=model,
+                        ep_name=target_ep,
+                        device_name=target_device,
+                    )
+                    debug_output.write_text(
+                        json.dumps(debug_payload, indent=2),
+                        encoding="utf-8",
+                    )
+                    logger.info("Runtime debug summary saved to: %s", debug_output)
+            except OSError as e:
+                logger.error("Failed to write runtime debug summary file: %s", e)
+            except Exception as e:
+                logger.error("Failed to prepare runtime debug summary JSON: %s", e)
+                logger.debug("Runtime debug summary traceback:", exc_info=True)
 
         # Save optimization config if requested
         if optim_config:

@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, cast
 import onnx
 import onnxruntime as ort
 
+from ..utils.constants import ORT_SESSION_COMPILER
+
 
 if TYPE_CHECKING:
     from ..utils.constants import EPAlias
@@ -35,6 +37,7 @@ class CompileContext:
 
     # Input
     model_path: Path
+    # From WinMLCompileConfig.to_dict()
     config: dict[str, Any]
     model: onnx.ModelProto | None = None
 
@@ -43,6 +46,16 @@ class CompileContext:
 
     # Session (set during compile)
     session: ort.InferenceSession | None = None
+
+    # Multi-model / shared-EP-context compilation state (driven by Compiler).
+    # n_compiled_models: how many models the Compiler has already compiled (0-based
+    #   index of the current model).
+    # n_total_models: total models in this compile run (>1 enables weight sharing).
+    # shared_session_options: the shared ort.SessionOptions created on the first model
+    #   and reused for the rest (the EP is added once and the share group lives on it).
+    n_compiled_models: int = 0
+    n_total_models: int = 1
+    shared_session_options: ort.SessionOptions | None = None
 
     # Output paths
     output_path: Path | None = None
@@ -90,6 +103,14 @@ class CompileContext:
     def execution_provider(self) -> EPAlias:
         """Get target execution provider."""
         return cast("EPAlias", self.config.get("execution_provider", "qnn"))
+
+    @property
+    def use_inference_session(self) -> bool:
+        """Whether to use the ort.InferenceSession backend (vs ort.ModelCompiler).
+
+        True iff the configured compiler is ``"ort_session"``.
+        """
+        return self.config.get("compiler") == ORT_SESSION_COMPILER
 
     @property
     def enable_ep_context(self) -> bool:

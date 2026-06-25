@@ -28,8 +28,10 @@ from .base_evaluator import WinMLEvaluator
 
 
 if TYPE_CHECKING:
+    from datasets import Dataset
+
     from ..models.winml.base import WinMLPreTrainedModel
-    from .config import WinMLEvaluationConfig
+    from .config import DatasetConfig, WinMLEvaluationConfig
 
 
 logger = logging.getLogger(__name__)
@@ -50,7 +52,7 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
         self._label_col = cm.get("label_column", get_default("image-to-text", "label_column"))
         super().__init__(config, model)
 
-    def align_labels(self, dataset, ds_config):  # type: ignore[override]
+    def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """No-op: free-text labels need no ClassLabel alignment."""
         return dataset
 

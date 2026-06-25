@@ -141,7 +141,7 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
     """
     from ..loader import resolve_loader_config
 
-    _, hf_config, resolved_class_typed = resolve_loader_config(
+    _, hf_config, resolved_class_typed, _resolution = resolve_loader_config(
         model_type=model_type,
         task=task,
     )
@@ -447,18 +447,10 @@ def _validate_loader_tasks_for_model(
     show_default=True,
     help="Overwrite existing artifacts and rebuild",
 )
-@click.option(
-    "--quant/--no-quant",
-    "quant",
-    default=True,
-    show_default=True,
-    help="Enable quantization (use --no-quant to skip, overrides config)",
-)
-@click.option(
-    "--no-compile/--compile",
-    "no_compile",
+@cli_utils.quant_option()
+@cli_utils.compile_option(
     default=None,
-    help="Override compilation. --compile forces enable (config must have a compile section). "
+    help_text="Override compilation. --compile forces enable (config must have a compile section). "
     "--no-compile forces skip. Default: inherit from config; when auto-generating "
     "config (no -c), compilation is off unless --compile is passed.",
 )
@@ -472,27 +464,12 @@ def _validate_loader_tasks_for_model(
     include_auto=True,
     optional_message="Default: auto-detect.",
 )
-@click.option(
-    "--analyze/--no-analyze",
-    "analyze",
-    default=True,
-    show_default=True,
-    help="Run analyzer loop during build (use --no-analyze to skip)",
+@cli_utils.precision_option(
+    optional_message="With -c, applied only when --device or --precision is passed.",
 )
-@click.option(
-    "--optimize/--no-optimize",
-    "optimize",
-    default=True,
-    show_default=True,
-    help="Run optimization (use --no-optimize to skip for pre-quantized ONNX models)",
-)
-@click.option(
-    "--max-optim-iterations",
-    "max_optim_iterations",
-    type=int,
-    default=None,
-    help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
-)
+@cli_utils.analyze_option()
+@cli_utils.optimize_option()
+@cli_utils.max_optim_iterations_option()
 @cli_utils.allow_unsupported_nodes_option()
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
@@ -511,6 +488,7 @@ def build(
     optimize: bool,
     ep: EPNameOrAlias | None,
     device: str,
+    precision: str,
     analyze: bool,
     max_optim_iterations: int | None,
     allow_unsupported_nodes: bool,
@@ -533,6 +511,12 @@ def build(
 
         # Full pipeline with explicit config
         winml build -c config.json -m microsoft/resnet-50 -o output/
+
+        # Device-aware auto precision (npu->w8a16, gpu/cpu->fp16)
+        winml build -m microsoft/resnet-50 -o output/ --device npu --precision auto
+
+        # Force fp16 (skips quantization)
+        winml build -m bert-base-uncased -o output/ --device gpu --precision fp16
 
         # Build from pre-exported ONNX file
         winml build -c config.json -m model.onnx -o output/
@@ -561,20 +545,19 @@ def build(
     # hardware -- analyzing for the wrong EP leaves black nodes that block a
     # later build targeting the actual device (#663).
     #
-    # resolve_device() either returns a device with >=1 available EP (auto-mode
-    # walks the priority list, falls back to cpu which is always valid), or
-    # raises ValueError for an explicit device with no compatible EP. So the
-    # following resolve_eps()[0] is safe whenever resolve_device returns.
+    # resolve_check_device_ep() either returns a device with >=1 available EP
+    # (auto-mode walks the priority list, falls back to cpu which is always
+    # valid), or raises ValueError for an explicit device with no compatible EP.
+    # So the following available_eps[0] is safe whenever it returns.
     if ep is None:
-        from ..sysinfo import resolve_device as _resolve_device
-        from ..sysinfo import resolve_eps as _resolve_eps
+        from ..sysinfo import resolve_check_device_ep
 
         try:
-            resolved_device, _ = _resolve_device(device=device)
+            resolved_device, _, available_eps = resolve_check_device_ep(device=device, ep=ep)
         except ValueError as e:
             raise click.UsageError(str(e)) from e
         device = resolved_device
-        ep = _resolve_eps(resolved_device)[0]
+        ep = available_eps[0]
         logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
@@ -594,6 +577,8 @@ def build(
                 model_id,
                 trust_remote_code=trust_remote_code,
                 device=device,
+                precision=precision,
+                ep=ep,
             )
             if not quant:
                 config_or_configs.quant = None
@@ -604,15 +589,17 @@ def build(
             if no_compile:
                 config_or_configs.compile = None
 
-        # If --device was explicitly provided, patch compile config and clear
-        # quant for CPU/GPU (neither device uses quantization by default).
-        if cli_utils.is_cli_provided(ctx, "device") and device:
+        # If --device or --precision was explicitly provided, patch quant/compile
+        # to honor the requested policy. fp16/fp32 clear quant; npu/int8 etc set it.
+        if cli_utils.is_cli_provided(ctx, "device") or cli_utils.is_cli_provided(ctx, "precision"):
             from ..compiler.configs import WinMLCompileConfig
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
-                resolved_quant, _ = resolve_quant_compile_config(device=device, ep=ep)
+                resolved_quant, _ = resolve_quant_compile_config(
+                    device=device, precision=precision, ep=ep
+                )
                 if not quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
@@ -660,14 +647,13 @@ def build(
             trust_remote_code=trust_remote_code,
         )
 
-        # Build extra kwargs for pipeline control
-        extra_kwargs: dict[str, Any] = {}
-        if not optimize:
-            extra_kwargs["skip_optimize"] = True
-        if not analyze:
-            extra_kwargs["hack_max_optim_iterations"] = 0
-        elif max_optim_iterations is not None:
-            extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
+        # Build extra kwargs for pipeline control. The optimize/analyze/max-optim
+        # mapping is shared with perf and eval via build_pipeline_extra_kwargs.
+        extra_kwargs: dict[str, Any] = cli_utils.build_pipeline_extra_kwargs(
+            optimize=optimize,
+            analyze=analyze,
+            max_optim_iterations=max_optim_iterations,
+        )
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
         # Always set (even when False) so downstream pipeline functions can rely
@@ -1026,11 +1012,15 @@ def _run_optimize_stage(
             _header_shown[0] = False
 
         # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
-        # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        # doesn't search for non-existent "*_AUTO_*.parquet" files. Use
+        # resolve_check_device_ep so an explicit device+ep is validated
+        # statically (no availability cross-check): a --no-compile build may
+        # target a device absent on this machine (cross-compile), and this call
+        # only needs a concrete device name for the rule-data lookup.
         from ..analyze.utils.ep_utils import has_rule_data_for_ep
-        from ..sysinfo import resolve_device as _resolve_device
+        from ..sysinfo import resolve_check_device_ep
 
-        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+        _resolved_device, _, _ = resolve_check_device_ep(device=device or "auto", ep=ep)
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep
@@ -1356,6 +1346,8 @@ def _build_hf_pipeline(
             config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
         )
         t0 = time.monotonic()
+        # config.export is None only for the ONNX build path; this is the HF path.
+        assert config.export is not None, "HF build path requires config.export"
         export_onnx(
             model=pytorch_model,
             output_path=export_path,

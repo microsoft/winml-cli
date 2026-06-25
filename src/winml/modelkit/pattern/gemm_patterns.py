@@ -387,7 +387,8 @@ class ReshapeGemmReshapePattern(Pattern):
 class GemmPatternInputGenerator(PatternInputGenerator):
     """PatternInputGenerator for Gemm patterns."""
 
-    pattern = ReshapeGemmReshapePattern()
+    # Typed as the base Pattern so subclasses can set a different concrete pattern.
+    pattern: Pattern = ReshapeGemmReshapePattern()
 
     def get_finite_attribute_sets(self) -> dict[str, list[Any]]:
         """Return finite attribute sets for ReshapeGemmReshape (none)."""
@@ -418,7 +419,7 @@ class GemmPatternInputGenerator(PatternInputGenerator):
         for a_shape in a_shapes:
             for b_shape in b_shapes:
                 for c_option in c_options:
-                    combination = {
+                    combination: dict[str, object] = {
                         "A": InputShapeConstraint(a_shape),
                         "B": InputShapeConstraint(b_shape),
                     }
@@ -445,6 +446,10 @@ class GemmPatternInputGenerator(PatternInputGenerator):
             item["C_dim"] = len(item["C_shape"])
         else:
             item["C_dim"] = 0
+
+        # Distinguish fixed-value bias constraints from shape-only constraints.
+        # This is finite (bool) and derives directly from existing row/query fields.
+        item["C_is_value_constraint"] = "C_value" in item and item["C_value"] is not None
         return item
 
     def get_infinite_property_names(self) -> list[str]:

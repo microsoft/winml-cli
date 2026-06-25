@@ -293,6 +293,7 @@ def _inspect_model_v2(
         build_tensor_infos_from_io_specs,
         compile_support_status,
         resolve_cache,
+        resolve_composite_info,
         resolve_io_config,
         resolve_processor,
         resolve_winml,
@@ -323,7 +324,7 @@ def _inspect_model_v2(
     from huggingface_hub.errors import RepositoryNotFoundError
 
     try:
-        loader_config, hf_config, _resolved_class = resolve_loader_config(
+        loader_config, hf_config, _resolved_class, resolution = resolve_loader_config(
             model_id,
             task=task_override,
             model_type=model_type_override,
@@ -359,14 +360,10 @@ def _inspect_model_v2(
     architectures = getattr(parent_hf_config, "architectures", []) or []
 
     # =========================================================================
-    # STEP 3: Derive task_source by checking registries post-hoc
+    # STEP 3: provenance comes straight from the resolver (no post-hoc recompute).
     # =========================================================================
     mt = model_type.lower().replace("_", "-")
-    task_source = "TasksManager"
-    for m, t in HF_MODEL_CLASS_MAPPING:
-        if m == mt and t == task:
-            task_source = "HF_MODEL_CLASS_MAPPING"
-            break
+    task_source = resolution.source.value
 
     # =========================================================================
     # STEP 4: Derive loader display info
@@ -512,6 +509,11 @@ def _inspect_model_v2(
         model_type_override or getattr(parent_hf_config, "model_type", None) or model_type
     )
 
+    # Composite pipeline structure. resolution.composite is set only on the auto-detect
+    # path (resolve_task); an explicit --task / --model-class pins composite=None, so the
+    # pipeline-led composite view is shown only for auto-detected composites — by design.
+    composite_info = resolve_composite_info(display_model_type, resolution.composite)
+
     return InspectResult(
         model_id=model_id or display_model_type or model_class_override or "unknown",
         model_type=display_model_type,
@@ -528,4 +530,5 @@ def _inspect_model_v2(
         cache=cache_info,
         processor=processor_info,
         io_config=io_config_info,
+        composite=composite_info,
     )

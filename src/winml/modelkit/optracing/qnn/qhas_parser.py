@@ -110,4 +110,4 @@ def _vtcm_ratio(op: dict) -> float | None:
     total = vtcm_read + dram_read
     if total == 0:
         return None
-    return vtcm_read / total
+    return float(vtcm_read / total)

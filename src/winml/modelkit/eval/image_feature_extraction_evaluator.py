@@ -20,7 +20,7 @@ Ground-truth dataset (default: timm/mini-imagenet):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from tqdm import tqdm
@@ -58,9 +58,10 @@ class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
 
         io_config = getattr(self.model, "io_config", None) or {}
         input_shapes = io_config.get("input_shapes", [])
-        if input_shapes and len(input_shapes[0]) == 4:
+        if pipe.image_processor is not None and input_shapes and len(input_shapes[0]) == 4:
             _, _, h, w = input_shapes[0]
-            pipe.image_processor.size = {"height": h, "width": w}
+            # Runtime-settable processor attribute; not on the base class.
+            pipe.image_processor.size = {"height": h, "width": w}  # type: ignore[attr-defined]
 
         return pipe
 
@@ -113,7 +114,7 @@ class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
             return tokens
         if tokens.ndim == 2:
             # CLS token (index 0) — standard image-level embedding for ViT/DINOv2.
-            return tokens[0]
+            return cast("np.ndarray", tokens[0])
         raise ValueError(
             f"Unsupported image-feature-extraction output shape: {np.asarray(raw).shape}. "
             "Expected [1, hidden] (pooled) or [1, num_tokens, hidden] (token sequence)."

@@ -7,7 +7,6 @@ from typing import Any
 import numpy as np
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
@@ -49,7 +48,7 @@ class PadInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns comprehensive input combinations for Pad operator.
 
         Coverage strategy:
@@ -86,6 +85,11 @@ class PadInputGenerator(OpInputGenerator):
                 "pads": InputValueConstraint(np.array([0, 0, 1, 1, 0, 0, 1, 1], dtype=np.int64)),
                 "constant_value": InputValueConstraint(np.array(0.0, dtype=np.float32)),
             },
+            {
+                "data": InputShapeConstraint((2, 3, 4, 5)),
+                "pads": InputValueConstraint(np.array([0, 1, 2, 0, 1, 0, 0, 2], dtype=np.int64)),
+                "constant_value": InputValueConstraint(np.array(0.0, dtype=np.float32)),
+            },
             # ===== 5D Input =====
             {
                 "data": InputShapeConstraint((2, 3, 4, 4, 5)),
@@ -114,6 +118,12 @@ class PadInputGenerator(OpInputGenerator):
                 "pads": InputValueConstraint(np.array([2, 0, 0, 2], dtype=np.int64)),
                 "constant_value": InputValueConstraint(np.array(1.0, dtype=np.float32)),
             },
+            # ===== Asymmetric padding (second pattern for branch coverage) =====
+            {
+                "data": InputShapeConstraint((3, 4, 5)),
+                "pads": InputValueConstraint(np.array([0, 2, 1, 1, 0, 2], dtype=np.int64)),
+                "constant_value": InputValueConstraint(np.array(0.0, dtype=np.float32)),
+            },
         ]
 
     def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
@@ -138,10 +148,8 @@ class PadInputGenerator(OpInputGenerator):
 
         # need for NVidia TRT RTX execution provider tests
         item["pads_all_zeros"] = bool(np.all(pads_array == 0))
-        # item["pads_is_symmetric"] = bool(
-        #     np.array_equal(pads_array[: len(pads_array) // 2],
-        #                    pads_array[len(pads_array) // 2 :])
-        # )
+        half = len(pads_array) // 2
+        item["pads_is_symmetric"] = bool(np.array_equal(pads_array[:half], pads_array[half:]))
 
         return item
 
@@ -149,7 +157,7 @@ class PadInputGenerator(OpInputGenerator):
         """Returns names of infinite properties for Pad operator."""
         return ["data_shape", "pads_value", "constant_value_value"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Pad operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),  # data

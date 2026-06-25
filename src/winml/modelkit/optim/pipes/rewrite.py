@@ -85,7 +85,7 @@ def _detect_conflicts(
     return clean, list(seen_groups.values())
 
 
-class RewritePipe(BasePipe):
+class RewritePipe(BasePipe[RewritePipeConfig]):
     """Pattern-based subgraph rewriting pipe.
 
     A pure graph transformation tool. Accepts rewrite rules via bool
@@ -125,11 +125,11 @@ class RewritePipe(BasePipe):
         return RewritePipeConfig(rules=rules)
 
     @classmethod
-    def should_process(cls, config: RewritePipeConfig) -> bool:  # type: ignore[override]
+    def should_process(cls, config: RewritePipeConfig) -> bool:
         """Return True only when at least one rewrite rule is configured."""
         return len(config.rules) > 0
 
-    def process(  # type: ignore[override]
+    def process(
         self,
         model: onnx.ModelProto,
         config: RewritePipeConfig,
@@ -169,9 +169,9 @@ class RewritePipe(BasePipe):
             candidate_pairs: list[tuple[PatternMatchResult, type]] = []
             for m in all_matches:
                 src_name = m.skeleton_match_result.pattern.__class__.__name__
-                target_cls = source_to_target.get(src_name)
-                if target_cls is not None:
-                    candidate_pairs.append((m, target_cls))
+                mapped_cls = source_to_target.get(src_name)
+                if mapped_cls is not None:
+                    candidate_pairs.append((m, mapped_cls))
 
             if not candidate_pairs:
                 matched_class_names = sorted(

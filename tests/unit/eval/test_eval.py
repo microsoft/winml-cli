@@ -86,6 +86,8 @@ class TestResolveTask:
         from winml.modelkit.eval.evaluate import _resolve_task
 
         fake_hf_config = MagicMock()
+        fake_resolution = MagicMock()
+        fake_resolution.task = "image-classification"
         config = WinMLEvaluationConfig(model_id="microsoft/resnet-50")
         with (
             patch(
@@ -93,8 +95,8 @@ class TestResolveTask:
                 return_value=fake_hf_config,
             ),
             patch(
-                "winml.modelkit.loader.task._detect_task_from_config",
-                return_value="image-classification",
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=fake_resolution,
             ),
         ):
             assert _resolve_task(config) == "image-classification"
@@ -116,16 +118,18 @@ class TestResolveTask:
 
     def test_auto_detect_vision_feature_model_resolves_image_feature_extraction(self):
         """Auto-detect (no --task) for a vision embedding model resolves the
-        modality-aware image-feature-extraction via detect_task — the source-level
+        modality-aware image-feature-extraction via resolve_task — the source-level
         fix for #778 that replaces the reverse io_config reconstruction."""
         from winml.modelkit.eval.evaluate import _resolve_task
 
+        fake_resolution = MagicMock()
+        fake_resolution.task = "image-feature-extraction"
         config = WinMLEvaluationConfig(model_id="facebook/dinov2-base")  # no explicit task
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=MagicMock()),
             patch(
-                "winml.modelkit.loader.detect_task",
-                return_value=("image-feature-extraction", "TasksManager"),
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=fake_resolution,
             ),
         ):
             assert _resolve_task(config) == "image-feature-extraction"
@@ -1335,6 +1339,9 @@ class TestLoadModel:
         ):
             result = eval_mod._load_model(config)
 
+        # quant defaults to True -> no quant override (config=None); optimize/
+        # analyze default True with max_optim_iterations=None -> no extra build
+        # kwargs (build_pipeline_extra_kwargs returns {}).
         mock_auto.from_pretrained.assert_called_once_with(
             "test/model",
             task="image-classification",
@@ -1342,8 +1349,46 @@ class TestLoadModel:
             precision="auto",
             ep=None,
             allow_unsupported_nodes=False,
+            config=None,
         )
         assert result is mock_model
+
+    def test_load_model_forwards_build_flags(self):
+        """--no-quant/--no-optimize/--max-optim-iterations reach from_pretrained."""
+        import importlib
+        import sys
+
+        from winml.modelkit.config import WinMLBuildConfig
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        mock_auto = MagicMock()
+        mock_auto.from_pretrained.return_value = MagicMock()
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            device="cpu",
+            quant=False,
+            optimize=False,
+            max_optim_iterations=5,
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+        ):
+            eval_mod._load_model(config)
+
+        kwargs = mock_auto.from_pretrained.call_args.kwargs
+        # --no-quant -> WinMLBuildConfig override with quant cleared.
+        assert isinstance(kwargs["config"], WinMLBuildConfig)
+        assert kwargs["config"].quant is None
+        # --no-optimize -> skip_optimize; --max-optim-iterations 5 forwarded.
+        assert kwargs["skip_optimize"] is True
+        assert kwargs["hack_max_optim_iterations"] == 5
 
     def test_load_model_from_onnx(self):
         """When model_path is set, calls from_onnx and attaches config."""

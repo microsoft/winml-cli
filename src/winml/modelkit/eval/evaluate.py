@@ -11,7 +11,7 @@ import importlib
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from rich.console import Console
 
@@ -71,7 +71,7 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
 def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
     """Return the evaluator class for *task*, or raise ValueError if unsupported."""
     key = "compare-tensor" if config.mode == "compare" else config.task
-    spec = _EVALUATOR_REGISTRY.get(key)
+    spec = _EVALUATOR_REGISTRY.get(key) if key is not None else None
     if spec is None:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
         raise ValueError(
@@ -79,7 +79,7 @@ def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
         )
     module_path, class_name = spec.rsplit(":", 1)
     module = importlib.import_module(module_path)
-    return getattr(module, class_name)
+    return cast("type[WinMLEvaluator]", getattr(module, class_name))
 
 
 _FE_DEFAULT = {
@@ -193,9 +193,25 @@ class EvalResult:
 def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
     """Load model from ONNX path or HF model ID."""
     from ..models import WinMLAutoModel
+    from ..utils import cli as cli_utils
 
     if config.model_id is None:
         raise ValueError("model_id is required.")
+
+    # Build-pipeline controls, shared with winml build/perf. --no-quant clears
+    # the config's quant section; optimize/analyze/max-optim map to the same
+    # build kwargs build_hf_model / build_onnx_model accept. All are ignored
+    # when building is skipped (pre-built ONNX with skip_build=True).
+    quant_override = None
+    if not config.quant:
+        from ..config import WinMLBuildConfig
+
+        quant_override = WinMLBuildConfig(quant=None)
+    pipeline_kwargs = cli_utils.build_pipeline_extra_kwargs(
+        optimize=config.optimize,
+        analyze=config.analyze,
+        max_optim_iterations=config.max_optim_iterations,
+    )
 
     if config.model_path is not None:
         # Pre-built ONNX: precision is already baked into the model and is
@@ -209,7 +225,9 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
             device=config.device,
             ep=config.ep,
             skip_build=config.skip_build,
+            config=quant_override,
             hf_config=hf_config,
+            **pipeline_kwargs,
         )
         model.config = hf_config
         return model
@@ -221,6 +239,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         precision=config.precision,
         ep=config.ep,
         allow_unsupported_nodes=config.allow_unsupported_nodes,
+        config=quant_override,
+        **pipeline_kwargs,
     )
 
 
@@ -228,7 +248,7 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
     """Resolve the eval task and validate it is supported.
 
     An explicit ``config.task`` is surfaced verbatim (explicit means explicit).
-    When omitted, the modality-aware :func:`detect_task` infers it from the model's
+    When omitted, the modality-aware :func:`resolve_task` infers it from the model's
     HF config — an image-embedding model resolves to ``image-feature-extraction``
     (not the lossy ``feature-extraction``), so the evaluator-registry lookup picks
     the image evaluator without any reverse io_config reconstruction.
@@ -244,10 +264,10 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
 
         from transformers import AutoConfig
 
-        from ..loader import detect_task
+        from ..loader.resolution import resolve_task
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
-        task, _ = detect_task(hf_config)
+        task = resolve_task(hf_config).task
 
     console.print(f"[dim]Use[/dim] {task} [dim]to evaluate[/dim]")
 
@@ -273,7 +293,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
         config, mode=mode, task=_resolve_task(config), dataset=deepcopy(config.dataset)
     )
     if config.mode != "compare" and config.dataset.path is None:
-        default = _DEFAULT_DATASETS.get(config.task)
+        default = _DEFAULT_DATASETS.get(config.task) if config.task is not None else None
         if default is None:
             raise ValueError(
                 f"No dataset provided and no default for task '{config.task}'. Use --dataset."
