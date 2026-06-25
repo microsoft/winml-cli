@@ -47,21 +47,36 @@ CALIB_SAMPLES = 4
 
 
 def _qnn_available() -> bool:
-    """True when ONNX Runtime exposes the QNN execution provider (real NPU)."""
-    return "QNNExecutionProvider" in ort.get_available_providers()
+    """True when a QNN NPU device is reachable via the WinML autoEP path."""
+    try:
+        from winml.modelkit.winml import get_registered_ep_devices
+    except Exception:
+        return "QNNExecutionProvider" in ort.get_available_providers()
+
+    try:
+        devices = get_registered_ep_devices()
+    except Exception:
+        return False
+
+    for device in devices:
+        ep_name = str(getattr(device, "ep_name", ""))
+        device_type = getattr(getattr(device, "device", None), "type", None)
+        if ep_name == "QNNExecutionProvider" and str(device_type).endswith("NPU"):
+            return True
+    return False
 
 
-def _decoder_onnx_path(model) -> str:
+def _decoder_onnx_path(model, sub_name: str = "decoder_gen") -> str:
     """Locate the quantized decode ONNX behind the model handle.
 
     The decode-only build (``seq_len=1``) returns a single
     ``WinMLModelForGenericTask`` whose ``onnx_path`` is the quantized graph; a
-    full composite build instead exposes it under ``sub_models["decoder_gen"]``.
+    full composite build instead exposes it under ``sub_models[sub_name]``.
     Handle both so the test does not depend on which wrapper the build picks.
     """
     sub_models = getattr(model, "sub_models", None)
-    if sub_models and "decoder_gen" in sub_models:
-        return str(sub_models["decoder_gen"].onnx_path)
+    if sub_models and sub_name in sub_models:
+        return str(sub_models[sub_name].onnx_path)
     return str(model.onnx_path)
 
 
@@ -251,7 +266,7 @@ def test_npu_build_quantizes(task, seq_len, tmp_path):
         cache_dir=str(tmp_path),
     )
     sub_name = "decoder_prefill" if seq_len == 64 else "decoder_gen"
-    onnx_path = str(model.sub_models[sub_name]._onnx_path)
+    onnx_path = _decoder_onnx_path(model, sub_name)
     counts = _qdq_counts(onnx_path)
     assert counts.get("QuantizeLinear", 0) > 0
     assert counts.get("GroupQueryAttention", 0) > 0
