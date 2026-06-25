@@ -53,4 +53,5 @@ class WinMLModelForDepthEstimation(WinMLPreTrainedModel):
 
         # transformers' Output fields are annotated FloatTensor (legacy, over-narrow);
         # the ONNX session returns a real float Tensor.
-        return DepthEstimatorOutput(predicted_depth=cast("torch.FloatTensor", predicted_depth))
+        depth: torch.FloatTensor = cast("torch.FloatTensor", predicted_depth)
+        return DepthEstimatorOutput(predicted_depth=depth)

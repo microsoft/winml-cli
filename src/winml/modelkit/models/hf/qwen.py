@@ -150,7 +150,7 @@ class QwenDecoderWrapper(nn.Module):
         self.num_layers = num_layers
         # model is typed nn.Module, so torch's __getattr__ types .config as
         # Tensor | Module; it is really the model's PretrainedConfig.
-        self.config = cast("PretrainedConfig", model.config)
+        self.config: PretrainedConfig = cast("PretrainedConfig", model.config)
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> QwenDecoderWrapper:
