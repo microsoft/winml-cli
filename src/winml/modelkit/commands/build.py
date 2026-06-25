@@ -637,7 +637,7 @@ def build(
                         cfg.quant.rtn_block_size = resolved_quant.rtn_block_size
                         cfg.quant.rtn_symmetric = resolved_quant.rtn_symmetric
                         cfg.quant.rtn_accuracy_level = resolved_quant.rtn_accuracy_level
-                # Store the original precision string for multi-pass expansion
+                # Store the original precision string for stage display
                 if precision:
                     cfg.precision = precision.lower()
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
@@ -1145,9 +1145,8 @@ def _run_quantize_stage(
 ) -> Path:
     """Run the quantize stage (if quant is configured).
 
-    Delegates multi-pass expansion (e.g., w4a16 → [int4, fp16]) entirely to
-    ``quantize_onnx(precision=...)``. The cmd layer only handles UI display
-    and the QDQ skip check.
+    Delegates single-pass quantization to ``quantize_onnx(config=...)``.
+    The cmd layer only handles UI display and the QDQ skip check.
 
     Args:
         config: Build configuration.
@@ -1183,8 +1182,6 @@ def _run_quantize_stage(
             sl.set_status("Converting to FP16...")
         elif config.quant.mode == "rtn":
             sl.set_status(f"Quantizing (RTN {config.quant.rtn_bits}-bit)...")
-            if precision and "a16" in precision.lower():
-                sl.detail("[dim]Multi-pass: int4 → fp16[/dim]")
         else:
             sl.set_status(f"Quantizing ({config.quant.weight_type})...")
             ds = config.quant.dataset_name or "default"
@@ -1215,7 +1212,6 @@ def _run_quantize_stage(
                 model_path=current_path,
                 output_path=quantized_path,
                 config=config.quant,
-                precision=precision,
                 use_external_data=True,
             )
         finally:

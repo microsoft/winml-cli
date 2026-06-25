@@ -253,7 +253,7 @@ def quantize(
 
     try:
         console.print(f"\n[bold]Running {label.lower()}...[/bold]")
-        result = quantize_onnx(model, output_path=output, config=config, precision=precision_lower)
+        result = quantize_onnx(model, output_path=output, config=config)
 
         if result.success:
             console.print(f"\n[bold green]Success![/bold green] {label} complete")
