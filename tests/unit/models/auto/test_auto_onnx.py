@@ -13,7 +13,7 @@ Verifies:
 
 from __future__ import annotations
 
-import hashlib
+import os
 from typing import TYPE_CHECKING, ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -241,10 +241,12 @@ class TestFromPretrainedDelegatesToFromOnnx:
 
 
 class TestFromOnnxCacheDirAndKey:
-    """Verify from_onnx uses content-addressed model dirs and passes cache_key."""
+    """Verify from_onnx uses metadata-addressed model dirs and passes cache_key."""
 
-    def test_uses_content_hash_for_model_dir(self, fake_onnx: Path, tmp_path: Path):
-        """from_onnx uses the ONNX content hash as model_id for get_model_dir."""
+    def test_uses_metadata_hash_for_model_dir(self, fake_onnx: Path, tmp_path: Path):
+        """from_onnx uses the ONNX metadata hash as model_id for get_model_dir."""
+        from winml.modelkit.onnx import get_onnx_model_hash
+
         with (
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
@@ -272,28 +274,31 @@ class TestFromOnnxCacheDirAndKey:
 
         mock_get_model_dir.assert_called_once()
         model_id_arg = mock_get_model_dir.call_args.args[0]
-        expected_hash = hashlib.sha256(fake_onnx.read_bytes()).hexdigest()[:16]
+        expected_hash = get_onnx_model_hash(fake_onnx)
         assert model_id_arg == f"onnx-{expected_hash}"
         assert model_id_arg != str(fake_onnx.resolve())
 
-    def test_replacing_same_path_content_gets_different_model_dir(self, tmp_path: Path):
+    def test_replacing_same_path_metadata_gets_different_model_dir(self, tmp_path: Path):
         """Replacing an ONNX file at the same path changes its cache model dir."""
-        from winml.modelkit.cache import get_cache_dir, get_model_dir
+        from winml.modelkit.cache import get_model_dir
         from winml.modelkit.onnx import get_onnx_model_hash
 
         onnx_path = tmp_path / "model.onnx"
-        cache = get_cache_dir()
+        cache = tmp_path / "cache"
+        base_ns = 1_700_000_000_000_000_000
 
         onnx_path.write_bytes(b"first-content")
+        os.utime(onnx_path, ns=(base_ns, base_ns))
         model_dir_a = get_model_dir(f"onnx-{get_onnx_model_hash(onnx_path)}", cache_dir=cache)
 
         onnx_path.write_bytes(b"second-content")
+        os.utime(onnx_path, ns=(base_ns + 1_000_000_000, base_ns + 1_000_000_000))
         model_dir_b = get_model_dir(f"onnx-{get_onnx_model_hash(onnx_path)}", cache_dir=cache)
 
         assert model_dir_a != model_dir_b
 
-    def test_onnx_model_hash_includes_external_data(self, tmp_path: Path):
-        """Changing external data changes the ONNX model content hash."""
+    def test_onnx_model_hash_includes_external_data_metadata(self, tmp_path: Path):
+        """Changing external data metadata changes the ONNX model hash."""
         import numpy as np
         import onnx
 
@@ -320,7 +325,11 @@ class TestFromOnnxCacheDirAndKey:
         )
 
         original_hash = get_onnx_model_hash(onnx_path)
-        data_path.write_bytes(data_path.read_bytes() + b"changed")
+        stat = data_path.stat()
+        os.utime(
+            data_path,
+            ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000),
+        )
 
         assert get_onnx_model_hash(onnx_path) != original_hash
 
