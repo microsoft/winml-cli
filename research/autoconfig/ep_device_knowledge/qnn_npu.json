@@ -22,8 +22,109 @@
       "BAAI/bge-small-en-v1.5",
       "rizvandwiki/gender-classification"
     ],
-    "last_updated": "2026-06-22",
-    "epistemics_warning": "⚠️ All findings are hypotheses derived from limited models on 1 device (Snapdragon X Elite). Confidence levels reflect how well the mechanism is understood, not how universally applicable the finding is. ALWAYS re-validate on new model architectures before using to prune search space."
+    "last_updated": "2026-06-25",
+    "epistemics_warning": "⚠️ All findings are hypotheses derived from limited models on 1 device (Snapdragon X Elite). Confidence levels reflect how well the mechanism is understood, not how universally applicable the finding is. ALWAYS re-validate on new model architectures before using to prune search space.",
+    "findings_organization": {
+      "scheme": "Each finding carries reliability (verified | supported | preliminary) and category. Only 'verified' (reproduced across >1 model/arch, or interleaved-A/B confirmed, or mechanism-confirmed with graph evidence) should be used to prune the search space without a fresh re-validation; 'preliminary' findings are principles/weak-evidence and must not prune.",
+      "categories": [
+        "export-opset",
+        "quantization",
+        "compile",
+        "graph-fusion-benefit",
+        "graph-fusion-hazard",
+        "graph-fusion-neutral",
+        "build-runtime-failure",
+        "measurement-methodology"
+      ],
+      "index": {
+        "export-opset": [
+          {
+            "id": "npu-001",
+            "reliability": "verified",
+            "title": "opset 21 export gives +24-31% speedup on DINOv2-family models on QNN NPU — mecha"
+          }
+        ],
+        "quantization": [
+          {
+            "id": "npu-002",
+            "reliability": "supported",
+            "title": "W8A16 quantization provides ~1.9x speedup over FP32 on QNN NPU (ConvNext only — "
+          }
+        ],
+        "compile": [
+          {
+            "id": "npu-003",
+            "reliability": "supported",
+            "title": "winml compile adds ~1.7x speedup on top of quantization for QNN NPU (ConvNext on"
+          }
+        ],
+        "graph-fusion-benefit": [
+          {
+            "id": "npu-014",
+            "reliability": "verified",
+            "title": "CORRECTED (not retracted): swinv2 opset21+matmul_transpose is a REAL but ~2x-INF"
+          },
+          {
+            "id": "npu-009",
+            "reliability": "supported",
+            "title": "bias_softmax_fusion adds incremental +14% on DINOv2 QNN NPU when combined with o"
+          }
+        ],
+        "graph-fusion-hazard": [
+          {
+            "id": "npu-006",
+            "reliability": "verified",
+            "title": "Conv fusions (conv-bn/add/activation) cause catastrophic QNN NPU CPU fallback on"
+          },
+          {
+            "id": "npu-010",
+            "reliability": "verified",
+            "title": "highdimRTR_lowdimRTR causes -19% regression on MobileViT QNN NPU due to spurious"
+          },
+          {
+            "id": "npu-027",
+            "reliability": "verified",
+            "title": "matmul_transpose_fusion benefit is architecture-specific, not a portable optimiz"
+          }
+        ],
+        "graph-fusion-neutral": [
+          {
+            "id": "npu-011",
+            "reliability": "preliminary",
+            "title": "Fusions that fire (graph topology changes) but yield no perf benefit should be r"
+          }
+        ],
+        "build-runtime-failure": [
+          {
+            "id": "npu-008",
+            "reliability": "supported",
+            "title": "microsoft/rad-dino fails to build on QNN NPU across all opset variants (winml cr"
+          },
+          {
+            "id": "npu-013",
+            "reliability": "supported",
+            "title": "bias_softmax_fusion causes QNN NPU runtime crash during full bench (rc=0xFFFFFFF"
+          }
+        ],
+        "measurement-methodology": [
+          {
+            "id": "npu-007",
+            "reliability": "verified",
+            "title": "DVFS thermal noise on QNN NPU makes CV-based stability gating unreliable — requi"
+          }
+        ]
+      }
+    },
+    "removed_findings": [
+      {
+        "id": "npu-004",
+        "reason": "ANECDOTE with NO preserved data; confidence very_low; experiment not reproducible as recorded. Deleted 2026-06-25 KB hygiene pass."
+      },
+      {
+        "id": "npu-005",
+        "reason": "confidence low; the comparison is confounded (QNN-Hub model on the ORT QNN-EP stack vs ORT-quantized) and the finding itself states it is uninformative. Deleted 2026-06-25 KB hygiene pass."
+      }
+    ]
   },
   "sweep_config": {
     "results_dir": "catalog-qnn-sweep",
@@ -520,7 +621,9 @@
           "note": "only 20 iters — NOT reliable"
         }
       ],
-      "last_updated": "2026-06-18"
+      "last_updated": "2026-06-18",
+      "reliability": "verified",
+      "category": "export-opset"
     },
     {
       "id": "npu-002",
@@ -535,7 +638,9 @@
       "do_not_generalize_to": "Models with unusual op types not supported by QNN W8A16 path. Magnitude claim (1.9x) is ConvNext-specific.",
       "follow_up_required": [
         "Measure FP32 baseline for MobileViT, DINOv2, ResNet-18 to verify speedup generalizes"
-      ]
+      ],
+      "reliability": "supported",
+      "category": "quantization"
     },
     {
       "id": "npu-003",
@@ -549,88 +654,34 @@
       "scope": "ConvNext only — single model validation. Mechanism generalizes; magnitude (1.7x) does not. The catalog sweep results.json baseline p50 values already include the effects of whatever auto-config winml chose (which may or may not include compile) — not directly comparable.",
       "follow_up_required": [
         "Verify compile speedup on MobileViT and DINOv2"
+      ],
+      "reliability": "supported",
+      "category": "compile"
+    },
+    {
+      "id": "npu-014",
+      "title": "CORRECTED (not retracted): swinv2 opset21+matmul_transpose is a REAL but ~2x-INFLATED win — interleaved A/B shows +12% (not +26%); the original +26% was a cold-baseline / sequential time-drift artifact",
+      "status": "corrected_and_verified_by_interleaved_ab",
+      "confidence": "high — the corrected +12% gain is verified by a 6-round interleaved round-robin A/B with the NPU exclusively held (no other tenant); ranges separated, 5/6 paired rounds faster. The op-count + timing disproof of the ORIGINAL +26%/'any-fusion+20%' claim is irrefutable.",
+      "scope": "QNN NPU sequential per-hypothesis benching in general. Triggered by microsoft/swinv2-tiny-patch4-window16-256 but the hazard is method-level, not model-specific.",
+      "original_claim_now_retracted": "Initially recorded as 'opset21 unlocks fusion gains, champion h6 opset21+matmul_transpose +26.3% RELIABLE/CONFIRMED, first reliable NPU win; opset21 alone +2%, opset21+any fusion +20-26%.' This claim is WITHDRAWN.",
+      "disproof_op_counts": "Irrefutable graph evidence from analyze_result.json operator_counts: h3 (opset21 alone), h5 (opset21+conv_fusions), h7 (bias_softmax), h8 (attention_fusion), h9 (highdimRTR) are ALL byte-identical graphs — opset=21, total_operators=734, and all 19 operator_count entries identical. Those four fusions are NO-OPS on swin (they never fired). Only h6 (matmul_transpose) actually changed the graph: 734->722 (Transpose 110->98, MatMul 39->27, +12 FusedMatMul). Therefore the '+20% from any fusion' band is impossible-by-construction: byte-identical builds cannot differ in perf due to a fusion. The h3-vs-{h5,h7,h8,h9} 18% spread MUST be external.",
+      "disproof_timing": "Raw full_perf session p50s in run order expose a monotonic time drift, not a config effect: h0 (opset17) 11:58 = 64.95/64.36/65.12; h3 (opset21) 12:32 = 62.94/62.94/63.80; h5 (opset21, SAME graph as h3) 12:46 = 52.02/51.68/51.97; h6 12:55 = 47.90/47.85/47.85. Each hypothesis is internally tight (CV<1%) yet the whole sequence falls ~26% from 11:58 to 12:59. Two byte-identical builds (h3,h5) read 63ms vs 52ms purely because h5 ran 14 min later. The ranking tracks WALL-CLOCK ORDER, not the configs — likely shared-NPU contention clearing and/or DVFS warm-up to a faster sustained clock on this multi-tenant box.",
+      "why_confirm_pass_missed_it": "The catalog_sweep confirm pass only RE-RAN THE CHAMPION (h6 confirm_p50s_ms=[47.849,47.924]) and checked it reproduced its own number. It did NOT re-run h0 interleaved with h6. 'CONFIRMED' therefore proves only that h6 is self-consistent at ~47.85 at ~13:00 — it says nothing about what h0 would read at 13:00. With a 26% time drift in play, a non-interleaved confirm cannot separate a real gain from drift. This is the core methodology bug.",
+      "interleaved_verification_result": "DEFINITIVE control run 2026-06-24 14:02-14:40, NPU exclusively held (driver+koelectra paused, no other tenant). Fresh rebuilds of h0/h3/h6, benched ROUND-ROBIN 6 rounds (500 iters, 50 warmup, 20s cooldown) so any time drift hits all three equally. Medians: h0 (opset17) 54.40ms [53.85-55.99]; h3 (opset21 alone) 51.84ms = +4.7% vs h0, faster in 6/6 paired rounds; h6 (opset21+matmul_transpose) 47.83ms = +12.1% vs h0, faster in 5/6 paired rounds (one thermal outlier 56.7ms). CRITICAL: the interleaved baseline reads ~54.4ms, NOT the 64.95ms the sequential sweep recorded at its 11:58 cold start — so ~14 percentage points of the original '+26%' was pure cold-baseline/time-drift inflation. The true win is ~+12%, roughly HALF the reported figure.",
+      "corrected_conclusion": "swinv2-tiny DOES have a real, reproducible QNN NPU tuning win, but it is ~+12% not +26%. Decomposition (both real, both interleaved-confirmed): opset21 export alone buys ~+5% (6/6 rounds), and matmul_transpose_fusion — the ONLY fusion that actually changes swin's graph (734->722 ops) — adds a further ~+8% on top (51.84->47.83). The four no-op fusions (conv/bias_softmax/attention/highdimRTR, all byte-identical to opset21-alone) contribute exactly nothing, confirming '+20% from any fusion' was never real. So 'opset21 enables, the fusion is the payload' is qualitatively correct but the magnitudes are modest (~5% + ~8%), not the inflated 2%/20% split originally logged.",
+      "criterion": "A per-hypothesis ranking is only trustworthy when builds are benched INTERLEAVED (round-robin with cooldown) so any slow drift (thermal, DVFS warm-up, cross-tenant contention) hits every config equally, AND the baseline is re-measured in every round. Sequential 'all sessions of A, then all of B' benching — even with tight within-config CV — inflated this win ~2x by measuring the baseline cold/first. Tight CV within a config is NECESSARY but NOT SUFFICIENT.",
+      "autoconfig_action": "(1) Replace sequential per-hypothesis benching with interleaved A/B/baseline sampling (round-robin, fixed cooldown) before declaring any QNN NPU win — DONE for swinv2 here. (2) The confirm pass MUST re-run the baseline interleaved with the champion, not the champion alone (open code change). (3) For conv+attention hybrid vision models, opset21 + matmul_transpose is worth ~+12% and is genuine — keep it, but expect ~half the gain a sequential sweep would advertise. (4) Re-audit every prior per-model 'champion + gain%' from sequential sweeps: divide reported gains by ~2 as a first correction until interleaved-confirmed.",
+      "reinforces": "npu-007 (DVFS thermal noise needs session averaging) and npu-015 (concurrent-NPU CV inflation) — extends them: averaging within a config is not enough; cross-config sampling must be interleaved with a per-round baseline.",
+      "added": "2026-06-24",
+      "corrected": "2026-06-24",
+      "source": "User challenge ('+20% from any fusion sounds like random gain') -> (a) re-audit of analyze_result.json operator_counts + full_perf_s*.json timestamps; (b) definitive 6-round interleaved A/B (files/ab_verify.py, files/ab_results.json)",
+      "reliability": "verified",
+      "category": "graph-fusion-benefit",
+      "related": [
+        "npu-027",
+        "npu-007"
       ]
-    },
-    {
-      "id": "npu-004",
-      "title": "⚠️ ANECDOTE (NO DATA): W8A8 may cause accuracy collapse on models with LN+GELU — UNVALIDATED",
-      "observation": "W8A8 quantization was attempted on ConvNext. The experiment was aborted early — exact accuracy numbers were NOT recorded. The claim 'top-1 < 15%' is a recalled anecdote from the experimenter, not a measured result.",
-      "mechanism_confirmed": false,
-      "mechanism_hypothesis": "ConvNext uses LayerNormalization + GELU in every block. Quantizing both weights AND activations to INT8 in these ops introduces severe numerical error. However, this is a hypothesis — the aborted experiment does not confirm or refute it.",
-      "action_for_autoconfig": "Treat as anecdotal. Do NOT use this to skip W8A8 without running eval first. If W8A8 top-1 drops > 15 points vs W8A16 baseline on first attempt, then skip.",
-      "confidence": "very_low — anecdotal, no preserved data, experiment not reproducible as recorded",
-      "falsified_by": null,
-      "scope": "UNVALIDATED. May apply to models with LN+GELU blocks but this is unconfirmed.",
-      "do_not_generalize_to": "BERT/ResNet models where W8A8 is often fine",
-      "required_experiment": "Run W8A8 quantization on ConvNext-tiny-224, record exact top-1 accuracy (eval on ImageNet-1k, 1000 samples minimum). Compare to W8A16 baseline. If collapse observed, also run with calibration_method=percentile to see if calibration quality is the issue."
-    },
-    {
-      "id": "npu-005",
-      "title": "QNN Hub W8A16 model is slower on ORT QNN EP stack than ORT-quantized W8A16 — but comparison is not fair",
-      "observation": "QNN Hub W8A16 on winml ORT QNN EP: p50=14.82ms, std=8.8ms. ORT-quantized W8A16 (opset 17 QDQ): p50=6.01ms stable.",
-      "mechanism_confirmed": false,
-      "mechanism_hypothesis": "QNN Hub uses opset 21 QDQ format with uint16 input tensor — this format may be incompatible with ORT QNN EP's expected quantization format.",
-      "fairness_caveat": "⚠️ This is NOT a fair comparison. QNN Hub models are compiled for the qairt native stack (qualcomm AI runtime), not for ORT QNN EP. Running a qairt-compiled model through ORT QNN EP is an unsupported use case. The comparison only shows that you should use ORT-generated quantization when targeting ORT QNN EP — which is obvious.",
-      "action_for_autoconfig": "Use ORT-generated W8A16 quantization (winml build), NOT QNN Hub pre-quantized models, when targeting ORT QNN EP stack.",
-      "confidence": "low — the finding is trivially true (use the right tool for the right stack) but the experiment doesn't tell us anything useful about relative performance.",
-      "falsified_by": null,
-      "scope": "ORT QNN EP stack only. QNN Hub models on their native qairt stack are likely much faster — that comparison was never made."
-    },
-    {
-      "id": "npu-006",
-      "title": "Conv fusions (conv-bn/add/activation) cause catastrophic QNN NPU CPU fallback on Conv-dominant models",
-      "observation": "ResNet-18 with conv-bn-fusion+conv-add-fusion+conv-activation-fusion: 3-session p50s = [132.3, 134.97, 130.67]ms (CV=0.016, extremely stable) vs baseline [0.99, 4.00, 2.72]ms. ~130-135x regression. MobileViT with same fusions: [11.60, 11.36, 10.52]ms — neutral vs baseline [10.56, 11.72, 27.44]ms. BERT-family: neutral (no Conv ops to fuse). VALIDATION SWEEP 2026-06-16: dinov2-base h4=[26.06,25.92,25.87]ms vs h1=[34.56,34.67,33.15]ms → fusions actually -25% (FASTER, not regression). dino-vitb16 h4=[20.12,20.04,20.41]ms vs h1=[19.92,19.97,19.90]ms → +1.0% (neutral). Conv fusions are only hazardous for Conv-dominant models.",
-      "session_evidence_note": "The h4 sessions for ResNet-18 (132.3, 134.97, 130.67ms) show near-zero variance (CV=0.016) — in stark contrast to all other hypotheses. This is unusual for QNN NPU and strongly suggests deterministic CPU fallback (not DVFS noise). The regression is 50-136x even comparing best sessions.",
-      "mechanism_confirmed": false,
-      "mechanism_hypothesis": "ORT conv fusion pass (ConvAddActivationFusion, ConvBNFusion) produces fused op types (e.g., Conv+BN fused) that QNN EP cannot map to HTP kernels. These ops fall back to CPU execution, adding PCIe round-trip overhead per-op for a Conv-heavy graph like ResNet.",
-      "action_for_autoconfig": "⚠️ CRITICAL: Do NOT apply conv-bn-fusion / conv-add-fusion / conv-activation-fusion for QNN NPU on Conv-dominant models (ResNet, EfficientNet, MobileNet). These passes are beneficial for CPU EP but hazardous for QNN NPU. Always run accuracy + latency gate after applying any Conv fusion. If regression > 5x, disable all conv fusions immediately.",
-      "confidence": "high on regression observation (4900%); medium on mechanism (CPU fallback hypothesis not yet confirmed via EP partition dump)",
-      "falsified_by": null,
-      "scope": "Any model containing Conv ops whose graph is changed by the full conv-fusion pack — NOT limited to Conv-dominant models. Originally scoped to Conv-dominant (ResNet/EfficientNet/MobileNet); the 2026-06-24 SegFormer result REFUTES the 'dominant-only' qualifier: SegFormer-b1 has only 1.5% Conv ops (conv stem / overlapping patch-embed) yet conv fusions still produced up to ~10x regression. MobileViT safe (original data). DINOv2 and plain ViT (no Conv stem): fusions neutral or slightly beneficial (2026-06-16 validation). Not applicable to pure-NLP transformers (no Conv ops to fuse — bench-skipped as no-ops).",
-      "severity": "critical — can produce up to ~10x (SegFormer) to ~135x (ResNet-18) regression",
-      "follow_up_required": [
-        "Dump QNN EP partition to confirm fused ops cause CPU fallback",
-        "Test EfficientNet and MobileNet to confirm generalization",
-        "Check if winml analyze linter can detect this pattern pre-build"
-      ],
-      "refinement": "2026-06-17 delta sweep: ResNet-18 h10 (conv_add_fusion ONLY, no conv-bn or conv-activation) = p50 0.955ms vs baseline 0.964ms (+0.93%) — NEUTRAL. Catastrophic regression ONLY occurs with full fusion pack (conv-bn-fusion + conv-add-fusion + conv-activation-fusion) which produces FusedConv ops. Individual conv-add-fusion is safe. Root cause is confirmed: FusedConv op created by the bundle is not dispatchable by QNN EP.",
-      "cross_arch_confirmation_2026_06_24": "SegFormer-b1 (nvidia/segformer-b1-finetuned-ade-512-512, image-segmentation, W8A16) QNN NPU sweep independently reproduces npu-006 on a SECOND architecture family with a conv stem. baseline h0=20.19ms (screen). h4 (opset17 + conv fusions) = 83.75ms → gain -357.8% (~4.1x regression). h5 (opset21 + conv fusions) = 200.11ms → gain -899.3% (~10x regression). Both verdict=DISCARD. graph_changed=True for both (the fusion fired — these are real FusedConv graphs, not no-ops). results.json auto-flagged npu-006_regression=True. conv_pct=1.5%, proving the hazard is triggered by the PRESENCE of a fusible Conv subgraph, not Conv-dominance. By contrast, on pure-transformer models in the same sweep (koelectra, all-mpnet) the conv-fusion hypotheses were byte-identical no-ops (no Conv to fuse) and were bench-skipped.",
-      "last_updated": "2026-06-24"
-    },
-    {
-      "id": "npu-007",
-      "title": "DVFS thermal noise on QNN NPU makes CV-based stability gating unreliable — requires session-level averaging",
-      "observation": "Across all 8 catalog models, QNN NPU CV ranges 0.1–2.0+ even on warm device. Original CV<15% gate blocks most candidates. Differences < 10% are within noise floor.",
-      "mechanism_confirmed": true,
-      "mechanism_hypothesis": "Snapdragon X Elite HTP Hexagon core runs DVFS aggressively. Single-session CV is dominated by thermal state, not model performance. The only reliable signal comes from session-level averaging (3+ independent sessions with cool-down).",
-      "action_for_autoconfig": "DISABLE CV gate for QNN NPU. Replace with: (1) minimum 3 independent sessions × 500+ iters with 30s cool-down between sessions. (2) Use median p50 across sessions as the signal. (3) Only trust gains > 10% — anything below is within noise floor. (4) Do NOT compare within-session std to declare stability.",
-      "confidence": "high — consistent across 8 models in catalog sweep",
-      "falsified_by": null,
-      "scope": "General — applies to all models on QNN NPU / Snapdragon X Elite HTP",
-      "bench_protocol_update": {
-        "screen_phase": "SKIP CV gate; run 200 iters as warmup only",
-        "full_phase": "3 sessions × 500 iters, 30s cool-down between sessions",
-        "signal": "median p50 across sessions",
-        "noise_floor": ">10% gain required to declare improvement"
-      }
-    },
-    {
-      "id": "npu-008",
-      "title": "microsoft/rad-dino fails to build on QNN NPU across all opset variants (winml crash rc=0xC0000005)",
-      "observation": "catalog_qnn_sweep run 2026-06-17: all 6 hypotheses for microsoft/rad-dino (opset 17/19/21, with/without conv fusions) returned rc=3221225794 (0xC0000005, access violation) in <2s. No stderr captured — winml process crashed before producing any output. This is distinct from a build error: it is a hard crash of the winml CLI itself.",
-      "mechanism_confirmed": false,
-      "mechanism_hypothesis": "rad-dino is a ViT encoder with a non-standard DINOv2 variant (larger heads, custom CLS token handling). Likely contains one or more ONNX operators or graph shapes that trigger an unguarded null-dereference or out-of-bounds access in the QNN EP quantization or compilation path (winml build calls QNN SDK compilation under the hood). Could also be a model size / dynamic axis issue.",
-      "action_for_autoconfig": "Skip QNN NPU for microsoft/rad-dino. If QNN NPU is required, file a bug with the crash dump and test with winml analyze first to identify unsupported ops before attempting build.",
-      "confidence": "high on observation (reproducible across all 6 hypotheses in same run); low on mechanism (no stack trace available)",
-      "falsified_by": null,
-      "scope": "microsoft/rad-dino only (confirmed). DINOv2-family models in general (facebook/dinov2-small, facebook/dinov2-base) are NOT affected — they build and run on QNN NPU successfully.",
-      "severity": "blocker — model is incompatible with QNN NPU build",
-      "follow_up_required": [
-        "Run winml analyze --ep qnn on rad-dino ONNX to check unsupported ops",
-        "Capture crash dump (ProcDump) to get stack trace",
-        "Compare ONNX graph structure of rad-dino vs facebook/dinov2-small to isolate differentiating ops"
-      ],
-      "date_observed": "2026-06-17"
     },
     {
       "id": "npu-009",
@@ -653,7 +704,38 @@
       ],
       "autoconfig_action": "For DINOv2-family: include bias_softmax_fusion in the opset21 bundle. Prioritize over attention_fusion (h8) since h7 outperformed h8 by 10 percentage points on DINOv2-small.",
       "added": "2026-06-18",
-      "source": "catalog_qnn_sweep.py h6-h10 delta sweep, DINOv2-small results.json"
+      "source": "catalog_qnn_sweep.py h6-h10 delta sweep, DINOv2-small results.json",
+      "reliability": "supported",
+      "category": "graph-fusion-benefit",
+      "related": [
+        "npu-013"
+      ]
+    },
+    {
+      "id": "npu-006",
+      "title": "Conv fusions (conv-bn/add/activation) cause catastrophic QNN NPU CPU fallback on Conv-dominant models",
+      "observation": "ResNet-18 with conv-bn-fusion+conv-add-fusion+conv-activation-fusion: 3-session p50s = [132.3, 134.97, 130.67]ms (CV=0.016, extremely stable) vs baseline [0.99, 4.00, 2.72]ms. ~130-135x regression. MobileViT with same fusions: [11.60, 11.36, 10.52]ms — neutral vs baseline [10.56, 11.72, 27.44]ms. BERT-family: neutral (no Conv ops to fuse). VALIDATION SWEEP 2026-06-16: dinov2-base h4=[26.06,25.92,25.87]ms vs h1=[34.56,34.67,33.15]ms → fusions actually -25% (FASTER, not regression). dino-vitb16 h4=[20.12,20.04,20.41]ms vs h1=[19.92,19.97,19.90]ms → +1.0% (neutral). Conv fusions are only hazardous for Conv-dominant models.",
+      "session_evidence_note": "The h4 sessions for ResNet-18 (132.3, 134.97, 130.67ms) show near-zero variance (CV=0.016) — in stark contrast to all other hypotheses. This is unusual for QNN NPU and strongly suggests deterministic CPU fallback (not DVFS noise). The regression is 50-136x even comparing best sessions.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "ORT conv fusion pass (ConvAddActivationFusion, ConvBNFusion) produces fused op types (e.g., Conv+BN fused) that QNN EP cannot map to HTP kernels. These ops fall back to CPU execution, adding PCIe round-trip overhead per-op for a Conv-heavy graph like ResNet.",
+      "action_for_autoconfig": "⚠️ CRITICAL: Do NOT apply conv-bn-fusion / conv-add-fusion / conv-activation-fusion for QNN NPU on Conv-dominant models (ResNet, EfficientNet, MobileNet). These passes are beneficial for CPU EP but hazardous for QNN NPU. Always run accuracy + latency gate after applying any Conv fusion. If regression > 5x, disable all conv fusions immediately.",
+      "confidence": "high on regression observation (4900%); medium on mechanism (CPU fallback hypothesis not yet confirmed via EP partition dump)",
+      "falsified_by": null,
+      "scope": "Any model containing Conv ops whose graph is changed by the full conv-fusion pack — NOT limited to Conv-dominant models. Originally scoped to Conv-dominant (ResNet/EfficientNet/MobileNet); the 2026-06-24 SegFormer result REFUTES the 'dominant-only' qualifier: SegFormer-b1 has only 1.5% Conv ops (conv stem / overlapping patch-embed) yet conv fusions still produced up to ~10x regression. MobileViT safe (original data). DINOv2 and plain ViT (no Conv stem): fusions neutral or slightly beneficial (2026-06-16 validation). Not applicable to pure-NLP transformers (no Conv ops to fuse — bench-skipped as no-ops).",
+      "severity": "critical — can produce up to ~10x (SegFormer) to ~135x (ResNet-18) regression",
+      "follow_up_required": [
+        "Dump QNN EP partition to confirm fused ops cause CPU fallback",
+        "Test EfficientNet and MobileNet to confirm generalization",
+        "Check if winml analyze linter can detect this pattern pre-build"
+      ],
+      "refinement": "2026-06-17 delta sweep: ResNet-18 h10 (conv_add_fusion ONLY, no conv-bn or conv-activation) = p50 0.955ms vs baseline 0.964ms (+0.93%) — NEUTRAL. Catastrophic regression ONLY occurs with full fusion pack (conv-bn-fusion + conv-add-fusion + conv-activation-fusion) which produces FusedConv ops. Individual conv-add-fusion is safe. Root cause is confirmed: FusedConv op created by the bundle is not dispatchable by QNN EP.",
+      "cross_arch_confirmation_2026_06_24": "SegFormer-b1 (nvidia/segformer-b1-finetuned-ade-512-512, image-segmentation, W8A16) QNN NPU sweep independently reproduces npu-006 on a SECOND architecture family with a conv stem. baseline h0=20.19ms (screen). h4 (opset17 + conv fusions) = 83.75ms → gain -357.8% (~4.1x regression). h5 (opset21 + conv fusions) = 200.11ms → gain -899.3% (~10x regression). Both verdict=DISCARD. graph_changed=True for both (the fusion fired — these are real FusedConv graphs, not no-ops). results.json auto-flagged npu-006_regression=True. conv_pct=1.5%, proving the hazard is triggered by the PRESENCE of a fusible Conv subgraph, not Conv-dominance. By contrast, on pure-transformer models in the same sweep (koelectra, all-mpnet) the conv-fusion hypotheses were byte-identical no-ops (no Conv to fuse) and were bench-skipped.",
+      "last_updated": "2026-06-24",
+      "reliability": "verified",
+      "category": "graph-fusion-hazard",
+      "related": [
+        "npu-011"
+      ]
     },
     {
       "id": "npu-010",
@@ -672,7 +754,31 @@
       "architectural_discriminator": "Gemm->Reshape->Transpose hybrid unfold pattern (CNN-ViT). Detect via analyze_insight.py op-sequence scan before applying.",
       "autoconfig_action": "Hard-block highdimRTR for models with Gemm->Reshape->Transpose hybrid sequences. analyze_insight.py should detect this pattern and add highdimRTR to skip_set.",
       "added": "2026-06-18",
-      "source": "catalog_qnn_sweep.py h6-h10 delta sweep + ONNX graph diff (MobileViT h0 vs h9 node count comparison)"
+      "source": "catalog_qnn_sweep.py h6-h10 delta sweep + ONNX graph diff (MobileViT h0 vs h9 node count comparison)",
+      "reliability": "verified",
+      "category": "graph-fusion-hazard",
+      "related": [
+        "npu-001"
+      ]
+    },
+    {
+      "id": "npu-027",
+      "title": "matmul_transpose_fusion benefit is architecture-specific, not a portable optimization — helps one attention-graph shape, regresses or no-ops on others",
+      "observation": "5-model QNN NPU sweep 2026-06-24 isolates matmul_transpose_fusion (the h6 hypothesis: opset21 + matmul_transpose_fusion only) across architecture families. (1) swinv2-tiny (conv+attention hybrid): h6 is the ONLY fusion that changes swin's graph (734->722 ops: Transpose 110->98, MatMul 39->27, +12 FusedMatMul) and the interleaved A/B (npu-014) confirms it adds ~+8% on top of opset21's ~+5%. (2) SegFormer-b1 (conv stem + efficient attention): h6 changes the graph (graph_changed=True, not a no-op) but REGRESSES — screen p50=42.25ms vs baseline 20.19ms, gain=-101.2% (~2x slower), verdict=DISCARD. The exact same fusion that is swin's payload is a 2x regression on SegFormer. (3) koelectra / all-mpnet (pure NLP transformers): h6 is byte-identical to the opset21 baseline (h3) — total_operators and per-op counts unchanged — so it is a pure no-op, bench-skipped. The fusion only finds a fusible pattern in swin's specific attention sub-graph.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "matmul_transpose_fusion folds a Transpose feeding a MatMul into a FusedMatMul. Whether that FusedMatMul is (a) created at all, and (b) maps to an efficient HTP kernel vs falling back, depends on the exact Transpose/MatMul dimensionality and layout that each attention implementation emits. swin's windowed-attention layout produces FusedMatMuls the QNN HTP handles well (+8%); SegFormer's efficient/sequence-reduction attention produces a fused shape the HTP handles worse than the unfused form (~2x regression); standard BERT-style attention emits no matching pattern at all (no-op).",
+      "action_for_autoconfig": "Do NOT treat matmul_transpose_fusion as a universal win. It must be measured per-model with the interleaved-A/B protocol (npu-014). Gate: if graph_changed but full-bench gain is negative, DISCARD (it can be a ~2x regression as on SegFormer). The op-count delta tells you only that the fusion FIRED, never that it HELPED — perf must be measured.",
+      "scope": "All QNN NPU attention models. Confirmed beneficial only on swinv2 (windowed attention). Confirmed regression on SegFormer (efficient attention). Confirmed no-op on koelectra/mpnet/bert (standard attention). Gains do not extrapolate across attention-implementation families.",
+      "severity": "medium — prevents over-generalizing swin's npu-014 win; the regression case is ~2x",
+      "confidence": "high on observation (graph_changed flags + op counts + screen/full p50 from the 2026-06-24 sweep results.json for all 5 models); medium on mechanism (HTP kernel-mapping hypothesis not confirmed via EP partition dump)",
+      "falsified_by": null,
+      "added": "2026-06-25",
+      "source": "5-model curated QNN NPU sweep (swinv2, koelectra, segformer, all-mpnet, clip-vit) — per-model results.json h6 graph_changed + gain_vs_baseline_pct",
+      "reliability": "verified",
+      "category": "graph-fusion-hazard",
+      "related": [
+        "npu-014"
+      ]
     },
     {
       "id": "npu-011",
@@ -687,7 +793,33 @@
       "mechanism_hypothesis": "Fused ops are dispatchable by the QNN EP (no CPU fallback, unlike npu-006) so correctness/perf is preserved, but the fused kernel is not faster than the unfused sequence on HTP for these shapes — the win the fusion targets (CPU EP op-dispatch overhead) does not exist on NPU. Net effect is neutral, while build time and EP-mapping risk still increase.",
       "autoconfig_action": "The analyzer should not auto-keep a fusion merely because its pattern matches the input graph. Steps: (1) build with and without the flag, diff op counts + topology to confirm the fusion fired; (2) compare session-averaged p50 against the noise band; (3) if it fired but delta is within noise, drop the fusion from the emitted config (or flag it 'neutral — omitted') rather than retaining it. Retaining neutral fusions costs build time and adds EP-dispatch risk for no return. This benefit gate is feature gap #4 in the README.",
       "added": "2026-06-24",
-      "source": "catalog_qnn_sweep.py recipe NPU sweep — BERT-base + ConvNeXt-tiny (fusions fire, p50 within noise)"
+      "source": "catalog_qnn_sweep.py recipe NPU sweep — BERT-base + ConvNeXt-tiny (fusions fire, p50 within noise)",
+      "reliability": "preliminary",
+      "category": "graph-fusion-neutral",
+      "related": [
+        "npu-006",
+        "npu-007"
+      ]
+    },
+    {
+      "id": "npu-008",
+      "title": "microsoft/rad-dino fails to build on QNN NPU across all opset variants (winml crash rc=0xC0000005)",
+      "observation": "catalog_qnn_sweep run 2026-06-17: all 6 hypotheses for microsoft/rad-dino (opset 17/19/21, with/without conv fusions) returned rc=3221225794 (0xC0000005, access violation) in <2s. No stderr captured — winml process crashed before producing any output. This is distinct from a build error: it is a hard crash of the winml CLI itself.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "rad-dino is a ViT encoder with a non-standard DINOv2 variant (larger heads, custom CLS token handling). Likely contains one or more ONNX operators or graph shapes that trigger an unguarded null-dereference or out-of-bounds access in the QNN EP quantization or compilation path (winml build calls QNN SDK compilation under the hood). Could also be a model size / dynamic axis issue.",
+      "action_for_autoconfig": "Skip QNN NPU for microsoft/rad-dino. If QNN NPU is required, file a bug with the crash dump and test with winml analyze first to identify unsupported ops before attempting build.",
+      "confidence": "high on observation (reproducible across all 6 hypotheses in same run); low on mechanism (no stack trace available)",
+      "falsified_by": null,
+      "scope": "microsoft/rad-dino only (confirmed). DINOv2-family models in general (facebook/dinov2-small, facebook/dinov2-base) are NOT affected — they build and run on QNN NPU successfully.",
+      "severity": "blocker — model is incompatible with QNN NPU build",
+      "follow_up_required": [
+        "Run winml analyze --ep qnn on rad-dino ONNX to check unsupported ops",
+        "Capture crash dump (ProcDump) to get stack trace",
+        "Compare ONNX graph structure of rad-dino vs facebook/dinov2-small to isolate differentiating ops"
+      ],
+      "date_observed": "2026-06-17",
+      "reliability": "supported",
+      "category": "build-runtime-failure"
     },
     {
       "id": "npu-013",
@@ -702,40 +834,35 @@
       ],
       "confidence": "high on crash attribution (file-level evidence: screen_perf.json exists, full_perf_s1.json absent); medium on root cause (firmware OOM vs other kernel fault unconfirmed)",
       "added": "2026-06-24",
-      "source": "Hourly efficiency reflection tick — direct inspection of catalog-qnn-sweep/google-bert--bert-base-uncased/h7/ file inventory"
+      "source": "Hourly efficiency reflection tick — direct inspection of catalog-qnn-sweep/google-bert--bert-base-uncased/h7/ file inventory",
+      "reliability": "supported",
+      "category": "build-runtime-failure",
+      "related": [
+        "npu-009"
+      ]
     },
     {
-      "id": "npu-014",
-      "title": "CORRECTED (not retracted): swinv2 opset21+matmul_transpose is a REAL but ~2x-INFLATED win — interleaved A/B shows +12% (not +26%); the original +26% was a cold-baseline / sequential time-drift artifact",
-      "status": "corrected_and_verified_by_interleaved_ab",
-      "confidence": "high — the corrected +12% gain is verified by a 6-round interleaved round-robin A/B with the NPU exclusively held (no other tenant); ranges separated, 5/6 paired rounds faster. The op-count + timing disproof of the ORIGINAL +26%/'any-fusion+20%' claim is irrefutable.",
-      "scope": "QNN NPU sequential per-hypothesis benching in general. Triggered by microsoft/swinv2-tiny-patch4-window16-256 but the hazard is method-level, not model-specific.",
-      "original_claim_now_retracted": "Initially recorded as 'opset21 unlocks fusion gains, champion h6 opset21+matmul_transpose +26.3% RELIABLE/CONFIRMED, first reliable NPU win; opset21 alone +2%, opset21+any fusion +20-26%.' This claim is WITHDRAWN.",
-      "disproof_op_counts": "Irrefutable graph evidence from analyze_result.json operator_counts: h3 (opset21 alone), h5 (opset21+conv_fusions), h7 (bias_softmax), h8 (attention_fusion), h9 (highdimRTR) are ALL byte-identical graphs — opset=21, total_operators=734, and all 19 operator_count entries identical. Those four fusions are NO-OPS on swin (they never fired). Only h6 (matmul_transpose) actually changed the graph: 734->722 (Transpose 110->98, MatMul 39->27, +12 FusedMatMul). Therefore the '+20% from any fusion' band is impossible-by-construction: byte-identical builds cannot differ in perf due to a fusion. The h3-vs-{h5,h7,h8,h9} 18% spread MUST be external.",
-      "disproof_timing": "Raw full_perf session p50s in run order expose a monotonic time drift, not a config effect: h0 (opset17) 11:58 = 64.95/64.36/65.12; h3 (opset21) 12:32 = 62.94/62.94/63.80; h5 (opset21, SAME graph as h3) 12:46 = 52.02/51.68/51.97; h6 12:55 = 47.90/47.85/47.85. Each hypothesis is internally tight (CV<1%) yet the whole sequence falls ~26% from 11:58 to 12:59. Two byte-identical builds (h3,h5) read 63ms vs 52ms purely because h5 ran 14 min later. The ranking tracks WALL-CLOCK ORDER, not the configs — likely shared-NPU contention clearing and/or DVFS warm-up to a faster sustained clock on this multi-tenant box.",
-      "why_confirm_pass_missed_it": "The catalog_sweep confirm pass only RE-RAN THE CHAMPION (h6 confirm_p50s_ms=[47.849,47.924]) and checked it reproduced its own number. It did NOT re-run h0 interleaved with h6. 'CONFIRMED' therefore proves only that h6 is self-consistent at ~47.85 at ~13:00 — it says nothing about what h0 would read at 13:00. With a 26% time drift in play, a non-interleaved confirm cannot separate a real gain from drift. This is the core methodology bug.",
-      "interleaved_verification_result": "DEFINITIVE control run 2026-06-24 14:02-14:40, NPU exclusively held (driver+koelectra paused, no other tenant). Fresh rebuilds of h0/h3/h6, benched ROUND-ROBIN 6 rounds (500 iters, 50 warmup, 20s cooldown) so any time drift hits all three equally. Medians: h0 (opset17) 54.40ms [53.85-55.99]; h3 (opset21 alone) 51.84ms = +4.7% vs h0, faster in 6/6 paired rounds; h6 (opset21+matmul_transpose) 47.83ms = +12.1% vs h0, faster in 5/6 paired rounds (one thermal outlier 56.7ms). CRITICAL: the interleaved baseline reads ~54.4ms, NOT the 64.95ms the sequential sweep recorded at its 11:58 cold start — so ~14 percentage points of the original '+26%' was pure cold-baseline/time-drift inflation. The true win is ~+12%, roughly HALF the reported figure.",
-      "corrected_conclusion": "swinv2-tiny DOES have a real, reproducible QNN NPU tuning win, but it is ~+12% not +26%. Decomposition (both real, both interleaved-confirmed): opset21 export alone buys ~+5% (6/6 rounds), and matmul_transpose_fusion — the ONLY fusion that actually changes swin's graph (734->722 ops) — adds a further ~+8% on top (51.84->47.83). The four no-op fusions (conv/bias_softmax/attention/highdimRTR, all byte-identical to opset21-alone) contribute exactly nothing, confirming '+20% from any fusion' was never real. So 'opset21 enables, the fusion is the payload' is qualitatively correct but the magnitudes are modest (~5% + ~8%), not the inflated 2%/20% split originally logged.",
-      "criterion": "A per-hypothesis ranking is only trustworthy when builds are benched INTERLEAVED (round-robin with cooldown) so any slow drift (thermal, DVFS warm-up, cross-tenant contention) hits every config equally, AND the baseline is re-measured in every round. Sequential 'all sessions of A, then all of B' benching — even with tight within-config CV — inflated this win ~2x by measuring the baseline cold/first. Tight CV within a config is NECESSARY but NOT SUFFICIENT.",
-      "autoconfig_action": "(1) Replace sequential per-hypothesis benching with interleaved A/B/baseline sampling (round-robin, fixed cooldown) before declaring any QNN NPU win — DONE for swinv2 here. (2) The confirm pass MUST re-run the baseline interleaved with the champion, not the champion alone (open code change). (3) For conv+attention hybrid vision models, opset21 + matmul_transpose is worth ~+12% and is genuine — keep it, but expect ~half the gain a sequential sweep would advertise. (4) Re-audit every prior per-model 'champion + gain%' from sequential sweeps: divide reported gains by ~2 as a first correction until interleaved-confirmed.",
-      "reinforces": "npu-007 (DVFS thermal noise needs session averaging) and npu-015 (concurrent-NPU CV inflation) — extends them: averaging within a config is not enough; cross-config sampling must be interleaved with a per-round baseline.",
-      "added": "2026-06-24",
-      "corrected": "2026-06-24",
-      "source": "User challenge ('+20% from any fusion sounds like random gain') -> (a) re-audit of analyze_result.json operator_counts + full_perf_s*.json timestamps; (b) definitive 6-round interleaved A/B (files/ab_verify.py, files/ab_results.json)"
-    },
-    {
-      "id": "npu-027",
-      "title": "matmul_transpose_fusion benefit is architecture-specific, not a portable optimization — helps one attention-graph shape, regresses or no-ops on others",
-      "observation": "5-model QNN NPU sweep 2026-06-24 isolates matmul_transpose_fusion (the h6 hypothesis: opset21 + matmul_transpose_fusion only) across architecture families. (1) swinv2-tiny (conv+attention hybrid): h6 is the ONLY fusion that changes swin's graph (734->722 ops: Transpose 110->98, MatMul 39->27, +12 FusedMatMul) and the interleaved A/B (npu-014) confirms it adds ~+8% on top of opset21's ~+5%. (2) SegFormer-b1 (conv stem + efficient attention): h6 changes the graph (graph_changed=True, not a no-op) but REGRESSES — screen p50=42.25ms vs baseline 20.19ms, gain=-101.2% (~2x slower), verdict=DISCARD. The exact same fusion that is swin's payload is a 2x regression on SegFormer. (3) koelectra / all-mpnet (pure NLP transformers): h6 is byte-identical to the opset21 baseline (h3) — total_operators and per-op counts unchanged — so it is a pure no-op, bench-skipped. The fusion only finds a fusible pattern in swin's specific attention sub-graph.",
-      "mechanism_confirmed": false,
-      "mechanism_hypothesis": "matmul_transpose_fusion folds a Transpose feeding a MatMul into a FusedMatMul. Whether that FusedMatMul is (a) created at all, and (b) maps to an efficient HTP kernel vs falling back, depends on the exact Transpose/MatMul dimensionality and layout that each attention implementation emits. swin's windowed-attention layout produces FusedMatMuls the QNN HTP handles well (+8%); SegFormer's efficient/sequence-reduction attention produces a fused shape the HTP handles worse than the unfused form (~2x regression); standard BERT-style attention emits no matching pattern at all (no-op).",
-      "action_for_autoconfig": "Do NOT treat matmul_transpose_fusion as a universal win. It must be measured per-model with the interleaved-A/B protocol (npu-014). Gate: if graph_changed but full-bench gain is negative, DISCARD (it can be a ~2x regression as on SegFormer). The op-count delta tells you only that the fusion FIRED, never that it HELPED — perf must be measured.",
-      "scope": "All QNN NPU attention models. Confirmed beneficial only on swinv2 (windowed attention). Confirmed regression on SegFormer (efficient attention). Confirmed no-op on koelectra/mpnet/bert (standard attention). Gains do not extrapolate across attention-implementation families.",
-      "severity": "medium — prevents over-generalizing swin's npu-014 win; the regression case is ~2x",
-      "confidence": "high on observation (graph_changed flags + op counts + screen/full p50 from the 2026-06-24 sweep results.json for all 5 models); medium on mechanism (HTP kernel-mapping hypothesis not confirmed via EP partition dump)",
+      "id": "npu-007",
+      "title": "DVFS thermal noise on QNN NPU makes CV-based stability gating unreliable — requires session-level averaging",
+      "observation": "Across all 8 catalog models, QNN NPU CV ranges 0.1–2.0+ even on warm device. Original CV<15% gate blocks most candidates. Differences < 10% are within noise floor.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "Snapdragon X Elite HTP Hexagon core runs DVFS aggressively. Single-session CV is dominated by thermal state, not model performance. The only reliable signal comes from session-level averaging (3+ independent sessions with cool-down).",
+      "action_for_autoconfig": "DISABLE CV gate for QNN NPU. Replace with: (1) minimum 3 independent sessions × 500+ iters with 30s cool-down between sessions. (2) Use median p50 across sessions as the signal. (3) Only trust gains > 10% — anything below is within noise floor. (4) Do NOT compare within-session std to declare stability.",
+      "confidence": "high — consistent across 8 models in catalog sweep",
       "falsified_by": null,
-      "added": "2026-06-25",
-      "source": "5-model curated QNN NPU sweep (swinv2, koelectra, segformer, all-mpnet, clip-vit) — per-model results.json h6 graph_changed + gain_vs_baseline_pct"
+      "scope": "General — applies to all models on QNN NPU / Snapdragon X Elite HTP",
+      "bench_protocol_update": {
+        "screen_phase": "SKIP CV gate; run 200 iters as warmup only",
+        "full_phase": "3 sessions × 500 iters, 30s cool-down between sessions",
+        "signal": "median p50 across sessions",
+        "noise_floor": ">10% gain required to declare improvement"
+      },
+      "reliability": "verified",
+      "category": "measurement-methodology",
+      "related": [
+        "npu-014",
+        "npu-011"
+      ]
     }
   ],
   "search_space_rules": {
@@ -760,10 +887,8 @@
     },
     "quantization": {
       "recommended": "w8a16",
-      "skip": [
-        "w8a8 if initial top1 < 15%"
-      ],
-      "dialectical_note": "⚠️ W8A8 skip rule is ConvNext-specific (LN+GELU sensitivity). Try W8A8 for models without LN in every block."
+      "skip": [],
+      "dialectical_note": "⚠️ No validated finding supports a w8a8 skip rule. The original backing (former npu-004, a W8A8 LN+GELU accuracy-collapse anecdote) was deleted 2026-06-25 as unreproducible/no-data. Test w8a8 empirically per model; do not skip it on the basis of the retracted anecdote."
     },
     "compile": {
       "always_run": true,
