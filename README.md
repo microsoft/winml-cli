@@ -4,6 +4,7 @@
 ![Status](https://img.shields.io/badge/status-preview-blue)
 [![PyPI release](https://img.shields.io/pypi/v/winml-cli)](https://pypi.org/project/winml-cli/)
 ![License](https://img.shields.io/badge/license-MIT-green)
+[![Model Accuracy Report](https://img.shields.io/badge/docs-model%20accuracy%20report-blue)](https://microsoft.github.io/winml-cli/reports/model_accuracy_report.html)
 
 **Windows ML CLI** is a command line tool for building **portable, performant, and high-quality** AI models for Windows ML. It takes you from a source model — whether from Hugging Face or your own pipeline — to a hardware-optimized artifact in a reproducible workflow.
 

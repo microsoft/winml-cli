@@ -352,7 +352,7 @@ def finalize_transformer_only_quant_config(
     matched, so this hook is authoritative:
 
       - **int8-symmetric weights** (zp=0) + **uint16 asymmetric activations**,
-      - **MinMax** calibration,
+      - **MinMax** calibration, ``mode="static"`` (forces QDQ dispatch),
       - GroupQueryAttention nodes excluded from QDQ (read from the graph),
       - the matching :class:`CalibrationDataReader` (prefill vs. decode-trajectory,
         chosen by the graph's ``seq_len``).
@@ -366,6 +366,11 @@ def finalize_transformer_only_quant_config(
     gqa_nodes = _gqa_node_names(onnx_path)
 
     # Fixed, reference-matched w8a16 scheme (authoritative over policy dtypes).
+    # ``mode`` must be pinned to "static": the new precision-driven flow keys the
+    # quantizer dispatch on ``config.mode`` (fp16/rtn/static), so a build whose
+    # precision policy resolved to "fp16"/"rtn" would otherwise bypass QDQ and
+    # silently ignore the calibration reader + GQA exclusion set below.
+    quant.mode = "static"
     quant.weight_type = "int8"
     quant.activation_type = "uint16"
     quant.weight_symmetric = True

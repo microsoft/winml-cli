@@ -98,7 +98,7 @@ class TestWinMLQuantizationConfig:
 
         config = WinMLQuantizationConfig()
 
-        assert config.mode == "qdq"
+        assert config.mode == "static"
         assert config.weight_type == "uint8"
         assert config.samples == 10
         assert config.calibration_method == "minmax"
@@ -108,13 +108,13 @@ class TestWinMLQuantizationConfig:
         from winml.modelkit.quant import WinMLQuantizationConfig
 
         config = WinMLQuantizationConfig(
-            mode="qdq",
+            mode="static",
             weight_type="int8",
             activation_type="int8",
             calibration_method="minmax",
         )
 
-        assert config.mode == "qdq"
+        assert config.mode == "static"
         assert config.weight_type == "int8"
 
 

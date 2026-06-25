@@ -231,3 +231,52 @@ def test_decode_trajectory_reader_respects_max_cache():
     # Trajectory must stop once the cache is full (cur_len reaches max_cache_len).
     assert len(feeds) == max_cache_len - prefill_seq
     assert max(int(f["past_seq_len"][0, 0]) for f in feeds) == max_cache_len - 1
+
+
+def test_finalize_pins_static_w8a16_scheme(tmp_path, monkeypatch):
+    """The finalizer is authoritative over the precision policy.
+
+    The precision-driven build keys the quantizer dispatch on ``config.mode``,
+    so the transformer-only policy must pin ``mode="static"`` (QDQ) along with
+    the reference-matched w8a16 dtypes/symmetry + GQA exclusion — even when the
+    incoming config arrived as a non-QDQ mode (e.g. ``fp16``/``rtn``).
+    """
+    from winml.modelkit.quant import WinMLQuantizationConfig
+    from winml.modelkit.quant.calibration import qwen3_transformer_only as mod
+
+    p = tmp_path / "prefill.onnx"
+    _build_tiny_onnx(p, seq_len=64, max_cache_len=128)
+
+    embed = torch.nn.Embedding(VOCAB, HIDDEN)
+    fake_model = SimpleNamespace(
+        config=_fake_config(),
+        eval=lambda: None,
+        get_input_embeddings=lambda: embed,
+    )
+    monkeypatch.setattr(
+        mod, "AutoModelForCausalLM", SimpleNamespace(from_pretrained=lambda *a, **k: fake_model)
+    )
+    monkeypatch.setattr(
+        mod, "AutoTokenizer", SimpleNamespace(from_pretrained=lambda *a, **k: object())
+    )
+    monkeypatch.setattr(mod, "_load_gsm8k_prompts", lambda n: ["hi"] * n)
+    monkeypatch.setattr(
+        mod,
+        "_tokenize_prompts",
+        lambda tok, prompts, n: [torch.zeros((1, 64), dtype=torch.long) for _ in range(n)],
+    )
+
+    # Hostile incoming mode: a non-QDQ policy that must be overridden.
+    quant = WinMLQuantizationConfig(mode="fp16")
+    quant.samples = 2
+
+    result = mod.finalize_transformer_only_quant_config(quant, onnx_path=p)
+
+    assert result.mode == "static"
+    assert result.weight_type == "int8"
+    assert result.activation_type == "uint16"
+    assert result.weight_symmetric is True
+    assert result.activation_symmetric is False
+    assert result.calibration_method == "minmax"
+    assert result.nodes_to_exclude == ["gqa_layer_0"]
+    assert result.calibration_data is not None

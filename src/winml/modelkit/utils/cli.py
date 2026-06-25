@@ -63,6 +63,35 @@ def warn_trust_remote_code() -> None:
     )
 
 
+def warn_ignored_calibration_options(
+    ctx: click.Context, reason: str, *, console: Console | None = None
+) -> None:
+    """Warn if the user passed calibration-related CLI options that are ignored.
+
+    Checks whether ``--samples``, ``--method``, ``--weight-type``, or
+    ``--activation-type`` were explicitly provided on the command line and
+    emits a yellow warning listing the ignored options.
+
+    Args:
+        ctx: Click context (used to detect explicitly-provided params).
+        reason: Human-readable explanation (e.g., "FP16 does not use
+            calibration data.").
+        console: Optional Rich console for output. Defaults to stderr.
+    """
+    ignored = []
+    if is_cli_provided(ctx, "samples"):
+        ignored.append("--samples")
+    if is_cli_provided(ctx, "method"):
+        ignored.append("--method")
+    if is_cli_provided(ctx, "weight_type"):
+        ignored.append("--weight-type")
+    if is_cli_provided(ctx, "activation_type"):
+        ignored.append("--activation-type")
+    if ignored:
+        out = console or _stderr_console
+        out.print(f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — {reason}")
+
+
 def model_path_option(required: bool = True) -> Callable[[F], F]:
     """Add --model option that accepts a local ONNX file path.
 
@@ -631,9 +660,9 @@ def max_optim_iterations_option(optional_message: str | None = None) -> Callable
     Returns:
         Decorator function.
     """
-    base_help = "Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0."
+    base_help = "Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0"
     if optional_message:
-        base_help = f"{base_help} {optional_message}"
+        base_help = f"{base_help}. {optional_message}"
     return click.option(
         "--max-optim-iterations",
         "max_optim_iterations",
@@ -674,6 +703,54 @@ def build_pipeline_extra_kwargs(
     elif max_optim_iterations is not None:
         extra["hack_max_optim_iterations"] = max_optim_iterations
     return extra
+
+
+def ignored_build_flags_warning(
+    *,
+    skip_build_onnx: bool,
+    quant: bool = True,
+    optimize: bool = True,
+    analyze: bool = True,
+    max_optim_iterations: int | None = None,
+) -> str | None:
+    """Build a warning for build-pipeline flags that are no-ops on a pre-built ONNX.
+
+    Commands that accept a pre-built ``.onnx`` input (``eval``, ``perf``) forward
+    ``--no-quant``/``--no-optimize``/``--no-analyze``/``--max-optim-iterations`` to
+    ``from_onnx``, but with ``skip_build`` (the default) no build runs, so those
+    toggles silently take no effect. This returns a message naming the flags the
+    user actually set (or ``None`` when nothing was set or a build will run), so
+    callers can surface it through their own logger/console — mirroring the
+    ``--precision``-ignored warning.
+
+    Args:
+        skip_build_onnx: True when the input is a pre-built ONNX *and* the build
+            is skipped (the precondition under which the flags are no-ops).
+        quant/optimize/analyze: Enabled-semantics toggles (False = user passed
+            the ``--no-*`` form).
+        max_optim_iterations: Explicit value, or ``None`` when left at default.
+
+    Returns:
+        Warning message, or ``None`` if no ignored flags apply.
+    """
+    if not skip_build_onnx:
+        return None
+    ignored = [
+        flag
+        for flag, was_set in (
+            ("--no-quant", not quant),
+            ("--no-optimize", not optimize),
+            ("--no-analyze", not analyze),
+            ("--max-optim-iterations", max_optim_iterations is not None),
+        )
+        if was_set
+    ]
+    if not ignored:
+        return None
+    return (
+        f"{', '.join(ignored)} ignored for pre-built ONNX inputs "
+        "(no build runs; pass --no-skip-build to rebuild)."
+    )
 
 
 def allow_unsupported_nodes_option(optional_message: str | None = None) -> Callable[[F], F]:

@@ -88,6 +88,35 @@ extends:
               Write-Host "Staged GitHub release assets:"
               Get-ChildItem $dst | ForEach-Object { Write-Host (" - {0} ({1:N0} bytes)" -f $_.Name, $_.Length) }
 
+              # Extract this version's CHANGELOG section into RELEASE_NOTES.md so the
+              # release job (a release job, with no repo checkout) can use it as the
+              # release body. It ships inside the GitHubReleaseAssets artifact next to
+              # the wheels, and is not matched by the release task's asset globs.
+              $changelog = "$(Build.SourcesDirectory)/CHANGELOG.md"
+              $notesFile = Join-Path $dst "RELEASE_NOTES.md"
+              if (Test-Path $changelog) {
+                $lines = Get-Content $changelog
+                $start = -1
+                for ($i = 0; $i -lt $lines.Count; $i++) {
+                  if ($lines[$i] -match "^##\s+WinML CLI v$([regex]::Escape($version))\s*$") { $start = $i; break }
+                }
+                if ($start -ge 0) {
+                  $end = $lines.Count
+                  for ($j = $start + 1; $j -lt $lines.Count; $j++) {
+                    if ($lines[$j] -match '^##\s') { $end = $j; break }
+                  }
+                  $section = if ($end -gt ($start + 1)) { $lines[($start + 1)..($end - 1)] } else { @() }
+                  [System.IO.File]::WriteAllText($notesFile, (($section -join "`n").Trim() + "`n"))
+                  Write-Host "Wrote release notes for v$version to $notesFile"
+                } else {
+                  Write-Warning "No '## WinML CLI v$version' section in CHANGELOG.md; release notes will be empty"
+                  [System.IO.File]::WriteAllText($notesFile, "")
+                }
+              } else {
+                Write-Warning "CHANGELOG.md not found at $changelog; release notes will be empty"
+                [System.IO.File]::WriteAllText($notesFile, "")
+              }
+
       - job: CreateGitHubRelease
         displayName: 'Create GitHub Release'
         dependsOn: Prepare
@@ -118,6 +147,11 @@ extends:
               Write-Host "Tag: $tag"
               Write-Host "##vso[task.setvariable variable=ReleaseVersion]$version"
               Write-Host "##vso[task.setvariable variable=ReleaseTag]$tag"
+              # A plain X.Y.Z is a real release; any PEP 440 suffix
+              # (e.g. 0.3.0rc1, 0.3.0.dev1, 0.3.0b1) is a pre-release.
+              $isPre = if ($version -match '^[0-9]+\.[0-9]+\.[0-9]+$') { 'false' } else { 'true' }
+              Write-Host "IsPreRelease: $isPre"
+              Write-Host "##vso[task.setvariable variable=IsPreRelease]$isPre"
 
         - task: GitHubRelease@1
           displayName: 'Create GitHub Release'
@@ -129,9 +163,11 @@ extends:
             tagSource: userSpecifiedTag
             tag: '$(ReleaseTag)'
             title: 'WinML CLI $(ReleaseTag)'
+            releaseNotesSource: filePath
+            releaseNotesFilePath: '$(Build.SourcesDirectory)/release_assets/RELEASE_NOTES.md'
             assets: |
               $(Build.SourcesDirectory)/release_assets/*.whl
               $(Build.SourcesDirectory)/release_assets/rules-v$(ReleaseVersion).zip
             isDraft: false
-            isPreRelease: true
+            isPreRelease: $(IsPreRelease)
             addChangeLog: false

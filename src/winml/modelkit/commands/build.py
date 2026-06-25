@@ -529,6 +529,12 @@ def build(
 
         # Force rebuild
         winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild
+
+        # Build with INT8 quantization
+        winml build -m microsoft/resnet-50 -o output/ --precision int8
+
+        # Build with mixed precision (INT8 weights, INT8 activations)
+        winml build -m microsoft/resnet-50 -o output/ --precision w8a8
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -539,6 +545,16 @@ def build(
         raise click.UsageError("--output-dir and --use-cache are mutually exclusive.")
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
+
+    # Validate precision value early for better error messages.
+    if precision is not None:
+        from ..config.precision import _is_valid_precision
+
+        if not _is_valid_precision(precision.lower()):
+            raise click.UsageError(
+                f"Invalid precision '{precision}'. "
+                "Expected: auto, fp32, fp16, int8, int16, or w{{x}}a{{y}} (e.g., w8a8, w8a16)."
+            )
 
     # If ep unspecified, resolve the target device and pick the highest-priority
     # EP compatible with it. Avoids selecting an EP that does not match the host
@@ -615,6 +631,15 @@ def build(
                     # and other calibration settings from the existing config.
                     cfg.quant.weight_type = resolved_quant.weight_type
                     cfg.quant.activation_type = resolved_quant.activation_type
+                    cfg.quant.mode = resolved_quant.mode
+                    if resolved_quant.mode == "rtn":
+                        cfg.quant.rtn_bits = resolved_quant.rtn_bits
+                        cfg.quant.rtn_block_size = resolved_quant.rtn_block_size
+                        cfg.quant.rtn_symmetric = resolved_quant.rtn_symmetric
+                        cfg.quant.rtn_accuracy_level = resolved_quant.rtn_accuracy_level
+                # Store the original precision string for stage display
+                if precision:
+                    cfg.precision = precision.lower()
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -1116,10 +1141,10 @@ def _run_quantize_stage(
     quantized_path: Path,
     stage_timings: list[tuple[str, float | None]],
 ) -> Path:
-    """Run the quantize stage inside a StageLive context (if quant is configured).
+    """Run the quantize stage (if quant is configured).
 
-    Handles QDQ skip detection, shows dataset/calibration/precision details,
-    and appends timing to stage_timings.
+    Delegates single-pass quantization to ``quantize_onnx(config=...)``.
+    The cmd layer only handles UI display and the QDQ skip check.
 
     Args:
         config: Build configuration.
@@ -1137,35 +1162,46 @@ def _run_quantize_stage(
     if config.quant is None:
         return current_path
 
-    if is_quantized_onnx(current_path):
+    # QDQ skip check: if model already has QDQ nodes and we're doing static/dynamic
+    if config.quant.mode in ("static", "dynamic") and is_quantized_onnx(current_path):
         print_stage_skip(console, "quantize", "(QDQ nodes already present)")
         stage_timings.append(("Quantize", None))
         return current_path
 
-    with StageLive("quantize", console) as sl:
-        wt = config.quant.weight_type
-        sl.set_status(f"Quantizing ({wt})...")
-        # Calibration info before blocking call
-        ds = config.quant.dataset_name or "default"
-        sl.kv(
-            "Dataset:",
-            f"[cyan]{ds}[/cyan]  [dim]({config.quant.task or 'unknown'})[/dim]",
-        )
-        sl.kv(
-            "Calibration:",
-            f"[cyan]{config.quant.samples}[/cyan] samples"
-            f"  [dim]({config.quant.calibration_method})[/dim]",
-        )
-        # Suppress tqdm/datasets progress bars during quantize
-        # to keep Live display clean
-        _datasets_available = False
-        try:
-            import datasets
+    # Determine stage label from quant mode
+    is_fp16_only = config.quant.mode == "fp16"
+    stage_label = "fp16" if is_fp16_only else "quantize"
+    stage_name = "FP16" if is_fp16_only else "Quantize"
 
-            datasets.disable_progress_bars()
-            _datasets_available = True
-        except ImportError:
-            pass  # datasets package not installed; progress bar suppression not needed
+    with StageLive(stage_label, console) as sl:
+        # Show status based on what we're about to do
+        if is_fp16_only:
+            sl.set_status("Converting to FP16...")
+        elif config.quant.mode == "rtn":
+            sl.set_status(f"Quantizing (RTN {config.quant.rtn_bits}-bit)...")
+        else:
+            sl.set_status(f"Quantizing ({config.quant.weight_type})...")
+            ds = config.quant.dataset_name or "default"
+            sl.kv(
+                "Dataset:",
+                f"[cyan]{ds}[/cyan]  [dim]({config.quant.task or 'unknown'})[/dim]",
+            )
+            sl.kv(
+                "Calibration:",
+                f"[cyan]{config.quant.samples}[/cyan] samples"
+                f"  [dim]({config.quant.calibration_method})[/dim]",
+            )
+
+        # Suppress tqdm/datasets progress bars for QDQ calibration
+        _datasets_available = False
+        if config.quant.mode in ("static", "dynamic"):
+            try:
+                import datasets
+
+                datasets.disable_progress_bars()
+                _datasets_available = True
+            except ImportError:
+                pass  # datasets package is optional; calibration falls back to random data
 
         t0 = time.monotonic()
         try:
@@ -1177,27 +1213,42 @@ def _run_quantize_stage(
             )
         finally:
             if _datasets_available:
+                import datasets
+
                 datasets.enable_progress_bars()
+
         if not quant_result.success:
             errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
             sl.set_error(errors)
-            raise RuntimeError(f"Quantization failed: {errors}")
-        current_path = quantized_path
-        _quant_elapsed = time.monotonic() - t0
-        sl.set_done(_quant_elapsed)
-        sl.kv(
-            "Precision:",
-            f"[cyan]{config.quant.weight_type}/"
-            f"{config.quant.activation_type}[/cyan]"
-            f"  [dim](weight/activation)[/dim]",
-        )
-        sl.artifact(
-            str(quantized_path),
-            _safe_size(quantized_path),
-        )
+            raise RuntimeError(f"{stage_name} failed: {errors}")
+
+        elapsed = time.monotonic() - t0
+        sl.set_done(elapsed)
+
+        # Show algorithm-specific result details
+        if is_fp16_only:
+            sl.detail("[dim]I/O types preserved as FP32[/dim]")
+        elif config.quant.mode == "rtn":
+            sl.kv(
+                "Algorithm:",
+                f"[cyan]RTN[/cyan]  [dim](weight-only {config.quant.rtn_bits}-bit)[/dim]",
+            )
+            sl.kv(
+                "Config:",
+                f"block_size={config.quant.rtn_block_size}, symmetric={config.quant.rtn_symmetric}",
+            )
+        else:
+            sl.kv(
+                "Precision:",
+                f"[cyan]{config.quant.weight_type}/{config.quant.activation_type}[/cyan]"
+                f"  [dim](weight/activation)[/dim]",
+            )
+
+        sl.artifact(str(quantized_path), _safe_size(quantized_path))
         sl.blank()
-    stage_timings.append(("Quantize", _quant_elapsed))
-    return current_path
+
+    stage_timings.append((stage_name, elapsed))
+    return quantized_path
 
 
 def _run_compile_stage(
@@ -1512,7 +1563,7 @@ def _build_onnx_pipeline(
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── Quantize stage ───────────────────────────────────────────
+    # ── Quantize stage ──────
     current_path = _run_quantize_stage(
         config=config,
         current_path=current_path,

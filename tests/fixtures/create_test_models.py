@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import onnx
 from onnx import TensorProto, helper
 
@@ -201,6 +202,109 @@ def create_multi_op_model() -> onnx.ModelProto:
     return model
 
 
+# Image-segmentation I/O contract shared by HF semantic-segmentation exports
+# (e.g. nvidia/segformer-*-ade-*): pixel_values [batch, 3, height, width] ->
+# logits [batch, num_labels, height/4, width/4]. 150 = ADE20K class count.
+SEG_NUM_CHANNELS = 3
+SEG_NUM_LABELS = 150
+
+
+def create_fake_segmentation_model() -> onnx.ModelProto:
+    """Create a tiny FP32 semantic-segmentation model with random weights.
+
+    Stands in for a real HuggingFace semantic-segmentation export (e.g.
+    ``nvidia/segformer-b0-finetuned-ade-512-512``) whose heavy backbone can
+    randomly hang on QNN hosts during quantization calibration. It keeps the
+    same I/O contract so calibration datasets and the quantizer treat it
+    identically to the real model:
+
+    - Input:  ``pixel_values`` [batch, 3, height, width] (FLOAT)
+    - Output: ``logits`` [batch, num_labels, height/4, width/4] (FLOAT)
+
+    Two stride-2 convs reproduce the ``/4`` logits resolution; a 1x1 conv acts
+    as the classifier head. Spatial dims stay dynamic so the model accepts both
+    calibration inputs (e.g. 512x512) and a degenerate 1x1 inference probe.
+    Weights are seeded-random so regeneration stays deterministic.
+    """
+    rng = np.random.default_rng(1234)
+
+    pixel_values = helper.make_tensor_value_info(
+        "pixel_values",
+        TensorProto.FLOAT,
+        ["batch_size", SEG_NUM_CHANNELS, "height", "width"],
+    )
+    logits = helper.make_tensor_value_info(
+        "logits",
+        TensorProto.FLOAT,
+        ["batch_size", SEG_NUM_LABELS, "height_out", "width_out"],
+    )
+
+    def _weight(shape: tuple[int, ...], name: str) -> onnx.TensorProto:
+        return onnx.numpy_helper.from_array(
+            (rng.standard_normal(shape) * 0.1).astype(np.float32), name
+        )
+
+    w1 = _weight((8, SEG_NUM_CHANNELS, 3, 3), "seg_W1")
+    b1 = _weight((8,), "seg_B1")
+    w2 = _weight((16, 8, 3, 3), "seg_W2")
+    b2 = _weight((16,), "seg_B2")
+    w3 = _weight((SEG_NUM_LABELS, 16, 1, 1), "seg_W3")
+    b3 = _weight((SEG_NUM_LABELS,), "seg_B3")
+
+    nodes = [
+        helper.make_node(
+            "Conv",
+            ["pixel_values", "seg_W1", "seg_B1"],
+            ["c1"],
+            name="Conv_1",
+            kernel_shape=[3, 3],
+            strides=[2, 2],
+            pads=[1, 1, 1, 1],
+        ),
+        helper.make_node("Relu", ["c1"], ["r1"], name="Relu_1"),
+        helper.make_node(
+            "Conv",
+            ["r1", "seg_W2", "seg_B2"],
+            ["c2"],
+            name="Conv_2",
+            kernel_shape=[3, 3],
+            strides=[2, 2],
+            pads=[1, 1, 1, 1],
+        ),
+        helper.make_node("Relu", ["c2"], ["r2"], name="Relu_2"),
+        helper.make_node(
+            "Conv",
+            ["r2", "seg_W3", "seg_B3"],
+            ["logits"],
+            name="Classifier",
+            kernel_shape=[1, 1],
+            strides=[1, 1],
+            pads=[0, 0, 0, 0],
+        ),
+    ]
+
+    graph = helper.make_graph(
+        nodes=nodes,
+        name="FakeSegmentation",
+        inputs=[pixel_values],
+        outputs=[logits],
+        initializer=[w1, b1, w2, b2, w3, b3],
+    )
+
+    model = helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("", 17)],
+        producer_name="WinML CLI Test Fixture Generator",
+    )
+    # Match the quantize e2e fixtures (ir_version 8) so onnxruntime's quantizer
+    # loads it identically to the other tiny models in that suite.
+    model.ir_version = 8
+
+    onnx.checker.check_model(model)
+
+    return model
+
+
 def main() -> None:
     """Generate all test fixture models."""
     fixtures_dir = Path(__file__).parent
@@ -219,6 +323,12 @@ def main() -> None:
     multi_op_path = fixtures_dir / "multi_op.onnx"
     onnx.save(multi_op, str(multi_op_path))
     print(f"✓ Created {multi_op_path}")
+
+    # Generate fake_segmentation.onnx
+    fake_segmentation = create_fake_segmentation_model()
+    fake_segmentation_path = fixtures_dir / "fake_segmentation.onnx"
+    onnx.save(fake_segmentation, str(fake_segmentation_path))
+    print(f"✓ Created {fake_segmentation_path}")
 
     print("\nAll test fixtures generated successfully!")
 
