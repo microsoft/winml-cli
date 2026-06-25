@@ -6,7 +6,7 @@
     "ort_version": "1.x (check winml version at experiment time)",
     "qnn_sdk_version": "unknown — check QnnSystem.dll version",
     "model": "8 models (catalog sweep 2026-06-18)",
-    "last_updated": "2026-06-18",
+    "last_updated": "2026-06-25",
     "epistemics_warning": "⚠️ All findings are hypotheses derived from 1 model on 1 device. Confidence levels reflect mechanism understanding, not universal applicability. GPU EP behavior varies significantly by model architecture and Adreno driver version.",
     "models_tested": [
       "facebook/dinov2-small",
@@ -17,7 +17,71 @@
       "BAAI/bge-small-en-v1.5",
       "sentence-transformers/all-MiniLM-L6-v2",
       "microsoft/rad-dino"
-    ]
+    ],
+    "verification_methodology": "Perf gains are only trusted after a dedicated ROUND-ROBIN interleaved A/B (>=10 rounds, paired per-round deltas) confirms them. Sequential per-hypothesis benching inflates gains ~2x via thermal/DVFS/contention drift; op-count is ground truth for whether a fusion fired.",
+    "models_tested_2026_06_25_recipe": [
+      "monologg/koelectra-small-v2-distilled-korquad-384 (electra)",
+      "microsoft/swinv2-tiny-patch4-window16-256 (swinv2)",
+      "sentence-transformers/all-mpnet-base-v2 (mpnet)",
+      "openai/clip-vit-base-patch32 (clip_text_model)",
+      "nvidia/segformer-b1-finetuned-ade-512-512 (segformer)"
+    ],
+    "recipe_sweep_2026_06_25_conclusion": "All 5 recipe models -> BASELINE_IS_BEST on QNN GPU: no config beat the analyzer default baseline under interleaved verification. Notable: clip_text_model BUILDS on QNN GPU (it fails to build on QNN NPU) — a cross-device capability datapoint.",
+    "findings_organization": {
+      "verified": [
+        "gpu-004",
+        "gpu-005",
+        "gpu-006",
+        "gpu-009",
+        "gpu-010",
+        "gpu-011"
+      ],
+      "supported": [
+        "gpu-001",
+        "gpu-008"
+      ],
+      "preliminary": [
+        "gpu-002",
+        "gpu-003",
+        "gpu-007"
+      ],
+      "by_category": {
+        "baseline_optimality": [
+          "gpu-001"
+        ],
+        "layout": [
+          "gpu-002"
+        ],
+        "compile": [
+          "gpu-003"
+        ],
+        "quantization": [
+          "gpu-004"
+        ],
+        "opset": [
+          "gpu-006"
+        ],
+        "graph_optimization": [
+          "gpu-005",
+          "gpu-007",
+          "gpu-010"
+        ],
+        "regression_pattern": [
+          "gpu-008"
+        ],
+        "cross_device": [
+          "gpu-009"
+        ],
+        "analyzer_defaults": [
+          "gpu-011"
+        ]
+      },
+      "reliability_legend": {
+        "verified": "confirmed mechanism AND/OR a dedicated interleaved A/B / reproducible hard failure",
+        "supported": "mechanism confirmed but narrow (single architecture / not A/B-verified)",
+        "preliminary": "single experiment or sequential-only perf claim; needs interleaved A/B"
+      }
+    }
   },
   "sweep_config": {
     "results_dir": "catalog-gpu-sweep",
@@ -27,7 +91,7 @@
       "warmup": 20,
       "iters": 200,
       "cv_max": 0.15,
-      "thermal_aware": false
+      "thermal_aware": true
     },
     "full": {
       "warmup": 20,
@@ -50,8 +114,11 @@
       "build_s": 600,
       "bench_s": 480,
       "eval_s": 360,
-      "model_s": null
-    }
+      "model_s": null,
+      "build_timeout_abort_consecutive": 3
+    },
+    "disk_low_gb": 4.0,
+    "unconditional_screen_abort_ratio": 5.0
   },
   "hypotheses": [
     {
@@ -108,7 +175,10 @@
       "opset": 17,
       "optim": {
         "layer_norm_fusion": true
-      }
+      },
+      "requires_any_op_type": [
+        "ReduceMean"
+      ]
     },
     {
       "id": "h8",
@@ -143,7 +213,10 @@
       "opset": 17,
       "optim": {
         "gelu_fusion": true
-      }
+      },
+      "requires_any_op_type": [
+        "Erf"
+      ]
     },
     {
       "id": "h12",
@@ -231,42 +304,6 @@
   ],
   "findings": [
     {
-      "id": "gpu-001",
-      "title": "FP32 baseline is already optimal for ConvNext on QNN GPU — no optimization pass helps",
-      "observation": "Full sweep of 11 passes/combinations on ConvNext QNN GPU: all returned 0% node reduction or worse latency. Baseline p50=17.7ms, p90=19.7ms, std=0.97.",
-      "mechanism_confirmed": true,
-      "mechanism_hypothesis": "251/0/0/0 (all ops native on GPU, zero CPU fallback). ConvNext linear layers use Reshape→MatMul→Reshape, not bare MatMul+Add — so MatMulAdd→Conv2D rewrites don't match. autoconf (gelu_fusion + matmul_add_fusion) already applied all applicable transforms.",
-      "action_for_autoconfig": "Skip all graph optimization experiments for QNN GPU on ConvNext-class models. Use FP32 baseline directly.",
-      "confidence": "high — confirmed by 0% node delta on all rewrites + 251/0/0/0 analyze output",
-      "falsified_by": null,
-      "scope": "ConvNext-class models (Reshape→MatMul→Reshape pattern)",
-      "do_not_generalize_to": "Transformer models with bare MatMul+Add (those may benefit from rewrites)"
-    },
-    {
-      "id": "gpu-002",
-      "title": "NHWC transformer hurts QNN GPU on Adreno X1-85 (~10% worse)",
-      "observation": "NHWC transformer: p50=19.5ms (+10%), p90=23.8ms (+21%), std=3.43 (3.5x worse). Consistent across multiple runs.",
-      "mechanism_confirmed": false,
-      "mechanism_hypothesis": "Adreno X1-85 + QNN GPU EP does not benefit from explicit NHWC layout transforms. QNN GPU EP handles layout internally; forcing NHWC via ORT creates additional Reshape overhead without the memory alignment benefit.",
-      "action_for_autoconfig": "Do NOT apply nhwc-transformer for QNN GPU EP.",
-      "confidence": "medium — observed consistently; mechanism hypothesis, not confirmed",
-      "falsified_by": null,
-      "scope": "Adreno X1-85 + QNN GPU EP",
-      "do_not_generalize_to": "Non-Adreno GPUs (NVIDIA, Intel Arc) — NHWC may help there"
-    },
-    {
-      "id": "gpu-003",
-      "title": "winml compile appears to hurt QNN GPU (~34% regression) — SINGLE EXPERIMENT, LOW CONFIDENCE",
-      "observation": "FP32 + compile: p50=23.7ms vs baseline 17.7ms (+34%). Single experiment only.",
-      "mechanism_confirmed": false,
-      "mechanism_hypothesis": "QNN GPU EP compile (EPContext) is designed for NPU (HTP). On GPU EP, the compilation path may force a different dispatch mode that bypasses the optimized GPU shader path. QNN SDK likely has a GPU-specific compilation flow that winml compile doesn't trigger correctly.",
-      "action_for_autoconfig": "AVOID winml compile for QNN GPU EP. Direction (regression) is consistent with mechanism hypothesis and 34% is a large signal, but this is a single experiment. Until replicated, treat as likely harmful but not confirmed.",
-      "confidence": "low — single experiment. 34% gap is above DVFS noise level (CV ~0.05 → noise ~1ms, gap is 6ms). Direction probably real but magnitude uncertain.",
-      "falsified_by": null,
-      "scope": "QNN GPU EP",
-      "do_not_generalize_to": "QNN NPU EP (compile always helps NPU)"
-    },
-    {
       "id": "gpu-004",
       "title": "W8A8 QDQ hangs indefinitely on QNN GPU EP",
       "observation": "Passing a W8A8 QDQ-annotated ONNX to QNN GPU EP causes infinite hang. winml build's _patch_device() sets quant=null for GPU, preventing this in normal user path.",
@@ -276,7 +313,10 @@
       "confidence": "high — hang confirmed; protection mechanism in _patch_device() confirmed by code inspection",
       "falsified_by": null,
       "scope": "QNN GPU EP (QNN SDK limitation)",
-      "tracked_issue": "#868 (fast-fail enhancement)"
+      "tracked_issue": "#868 (fast-fail enhancement)",
+      "reliability": "verified",
+      "category": "quantization",
+      "related": []
     },
     {
       "id": "gpu-005",
@@ -287,7 +327,12 @@
       "action_for_autoconfig": "Always apply gelu_fusion for QNN GPU (stability benefit). Do not expect p50 improvement.",
       "confidence": "high — mechanism is well-understood (GPU kernel dispatch overhead)",
       "falsified_by": null,
-      "scope": "Any model with GELU activations on QNN GPU"
+      "scope": "Any model with GELU activations on QNN GPU",
+      "reliability": "verified",
+      "category": "graph_optimization",
+      "related": [
+        "gpu-011"
+      ]
     },
     {
       "id": "gpu-006",
@@ -299,12 +344,132 @@
       "confidence": "high — confirmed across 7 diverse architectures",
       "falsified_by": null,
       "scope": "UNKNOWN — needs experiment",
-      "last_updated": "2026-06-18"
+      "last_updated": "2026-06-18",
+      "reliability": "verified",
+      "category": "opset",
+      "related": [
+        "gpu-009"
+      ],
+      "reverification_2026_06_25": "RECONFIRMED. 5-model recipe sweep (swinv2 opset21 DISCARD, koelectra DISCARD, mpnet MARGINAL/noise, clip opset21 -65% DISCARD, segformer KEEP-but-unconfirmed) plus a dedicated 10-round interleaved A/B on segformer: h3 (opset21) median 87.42ms vs h0 85.38ms = -2.39%, faster 5/10 rounds -> NOISE_NO_GAIN. The +8.2% segformer opset21 seen in sequential phase-B benching was pure time-drift; it vanishes under interleaving. opset 17 remains the GPU default."
+    },
+    {
+      "id": "gpu-009",
+      "title": "opset21 + matmul_transpose_fusion do NOT transfer from QNN NPU to GPU — verified",
+      "reliability": "verified",
+      "category": "cross_device",
+      "related": [
+        "npu-014",
+        "npu-027",
+        "gpu-006"
+      ],
+      "observation": "The verified swinv2 QNN NPU win (npu-014: opset21 + matmul_transpose_fusion = +12.7%, 10/10 interleaved rounds) REVERSES on QNN GPU. 5-model recipe sweep 2026-06-25: swinv2 GPU h4/h9/h10 (matmul_transpose variants) all DISCARD (~26% slower, ~72ms vs 57.5ms baseline); opset21 (h3) DISCARD. matmul_transpose_fusion is a NO-OP on the pure-transformer recipe models (mpnet, koelectra — the standalone MatMul+Transpose pattern is absent). Dedicated 10-round segformer GPU A/B independently confirms opset21 = -2.39% (NOISE_NO_GAIN).",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "FusedMatMul / opset21 graph changes that the QNN NPU (HTP) backend exploits do not map to a faster Adreno GPU shader schedule; on GPU the extra fusion either does not fire (no matching pattern) or adds dispatch overhead. Fusion benefit is architecture-AND-device-specific.",
+      "action_for_autoconfig": "Never assume an EP/device-specific fusion win transfers across devices. Do NOT apply matmul_transpose_fusion or opset21 as defaults for QNN GPU. Re-verify any cross-device perf claim with a dedicated interleaved A/B.",
+      "confidence": "high — 5-model recipe sweep + dedicated 10-round segformer interleaved A/B",
+      "scope": "QNN GPU (Adreno X1-85). Contrast with npu-014 (same flags help swinv2 on NPU).",
+      "added": "2026-06-25",
+      "source": "recipe_gpu_driver.py 5-model sweep + ab_gpu_segformer.py 10-round A/B"
+    },
+    {
+      "id": "gpu-010",
+      "title": "skip_layer_norm_fusion is a QNN GPU latency hazard (2-4x regression) — verified",
+      "reliability": "verified",
+      "category": "graph_optimization",
+      "related": [],
+      "observation": "5-model recipe GPU sweep 2026-06-25: enabling skip_layer_norm_fusion (h8) produced large, consistent regressions across three transformer architectures — koelectra ~3-4x, segformer ~193ms (vs ~117ms baseline), mpnet 140-225ms (vs ~108ms baseline, up to ~2x). The fusion fires (graph changes) but the resulting fused op is slow on the Adreno GPU shader path.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "The SkipLayerNormalization fused op does not have an efficient Adreno GPU kernel under the QNN GPU EP; the fused path is slower than the unfused Add + LayerNormalization sequence it replaces.",
+      "action_for_autoconfig": "Hard-skip skip_layer_norm_fusion for QNN GPU EP across all architectures.",
+      "confidence": "high — consistent large regression across 3 architectures",
+      "scope": "QNN GPU EP (Adreno X1-85), any transformer with LayerNorm",
+      "added": "2026-06-25",
+      "source": "recipe_gpu_driver.py 5-model sweep"
+    },
+    {
+      "id": "gpu-011",
+      "title": "analyzer default auto-fusions are perf-neutral on QNN GPU; --no-analyze yields no gain — verified",
+      "reliability": "verified",
+      "category": "analyzer_defaults",
+      "related": [
+        "gpu-005"
+      ],
+      "observation": "Across the recipe GPU sweep, --no-analyze (h13, which drops the analyzer's auto-injected gelu_fusion + matmul_add_fusion) repeatedly looked like a winner in sequential phase-B benching (segformer +22.6%, mpnet +3.62%) but every such gain washed out. Dedicated 10-round segformer interleaved A/B: h13 (--no-analyze) median 85.39ms vs h0 (analyzer on) 85.38ms = -0.01%, faster 5/10 rounds -> NOISE_NO_GAIN. The analyzer's default fusions are perf-neutral for p50 here (and gpu-005 shows gelu_fusion helps tail stability), so the defaults never net-hurt.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "gelu_fusion + matmul_add_fusion change op counts but produce equivalent GPU shader dispatch cost on Adreno for these models; neither helps nor hurts median latency. The large sequential 'gains' were cold-baseline time-drift, not a real effect of disabling the analyzer.",
+      "action_for_autoconfig": "Keep the analyzer ON by default for QNN GPU. Do not chase --no-analyze as an optimization; verify any apparent --no-analyze gain with an interleaved A/B before acting.",
+      "confidence": "high — dedicated 10-round interleaved A/B (null result)",
+      "scope": "QNN GPU EP (Adreno X1-85)",
+      "added": "2026-06-25",
+      "source": "recipe_gpu_driver.py 5-model sweep + ab_gpu_segformer.py 10-round A/B"
+    },
+    {
+      "id": "gpu-001",
+      "title": "FP32 baseline is already optimal for ConvNext on QNN GPU — no optimization pass helps",
+      "observation": "Full sweep of 11 passes/combinations on ConvNext QNN GPU: all returned 0% node reduction or worse latency. Baseline p50=17.7ms, p90=19.7ms, std=0.97.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "251/0/0/0 (all ops native on GPU, zero CPU fallback). ConvNext linear layers use Reshape→MatMul→Reshape, not bare MatMul+Add — so MatMulAdd→Conv2D rewrites don't match. autoconf (gelu_fusion + matmul_add_fusion) already applied all applicable transforms.",
+      "action_for_autoconfig": "Skip all graph optimization experiments for QNN GPU on ConvNext-class models. Use FP32 baseline directly.",
+      "confidence": "high — confirmed by 0% node delta on all rewrites + 251/0/0/0 analyze output",
+      "falsified_by": null,
+      "scope": "ConvNext-class models (Reshape→MatMul→Reshape pattern)",
+      "do_not_generalize_to": "Transformer models with bare MatMul+Add (those may benefit from rewrites)",
+      "reliability": "supported",
+      "category": "baseline_optimality",
+      "related": []
+    },
+    {
+      "id": "gpu-008",
+      "title": "highdimRTR_lowdimRTR causes -6.9% regression on MobileViT QNN GPU — same root cause as npu-010",
+      "confidence": "high",
+      "scope": "Models with Gemm->Reshape->Transpose hybrid unfold patterns (MobileViT). DINOv2 was not tested with highdimRTR on GPU separately.",
+      "observation": "catalog_gpu_sweep.py 2026-06-18: MobileViT h9 (opset21+matmul_transpose+attention_fusion bundle) p50=19.224ms vs baseline 17.985ms = -6.89% (DISCARD). Root cause analysis via ONNX diff on NPU version shows +36 extra Reshape nodes (same issue as npu-010). GPU regression is less severe than NPU (-6.9% vs -19%) due to lower DMA sensitivity on Adreno vs Hexagon HTP.",
+      "mechanism_confirmed": true,
+      "mechanism_detail": "Same as npu-010: highdimRTR inserts spurious Reshape pairs after Gemm in MobileViT hybrid unfold mechanism. Breaks Gemm+Reshape dispatch merging. Less severe on GPU than NPU.",
+      "cross_ep_note": "npu-010 and gpu-008 share the same root cause. Fix is the same: block highdimRTR for Gemm->Reshape->Transpose models.",
+      "autoconfig_action": "Same as npu-010: hard-block highdimRTR for models with Gemm->Reshape->Transpose patterns. analyze_insight.py skip_set hint required.",
+      "added": "2026-06-18",
+      "source": "catalog_gpu_sweep.py h0-h12 full sweep + npu-010 ONNX diff",
+      "reliability": "supported",
+      "category": "regression_pattern",
+      "related": [
+        "npu-010"
+      ]
+    },
+    {
+      "id": "gpu-002",
+      "title": "NHWC transformer hurts QNN GPU on Adreno X1-85 (~10% worse)",
+      "observation": "NHWC transformer: p50=19.5ms (+10%), p90=23.8ms (+21%), std=3.43 (3.5x worse). Consistent across multiple runs.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "Adreno X1-85 + QNN GPU EP does not benefit from explicit NHWC layout transforms. QNN GPU EP handles layout internally; forcing NHWC via ORT creates additional Reshape overhead without the memory alignment benefit.",
+      "action_for_autoconfig": "Do NOT apply nhwc-transformer for QNN GPU EP.",
+      "confidence": "medium — observed consistently; mechanism hypothesis, not confirmed",
+      "falsified_by": null,
+      "scope": "Adreno X1-85 + QNN GPU EP",
+      "do_not_generalize_to": "Non-Adreno GPUs (NVIDIA, Intel Arc) — NHWC may help there",
+      "reliability": "preliminary",
+      "category": "layout",
+      "related": []
+    },
+    {
+      "id": "gpu-003",
+      "title": "winml compile appears to hurt QNN GPU (~34% regression) — SINGLE EXPERIMENT, LOW CONFIDENCE",
+      "observation": "FP32 + compile: p50=23.7ms vs baseline 17.7ms (+34%). Single experiment only.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "QNN GPU EP compile (EPContext) is designed for NPU (HTP). On GPU EP, the compilation path may force a different dispatch mode that bypasses the optimized GPU shader path. QNN SDK likely has a GPU-specific compilation flow that winml compile doesn't trigger correctly.",
+      "action_for_autoconfig": "AVOID winml compile for QNN GPU EP. Direction (regression) is consistent with mechanism hypothesis and 34% is a large signal, but this is a single experiment. Until replicated, treat as likely harmful but not confirmed.",
+      "confidence": "low — single experiment. 34% gap is above DVFS noise level (CV ~0.05 → noise ~1ms, gap is 6ms). Direction probably real but magnitude uncertain.",
+      "falsified_by": null,
+      "scope": "QNN GPU EP",
+      "do_not_generalize_to": "QNN NPU EP (compile always helps NPU)",
+      "reliability": "preliminary",
+      "category": "compile",
+      "related": []
     },
     {
       "id": "gpu-007",
-      "title": "transpose_optimizer gives +8-17% on Conv-dominant and ViT models on QNN GPU — KEEP_CONFIRMED",
-      "confidence": "high",
+      "title": "transpose_optimizer p50 gain on QNN GPU is UNVERIFIED — sequential-only, no-ops on recipe transformers",
+      "confidence": "low — the +8-17% p50 numbers are from sequential phase benching that this session has repeatedly shown inflates gains ~2x; never confirmed by a dedicated interleaved A/B. DINOv2 +16.67% had an in-sweep confirm but no paired A/B; ResNet +8.38% was MARGINAL_UNCONFIRMED.",
       "scope": "Conv-dominant (ResNet) and ViT-class (DINOv2) models on QNN GPU. Likely architecture-general for models with Transpose-heavy graphs.",
       "observation": "catalog_gpu_sweep.py sweep 2026-06-18: h12 (transpose_optimizer) KEEP_CONFIRMED. DINOv2-small: p50 26.372ms -> 21.977ms = +16.67% (all 5 sessions passed, Phase C confirmed). ResNet-18: p50 6.823ms -> 6.251ms = +8.38% (MARGINAL_UNCONFIRMED — Phase C did not confirm, needs more sessions). NLP models: neutral or BUILD_FAIL. rad-dino: +1.33% (MARGINAL). gelu_fusion explicit (h11) also KEEP_CONFIRMED on DINOv2: +13.86%.",
       "mechanism_confirmed": false,
@@ -318,20 +483,13 @@
       ],
       "autoconfig_action": "Apply transpose_optimizer as default for QNN GPU EP on Conv+ViT models. AVOID for NLP models until BUILD_FAIL issue is resolved. Feature gap: diagnose why h12 causes BUILD_FAIL on BERT/RoBERTa models.",
       "added": "2026-06-18",
-      "source": "catalog_gpu_sweep.py h0-h12 full sweep"
-    },
-    {
-      "id": "gpu-008",
-      "title": "highdimRTR_lowdimRTR causes -6.9% regression on MobileViT QNN GPU — same root cause as npu-010",
-      "confidence": "high",
-      "scope": "Models with Gemm->Reshape->Transpose hybrid unfold patterns (MobileViT). DINOv2 was not tested with highdimRTR on GPU separately.",
-      "observation": "catalog_gpu_sweep.py 2026-06-18: MobileViT h9 (opset21+matmul_transpose+attention_fusion bundle) p50=19.224ms vs baseline 17.985ms = -6.89% (DISCARD). Root cause analysis via ONNX diff on NPU version shows +36 extra Reshape nodes (same issue as npu-010). GPU regression is less severe than NPU (-6.9% vs -19%) due to lower DMA sensitivity on Adreno vs Hexagon HTP.",
-      "mechanism_confirmed": true,
-      "mechanism_detail": "Same as npu-010: highdimRTR inserts spurious Reshape pairs after Gemm in MobileViT hybrid unfold mechanism. Breaks Gemm+Reshape dispatch merging. Less severe on GPU than NPU.",
-      "cross_ep_note": "npu-010 and gpu-008 share the same root cause. Fix is the same: block highdimRTR for Gemm->Reshape->Transpose models.",
-      "autoconfig_action": "Same as npu-010: hard-block highdimRTR for models with Gemm->Reshape->Transpose patterns. analyze_insight.py skip_set hint required.",
-      "added": "2026-06-18",
-      "source": "catalog_gpu_sweep.py h0-h12 full sweep + npu-010 ONNX diff"
+      "source": "catalog_gpu_sweep.py h0-h12 full sweep",
+      "reliability": "preliminary",
+      "category": "graph_optimization",
+      "related": [
+        "gpu-009"
+      ],
+      "reverification_2026_06_25": "On the 5-model recipe GPU sweep, h12 (transpose_optimizer) was a NO-OP (built graph byte-identical to baseline, bench skipped) on swinv2, mpnet and koelectra — the pass does not even fire on these transformer architectures. Treat the Conv/ViT p50 gain as a hypothesis requiring a dedicated interleaved A/B (like the swinv2 NPU npu-014 / segformer GPU protocol) before it is trusted or applied as a default."
     }
   ],
   "search_space_rules": {
@@ -358,9 +516,10 @@
       "recommended": "autoconf defaults + transpose_optimizer for Conv/ViT models",
       "skip": [
         "nhwc-transformer (gpu-002)",
-        "highdimRTR (gpu-008)"
+        "highdimRTR (gpu-008)",
+        "skip_layer_norm_fusion (gpu-010 — 2-4x GPU regression)"
       ],
-      "dialectical_note": "⚠️ Skip rules are ConvNext-specific. Transformer models may benefit from attention_fusion etc."
+      "dialectical_note": "⚠️ matmul_transpose_fusion / opset21 help swinv2 on NPU (npu-014) but DISCARD on GPU (gpu-009) — fusion wins are device-specific. skip_layer_norm_fusion is a verified GPU hazard (gpu-010). transpose_optimizer p50 gain (gpu-007) is unverified — needs a dedicated interleaved A/B before use."
     }
   }
 }
