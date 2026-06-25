@@ -610,10 +610,8 @@ class TestQuantizeCliResolveQuant:
             self._resolve(precision="w2a8")
 
     def test_weight_only_precision_rejected(self) -> None:
-        """Weight-only precision (w4a16) must raise BadParameter (should use RTN path)."""
-        import click
-
-        with pytest.raises(click.BadParameter, match="weight-only"):
+        """Weight-only precision (w4a16) raises ValueError from resolve_quant_types."""
+        with pytest.raises(ValueError, match="weight-only"):
             self._resolve(precision="w4a16")
 
     # ---- Explicit flags override precision ----
