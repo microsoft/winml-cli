@@ -685,8 +685,6 @@ def build(
         # on the key being present, matching the module-mode path which passes
         # allow_unsupported_nodes explicitly regardless of its value.
         extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
-        if precision:
-            extra_kwargs["precision"] = precision
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----
@@ -1424,8 +1422,6 @@ def _build_hf_pipeline(
 
     stage_timings.append(("Export", _export_elapsed))
 
-    extra_kwargs.pop("precision", None)  # consumed by _patch_device earlier
-
     # ── Optimize stage ───────────────────────────────────────────
     current_path, _ = _run_optimize_stage(
         config=config,
@@ -1443,7 +1439,7 @@ def _build_hf_pipeline(
     # Persist config after autoconf
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── Quantize stage (handles QDQ + FP16 post-processing) ──────
+    # ── Quantize stage ──────
     current_path = _run_quantize_stage(
         config=config,
         current_path=current_path,
@@ -1485,7 +1481,6 @@ def _build_onnx_pipeline(
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
     allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
-    extra_kwargs.pop("precision", None)  # consumed by _patch_device earlier
 
     # ── Validate + setup ─────────────────────────────────────────
     if not onnx_path.exists():
@@ -1539,7 +1534,7 @@ def _build_onnx_pipeline(
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── Quantize stage (handles QDQ + FP16 post-processing) ──────
+    # ── Quantize stage ──────
     current_path = _run_quantize_stage(
         config=config,
         current_path=current_path,
