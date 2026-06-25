@@ -95,6 +95,7 @@ from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
 if TYPE_CHECKING:
     from transformers import GenerationConfig, PretrainedConfig
+    from transformers.models.bart.modeling_bart import BartLearnedPositionalEmbedding
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ logger = logging.getLogger(__name__)
 
 
 def _patched_bart_learned_forward(
-    self: Any,  # monkey-patched onto BartLearnedPositionalEmbedding (HF internal)
+    self: BartLearnedPositionalEmbedding,  # monkey-patched onto this HF module
     input_ids: torch.Tensor,
     past_key_values_length: int = 0,
     position_ids: torch.Tensor | None = None,

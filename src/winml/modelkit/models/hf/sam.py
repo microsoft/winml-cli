@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from optimum.utils import NormalizedConfig
+    from transformers.models.sam2.modeling_sam2 import Sam2MultiScaleBlock, Sam2PromptEncoder
 
 
 # =============================================================================
@@ -463,7 +464,7 @@ def _window_unpartition(
 
 
 def _patched_sam2_multiscale_block_forward(
-    self: Any, hidden_states: torch.Tensor, **kwargs: Any
+    self: Sam2MultiScaleBlock, hidden_states: torch.Tensor, **kwargs: Any
 ) -> torch.Tensor:
     """Patched Sam2MultiScaleBlock.forward with 5D window functions.
 
@@ -473,9 +474,12 @@ def _patched_sam2_multiscale_block_forward(
 
     Applied via Sam2ModelPatcher during export.
     """
+    # _original_forward is added dynamically by Sam2ModelPatcher (not on the class),
+    # so it's reached via nn.Module.__getattr__ (typed Tensor | Module); type it callable.
+    orig_forward = cast("Callable[..., torch.Tensor]", self._original_forward)
     # No windowing needed, use original
     if self.window_size <= 0:
-        return cast("torch.Tensor", self._original_forward(hidden_states, **kwargs))
+        return orig_forward(hidden_states, **kwargs)
 
     residual = hidden_states
     hidden_states = self.layer_norm1(hidden_states)
@@ -522,7 +526,7 @@ def _patched_sam2_multiscale_block_forward(
 
 
 def _patched_sam2_embed_points(
-    self: Any, points: torch.Tensor, labels: torch.Tensor, pad: bool
+    self: Sam2PromptEncoder, points: torch.Tensor, labels: torch.Tensor, pad: bool
 ) -> torch.Tensor:
     """Patched _embed_points with arithmetic masking instead of torch.where.
 
@@ -552,7 +556,7 @@ def _patched_sam2_embed_points(
 
 
 def _patched_sam2_prompt_encoder_forward(
-    self: Any,
+    self: Sam2PromptEncoder,
     input_points: torch.Tensor | None,
     input_labels: torch.Tensor | None,
     input_boxes: torch.Tensor | None,
@@ -568,15 +572,18 @@ def _patched_sam2_prompt_encoder_forward(
 
     Applied via Sam2ModelPatcher during export.
     """
-    # Patch _embed_points to use arithmetic masking
-    self._embed_points = types.MethodType(_patched_sam2_embed_points, self)
+    # Patch _embed_points to use arithmetic masking (intentional instance-method patch).
+    self._embed_points = types.MethodType(_patched_sam2_embed_points, self)  # type: ignore[method-assign]
+
+    # _original_forward is added dynamically by Sam2ModelPatcher (not on the class),
+    # so it's reached via nn.Module.__getattr__ (typed Tensor | Module); type it callable.
+    orig_forward = cast(
+        "Callable[..., tuple[torch.Tensor, torch.Tensor]]", self._original_forward
+    )
 
     # If use_mask_input not provided, use original behavior
     if use_mask_input is None:
-        return cast(
-            "tuple[torch.Tensor, torch.Tensor]",
-            self._original_forward(input_points, input_labels, input_boxes, input_masks),
-        )
+        return orig_forward(input_points, input_labels, input_boxes, input_masks)
 
     # Get batch size
     batch_size = 1
@@ -586,7 +593,7 @@ def _patched_sam2_prompt_encoder_forward(
         batch_size = input_boxes.shape[0]
 
     # Get sparse embeddings (with patched _embed_points)
-    sparse_embeddings, _ = self._original_forward(input_points, input_labels, input_boxes, None)
+    sparse_embeddings, _ = orig_forward(input_points, input_labels, input_boxes, None)
 
     # Arithmetic mask blending
     mask_dense = self.mask_embed(input_masks)
