@@ -155,7 +155,13 @@ def format_option(
     )
 
 
-def ep_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
+def ep_option(
+    required: bool = True,
+    optional_message: str | None = None,
+    default: str | None = None,
+    include_auto: bool = False,
+    include_all: bool = False,
+) -> Callable[[F], F]:
     """Add --ep (execution provider) option to a Click command.
 
     Args:
@@ -163,6 +169,11 @@ def ep_option(required: bool = True, optional_message: str | None = None) -> Cal
         optional_message: Message to append to help text when
             optional (e.g., "If not specified, analyzes all
             supported EPs.")
+        default: Default value when optional (default: None)
+        include_auto: Whether to include "auto" as a valid choice
+            (default: False).
+        include_all: Whether to include "all" as a valid choice
+            (default: False).
 
     Returns:
         Decorator function
@@ -176,13 +187,16 @@ def ep_option(required: bool = True, optional_message: str | None = None) -> Cal
         help_text = f"{help_text}. {optional_message}"
 
     ep_choices = [name for name in ALL_EP_NAMES if name not in ("cuda", "CUDAExecutionProvider")]
+    choices = ["auto", *ep_choices] if include_auto else ep_choices
+    choices = ["all", *choices] if include_all else choices
 
     return click.option(
         "--ep",
         "--execution-provider",
         required=required,
-        default=None,
-        type=click.Choice(ep_choices, case_sensitive=False),
+        default=default if not required else None,
+        show_default=True,
+        type=click.Choice(choices, case_sensitive=False),
         help=help_text,
     )
 
@@ -262,6 +276,7 @@ def device_option(
     optional_message: str | None = None,
     default: str | None = "NPU",
     include_auto: bool = False,
+    include_all: bool = False,
 ) -> Callable[[F], F]:
     """Add --device option to a Click command.
 
@@ -273,12 +288,15 @@ def device_option(
         default: Default value when optional (default: "NPU")
         include_auto: Whether to include "auto" as a valid choice
             (default: False).
+        include_all: Whether to include "all" as a valid choice
+            (default: False).
 
     Returns:
         Decorator function
     """
     device_choices = [device.lower() for device in SUPPORTED_DEVICES]
     choices = ["auto", *device_choices] if include_auto else device_choices
+    choices = ["all", *choices] if include_all else choices
     help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:
         help_text = f"{help_text}. {optional_message}"

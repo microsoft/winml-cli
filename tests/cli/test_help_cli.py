@@ -34,11 +34,12 @@ These tests run under the default CI filter (no special marker required).
 
 from __future__ import annotations
 
+import click
 import pytest
 from click.testing import CliRunner, Result
 
 from winml.modelkit import __version__
-from winml.modelkit.cli import _COMMANDS_DIR, _DISABLED_COMMANDS, main
+from winml.modelkit.cli import _COMMANDS_DIR, _DISABLED_COMMANDS, _parse_click_help, main
 
 
 # ---------------------------------------------------------------------------
@@ -212,3 +213,57 @@ class TestOptionsSection:
         result = _invoke("--version")
         assert result.exit_code == 0
         assert __version__ in result.output
+
+
+# ===========================================================================
+# Commands section wrapping (LazyGroup.format_commands)
+# ===========================================================================
+
+# Longest command help text, derived from production docstrings (not hardcoded).
+_CMD_HELP: dict[str, str] = {
+    name: _parse_click_help(_COMMANDS_DIR / f"{name}.py") for name in ENABLED_COMMANDS
+}
+_LONGEST_CMD, _LONGEST_HELP = max(_CMD_HELP.items(), key=lambda kv: len(kv[1]))
+assert _LONGEST_HELP, "Longest command help text is empty — AST extraction failed."
+
+
+def _render_commands(width: int) -> str:
+    """Render only the Commands section at a fixed formatter width."""
+    formatter = click.HelpFormatter(width=width)
+    ctx = click.Context(main, info_name="winml")
+    main.format_commands(ctx, formatter)
+    return formatter.getvalue()
+
+
+def _norm(text: str) -> str:
+    """Collapse all runs of whitespace to single spaces."""
+    return " ".join(text.split())
+
+
+class TestCommandHelpWrapping:
+    """``LazyGroup.format_commands`` wraps long help instead of clipping it."""
+
+    def test_full_help_on_single_line_when_wide(self) -> None:
+        """At a generous width the longest help renders untruncated on one line."""
+        out = _render_commands(width=len(_LONGEST_HELP) + 40)
+        row_line = next(
+            ln for ln in out.splitlines() if ln.strip().startswith(_LONGEST_CMD + " ")
+        )
+        assert _LONGEST_HELP in row_line
+
+    def test_long_help_preserved_when_narrow(self) -> None:
+        """At a narrow width the full help text survives (wrapped, never clipped)."""
+        out = _render_commands(width=40)
+        assert _norm(_LONGEST_HELP) in _norm(out)
+
+    def test_long_help_spans_multiple_lines_when_narrow(self) -> None:
+        """At a narrow width the longest help wraps onto a continuation line."""
+        lines = _render_commands(width=40).splitlines()
+        row_idx = next(
+            i for i, ln in enumerate(lines) if ln.strip().startswith(_LONGEST_CMD + " ")
+        )
+        last_word = _LONGEST_HELP.split()[-1]
+        # The whole help cannot fit on the row line at 40 cols ...
+        assert last_word not in lines[row_idx]
+        # ... so its tail must appear on a following continuation line.
+        assert any(last_word in ln for ln in lines[row_idx + 1 :])

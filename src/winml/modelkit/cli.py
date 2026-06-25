@@ -222,17 +222,13 @@ class LazyGroup(ActionGroup):
         commands = []
         for cmd_name in self.list_commands(ctx):
             help_text = _parse_click_help(_COMMANDS_DIR / f"{cmd_name}.py")
-            commands.append((cmd_name, help_text))
+            commands.append((cmd_name, help_text or ""))
 
         if commands:
-            limit = max(1, formatter.width - 6 - max(len(name) for name, _ in commands))
-            rows = []
-            for name, help_text in commands:
-                short = help_text[:limit].rstrip() if help_text else ""
-                rows.append((name, short))
-
+            # Pass full help to write_dl; Click wraps the description column to
+            # the formatter width (with hanging indent) instead of clipping it.
             with formatter.section("Commands"):
-                formatter.write_dl(rows)
+                formatter.write_dl(commands)
 
 
 @click.group(

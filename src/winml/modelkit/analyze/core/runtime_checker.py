@@ -206,7 +206,7 @@ class RuntimeChecker:
             if not self._has_any_rule_data:
                 logger.warning(
                     "No runtime check data found. Follow "
-                    "https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md "
+                    "https://github.com/microsoft/winml-cli/blob/main/CONTRIBUTING.md "
                     "to set up runtime check files."
                 )
             else:

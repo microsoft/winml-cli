@@ -38,7 +38,6 @@ from rich.text import Text
 
 from ..utils import cli as cli_utils
 from ..utils.constants import (
-    ALL_EP_NAMES,
     DEVICE_TYPE_TO_DEVICE,
     EP_SUPPORTED_DEVICES,
     SUPPORTED_DEVICES,
@@ -716,27 +715,22 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
 
 @click.command(name="analyze")
 @cli_utils.model_path_option(required=True)
-@click.option(
-    "--ep",
-    "--execution-provider",
+@cli_utils.ep_option(
     required=False,
     default="auto",
-    show_default=True,
-    type=click.Choice([*ALL_EP_NAMES, "all", "auto"], case_sensitive=False),
-    help=(
-        "Target execution provider. Supports canonical names, aliases, and all/auto. "
+    include_auto=True,
+    include_all=True,
+    optional_message=(
         "all = evaluate all rule-data-backed EPs; "
         "auto = infer a single best target from local availability"
     ),
 )
-@click.option(
-    "--device",
+@cli_utils.device_option(
     required=False,
     default="auto",
-    show_default=True,
-    type=click.Choice([*SUPPORTED_DEVICES, "all", "auto"], case_sensitive=False),
-    help=(
-        "Target device type. Supports CPU/GPU/NPU and all/auto. "
+    include_auto=True,
+    include_all=True,
+    optional_message=(
         "all = all rule-data-backed devices; "
         "auto = infer a single best target from local availability"
     ),
