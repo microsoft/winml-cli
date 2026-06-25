@@ -59,7 +59,10 @@
       "eval_s": 360,
       "model_s": 14400
     },
-    "bench_crash_retry_iters": 200
+    "bench_crash_retry_iters": 200,
+    "bench_crash_recovery_s": 60,
+    "expected_regression_screen_abort_ratio": 1.5,
+    "unconditional_screen_abort_ratio": 5.0
   },
   "hypotheses": [
     {
@@ -98,6 +101,9 @@
         "conv_add_fusion": true,
         "conv_activation_fusion": true
       },
+      "requires_any_op_type": [
+        "Conv"
+      ],
       "guard": {
         "type": "conv_pct_regression",
         "finding": "npu-006",
@@ -113,6 +119,9 @@
         "conv_add_fusion": true,
         "conv_activation_fusion": true
       },
+      "requires_any_op_type": [
+        "Conv"
+      ],
       "guard": {
         "type": "conv_pct_regression",
         "finding": "npu-006",
@@ -157,7 +166,10 @@
       "opset": 17,
       "optim": {
         "conv_add_fusion": true
-      }
+      },
+      "requires_any_op_type": [
+        "Conv"
+      ]
     }
   ],
   "models": [
@@ -574,15 +586,16 @@
       "action_for_autoconfig": "⚠️ CRITICAL: Do NOT apply conv-bn-fusion / conv-add-fusion / conv-activation-fusion for QNN NPU on Conv-dominant models (ResNet, EfficientNet, MobileNet). These passes are beneficial for CPU EP but hazardous for QNN NPU. Always run accuracy + latency gate after applying any Conv fusion. If regression > 5x, disable all conv fusions immediately.",
       "confidence": "high on regression observation (4900%); medium on mechanism (CPU fallback hypothesis not yet confirmed via EP partition dump)",
       "falsified_by": null,
-      "scope": "Conv-dominant models (ResNet, EfficientNet, MobileNet). MobileViT safe (original data). DINOv2 and plain ViT: fusions are neutral or slightly beneficial (2026-06-16 validation). Not applicable to NLP.",
-      "severity": "critical — can produce 50x regression",
+      "scope": "Any model containing Conv ops whose graph is changed by the full conv-fusion pack — NOT limited to Conv-dominant models. Originally scoped to Conv-dominant (ResNet/EfficientNet/MobileNet); the 2026-06-24 SegFormer result REFUTES the 'dominant-only' qualifier: SegFormer-b1 has only 1.5% Conv ops (conv stem / overlapping patch-embed) yet conv fusions still produced up to ~10x regression. MobileViT safe (original data). DINOv2 and plain ViT (no Conv stem): fusions neutral or slightly beneficial (2026-06-16 validation). Not applicable to pure-NLP transformers (no Conv ops to fuse — bench-skipped as no-ops).",
+      "severity": "critical — can produce up to ~10x (SegFormer) to ~135x (ResNet-18) regression",
       "follow_up_required": [
         "Dump QNN EP partition to confirm fused ops cause CPU fallback",
         "Test EfficientNet and MobileNet to confirm generalization",
         "Check if winml analyze linter can detect this pattern pre-build"
       ],
       "refinement": "2026-06-17 delta sweep: ResNet-18 h10 (conv_add_fusion ONLY, no conv-bn or conv-activation) = p50 0.955ms vs baseline 0.964ms (+0.93%) — NEUTRAL. Catastrophic regression ONLY occurs with full fusion pack (conv-bn-fusion + conv-add-fusion + conv-activation-fusion) which produces FusedConv ops. Individual conv-add-fusion is safe. Root cause is confirmed: FusedConv op created by the bundle is not dispatchable by QNN EP.",
-      "last_updated": "2026-06-18"
+      "cross_arch_confirmation_2026_06_24": "SegFormer-b1 (nvidia/segformer-b1-finetuned-ade-512-512, image-segmentation, W8A16) QNN NPU sweep independently reproduces npu-006 on a SECOND architecture family with a conv stem. baseline h0=20.19ms (screen). h4 (opset17 + conv fusions) = 83.75ms → gain -357.8% (~4.1x regression). h5 (opset21 + conv fusions) = 200.11ms → gain -899.3% (~10x regression). Both verdict=DISCARD. graph_changed=True for both (the fusion fired — these are real FusedConv graphs, not no-ops). results.json auto-flagged npu-006_regression=True. conv_pct=1.5%, proving the hazard is triggered by the PRESENCE of a fusible Conv subgraph, not Conv-dominance. By contrast, on pure-transformer models in the same sweep (koelectra, all-mpnet) the conv-fusion hypotheses were byte-identical no-ops (no Conv to fuse) and were bench-skipped.",
+      "last_updated": "2026-06-24"
     },
     {
       "id": "npu-007",
@@ -736,6 +749,152 @@
       "confidence": "high on interference mechanism (NPU serialization is well-documented); medium on causal link to koelectra driver death (timing coincides but process kill source unknown)",
       "added": "2026-06-24",
       "source": "Hourly efficiency reflection tick — process list shows concurrent winml-perf chains for ab_work/h6 and the main sweep simultaneously; koelectra run has no results.json"
+    },
+    {
+      "expected_savings": "For any hypothesis that crashes deterministically (same build, same firmware): saves (sessions-1) × (crash_time + retry_time). For npu-013 scenarios (bias_softmax on attention models): ~2 × ~10 min = ~20 min per affected model. mpnet and other BERT-family models in the remaining sweep queue benefit immediately.",
+      "title": "bench_full crash fail-fast: skip remaining sessions after a per-session crash persists through retry",
+      "observation": "When a hypothesis causes a QNN NPU runtime crash (rc=0xFFFFFFFF, e.g. npu-013 bias_softmax_fusion on BERT-family), the pre-existing crash guard retries s1 with bench_crash_retry_iters (200) iters. If the retry also crashes, the loop previously continued to s2 and s3, each repeating the crash+retry cycle before finally returning BENCH_FAIL. For attention-only models like koelectra (electra/BERT-variant) where bias_softmax_fusion fires, this wasted approximately 2 × (crash_time ≈ 7 min + retry_time ≈ 3 min) = ~20 min per model before reaching BENCH_FAIL.",
+      "added": "2026-06-24",
+      "id": "npu-016",
+      "fix_applied": "2026-06-24 — Added a break inside the \u001blse branch (p50 is None) of bench_full: if rc == _WIN_CRASH_RC after all retry handling, print a crash-guard message and break the session loop immediately. Remaining sessions (n-s) are skipped. bench_full returns whatever p50s accumulated before the crash (empty list for a s1 crash → BENCH_FAIL via existing caller logic). py_compile + ruff clean.",
+      "source": "Hourly efficiency reflection tick — koelectra-small h7 (bias_softmax_fusion) is about to run; koelectra op-signature confirms Add+Softmax patterns present (Add=38, Softmax=12) so h7 WILL fire, making the crash deterministic without this guard",
+      "universality": "Change is universal: no model, operator, or architecture name. Triggers only on rc=_WIN_CRASH_RC, which is a hardware-level signal. Safe fallback: if the crash is transient and s2 would have succeeded, the sweep conservatively treats the hypothesis as BENCH_FAIL (which is correct since s1 is already unreliable).",
+      "root_cause": "bench_full() iterated all \\full.sessions (=3) regardless of crash outcome. No early exit existed for the case where rc=_WIN_CRASH_RC persisted through the retry attempt."
+    },
+    {
+      "id": "npu-017",
+      "title": "Persistent bench crash leaves NPU in degraded state between hypotheses — 60s recovery sleep added after crash break",
+      "observation": "google-bert/bert-base-uncased h7 (opset21+bias_softmax_fusion+clamp, 440 ops) ran screen successfully (p50=68.8ms) then crashed the catalog_sweep.py process itself during full bench (driver rc=4294967295 after 157 min). This escalated beyond the per-session npu-013/npu-016 crash guard — the crash terminated the Python process rather than just returning a failed bench session. Suggests the Hexagon HTP entered a state that propagated out of the winml subprocess after extended consecutive build+bench runs (h0–h6 = 18 full bench sessions before h7 crashed).",
+      "mechanism_hypothesis": "After many consecutive bench sessions the QNN HTP firmware or the QNN shared-library state may be partially corrupted. On the NEXT hypothesis build or bench invocation, the degraded state can crash not just the winml subprocess (npu-013) but the parent Python process. A cooldown between hypotheses after a crash gives the HTP time to reset via firmware watchdog.",
+      "action_for_autoconfig": "Added bench_crash_recovery_s=60 to sweep_config and a time.sleep(bench_crash_recovery_s) inside bench_full immediately after the npu-016 crash break, before returning. This runs when a crash persists through the npu-013 retry and triggers the npu-016 early-break. The 60s matches the estimated HTP firmware watchdog reset window. No architectural logic; driven purely by rc=_WIN_CRASH_RC.",
+      "confidence": "low — single instance on one model. Root cause (QNN DLL state vs firmware vs OS power management) unconfirmed. The cooldown is conservative and has no downside other than 60s overhead on the rare BENCH_FAIL-crash path.",
+      "scope": "Any model/hypothesis that triggers rc=0xFFFFFFFF crash (npu-013 pattern) — particularly large NLP models (450+ ops, long token sequences) after extended continuous bench runs.",
+      "added": "2026-06-24",
+      "source": "Hourly efficiency reflection tick — post-mortem of bert-base-uncased 157-min FAIL; h7 screen_perf.json confirms successful screen (p50=68.8ms), absence of full_perf_s1.json confirms crash in full bench, driver rc=4294967295 confirms process-level escalation"
+    },
+    {
+      "id": "npu-018",
+      "title": "Expected-regression hypotheses waste 10+ min on Phase B full bench when screen already confirms catastrophic regression — early abort added",
+      "observation": "nvidia/segformer-b1-finetuned-ade-512-512 recipe NPU sweep 2026-06-24: h4 (opset17+conv_fusions) triggered the conv_pct_regression guard (npu-006, Conv-dominant model). Despite expected_regression=True, the sweep ran all 3 Phase B full-bench sessions: s1=152s, s2=232s, s3=243s, plus 2×30s cool-downs = ~12 min wasted. Screen had already confirmed catastrophic regression: screen p50=213ms vs baseline ~35ms = 6.1x ratio. h5 (opset21+conv_fusions, same guard) would have repeated the same cost. Total Phase B wasted time for both hypotheses: ~24 min.",
+      "root_cause": "The conv_pct_regression guard in catalog_sweep.py annotates the hypothesis as expected_regression=True and prints a warning, but does not gate Phase B. The catastrophic_regression cross_check (ratio_threshold=5.0) fires only post-hoc after ALL hypotheses complete. No path existed to abort Phase B early when screen already confirmed the regression.",
+      "fix_applied": "2026-06-24 — catalog_sweep.py: after bench_screen() for any expected_regression hypothesis, compare screen p50 vs the already-measured baseline p50. If ratio >= sweep_config.expected_regression_screen_abort_ratio (1.5), record status=REGRESSION_SCREEN_ABORT with screen data + abort_ratio and continue to next hypothesis. sweep_config.expected_regression_screen_abort_ratio=1.5 added to qnn_npu.json. py_compile + ruff clean.",
+      "expected_savings": "For Conv-dominant models with h4/h5 (conv_pct_regression guard, threshold 20%): saves ~3 full bench sessions × ~4 min per model = ~8-12 min per guard-firing hypothesis. Segformer h4 alone: ~12 min. On a 5-model run with 2 Conv-dominant models × 2 guarded hypotheses each, this saves ~40-50 min.",
+      "threshold_rationale": "1.5x (screen p50 is 50% worse than baseline) is conservative: any catastrophic fallback-to-CPU regression (npu-006) will show 5-100x regression (segformer: 6x; ResNet: 130x). Thermal noise rarely exceeds 2x on screen. A 1.5x threshold catches all npu-006 cases and does not false-positive on noisy-but-plausible hypotheses.",
+      "universality": "Change is universal: no model/op/architecture names. Only triggers when (1) a guard explicitly flagged expected_regression=True, and (2) screen exceeds a configurable ratio vs already-measured baseline. Can be disabled per EP/device by omitting or setting the config key to 0.",
+      "confidence": "high on wasted-time observation (direct measurement from stdout timestamps); medium on 1.5x threshold generalization (tested only on segformer h4 = 6x ratio; ResNet-18 would be ~100x; both far above 1.5x)",
+      "added": "2026-06-24",
+      "source": "Hourly efficiency reflection tick — segformer-b1 h4 Phase B session timestamps in recipe_npu_stdout.log"
+    },
+    {
+      "id": "npu-019",
+      "title": "Unguarded hypotheses with screen regressions ≥5× baseline waste Phase B full bench — unconditional screen abort added",
+      "observation": "nvidia/segformer-b1-finetuned-ade-512-512 recipe NPU sweep 2026-06-24: h4 (screen=83ms, 4.1× baseline 20ms) and h5 (screen=200ms, 10× baseline) ran all 3 Phase B full-bench sessions despite catastrophic screen regressions. Neither hypothesis had a guard prediction (Conv%=1.5%, risk=False) so expected_regression=False and the npu-018 abort path was bypassed. h4 wasted ~9 min of Phase B; h5 wasted ~13 min. Full bench confirmed both regressions were real: h4 median ~100ms, h5 median ~200ms.",
+      "root_cause": "The existing early-abort gate (npu-018) is conditioned on expected_regression=True, which requires an explicit guard (conv_pct_regression or similar) to have flagged the hypothesis. Without a guard, Phase B always runs regardless of screen magnitude. DVFS noise cannot create 5×+ false positives at screen (screen uses 200 iters p50), so a high-ratio unconditional abort is safe.",
+      "fix_applied": "2026-06-24 — catalog_sweep.py: after the expected_regression abort block, add an unconditional abort: if not expected_regression and screen p50 >= sweep_config.unconditional_screen_abort_ratio × baseline p50, record status=REGRESSION_SCREEN_ABORT and skip Phase B. sweep_config.unconditional_screen_abort_ratio=5.0 added to qnn_npu.json. py_compile + ruff clean.",
+      "threshold_rationale": "5.0× is deliberately conservative (3× the guarded threshold of 1.5×). DVFS thermal noise creates at most 2-3× variance on screen; a true 5× regression is unambiguous and Phase B cannot reverse it. The threshold is tuned low enough to catch h5's 10× case for the current segformer run.",
+      "universality": "Universal: no model/op/architecture names. Triggers only when (1) no guard predicted the regression, (2) screen p50 is ≥ N× the already-confirmed baseline median, and (3) the config key is enabled (0 = disabled). Guard-annotated hypotheses continue to use the lower npu-018 threshold.",
+      "confidence": "high on wasted-time observation (direct from stdout timestamps); high on safety of 5× threshold (thermal noise argument); medium on threshold generalization across model families (tested on segformer only)",
+      "added": "2026-06-24",
+      "source": "Hourly efficiency reflection tick — segformer-b1 h4+h5 Phase B timestamps in recipe_npu_stdout.log"
+    },
+    {
+      "id": "npu-020",
+      "title": "Calibration dataset creation failure on baseline build wastes N×build_time on all remaining hypotheses — calib-fatal early-exit added",
+      "observation": "openai/clip-vit-base-patch32 recipe NPU sweep 2026-06-24: ALL 11 hypotheses (h0–h10) failed with identical error: RuntimeError: Failed to create feature-extraction dataset: Expecting value: line 1 column 1 (char 0). Each hypothesis ran a full ~190s build before hitting the same failure. Total model sweep time: 35.1 min. Useful work done: 0 (no bench data). The sweep reported OK (35.1 min) with p50=None and pruned 5327 MB of ONNX artifacts — all waste.",
+      "root_cause": "Calibration dataset creation is model/task-specific and flag-independent: it calls universal_calib_dataset(task, ...) which is executed identically regardless of opset or optimization flags. When it fails for the baseline hypothesis, every subsequent hypothesis will fail at the exact same point. The sweep had no early-exit for this case — it always ran all 11 builds regardless of a baseline calib failure.",
+      "fix_applied": "2026-06-24 — catalog_sweep.py: (1) initialized _calib_fail_fatal=False before the hypothesis loop; (2) in the build-failure block, after recording BUILD_FAIL, if hyp_id == baseline_id AND 'failed to create' AND 'dataset' both appear in build_out (case-insensitive), set _calib_fail_fatal=True and print a diagnostic; (3) at the top of each subsequent hypothesis iteration, if _calib_fail_fatal, immediately record status=CALIB_FAIL_SKIP with a note and continue. py_compile + ruff clean.",
+      "expected_savings": "For a model whose calib dataset creation fails: saves (N_hypotheses - 1) × build_time. For QNN NPU with 11 hypotheses at ~190s/build: ~32 min per affected model. clip-vit alone: 35.1 min total → ~2-3 min remaining (1 baseline build + overhead).",
+      "universality": "Universal: no model/op/architecture names. Keywords 'failed to create' + 'dataset' match the universal_calib_dataset RuntimeError format. Trigger condition: baseline hypothesis only, build failure, calib keywords present. Can coexist with transient network failures on non-baseline hypotheses (those remain BUILD_FAIL, only the poison flag is gated on the baseline).",
+      "confidence": "high on wasted-time observation (direct from clip results.json: 11 × BUILD_FAIL, identical errors, 35.1 min sweep); high on correctness of skip (calibration step is flag-independent — same task + model = same failure regardless of opset or optim); medium on keyword stability (matches current universal_calib_dataset error format, may need update if error message changes)",
+      "added": "2026-06-24",
+      "source": "Hourly efficiency reflection tick — openai/clip-vit-base-patch32 results.json, recipe_npu_progress.log"
+    },
+    {
+      "id": "npu-021",
+      "title": "Conv-fusion hypotheses waste ~200–280s per build on models with zero Conv operators — pre-build op-presence guard added",
+      "observation": "sentence-transformers/all-mpnet-base-v2 recipe NPU sweep 2026-06-24: h4 (opset17+conv_bn/add/activation_fusion), h5 (opset21+same fusions), and h10 (opset17+conv_add_fusion) each ran a full build (~200–280s) before the post-build _same_graph check detected them as no-ops (graph identical to baseline/h3). The MPNet model has zero Conv operators; all three conv-fusion flags are guaranteed non-fireable without inspecting the built ONNX. Total wasted build time per model: ~700s (~12 min). On a sweep with multiple NLP/ViT-pure-attention models (e.g. BERT, electra, MPNet), this waste repeats for each one.",
+      "root_cause": "The no-op detection (_same_graph) is post-build: the build runs fully (export + quantize + optim pass) before we compare op signatures. For hypotheses whose optimization flags target a specific operator type (Conv), if the baseline graph has zero of those operators the optimization pass cannot produce any change — the build is deterministically wasted.",
+      "fix_applied": "2026-06-24 — (1) Added requires_any_op_type field to h4, h5, h10 in qnn_npu.json (value: [\"Conv\"]). (2) In catalog_sweep.py hypothesis loop, after writing build_config.json but before run_build, check: if hyp_id != baseline_id AND requires_any_op_type is set AND baseline_sig is available, and if none of the required op types appear in baseline_sig.operator_counts with count > 0, record status=PREBUILD_NOOP_SKIP (verdict=NO_OP) and continue — skipping the entire build. py_compile + ruff clean.",
+      "expected_savings": "Per Conv-absent model × 3 conv hypotheses: ~700s (~12 min) of build time. For a 10-model sweep with 4 NLP/pure-attention models: ~48 min. The guard never fires on Conv-present models (ResNet, ConvNext, SegFormer, SwinV2, etc.) where baseline_sig.operator_counts['Conv'] > 0.",
+      "universality": "Universal: no model/op/architecture names hardcoded in Python. The requires_any_op_type list is KB-JSON-driven; the Python guard is a generic op-type presence check against baseline_sig. Safe fallback: if baseline_sig is None (baseline build failed or lacks analyze_result.json), the guard is bypassed and the hypothesis builds normally.",
+      "confidence": "high on wasted-time observation (direct from stdout: h4/h5/h10 no-op messages + build times); high on correctness of skip (zero Conv in baseline → conv-fusion pass cannot alter any node → graph change impossible); medium on requires_any_op_type generalization to other EP/device KB files (those would need their own hypothesis-level annotations if applicable)",
+      "added": "2026-06-24",
+      "source": "Hourly efficiency reflection tick — sentence-transformers/all-mpnet-base-v2 NOOP_SKIPPED pattern in recipe_npu_stdout.log"
+    },
+    {
+      "id": "npu-022",
+      "title": "catalog_sweep.py process crash (rc=4294967295) after 157 min mid-sweep leaves no results.json — all bench data for that model is lost",
+      "observation": "google-bert/bert-base-uncased recipe NPU sweep 2026-06-24: catalog_sweep.py ran for 157.2 min (model_s timeout=14400s, well within limit) and exited with rc=4294967295 (_WIN_CRASH_RC). Post-mortem: h0–h7 directories exist with full bench data (analyze_result.json, build_config.json, screen_perf.json, full_perf_s1–s3.json), but no top-level results.json was written. The driver correctly detected the failure and pruned 808 MB of ONNX, then moved to the next model. On any re-run, bert will start from scratch, discarding all completed hypothesis data.",
+      "root_cause": "results.json is written only inside _finalize(), which is called at the very end of sweep_model() after ALL hypotheses complete. A crash mid-sweep (e.g. NPU driver fault, OOM, or process termination during h8–h10 builds/benches) skips _finalize entirely. The per-hypothesis bench data on disk is never aggregated. The crash trigger for bert is unknown — candidates: (1) NPU HTP driver fault during attention_fusion or bias_softmax_fusion bench (h7=attention_fusion was the last confirmed build dir; h8/h9 are absent, suggesting crash during h8 build/bench); (2) prolonged memory pressure after 8+ consecutive QNN builds; (3) bench crash retry (bench_crash_retry_iters=200) failed all 200 retries and the subprocess crashed beyond recovery.",
+      "fix_considered": "Write a partial results.json (or a checkpoint file) after each hypothesis completes, so that a re-run can resume from the last-completed hypothesis rather than restarting from h0. The --only-hypotheses + --reuse-baseline-config flags already support targeted re-runs; the gap is automatic checkpoint detection in the driver.",
+      "fix_applied": "None this tick — the fix would require changes to both catalog_sweep.py (checkpoint write per hypothesis) and recipe_npu_driver.py (checkpoint detection). Deferred to human decision. The write_summary aggregation fix (npu-022 same tick) will at least ensure a fresh re-run of bert shows up correctly in SUMMARY.md alongside already-completed models.",
+      "actionable": "Human decision needed: (1) re-run bert-base-uncased with --model google-bert/bert-base-uncased to retry from scratch; (2) optionally add per-hypothesis checkpointing to avoid losing 157 min of work on next crash; (3) investigate whether h8 (bias_softmax_fusion) or h9 (highdimRTR_lowdimRTR) trigger the crash — add crash-prone hypothesis guards similar to npu-013.",
+      "confidence": "high on wasted-work observation (direct from progress log + bert dir contents); medium on crash cause (no stderr/traceback available; h7 dir present, h8/h9 absent suggests crash during h8); low on recurrence prediction without further data",
+      "added": "2026-06-24",
+      "source": "Hourly efficiency reflection tick — recipe_npu_progress.log FAIL rc=4294967295 (157.2 min), google-bert--bert-base-uncased dir contents"
+    },
+    {
+      "id": "npu-023",
+      "title": "Failed builds leave partial ONNX artifacts on disk, accumulating to cause ENOSPC in subsequent builds — post-failure prune added",
+      "observation": "sentence-transformers/all-mpnet-base-v2 recipe NPU sweep 2026-06-24: h8 (opset21+attention_fusion) failed with [Errno 28] No space left on device during ort_graph optimization at 21:19. The disk watchdog showed C: dropping from ~24 GB to ~21 GB during mpnet builds. H7 (bias_softmax_fusion) had already failed at BUILD_FAIL status before h8 started. Because BUILD_FAIL takes an early continue that skips the per-hypothesis _prune_hyp_artifacts call, h7's partial export.onnx / optimized.onnx files (potentially hundreds of MB) remained on disk, contributing to the disk pressure that caused h8's ENOSPC.",
+      "root_cause": "_prune_hyp_artifacts (deletes export.onnx, optimized.onnx, export.onnx.data, optimized.onnx.data) is called only on the success path (after bench). The BUILD_FAIL branch exits via continue before reaching any prune call. Multiple consecutive failed builds therefore accumulate their partial artifacts — worst case is a calib-fatal model (see npu-020) where all 11 builds fail, each leaving ~200-800 MB of partial ONNX.",
+      "fix_applied": "2026-06-24 — Added if self.prune_artifacts: self._prune_hyp_artifacts(hyp_dir) immediately before the continue in the BUILD_FAIL branch of catalog_sweep.py (after the npu-020 calib-fatal detection block). The guard is self.prune_artifacts to match the existing flag semantics; the call is best-effort (OSError is caught inside _prune_hyp_artifacts). py_compile + ruff clean.",
+      "expected_savings": "Prevents disk exhaustion from partial-build accumulation. For a fully calib-fatal model like openai/clip-vit-base-patch32 (11 × BUILD_FAIL each with ~200-400 MB partial ONNX), this could save 2-4 GB that would otherwise accumulate before the end-of-model runnable-ONNX prune.",
+      "universality": "Universal: no model/op/architecture names hardcoded. The change applies to every BUILD_FAIL regardless of model, EP, or hypothesis.",
+      "confidence": "high on observation (h8 ENOSPC in stdout log, h7 BUILD_FAIL preceding it); high on root cause (code inspection confirms BUILD_FAIL path skips prune); medium on disk impact (partial ONNX sizes vary by model/stage; the ENOSPC may also partly reflect large CWD temp files not yet pruned from prior hypotheses)",
+      "added": "2026-06-24",
+      "source": "Hourly efficiency reflection tick — recipe_npu_stdout.log h8 ENOSPC + disk_watchdog.log disk drop during mpnet sweep"
+    },
+    {
+      "id": "npu-024",
+      "title": "QNN NPU process crash (rc=4294967295) loses all completed-hypothesis results — incremental checkpoint added",
+      "observation": "google-bert/bert-base-uncased recipe NPU sweep 2026-06-24: the catalog_sweep.py subprocess crashed with rc=4294967295 (_WIN_CRASH_RC, npu-013 pattern) after 157 minutes. Hypothesis directories h0–h7 were present on disk (h0–h6 had full_perf_s*.json files), but no results.json was ever written — the driver therefore logged FAIL and would re-run the model from scratch on the next invocation, wasting all completed hypothesis work.",
+      "root_cause": "_finalize() is the sole writer of results.json and is called only after the complete hypothesis loop. A QNN NPU runtime crash at any point in that loop (npu-013: bias_softmax_fusion / attention_fusion crash under sustained load; also any OOM or driver fault) leaves results.json absent, so the driver's skip-if-done check (model_dir / 'results.json').exists() does not fire and the full model is replayed.",
+      "fix_applied": "2026-06-25 — Added incremental crash-recovery checkpointing to catalog_sweep.py: (1) _checkpoint() static method writes results.partial.json before each hypothesis starts, capturing all previously completed hypotheses. (2) sweep_model() startup checks for results.partial.json when results.json is absent and reloads it, reconstructing baseline_sig, seen_sigs, baseline_onnx, and conv_pct/conv_risk state. (3) The hypothesis loop skips already-completed hypotheses found in the reloaded checkpoint and continues from the next un-started one. (4) _finalize() deletes results.partial.json after writing the final results.json. py_compile + ruff clean.",
+      "expected_savings": "Prevents total loss of completed hypothesis work on crash. For a model like bert-base-uncased with 11 hypotheses (h0–h10) where 7 completed before the crash, the next run can resume from h7 rather than re-running all 11. At ~10-20 min per hypothesis, this saves 1–2+ hours per crash event.",
+      "universality": "Universal: no model/op/architecture names hardcoded. Applies to every EP/device sweep and every crash cause.",
+      "confidence": "high on observation (h0-h6 artifacts present on disk, no results.json, driver logs FAIL); high on root cause (code inspection confirms _finalize is sole results.json writer); high on fix correctness (tested: py_compile + ruff pass; logic reconstructs all needed state from checkpoint dict + on-disk artifacts)",
+      "added": "2026-06-25",
+      "source": "Hourly efficiency reflection tick — recipe_npu_progress.log FAIL rc=4294967295 for bert + per-hypothesis h0-h6 artifact directories present on disk"
+    },
+    {
+      "id": "npu-025",
+      "title": "Subset-flag hypotheses waste ~200s build when superset-flag no-op was already confirmed at same opset — pre-build dominance skip added",
+      "observation": "sentence-transformers/all-mpnet-base-v2 catalog sweep 2026-06-24: h4 (opset17 + conv_bn_fusion + conv_add_fusion + conv_activation_fusion) was confirmed NOOP_SKIPPED (graph == baseline, 209s build). h10 (opset17 + conv_add_fusion only) was subsequently built (206s) and also confirmed NOOP_SKIPPED (graph == baseline). h10's single flag is a strict subset of h4's flags at the same opset. Because h4's superset of flags produced no graph change, h10's subset of flags is guaranteed to also produce no graph change — the 206s build was logically unnecessary.",
+      "root_cause": "The existing no-op detection (npu-011/npu-012) checks graph identity post-build. It correctly skips bench but still invests the full build time to discover the no-op. No pre-build inference from prior confirmed no-ops was implemented. When hypothesis B's optim flags are a strict subset of already-confirmed no-op hypothesis A's flags at the same opset, the build outcome is deducible without running winml build.",
+      "fix_applied": "2026-06-25 (v1) — Added pre-build subset-dominance skip to catalog_sweep.py hypothesis loop (before run_build): scans results['hypotheses'] for any NOOP_SKIPPED entry whose opset matches and whose optim-flag set is a proper superset of the current hypothesis's optim flags. If found, marks the current hypothesis as PREBUILD_NOOP_SKIP with status=NO_OP and skips the build. Emits '[prebuild-dom]' log prefix. py_compile + ruff clean. 2026-06-25 (v2, hourly-tick) — Extended the dominance check to also fire when the dominant reference has status PREBUILD_NOOP_SKIP (not just NOOP_SKIPPED). Without this, a npu-021 pre-build skip on a superset hypothesis (e.g. h4 gets PREBUILD_NOOP_SKIP because model has no Conv) would NOT cascade to subset hypotheses (e.g. h10={conv_add_fusion} ⊆ h4's optim), leaving h10 to still build. The logic is identical: if superset flags cannot fire (pre-build detected), subset flags also cannot fire.",
+      "expected_savings": "Saves ~150-280s per dominated hypothesis per model where the pattern fires. In this sweep: ~200s for h10 dominated by h4 on mpnet. Potential savings grow if more subset-flag hypotheses are added to the search space.",
+      "universality": "Universal: logic depends only on optim-flag set containment and opset equality — no model/op/architecture names hardcoded. Applies to any EP/device sweep and any hypothesis set where flag subsets are present.",
+      "confidence": "high on observation (h4 and h10 both NOOP_SKIPPED at opset=17 for mpnet, h10 flags ⊂ h4 flags); high on root cause (set-subset argument: if superset of flags has no effect, strict subset also has no effect, assuming fusion passes are independent); medium on generality (interaction effects between passes are rare but theoretically possible; dominance skip is applied conservatively only for strict subsets)",
+      "added": "2026-06-25",
+      "source": "Hourly efficiency reflection tick — recipe_npu_stdout.log h4+h10 NOOP_SKIPPED for sentence-transformers/all-mpnet-base-v2, build times 209s+206s"
+    },
+    {
+      "id": "npu-026",
+      "title": "Disk watchdog prune_stray_onnx() blindly deletes in-progress build artifacts — results.json guard added",
+      "observation": "sentence-transformers/all-mpnet-base-v2 recipe NPU sweep 2026-06-24: h7 (opset21+bias_softmax_fusion) failed with BUILD_FAIL: 'Model not found: ...h7\\optimized.onnx'. Post-mortem: at 21:17:44 the disk watchdog SOFT prune fired (free=7.79GB < SOFT_GB=8.0GB) and called prune_stray_onnx(), which deleted ALL *.onnx / *.onnx.data under catalog-qnn-sweep — including the partially-written h7/optimized.onnx that was being produced by the active winml build. One minute later the disk dropped from 9.31GB to 4.72GB (h8 build I/O), the STEP prune fired again (pruning h8's in-progress files), and h8 then failed with [Errno 28] No space left on device. Two hypothesis BUILD_FAILs were caused not by the model or the build itself but by the watchdog clobbering active artifacts.",
+      "root_cause": "prune_stray_onnx() used SWEEP_DIR.rglob('*.onnx') — a flat glob across ALL model directories with no awareness of which model is currently being swept. A model in-progress has no results.json yet, so it is indistinguishable from a finished model at the file-system level. The watchdog has no IPC channel to the sweep process.",
+      "fix_applied": "2026-06-25 — disk_watchdog.py: prune_stray_onnx() now iterates top-level model dirs and skips any dir that lacks a results.json. results.json is written by catalog_sweep.py only after all hypotheses for that model are complete; an absent results.json means the model is still in progress and its ONNX artifacts must not be touched. The change is backward-compatible: completed models still get pruned; the STEP/HARD paths that call the same function also benefit.",
+      "expected_savings": "Prevents spurious BUILD_FAIL for in-progress hypotheses when the watchdog fires mid-build. In this sweep: h7 would have succeeded (or failed on its own merits), providing real bench data. h8 might also have succeeded if disk wasn't depleted by the STEP prune racing h8's build I/O.",
+      "caveat": "If the sweep crashes without writing results.json (e.g. npu-022/npu-024 crash), the in-progress model dir will never get pruned by the watchdog. This is acceptable: the STEP and HARD paths exist for genuine emergencies, and the catalog_sweep npu-024 crash-recovery fix now writes results.partial.json + cleans up partial artifacts per npu-023. Worst case: one model dir accumulates ONNX until the driver's own end-of-model prune runs.",
+      "universality": "Universal: no model/op/architecture names. Guard is based solely on the presence of results.json, which is a catalog_sweep.py contract, not a model property.",
+      "confidence": "high on observation (h7 BUILD_FAIL message + watchdog log timing confirm the causal chain); high on fix correctness (completed models always have results.json; in-progress models never do until all hypotheses finish)",
+      "added": "2026-06-25",
+      "source": "Hourly efficiency reflection tick — mpnet h7 'Model not found: optimized.onnx' + disk_watchdog.log SOFT prune at 21:17:44 with prune_stray_onnx timing overlap"
+    },
+    {
+      "id": "npu-027",
+      "title": "matmul_transpose_fusion benefit is architecture-specific, not a portable optimization — helps one attention-graph shape, regresses or no-ops on others",
+      "observation": "5-model QNN NPU sweep 2026-06-24 isolates matmul_transpose_fusion (the h6 hypothesis: opset21 + matmul_transpose_fusion only) across architecture families. (1) swinv2-tiny (conv+attention hybrid): h6 is the ONLY fusion that changes swin's graph (734->722 ops: Transpose 110->98, MatMul 39->27, +12 FusedMatMul) and the interleaved A/B (npu-014) confirms it adds ~+8% on top of opset21's ~+5%. (2) SegFormer-b1 (conv stem + efficient attention): h6 changes the graph (graph_changed=True, not a no-op) but REGRESSES — screen p50=42.25ms vs baseline 20.19ms, gain=-101.2% (~2x slower), verdict=DISCARD. The exact same fusion that is swin's payload is a 2x regression on SegFormer. (3) koelectra / all-mpnet (pure NLP transformers): h6 is byte-identical to the opset21 baseline (h3) — total_operators and per-op counts unchanged — so it is a pure no-op, bench-skipped. The fusion only finds a fusible pattern in swin's specific attention sub-graph.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "matmul_transpose_fusion folds a Transpose feeding a MatMul into a FusedMatMul. Whether that FusedMatMul is (a) created at all, and (b) maps to an efficient HTP kernel vs falling back, depends on the exact Transpose/MatMul dimensionality and layout that each attention implementation emits. swin's windowed-attention layout produces FusedMatMuls the QNN HTP handles well (+8%); SegFormer's efficient/sequence-reduction attention produces a fused shape the HTP handles worse than the unfused form (~2x regression); standard BERT-style attention emits no matching pattern at all (no-op).",
+      "action_for_autoconfig": "Do NOT treat matmul_transpose_fusion as a universal win. It must be measured per-model with the interleaved-A/B protocol (npu-014). Gate: if graph_changed but full-bench gain is negative, DISCARD (it can be a ~2x regression as on SegFormer). The op-count delta tells you only that the fusion FIRED, never that it HELPED — perf must be measured.",
+      "scope": "All QNN NPU attention models. Confirmed beneficial only on swinv2 (windowed attention). Confirmed regression on SegFormer (efficient attention). Confirmed no-op on koelectra/mpnet/bert (standard attention). Gains do not extrapolate across attention-implementation families.",
+      "severity": "medium — prevents over-generalizing swin's npu-014 win; the regression case is ~2x",
+      "confidence": "high on observation (graph_changed flags + op counts + screen/full p50 from the 2026-06-24 sweep results.json for all 5 models); medium on mechanism (HTP kernel-mapping hypothesis not confirmed via EP partition dump)",
+      "falsified_by": null,
+      "added": "2026-06-25",
+      "source": "5-model curated QNN NPU sweep (swinv2, koelectra, segformer, all-mpnet, clip-vit) — per-model results.json h6 graph_changed + gain_vs_baseline_pct"
     }
   ],
   "search_space_rules": {

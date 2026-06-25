@@ -376,6 +376,30 @@ class CatalogSweep:
                 p50s.append(p50)
             else:
                 print(f"     [warn] full bench s{s} failed", flush=True)
+                if rc == _WIN_CRASH_RC:
+                    # A crash (rc=0xFFFFFFFF) is deterministic: the same build against
+                    # the same NPU firmware will crash again in s2/s3.  Break early
+                    # rather than repeating the crash+retry cycle for every remaining
+                    # session (npu-013: saves ~2 × crash_time per crashed hypothesis).
+                    remaining = n - s
+                    if remaining > 0:
+                        print(
+                            f"     [crash-guard] crash persisted; skipping {remaining}"
+                            f" remaining session(s)",
+                            flush=True,
+                        )
+                    # npu-017: after a process-level crash the NPU HTP may be in a
+                    # degraded state.  Sleep before returning so the caller's next
+                    # build/bench cycle starts on a recovered device.
+                    recovery_s = int(self.cfg.get("bench_crash_recovery_s", 0))
+                    if recovery_s > 0:
+                        print(
+                            f"     [crash-guard] sleeping {recovery_s}s for NPU state"
+                            " reset before next hypothesis (npu-017)",
+                            flush=True,
+                        )
+                        time.sleep(recovery_s)
+                    break
             if s < n:
                 print(f"     cool-down {cd}s…", flush=True)
                 time.sleep(cd)
@@ -502,10 +526,28 @@ class CatalogSweep:
         model_dir.mkdir(parents=True, exist_ok=True)
 
         results_path = model_dir / "results.json"
+        checkpoint_path = model_dir / "results.partial.json"
         if only_hyp_ids and results_path.exists():
             try:
                 results = json.loads(results_path.read_text(encoding="utf-8"))
                 print("  [resume] loaded existing results", flush=True)
+            except Exception:
+                results = {}
+        elif not only_hyp_ids and not results_path.exists() and checkpoint_path.exists():
+            # npu-024: crash-recovery — reload the partial checkpoint written before
+            # each hypothesis so we can skip already-completed ones on the next run.
+            try:
+                ckpt = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+                if ckpt.get("model_id") == model_id:
+                    results = ckpt
+                    n_done = len(ckpt.get("hypotheses", {}))
+                    print(
+                        f"  [npu-024] crash-recovery: loaded partial checkpoint "
+                        f"({n_done} hypotheses already done)",
+                        flush=True,
+                    )
+                else:
+                    results = {}
             except Exception:
                 results = {}
         else:
@@ -576,6 +618,7 @@ class CatalogSweep:
         baseline_onnx: Path | None = None
         baseline_sig: dict | None = None
         seen_sigs: dict[str, dict] = {}  # op_sig for every hypothesis built so far
+        _calib_fail_fatal = False  # npu-020: set when baseline calib dataset creation fails
 
         for hyp in self.hyps:
             hyp_id = hyp["id"]
@@ -586,6 +629,74 @@ class CatalogSweep:
                 results["hypotheses"][hyp_id] = {"status": "TIMEOUT", "label": hyp["label"]}
                 results["errors"].append(f"{hyp_id}: model timeout")
                 continue
+
+            # npu-020: if baseline calibration dataset creation failed, all flag
+            # variants will fail identically — skip without running a full build.
+            if _calib_fail_fatal:
+                results["hypotheses"][hyp_id] = {
+                    "status": "CALIB_FAIL_SKIP",
+                    "label": hyp["label"],
+                    "noop_note": (
+                        "skipped — baseline calibration dataset creation failed for this "
+                        "model/task; flag variants will fail identically (npu-020)"
+                    ),
+                }
+                results["errors"].append(f"{hyp_id}: skipped (calib fatal from baseline)")
+                continue
+
+            # npu-024: crash-recovery checkpoint — save all results so far BEFORE
+            # starting this hypothesis.  If the process crashes during this hypothesis,
+            # the next run reloads this checkpoint and skips already-done hypotheses.
+            self._checkpoint(results, model_dir)
+
+            # npu-024 resume: skip hypotheses that were completed in a previous (crashed)
+            # run and reloaded from the partial checkpoint.  Reconstruct sig/onnx state
+            # so downstream no-op detection and paired-A/B still work correctly.
+            if hyp_id in results.get("hypotheses", {}):
+                _prev = results["hypotheses"][hyp_id]
+                if _prev.get("status") not in (None, "", "PENDING"):
+                    _ckpt_sig = _prev.get("op_signature")
+                    if _ckpt_sig:
+                        seen_sigs[hyp_id] = _ckpt_sig
+                        if hyp_id == self.baseline_id:
+                            baseline_sig = _ckpt_sig
+                    if hyp_id == self.baseline_id:
+                        if baseline_onnx is None:
+                            baseline_onnx = self._find_onnx(model_dir / hyp_id)
+                        # Restore conv guard state so downstream guards fire correctly.
+                        if has_conv_guard:
+                            _stored_pct = results.get("conv_pct")
+                            if _stored_pct is not None:
+                                conv_pct = _stored_pct
+                                _threshold = next(
+                                    (
+                                        h["guard"]["threshold_pct"]
+                                        for h in self.hyps
+                                        if (h.get("guard") or {}).get("type")
+                                        == "conv_pct_regression"
+                                    ),
+                                    20.0,
+                                )
+                                conv_risk = conv_pct > _threshold
+                        # npu-020 crash-recovery: if the baseline previously failed with a
+                        # calibration dataset creation error, restore the calib-fatal flag so
+                        # remaining hypotheses are skipped without running redundant builds.
+                        if not _calib_fail_fatal and _prev.get("status") == "BUILD_FAIL":
+                            _be = (_prev.get("build_error") or "").lower()
+                            if "failed to create" in _be and "dataset" in _be:
+                                _calib_fail_fatal = True
+                                print(
+                                    "  [npu-020] calib-fatal: restored from checkpoint — "
+                                    "baseline failed with dataset creation error; "
+                                    "remaining hypotheses will be skipped",
+                                    flush=True,
+                                )
+                    print(
+                        f"  [npu-024] {hyp_id}: already completed "
+                        f"({_prev.get('status')}) — skipping (crash-recovery resume)",
+                        flush=True,
+                    )
+                    continue
 
             label = hyp["label"]
             guard = hyp.get("guard") or {}
@@ -605,6 +716,77 @@ class CatalogSweep:
             cfg_path = hyp_dir / "build_config.json"
             cfg_path.write_text(json.dumps(hyp_config, indent=2), encoding="utf-8")
 
+            # Pre-build op-presence guard (npu-021): if the hypothesis declares
+            # requires_any_op_type and the baseline graph has zero of those op types,
+            # the optimization flag cannot fire on this model — skip the build entirely.
+            req_ops = hyp.get("requires_any_op_type")
+            if hyp_id != self.baseline_id and req_ops and baseline_sig is not None:
+                counts = baseline_sig.get("operator_counts") or {}
+                if not any(counts.get(op, 0) > 0 for op in req_ops):
+                    results["hypotheses"][hyp_id] = {
+                        "status": "PREBUILD_NOOP_SKIP",
+                        "verdict": "NO_OP",
+                        "label": label,
+                        "opset": opset_used,
+                        "optim": hyp.get("optim") or {},
+                        "build_flags": build_flags,
+                        "noop_note": (
+                            f"pre-build skip: baseline graph has none of the required "
+                            f"op types {req_ops!r} — fusion flag cannot fire (npu-021)"
+                        ),
+                    }
+                    print(
+                        f"  [prebuild-skip] {hyp_id}: baseline lacks {req_ops!r} "
+                        "— fusion flag cannot fire; build skipped (npu-021)",
+                        flush=True,
+                    )
+                    if self.prune_artifacts:
+                        self._prune_runnable_except_best(results, model_dir)
+                    continue
+
+            # Pre-build subset-dominance skip (npu-025): if any previously-confirmed
+            # NOOP_SKIPPED *or* PREBUILD_NOOP_SKIP hypothesis had optim flags that are a
+            # proper superset of this hypothesis's optim flags at the same opset, then this
+            # hypothesis's flags also cannot change the graph — skip the build entirely.
+            # PREBUILD_NOOP_SKIP is included so that a pre-build skip on a superset (e.g.
+            # npu-021 firing on h4={conv_bn,conv_add,conv_activation}) also cascades to
+            # strict subsets (e.g. h10={conv_add}) without building either.
+            if hyp_id != self.baseline_id and hyp.get("optim"):
+                _optim_keys = set(hyp["optim"])
+                _dom_ref = next(
+                    (
+                        pid
+                        for pid, pr in results["hypotheses"].items()
+                        if pr.get("status") in ("NOOP_SKIPPED", "PREBUILD_NOOP_SKIP")
+                        and str(pr.get("opset")) == str(opset_used)
+                        and _optim_keys < set(pr.get("optim") or {})
+                    ),
+                    None,
+                )
+                if _dom_ref is not None:
+                    results["hypotheses"][hyp_id] = {
+                        "status": "PREBUILD_NOOP_SKIP",
+                        "verdict": "NO_OP",
+                        "label": label,
+                        "opset": opset_used,
+                        "optim": hyp.get("optim") or {},
+                        "build_flags": build_flags,
+                        "graph_changed": False,
+                        "noop_note": (
+                            f"pre-build dominance skip: {_dom_ref!r} has superset optim flags "
+                            f"at the same opset and was confirmed NOOP_SKIPPED or PREBUILD_NOOP_SKIP"
+                            " — this hypothesis also cannot change the graph (npu-025)"
+                        ),
+                    }
+                    print(
+                        f"  [prebuild-dom] {hyp_id}: {_dom_ref!r} superset no-op "
+                        f"at opset={opset_used} — build skipped (npu-025)",
+                        flush=True,
+                    )
+                    if self.prune_artifacts:
+                        self._prune_runnable_except_best(results, model_dir)
+                    continue
+
             build_ok, build_out = self.run_build(model_id, cfg_path, hyp_dir, build_flags)
             if not build_ok:
                 is_to = "TIMEOUT" in build_out
@@ -619,6 +801,25 @@ class CatalogSweep:
                     k in build_out.lower() for k in ("unsupported", "not supported", "no handler")
                 ):
                     results["feature_gaps"].append(f"{hyp_id} ({label}): EP/op unsupported")
+                # npu-020: calibration dataset creation is model/task-specific — if the
+                # baseline build fails here, all subsequent hypotheses will fail the same
+                # way regardless of flags.  Poison the loop to skip remaining builds.
+                if (
+                    not _calib_fail_fatal
+                    and hyp_id == self.baseline_id
+                    and "failed to create" in build_out.lower()
+                    and "dataset" in build_out.lower()
+                ):
+                    _calib_fail_fatal = True
+                    print(
+                        "  [npu-020] calib-fatal: baseline build failed with dataset "
+                        "creation error — remaining hypotheses will be skipped",
+                        flush=True,
+                    )
+                # npu-023: prune partial artifacts from failed builds immediately so they
+                # don't accumulate and exhaust disk before the next hypothesis starts.
+                if self.prune_artifacts:
+                    self._prune_hyp_artifacts(hyp_dir)
                 continue
 
             onnx_path = self._find_onnx(hyp_dir)
@@ -795,6 +996,64 @@ class CatalogSweep:
                 results["hypotheses"][hyp_id] = bench
                 results["errors"].append(f"{hyp_id}: screen failed")
                 continue
+
+            # Early abort for expected-regression hypotheses: when screen already
+            # confirms a catastrophic performance regression vs the baseline, skip
+            # Phase B entirely.  Saves 3 full bench sessions (~10+ min) for cases
+            # where a guard (e.g. conv_pct_regression / npu-006) correctly predicted
+            # the regression and screen confirms it.  The threshold ratio is
+            # configurable via sweep_config.expected_regression_screen_abort_ratio
+            # (0 or absent = disabled; 1.5 = abort when screen p50 >= 1.5× baseline).
+            _abort_ratio = float(self.cfg.get("expected_regression_screen_abort_ratio", 0))
+            if expected_regression and _abort_ratio > 0 and baseline_sig is not None:
+                _base_full = (results["hypotheses"].get(self.baseline_id) or {}).get("full") or {}
+                _base_p50 = _base_full.get("median_p50_ms")
+                if _base_p50 and _base_p50 > 0:
+                    _ratio = p50_screen / _base_p50
+                    if _ratio >= _abort_ratio:
+                        print(
+                            f"  [{guard['finding']}] ABORT {hyp_id}: screen"
+                            f" p50={p50_screen:.2f}ms is {_ratio:.1f}x baseline"
+                            f" ({_base_p50:.2f}ms) — Phase B skipped"
+                            f" (threshold={_abort_ratio:.1f}x, npu-018)",
+                            flush=True,
+                        )
+                        bench["status"] = "REGRESSION_SCREEN_ABORT"
+                        bench["screen"]["abort_ratio"] = round(_ratio, 2)
+                        results["hypotheses"][hyp_id] = bench
+                        if self.prune_artifacts:
+                            self._prune_hyp_artifacts(hyp_dir)
+                            self._prune_runnable_except_best(results, model_dir)
+                        continue
+
+            # Unconditional screen abort (npu-019): even without a guard
+            # prediction, a screen p50 that is far above the confirmed baseline
+            # cannot be selected — Phase B cannot reverse a large enough
+            # regression.  Controlled by sweep_config.unconditional_screen_abort_ratio
+            # (0 or absent = disabled; 5.0 = abort when screen p50 >= 5× baseline).
+            # Intentionally set higher than expected_regression_screen_abort_ratio
+            # to only catch unambiguous cases (DVFS noise rarely creates 5× artefacts).
+            _unguarded_ratio = float(self.cfg.get("unconditional_screen_abort_ratio", 0))
+            if not expected_regression and _unguarded_ratio > 0 and p50_screen is not None:
+                _base_full2 = (results["hypotheses"].get(self.baseline_id) or {}).get("full") or {}
+                _base_p50_2 = _base_full2.get("median_p50_ms")
+                if _base_p50_2 and _base_p50_2 > 0:
+                    _ratio2 = p50_screen / _base_p50_2
+                    if _ratio2 >= _unguarded_ratio:
+                        print(
+                            f"  [npu-019] ABORT {hyp_id}: screen"
+                            f" p50={p50_screen:.2f}ms is {_ratio2:.1f}x baseline"
+                            f" ({_base_p50_2:.2f}ms) — Phase B skipped"
+                            f" (threshold={_unguarded_ratio:.1f}x, npu-019)",
+                            flush=True,
+                        )
+                        bench["status"] = "REGRESSION_SCREEN_ABORT"
+                        bench["screen"]["abort_ratio"] = round(_ratio2, 2)
+                        results["hypotheses"][hyp_id] = bench
+                        if self.prune_artifacts:
+                            self._prune_hyp_artifacts(hyp_dir)
+                            self._prune_runnable_except_best(results, model_dir)
+                        continue
 
             full_p50s = self.bench_full(onnx_path)
             if not full_p50s:
@@ -1204,10 +1463,34 @@ class CatalogSweep:
 
     # ── outputs ─────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _checkpoint(results: dict, model_dir: Path) -> None:
+        """Write a crash-recovery checkpoint before starting each hypothesis (npu-024).
+
+        Saves the results accumulated so far (all previously completed hypotheses) to
+        ``results.partial.json``.  If the process crashes mid-sweep, the next invocation
+        reloads this file and skips already-completed hypotheses instead of re-running
+        them from scratch.  The checkpoint is removed by ``_finalize()`` once the final
+        ``results.json`` is written successfully.
+        """
+        try:
+            (model_dir / "results.partial.json").write_text(
+                json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        except OSError:
+            pass  # non-fatal; crash recovery is best-effort
+
     def _finalize(self, results: dict, model_dir: Path) -> None:
         out = model_dir / "results.json"
         out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"  Results: {out}", flush=True)
+        # npu-024: remove partial checkpoint now that final results.json is written.
+        ck = model_dir / "results.partial.json"
+        if ck.exists():
+            try:
+                ck.unlink()
+            except OSError:
+                pass
         self._emit_champion(results, model_dir)
         try:
             if generate_model_report is None:
@@ -1356,6 +1639,24 @@ class CatalogSweep:
             )
 
     def write_summary(self, all_results: list[dict]) -> None:
+        # Merge in-memory results (freshest) with any results.json already on disk so
+        # that SUMMARY.md is a complete tally even when the driver calls us once per
+        # --model (as recipe_npu_driver.py does).  In-memory wins on conflict.
+        merged: dict[str, dict] = {}
+        for rjson in sorted(self.results_dir.glob("*/results.json")):
+            try:
+                d = json.loads(rjson.read_text(encoding="utf-8"))
+                mid = d.get("model_id")
+                if mid:
+                    merged[mid] = d
+            except Exception:
+                pass
+        for r in all_results:
+            mid = r.get("model_id")
+            if mid:
+                merged[mid] = r  # in-memory is fresher; overwrite disk version
+        all_results = [merged[k] for k in sorted(merged)]
+
         lines = [
             f"# {self.ep.upper()} / {self.device.upper()} EP Optimization Sweep — Catalog Models",
             "",
