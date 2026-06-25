@@ -111,6 +111,7 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
 )
 @cli_utils.precision_option()
 @cli_utils.output_option("Output JSON file path (default: stdout)")
+@cli_utils.overwrite_option()
 @click.option(
     "--library",
     "library_name",
@@ -141,6 +142,7 @@ def config(
     ep: EPNameOrAlias | None,
     precision: str,
     output: Path | None,
+    overwrite: bool,
     library_name: str,
     verbose: int,
     quiet: bool,
@@ -310,6 +312,7 @@ def config(
                     no_quant=not quant,
                     no_compile=no_compile,
                     output=output,
+                    overwrite=overwrite,
                     console=console,
                 )
                 return
@@ -444,6 +447,7 @@ def config(
         config_json = json.dumps(output_data, indent=2)
 
         if output:
+            cli_utils.guard_output(output, overwrite)
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(config_json)
             suffix = f"  [dim]({_n_modules} submodules)[/dim]" if _n_modules else ""
@@ -516,6 +520,7 @@ def _generate_pipeline_configs(
     no_quant: bool,
     no_compile: bool,
     output: Path | None,
+    overwrite: bool,
     console: Any,
 ) -> None:
     """Generate and save one config file per pipeline sub-component."""
@@ -546,6 +551,7 @@ def _generate_pipeline_configs(
 
         if output:
             suffixed = output.with_stem(f"{output.stem}_{component_name}")
+            cli_utils.guard_output(suffixed, overwrite)
             suffixed.parent.mkdir(parents=True, exist_ok=True)
             tmp = suffixed.with_suffix(".json.tmp")
             tmp.write_text(config_json)

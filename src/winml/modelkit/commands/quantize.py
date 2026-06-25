@@ -47,6 +47,7 @@ console = Console()
     help="Input ONNX model file",
 )
 @cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
+@cli_utils.overwrite_option()
 @cli_utils.precision_option(
     default=None,
     help_text="Quantization precision: auto, int8, int16, or w{x}a{y} where "
@@ -109,6 +110,7 @@ def quantize(
     ctx: click.Context,
     model: Path,
     output: Path | None,
+    overwrite: bool,
     precision: str | None,
     samples: int,
     method: str,
@@ -182,6 +184,8 @@ def quantize(
     # Determine output path
     if output is None:
         output = model.parent / f"{model.stem}_qdq.onnx"
+    # Refuse to clobber an existing output unless the user opted in.
+    cli_utils.guard_output(output, overwrite)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     # Show info

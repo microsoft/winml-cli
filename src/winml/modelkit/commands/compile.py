@@ -51,6 +51,7 @@ console = Console()
     "EP context (weight sharing). Required unless --list.",
 )
 @cli_utils.output_option("Output file path (e.g., model_compiled.onnx)")
+@cli_utils.overwrite_option()
 @click.option(
     "--output-dir",
     type=click.Path(path_type=Path),
@@ -108,6 +109,7 @@ def compile(
     model: tuple[Path, ...],
     output: Path | None,
     output_dir: Path | None,
+    overwrite: bool,
     device: str,
     ep: EPNameOrAlias | None,
     validate: bool,
@@ -243,6 +245,9 @@ def compile(
         console.print(f"[bold blue]SDK root:[/bold blue] {qnn_sdk_root}")
     # Resolve output path: -o (file) takes precedence over --output-dir
     resolved_output = output or output_dir
+    # Refuse to clobber an existing output unless the user opted in. A file
+    # blocks when it exists; a directory blocks only when non-empty.
+    cli_utils.guard_output(resolved_output, overwrite)
     if output:
         console.print(f"[bold blue]Output:[/bold blue] {output}")
     elif output_dir:
