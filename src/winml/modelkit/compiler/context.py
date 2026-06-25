@@ -37,6 +37,7 @@ class CompileContext:
 
     # Input
     model_path: Path
+    # From WinMLCompileConfig.to_dict()
     config: dict[str, Any]
     model: onnx.ModelProto | None = None
 

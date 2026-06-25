@@ -10,7 +10,6 @@ from onnx import TensorProto
 
 from ...onnx import SupportedONNXType
 from .op_input_gen import (
-    InputConstraint,
     InputValueConstraint,
     OpInputGenerator,
     register_runtime_checker_op,
@@ -48,9 +47,9 @@ class ConstantOfShapeInputGenerator(OpInputGenerator):
             ]
         }
 
-    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, object]]:
         """Return input combinations for ConstantOfShape."""
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         # We want to test creating tensors of various shapes.
         # Common shapes from 1D to 5D

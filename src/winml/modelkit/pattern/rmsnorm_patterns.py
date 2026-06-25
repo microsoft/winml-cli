@@ -27,13 +27,12 @@ from ..onnx import ONNXDomain
 from .base import (
     Pattern,
     PatternInputGenerator,
-    PatternMatchResult,
     PatternMismatchedError,
     PatternSchema,
     Skeleton,
-    SkeletonMatchResult,
     register_pattern_input_generator,
 )
+from .match import PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint, InputValueConstraint
 from .utils import (
     get_attribute_proto_value,
@@ -251,6 +250,8 @@ class _RMSNormalizationExpandedPatternBase(RMSNormalizationPatternBase):
             if axes_value is None:
                 raise PatternMismatchedError("ReduceMean missing axes attribute")
 
+        if axes_value is None:
+            raise PatternMismatchedError("ReduceMean axes tensor value is None")
         if len(axes_value) != 1:
             raise PatternMismatchedError(
                 f"Only single-axis normalization supported, got axes={axes_value}"
@@ -472,7 +473,7 @@ class TransposedSingleRMSNormalizationPattern(RMSNormalizationPatternBase):
         axis = attributes["axis"]
         rank = len(x_shape)
         normalized_axis = axis if axis >= 0 else rank + axis
-        return x_shape[normalized_axis]
+        return int(x_shape[normalized_axis])
 
     def get_internal_constants_and_attributes(
         self,

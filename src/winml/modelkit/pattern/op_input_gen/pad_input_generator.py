@@ -7,7 +7,6 @@ from typing import Any
 import numpy as np
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
@@ -49,7 +48,7 @@ class PadInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns comprehensive input combinations for Pad operator.
 
         Coverage strategy:
@@ -158,7 +157,7 @@ class PadInputGenerator(OpInputGenerator):
         """Returns names of infinite properties for Pad operator."""
         return ["data_shape", "pads_value", "constant_value_value"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Pad operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),  # data

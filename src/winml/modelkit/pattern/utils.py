@@ -12,7 +12,7 @@ Combines utilities from:
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from google.protobuf import json_format
@@ -82,7 +82,7 @@ def validate_scale_bias_shape_for_axis(
     if non_one_pos_in_input != normalized_axis:
         return False
 
-    return sb_shape[non_one_pos_in_sb] == normalized_dim
+    return bool(sb_shape[non_one_pos_in_sb] == normalized_dim)
 
 
 def get_tensor_shape(tensor_name: str, matcher: Any) -> tuple | None:
@@ -96,8 +96,8 @@ def get_tensor_shape(tensor_name: str, matcher: Any) -> tuple | None:
         Shape tuple if available, None otherwise.
     """
     if tensor_name in matcher.tensor_values:
-        return matcher.tensor_values[tensor_name].shape
-    return matcher.tensor_shapes.get(tensor_name)
+        return cast("tuple[Any, ...] | None", matcher.tensor_values[tensor_name].shape)
+    return cast("tuple[Any, ...] | None", matcher.tensor_shapes.get(tensor_name))
 
 
 def make_stable_node_key(node: Any, index: int) -> str:
@@ -109,7 +109,7 @@ def make_stable_node_key(node: Any, index: int) -> str:
 # From model_utils.py (pattern-relevant functions)
 # ---------------------------------------------------------------------------
 
-DTYPE_MAP = {
+DTYPE_MAP: dict[int, str] = {
     TensorProto.FLOAT: "FLOAT",
     TensorProto.UINT4: "UINT4",
     TensorProto.UINT8: "UINT8",
@@ -134,25 +134,26 @@ def dtype_from_tensorproto_enum(tp: int) -> str:
     return DTYPE_MAP.get(tp, f"unknown({tp})")
 
 
-def shape_and_dtype_from_valueinfo(vi: ValueInfoProto) -> tuple[list | None, str | None]:
+def shape_and_dtype_from_valueinfo(
+    vi: ValueInfoProto,
+) -> tuple[tuple[int | str | None, ...] | None, str | None]:
     """Extract shape and dtype from a ValueInfoProto."""
     if not vi.type.HasField("tensor_type"):
         return (None, None)
     tt = vi.type.tensor_type
     dtype = dtype_from_tensorproto_enum(tt.elem_type)
 
-    shape = []
-    if tt.HasField("shape"):
-        for d in tt.shape.dim:
-            if d.HasField("dim_value"):
-                shape.append(d.dim_value)
-            elif d.HasField("dim_param"):
-                shape.append(d.dim_param)
-            else:
-                shape.append(None)
-    else:
-        shape = None
-    return (tuple(shape) if shape is not None else None, dtype)
+    if not tt.HasField("shape"):
+        return (None, dtype)
+    shape: list[int | str | None] = []
+    for d in tt.shape.dim:
+        if d.HasField("dim_value"):
+            shape.append(d.dim_value)
+        elif d.HasField("dim_param"):
+            shape.append(d.dim_param)
+        else:
+            shape.append(None)
+    return (tuple(shape), dtype)
 
 
 def collect_valueinfo_dict(model: ModelProto) -> dict[str, ValueInfoProto]:
@@ -168,7 +169,9 @@ def collect_initializers(model: ModelProto) -> dict[str, TensorProto]:
     return {init.name: init for init in model.graph.initializer}
 
 
-def get_op_input_properties(schema: OpSchema):
+def get_op_input_properties(
+    schema: OpSchema,
+) -> tuple[list[str], str | None, list[str], dict[str, str]]:
     """Get operator input properties from OpSchema.
 
     Args:
@@ -205,7 +208,8 @@ def get_op_input_properties(schema: OpSchema):
             type_annotations[input_param.name] = type_str
 
         for name, attribute in schema.attributes.items():
-            type_annotations[name] = attribute.type.name
+            # onnx's pybind11 AttrType enum exposes .name at runtime; its stub doesn't.
+            type_annotations[name] = attribute.type.name  # type: ignore[attr-defined]
 
     op_attribute_names = list(schema.attributes.keys())
 
@@ -273,7 +277,7 @@ def _make_hashable_sequence(value: list | tuple, replace_float_with_dummy: bool)
             needs_conversion = True
             break
     if not needs_conversion:
-        return tuple(value) if type(value) is list else value
+        return tuple(value) if isinstance(value, list) else value
     return tuple([make_hashable(x, replace_float_with_dummy) for x in value])
 
 

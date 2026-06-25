@@ -11,7 +11,6 @@ Resize resizes the input tensor. It supports different interpolation modes
 import numpy as np
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
@@ -55,7 +54,7 @@ class ResizeInputGenerator(OpInputGenerator):
         """Return finite attribute combinations for Resize."""
         return {"antialias": [0, 1]}
 
-    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, object]]:
         """Return input combinations for Resize operator.
 
         CRITICAL: Always provide explicit values for all inputs.
@@ -267,7 +266,7 @@ class ResizeInputGenerator(OpInputGenerator):
             + ["attr_cubic_coeff_a", "attr_extrapolation_value", "attr_axes"]
         )
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Resize operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),

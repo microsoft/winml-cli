@@ -10,7 +10,6 @@ This includes MaxPool, AveragePool, and LpPool.
 import numpy as np
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,
@@ -51,7 +50,7 @@ class PoolingInputGenerator(OpInputGenerator):
             + ["attr_kernel_shape", "attr_strides", "attr_pads", "attr_dilations"]
         )
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for pooling operator inputs."""
         return {self.op_input_names[0]: QDQParameterConfig(support_activation=True)}
 
@@ -70,7 +69,7 @@ class MaxPoolInputGenerator(PoolingInputGenerator):
             "storage_order": [0, 1],
         }
 
-    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, object]]:
         """Return input and infinite attribute combinations for MaxPool operator."""
         combinations = []
         for x_shape, kernel_shape in self.get_common_shapes_and_kernels():
@@ -191,7 +190,7 @@ class AveragePoolInputGenerator(PoolingInputGenerator):
 
         return item
 
-    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, object]]:
         """Return input and infinite attribute combinations for AveragePool operator."""
         combinations = []
         for x_shape, kernel_shape in self.get_common_shapes_and_kernels():
@@ -243,7 +242,7 @@ class LpPoolInputGenerator(PoolingInputGenerator):
             "p": [1, 2],  # L1 and L2 norm
         }
 
-    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, object]]:
         """Return input and infinite attribute combinations for LpPool operator."""
         combinations = []
         for x_shape, kernel_shape in self.get_common_shapes_and_kernels():

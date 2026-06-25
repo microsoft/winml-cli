@@ -15,7 +15,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 
 if TYPE_CHECKING:
@@ -95,7 +95,7 @@ class PatternConfig:
             except (ImportError, AttributeError):
                 continue
             # Instantiation errors should propagate, not be silently caught
-            return pattern_cls()
+            return cast("Pattern", pattern_cls())
 
         msg = f"Failed to load pattern {self.pattern_class} from {self.module}"
         logger.error(msg)

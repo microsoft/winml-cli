@@ -17,7 +17,6 @@ from typing import Any
 import numpy as np
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
@@ -72,7 +71,7 @@ class GatherInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Gather operator.
 
         Strategy:
@@ -135,7 +134,7 @@ class GatherInputGenerator(OpInputGenerator):
         """
         return ["data_shape", "indices_shape", "attr_axis"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Gather operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),
@@ -171,7 +170,7 @@ class GatherElementsInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for GatherElements operator."""
         combinations = []
 
@@ -200,9 +199,9 @@ class GatherElementsInputGenerator(OpInputGenerator):
                 indices_shape_2[axis_idx] = (
                     indices_shape_2[axis_idx] * 2 if indices_shape_2[axis_idx] > 0 else 2
                 )
-                indices_shape_2 = tuple(indices_shape_2)
+                indices_shape_2_t = tuple(indices_shape_2)
 
-                indices_val_2 = InputShapeConstraint(indices_shape_2, min_max=(0, axis_size - 1))
+                indices_val_2 = InputShapeConstraint(indices_shape_2_t, min_max=(0, axis_size - 1))
                 combinations.append(
                     {
                         "data": InputShapeConstraint(data_shape),
@@ -227,7 +226,7 @@ class GatherElementsInputGenerator(OpInputGenerator):
         """Return names of properties with infinite possible values."""
         return ["data_shape", "indices_shape", "attr_axis"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for GatherElements operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),
@@ -265,7 +264,7 @@ class GatherNDInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for GatherND operator."""
         combinations = []
 
@@ -409,7 +408,7 @@ class ScatterNDInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for ScatterND operator.
 
         Optimized strategy for performance:
@@ -424,7 +423,7 @@ class ScatterNDInputGenerator(OpInputGenerator):
         - Limits q to essential cases: scalar indices (q=1) and 2D indices (q=2)
         - Reduces total test combinations from ~500+ to ~100 cases
         """
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         # Generate optimized test cases using nested loops
         # Coverage: data 1D-6D, focused k values, limited q values for performance
@@ -518,7 +517,7 @@ class ScatterNDInputGenerator(OpInputGenerator):
         """
         return ["data_shape", "indices_value", "updates_shape"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for ScatterND operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),  # data
@@ -561,7 +560,7 @@ class UnsqueezeInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Unsqueeze operator.
 
         Strategy:
@@ -570,7 +569,7 @@ class UnsqueezeInputGenerator(OpInputGenerator):
         - Test single axis and multiple axes
         - Test both positive and negative axis values
         """
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         # Define (data_shape, axes_values) test cases
         # Format: (data_shape, axes_array)
@@ -655,7 +654,7 @@ class UnsqueezeInputGenerator(OpInputGenerator):
         """
         return ["data_shape", "axes_value"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Unsqueeze operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),
@@ -701,7 +700,7 @@ class SplitInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Split operator.
 
         Strategy:
@@ -865,7 +864,7 @@ class SplitInputGenerator(OpInputGenerator):
         annotation = tags["type_vars"][f"{type_var_key}_{self.op_name}"]
         return [annotation] * num_output
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Split operator inputs."""
         return {
             "input": QDQParameterConfig(support_activation=True),

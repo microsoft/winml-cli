@@ -3,7 +3,6 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,
@@ -54,7 +53,7 @@ class UnaryInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns comprehensive input combinations for unary operators.
 
         Coverage strategy:
@@ -72,7 +71,7 @@ class UnaryInputGenerator(OpInputGenerator):
         # Get the input parameter name from the operator schema
         input_param_name = self.op_input_names[0]
 
-        result = [
+        result: list[dict[str, object]] = [
             # ===== 1D Input (dimension 1) =====
             # Scalar (single element)
             {input_param_name: InputShapeConstraint((1,))},
@@ -114,7 +113,7 @@ class UnaryInputGenerator(OpInputGenerator):
         input_param_name = self.op_input_names[0]
         return [f"{input_param_name}_shape"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for unary operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),
@@ -244,7 +243,7 @@ class IsNaNInputGenerator(UnaryInputGenerator):
 
     op_name = "IsNaN"
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for IsNaN operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),
@@ -302,7 +301,7 @@ class ReluInputGenerator(UnaryInputGenerator):
 
     op_name = "Relu"
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Relu operator inputs."""
         # From p1 model MobileNet
         return {

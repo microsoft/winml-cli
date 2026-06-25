@@ -43,7 +43,7 @@ class MatMulInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for MatMul.
 
         Covers various matrix shapes and broadcasting patterns.
@@ -58,7 +58,7 @@ class MatMulInputGenerator(OpInputGenerator):
         - Unidirectional broadcast B -> A (B has smaller/broadcastable dims)
         - Bidirectional broadcast A <-> B (both have broadcastable dims)
         """
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         # Common matrix shape pairs for comprehensive testing
         shape_pairs = [
@@ -167,7 +167,7 @@ class MatMulInputGenerator(OpInputGenerator):
         """
         return ["A_shape", "B_shape"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for MatMul operator inputs."""
         return {
             "A": QDQParameterConfig(support_activation=True, support_weight=True),
@@ -211,7 +211,7 @@ class GemmInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for Gemm.
 
         Gemm operates on 2D matrices only. Shapes depend on transpose flags:
@@ -223,7 +223,7 @@ class GemmInputGenerator(OpInputGenerator):
         the inner dimensions match after transpose (a_shape[1] == b_shape[0]).
         For each valid pair we emit C options: full bias, 1D bias, scalar, or None.
         """
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         def _after_transpose(shape: tuple[int, int], flag: int | None) -> tuple[int, int]:
             return (shape[1], shape[0]) if flag == 1 else shape
@@ -261,7 +261,7 @@ class GemmInputGenerator(OpInputGenerator):
                         ]
 
                         for c_option in c_options:
-                            combination: dict[str, InputConstraint | int] = {
+                            combination: dict[str, object] = {
                                 "A": InputShapeConstraint(a_shape),
                                 "B": InputShapeConstraint(b_shape),
                                 "C": c_option,
@@ -302,7 +302,7 @@ class GemmInputGenerator(OpInputGenerator):
         """
         return ["A_shape", "B_shape", "C_shape", "C_value"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Gemm operator inputs."""
         # https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/python/tools/quantization/operators/gemm.py
         return {

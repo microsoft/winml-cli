@@ -1212,17 +1212,17 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """resolve_device raising (explicit device w/ no compatible EP) -> UsageError.
+        """resolve_check_device_ep raising (explicit device w/ no compatible EP) -> UsageError.
 
         Uses default ``--device auto`` (no CLI flag) so the downstream
-        device-patch path isn't triggered; the only resolve_device call is
-        the one inside the auto-select block.
+        device-patch path isn't triggered; the only resolution call is the
+        ``resolve_check_device_ep`` inside the auto-select block.
         """
         from winml.modelkit.commands.build import build
 
         with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            side_effect=ValueError("simulated resolve_device failure"),
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            side_effect=ValueError("simulated resolve failure"),
         ):
             result = runner.invoke(
                 build,
@@ -1230,7 +1230,7 @@ class TestBuildEpAutoSelection:
                 obj={"debug": False},
             )
         assert result.exit_code != 0
-        assert "simulated resolve_device failure" in result.output
+        assert "simulated resolve failure" in result.output
         mock_build_api.assert_not_called()
 
     def test_auto_selection_respects_resolve_eps_priority(
@@ -1240,17 +1240,15 @@ class TestBuildEpAutoSelection:
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """First element of resolve_eps(resolved_device) is selected, not later ones."""
+        """First element of resolve_check_device_ep's available_eps is selected."""
         from winml.modelkit.commands.build import build
 
-        with (
-            patch(
-                "winml.modelkit.sysinfo.resolve_device",
-                return_value=("gpu", ["gpu", "cpu"]),
-            ),
-            patch(
-                "winml.modelkit.sysinfo.resolve_eps",
-                return_value=["DmlExecutionProvider", "OpenVINOExecutionProvider"],
+        with patch(
+            "winml.modelkit.sysinfo.resolve_check_device_ep",
+            return_value=(
+                "gpu",
+                ["gpu", "cpu"],
+                ["DmlExecutionProvider", "OpenVINOExecutionProvider"],
             ),
         ):
             result = runner.invoke(
@@ -1832,3 +1830,34 @@ class TestBuildHfPipelineModelType:
         assert finalizer.finalize.call_args.kwargs["model_id"] == "Qwen/Qwen3-0.6B"
         # config.quant must be replaced with the finalized scheme before quantize.
         assert config.quant is finalized_quant
+
+
+class TestBuildEpResolution:
+    """--ep forwarding into config generation + the compile EP-availability gate."""
+
+    def _base_args(self, cfg: str, tmp_path: Path) -> list[str]:
+        return ["-c", cfg, "-m", "microsoft/resnet-50", "-o", str(tmp_path / "out")]
+
+    def test_ep_forwarded_to_generate_build_config(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """On the auto-config path (-m, no -c), --ep reaches generate_build_config.
+
+        Regression: the build command dropped --ep when auto-generating a config,
+        so the requested EP never influenced the generated config (it failed or
+        analyzed/compiled for the wrong EP).
+        """
+        fake_cfg = MagicMock()
+        fake_cfg.compile = None  # no compile -> EP-availability gate is skipped
+        with (
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg) as mock_gen,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(
+                ["-m", "microsoft/resnet-50", "--ep", "openvino", "-o", str(tmp_path / "out")]
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_gen.call_args.kwargs["ep"] == "openvino"

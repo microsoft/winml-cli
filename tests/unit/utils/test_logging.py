@@ -40,3 +40,17 @@ def test_library_loggers_follow_cli_level_when_verbose(verbosity, expected):
     # With -v/-vv the library loggers follow the CLI level so the detail is on demand.
     configure_logging(verbosity=verbosity)
     assert logging.getLogger("optimum").level == expected
+
+
+def test_optimum_child_logger_gated_by_parent_floor():
+    # The optimum "TasksManager returned ..." notice originates on the child logger
+    # optimum.exporters.tasks. With no demote filter, the parent ERROR floor must hide
+    # it by default and reveal it at -v (the floor follows the CLI level). This is what
+    # replaces the removed _TasksManagerFilter demote-to-INFO filter.
+    child = logging.getLogger("optimum.exporters.tasks")
+
+    configure_logging(verbosity=0)
+    assert not child.isEnabledFor(logging.WARNING)
+
+    configure_logging(verbosity=1)
+    assert child.isEnabledFor(logging.WARNING)
