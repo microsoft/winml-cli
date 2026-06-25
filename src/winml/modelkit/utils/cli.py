@@ -63,6 +63,35 @@ def warn_trust_remote_code() -> None:
     )
 
 
+def warn_ignored_calibration_options(
+    ctx: click.Context, reason: str, *, console: Console | None = None
+) -> None:
+    """Warn if the user passed calibration-related CLI options that are ignored.
+
+    Checks whether ``--samples``, ``--method``, ``--weight-type``, or
+    ``--activation-type`` were explicitly provided on the command line and
+    emits a yellow warning listing the ignored options.
+
+    Args:
+        ctx: Click context (used to detect explicitly-provided params).
+        reason: Human-readable explanation (e.g., "FP16 does not use
+            calibration data.").
+        console: Optional Rich console for output. Defaults to stderr.
+    """
+    ignored = []
+    if is_cli_provided(ctx, "samples"):
+        ignored.append("--samples")
+    if is_cli_provided(ctx, "method"):
+        ignored.append("--method")
+    if is_cli_provided(ctx, "weight_type"):
+        ignored.append("--weight-type")
+    if is_cli_provided(ctx, "activation_type"):
+        ignored.append("--activation-type")
+    if ignored:
+        out = console or _stderr_console
+        out.print(f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — {reason}")
+
+
 def model_path_option(required: bool = True) -> Callable[[F], F]:
     """Add --model option that accepts a local ONNX file path.
 

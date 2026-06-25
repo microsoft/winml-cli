@@ -1954,17 +1954,17 @@ class TestDevicePrecisionIntegration:
         "device,precision,expect_quant,expect_weight,expect_act,expect_compile_provider",
         [
             ("npu", "auto", True, "uint8", "uint16", "qnn"),
-            ("npu", "fp16", False, None, None, "qnn"),
+            ("npu", "fp16", True, "uint8", "uint8", "qnn"),  # fp16 algorithm quant config
             ("npu", "int8", True, "uint8", "uint8", "qnn"),
-            ("gpu", "auto", False, None, None, None),
+            ("gpu", "auto", True, None, None, None),  # auto on gpu -> fp16 algorithm
             ("gpu", "int8", True, "uint8", "uint8", None),
-            ("gpu", "fp16", False, None, None, None),
-            ("cpu", "auto", False, None, None, None),
+            ("gpu", "fp16", True, None, None, None),  # fp16 algorithm quant config
+            ("cpu", "auto", True, None, None, None),  # auto on cpu -> fp16 algorithm
             ("cpu", "int8", True, "uint8", "uint8", None),
             ("cpu", "int16", True, "int16", "uint16", None),
-            ("cpu", "fp16", False, None, None, None),
+            ("cpu", "fp16", True, None, None, None),  # fp16 algorithm quant config
             # auto device + explicit precision → picks NPU (mock returns npu first)
-            ("auto", "fp16", False, None, None, "qnn"),
+            ("auto", "fp16", True, None, None, "qnn"),  # fp16 algorithm quant config
             ("auto", "int8", True, "uint8", "uint8", "qnn"),
             ("auto", "int16", True, "int16", "uint16", "qnn"),
         ],
@@ -2021,8 +2021,12 @@ class TestDevicePrecisionIntegration:
             assert result.quant is not None, (
                 f"Expected quant config for device={device}, precision={precision}"
             )
-            assert result.quant.weight_type == expect_weight
-            assert result.quant.activation_type == expect_act
+            if result.quant.mode != "fp16":
+                assert result.quant.weight_type == expect_weight
+                assert result.quant.activation_type == expect_act
+            else:
+                # FP16 algorithm: quant stage does FP16 conversion, not QDQ
+                assert result.quant.mode == "fp16"
         else:
             assert result.quant is None, (
                 f"Expected no quant for device={device}, precision={precision}"
@@ -2033,7 +2037,7 @@ class TestDevicePrecisionIntegration:
             assert result.compile is not None
             assert result.compile.ep_config.provider == expect_compile_provider
             # TODO(#241): assert qdq_config alignment with quant policy
-            # Currently for_qnn() creates qdq_config even for fp16.
+            # Currently for_qnn() creates qdq_config even for the fp16 algorithm.
             # Issue #241 will pass quantize= to for_provider().
         else:
             assert result.compile is None
@@ -2205,7 +2209,7 @@ class TestDevicePrecisionCli:
         assert data["quant"]["activation_type"] == "uint16"
 
     def test_device_gpu_precision_fp16(self, tmp_path) -> None:
-        """--device gpu --precision fp16 → no quant, compile.provider=dml."""
+        """--device gpu --precision fp16 → fp16 algorithm quant config, no compile."""
         self._patches["device"] = patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
@@ -2217,7 +2221,8 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        assert data["quant"] is None
+        assert data["quant"] is not None
+        assert data["quant"]["mode"] == "fp16"
         assert data["compile"] is None
 
     def test_device_cpu_precision_fp32(self, tmp_path) -> None:
@@ -2397,7 +2402,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.compile.ep_config.provider == "qnn"
 
     def test_raw_onnx_cpu(self, tmp_path) -> None:
-        """Raw ONNX + device=cpu resolves quant=None and compile=None."""
+        """Raw ONNX + device=cpu resolves to an fp16 algorithm quant config, compile=None."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2412,7 +2417,8 @@ class TestGenerateBuildConfigOnnxPath:
             config = generate_onnx_build_config(str(onnx_file), device="cpu")
 
         assert config.export is None
-        assert config.quant is None
+        assert config.quant is not None
+        assert config.quant.mode == "fp16"
         assert config.compile is None
 
     def test_quantized_onnx_skips_quant(self, tmp_path) -> None:
@@ -2739,10 +2745,10 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.export is None
 
     def test_auto_device_auto_precision_defaults(self, tmp_path) -> None:
-        """device=auto + precision=auto (defaults) keeps config defaults.
+        """device=auto + precision=auto (defaults) resolves to fp16 on CPU.
 
-        resolve_quant_compile_config returns (None, None) when both are auto,
-        so raw ONNX gets quant=None, compile=None.
+        resolve_check_device_ep returns device="auto" but resolve_precision
+        resolves the EP to pick a concrete device, yielding an fp16 algorithm quant config.
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
@@ -2757,8 +2763,9 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file))
 
-        # Both auto -> resolve_precision returns device="auto" -> (None, None)
-        assert config.quant is None
+        # EP resolves to CPU, auto-precision=fp16 → fp16 algorithm quant config
+        assert config.quant is not None
+        assert config.quant.mode == "fp16"
         assert config.compile is None
 
     def test_compiled_does_not_call_resolve_quant_compile(self, tmp_path) -> None:
@@ -2778,7 +2785,7 @@ class TestGenerateBuildConfigOnnxPath:
         mock_resolve.assert_not_called()
 
     def test_raw_onnx_with_gpu(self, tmp_path) -> None:
-        """Raw ONNX + device=gpu resolves quant=None, compile=dml."""
+        """Raw ONNX + device=gpu resolves to an fp16 algorithm quant config, compile=None."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2792,8 +2799,10 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file), device="gpu")
 
-        # GPU auto-precision is fp16 -> no quantization, no compile (DML has no offline step)
-        assert config.quant is None
+        # GPU auto-precision is fp16 -> fp16 algorithm quant config, no
+        # compile (DML has no offline step)
+        assert config.quant is not None
+        assert config.quant.mode == "fp16"
         assert config.compile is None
 
     def test_ep_override_forwarded(self, tmp_path) -> None:
@@ -2831,15 +2840,21 @@ class TestResolveQuantCompileConfig:
     the HF and ONNX build config paths.
     """
 
-    def test_auto_auto_returns_none_none(self) -> None:
-        """device=auto + precision=auto returns (None, None)."""
+    def test_auto_auto_returns_fp16_algorithm(self) -> None:
+        """device=auto + precision=auto resolves to an fp16 algorithm quant config.
+
+        When resolve_check_device_ep returns device="auto" but the EP
+        resolves to a concrete device, resolve_precision picks auto-precision
+        (fp16 for CPU), yielding an fp16 algorithm quant config.
+        """
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("auto", ["npu", "gpu", "cpu"], ["CPUExecutionProvider"]),
         ):
             quant, compile_cfg = resolve_quant_compile_config()
 
-        assert quant is None
+        assert isinstance(quant, WinMLQuantizationConfig)
+        assert quant.mode == "fp16"
         assert compile_cfg is None
 
     def test_npu_returns_quant_and_compile(self) -> None:
@@ -2856,26 +2871,28 @@ class TestResolveQuantCompileConfig:
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 
-    def test_gpu_returns_none_quant_and_none_compile(self) -> None:
-        """device=gpu returns (None, None) — DML has no offline compile step."""
+    def test_gpu_returns_fp16_quant_and_none_compile(self) -> None:
+        """device=gpu returns (fp16 algorithm quant config, None) — auto-precision is fp16."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("gpu", ["gpu", "cpu"], ["DmlExecutionProvider"]),
         ):
             quant, compile_cfg = resolve_quant_compile_config(device="gpu")
 
-        assert quant is None
+        assert isinstance(quant, WinMLQuantizationConfig)
+        assert quant.mode == "fp16"
         assert compile_cfg is None
 
-    def test_cpu_returns_none_none(self) -> None:
-        """device=cpu returns (None, None) since CPU has no compile provider."""
+    def test_cpu_returns_fp16_quant_and_none_compile(self) -> None:
+        """device=cpu returns (fp16 algorithm quant config, None) — auto-precision is fp16."""
         with patch(
             "winml.modelkit.sysinfo.resolve_check_device_ep",
             return_value=("cpu", ["cpu"], ["CPUExecutionProvider"]),
         ):
             quant, compile_cfg = resolve_quant_compile_config(device="cpu")
 
-        assert quant is None
+        assert isinstance(quant, WinMLQuantizationConfig)
+        assert quant.mode == "fp16"
         assert compile_cfg is None
 
     def test_ep_override_changes_provider(self) -> None:

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, cast
 import click
 from rich.console import Console
 
+from ..config.precision import is_weight_only_precision
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
 
@@ -50,8 +51,10 @@ console = Console()
 @cli_utils.overwrite_option()
 @cli_utils.precision_option(
     default=None,
-    help_text="Quantization precision: auto, int8, int16, or w{x}a{y} where "
-    "x,y in {8,16} (e.g., w8a8, w8a16, w16a16)",
+    help_text="Quantization precision: auto, fp16, int4, int8, int16, or w{x}a{y} where "
+    "x in {4,8,16}, y in {8,16} (e.g., w4a16, w8a8, w8a16). "
+    "int4/w4a16 uses RTN weight-only quantization; "
+    "fp16 converts all FP32 tensors to FP16 (no QDQ)",
     optional_message="Overridden by explicit --weight-type/--activation-type",
 )
 @click.option(
@@ -124,11 +127,11 @@ def quantize(
     quiet: bool,
     config_file: Path | None,
 ) -> None:
-    r"""Quantize ONNX model by inserting QDQ nodes.
+    r"""Quantize ONNX model by inserting QDQ nodes, RTN weight-only, or convert to FP16.
 
-    This command applies static quantization to an ONNX model using calibration
-    data to determine quantization parameters. The output model contains
-    QuantizeLinear and DequantizeLinear nodes for quantization-aware inference.
+    This command applies quantization to an ONNX model. The algorithm is
+    auto-selected from the precision: int4/w4a16 → RTN weight-only,
+    int8/int16/w8a8 → static QDQ, fp16 → FP16 conversion.
 
     \b
     Examples:
@@ -138,8 +141,14 @@ def quantize(
         # Use precision shorthand (same as --weight-type uint8 --activation-type uint8)
         winml quantize -m model.onnx --precision int8
 
+        # RTN 4-bit weight-only quantization (no calibration data needed)
+        winml quantize -m model.onnx --precision int4
+
         # Int16 quantization
         winml quantize -m model.onnx --precision int16
+
+        # Convert model to FP16 (no QDQ, full-model conversion)
+        winml quantize -m model.onnx --precision fp16
 
         # Custom output path and more samples
         winml quantize -m model.onnx -o quantized.onnx --samples 100
@@ -176,71 +185,94 @@ def quantize(
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
 
-    # Resolve weight/activation types from --precision or explicit flags
-    resolved_weight, resolved_activation = _resolve_quant_types(
-        precision, weight_type, activation_type
-    )
+    # ── Build config based on precision ──────────────────────────
+    precision_lower = precision.lower() if precision else None
 
-    # Determine output path
-    if output is None:
-        output = model.parent / f"{model.stem}_qdq.onnx"
-    # Refuse to clobber an existing output unless the user opted in.
-    cli_utils.guard_output(output, overwrite)
+    if precision_lower == "fp16":
+        # FP16 conversion
+        cli_utils.warn_ignored_calibration_options(
+            ctx, "FP16 conversion does not use calibration data.", console=console
+        )
+        if output is None:
+            output = model.parent / f"{model.stem}_fp16.onnx"
+        config = WinMLQuantizationConfig(mode="fp16")
+        label = "FP16 conversion"
+
+    elif precision_lower and is_weight_only_precision(precision_lower):
+        # RTN weight-only
+        from ..config.precision import extract_weight_bits
+
+        cli_utils.warn_ignored_calibration_options(
+            ctx, "RTN weight-only quantization does not use calibration data.", console=console
+        )
+        rtn_bits = extract_weight_bits(precision_lower)
+        if output is None:
+            output = model.parent / f"{model.stem}_int{rtn_bits}.onnx"
+        config = WinMLQuantizationConfig(mode="rtn", rtn_bits=rtn_bits)
+        label = f"RTN {rtn_bits}-bit quantization"
+
+    else:
+        # QDQ calibrated quantization
+        resolved_weight, resolved_activation = _resolve_quant_types(
+            precision, weight_type, activation_type
+        )
+        if output is None:
+            output = model.parent / f"{model.stem}_qdq.onnx"
+        config = WinMLQuantizationConfig(
+            samples=samples,
+            calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
+            weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
+            activation_type=cast(
+                'Literal["uint8", "int8", "uint16", "int16"]', resolved_activation
+            ),
+            per_channel=per_channel,
+            symmetric=symmetric,
+            task=task,
+            model_name=model_name,
+        )
+        label = "Quantization"
+
+        # Display QDQ-specific info
+        console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
+        console.print(f"[bold blue]Activation type:[/bold blue] {resolved_activation}")
+        console.print(f"[bold blue]Samples:[/bold blue] {samples}")
+        console.print(f"[bold blue]Method:[/bold blue] {method}")
+        if config.dataset_name:
+            _dataset_display = config.dataset_name
+        elif config.task and config.task != "random":
+            _dataset_display = f"Default for task '{config.task}'"
+        else:
+            _dataset_display = "Random data (synthetic from ONNX I/O specs)"
+        console.print(f"[bold blue]Dataset:[/bold blue] {_dataset_display}")
+
+    # ── Shared execution: print header, run, report ──────────────
     output.parent.mkdir(parents=True, exist_ok=True)
-
-    # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Output:[/bold blue] {output}")
     console.print(f"[bold blue]Precision:[/bold blue] {precision or 'auto'}")
-    console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
-    console.print(f"[bold blue]Activation type:[/bold blue] {resolved_activation}")
-    console.print(f"[bold blue]Samples:[/bold blue] {samples}")
-    console.print(f"[bold blue]Method:[/bold blue] {method}")
-
-    # Create config (output_path is passed separately to API).
-    # Click's Choice validates these strings at parse time, so cast acknowledges
-    # the Literal[] contract that mypy can't see through the str return type.
-    config = WinMLQuantizationConfig(
-        samples=samples,
-        calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
-        weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
-        activation_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_activation),
-        per_channel=per_channel,
-        symmetric=symmetric,
-        task=task,
-        model_name=model_name,
-    )
-
-    # Display dataset info from config
-    if config.dataset_name:
-        _dataset_display = config.dataset_name
-    elif config.task and config.task != "random":
-        _dataset_display = f"Default for task '{config.task}'"
-    else:
-        _dataset_display = "Random data (synthetic from ONNX I/O specs)"
-    console.print(f"[bold blue]Dataset:[/bold blue] {_dataset_display}")
 
     try:
-        console.print("\n[bold]Running quantization...[/bold]")
+        console.print(f"\n[bold]Running {label.lower()}...[/bold]")
         result = quantize_onnx(model, output_path=output, config=config)
 
         if result.success:
-            console.print("\n[bold green]Success![/bold green] Model quantized")
+            console.print(f"\n[bold green]Success![/bold green] {label} complete")
             console.print(f"[dim]Output: {result.output_path}[/dim]")
-            console.print(f"[dim]QDQ nodes inserted: {result.nodes_quantized}[/dim]")
+            if result.nodes_quantized:
+                console.print(f"[dim]QDQ nodes inserted: {result.nodes_quantized}[/dim]")
             console.print(f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]")
         else:
-            console.print("\n[bold red]Quantization failed:[/bold red]")
+            console.print(f"\n[bold red]{label} failed:[/bold red]")
             for error in result.errors:
                 console.print(f"  {error}")
-            raise click.ClickException("Quantization failed")
+            raise click.ClickException(f"{label} failed")
 
     except click.ClickException:
         raise
     except Exception as e:
-        console.print(f"\n[bold red]Quantization failed:[/bold red] {e}")
-        logger.exception("Quantization failed")
-        raise click.ClickException(f"Quantization failed: {e}") from e
+        console.print(f"\n[bold red]{label} failed:[/bold red] {e}")
+        logger.exception("%s failed", label)
+        raise click.ClickException(f"{label} failed: {e}") from e
 
 
 def _resolve_quant_types(

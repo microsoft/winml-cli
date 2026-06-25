@@ -557,7 +557,7 @@ class TestQuantizePrecisionValidation:
 
     @pytest.mark.parametrize(
         "bad_precision",
-        ["banana", "w4a16", "int4", "fp64"],
+        ["banana", "fp64", "w4a4", "w2a8"],
     )
     def test_unknown_precision_rejected(self, tmp_path, bad_precision):
         model, _ = TestQuantizeCliConfigPrecedence._setup(tmp_path)
