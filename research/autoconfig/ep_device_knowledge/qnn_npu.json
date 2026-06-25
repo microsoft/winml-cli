@@ -158,7 +158,8 @@
       "build_s": 900,
       "bench_s": 720,
       "eval_s": 360,
-      "model_s": 14400
+      "model_s": 14400,
+      "build_timeout_abort_consecutive": 3
     },
     "bench_crash_retry_iters": 200,
     "bench_crash_recovery_s": 60,
@@ -662,7 +663,7 @@
       "id": "npu-014",
       "title": "CORRECTED (not retracted): swinv2 opset21+matmul_transpose is a REAL but ~2x-INFLATED win — interleaved A/B shows +12% (not +26%); the original +26% was a cold-baseline / sequential time-drift artifact",
       "status": "corrected_and_verified_by_interleaved_ab",
-      "confidence": "high — the corrected +12% gain is verified by a 6-round interleaved round-robin A/B with the NPU exclusively held (no other tenant); ranges separated, 5/6 paired rounds faster. The op-count + timing disproof of the ORIGINAL +26%/'any-fusion+20%' claim is irrefutable.",
+      "confidence": "high (re-confirmed) — verified by TWO independent interleaved A/B runs (6-round 2026-06-24: +12.1%, 5/6; 10-round 2026-06-25: +12.7%, 10/10 vs baseline and 10/10 on the fusion-incremental h6-vs-h3 test). The matmul_transpose fusion's real contribution beyond opset21 is now established with all 10/10 paired rounds positive.",
       "scope": "QNN NPU sequential per-hypothesis benching in general. Triggered by microsoft/swinv2-tiny-patch4-window16-256 but the hazard is method-level, not model-specific.",
       "original_claim_now_retracted": "Initially recorded as 'opset21 unlocks fusion gains, champion h6 opset21+matmul_transpose +26.3% RELIABLE/CONFIRMED, first reliable NPU win; opset21 alone +2%, opset21+any fusion +20-26%.' This claim is WITHDRAWN.",
       "disproof_op_counts": "Irrefutable graph evidence from analyze_result.json operator_counts: h3 (opset21 alone), h5 (opset21+conv_fusions), h7 (bias_softmax), h8 (attention_fusion), h9 (highdimRTR) are ALL byte-identical graphs — opset=21, total_operators=734, and all 19 operator_count entries identical. Those four fusions are NO-OPS on swin (they never fired). Only h6 (matmul_transpose) actually changed the graph: 734->722 (Transpose 110->98, MatMul 39->27, +12 FusedMatMul). Therefore the '+20% from any fusion' band is impossible-by-construction: byte-identical builds cannot differ in perf due to a fusion. The h3-vs-{h5,h7,h8,h9} 18% spread MUST be external.",
@@ -674,14 +675,15 @@
       "autoconfig_action": "(1) Replace sequential per-hypothesis benching with interleaved A/B/baseline sampling (round-robin, fixed cooldown) before declaring any QNN NPU win — DONE for swinv2 here. (2) The confirm pass MUST re-run the baseline interleaved with the champion, not the champion alone (open code change). (3) For conv+attention hybrid vision models, opset21 + matmul_transpose is worth ~+12% and is genuine — keep it, but expect ~half the gain a sequential sweep would advertise. (4) Re-audit every prior per-model 'champion + gain%' from sequential sweeps: divide reported gains by ~2 as a first correction until interleaved-confirmed.",
       "reinforces": "npu-007 (DVFS thermal noise needs session averaging) and npu-015 (concurrent-NPU CV inflation) — extends them: averaging within a config is not enough; cross-config sampling must be interleaved with a per-round baseline.",
       "added": "2026-06-24",
-      "corrected": "2026-06-24",
-      "source": "User challenge ('+20% from any fusion sounds like random gain') -> (a) re-audit of analyze_result.json operator_counts + full_perf_s*.json timestamps; (b) definitive 6-round interleaved A/B (files/ab_verify.py, files/ab_results.json)",
+      "corrected": "2026-06-25",
+      "source": "User challenge ('+20% from any fusion sounds like random gain') -> (a) re-audit of analyze_result.json operator_counts + full_perf_s*.json timestamps; (b) definitive 6-round interleaved A/B (files/ab_verify.py, files/ab_results.json); (c) 10-round interleaved re-verification 2026-06-25 (files/ab_verify.py, files/ab_results_v2.json) with explicit h3-vs-h6 fusion-incremental paired test",
       "reliability": "verified",
       "category": "graph-fusion-benefit",
       "related": [
         "npu-027",
         "npu-007"
-      ]
+      ],
+      "reverification_10round_2026_06_25": "INDEPENDENT re-verification (fresh rebuilds, 10-round round-robin, 500 iters, 20s cooldown) reproduces and STRENGTHENS the +12% result. Medians: h0 (opset17) 56.21ms; h3 (opset21 alone) 52.89ms = +5.9% vs h0, faster 9/10 paired rounds; h6 (opset21+matmul_transpose) 49.08ms = +12.7% vs h0, faster 10/10 paired rounds. DEDICATED fusion-incremental test h6-vs-h3 (isolates the fusion from the opset21 enabler): h6 faster than h3 in 10/10 rounds, median +7.2%, ALL per-round deltas positive (min 0.3ms) -> verdict REAL_FUSION_BENEFIT. This run spanned a hot regime (rounds 1-3, 66-71ms) and a cool regime (rounds 4-10, 48-56ms); h6 stayed fastest in every round of both, so the gain is robust to DVFS state. Confirms the decomposition: opset21 export ~+6% + matmul_transpose fusion ~+7% = ~+12.7% total. The four no-op fusions remain phantom (byte-identical graphs)."
     },
     {
       "id": "npu-009",
