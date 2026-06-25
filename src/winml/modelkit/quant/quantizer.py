@@ -152,13 +152,20 @@ def quantize_onnx(
             extra_options=extra_options,
         )
 
-        # Step 2: Capture metadata before ORT quantization (it rebuilds the graph)
+        # Step 2: Load the input model, capture its metadata snapshot (ORT
+        # rebuilds the graph during quantization, so we restore afterwards),
+        # and tag it as pre-processed so quantize_static() does not emit the
+        # "run pre-processing before quantization" warning.  We hand this
+        # in-memory ModelProto to ORT directly rather than mutating the user's
+        # input file on disk.
+        from onnxruntime.quantization.quant_utils import add_pre_process_metadata
+
         from ..onnx import capture_metadata, load_onnx, restore_metadata, save_onnx
         from .qdq_fix import fix_qdq_dtype_info
 
-        pre_quant_model = load_onnx(model_path, load_weights=False, validate=False)
-        metadata_snapshot = capture_metadata(pre_quant_model)
-        del pre_quant_model
+        input_model = load_onnx(model_path, validate=False)
+        metadata_snapshot = capture_metadata(input_model)
+        add_pre_process_metadata(input_model)
 
         # Step 3: Apply quantization
         if use_external_data:
@@ -171,9 +178,8 @@ def quantize_onnx(
         # output directory rather than the process CWD.  Without this, a stale
         # .onnx.data sidecar in the process CWD from a previous build triggers
         # a false-positive FileExistsError even when the output dir is clean.
-        # Use absolute paths so the chdir does not break relative input/output
+        # Use an absolute output path so the chdir does not break its
         # resolution.  output_path.parent is guaranteed to exist (caller mkdir).
-        abs_model_input = str(Path(model_path).resolve())
         abs_model_output = str(Path(output_path).resolve())
         # Remove stale output artifacts from a previous build.  ORT/onnx refuse
         # to overwrite an existing external-data sidecar (e.g. quantized.onnx.data),
@@ -187,7 +193,7 @@ def quantize_onnx(
         try:
             os.chdir(output_path.parent)
             quantize(
-                model_input=abs_model_input,
+                model_input=input_model,
                 model_output=abs_model_output,
                 quant_config=qdq_config,
             )
