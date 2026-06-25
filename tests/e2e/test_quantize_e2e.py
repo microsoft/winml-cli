@@ -21,6 +21,7 @@ import onnx
 import onnxruntime as ort
 import pytest
 
+from tests.fixtures.create_test_models import create_fake_segmentation_model
 from winml.modelkit.commands.quantize import quantize as quantize_cmd
 
 
@@ -157,12 +158,21 @@ def onnx_objdet() -> Path:
 
 
 @pytest.fixture(scope="session")
-def onnx_imgseg() -> Path:
-    return _export_hf_to_onnx(
-        "nvidia/segformer-b0-finetuned-ade-512-512",
-        "image-segmentation",
-        "segformer_b0",
-    )
+def onnx_imgseg(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Fake segmentation ONNX standing in for a real HF export.
+
+    The real ``nvidia/segformer-b0-finetuned-ade-512-512`` export ran as the
+    calibration model here, but its heavy backbone caused random hangs on QNN
+    hosts. ``create_fake_segmentation_model`` builds a tiny model with identical
+    segmentation I/O instead, so calibration still exercises the
+    ImageSegmentationDataset path without running a large model. The dataset
+    itself (image processor + samples) is still loaded from the real
+    ``--model-name`` in the test.
+    """
+    d = tmp_path_factory.mktemp("fake_imgseg")
+    p = d / "model.onnx"
+    onnx.save(create_fake_segmentation_model(), str(p))
+    return p
 
 
 @pytest.fixture(scope="session")
