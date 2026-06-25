@@ -1202,7 +1202,7 @@ def _run_quantize_stage(
                 datasets.disable_progress_bars()
                 _datasets_available = True
             except ImportError:
-                pass
+                pass  # datasets package is optional; calibration falls back to random data
 
         t0 = time.monotonic()
         try:
