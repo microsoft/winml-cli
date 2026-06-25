@@ -4,7 +4,7 @@ requires = [ "setuptools>=61", "wheel" ]
 
 [project]
 name = "winml-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
 keywords = [ "onnx", "winml" ]
@@ -56,6 +56,7 @@ dependencies = [
   # non-functional but huge diffs across every generated rule artifact. If you
   # truly must bump this, regenerate ALL parquet artifacts in the same change.
   "pandas==2.3.3",
+  "psutil>=7",
   "pydantic>=2",
   "python-multipart>=0.0.22",
   "rapidfuzz>=3.9",
