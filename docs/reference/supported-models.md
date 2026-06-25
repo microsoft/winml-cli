@@ -2,7 +2,7 @@
 
 Windows ML CLI has validated a set of models for compatibility across all
 Execution Providers (EPs)—see the full
-[model compatibility report](https://microsoft.github.io/winml-cli/reports/model_compatibility_report.html).
+[Model Accuracy Report](../reports/model_accuracy_report.html).
 
 winml-cli supports a wide range of model architectures and tasks. This page
 lists what's validated and how to discover model support.
