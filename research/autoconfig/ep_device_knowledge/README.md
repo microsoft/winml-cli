@@ -49,8 +49,27 @@ before its `confidence` is raised above `draft` / before it is used to prune sea
 > noise floor and reproduce across independent reruns** — never single-run absolute
 > baselines or cross-run ratios.
 
+## Scope — what belongs here (and what does NOT)
+
+This knowledge base holds **only EP / device / model facts**: a perf number, an accuracy
+result, a crash that is EP/runtime behavior, or a fusion / opset / quantization effect on a
+specific architecture. Each such fact gets an `npu-NNN` / `dml-NNN` / `qnn_gpu-NNN` / `cpu-NNN`
+id in the matching file.
+
+**Harness / tooling / measurement-process / build-efficiency learnings do NOT belong here.**
+Things like no-op deduplication, crash guards, disk / checkpoint handling, build-skip
+optimizations, measurement interference, and search-space build cost are facts about *the
+sweep harness*, not about the hardware. They live in
+[`../tools/harness_findings.json`](../tools/harness_findings.json) under the `harness-NNN`
+id scheme. The hourly "sweep efficiency reflection" workflow is configured to route its
+learnings accordingly. If one observation contains both, split it: the EP fact stays here,
+the harness lesson goes to `harness_findings.json`, cross-referenced by id. (On 2026-06-25 the
+findings npu-012/015/016–026/028 were moved out of `qnn_npu.json` for exactly this reason;
+they retain their original ids in the harness file as historical labels.)
+
 ## Files
-- `qnn_npu.json` — QNN HTP (NPU) EP findings
-- `qnn_gpu.json` — QNN GPU EP findings
-- `dml.json`     — DirectML EP findings
-- `cpu.json`     — CPU EP findings
+- `qnn_npu.json`      — QNN HTP (NPU) EP findings
+- `qnn_gpu.json`      — QNN GPU EP findings
+- `dml_gpu.json`      — DirectML (GPU) EP findings
+- `cpu_cpu.json`      — CPU EP findings
+- `_auto_promoted.json` — findings auto-promoted by the self-evolution loop
