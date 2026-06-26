@@ -25,10 +25,9 @@ class QuantConfigFinalizer(Protocol):
     and (where the scheme is fixed and reference-matched) the dtype/symmetry
     settings.
 
-    Finalizers are registered per ``model_type`` (see
-    :func:`.registry.register_quant_finalizer`). Model types without a
-    registered policy fall back to the quantizer's default
-    ``DatasetCalibrationReader``.
+    Finalizers are named per ``model_type`` in
+    :data:`.registry.QUANT_FINALIZERS`. Model types without a registered policy
+    fall back to the quantizer's default ``DatasetCalibrationReader``.
     """
 
     def finalize(

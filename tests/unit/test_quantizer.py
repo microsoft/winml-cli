@@ -143,3 +143,96 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
 
     assert result.success is True
     assert extra_suffix_sidecar.exists()
+
+
+def test_quantize_onnx_applies_model_type_finalizer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registered model_type finalizer is resolved + applied before dispatch.
+
+    The model-type-specific quant policy used to be dispatched at each call site
+    (CLI build, library build). It now lives behind a single seam in
+    quantize_onnx, keyed on ``config.model_type``: the finalizer is resolved from
+    the calibration registry and its returned config is what the mode handler
+    receives.
+    """
+    import winml.modelkit.quant.calibration as calibration_mod
+    import winml.modelkit.quant.quantizer as quantizer_mod
+
+    model_path = tmp_path / "model.onnx"
+    model_path.write_text("input")
+    output_path = tmp_path / "quantized.onnx"
+
+    finalized_config = WinMLQuantizationConfig(
+        model_type="dummy_type",
+        calibration_data=_FakeCalibrationReader(),
+    )
+
+    finalize_calls: list[dict[str, Any]] = []
+
+    class _StubFinalizer:
+        def finalize(self, config, *, onnx_path, model_id):  # type: ignore[no-untyped-def]
+            finalize_calls.append({"config": config, "onnx_path": onnx_path, "model_id": model_id})
+            return finalized_config
+
+    monkeypatch.setattr(calibration_mod, "get_quant_finalizer", lambda model_type: _StubFinalizer())
+
+    handler_calls: list[WinMLQuantizationConfig] = []
+
+    def _fake_qdq(*, config, **_kwargs):  # type: ignore[no-untyped-def]
+        handler_calls.append(config)
+        return SimpleNamespace(success=True, output_path=output_path, errors=[])
+
+    monkeypatch.setattr(quantizer_mod, "_quantize_qdq", _fake_qdq)
+
+    result = quantize_onnx(
+        model_path,
+        output_path=output_path,
+        config=WinMLQuantizationConfig(
+            model_type="dummy_type",
+            model_name="some/model-id",
+        ),
+    )
+
+    assert result.success is True
+    # Finalizer was resolved + invoked with the exported graph + model id.
+    assert len(finalize_calls) == 1
+    assert finalize_calls[0]["onnx_path"] == model_path
+    assert finalize_calls[0]["model_id"] == "some/model-id"
+    # The handler ran against the finalized config, not the original.
+    assert handler_calls == [finalized_config]
+
+
+def test_quantize_onnx_skips_finalizer_when_calibration_data_provided(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller-supplied calibration reader bypasses the model_type finalizer."""
+    import winml.modelkit.quant.calibration as calibration_mod
+    import winml.modelkit.quant.quantizer as quantizer_mod
+
+    model_path = tmp_path / "model.onnx"
+    model_path.write_text("input")
+    output_path = tmp_path / "quantized.onnx"
+
+    def _boom(_model_type):  # type: ignore[no-untyped-def]
+        raise AssertionError("finalizer must not be resolved when calibration_data is set")
+
+    monkeypatch.setattr(calibration_mod, "get_quant_finalizer", _boom)
+
+    def _fake_qdq(*, config, **_kwargs):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(success=True, output_path=output_path, errors=[])
+
+    monkeypatch.setattr(quantizer_mod, "_quantize_qdq", _fake_qdq)
+
+    result = quantize_onnx(
+        model_path,
+        output_path=output_path,
+        config=WinMLQuantizationConfig(
+            model_type="dummy_type",
+            calibration_data=_FakeCalibrationReader(),
+        ),
+    )
+
+    assert result.success is True

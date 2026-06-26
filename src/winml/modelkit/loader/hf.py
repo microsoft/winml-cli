@@ -219,17 +219,22 @@ def load_hf_model(
             trust_remote_code=trust_remote_code,
         )
 
-    # Explicit model_type override: select a registered build variant (e.g.
-    # "qwen3_transformer_only") rather than the architecture's native type.
-    # Mutates the freshly-loaded config only; gated on an explicit request so
-    # normal loading is unaffected.
-    if model_type is not None and getattr(hf_config, "model_type", None) != model_type:
+    # Explicit model_type override: thread the requested build variant (e.g.
+    # "qwen3_transformer_only") into task resolution WITHOUT mutating the
+    # freshly-loaded HF config. The torch model is instantiated from its own
+    # native config below, so export/patcher consumers keep the native type;
+    # only class/task resolution sees the variant.
+    model_type_override = (
+        model_type
+        if model_type is not None and getattr(hf_config, "model_type", None) != model_type
+        else None
+    )
+    if model_type_override is not None:
         logger.info(
-            "Overriding model_type '%s' -> '%s' (explicit request)",
+            "Applying model_type override '%s' -> '%s' (explicit request)",
             getattr(hf_config, "model_type", None),
-            model_type,
+            model_type_override,
         )
-        hf_config.model_type = model_type
 
     # [2] Task & Model Class Resolution
     from .resolution import resolve_task
@@ -241,10 +246,15 @@ def load_hf_model(
         resolved_class = _load_class_from_script(user_script, model_class)
         logger.info("Using custom model class from script: %s", model_class)
         # Surfaced modality-aware task (consistent with the non-script branch).
-        task = resolve_task(hf_config, task=task).task
+        task = resolve_task(hf_config, task=task, model_type_override=model_type_override).task
     else:
         try:
-            resolution = resolve_task(hf_config, task=task, model_class=model_class)
+            resolution = resolve_task(
+                hf_config,
+                task=task,
+                model_class=model_class,
+                model_type_override=model_type_override,
+            )
             task, resolved_class = resolution.task, resolution.model_class
         except ValueError as e:
             raise ValueError(

@@ -4,15 +4,16 @@
 # --------------------------------------------------------------------------
 """Registry mapping ``model_type`` to its quantization policy.
 
-Mirrors the project's other ``model_type``-keyed registries (e.g.
-``COMPOSITE_MODEL_REGISTRY``): a finalizer registers itself with
-``@register_quant_finalizer(model_type)`` and the build pipeline resolves it
-with :func:`get_quant_finalizer`.
+A model type with a fixed, reference-matched quant scheme (calibration reader,
+``nodes_to_exclude``, dtypes) names its :class:`QuantConfigFinalizer` in the
+plain ``QUANT_FINALIZERS`` dict below; the build pipeline resolves it with
+:func:`get_quant_finalizer`. This mirrors the other ``model_type``-keyed tables
+in the repo — a simple dict, no decorator/self-registration machinery.
 
-The registry is intentionally lazy. Importing :mod:`winml.modelkit.quant`
-must stay free of heavy deps (torch/transformers); the per-model finalizer
-modules — which do pull those in — are only imported the first time their
-``model_type`` is actually quantized.
+The lookup is intentionally lazy. Importing :mod:`winml.modelkit.quant` must
+stay free of heavy deps (torch/transformers); the per-model finalizer modules —
+which do pull those in — are only imported the first time their ``model_type``
+is actually quantized.
 """
 
 from __future__ import annotations
@@ -22,42 +23,17 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from .base import QuantConfigFinalizer
 
 
-# Populated by the ``@register_quant_finalizer`` decorator at import time.
-_QUANT_FINALIZER_REGISTRY: dict[str, type[QuantConfigFinalizer]] = {}
-
-# ``model_type`` -> submodule that defines (and self-registers) its finalizer.
-# Looked up lazily so the heavy module loads only when needed. Keys must match
-# the live ``model_type`` string verbatim (no ``_`` -> ``-`` normalization),
-# since lookup is keyed on the exported model's ``config.model_type``.
-_KNOWN_FINALIZER_MODULES: dict[str, str] = {
-    "qwen3_transformer_only": ".qwen3_transformer_only",
+# ``model_type`` -> ``(submodule, class name)`` of its QuantConfigFinalizer.
+# Imported lazily by ``get_quant_finalizer`` so the heavy module loads only when
+# needed. Keys must match the live ``model_type`` string verbatim (no ``_`` ->
+# ``-`` normalization), since lookup is keyed on the exported model's
+# ``config.model_type``.
+QUANT_FINALIZERS: dict[str, tuple[str, str]] = {
+    "qwen3_transformer_only": (".qwen3_transformer_only", "Qwen3TransformerOnlyQuantFinalizer"),
 }
-
-
-def register_quant_finalizer(model_type: str) -> Callable[[type], type]:
-    """Class decorator registering a :class:`QuantConfigFinalizer` for ``model_type``."""
-
-    def decorator(cls: type) -> type:
-        if not hasattr(cls, "finalize"):
-            raise TypeError(
-                f"{cls.__name__} cannot register as a quant finalizer for "
-                f"{model_type!r}: it must define a ``finalize`` method."
-            )
-        if model_type in _QUANT_FINALIZER_REGISTRY:
-            raise ValueError(
-                f"Quant finalizer already registered for {model_type!r}: "
-                f"{_QUANT_FINALIZER_REGISTRY[model_type].__name__}. "
-                f"Cannot register {cls.__name__}."
-            )
-        _QUANT_FINALIZER_REGISTRY[model_type] = cls
-        return cls
-
-    return decorator
 
 
 def get_quant_finalizer(model_type: str | None) -> QuantConfigFinalizer | None:
@@ -68,8 +44,11 @@ def get_quant_finalizer(model_type: str | None) -> QuantConfigFinalizer | None:
     """
     if not model_type:
         return None
-    if model_type not in _QUANT_FINALIZER_REGISTRY and model_type in _KNOWN_FINALIZER_MODULES:
-        # Triggers the module's ``@register_quant_finalizer`` side effect.
-        importlib.import_module(_KNOWN_FINALIZER_MODULES[model_type], __package__)
-    cls = _QUANT_FINALIZER_REGISTRY.get(model_type)
-    return cls() if cls is not None else None
+    entry = QUANT_FINALIZERS.get(model_type)
+    if entry is None:
+        return None
+    module_name, class_name = entry
+    module = importlib.import_module(module_name, __package__)
+    finalizer_cls = getattr(module, class_name)
+    finalizer: QuantConfigFinalizer = finalizer_cls()
+    return finalizer

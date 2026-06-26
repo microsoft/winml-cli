@@ -26,7 +26,6 @@ __all__ = [
     "WinMLQuantizationConfig",
     "get_quant_finalizer",
     "quantize_onnx",
-    "register_quant_finalizer",
 ]
 
 
@@ -35,14 +34,13 @@ __all__ = [
 # give static analyzers (mypy, CodeQL) visibility into what ``__all__`` exports
 # without triggering the heavy imports at runtime.
 if TYPE_CHECKING:
-    from .calibration import get_quant_finalizer, register_quant_finalizer
+    from .calibration import get_quant_finalizer
     from .quantizer import quantize_onnx
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "quantize_onnx": (".quantizer", "quantize_onnx"),
     "get_quant_finalizer": (".calibration", "get_quant_finalizer"),
-    "register_quant_finalizer": (".calibration", "register_quant_finalizer"),
 }
 
 

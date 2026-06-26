@@ -317,31 +317,14 @@ def build_hf_model(
         else:
             logger.info("Quantizing model...")
             t0 = time.monotonic()
-            # Some model types finalize their quant config only once the
-            # exported ONNX exists (calibration feeds / nodes-to-exclude derived
-            # from the graph). Resolve the model-type-specific quant policy from
-            # the quant registry, keyed on the live ``model_type``. Unregistered
-            # types return None → the quantizer uses its standard task-aware
-            # DatasetCalibrationReader.
-            from ..quant import get_quant_finalizer
-
-            resolved_model_type = (
-                getattr(getattr(pytorch_model, "config", None), "model_type", None) or model_type
-            )
-            quant_finalizer = get_quant_finalizer(resolved_model_type)
-            if quant_finalizer is not None:
-                # Generic id fallback: the policy loads a fresh reference model
-                # for calibration, so feed it the best-known HF id/path.
-                resolved_model_id = model_id or getattr(
-                    getattr(pytorch_model, "config", None), "_name_or_path", None
-                )
-                config.quant = quant_finalizer.finalize(
-                    config.quant, onnx_path=current_path, model_id=resolved_model_id
-                )
-                # The policy may overwrite the quant scheme (dtypes, symmetry,
-                # nodes-to-exclude) authoritatively, so re-persist the config
-                # to keep config.json consistent with what was actually applied.
-                config_path.write_text(json.dumps(config.to_dict(), indent=2))
+            # A model-type-specific quant policy (e.g. the qwen3_transformer_only
+            # w8a16 finalizer) is resolved and applied inside ``quantize_onnx``
+            # from ``config.quant.model_type``. Ensure it carries the resolved
+            # variant so hand-built configs (that skipped assemble_build_config)
+            # still trigger the right policy; ``quantize_onnx`` no-ops for
+            # model types without a registered finalizer.
+            if config.quant.model_type is None:
+                config.quant.model_type = config.loader.model_type
             quant_result = quantize_onnx(
                 model_path=current_path,
                 output_path=quantized_path,

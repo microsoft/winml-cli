@@ -9,8 +9,9 @@ The transformer-only export (``models.hf.qwen3.qwen_transformer_only``) emits a 
 whose only quantization-relevant runtime inputs (the calibration feeds and the
 ``GroupQueryAttention`` node names to keep in float) can't be known until the
 ONNX exists. Rather than a standalone post-build script that reaches into
-``composite.sub_models[...]._onnx_path``, this module registers a quant policy
-keyed on ``model_type`` (:class:`Qwen3TransformerOnlyQuantFinalizer`). The build
+``composite.sub_models[...]._onnx_path``, this module defines a quant policy
+keyed on ``model_type`` (:class:`Qwen3TransformerOnlyQuantFinalizer`, named in
+:data:`~winml.modelkit.quant.calibration.registry.QUANT_FINALIZERS`). The build
 pipeline resolves it via :func:`~winml.modelkit.quant.get_quant_finalizer` and
 calls :func:`finalize_transformer_only_quant_config` just before
 ``quantize_onnx`` runs (see ``build/hf.py``), populating the live
@@ -45,7 +46,6 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ..config import CalibrationDataReader, WinMLQuantizationConfig
-from .registry import register_quant_finalizer
 
 
 if TYPE_CHECKING:
@@ -427,15 +427,16 @@ def finalize_transformer_only_quant_config(
     return quant
 
 
-@register_quant_finalizer("qwen3_transformer_only")
 class Qwen3TransformerOnlyQuantFinalizer:
-    """Registered quant policy for the ``qwen3_transformer_only`` model_type.
+    """Quant policy for the ``qwen3_transformer_only`` model_type.
 
-    Adapts :func:`finalize_transformer_only_quant_config` to the
+    Named in :data:`~winml.modelkit.quant.calibration.registry.QUANT_FINALIZERS`
+    and resolved by :func:`~winml.modelkit.quant.get_quant_finalizer`. Adapts
+    :func:`finalize_transformer_only_quant_config` to the
     :class:`~winml.modelkit.quant.calibration.base.QuantConfigFinalizer`
-    protocol so the build pipeline resolves the model-specific w8a16 scheme +
-    calibration reader through the quant registry (keyed on ``model_type``)
-    rather than a hardcoded hook on the export wrapper.
+    protocol so the build pipeline applies the model-specific w8a16 scheme +
+    calibration reader (keyed on ``model_type``) rather than a hardcoded hook on
+    the export wrapper.
     """
 
     def finalize(

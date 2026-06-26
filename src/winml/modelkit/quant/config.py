@@ -70,6 +70,14 @@ class WinMLQuantizationConfig:
     model_name: str | None = None  # e.g., "microsoft/resnet-50"
     dataset_name: str | None = None  # Optional: override default dataset
 
+    # Model-type-specific quant policy selector. When set to a model_type that
+    # has a registered finalizer (see ``quant.calibration.QUANT_FINALIZERS``),
+    # ``quantize_onnx`` resolves and applies that policy — populating the
+    # calibration reader / nodes-to-exclude / fixed dtypes from the exported
+    # graph — before running the quantization pass. None = no model-specific
+    # policy (use the default task-aware calibration).
+    model_type: str | None = None
+
     # Quantization types (static/dynamic)
     weight_type: Literal["uint8", "int8", "uint16", "int16"] = "uint8"
     activation_type: Literal["uint8", "int8", "uint16", "int16"] = "uint8"
@@ -142,6 +150,8 @@ class WinMLQuantizationConfig:
             result["model_name"] = self.model_name
         if self.dataset_name is not None:
             result["dataset_name"] = self.dataset_name
+        if self.model_type is not None:
+            result["model_type"] = self.model_type
         if self.mode == "rtn":
             result["rtn_bits"] = self.rtn_bits
             result["rtn_block_size"] = self.rtn_block_size
@@ -174,6 +184,7 @@ class WinMLQuantizationConfig:
             task=data.get("task"),
             model_name=data.get("model_name"),
             dataset_name=data.get("dataset_name"),
+            model_type=data.get("model_type"),
             weight_type=data.get("weight_type", "uint8"),
             activation_type=data.get("activation_type", "uint8"),
             per_channel=data.get("per_channel", False),

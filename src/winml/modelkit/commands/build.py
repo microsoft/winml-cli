@@ -1443,31 +1443,13 @@ def _build_hf_pipeline(
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
     # ── Quantize stage ───────────────────────────────────────────
-    # Some model types finalize their quant config only once the exported ONNX
-    # exists (calibration feeds / nodes-to-exclude derived from the graph).
-    # Resolve the model-type-specific quant policy from the quant registry,
-    # keyed on the live ``model_type`` — mirrors build.hf.build_hf_model so the
-    # CLI and library pipelines apply the same scheme. Unregistered types return
-    # None → the quantizer uses its standard task-aware DatasetCalibrationReader.
-    if config.quant is not None:
-        from ..quant import get_quant_finalizer
-
-        resolved_model_type = (
-            getattr(getattr(pytorch_model, "config", None), "model_type", None)
-            or config.loader.model_type
-        )
-        quant_finalizer = get_quant_finalizer(resolved_model_type)
-        if quant_finalizer is not None:
-            resolved_model_id = model_id or getattr(
-                getattr(pytorch_model, "config", None), "_name_or_path", None
-            )
-            config.quant = quant_finalizer.finalize(
-                config.quant, onnx_path=current_path, model_id=resolved_model_id
-            )
-            # The policy may overwrite the quant scheme (dtypes, symmetry,
-            # nodes-to-exclude) authoritatively, so re-persist the config to keep
-            # config.json consistent with what was actually applied.
-            config_path.write_text(json.dumps(config.to_dict(), indent=2))
+    # A model-type-specific quant policy (e.g. the qwen3_transformer_only w8a16
+    # finalizer) is resolved and applied inside ``quantize_onnx`` from
+    # ``config.quant.model_type``; no per-call-site dispatch needed here. Carry
+    # the resolved variant onto the quant config so configs that were hand-built
+    # or loaded from JSON (skipping assemble_build_config) still trigger it.
+    if config.quant is not None and config.quant.model_type is None:
+        config.quant.model_type = config.loader.model_type
 
     current_path = _run_quantize_stage(
         config=config,

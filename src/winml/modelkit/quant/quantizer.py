@@ -101,6 +101,23 @@ def _quantize_single_pass(
     warnings: list[str] = []
 
     try:
+        # Model-type-specific quant policy. Some model types finalize their
+        # scheme (calibration reader / nodes-to-exclude / fixed dtypes + mode)
+        # only once the exported ONNX exists. Resolve it from the quant registry
+        # keyed on ``config.model_type`` and apply it here — a single seam shared
+        # by every caller (CLI build, library build, standalone quantize) instead
+        # of duplicated dispatch at each call site. Unregistered types (and a
+        # caller-supplied ``calibration_data``) leave the config untouched, so
+        # the quantizer falls back to its default task-aware reader.
+        if config.model_type and config.calibration_data is None:
+            from .calibration import get_quant_finalizer
+
+            finalizer = get_quant_finalizer(config.model_type)
+            if finalizer is not None:
+                config = finalizer.finalize(
+                    config, onnx_path=model_path, model_id=config.model_name
+                )
+
         # Dispatch to the appropriate single-mode handler
         _mode_handlers: dict[str, Callable[..., QuantizeResult]] = {
             "fp16": _quantize_fp16,
