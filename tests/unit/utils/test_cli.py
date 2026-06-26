@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import click
 import pytest
 from click.testing import CliRunner
@@ -13,13 +15,19 @@ from click.testing import CliRunner
 from winml.modelkit.utils.cli import (
     analyze_option,
     build_pipeline_extra_kwargs,
+    guard_output,
     ignored_build_flags_warning,
     max_optim_iterations_option,
     optimize_option,
+    overwrite_option,
     parse_ep_options,
     precision_option,
     quant_option,
 )
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestParseEpOptions:
@@ -314,3 +322,86 @@ class TestIgnoredBuildFlagsWarning:
         msg = ignored_build_flags_warning(skip_build_onnx=True, max_optim_iterations=0)
         assert msg is not None
         assert "--max-optim-iterations" in msg
+
+
+class TestOverwriteOption:
+    """Tests for the shared overwrite_option() decorator."""
+
+    @staticmethod
+    def _make_cmd(optional_message: str | None = None) -> click.Command:
+        @click.command()
+        @overwrite_option(optional_message=optional_message)
+        def cmd(overwrite: bool) -> None:
+            click.echo(repr(overwrite))
+
+        return cmd
+
+    def test_default_is_false(self) -> None:
+        assert CliRunner().invoke(self._make_cmd(), []).output.strip() == "False"
+
+    def test_overwrite_flag_sets_true(self) -> None:
+        assert CliRunner().invoke(self._make_cmd(), ["--overwrite"]).output.strip() == "True"
+
+    def test_no_overwrite_flag_sets_false(self) -> None:
+        assert CliRunner().invoke(self._make_cmd(), ["--no-overwrite"]).output.strip() == "False"
+
+    def test_optional_message_appended(self) -> None:
+        result = CliRunner().invoke(self._make_cmd(optional_message="Extra note."), ["--help"])
+        joined = " ".join(result.output.split())
+        assert "Overwrite an existing output" in joined
+        assert "Extra note." in joined
+
+
+class TestGuardOutput:
+    """Tests for the shared guard_output() existence check."""
+
+    def test_none_path_is_noop(self) -> None:
+        guard_output(None, overwrite=False)  # must not raise
+
+    def test_missing_file_is_noop(self, tmp_path: Path) -> None:
+        guard_output(tmp_path / "nope.onnx", overwrite=False)  # must not raise
+
+    def test_existing_file_raises(self, tmp_path: Path) -> None:
+        f = tmp_path / "model.onnx"
+        f.write_text("x")
+        with pytest.raises(click.ClickException) as exc:
+            guard_output(f, overwrite=False)
+        assert "already exists" in str(exc.value)
+        assert "--overwrite" in str(exc.value)
+
+    def test_existing_file_with_overwrite_is_noop(self, tmp_path: Path) -> None:
+        f = tmp_path / "model.onnx"
+        f.write_text("x")
+        guard_output(f, overwrite=True)  # must not raise
+
+    def test_empty_dir_is_noop(self, tmp_path: Path) -> None:
+        d = tmp_path / "out"
+        d.mkdir()
+        guard_output(d, overwrite=False)  # empty dir must not raise
+
+    def test_non_empty_dir_raises(self, tmp_path: Path) -> None:
+        d = tmp_path / "out"
+        d.mkdir()
+        (d / "artifact.onnx").write_text("x")
+        with pytest.raises(click.ClickException) as exc:
+            guard_output(d, overwrite=False)
+        assert "not empty" in str(exc.value)
+
+    def test_non_empty_dir_with_overwrite_is_noop(self, tmp_path: Path) -> None:
+        d = tmp_path / "out"
+        d.mkdir()
+        (d / "artifact.onnx").write_text("x")
+        guard_output(d, overwrite=True)  # must not raise
+
+    def test_custom_label_in_message(self, tmp_path: Path) -> None:
+        f = tmp_path / "cfg.json"
+        f.write_text("x")
+        with pytest.raises(click.ClickException) as exc:
+            guard_output(f, overwrite=False, label="Optimization config")
+        assert "Optimization config" in str(exc.value)
+
+    def test_accepts_str_path(self, tmp_path: Path) -> None:
+        f = tmp_path / "model.onnx"
+        f.write_text("x")
+        with pytest.raises(click.ClickException):
+            guard_output(str(f), overwrite=False)

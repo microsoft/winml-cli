@@ -41,7 +41,7 @@ Concrete composite models live alongside their export configs:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 
@@ -49,7 +49,7 @@ from .base import PreTrainedModel
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from transformers import PretrainedConfig
@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 COMPOSITE_MODEL_REGISTRY: dict[tuple[str, str], type[WinMLCompositeModel]] = {}
 
 
-def register_composite_model(model_type: str, task: str):
+def register_composite_model(model_type: str, task: str) -> Callable[[type], type]:
     """Class decorator that registers a composite model for `winml config`."""
 
     def decorator(cls: type) -> type:
@@ -243,7 +243,9 @@ class WinMLCompositeModel(PreTrainedModel):
         # Resolve concrete class from registry
         model_type = getattr(hf_config, "model_type", None) if hf_config else None
         if not cls._SUB_MODEL_CONFIG:
-            resolved_cls = COMPOSITE_MODEL_REGISTRY.get((model_type, task))
+            # model_type/task may be None; the str-keyed registry simply misses
+            # (returns None, handled below). dict.get tolerates any hashable key.
+            resolved_cls = COMPOSITE_MODEL_REGISTRY.get(cast("tuple[str, str]", (model_type, task)))
             if resolved_cls is None:
                 raise ValueError(
                     f"No composite model for ({model_type!r}, {task!r}). "
@@ -265,6 +267,8 @@ class WinMLCompositeModel(PreTrainedModel):
             merged = {**kwargs, "task": component_task, **per_component.get(name, {})}
             sub_models[name] = WinMLAutoModel.from_onnx(Path(path), **merged)
 
+        if hf_config is None:
+            raise ValueError("Composite model construction requires an HF config (hf_config).")
         return resolved_cls(sub_models=sub_models, config=hf_config)
 
     @property

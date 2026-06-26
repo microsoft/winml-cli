@@ -21,8 +21,8 @@ $ winml quantize [options]
 |---|---|---|---|---|
 | `--model` | `-m` | path | *(required)* | Input ONNX model file. |
 | `--output` | `-o` | path | `{input}_qdq.onnx` | Output path for the quantized model. |
-| `--task` | | string | — | Task name (e.g., `image-classification`, `text-classification`) used to select a task-appropriate calibration dataset. Pair with `--model-name` so the dataset is preprocessed exactly the way the model expects. Without `--task`, calibration falls back to synthetic random data. |
-| `--model-name` | | string | — | HuggingFace model ID (e.g., `microsoft/resnet-50`) used to load the matching preprocessor/tokenizer for calibration. Only used when `--task` is provided. |
+| `--task` | | string | — | Task name (e.g., `image-classification`, `text-classification`) used to select a task-appropriate calibration dataset. Pair with `--model-id` so the dataset is preprocessed exactly the way the model expects. Without `--task`, calibration falls back to synthetic random data. |
+| `--model-id` | | string | — | HuggingFace model ID (e.g., `microsoft/resnet-50`) used to load the matching preprocessor/tokenizer for calibration. Only used when `--task` is provided. |
 | `--precision` | `-p` | string | `None` | Precision shorthand: `int8`, `int16`, or mixed-precision like `w8a16`. Overridden by explicit `--weight-type` / `--activation-type`. |
 | `--samples` | | integer | `10` | Number of calibration samples used to compute quantization ranges. |
 | `--method` | | choice | `minmax` | Calibration algorithm: `minmax`, `entropy`, or `percentile`. |
@@ -44,14 +44,14 @@ Precision can be set at a coarse level with `--precision` or tuned per tensor
 type with `--weight-type` and `--activation-type`; explicit type flags always
 override `--precision`.
 
-Calibration data is selected from `--task` and `--model-name`. For a supported
+Calibration data is selected from `--task` and `--model-id`. For a supported
 task, a built-in default calibration dataset is loaded and preprocessed through
 the model's own tokenizer or image processor, so the calibration tensors match
 what the model will see at inference time. For an unsupported task — or when
 `--task` is omitted entirely — calibration falls back to synthetic random data
 synthesized from the ONNX input specification. Random-data calibration is fast
 and always works, but the resulting scales are typically less accurate than
-dataset-driven calibration, so always provide `--task` and `--model-name` when
+dataset-driven calibration, so always provide `--task` and `--model-id` when
 the model task is supported.
 
 ## Examples
@@ -79,7 +79,7 @@ Total time: 4.31s
 
 ```bash
 # Task-aware calibration: real samples preprocessed through the model's own image processor
-winml quantize -m resnet50.onnx --task image-classification --model-name microsoft/resnet-50 --samples 128
+winml quantize -m resnet50.onnx --task image-classification --model-id microsoft/resnet-50 --samples 128
 ```
 
 ```bash
@@ -104,7 +104,7 @@ winml quantize -m bert-base-uncased.onnx --precision int16
 
 ## Common pitfalls
 
-- **Calibration uses synthetic random data by default.** Without `--task` and `--model-name`, scales and zero-points are computed from random tensors synthesized from the ONNX input specification — the model never sees realistic activations, so accuracy after quantization can degrade noticeably. Always pass `--task` and `--model-name` for supported tasks (e.g., `--task image-classification --model-name microsoft/resnet-50`) so calibration runs on real samples preprocessed through the model's own tokenizer or image processor.
+- **Calibration uses synthetic random data by default.** Without `--task` and `--model-id`, scales and zero-points are computed from random tensors synthesized from the ONNX input specification — the model never sees realistic activations, so accuracy after quantization can degrade noticeably. Always pass `--task` and `--model-id` for supported tasks (e.g., `--task image-classification --model-id microsoft/resnet-50`) so calibration runs on real samples preprocessed through the model's own tokenizer or image processor.
 - **`--weight-type` / `--activation-type` silently override `--precision`.** If you pass both, the explicit type flags win. Omit `--precision` when setting types explicitly to avoid confusion.
 - **Low sample counts can hurt accuracy.** The default of 10 samples is sufficient for quick testing, but production models typically need 64–256 representative samples for good calibration.
 - **`--per-channel` increases model size.** Per-channel quantization stores a separate scale and zero-point per output channel; this can noticeably inflate the model file size compared to per-tensor mode.

@@ -35,17 +35,14 @@ knowledge lives in one place.  A per-family subclass only has to:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 import torch
 import torch.nn as nn
 from optimum.exporters.onnx import OnnxConfig
+from transformers import PreTrainedModel
 
-from ..winml.kv_cache import WinMLStaticCache
-
-
-if TYPE_CHECKING:
-    from ..winml.kv_cache import WinMLCache
+from ..winml.kv_cache import WinMLCache, WinMLStaticCache
 
 
 class WinMLDecoderWrapper(nn.Module, ABC):
@@ -63,10 +60,10 @@ class WinMLDecoderWrapper(nn.Module, ABC):
         num_layers    — derived from ``onnx_config._normalized_config.num_layers``
     """
 
-    _HF_MODEL_CLS: ClassVar[type]
+    _HF_MODEL_CLS: ClassVar[type[PreTrainedModel]]  # set per-subclass to a concrete HF model class
     _IO_CONFIG_CLS: ClassVar[type]
     _TASK: ClassVar[str] = "text2text-generation"
-    _CACHE_CLS: ClassVar[type] = WinMLStaticCache
+    _CACHE_CLS: ClassVar[type[WinMLCache]] = WinMLStaticCache
 
     # ---- Instance attrs ----
     model: nn.Module
@@ -156,7 +153,7 @@ class WinMLDecoderWrapper(nn.Module, ABC):
         """Call the HF decoder with ``past_key_values=<cache>``.  Returns logits."""
 
 
-class WinMLStaticCacheDecoderIOConfig(OnnxConfig):
+class WinMLStaticCacheDecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum/transformers base is untyped
     """Semantic-name contract used by ``WinMLDecoderWrapper._make_cache``.
 
     Subclasses declare their own ``inputs`` / ``outputs`` bodies (each

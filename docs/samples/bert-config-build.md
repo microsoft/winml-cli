@@ -39,7 +39,7 @@ This writes a `WinMLBuildConfig` JSON file to `bert_config.json`. The file captu
     "samples": 10,
     "calibration_method": "minmax",
     "task": "text-classification",
-    "model_name": "bert-base-uncased"
+    "model_id": "bert-base-uncased"
     ... // truncated: per_channel, symmetric, distribution, ...
   },
   "compile": null

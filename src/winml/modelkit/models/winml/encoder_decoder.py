@@ -57,7 +57,7 @@ Cache-type gotchas (lessons learned):
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from optimum.utils.input_generators import DummyInputGenerator
@@ -72,6 +72,8 @@ if TYPE_CHECKING:
     from optimum.utils import NormalizedConfig
     from transformers import Cache, PretrainedConfig
 
+    from .kv_cache import WinMLCache
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,7 +82,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-class EncoderDecoderInputGenerator(DummyInputGenerator):
+class EncoderDecoderInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum/transformers base is untyped
     """Generates decoder base inputs for encoder-decoder models.
 
     Produces ``decoder_input_ids``, ``encoder_hidden_states``,
@@ -108,7 +110,9 @@ class EncoderDecoderInputGenerator(DummyInputGenerator):
     ) -> None:
         self.batch_size = batch_size
         self.d_model = normalized_config.hidden_size
-        self.enc_seq = sequence_length or getattr(normalized_config, "sequence_length", 16)
+        self.enc_seq: int = sequence_length or cast(
+            "int", getattr(normalized_config, "sequence_length", 16)
+        )
         self.max_cache_len = max_cache_len or normalized_config.max_cache_len
         self.vocab_size = normalized_config.vocab_size
 
@@ -120,18 +124,25 @@ class EncoderDecoderInputGenerator(DummyInputGenerator):
         float_dtype: str = "fp32",
     ) -> torch.Tensor:
         """Generate a dummy tensor for the given input name."""
+        # optimum's DummyInputGenerator is untyped, so random_*_tensor returns Any.
         if input_name == "decoder_input_ids":
-            return self.random_int_tensor(
-                (self.batch_size, 1),
-                max_value=self.vocab_size,
-                framework=framework,
-                dtype=int_dtype,
+            return cast(
+                "torch.Tensor",
+                self.random_int_tensor(
+                    (self.batch_size, 1),
+                    max_value=self.vocab_size,
+                    framework=framework,
+                    dtype=int_dtype,
+                ),
             )
         if input_name == "encoder_hidden_states":
-            return self.random_float_tensor(
-                (self.batch_size, self.enc_seq, self.d_model),
-                framework=framework,
-                dtype=float_dtype,
+            return cast(
+                "torch.Tensor",
+                self.random_float_tensor(
+                    (self.batch_size, self.enc_seq, self.d_model),
+                    framework=framework,
+                    dtype=float_dtype,
+                ),
             )
         if input_name == "attention_mask":
             return torch.ones(self.batch_size, self.enc_seq, dtype=torch.int64)
@@ -226,7 +237,8 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
 
         def forward(self, **kwargs: Any) -> BaseModelOutput:
             feeds = pad_inputs(kwargs, self._expected)
-            return self._encoder(**feeds)
+            # self._encoder is a torch Module (untyped __call__ -> Any).
+            return cast("BaseModelOutput", self._encoder(**feeds))
 
     def get_encoder(self) -> torch.nn.Module:
         """Return encoder for GenerationMixin (already wrapped with padding)."""
@@ -235,7 +247,7 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
     def can_generate(self) -> bool:  # noqa: D102
         return True
 
-    def prepare_inputs_for_generation(
+    def prepare_inputs_for_generation(  # type: ignore[override]  # GenerationMixin's base signature differs; static-cache flow
         self,
         input_ids: torch.LongTensor,
         past_key_values: Cache | None = None,
@@ -260,7 +272,7 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
     # ----- Cache management -----
 
     @classmethod
-    def get_cache_class(cls) -> type:
+    def get_cache_class(cls) -> type[WinMLCache]:
         """Return the WinMLCache subclass. Subclasses must override."""
         raise NotImplementedError
 
@@ -316,7 +328,9 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
             encoder_outputs = self._encoder(input_ids=input_ids, **model_kwargs)
         if encoder_outputs is None:
             raise ValueError("Either encoder_outputs or input_ids required")
-        enc_h = encoder_outputs["last_hidden_state"]
+        # The encoder wrapper always returns a dict-like BaseModelOutput; the tuple
+        # arm of the annotation exists only for GenerationMixin signature compat.
+        enc_h = cast("BaseModelOutput", encoder_outputs)["last_hidden_state"]
 
         # Resolve or create cache (subclasses override get_cache_class).
         cache = self._resolve_cache(past_key_values)

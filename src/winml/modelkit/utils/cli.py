@@ -136,6 +136,28 @@ def model_option(required: bool = True, optional_message: str | None = None) -> 
     )
 
 
+def model_id_option(help_text: str | None = None) -> Callable[[F], F]:
+    """Add ``--model-id`` option for a HuggingFace model ID.
+
+    Shared by commands (e.g. ``quantize`` and ``eval``) that take an ONNX model
+    path via ``-m/--model`` and need a separate HuggingFace model ID, for example
+    to resolve the matching preprocessor/tokenizer or calibration datasets.
+
+    Args:
+        help_text: Optional override for the help string.
+
+    Returns:
+        Decorator function.
+    """
+    help = help_text or "HuggingFace model ID (e.g., 'microsoft/resnet-50')."
+    return click.option(
+        "--model-id",
+        type=str,
+        default=None,
+        help=help,
+    )
+
+
 def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     """Add ``-o/--output`` option that accepts a file path.
 
@@ -154,6 +176,76 @@ def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     else:
         kwargs["default"] = None
     return click.option("--output", "-o", **kwargs)
+
+
+def overwrite_option(optional_message: str | None = None) -> Callable[[F], F]:
+    """Add the shared ``--overwrite/--no-overwrite`` toggle (default: no-overwrite).
+
+    Output-producing commands default to *not* clobbering an existing output so
+    a re-run can't silently destroy a previous result. Pair this with
+    :func:`guard_output`, which performs the actual existence check. The
+    decorated function receives the value as the ``overwrite`` parameter.
+
+    Args:
+        optional_message: Command-specific note appended after the help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = "Overwrite an existing output instead of erroring out"
+    if optional_message:
+        help_text = f"{help_text}. {optional_message}"
+    return click.option(
+        "--overwrite/--no-overwrite",
+        "overwrite",
+        default=False,
+        show_default=True,
+        help=help_text,
+    )
+
+
+def guard_output(
+    path: str | Path | None,
+    overwrite: bool,
+    *,
+    label: str = "Output",
+) -> None:
+    """Fail fast when an output path already exists and ``--overwrite`` was not set.
+
+    Shared safety check for every output-producing command so a re-run can't
+    silently clobber a previous result. Call this *before* any ``mkdir`` /
+    cleanup / work, with the fully resolved output path (including defaulted
+    paths like ``{stem}_qdq.onnx``). A ``None`` path (e.g. output goes to
+    stdout) is a no-op.
+
+    Files block when they exist. Directories block only when they exist *and*
+    are non-empty, so a freshly-created or empty output directory does not
+    false-trigger.
+
+    Args:
+        path: Resolved output file or directory path, or ``None``.
+        overwrite: When ``True``, the check is skipped (user opted in).
+        label: Human-readable noun for the error message (e.g. ``"Output dir"``).
+
+    Raises:
+        click.ClickException: If the path exists (non-empty, for directories)
+            and ``overwrite`` is ``False``.
+    """
+    if path is None or overwrite:
+        return
+    resolved = Path(path)
+    if not resolved.exists():
+        return
+    if resolved.is_dir():
+        if any(resolved.iterdir()):
+            raise click.ClickException(
+                f"{label} directory '{resolved}' already exists and is not empty. "
+                "Re-run with --overwrite to replace its contents."
+            )
+        return
+    raise click.ClickException(
+        f"{label} '{resolved}' already exists. Re-run with --overwrite to replace it."
+    )
 
 
 def format_option(

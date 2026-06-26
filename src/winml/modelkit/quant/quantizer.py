@@ -328,7 +328,7 @@ def _quantize_qdq(
 
         task = config.task or "random"
         data_reader = DatasetCalibrationReader(
-            model_name=config.model_name or "random",
+            model_name=config.model_id or "random",
             task=task,
             max_samples=config.samples,
             dataset_name=config.dataset_name,
