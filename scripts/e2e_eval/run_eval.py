@@ -889,7 +889,7 @@ def _is_az_unavailable(proc: dict) -> bool:
             "aadsts",
             "token has expired",
             "expired token",
-            "refresh token",
+            "invalid_grant",
             "re-authenticate",
             "az account set",
         )
@@ -937,7 +937,10 @@ def _classify_upload(up: dict, args: argparse.Namespace) -> str:
     - ``auth-abort``: host-level az failure (not installed / not logged in /
       token expired) -> the caller cleans up and aborts the whole run.
     - ``timeout``: the publish was killed by the timeout (slow/large transfer)
-      -> the caller cleans up and continues with the next combo.
+      -> the caller cleans up and continues with the next combo. The upload may
+      still have committed server-side before the client was killed, so the retry
+      on ``--continue`` can hit a 409 -- pair it with ``--upload-skip-existing``
+      to count that as done rather than a failure.
     - ``failed``: any other per-combo publish error -> clean up and continue.
     """
     if up.get("exit_code") == 0:
@@ -1008,9 +1011,12 @@ def _fetch_feed_versions(
         2. list that package's versions.
 
     Returns the set of lowercased versions matching the ``0.0.0-<run_stamp>-``
-    prefix, an empty set if the feed is reachable but has no such versions yet,
-    or ``None`` if the feed could not be queried (caller falls back to the local
-    manifest only).
+    prefix; an empty set if the package exists but has no matching versions yet;
+    or ``None`` if the feed could not be queried *or the package was not found in
+    the (possibly paginated) listing*, in which case the caller falls back to the
+    local results only. Returning ``None`` (not an empty set) on a not-found
+    package avoids silently mistaking a truncated listing for "nothing uploaded",
+    which would rebuild the whole batch on ``--continue``.
     """
     org = _feed_org_name(args.feed_org)
     base = (
@@ -1040,7 +1046,14 @@ def _fetch_feed_versions(
             pkg_id = pkg.get("id")
             break
     if pkg_id is None:
-        return set()  # feed reachable, package not published yet
+        # Not in the listing: either a genuinely unpublished package (first run)
+        # or a pagination miss. The /packages REST API defaults to ~25 items per
+        # page and we cannot append ``$top`` here -- a second query param needs
+        # ``&``, which az.cmd/cmd.exe splits (see the &-free note above). Return
+        # ``None`` (not an empty set) so the caller takes its explicit
+        # "could not query feed" fallback instead of treating a truncated listing
+        # as "nothing uploaded" and rebuilding the whole batch on --continue.
+        return None
 
     versions_doc = _get_json(f"{base}/packages/{pkg_id}/versions?api-version={_FEED_API_VERSION}")
     if versions_doc is None:
@@ -1983,8 +1996,10 @@ def parse_args() -> argparse.Namespace:
         help=(
             "With --upload: treat a 'version already exists' publish conflict as "
             "success (and delete the local copy) instead of a failure. This does "
-            "NOT skip the build. To skip rebuilding already-uploaded models "
-            "entirely, use --continue."
+            "NOT skip the build. To skip rebuilding already-uploaded combos "
+            "entirely, use --continue. Recommended on any --continue resume: a "
+            "previously timed-out upload may have already committed server-side, "
+            "so the retry hits a 409 that should count as done, not failed."
         ),
     )
     parser.add_argument(

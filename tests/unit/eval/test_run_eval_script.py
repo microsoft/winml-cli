@@ -237,6 +237,28 @@ class TestIsAzUnavailable:
         proc = {"exit_code": 1, "timeout": False, "stdout": "", "stderr": blob}
         assert run_eval._is_az_unavailable(proc) is True
 
+    def test_invalid_grant_is_unavailable(self, run_eval):
+        # invalid_grant is the OAuth2 code Azure AD uses for an expired/revoked
+        # refresh token (chosen over the broad 'refresh token' substring).
+        proc = {
+            "exit_code": 1,
+            "timeout": False,
+            "stdout": "",
+            "stderr": "OAuth error: invalid_grant - token revoked",
+        }
+        assert run_eval._is_az_unavailable(proc) is True
+
+    def test_informational_refresh_token_is_not_unavailable(self, run_eval):
+        # A bare informational MSAL progress line must NOT trigger an abort now
+        # that the broad 'refresh token' marker has been narrowed.
+        proc = {
+            "exit_code": 1,
+            "timeout": False,
+            "stdout": "Refreshing token for scope https://example",
+            "stderr": "",
+        }
+        assert run_eval._is_az_unavailable(proc) is False
+
 
 class TestClassifyUpload:
     """``_classify_upload`` maps an ``az`` publish result to an upload status."""
@@ -394,3 +416,62 @@ class TestRunBuildOnlyUploadCleanup:
         self._run(run_eval, self._args(tmp_path, keep_local=True), self._build(True), up)
         assert self._model_dir(run_eval, tmp_path).exists()
         assert self._record(tmp_path)["upload_status"] == "uploaded"
+
+
+class TestFetchFeedVersions:
+    """`_fetch_feed_versions`: resolve the package, then list its versions.
+
+    A package missing from the (possibly paginated) listing returns ``None`` --
+    not an empty set -- so --continue takes the explicit fallback instead of
+    silently rebuilding the whole batch.
+    """
+
+    @staticmethod
+    def _args():
+        return argparse.Namespace(
+            feed_org="https://dev.azure.com/microsoft",
+            feed_project="windows.ai.toolkit",
+            feed="Modelkit",
+            package_name="winml-cli-models",
+        )
+
+    @staticmethod
+    def _ok(stdout):
+        return {"exit_code": 0, "stdout": stdout, "stderr": "", "timeout": False}
+
+    def test_package_not_found_returns_none(self, run_eval):
+        listing = json.dumps({"value": [{"name": "other-pkg", "protocolType": "upack", "id": "x"}]})
+
+        def fake_az(az_args, _timeout=180):
+            return self._ok(listing)
+
+        with patch.object(run_eval, "_run_az", side_effect=fake_az):
+            assert run_eval._fetch_feed_versions(self._args(), "20260609") is None
+
+    def test_returns_versions_matching_run_stamp(self, run_eval):
+        listing = json.dumps(
+            {"value": [{"name": "winml-cli-models", "protocolType": "upack", "id": "PKG"}]}
+        )
+        versions = json.dumps(
+            {
+                "value": [
+                    {"version": "0.0.0-20260609-qnn-npu-m"},
+                    {"version": "0.0.0-20260609-ov-cpu-m"},
+                    {"version": "0.0.0-20251231-qnn-npu-m"},
+                ]
+            }
+        )
+
+        def fake_az(az_args, _timeout=180):
+            return self._ok(versions if "/versions" in az_args[-1] else listing)
+
+        with patch.object(run_eval, "_run_az", side_effect=fake_az):
+            result = run_eval._fetch_feed_versions(self._args(), "20260609")
+        assert result == {"0.0.0-20260609-qnn-npu-m", "0.0.0-20260609-ov-cpu-m"}
+
+    def test_query_failure_returns_none(self, run_eval):
+        def fake_az(az_args, _timeout=180):
+            return {"exit_code": 1, "stdout": "", "stderr": "boom", "timeout": False}
+
+        with patch.object(run_eval, "_run_az", side_effect=fake_az):
+            assert run_eval._fetch_feed_versions(self._args(), "20260609") is None

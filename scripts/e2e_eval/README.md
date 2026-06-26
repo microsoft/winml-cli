@@ -169,12 +169,14 @@ fill the disk.
 uv run python scripts/e2e_eval/run_eval.py --build-only --upload --priority P0
 
 # Resume an interrupted batch: same run-stamp + --continue skips combos already
-# uploaded (per the results log / feed) without rebuilding them.
+# uploaded (per the results log / feed) without rebuilding them. Pair it with
+# --upload-skip-existing: a combo whose upload timed out may have committed
+# server-side, so the retry hits a 409 that should count as done, not failed.
 uv run python scripts/e2e_eval/run_eval.py --build-only --upload --continue \
-  --run-stamp 20260609 --priority P0
+  --upload-skip-existing --run-stamp 20260609 --priority P0
 
-# --upload-skip-existing: if the feed already has a version (e.g. results log lost),
-# treat the publish conflict as done and delete the local copy.
+# --upload-skip-existing on its own: if the feed already has a version (e.g. the
+# results log was lost), treat the publish conflict as done and delete the local copy.
 uv run python scripts/e2e_eval/run_eval.py --build-only --upload --upload-skip-existing
 
 # Upload but keep local copies (debug)
@@ -201,7 +203,7 @@ az artifacts universal download \
 | `--feed-project` | `windows.ai.toolkit` | Project for the project-scoped feed |
 | `--package-name` | `winml-cli-models` | Universal Package name |
 | `--keep-local` | off | Upload but do not delete local combos (also keeps build-failed combos) |
-| `--upload-skip-existing` | off | Treat an existing feed version as done (feed-based resume) |
+| `--upload-skip-existing` | off | Treat an existing feed version as done; recommended with `--continue` (a timed-out upload may have committed server-side) |
 
 ### `generate_report.py` — Regenerate Reports
 
