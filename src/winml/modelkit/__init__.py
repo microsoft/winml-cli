@@ -31,6 +31,7 @@ Usage:
 import logging
 import sys
 from importlib.metadata import PackageNotFoundError, version
+from typing import Any
 
 
 # Force utf-8 stdout/stderr so emoji and Unicode output (rich console, logs,
@@ -98,7 +99,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load heavy exports on first access (PEP 562).
 
     This avoids importing torch/transformers/optimum (~30s) when only

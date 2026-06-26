@@ -73,7 +73,7 @@ CLIP_CONFIG = WinMLBuildConfig(
 # Optimum ONNX Export Config Registrations
 # =============================================================================
 @register_onnx_overwrite("clip_text_model", "feature-extraction", library_name="transformers")
-class CLIPTextModelIOConfig(CLIPTextWithProjectionOnnxConfig):
+class CLIPTextModelIOConfig(CLIPTextWithProjectionOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for CLIPTextModelWithProjection from transformers.
 
     Model: openai/clip-vit-base-patch32 (text encoder only)
@@ -108,7 +108,7 @@ class CLIPTextModelIOConfig(CLIPTextWithProjectionOnnxConfig):
 
 
 @register_onnx_overwrite("clip_vision_model", "feature-extraction", library_name="transformers")
-class CLIPVisionModelIOConfig(CLIPVisionModelOnnxConfig):
+class CLIPVisionModelIOConfig(CLIPVisionModelOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for CLIPVisionModelWithProjection from transformers.
 
     Model: openai/clip-vit-base-patch32 (vision encoder only)

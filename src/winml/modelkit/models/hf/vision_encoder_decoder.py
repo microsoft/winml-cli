@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
@@ -49,12 +49,16 @@ from ...export import register_onnx_overwrite
 from ...optim import WinMLOptimizationConfig
 from ..winml.composite_model import register_composite_model
 from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
-from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
+from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLCache, WinMLStaticCache
 from .decoder_wrapper import WinMLDecoderWrapper, WinMLStaticCacheDecoderIOConfig
 
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig
+    from transformers import GenerationConfig, PretrainedConfig
+    from transformers.models.trocr.modeling_trocr import (
+        TrOCRLearnedPositionalEmbedding,
+        TrOCRSinusoidalPositionalEmbedding,
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -98,13 +102,14 @@ class VisionEncoderWrapper(nn.Module):
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
         """Trace ``pixel_values → encoder_hidden_states``."""
-        return self.encoder(pixel_values=pixel_values).last_hidden_state
+        # self.encoder is a torch submodule (untyped __call__ -> Any).
+        return cast("torch.Tensor", self.encoder(pixel_values=pixel_values).last_hidden_state)
 
 
 @register_onnx_overwrite(
     "vision-encoder-decoder", "feature-extraction", library_name="transformers"
 )
-class VisionEncoderIOConfig(OnnxConfig):
+class VisionEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum/transformers base is untyped
     """ONNX config for the vision encoder."""
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -133,9 +138,9 @@ class VisionEncoderIOConfig(OnnxConfig):
 
 
 def _patched_trocr_learned_positional_embedding_forward(
-    self,
+    self: TrOCRLearnedPositionalEmbedding,  # monkey-patched onto this HF module
     input_ids: torch.Tensor,
-    past_key_values_length: Any = 0,
+    past_key_values_length: int = 0,
     position_ids: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Patched ``TrOCRLearnedPositionalEmbedding.forward``.
@@ -169,7 +174,7 @@ def _patched_trocr_learned_positional_embedding_forward(
 
 
 def _patched_trocr_sinusoidal_positional_embedding_forward(
-    self,
+    self: TrOCRSinusoidalPositionalEmbedding,  # monkey-patched onto this HF module
     input_ids: torch.Tensor,
     past_key_values_length: int = 0,
 ) -> torch.Tensor:
@@ -183,27 +188,35 @@ def _patched_trocr_sinusoidal_positional_embedding_forward(
     use it as the lookup index (shifted by ``padding_idx + 1`` to match
     HF's offset for non-padded sequences).  Otherwise behavior is unchanged.
     """
+    # TrOCR sinusoidal embeddings always set a padding_idx; nn.Embedding types it int | None.
+    padding_idx = cast("int", self.padding_idx)
     abs_pos = getattr(self, "position_id", None)
     if abs_pos is not None:
         # Patched path: lookup with the side-channel index, shifted by
         # ``padding_idx + 1`` to match HF's offset for non-padded sequences.
         if abs_pos.dim() == 1:
             abs_pos = abs_pos.unsqueeze(0)
-        position_ids = (abs_pos + self.padding_idx + 1).long()
+        position_ids = (abs_pos + padding_idx + 1).long()
         weights = self.weights.to(self._float_tensor)
-        return weights.index_select(0, position_ids.view(-1)).view(
-            position_ids.size(0), position_ids.size(1), -1
-        ).detach()
+        return cast(
+            "torch.Tensor",
+            weights.index_select(0, position_ids.view(-1))
+            .view(position_ids.size(0), position_ids.size(1), -1)
+            .detach(),
+        )
     # Below: identical to HF's original ``TrOCRSinusoidalPositionalEmbedding.forward``.
     bsz, seq_len = input_ids.size()
     position_ids = self.create_position_ids_from_input_ids(
-        input_ids, self.padding_idx, past_key_values_length
+        input_ids, padding_idx, past_key_values_length
     ).to(input_ids.device)
-    max_pos = self.padding_idx + 1 + seq_len
+    max_pos = padding_idx + 1 + seq_len
     if self.weights is None or max_pos > self.weights.size(0):
-        self.weights = self.get_embedding(max_pos, self.embedding_dim, self.padding_idx)
+        self.weights = self.get_embedding(max_pos, self.embedding_dim, padding_idx)
     self.weights = self.weights.to(self._float_tensor)
-    return self.weights.index_select(0, position_ids.view(-1)).view(bsz, seq_len, -1).detach()
+    return cast(
+        "torch.Tensor",
+        self.weights.index_select(0, position_ids.view(-1)).view(bsz, seq_len, -1).detach(),
+    )
 
 
 def _build_ved_patching_specs() -> list[PatchingSpec]:
@@ -243,7 +256,7 @@ def _build_ved_patching_specs() -> list[PatchingSpec]:
 # =============================================================================
 
 
-class _VedDecoderNormalizedConfig(NormalizedConfig):
+class _VedDecoderNormalizedConfig(NormalizedConfig):  # type: ignore[misc]  # optimum/transformers base is untyped
     """VED decoder NormalizedConfig.
 
     Per-architecture field paths (``decoder.d_model`` vs ``decoder.n_embd``
@@ -265,22 +278,23 @@ class _VedDecoderNormalizedConfig(NormalizedConfig):
 
     @property
     def vocab_size(self) -> int:
-        return self._dec.vocab_size
+        # _dec/_enc/config are untyped optimum/HF config objects (Any).
+        return cast("int", self._dec.vocab_size)
 
     @property
     def hidden_size(self) -> int:
-        return self._dec.hidden_size
+        return cast("int", self._dec.hidden_size)
 
     @property
     def num_layers(self) -> int:
         # Not every model family defines ``decoder_layers`` on
         # ``config.decoder``; fall back to Optimum's NormalizedConfig.
         decoder_layers = getattr(self.config.decoder, "decoder_layers", None)
-        return decoder_layers if decoder_layers is not None else self._dec.num_layers
+        return cast("int", decoder_layers if decoder_layers is not None else self._dec.num_layers)
 
     @property
     def num_attention_heads(self) -> int:
-        return self._dec.num_attention_heads
+        return cast("int", self._dec.num_attention_heads)
 
     @property
     def head_dim(self) -> int:
@@ -290,7 +304,7 @@ class _VedDecoderNormalizedConfig(NormalizedConfig):
     def max_cache_len(self) -> int:
         # Optimum's normalized configs don't uniformly expose this; read
         # the raw decoder config field that BART/TrOCR-family use.
-        return self.config.decoder.max_position_embeddings
+        return cast("int", self.config.decoder.max_position_embeddings)
 
     @property
     def encoder_hidden_size(self) -> int:
@@ -298,17 +312,17 @@ class _VedDecoderNormalizedConfig(NormalizedConfig):
         # Falls back to encoder.hidden_size when no explicit projection is
         # configured (HF convention when enc.hidden_size matches).
         cah = getattr(self.config.decoder, "cross_attention_hidden_size", None)
-        return cah if cah is not None else self._enc.hidden_size
+        return cast("int", cah if cah is not None else self._enc.hidden_size)
 
     @property
     def image_size(self) -> int | list[int]:
         # Some model types ship a scalar (square input);
         # others ship a ``[H, W]`` list.
-        return self.config.encoder.image_size
+        return cast("int | list[int]", self.config.encoder.image_size)
 
     @property
     def patch_size(self) -> int:
-        return self.config.encoder.patch_size
+        return cast("int", self.config.encoder.patch_size)
 
     @property
     def encoder_seq_length(self) -> int:
@@ -330,12 +344,12 @@ class _VedDecoderNormalizedConfig(NormalizedConfig):
 
         # Scalar image_size: square ViT-style encoder.
         if not isinstance(image_size, (list, tuple)):
-            return (image_size // patch_size) ** 2 + 1
+            return cast("int", (image_size // patch_size) ** 2 + 1)
 
         # [H, W] image_size: hierarchical Swin-style encoder.
         h, w = image_size[0], image_size[1]
         shrink = 2 ** (len(enc.depths) - 1)
-        return (h // patch_size // shrink) * (w // patch_size // shrink)
+        return cast("int", (h // patch_size // shrink) * (w // patch_size // shrink))
 
 
 class VedDecoderInputGenerator(EncoderDecoderInputGenerator):
@@ -423,13 +437,15 @@ class VisionDecoderWrapper(WinMLDecoderWrapper):
         self.eval()
         return self
 
-    def _make_cache(self, inputs: dict[str, torch.Tensor]) -> Any:
+    def _make_cache(self, inputs: dict[str, torch.Tensor]) -> WinMLCache:
         cache = super()._make_cache(inputs)
         # HF decoders that use BART-style learned positional embeddings read
         # ``past_key_values.get_seq_length()`` to drive the position offset.
-        # Override so the mask shape reflects the actual generation step.
+        # Override the instance method with a trace-time constant so the mask
+        # shape reflects the actual generation step (intentional method patch:
+        # the lambda returns the cache_position Tensor, not get_seq_length's int).
         position = inputs["cache_position"].squeeze()
-        cache.get_seq_length = lambda layer_idx=0: position
+        cache.get_seq_length = lambda layer_idx=0: position  # type: ignore[method-assign, assignment, return-value]
         return cache
 
     def _invoke_hf(self, cache: Any, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
@@ -471,7 +487,7 @@ class VisionDecoderWrapper(WinMLDecoderWrapper):
             return_dict=True,
             **extra,
         )
-        return outputs.logits
+        return cast("torch.Tensor", outputs.logits)
 
 
 # =============================================================================
@@ -509,7 +525,7 @@ class WinMLVEDImageToText(WinMLEncoderDecoderModel):
         return WinMLStaticCache
 
     @property
-    def generation_config(self):  # noqa: D102
+    def generation_config(self) -> GenerationConfig:  # noqa: D102
         if not hasattr(self, "_generation_config"):
             from transformers import GenerationConfig
 

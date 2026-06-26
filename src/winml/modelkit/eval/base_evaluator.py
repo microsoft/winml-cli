@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from transformers.pipelines.base import Pipeline
 
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..models.winml.composite_model import WinMLCompositeModel
     from .config import DatasetConfig, WinMLEvaluationConfig
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class WinMLEvaluator:
     def __init__(
         self,
         config: WinMLEvaluationConfig,
-        model: WinMLPreTrainedModel,
+        model: WinMLPreTrainedModel | WinMLCompositeModel,
     ) -> None:
         self.model = model
         self.config = config
@@ -138,7 +139,7 @@ class WinMLEvaluator:
         # can't be statically matched. The string-task fallback handles unknown tasks.
         return cast(
             "Pipeline",
-            pipeline(  # type: ignore[call-overload]
+            pipeline(  # type: ignore[call-overload, misc]  # 60+ Literal overloads + union model arg
                 pipeline_task,
                 model=self.model,
                 framework="pt",
