@@ -1351,6 +1351,9 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
                 if not any(model_dir.iterdir()):
                     model_dir.rmdir()
             except OSError:
+                # Best-effort tidy-up only: a non-empty dir (e.g. a combo kept by
+                # --keep-local or left behind by an earlier error) or a transient
+                # lock is harmless to leave on disk, so ignore it and move on.
                 pass
 
         # Clean caches once per model (after all EP combos finish), not per
