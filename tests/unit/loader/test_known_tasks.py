@@ -2,17 +2,22 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for the hand-coded KNOWN_TASKS constant.
+"""Tests for the hand-coded task registry and its derived views.
 
-KNOWN_TASKS is hand-coded so that ``winml inspect --list-tasks`` does not
-need to import ``optimum.exporters`` (which transitively imports
-``transformers`` and adds ~10 s of startup latency).
+``_TASK_REGISTRY`` (and the ``KNOWN_TASKS`` / ``TASK_ABBREV`` views derived
+from it) is hand-coded so that ``winml inspect --list-tasks`` does not need to
+import ``optimum.exporters`` (which transitively imports ``transformers`` and
+adds ~10 s of startup latency).
 
 These tests guard against drift:
   * KNOWN_TASKS must be a superset of optimum's TasksManager task set, so
     no canonical task disappears from ``--list-tasks`` when optimum adds one.
   * KNOWN_TASKS must include every task registered in our own
     HF_TASK_DEFAULTS / HF_MODEL_CLASS_MAPPING.
+  * KNOWN_TASKS and TASK_ABBREV must stay derived from the single
+    ``_TASK_REGISTRY`` so the two views cannot desync (the root cause of #724).
+  * Every task wired into ``inference.tasks`` must be a known task, so a newly
+    added canonical task can never be silently rejected by ``validate_task``.
 """
 
 from __future__ import annotations
