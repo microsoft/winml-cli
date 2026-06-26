@@ -98,11 +98,8 @@ console = Console()
     default=None,
     help="Task for calibration dataset selection (e.g., 'image-classification').",
 )
-@click.option(
-    "--model-id",
-    type=str,
-    default=None,
-    help="HuggingFace model id (e.g., 'microsoft/resnet-50'). When provided "
+@cli_utils.model_id_option(
+    help_text="HuggingFace model id (e.g., 'microsoft/resnet-50'). When provided "
     "with --task, enables task-aware calibration datasets using the model's preprocessor.",
 )
 @cli_utils.build_config_option()

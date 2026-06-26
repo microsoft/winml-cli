@@ -136,6 +136,28 @@ def model_option(required: bool = True, optional_message: str | None = None) -> 
     )
 
 
+def model_id_option(help_text: str | None = None) -> Callable[[F], F]:
+    """Add ``--model-id`` option for a HuggingFace model ID.
+
+    Shared by commands (e.g. ``quantize`` and ``eval``) that take an ONNX model
+    path via ``-m/--model`` and need a separate HuggingFace model ID, for example
+    to resolve the matching preprocessor/tokenizer or calibration datasets.
+
+    Args:
+        help_text: Optional override for the help string.
+
+    Returns:
+        Decorator function.
+    """
+    help = help_text or "HuggingFace model ID (e.g., 'microsoft/resnet-50')."
+    return click.option(
+        "--model-id",
+        type=str,
+        default=None,
+        help=help,
+    )
+
+
 def output_option(help_text: str, required: bool = False) -> Callable[[F], F]:
     """Add ``-o/--output`` option that accepts a file path.
 
