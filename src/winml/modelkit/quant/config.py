@@ -67,7 +67,7 @@ class WinMLQuantizationConfig:
 
     # Task-aware calibration (used when calibration_data is None)
     task: str | None = None  # e.g., "image-classification"
-    model_name: str | None = None  # e.g., "microsoft/resnet-50"
+    model_id: str | None = None  # e.g., "microsoft/resnet-50"
     dataset_name: str | None = None  # Optional: override default dataset
 
     # Quantization types (static/dynamic)
@@ -106,7 +106,7 @@ class WinMLQuantizationConfig:
 
         Includes all fields that affect quantization behavior so that
         ``generate_cache_key()`` produces distinct hashes for distinct configs.
-        Optional fields (task, model_name, dataset_name) are omitted when None
+        Optional fields (task, model_id, dataset_name) are omitted when None
         to keep submodule configs clean.
         """
         result: dict = {
@@ -131,8 +131,8 @@ class WinMLQuantizationConfig:
         }
         if self.task is not None:
             result["task"] = self.task
-        if self.model_name is not None:
-            result["model_name"] = self.model_name
+        if self.model_id is not None:
+            result["model_id"] = self.model_id
         if self.dataset_name is not None:
             result["dataset_name"] = self.dataset_name
         if self.mode == "rtn":
@@ -165,7 +165,7 @@ class WinMLQuantizationConfig:
             samples=data.get("samples", data.get("calibration_samples", 10)),
             calibration_method=data.get("calibration_method", "minmax"),
             task=data.get("task"),
-            model_name=data.get("model_name"),
+            model_id=data.get("model_id"),
             dataset_name=data.get("dataset_name"),
             weight_type=data.get("weight_type", "uint8"),
             activation_type=data.get("activation_type", "uint8"),

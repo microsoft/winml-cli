@@ -40,11 +40,8 @@ logger = logging.getLogger(__name__)
         "(requires --model-id), or split-encoder role=path pairs (see --schema)."
     ),
 )
-@click.option(
-    "--model-id",
-    type=str,
-    default=None,
-    help="HuggingFace model ID when .onnx model file is provided in --model.",
+@cli_utils.model_id_option(
+    help_text="HuggingFace model ID when .onnx model file is provided in --model.",
 )
 @click.option(
     "--dataset",
