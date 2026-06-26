@@ -37,6 +37,10 @@ def _load_run_eval():
 
     spec = importlib.util.spec_from_file_location("_e2e_run_eval", script_path)
     mod = importlib.util.module_from_spec(spec)
+    # Register before exec_module so module-level @dataclass definitions can
+    # resolve their own __module__ in sys.modules (dataclasses looks it up to
+    # detect KW_ONLY/ClassVar); without this, exec raises AttributeError.
+    sys.modules["_e2e_run_eval"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -475,3 +479,329 @@ class TestFetchFeedVersions:
 
         with patch.object(run_eval, "_run_az", side_effect=fake_az):
             assert run_eval._fetch_feed_versions(self._args(), "20260609") is None
+
+
+# ---------------------------------------------------------------------------
+# Recipe-driven merge: discovery -> jobs -> build -> eval
+# ---------------------------------------------------------------------------
+
+
+def _entry(hf_id="microsoft/resnet-50", task="image-classification"):
+    entry = MagicMock()
+    entry.hf_id = hf_id
+    entry.task = task
+    entry.precision = None
+    entry.perf_args = []
+    entry.eval_args = []
+    return entry
+
+
+class TestModelResultDirPrecision:
+    """``model_result_dir`` folds precision into the slug for recipe variants."""
+
+    def test_without_precision(self, run_eval, tmp_path):
+        d = run_eval.model_result_dir(tmp_path, "microsoft/resnet-50", "image-classification")
+        assert d.name == "microsoft__resnet-50__image-classification"
+
+    def test_with_precision(self, run_eval, tmp_path):
+        d = run_eval.model_result_dir(
+            tmp_path, "microsoft/resnet-50", "image-classification", "w8a16"
+        )
+        assert d.name == "microsoft__resnet-50__image-classification__w8a16"
+
+
+class TestAccuracyStatus:
+    """``accuracy_status`` is a coarse, baseline-free status."""
+
+    def test_not_run(self, run_eval):
+        assert run_eval.accuracy_status(None) == "NOT_RUN"
+
+    def test_skipped(self, run_eval):
+        acc = {"skipped": True, "skip_reason": "perf_failed"}
+        assert run_eval.accuracy_status(acc) == "SKIPPED"
+
+    def test_pass(self, run_eval):
+        assert run_eval.accuracy_status({"winml_eval_status": "PASS"}) == "PASS"
+
+    def test_fail(self, run_eval):
+        assert run_eval.accuracy_status({"winml_eval_status": "FAIL"}) == "FAIL"
+
+
+class TestRecipeConfigHelpers:
+    """Eval-section detection, meta-config pick, and trust-remote-code gate."""
+
+    def _write(self, path: Path, payload: dict):
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_has_eval_section(self, run_eval, tmp_path):
+        cfg = tmp_path / "a.json"
+        self._write(cfg, {"eval": {"task": "x"}})
+        assert run_eval._config_has_eval_section(cfg) is True
+
+    def test_missing_eval_section(self, run_eval, tmp_path):
+        cfg = tmp_path / "b.json"
+        self._write(cfg, {"loader": {"task": "x"}})
+        assert run_eval._config_has_eval_section(cfg) is False
+
+    def test_meta_config_picks_eval_component(self, run_eval, tmp_path):
+        # Composite: only the decoder config carries the eval section.
+        model_dir = tmp_path / "microsoft_trocr-base-printed"
+        model_dir.mkdir()
+        enc = model_dir / "image-to-text_fp16_config_encoder.json"
+        dec = model_dir / "image-to-text_fp16_config_decoder.json"
+        self._write(enc, {"loader": {"task": "image-to-text"}})
+        self._write(dec, {"eval": {"task": "image-to-text", "dataset": {"path": "x"}}})
+        variants = run_eval.discover_recipe_variants(
+            tmp_path, "microsoft/trocr-base-printed", "image-to-text"
+        )
+        assert len(variants) == 1
+        assert run_eval._recipe_meta_config(variants[0]) == dec
+
+    def test_needs_trust_remote_code(self, run_eval, tmp_path):
+        cfg = tmp_path / "c.json"
+        self._write(cfg, {"eval": {"dataset": {"path": "x", "build_script": "build.py"}}})
+        assert run_eval._needs_trust_remote_code(cfg) is True
+
+    def test_no_trust_without_build_script(self, run_eval, tmp_path):
+        cfg = tmp_path / "d.json"
+        self._write(cfg, {"eval": {"dataset": {"path": "x"}}})
+        assert run_eval._needs_trust_remote_code(cfg) is False
+        assert run_eval._needs_trust_remote_code(None) is False
+
+
+class TestBuildJobs:
+    """``_build_jobs`` expands entries into one job per recipe precision variant."""
+
+    def _make_single_recipe(self, recipes_dir: Path, slug: str, task: str, precisions: list[str]):
+        model_dir = recipes_dir / slug
+        model_dir.mkdir(parents=True)
+        for prec in precisions:
+            (model_dir / f"{task}_{prec}_config.json").write_text(
+                json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
+            )
+
+    def test_recipe_expands_to_one_job_per_precision(self, run_eval, tmp_path):
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
+        )
+        entry = _entry()
+        jobs = run_eval._build_jobs([entry], tmp_path)
+        assert [j.precision for j in jobs] == ["fp16", "w8a16"]
+        assert all(j.entry is entry for j in jobs)
+
+    def test_no_recipe_falls_back_to_single_job(self, run_eval, tmp_path):
+        entry = _entry("some/model", "text-classification")
+        jobs = run_eval._build_jobs([entry], tmp_path)
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+        assert jobs[0].precision is None
+
+    def test_recipes_disabled_yields_fallback_jobs(self, run_eval, tmp_path):
+        self._make_single_recipe(
+            tmp_path, "microsoft_resnet-50", "image-classification", ["fp16"]
+        )
+        entry = _entry()
+        # recipes_dir=None disables recipe discovery entirely.
+        jobs = run_eval._build_jobs([entry], None)
+        assert len(jobs) == 1
+        assert jobs[0].variant is None
+
+
+class TestRunRecipeBuild:
+    """``_run_recipe_build`` builds authored configs with ``winml build -c``."""
+
+    def _variant(self, run_eval, tmp_path, *, composite: bool):
+        model_dir = tmp_path / "recipes" / "microsoft_resnet-50"
+        model_dir.mkdir(parents=True)
+        task = "image-to-text" if composite else "image-classification"
+        if composite:
+            (model_dir / f"{task}_fp16_config_encoder.json").write_text(
+                json.dumps({"loader": {"task": task}}), encoding="utf-8"
+            )
+            (model_dir / f"{task}_fp16_config_decoder.json").write_text(
+                json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
+            )
+        else:
+            (model_dir / f"{task}_fp16_config.json").write_text(
+                json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
+            )
+        variants = run_eval.discover_recipe_variants(
+            tmp_path / "recipes", "microsoft/resnet-50", task
+        )
+        assert len(variants) == 1
+        return variants[0]
+
+    def _fake_subprocess(self, captured):
+        def _fake(args, _timeout):
+            captured.append(list(args))
+            return {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+                "elapsed": 0.1,
+                "timeout": False,
+                "command": " ".join(args),
+            }
+
+        return _fake
+
+    def test_single_build_uses_config_and_output_dir(self, run_eval, tmp_path):
+        variant = self._variant(run_eval, tmp_path, composite=False)
+        out = tmp_path / "out"
+        captured: list[list[str]] = []
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
+            patch.object(run_eval, "_find_built_onnx", side_effect=lambda bd: bd / "model.onnx"),
+        ):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, out, ep="openvino")
+
+        assert result["success"] is True
+        assert list(result["onnx_paths"]) == [""]  # single model uses "" label
+        assert result["meta_config"] == variant.components[0].path
+        build_call = captured[0]
+        assert "build" in build_call
+        assert "-c" in build_call and str(variant.components[0].path) in build_call
+        assert "-o" in build_call
+        assert "--no-compile" not in build_call  # openvino is not vitisai
+
+    def test_vitisai_adds_no_compile(self, run_eval, tmp_path):
+        variant = self._variant(run_eval, tmp_path, composite=False)
+        captured: list[list[str]] = []
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
+            patch.object(run_eval, "_find_built_onnx", side_effect=lambda bd: bd / "model.onnx"),
+        ):
+            run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o", ep="vitisai")
+        assert "--no-compile" in captured[0]
+
+    def test_composite_builds_each_role(self, run_eval, tmp_path):
+        variant = self._variant(run_eval, tmp_path, composite=True)
+        out = tmp_path / "out"
+        captured: list[list[str]] = []
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
+            patch.object(run_eval, "_find_built_onnx", side_effect=lambda bd: bd / "model.onnx"),
+        ):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, out, ep="openvino")
+
+        assert result["success"] is True
+        assert set(result["onnx_paths"]) == {"encoder", "decoder"}
+        assert len(captured) == 2  # one winml build per component
+
+    def test_build_failure_reported(self, run_eval, tmp_path):
+        variant = self._variant(run_eval, tmp_path, composite=False)
+
+        def _fail(args, _timeout):
+            return {
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": "boom",
+                "elapsed": 0.1,
+                "timeout": False,
+                "command": " ".join(args),
+            }
+
+        with patch.object(run_eval, "_run_subprocess", side_effect=_fail):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
+        assert result["success"] is False
+        assert result["stage"] == "build"
+
+
+class TestRunWinmlEvalRecipePath:
+    """``_run_winml_eval`` reads the dataset from ``-c`` on the recipe path."""
+
+    def _fake_subprocess_writing_output(self, captured, metrics, dataset):
+        def _fake(args, _timeout):
+            captured.append(list(args))
+            out = Path(args[args.index("--output") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps({"metrics": metrics, "dataset": dataset}), encoding="utf-8")
+            return {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": " ".join(args),
+            }
+
+        return _fake
+
+    def test_recipe_path_passes_config_not_dataset_flags(self, run_eval, tmp_path):
+        cfg = tmp_path / "recipe.json"
+        cfg.write_text("{}", encoding="utf-8")
+        captured: list[list[str]] = []
+        fake = self._fake_subprocess_writing_output(
+            captured, {"accuracy": 0.9}, {"samples": 100}
+        )
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake):
+            res = run_eval._run_winml_eval(
+                _entry(),
+                "npu",
+                300,
+                {},
+                tmp_path,
+                {"": "model.onnx"},
+                ep="openvino",
+                recipe_config=cfg,
+                trust_remote_code=True,
+            )
+        call = captured[0]
+        assert "-c" in call and str(cfg) in call
+        assert "--dataset" not in call  # recipe drives the dataset
+        assert "--trust-remote-code" in call
+        assert res["status"] == "PASS"
+        assert res["metrics"] == {"accuracy": 0.9}
+        assert res["dataset"] == {"samples": 100}
+
+    def test_fallback_path_uses_dataset_flags(self, run_eval, tmp_path):
+        captured: list[list[str]] = []
+        fake = self._fake_subprocess_writing_output(captured, {"accuracy": 0.8}, {"samples": 50})
+        ds_config = {"dataset": "timm/mini-imagenet", "split": "test", "num_samples": 50}
+        with patch.object(run_eval, "_run_subprocess", side_effect=fake):
+            res = run_eval._run_winml_eval(
+                _entry(), "npu", 300, ds_config, tmp_path, {"": "model.onnx"}, ep="openvino"
+            )
+        call = captured[0]
+        assert "-c" not in call
+        assert "--dataset" in call and "timm/mini-imagenet" in call
+        assert res["status"] == "PASS"
+
+
+class TestRunAccuracyPhaseSchema:
+    """``_run_accuracy_phase`` records facts only (no inline PyTorch baseline)."""
+
+    def test_schema_has_metrics_and_no_baseline(self, run_eval, tmp_path):
+        winml_ret = {
+            "status": "PASS",
+            "metric": {"metric": "accuracy", "value": 0.9, "num_samples": 100},
+            "metrics": {"accuracy": 0.9},
+            "dataset": {"samples": 100},
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": "",
+            "elapsed": 1.0,
+            "timeout": False,
+            "command": "winml eval ...",
+        }
+        with patch.object(run_eval, "_run_winml_eval", return_value=winml_ret) as mock_eval:
+            acc = run_eval._run_accuracy_phase(
+                _entry(),
+                "npu",
+                300,
+                tmp_path,
+                {"": "model.onnx"},
+                ep="openvino",
+                recipe_config=tmp_path / "r.json",
+                trust_remote_code=True,
+            )
+        # New schema: facts only, baseline/delta removed.
+        assert acc["winml_eval_status"] == "PASS"
+        assert acc["metrics"] == {"accuracy": 0.9}
+        assert acc["dataset"] == {"samples": 100}
+        assert "pytorch_baseline_status" not in acc
+        assert "delta_absolute" not in acc
+        # recipe_config + trust flow through to winml eval.
+        _, kwargs = mock_eval.call_args
+        assert kwargs["recipe_config"] == tmp_path / "r.json"
+        assert kwargs["trust_remote_code"] is True
