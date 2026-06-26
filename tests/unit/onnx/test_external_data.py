@@ -6,12 +6,16 @@
 
 from __future__ import annotations
 
+import errno
+import shutil
 from typing import TYPE_CHECKING
 
 import numpy as np
 import onnx
+import pytest
 from onnx import TensorProto, external_data_helper, helper, numpy_helper
 
+from winml.modelkit.onnx import ONNXSaveError
 from winml.modelkit.onnx.external_data import (
     copy_onnx_model,
     get_external_data_files,
@@ -258,3 +262,32 @@ class TestCopyOnnxModel:
         src_arr = numpy_helper.to_array(src_full.graph.initializer[0])
         dst_arr = numpy_helper.to_array(dst_full.graph.initializer[0])
         assert np.array_equal(src_arr, dst_arr)
+
+
+class TestCopyOnnxModelDiskFull:
+    """copy_onnx_model surfaces a clear error and cleans up on a failed write."""
+
+    def test_copy_disk_full_raises_and_cleans_dst(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = tmp_path / "src.onnx"
+        dst = tmp_path / "out" / "dst.onnx"
+        onnx.save(_make_small_model(), str(src))  # valid, no external data
+
+        def _failing_copy2(_s: object, d: object, *_a: object, **_k: object) -> None:
+            from pathlib import Path as _Path
+
+            _Path(d).write_bytes(b"")  # partial/truncated destination
+            raise OSError(errno.ENOSPC, "simulated write failure")
+
+        monkeypatch.setattr(shutil, "copy2", _failing_copy2)
+
+        with pytest.raises(ONNXSaveError) as exc_info:
+            copy_onnx_model(src, dst)
+
+        err = exc_info.value
+        assert err.disk_full is True
+        assert isinstance(err, OSError)
+        assert "disk space" in str(err).lower()
+        # The truncated destination must not be left behind.
+        assert not dst.exists()

@@ -22,6 +22,41 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _check_input_model_opset(model_path: Path) -> str | None:
+    """Return a clear error message if *model_path* is empty/corrupt, else None.
+
+    Mirrors ORT's ``get_opset_version`` requirement: a usable model must declare
+    a default (``""`` / ``ai.onnx``) opset import. A zero-byte or truncated file
+    parses into an (almost) empty ModelProto with no such opset import — the
+    signature of a previous stage that failed to finish writing (most commonly
+    because it ran out of disk space). Detecting it here lets us surface the
+    real cause instead of ORT's opaque "Failed to find proper ai.onnx domain".
+
+    Reads only the graph (no external weights) directly via ``onnx.load`` so the
+    check stays cheap and never trips over a missing ``.data`` sidecar.
+    """
+    import onnx
+
+    try:
+        model = onnx.load(str(model_path), load_external_data=False)
+    except Exception as e:
+        return (
+            f"Input ONNX model could not be parsed: {model_path} ({e}). "
+            "The file may be truncated or corrupt — for example, a previous "
+            "build stage may have run out of disk space. Free up disk space "
+            "and rebuild."
+        )
+
+    has_default_opset = any(opset.domain in ("", "ai.onnx") for opset in model.opset_import)
+    if not has_default_opset:
+        return (
+            f"Input ONNX model is empty or corrupt (no ai.onnx opset import): "
+            f"{model_path}. It may have been truncated by a previous failed "
+            "write (e.g. insufficient disk space). Free up disk space and rebuild."
+        )
+    return None
+
+
 def quantize_onnx(
     model_path: str | Path,
     output_path: str | Path | None = None,
@@ -95,6 +130,18 @@ def _quantize_single_pass(
             success=False,
             output_path=None,
             errors=[f"Model not found: {model_path}"],
+        )
+
+    # Guard against an empty/corrupt input model. A previous stage that ran out
+    # of disk space can leave a truncated/zero-byte .onnx behind; without this
+    # check ORT fails deep inside quantization with the opaque
+    # "Failed to find proper ai.onnx domain". Surface the real cause instead.
+    opset_error = _check_input_model_opset(model_path)
+    if opset_error is not None:
+        return QuantizeResult(
+            success=False,
+            output_path=None,
+            errors=[opset_error],
         )
 
     errors: list[str] = []

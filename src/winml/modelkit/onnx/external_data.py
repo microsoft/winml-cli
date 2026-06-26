@@ -26,7 +26,7 @@ import numpy as np
 import onnx
 from onnx import external_data_helper
 
-from .persistence import load_onnx, save_onnx
+from .persistence import _cleanup_partial_save, _raise_save_error, load_onnx, save_onnx
 
 
 logger = logging.getLogger(__name__)
@@ -219,23 +219,30 @@ def copy_onnx_model(
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        external_files = get_external_data_files(src)
-    except Exception:
-        # Not a valid ONNX file or can't parse — fall back to simple copy
-        shutil.copy2(src, dst)
-        return
+        try:
+            external_files = get_external_data_files(src)
+        except Exception:
+            # Not a valid ONNX file or can't parse — fall back to simple copy
+            shutil.copy2(src, dst)
+            return
 
-    if not external_files:
-        # No external data — simple copy
-        shutil.copy2(src, dst)
-        return
+        if not external_files:
+            # No external data — simple copy
+            shutil.copy2(src, dst)
+            return
 
-    if len(external_files) == 1:
-        # Single external data file — copy .data + patch .onnx
-        _copy_single_external(src, dst, external_files[0])
-    else:
-        # Multiple files — consolidate into one
-        _copy_consolidate(src, dst)
+        if len(external_files) == 1:
+            # Single external data file — copy .data + patch .onnx
+            _copy_single_external(src, dst, external_files[0])
+        else:
+            # Multiple files — consolidate into one
+            _copy_consolidate(src, dst)
+    except OSError as e:
+        # A failed copy (commonly disk-full) can leave a truncated destination
+        # and/or .data sidecar behind. Remove them and surface a clear error
+        # instead of letting a later stage load the corrupt model.
+        _cleanup_partial_save(dst, dst.parent / f"{dst.name}.data")
+        _raise_save_error(e, dst)
 
     logger.debug(
         "Copied ONNX model with external data: %s -> %s (%d data files)",

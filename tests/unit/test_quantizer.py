@@ -30,6 +30,23 @@ class _FakeCalibrationReader:
         return None
 
 
+def _write_minimal_onnx_model(path: Path) -> None:
+    """Write a tiny but valid ONNX model (with an ai.onnx opset) to *path*.
+
+    The quantizer's input guard parses the file and requires a default opset
+    import, so tests that exercise the quantize flow need a real model on disk.
+    """
+    import onnx
+    from onnx import TensorProto, helper
+
+    x = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 3])
+    y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 3])
+    node = helper.make_node("Relu", ["X"], ["Y"])
+    graph = helper.make_graph([node], "g", [x], [y])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    onnx.save_model(model, str(path))
+
+
 class _FakeOrtModule(ModuleType):
     quantization: ModuleType
 
@@ -94,7 +111,7 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
 ) -> None:
     """Cleanup should remove only the exact .data sidecar for the output model."""
     model_path = tmp_path / "model.onnx"
-    model_path.write_text("input")
+    _write_minimal_onnx_model(model_path)
     output_path = tmp_path / "quantized.onnx"
     exact_sidecar = tmp_path / f"{output_path.name}.data"
     extra_suffix_sidecar = tmp_path / f"{output_path.name}.data.bak"
@@ -143,3 +160,74 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
 
     assert result.success is True
     assert extra_suffix_sidecar.exists()
+
+
+def _write_opsetless_onnx_model(path: Path) -> None:
+    """Write a parseable ONNX model that declares no default (ai.onnx) opset."""
+    import onnx
+    from onnx import TensorProto, helper
+
+    x = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 3])
+    y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 3])
+    node = helper.make_node("Relu", ["X"], ["Y"])
+    graph = helper.make_graph([node], "g", [x], [y])
+    # Only a custom-domain opset — no "" / "ai.onnx" import, which is the
+    # signature ORT's get_opset_version() rejects.
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("com.example", 1)])
+    onnx.save_model(model, str(path))
+
+
+def test_quantize_empty_input_model_surfaces_clear_error(tmp_path: Path) -> None:
+    """A zero-byte input model yields a clear disk-space/corruption error.
+
+    Regression for #259: a truncated optimize output must not surface as ORT's
+    opaque "Failed to find proper ai.onnx domain".
+    """
+    model_path = tmp_path / "optimized.onnx"
+    model_path.write_bytes(b"")  # truncated/zero-byte write left by disk-full
+
+    result = quantize_onnx(model_path, output_path=tmp_path / "quantized.onnx")
+
+    assert result.success is False
+    assert result.output_path is None
+    joined = " ".join(result.errors).lower()
+    assert "disk space" in joined
+    assert "failed to find proper ai.onnx domain" not in joined
+
+
+def test_quantize_opsetless_input_model_surfaces_clear_error(tmp_path: Path) -> None:
+    """A model with no ai.onnx opset import yields a clear, specific error."""
+    model_path = tmp_path / "optimized.onnx"
+    _write_opsetless_onnx_model(model_path)
+
+    result = quantize_onnx(model_path, output_path=tmp_path / "quantized.onnx")
+
+    assert result.success is False
+    assert result.output_path is None
+    joined = " ".join(result.errors)
+    assert "no ai.onnx opset import" in joined
+    assert "Failed to find proper ai.onnx domain" not in joined
+
+
+def test_quantize_unparseable_input_model_surfaces_clear_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An input model that fails to parse yields a clear error, not a traceback."""
+    import onnx
+
+    model_path = tmp_path / "optimized.onnx"
+    _write_minimal_onnx_model(model_path)
+
+    def _raise_parse_error(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("protobuf parse error")
+
+    monkeypatch.setattr(onnx, "load", _raise_parse_error)
+
+    result = quantize_onnx(model_path, output_path=tmp_path / "quantized.onnx")
+
+    assert result.success is False
+    assert result.output_path is None
+    joined = " ".join(result.errors)
+    assert "could not be parsed" in joined
+    assert "disk space" in joined.lower()
