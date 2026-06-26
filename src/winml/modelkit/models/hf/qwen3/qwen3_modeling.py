@@ -25,7 +25,7 @@ binds the matching ``forward`` from these classes onto it.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import torch
 import torch.nn as nn
@@ -40,6 +40,10 @@ from .qwen3_export_ops import (
 class WinMLQwen3RMSNorm(nn.Module):
     """RMSNorm export variant — ``onnx::LpNormalization`` body."""
 
+    # Bound at runtime onto a live ``Qwen3RMSNorm`` module; declared so the
+    # type checker knows the attribute these methods rely on.
+    weight: torch.Tensor
+
     def prepare_for_onnx_export(self) -> None:
         """Fold the RMSNorm gain into the weight (LpNorm has unit gain)."""
         # Pre-multiply the gain into the weight (LpNorm has unit gain).
@@ -52,39 +56,68 @@ class WinMLQwen3RMSNorm(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """Apply the LpNormalization-based RMSNorm body."""
-        out = LpNormOnnxExport.apply(hidden_states, -1, 2)
+        out = cast("torch.Tensor", LpNormOnnxExport.apply(hidden_states, -1, 2))
         return self.weight * out
 
 
 class WinMLQwen3MLP(nn.Module):
     """MLP export variant — 1x1 Conv projections (forward unchanged)."""
 
+    # Bound at runtime onto a live ``Qwen3MLP`` module; declared so the type
+    # checker has a non-circular type for the projections these methods swap.
+    gate_proj: nn.Module
+    up_proj: nn.Module
+    down_proj: nn.Module
+
     def prepare_for_onnx_export(self, *, matmul_to_conv: bool) -> None:
         """Optionally swap the MLP's linear projections for 1x1 convs."""
         if not matmul_to_conv:
             return
-        self.gate_proj = TransposeConv2d1x1Transpose.from_linear_module(self.gate_proj)
-        self.up_proj = TransposeConv2d1x1Transpose.from_linear_module(self.up_proj)
-        self.down_proj = TransposeConv2d1x1Transpose.from_linear_module(self.down_proj)
+        self.gate_proj = TransposeConv2d1x1Transpose.from_linear_module(
+            cast("nn.Linear", self.gate_proj)
+        )
+        self.up_proj = TransposeConv2d1x1Transpose.from_linear_module(
+            cast("nn.Linear", self.up_proj)
+        )
+        self.down_proj = TransposeConv2d1x1Transpose.from_linear_module(
+            cast("nn.Linear", self.down_proj)
+        )
 
 
 class WinMLQwen3Attention(nn.Module):
     """Attention export variant — fused ``GroupQueryAttention`` op."""
 
+    # Bound at runtime onto a live ``Qwen3Attention`` module; declared so the
+    # type checker knows the attributes these methods rely on.
+    config: Any
+    head_dim: int
+    q_proj: nn.Module
+    k_proj: nn.Module
+    v_proj: nn.Module
+    o_proj: nn.Module
+
     def prepare_for_onnx_export(self, *, matmul_to_conv: bool) -> None:
         """Optionally swap the Q/K/V/O projections for 1x1 convs."""
         if matmul_to_conv:
-            self.q_proj = TransposeConv2d1x1Transpose.from_linear_module(self.q_proj)
-            self.k_proj = TransposeConv2d1x1Transpose.from_linear_module(self.k_proj)
-            self.v_proj = TransposeConv2d1x1Transpose.from_linear_module(self.v_proj)
-            self.o_proj = TransposeConv2d1x1Transpose.from_linear_module(self.o_proj)
+            self.q_proj = TransposeConv2d1x1Transpose.from_linear_module(
+                cast("nn.Linear", self.q_proj)
+            )
+            self.k_proj = TransposeConv2d1x1Transpose.from_linear_module(
+                cast("nn.Linear", self.k_proj)
+            )
+            self.v_proj = TransposeConv2d1x1Transpose.from_linear_module(
+                cast("nn.Linear", self.v_proj)
+            )
+            self.o_proj = TransposeConv2d1x1Transpose.from_linear_module(
+                cast("nn.Linear", self.o_proj)
+            )
         self._matmul_to_conv = matmul_to_conv
 
     def forward(
         self,
         hidden_states: torch.Tensor,
         past_key_value: tuple[torch.Tensor, torch.Tensor] | None = None,
-        past_seq_len: torch.Tensor | None = None,
+        past_seq_len: torch.Tensor | int | None = None,
         total_seq_len: torch.Tensor | None = None,
         **kwargs: Any,
     ) -> tuple[torch.Tensor, None, tuple[torch.Tensor, torch.Tensor]]:
@@ -95,8 +128,8 @@ class WinMLQwen3Attention(nn.Module):
 
         input_shape = hidden_states.shape[1:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
-        query_states = self.q_norm(query_states.view(hidden_shape))
-        key_states = self.k_norm(key_states.view(hidden_shape))
+        query_states = cast("nn.Module", self.q_norm)(query_states.view(hidden_shape))
+        key_states = cast("nn.Module", self.k_norm)(key_states.view(hidden_shape))
 
         num_heads = self.config.num_attention_heads
         num_kv_heads = self.config.num_key_value_heads
@@ -108,6 +141,7 @@ class WinMLQwen3Attention(nn.Module):
         if self._matmul_to_conv:
             value_states = value_states.squeeze(0)
 
+        assert past_key_value is not None
         past_keys, past_values = past_key_value
 
         # GroupQueryAttention requires Q/K/V/past_K/past_V to share dtype.
@@ -119,7 +153,7 @@ class WinMLQwen3Attention(nn.Module):
             key_states = key_states.to(kv_dtype)
             value_states = value_states.to(kv_dtype)
 
-        cos, sin = self.rotary_emb(
+        cos, sin = cast("nn.Module", self.rotary_emb)(
             value_states,
             torch.arange(self.config.max_position_embeddings).unsqueeze(0),
         )
@@ -171,11 +205,11 @@ class WinMLQwen3DecoderLayer(nn.Module):
         total_seq_len: torch.Tensor | None = None,
         use_cache: bool = True,
         **kwargs: Any,
-    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+    ) -> tuple[Any, ...]:
         """Run the decoder layer (attention + MLP) with residual adds."""
         residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states)
-        attn_out, _, present_kv = self.self_attn(
+        hidden_states = cast("nn.Module", self.input_layernorm)(hidden_states)
+        attn_out, _, present_kv = cast("nn.Module", self.self_attn)(
             hidden_states=hidden_states,
             past_key_value=past_key_value,
             past_seq_len=past_seq_len,
@@ -184,11 +218,11 @@ class WinMLQwen3DecoderLayer(nn.Module):
         hidden_states = residual + attn_out
 
         residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states)
+        hidden_states = cast("nn.Module", self.post_attention_layernorm)(hidden_states)
+        hidden_states = cast("nn.Module", self.mlp)(hidden_states)
         hidden_states = residual + hidden_states
 
-        outputs = (hidden_states,)
+        outputs: tuple[Any, ...] = (hidden_states,)
         if use_cache:
             outputs += (present_kv,)
         return outputs
@@ -215,7 +249,7 @@ class WinMLQwen3Model(nn.Module):
             hidden_states = hidden_states.unsqueeze(0)  # NHWC for Conv path
 
         present_kvs: tuple[tuple[torch.Tensor, torch.Tensor], ...] = ()
-        for idx, layer in enumerate(self.layers):
+        for idx, layer in enumerate(cast("nn.ModuleList", self.layers)):
             out = layer(
                 hidden_states,
                 past_key_value=past_key_values[idx],
@@ -227,7 +261,7 @@ class WinMLQwen3Model(nn.Module):
             if use_cache:
                 present_kvs += (out[1],)
 
-        hidden_states = self.norm(hidden_states)
+        hidden_states = cast("nn.Module", self.norm)(hidden_states)
         if self._matmul_to_conv:
             hidden_states = hidden_states.squeeze(0)
         return hidden_states, present_kvs
@@ -260,7 +294,7 @@ def apply_transformer_only_export_prep(
             (e.g. the stock HF class names changed).
     """
 
-    def _bind(module: nn.Module, owner: type) -> None:
+    def _bind(module: nn.Module, owner: type[nn.Module]) -> None:
         module.forward = owner.forward.__get__(module, type(module))
 
     # Identify Qwen3 submodules by their (stock HF) class name so we don't
@@ -280,18 +314,22 @@ def apply_transformer_only_export_prep(
     # in input/post_attention layernorms).
     for mod in causal_lm.modules():
         if _is(mod, "Qwen3RMSNorm"):
-            WinMLQwen3RMSNorm.prepare_for_onnx_export(mod)
+            WinMLQwen3RMSNorm.prepare_for_onnx_export(cast("WinMLQwen3RMSNorm", mod))
             _bind(mod, WinMLQwen3RMSNorm)
             patched["Qwen3RMSNorm"] += 1
 
     for mod in causal_lm.modules():
         if _is(mod, "Qwen3Attention"):
-            WinMLQwen3Attention.prepare_for_onnx_export(mod, matmul_to_conv=matmul_to_conv)
+            WinMLQwen3Attention.prepare_for_onnx_export(
+                cast("WinMLQwen3Attention", mod), matmul_to_conv=matmul_to_conv
+            )
             _bind(mod, WinMLQwen3Attention)
             patched["Qwen3Attention"] += 1
         elif _is(mod, "Qwen3MLP"):
             # MLP forward is unchanged; only the projections are swapped to Conv.
-            WinMLQwen3MLP.prepare_for_onnx_export(mod, matmul_to_conv=matmul_to_conv)
+            WinMLQwen3MLP.prepare_for_onnx_export(
+                cast("WinMLQwen3MLP", mod), matmul_to_conv=matmul_to_conv
+            )
             patched["Qwen3MLP"] += 1
 
     # HF moved ``rotary_emb`` from ``Qwen3Attention`` up to ``Qwen3Model``;
@@ -299,8 +337,8 @@ def apply_transformer_only_export_prep(
     # so re-attach a reference from the parent model.
     for mod in causal_lm.modules():
         if _is(mod, "Qwen3Model") and hasattr(mod, "rotary_emb"):
-            for layer in mod.layers:
-                layer.self_attn.rotary_emb = mod.rotary_emb
+            for layer in cast("nn.ModuleList", mod.layers):
+                cast("nn.Module", layer.self_attn).rotary_emb = mod.rotary_emb
 
     for mod in causal_lm.modules():
         if _is(mod, "Qwen3DecoderLayer"):
@@ -309,7 +347,9 @@ def apply_transformer_only_export_prep(
 
     for mod in causal_lm.modules():
         if _is(mod, "Qwen3Model"):
-            WinMLQwen3Model.prepare_for_onnx_export(mod, matmul_to_conv=matmul_to_conv)
+            WinMLQwen3Model.prepare_for_onnx_export(
+                cast("WinMLQwen3Model", mod), matmul_to_conv=matmul_to_conv
+            )
             _bind(mod, WinMLQwen3Model)
             patched["Qwen3Model"] += 1
 

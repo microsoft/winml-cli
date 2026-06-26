@@ -28,18 +28,19 @@ module so the entries land in ``MODEL_CLASS_MAPPING`` / ``MODEL_BUILD_CONFIGS``.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
 from optimum.exporters.onnx import OnnxConfig
 from optimum.utils import NormalizedConfig
 from optimum.utils.input_generators import DummyInputGenerator
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, PretrainedConfig
 
 from ....config import WinMLBuildConfig
 from ....export import register_onnx_overwrite
 from ....export.config import WinMLExportConfig
+from ....optim import WinMLOptimizationConfig
 from ...winml import register_specialization
 from ...winml.composite_model import WinMLCompositeModel, register_composite_model
 from ...winml.kv_cache import WinMLSlidingWindowCache
@@ -73,7 +74,7 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
         super().__init__()
         self.model = model
         self.num_layers = num_layers
-        self.config = model.config
+        self.config: PretrainedConfig = cast("PretrainedConfig", model.config)
         apply_transformer_only_export_prep(model, matmul_to_conv=True)
         # Tag the config so the exporter resolves this variant's OnnxConfig
         # (registered under ``TRANSFORMER_ONLY_MODEL_TYPE``) rather than the
@@ -111,7 +112,7 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
 
         past_key_values = [(kv_args[2 * i], kv_args[2 * i + 1]) for i in range(self.num_layers)]
 
-        hidden_states, present_kvs = self.model.model(
+        hidden_states, present_kvs = cast("nn.Module", self.model.model)(
             inputs_embeds=input_hidden_states,
             past_key_values=past_key_values,
             past_seq_len=past_seq_len,
@@ -130,7 +131,7 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
 # =============================================================================
 
 
-class _TransformerOnlyHiddenStateGenerator(DummyInputGenerator):
+class _TransformerOnlyHiddenStateGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Generates ``input_hidden_states`` (FP32, ``[1, seq_len, hidden]``)."""
 
     SUPPORTED_INPUT_NAMES = ("input_hidden_states",)
@@ -147,7 +148,11 @@ class _TransformerOnlyHiddenStateGenerator(DummyInputGenerator):
     ) -> None:
         self.batch_size = batch_size
         self.hidden_size = normalized_config.hidden_size
-        self.seq_len = seq_len or getattr(normalized_config, "seq_len", self._default_seq_len)
+        self.seq_len = (
+            int(seq_len)
+            if seq_len
+            else int(getattr(normalized_config, "seq_len", self._default_seq_len))
+        )
 
     def generate(
         self,
@@ -165,7 +170,7 @@ class _TransformerOnlyHiddenStatePrefillGenerator(_TransformerOnlyHiddenStateGen
     _default_seq_len = 64
 
 
-class _TransformerOnlySeqLenGenerator(DummyInputGenerator):
+class _TransformerOnlySeqLenGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Generates ``past_seq_len`` (INT32 ``[1,1]``) and ``total_seq_len`` (INT32 ``[1]``)."""
 
     SUPPORTED_INPUT_NAMES = ("past_seq_len", "total_seq_len")
@@ -187,10 +192,10 @@ class _TransformerOnlySeqLenGenerator(DummyInputGenerator):
         raise ValueError(f"Unknown input: {input_name}")
 
 
-class _TransformerOnlyKvCacheGenerator(DummyInputGenerator):
+class _TransformerOnlyKvCacheGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Generates ``past_keys_{i}`` / ``past_values_{i}`` (FP16)."""
 
-    SUPPORTED_INPUT_NAMES = ()  # built dynamically in __init__
+    SUPPORTED_INPUT_NAMES: tuple[str, ...] = ()  # built dynamically in __init__
 
     def __init__(
         self,
@@ -265,7 +270,7 @@ def _transformer_only_outputs(
 @register_onnx_overwrite(
     TRANSFORMER_ONLY_MODEL_TYPE, "feature-extraction", library_name="transformers"
 )
-class QwenTransformerOnlyPrefillIOConfig(OnnxConfig):
+class QwenTransformerOnlyPrefillIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Prefill (seq=64) — transformer-only I/O."""
 
     NORMALIZED_CONFIG_CLASS = _QWEN_TRANSFORMER_ONLY_NORMALIZED
@@ -289,7 +294,7 @@ class QwenTransformerOnlyPrefillIOConfig(OnnxConfig):
 @register_onnx_overwrite(
     TRANSFORMER_ONLY_MODEL_TYPE, "text2text-generation", library_name="transformers"
 )
-class QwenTransformerOnlyGenIOConfig(OnnxConfig):
+class QwenTransformerOnlyGenIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Generation (seq=1) — transformer-only I/O."""
 
     NORMALIZED_CONFIG_CLASS = _QWEN_TRANSFORMER_ONLY_NORMALIZED
@@ -317,8 +322,9 @@ class QwenTransformerOnlyGenIOConfig(OnnxConfig):
 
 QWEN_TRANSFORMER_ONLY_CONFIG = WinMLBuildConfig(
     export=WinMLExportConfig(dynamo=False, opset_version=18),
-    # Pure graph (no post-export RMSNorm fusion / matmul-add fusion).
-    optim=None,
+    # Pure graph (no post-export RMSNorm fusion / matmul-add fusion): the default
+    # WinMLOptimizationConfig() leaves every fusion flag off.
+    optim=WinMLOptimizationConfig(),
 )
 
 
@@ -362,7 +368,7 @@ class WinMLQwen3TransformerOnlyModel(WinMLCompositeModel):
         return WinMLSlidingWindowCache
 
     @classmethod
-    def from_pretrained(  # type: ignore[override]
+    def from_pretrained(
         cls,
         model_id: str,
         task: str = "text-generation",

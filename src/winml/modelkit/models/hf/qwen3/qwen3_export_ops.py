@@ -35,7 +35,7 @@ class LpNormOnnxExport(torch.autograd.Function):
     """RMSNorm body → ONNX ``LpNormalization`` (p=2 along last dim)."""
 
     @staticmethod
-    def symbolic(g, input, axis, p) -> Any:
+    def symbolic(g: Any, input: Any, axis: Any, p: Any) -> Any:
         """Emit the ONNX ``LpNormalization`` node during export."""
         output_type = input.type().with_sizes(symbolic_helper._get_tensor_sizes(input))
         output = g.op(
@@ -47,7 +47,7 @@ class LpNormOnnxExport(torch.autograd.Function):
         return output.setType(output_type)
 
     @staticmethod
-    def forward(ctx, input, axis, p) -> Any:
+    def forward(ctx: Any, input: Any, axis: Any, p: Any) -> Any:
         """Real ``LpNormalization`` (``input / ||input||_p`` along ``axis``).
 
         The exported node comes from ``symbolic``; this eager body computes the
@@ -64,19 +64,19 @@ class GroupQueryAttentionOnnxExport(torch.autograd.Function):
 
     @staticmethod
     def symbolic(
-        g,
-        query,
-        key,
-        value,
-        past_key,
-        past_value,
-        seqlens_k,
-        total_sequence_length,
-        cos_cache,
-        sin_cache,
-        do_rotary,
-        kv_num_heads,
-        num_heads,
+        g: Any,
+        query: Any,
+        key: Any,
+        value: Any,
+        past_key: Any,
+        past_value: Any,
+        seqlens_k: Any,
+        total_sequence_length: Any,
+        cos_cache: Any,
+        sin_cache: Any,
+        do_rotary: Any,
+        kv_num_heads: Any,
+        num_heads: Any,
     ) -> Any:
         """Emit the fused ``com.microsoft::GroupQueryAttention`` node."""
         args = [
@@ -111,19 +111,19 @@ class GroupQueryAttentionOnnxExport(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx,
-        query,
-        key,
-        value,
-        past_key,
-        past_value,
-        seqlens_k,
-        total_sequence_length,
-        cos_cache,
-        sin_cache,
-        do_rotary,
-        kv_num_heads,
-        num_heads,
+        ctx: Any,
+        query: Any,
+        key: Any,
+        value: Any,
+        past_key: Any,
+        past_value: Any,
+        seqlens_k: Any,
+        total_sequence_length: Any,
+        cos_cache: Any,
+        sin_cache: Any,
+        do_rotary: Any,
+        kv_num_heads: Any,
+        num_heads: Any,
     ) -> Any:
         """Shape-only tracing placeholder; returns a stand-in ``(output, KV)``.
 
@@ -155,8 +155,8 @@ class TransposeConv2d1x1Transpose(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        weight: torch.nn.Parameter,
-        bias: torch.nn.Parameter | None = None,
+        weight: torch.Tensor,
+        bias: torch.Tensor | None = None,
     ) -> None:
         super().__init__()
         # Linear weight is (out, in); Conv2d weight is (out, in, 1, 1).
