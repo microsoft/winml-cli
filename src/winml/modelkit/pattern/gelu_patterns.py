@@ -124,7 +124,7 @@ class Gelu1Pattern(Pattern):
 
 
 @register_pattern_input_generator
-class Gelu1PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):
+class Gelu1PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):  # type: ignore[misc]  # dynamic base class (runtime-checker op)
     """Input generator for GELU activation pattern variant 1."""
 
     pattern = Gelu1Pattern()
@@ -224,7 +224,7 @@ class Gelu2Pattern(Pattern):
 
 
 @register_pattern_input_generator
-class Gelu2PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):
+class Gelu2PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):  # type: ignore[misc]  # dynamic base class (runtime-checker op)
     """Input generator for GELU activation pattern variant 2."""
 
     pattern = Gelu2Pattern()
@@ -331,7 +331,7 @@ class Gelu3Pattern(Pattern):
 
 
 @register_pattern_input_generator
-class Gelu3PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):
+class Gelu3PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):  # type: ignore[misc]  # dynamic base class (runtime-checker op)
     """Input generator for GELU activation pattern variant 3."""
 
     pattern = Gelu3Pattern()
@@ -439,7 +439,7 @@ class Gelu4Pattern(Pattern):
 
 
 @register_pattern_input_generator
-class Gelu4PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):
+class Gelu4PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):  # type: ignore[misc]  # dynamic base class (runtime-checker op)
     """Input generator for GELU activation pattern variant 4."""
 
     pattern = Gelu4Pattern()

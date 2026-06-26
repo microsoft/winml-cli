@@ -133,6 +133,12 @@ class BenchmarkResult:
     samples_per_sec: float = 0.0
     batches_per_sec: float = 0.0
 
+    # Batch dimension the session actually ran. Equals config.batch_size when
+    # the model's leading input dim is dynamic; falls back to the model's
+    # static batch (often 1) otherwise. samples_per_sec is scaled by this, not
+    # by the requested config.batch_size.
+    effective_batch_size: int = 1
+
     # Actual values used (after auto-detection)
     actual_device: str = ""
     actual_task: str = ""
@@ -162,6 +168,7 @@ class BenchmarkResult:
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
                 "batch_size": self.config.batch_size,
+                "effective_batch_size": self.effective_batch_size,
                 "timestamp": self.timestamp,
             },
             "model_info": {
@@ -282,6 +289,37 @@ def _resolve_shape(
     return tuple(resolved)
 
 
+def effective_batch_size(
+    inputs: dict[str, np.ndarray],
+    input_names: list[str],
+    requested: int,
+) -> int:
+    """The batch dimension actually present in the generated inputs.
+
+    The requested ``--batch-size`` only lands on inputs whose leading
+    dimension is dynamic; a model with a statically-fixed batch dim ignores
+    it (see :func:`_resolve_shape`). Throughput (samples/sec) must be scaled
+    by what the session actually ran, not by what was asked, or a static-batch
+    model reports ``requested / latency`` while only processing one batch per
+    call -- inflating samples/sec by ``requested``.
+
+    Reads the leading dim back from the first batched (rank >= 1) input,
+    matching the "first dim is batch" convention used throughout this module.
+    Falls back to ``requested`` when no batched input exists (e.g. all-scalar
+    inputs), which preserves the prior behavior for that edge case.
+
+    Single-input assumption: only the first batched input is inspected. For
+    multimodal or encoder-decoder models whose batched inputs disagree on the
+    leading dim (e.g. an image batch of 4 alongside a differently batched
+    tensor), the reported value reflects only the first batched input.
+    """
+    for name in input_names:
+        arr = inputs.get(name)
+        if arr is not None and arr.ndim >= 1:
+            return int(arr.shape[0])
+    return requested
+
+
 # =============================================================================
 # Benchmark Engine
 # =============================================================================
@@ -305,7 +343,48 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
+        self._effective_batch: int = config.batch_size
         self._memory: dict[str, float] | None = None
+        # Concrete device + EP resolved from the config's request, populated by
+        # _resolve_device_ep() on the first call (before the build). The config
+        # keeps the raw request (e.g. "auto"); these hold what actually drives
+        # the build and inference.
+        self._resolved_device: str | None = None
+        self._resolved_ep: EPNameOrAlias | None = None
+
+    def _resolve_device_ep(self) -> None:
+        """Resolve the concrete target device + EP, failing fast on a bad combo.
+
+        Idempotent: resolves once, then returns cached values. Called at the
+        start of model loading so an unavailable/invalid device+EP raises here —
+        before the export/optimize/quantize/compile pipeline runs — instead of
+        only surfacing at session.compile(). Deriving a concrete EP also lets the
+        build's static analyzer target one EP instead of aggregating across all
+        of them (WinMLAutoModel itself stays permissive: ep=None is a valid
+        library mode).
+
+        Raises:
+            ValueError: If the requested device/EP combination is unavailable
+                or invalid (propagated from ``resolve_device``).
+        """
+        if self._resolved_device is not None:
+            return
+
+        from ..sysinfo import resolve_device, resolve_eps
+
+        # resolve_device() availability-checks even when --ep is explicit, so a
+        # named-but-absent EP is caught here too.
+        resolved_device, _ = resolve_device(device=self.config.device, ep=self.config.ep)
+        if self.config.ep is not None:
+            # Keep the user's EP (alias or canonical) verbatim — downstream
+            # stages normalize it. Only derive one when the user gave none.
+            resolved_ep: EPNameOrAlias | None = self.config.ep
+        else:
+            device_eps = resolve_eps(resolved_device)
+            resolved_ep = device_eps[0] if device_eps else None
+
+        self._resolved_device = resolved_device
+        self._resolved_ep = resolved_ep
 
     @property
     def _is_composite(self) -> bool:
@@ -481,6 +560,10 @@ class PerfBenchmark:
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
 
+        # Resolve the concrete device + EP first so a bad combo fails fast,
+        # before from_pretrained/from_onnx kick off the build pipeline.
+        self._resolve_device_ep()
+
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx"
@@ -503,9 +586,9 @@ class PerfBenchmark:
         common_kwargs: dict[str, Any] = {
             "task": self.config.task,
             "config": override,
-            "device": self.config.device,
+            "device": self._resolved_device or self.config.device,
             "precision": self.config.precision,
-            "ep": self.config.ep,
+            "ep": self._resolved_ep,
             "provider_options": self.config.ep_options,
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
@@ -535,10 +618,25 @@ class PerfBenchmark:
 
     def _generate_inputs(self) -> None:
         """Generate random inputs based on model io_config."""
+        io_config = self._single.io_config
         self._inputs = generate_random_inputs(
-            io_config=self._single.io_config,
+            io_config=io_config,
             batch_size=self.config.batch_size,
         )
+        self._effective_batch = effective_batch_size(
+            self._inputs,
+            io_config["input_names"],
+            self.config.batch_size,
+        )
+        if self._effective_batch != self.config.batch_size:
+            logger.warning(
+                "Requested --batch-size %d could not be applied: the model's "
+                "leading input dimension is statically %d. Throughput is scaled "
+                "by the actual batch (%d), not the requested value.",
+                self.config.batch_size,
+                self._effective_batch,
+                self._effective_batch,
+            )
 
     def _resolve_adapter_luid(self) -> str | None:
         """Resolve adapter LUID for VRAM queries."""
@@ -548,7 +646,7 @@ class PerfBenchmark:
             return None
 
         assert self._model is not None
-        device = self._single.device or self.config.device
+        device = self._single.device or self._resolved_device or self.config.device
         if device == "cpu":
             return None
 
@@ -655,9 +753,11 @@ class PerfBenchmark:
         """Collect benchmark results from PerfStats."""
         io_config = self._single.io_config
 
-        # Calculate throughput
+        # Calculate throughput. Scale by the batch the session actually ran
+        # (self._effective_batch), not the requested config.batch_size, which a
+        # static-batch model silently ignores during input generation.
         mean_latency_sec = stats.mean_ms / 1000.0
-        samples_per_sec = self.config.batch_size / mean_latency_sec if mean_latency_sec > 0 else 0
+        samples_per_sec = self._effective_batch / mean_latency_sec if mean_latency_sec > 0 else 0
         batches_per_sec = 1.0 / mean_latency_sec if mean_latency_sec > 0 else 0
 
         # Calculate standard deviation
@@ -691,6 +791,7 @@ class PerfBenchmark:
             # Throughput
             samples_per_sec=samples_per_sec,
             batches_per_sec=batches_per_sec,
+            effective_batch_size=self._effective_batch,
             # Actual values (resolved after build + compile)
             actual_device=self._single.device,
             actual_task=self._single.task or self.config.task or "auto-detected",
@@ -755,7 +856,8 @@ def _perf_modules(
         monitor: If True, wrap each per-module benchmark with HWMonitor.
         device: Target device policy ("auto", "cpu", "gpu", "npu").
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
-            device-to-provider mapping when set.
+            device-to-provider mapping when set. When ``None``, a concrete EP is
+            derived from the resolved device so the analyzer targets one EP.
         ep_options: Runtime EP provider options (e.g. QNN
             ``htp_performance_mode``) forwarded to each per-module session.
         precision: Precision mode passed through to the build stage.
@@ -768,10 +870,17 @@ def _perf_modules(
 
     from ..build import build_hf_model
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
-    from ..sysinfo import resolve_device
+    from ..sysinfo import resolve_device, resolve_eps
     from .build import _instantiate_parent_model
 
     resolved_device, _ = resolve_device(device=device, ep=ep)
+    # Derive a concrete EP when none was given so each per-module build's static
+    # analyzer targets one EP instead of ep=None (which aggregates across all
+    # EPs and warns; see #931). An explicit EP is kept verbatim — downstream
+    # stages normalize it.
+    if ep is None:
+        device_eps = resolve_eps(resolved_device)
+        ep = device_eps[0] if device_eps else None
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -1061,7 +1170,18 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
     # Throughput
     console.print()
-    console.print(f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec")
+    throughput_line = f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec"
+    if result.effective_batch_size != 1:
+        throughput_line += f" [dim](batch {result.effective_batch_size})[/dim]"
+    console.print(throughput_line)
+    # Flag when the requested batch couldn't be honored so a static-batch model
+    # doesn't look like it silently ran the requested batch.
+    if result.config.batch_size != result.effective_batch_size:
+        console.print(
+            f"  [yellow]Note:[/yellow] requested batch {result.config.batch_size} "
+            f"could not be applied (model has a static batch of "
+            f"{result.effective_batch_size})."
+        )
 
     # Hardware section (only when monitoring was active)
     if result.hw_monitor:
@@ -1535,6 +1655,8 @@ def perf(
                 "[yellow]Warning:[/yellow] --shape-config is not supported "
                 "in --module mode and will be ignored."
             )
+        # _perf_modules resolves the device + derives a concrete EP internally
+        # (it will fold into PerfBenchmark — see #939).
         _perf_modules(
             hf_model=hf_model,
             module_class=module_class,
@@ -1583,7 +1705,9 @@ def perf(
     if output is None:
         output = generate_output_path(hf_model)
 
-    # Create config
+    # Create config. The raw device/EP request is passed through unchanged;
+    # PerfBenchmark resolves the concrete device + EP internally (failing fast
+    # before the build), so the CLI does not pre-resolve here.
     config = BenchmarkConfig(
         model_id=hf_model,
         task=task,
@@ -1625,6 +1749,18 @@ def perf(
                     "pre-exported ONNX files (shapes are baked into the model)."
                 )
                 config.shape_config = None
+            # Build-pipeline flags are forwarded to from_onnx but no-op when the
+            # build is skipped (the default). Warn so the silent no-op is visible
+            # — shared detection with eval via utils/cli.py.
+            build_flags_warning = cli_utils.ignored_build_flags_warning(
+                skip_build_onnx=skip_build,
+                quant=quant,
+                optimize=optimize,
+                analyze=analyze,
+                max_optim_iterations=max_optim_iterations,
+            )
+            if build_flags_warning:
+                console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
         else:
             if precision != "auto":

@@ -11,6 +11,8 @@ exclude_docs: |
   /design/
   /naming-convention.md
   /pytest-best-practices.md
+  /reports/download_report.py
+  /reports/README.md
 
 extra:
   version:

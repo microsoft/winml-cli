@@ -254,7 +254,7 @@ class DocConstraintChecker:
                     return dtype.upper()
         return None
 
-    def _get_node_shape(self, tensor_name: str) -> list[int] | None:
+    def _get_node_shape(self, tensor_name: str) -> tuple[int | str | None, ...] | None:
         """Get shape of a tensor.
 
         Args:

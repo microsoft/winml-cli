@@ -57,13 +57,10 @@ console = Console()
     default=None,
     help="Output directory (default: same as input model)",
 )
-@click.option(
-    "--device",
-    "-d",
-    type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
+@cli_utils.device_option(
+    required=False,
     default="auto",
-    show_default=True,
-    help="Target device",
+    include_auto=True,
 )
 @cli_utils.ep_option(
     required=False,

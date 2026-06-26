@@ -29,10 +29,20 @@ from winml.modelkit.commands.perf import (
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device to avoid hardware detection in all perf CLI tests."""
-    with patch(
-        "winml.modelkit.sysinfo.resolve_device",
-        return_value=("cpu", ["cpu"]),
+    """Mock device/EP resolution to avoid hardware detection in all perf CLI tests.
+
+    perf() resolves the device (and, when --ep is omitted, derives a concrete EP
+    via resolve_eps) up front, so both are stubbed to a deterministic CPU result.
+    """
+    with (
+        patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            return_value=("cpu", ["cpu"]),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_eps",
+            return_value=["CPUExecutionProvider"],
+        ),
     ):
         yield
 
@@ -364,6 +374,72 @@ class TestPerfUnifiedPipeline:
         assert "Benchmarking ONNX" in result.output
         assert captured["config"].shape_config is None
 
+    def test_cli_onnx_warns_ignored_build_flags(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Build-pipeline flags are no-ops for a pre-built ONNX with skip_build,
+        so the CLI surfaces a warning naming the flags the user set."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        def capture_config(_config: BenchmarkConfig) -> MagicMock:
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--no-quant",
+                    "--no-optimize",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "--no-quant" in result.output
+        assert "--no-optimize" in result.output
+        assert "pre-built ONNX" in result.output
+
+    def test_cli_onnx_no_build_flag_warning_at_defaults(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """No ignored-build-flags warning when the flags are left at defaults."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        def capture_config(_config: BenchmarkConfig) -> MagicMock:
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "ignored for pre-built ONNX inputs (no build runs" not in result.output
+
     def test_cli_onnx_not_found_error(self, runner: CliRunner, tmp_path: Path) -> None:
         """CLI with non-existent .onnx file should raise FileNotFoundError."""
         missing = tmp_path / "missing.onnx"
@@ -495,6 +571,105 @@ class TestPerfUnifiedPipeline:
         assert result.exit_code != 0
         assert "KEY=VALUE" in result.output
 
+    def test_load_model_no_ep_derives_concrete_ep(self, tmp_path: Path) -> None:
+        """Without an EP, PerfBenchmark resolves a concrete one before building.
+
+        Regression guard: previously ep stayed None down to the build, so the
+        static analyzer ran with ep=None and aggregated across all EPs (and
+        logged a warning). PerfBenchmark now resolves the EP from the device
+        (autouse fixture stubs resolve_eps -> ["CPUExecutionProvider"]) and
+        passes it to from_onnx. The config keeps the raw request (ep=None);
+        the resolved value lives on the instance.
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(model_id=str(onnx_file), task="image-classification")
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+            return_value=MagicMock(),
+        ) as mock_from_onnx:
+            benchmark._load_model()
+
+        assert mock_from_onnx.call_args.kwargs["ep"] == "CPUExecutionProvider"
+        assert benchmark._resolved_ep == "CPUExecutionProvider"
+        assert config.ep is None
+
+    def test_load_model_explicit_ep_passed_through_verbatim(self, tmp_path: Path) -> None:
+        """An explicit EP reaches from_onnx unchanged (no normalization).
+
+        Downstream build/session stages normalize aliases themselves, so
+        PerfBenchmark must not rewrite the user's value (e.g. 'qnn' stays 'qnn').
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(
+            model_id=str(onnx_file), task="image-classification", device="npu", ep="qnn"
+        )
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+            return_value=MagicMock(),
+        ) as mock_from_onnx:
+            benchmark._load_model()
+
+        assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
+        assert benchmark._resolved_ep == "qnn"
+
+    def test_load_model_unavailable_device_ep_fails_before_build(self, tmp_path: Path) -> None:
+        """An unavailable device/EP combo fails before the build pipeline runs.
+
+        PerfBenchmark resolves device+EP at the start of _load_model, so an
+        unavailable combo (resolve_device raises ValueError) surfaces before
+        from_onnx kicks off the build — the user does not wait for the whole
+        build only to fail at session.compile().
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(model_id=str(onnx_file), task="image-classification", device="npu")
+        benchmark = PerfBenchmark(config)
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                side_effect=ValueError("no compatible EP is available"),
+            ),
+            patch("winml.modelkit.models.auto.WinMLAutoModel.from_onnx") as mock_from_onnx,
+            pytest.raises(ValueError, match="no compatible EP is available"),
+        ):
+            benchmark._load_model()
+
+        mock_from_onnx.assert_not_called()
+
+    def test_cli_unavailable_device_ep_surfaces_error(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """The CLI surfaces the fail-fast resolution error with a non-zero exit."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                side_effect=ValueError("no compatible EP is available"),
+            ),
+            patch("winml.modelkit.models.auto.WinMLAutoModel.from_onnx") as mock_from_onnx,
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "--device", "npu", "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "no compatible EP is available" in result.output
+        mock_from_onnx.assert_not_called()
+
     def test_help_shows_ep_options(self, runner: CliRunner) -> None:
         result = runner.invoke(perf, ["--help"])
         assert result.exit_code == 0
@@ -514,6 +689,139 @@ class TestPerfUnifiedPipeline:
         result = BenchmarkResult(config=config)
 
         assert result.to_dict()["benchmark_info"]["ep_options"] is None
+
+
+class TestEffectiveBatchSize:
+    """Throughput must scale by the batch the session actually ran.
+
+    ``--batch-size`` only lands on inputs whose leading dim is dynamic, so a
+    static-batch model silently runs a different batch than requested. The
+    reported ``samples_per_sec`` must reflect the actual batch, not the request.
+    """
+
+    def test_helper_reads_dynamic_batch_from_inputs(self) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import effective_batch_size
+
+        inputs = {"pixel_values": np.zeros((8, 3, 224, 224), dtype=np.float32)}
+        assert effective_batch_size(inputs, ["pixel_values"], requested=8) == 8
+
+    def test_helper_reads_static_batch_not_requested(self) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import effective_batch_size
+
+        # Model has a static batch of 1; the requested 8 never reached the input.
+        inputs = {"pixel_values": np.zeros((1, 3, 224, 224), dtype=np.float32)}
+        assert effective_batch_size(inputs, ["pixel_values"], requested=8) == 1
+
+    def test_helper_skips_scalar_inputs(self) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import effective_batch_size
+
+        # First input is a rank-0 scalar (no batch dim); fall through to the
+        # first batched input for the batch reading.
+        inputs = {
+            "scalar": np.array(3, dtype=np.int64),
+            "tokens": np.zeros((4, 128), dtype=np.int64),
+        }
+        assert effective_batch_size(inputs, ["scalar", "tokens"], requested=4) == 4
+
+    def test_helper_falls_back_when_all_scalar(self) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import effective_batch_size
+
+        inputs = {"scalar": np.array(3, dtype=np.int64)}
+        assert effective_batch_size(inputs, ["scalar"], requested=8) == 8
+
+    def _fake_stats(self) -> MagicMock:
+        stats = MagicMock()
+        stats.mean_ms = 10.0  # 0.01 s -> 100 batches/sec
+        stats.min_ms = 9.0
+        stats.max_ms = 11.0
+        stats.p50_ms = 10.0
+        stats.p90_ms = 10.5
+        stats.p95_ms = 10.8
+        stats.p99_ms = 11.0
+        stats.samples_ms = [10.0, 10.0]
+        stats.all_samples_ms = [10.0, 10.0]
+        return stats
+
+    def _benchmark_with_single(self, *, batch_size: int, effective_batch: int) -> PerfBenchmark:
+        config = BenchmarkConfig(model_id="m", batch_size=batch_size, warmup=0)
+        benchmark = PerfBenchmark(config)
+        single = MagicMock()
+        single.io_config = {
+            "input_names": ["pixel_values"],
+            "input_shapes": [[effective_batch, 3, 224, 224]],
+            "input_types": ["float32"],
+            "output_names": ["logits"],
+            "output_shapes": [[effective_batch, 1000]],
+        }
+        single.device = "cpu"
+        single.ep_name = None
+        single.task = "image-classification"
+        single.running_model_path = "model.onnx"
+        benchmark._model = single
+        benchmark._effective_batch = effective_batch
+        return benchmark
+
+    def test_throughput_scales_by_effective_not_requested(self) -> None:
+        # Requested batch 8, but model ran batch 1: 100 batches/sec -> 100 sps,
+        # NOT 800. This is the bug guard.
+        benchmark = self._benchmark_with_single(batch_size=8, effective_batch=1)
+        result = benchmark._collect_results(self._fake_stats())
+
+        assert result.effective_batch_size == 1
+        assert result.batches_per_sec == pytest.approx(100.0)
+        assert result.samples_per_sec == pytest.approx(100.0)
+
+    def test_throughput_scales_when_batch_applied(self) -> None:
+        # Dynamic batch honored: 100 batches/sec * 8 = 800 samples/sec.
+        benchmark = self._benchmark_with_single(batch_size=8, effective_batch=8)
+        result = benchmark._collect_results(self._fake_stats())
+
+        assert result.effective_batch_size == 8
+        assert result.batches_per_sec == pytest.approx(100.0)
+        assert result.samples_per_sec == pytest.approx(800.0)
+
+    def test_generate_inputs_warns_on_static_batch(self) -> None:
+        import numpy as np
+
+        config = BenchmarkConfig(model_id="m", batch_size=8)
+        benchmark = PerfBenchmark(config)
+        single = MagicMock()
+        single.io_config = {
+            "input_names": ["pixel_values"],
+            "input_shapes": [[1, 3, 224, 224]],
+            "input_types": ["float32"],
+        }
+        benchmark._model = single
+
+        # Static batch of 1: generate_random_inputs ignores the requested 8.
+        static_inputs = {"pixel_values": np.zeros((1, 3, 224, 224), dtype=np.float32)}
+        with (
+            patch(
+                "winml.modelkit.commands.perf.generate_random_inputs",
+                return_value=static_inputs,
+            ),
+            patch("winml.modelkit.commands.perf.logger") as mock_logger,
+        ):
+            benchmark._generate_inputs()
+
+        assert benchmark._effective_batch == 1
+        mock_logger.warning.assert_called_once()
+
+    def test_to_dict_emits_effective_batch_size(self) -> None:
+        config = BenchmarkConfig(model_id="m", batch_size=8)
+        result = BenchmarkResult(config=config, effective_batch_size=1)
+
+        info = result.to_dict()["benchmark_info"]
+        assert info["batch_size"] == 8
+        assert info["effective_batch_size"] == 1
 
 
 # =============================================================================

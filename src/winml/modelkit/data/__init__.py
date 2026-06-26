@@ -2,15 +2,11 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Data loading and preprocessing components for WinML CLI."""
+"""Package data for WinML CLI.
 
-from . import (
-    dummy_dataset,
-    image_classification_dataset,
-    random_dataset,
-)
-from .data_config import DataConfig
-from .registry import DataRegistry
-
-
-__all__ = ["DataConfig", "DataRegistry"]
+This package ships the built-in model catalog (``hub_models.json``) consumed by
+the ``catalog`` command and the ``serve`` HTTP API. It intentionally contains no
+importable code so that resolving the package (e.g. via
+``importlib.resources.files``) stays lightweight and free of heavy optional
+dependencies.
+"""

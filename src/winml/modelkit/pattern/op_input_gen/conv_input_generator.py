@@ -18,7 +18,6 @@ import numpy as np
 
 from ...onnx import SupportedONNXType
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,
@@ -125,7 +124,7 @@ class ConvInputGenerator(OpInputGenerator):
             "auto_pad": auto_pad_opts,
         }
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Conv operator inputs."""
         # https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/python/tools/quantization/operators/conv.py
         return {
@@ -169,7 +168,7 @@ class ConvOpInputGenerator(ConvInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input and infinite attribute combinations for Conv operator."""
         combinations = []
         for x_shape, m, k_shape in self.get_base_conv_shapes():
@@ -259,7 +258,7 @@ class ConvOpInputGenerator(ConvInputGenerator):
             "B_shape",
         ]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Conv operator inputs."""
         # B/Y can be non-QDQ from P1 models
         # TODO: INT8 bias is a workaround — P1 models observed with INT8-quantized
@@ -364,7 +363,7 @@ class ConvTransposeInputGenerator(ConvInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input and infinite attribute combinations for ConvTranspose operator."""
         combinations = []
         for x_shape, m, k_shape in self.get_base_conv_shapes():

@@ -17,7 +17,6 @@ import numpy as np
 
 from ...onnx import SupportedONNXType
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
@@ -155,14 +154,14 @@ class BatchNormalizationInputGenerator(NormalizationInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for BatchNormalization.
 
         For each data shape:
         - X has the full shape (N, C, ...)
         - scale, bias, mean, var all have shape (C,)
         """
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         # BatchNormalization uses mean/var in older opsets and input_mean/input_var in newer opsets.
         x_name, scale_name, bias_name, mean_name, var_name = self.op_input_names[:5]
@@ -228,7 +227,7 @@ class GroupNormalizationInputGenerator(NormalizationInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for GroupNormalization.
 
         For each data shape, test multiple num_groups values where
@@ -301,12 +300,12 @@ class InstanceNormalizationInputGenerator(NormalizationInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for InstanceNormalization.
 
         InstanceNorm requires at least 3D tensors (N, C, spatial_dims).
         """
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         for shape in self.get_common_data_shapes():
             # Skip 2D shapes - InstanceNorm requires spatial dimensions
@@ -376,7 +375,7 @@ class LayerNormalizationInputGenerator(NormalizationInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for LayerNormalization.
 
         Test different axis values: -1 (last dim), -2 (last 2 dims), etc.
@@ -433,9 +432,9 @@ class LpNormalizationInputGenerator(NormalizationInputGenerator):
         """Return finite attribute values for LpNormalization."""
         return {"p": [1, 2]}
 
-    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, object]]:
         """Return input combinations for LpNormalization."""
-        combinations = []
+        combinations: list[dict[str, object]] = []
         for shape in self.get_common_data_shapes():
             if len(shape) < 3:
                 continue
@@ -483,7 +482,7 @@ class MeanVarianceNormalizationInputGenerator(NormalizationInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for MeanVarianceNormalization.
 
         Test different axes combinations based on tensor rank.
@@ -538,7 +537,7 @@ class RMSNormalizationInputGenerator(NormalizationInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Return input combinations for RMSNormalization.
 
         Test different axis values: -1 (last dim), 0 (all dims).

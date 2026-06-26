@@ -136,6 +136,10 @@ class WinMLBuildConfig:
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
     auto: bool = True
+    # Original precision string (e.g., "w4a16", "int4", "fp16") used to derive
+    # the quantization pass sequence via expand_precision(). Set during config
+    # resolution; None means legacy config without precision info.
+    precision: str | None = None
 
     def __post_init__(self) -> None:
         # Lazy import: inject into module globals so typing.get_type_hints()
@@ -169,6 +173,7 @@ class WinMLBuildConfig:
             ),
             eval=eval_cfg,
             auto=config_dict.get("auto", True),
+            precision=config_dict.get("precision"),
         )
 
     def to_dict(self) -> dict:
@@ -176,6 +181,8 @@ class WinMLBuildConfig:
         result: dict = {}
         if not self.auto:
             result["auto"] = False
+        if self.precision is not None:
+            result["precision"] = self.precision
         result.update(
             {
                 "export": self.export.to_dict() if self.export is not None else None,
@@ -225,9 +232,11 @@ class WinMLBuildConfig:
         # Exceptions: ONNX builds (export=None) don't need quant.task/model_name
         # because the ONNX model is pre-exported. Submodule builds (module_path
         # set) use RandomDataset which only needs the ONNX model_path.
+        # Algorithms that skip calibration (fp16, rtn, dynamic) also don't
+        # need task/model_name since they don't generate calibration datasets.
         if self.quant is not None:
-            is_submodule = bool(self.loader and self.loader.module_path)
-            needs_quant_ids = not is_onnx_build and not is_submodule
+            needs_calibration = self.quant.mode == "static"
+            needs_quant_ids = not is_onnx_build and not is_submodule and needs_calibration
             if needs_quant_ids and not self.quant.task:
                 errors.append("quant.task is required when quant is enabled for HF builds")
             if needs_quant_ids and not self.quant.model_name:
@@ -327,7 +336,11 @@ def resolve_quant_compile_config(
         policy does not require that stage (e.g., CPU with fp32).
     """
     from ..sysinfo import resolve_check_device_ep
-    from .precision import resolve_precision
+    from .precision import (
+        extract_weight_bits,
+        is_weight_only_precision,
+        resolve_precision,
+    )
 
     resolved_device, available_devices, resolved_eps = resolve_check_device_ep(device=device, ep=ep)
     logger.info(
@@ -353,6 +366,15 @@ def resolve_quant_compile_config(
         quant_config = WinMLQuantizationConfig()
         quant_config.weight_type = policy.weight_type
         quant_config.activation_type = policy.activation_type
+    elif policy.precision == "fp16":
+        # Pure FP16: no QDQ quantization, only FP16 conversion
+        quant_config = WinMLQuantizationConfig(mode="fp16")
+    elif is_weight_only_precision(policy.precision):
+        # Weight-only (RTN): derive rtn_bits from precision
+        quant_config = WinMLQuantizationConfig(
+            mode="rtn",
+            rtn_bits=extract_weight_bits(policy.precision),
+        )
 
     # Compile config
     compile_config = WinMLCompileConfig.for_provider(policy.compile_provider, device=policy.device)
@@ -660,7 +682,11 @@ def generate_hf_build_config(
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
     from ..sysinfo import resolve_check_device_ep
-    from .precision import resolve_precision
+    from .precision import (
+        extract_weight_bits,
+        is_weight_only_precision,
+        resolve_precision,
+    )
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
     # blindly default to QNN on machines without an NPU (#412).
@@ -687,9 +713,21 @@ def generate_hf_build_config(
             parent_config.quant = WinMLQuantizationConfig()
         parent_config.quant.weight_type = policy.weight_type
         parent_config.quant.activation_type = policy.activation_type
+    elif policy.precision == "fp16":
+        # Pure FP16: no QDQ, only FP16 conversion via quantize stage
+        parent_config.quant = WinMLQuantizationConfig(mode="fp16")
+    elif policy.precision and is_weight_only_precision(policy.precision):
+        # RTN weight-only quantization (e.g. int4, w4a16, w4a32)
+        parent_config.quant = WinMLQuantizationConfig(
+            mode="rtn",
+            rtn_bits=extract_weight_bits(policy.precision),
+        )
     else:
-        # CPU/GPU: precision is float (fp16/fp32) — no quantization
+        # CPU/GPU: precision is float (fp32) — no quantization
         parent_config.quant = None
+
+    # Store resolved precision for multi-pass expansion
+    parent_config.precision = policy.precision
 
     # Compile config
     parent_config.compile = WinMLCompileConfig.for_provider(

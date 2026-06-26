@@ -145,9 +145,9 @@ def _get_available_eps() -> frozenset[EPName]:
 
 
 def resolve_device(
-    device: str = "auto",
+    device: str,
     *,
-    ep: EPNameOrAlias | None = None,
+    ep: EPNameOrAlias | None,
 ) -> tuple[str, list[str]]:
     """Resolve target device with EP availability cross-check.
 
@@ -233,7 +233,7 @@ def resolve_eps(resolved_device: str) -> list[EPName]:
 
 
 def resolve_check_device_ep(
-    *, device: str = "auto", ep: EPNameOrAlias | None = None
+    *, device: str, ep: EPNameOrAlias | None
 ) -> tuple[str, list[str], list[EPName]]:
     """Resolve or check that the requested device and/or EP combination is valid, raising if not.
 
