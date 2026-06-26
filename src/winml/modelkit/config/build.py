@@ -207,7 +207,7 @@ class WinMLBuildConfig:
 
         Build types:
             - HF build (export is not None): requires loader.task, quant.task,
-              quant.model_name when quant is enabled
+              quant.model_id when quant is enabled
             - ONNX build (export is None): relaxed — loader.task and quant
               fields are optional since the ONNX model is pre-exported
 
@@ -229,18 +229,18 @@ class WinMLBuildConfig:
             errors.append("optim config is required")  # type: ignore[unreachable]
 
         # 3. quant validation (when present)
-        # Exceptions: ONNX builds (export=None) don't need quant.task/model_name
+        # Exceptions: ONNX builds (export=None) don't need quant.task/model_id
         # because the ONNX model is pre-exported. Submodule builds (module_path
         # set) use RandomDataset which only needs the ONNX model_path.
         # Algorithms that skip calibration (fp16, rtn, dynamic) also don't
-        # need task/model_name since they don't generate calibration datasets.
+        # need task/model_id since they don't generate calibration datasets.
         if self.quant is not None:
             needs_calibration = self.quant.mode == "static"
             needs_quant_ids = not is_onnx_build and not is_submodule and needs_calibration
             if needs_quant_ids and not self.quant.task:
                 errors.append("quant.task is required when quant is enabled for HF builds")
-            if needs_quant_ids and not self.quant.model_name:
-                errors.append("quant.model_name is required when quant is enabled for HF builds")
+            if needs_quant_ids and not self.quant.model_id:
+                errors.append("quant.model_id is required when quant is enabled for HF builds")
 
         # 4. compile validation (when present)
         if self.compile is not None and (
@@ -920,7 +920,7 @@ def _build_submodule_config(
         - Inherited model_type from parent; task intentionally omitted
         - module_path and model_class from sub_info
         - Inherited optim/compile from parent
-        - Quant with task=None, model_name=None (RandomDataset fallback)
+        - Quant with task=None, model_id=None (RandomDataset fallback)
     """
 
     # Build InputTensorSpec for EACH input tensor (not just the first).
@@ -962,12 +962,12 @@ def _build_submodule_config(
         ),
         optim=copy.deepcopy(parent_config.optim),
         # Submodule builds use RandomDataset for calibration:
-        # quantize_onnx() falls back to "random" when task/model_name are None,
+        # quantize_onnx() falls back to "random" when task/model_id are None,
         # and RandomDataset reads input specs from the ONNX model file.
         quant=WinMLQuantizationConfig(
             samples=1,
             task=None,
-            model_name=None,
+            model_id=None,
         ),
         compile=copy.deepcopy(parent_config.compile),
     )
@@ -1030,14 +1030,14 @@ def _assemble_config(
     """Assemble WinMLBuildConfig from resolved loader and export configs.
 
     Handles optim/quant/compile from the registry or defaults,
-    and populates quant config with task and model_name.
+    and populates quant config with task and model_id.
 
     Args:
         loader_config: Resolved WinMLLoaderConfig (from resolve_loader_config).
         export_config: Resolved WinMLExportConfig
             (from registry or _resolve_export_config_from_specs).
         registered: Registered config from MODEL_BUILD_CONFIGS (or None).
-        model_id: HuggingFace model ID (for quant model_name), or None.
+        model_id: HuggingFace model ID (for quant model_id), or None.
         model_type: Parent HF model type (for quant fallback name).
 
     Returns:
@@ -1061,16 +1061,16 @@ def _assemble_config(
         else WinMLCompileConfig()
     )
 
-    # Populate quant config with task and model_name for task-aware calibration
+    # Populate quant config with task and model_id for task-aware calibration
     if quant_config:
         quant_config.task = loader_config.task
         if model_id is None and model_type is not None:
             logger.warning(
-                "Quantization model_name set to '%s' (model type). "
+                "Quantization model_id set to '%s' (model type). "
                 "For calibration datasets, provide --model with a full model ID.",
                 model_type,
             )
-        quant_config.model_name = model_id or model_type
+        quant_config.model_id = model_id or model_type
 
     return WinMLBuildConfig(
         loader=loader_config,

@@ -99,10 +99,10 @@ console = Console()
     help="Task for calibration dataset selection (e.g., 'image-classification').",
 )
 @click.option(
-    "--model-name",
+    "--model-id",
     type=str,
     default=None,
-    help="HuggingFace model name (e.g., 'microsoft/resnet-50'). When provided "
+    help="HuggingFace model id (e.g., 'microsoft/resnet-50'). When provided "
     "with --task, enables task-aware calibration datasets using the model's preprocessor.",
 )
 @cli_utils.build_config_option()
@@ -120,7 +120,7 @@ def quantize(
     per_channel: bool,
     symmetric: bool,
     task: str | None,
-    model_name: str | None,
+    model_id: str | None,
     verbose: int,
     quiet: bool,
     config_file: Path | None,
@@ -177,8 +177,8 @@ def quantize(
             symmetric = qc["symmetric"]
         if not cli_utils.is_cli_provided(ctx, "task") and "task" in qc:
             task = qc["task"]
-        if not cli_utils.is_cli_provided(ctx, "model_name") and "model_name" in qc:
-            model_name = qc["model_name"]
+        if not cli_utils.is_cli_provided(ctx, "model_id") and "model_id" in qc:
+            model_id = qc["model_id"]
 
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
@@ -226,7 +226,7 @@ def quantize(
             per_channel=per_channel,
             symmetric=symmetric,
             task=task,
-            model_name=model_name,
+            model_id=model_id,
         )
         label = "Quantization"
 

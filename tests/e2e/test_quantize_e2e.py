@@ -163,7 +163,7 @@ def onnx_imgseg(tmp_path_factory: pytest.TempPathFactory) -> Path:
     segmentation I/O instead, so calibration still exercises the
     ImageSegmentationDataset path without running a large model. The dataset
     itself (image processor + samples) is still loaded from the real
-    ``--model-name`` in the test.
+    ``--model-id`` in the test.
     """
     d = tmp_path_factory.mktemp("fake_imgseg")
     p = d / "model.onnx"
@@ -517,7 +517,7 @@ class TestPerTaskDatasets:
                 str(out),
                 "--task",
                 "image-classification",
-                "--model-name",
+                "--model-id",
                 "microsoft/resnet-50",
                 "--samples",
                 "4",
@@ -541,7 +541,7 @@ class TestPerTaskDatasets:
                 str(out),
                 "--task",
                 "text-classification",
-                "--model-name",
+                "--model-id",
                 "Intel/bert-base-uncased-mrpc",
                 "--samples",
                 "4",
@@ -565,7 +565,7 @@ class TestPerTaskDatasets:
                 str(out),
                 "--task",
                 "object-detection",
-                "--model-name",
+                "--model-id",
                 "hustvl/yolos-small",
                 "--samples",
                 "4",
@@ -589,7 +589,7 @@ class TestPerTaskDatasets:
                 str(out),
                 "--task",
                 "image-segmentation",
-                "--model-name",
+                "--model-id",
                 "nvidia/segformer-b0-finetuned-ade-512-512",
                 "--samples",
                 "4",
@@ -643,7 +643,7 @@ class TestPerTaskDatasets:
                 str(out),
                 "--task",
                 "image-feature-extraction",
-                "--model-name",
+                "--model-id",
                 "facebook/dinov2-small",
                 "--samples",
                 "4",
