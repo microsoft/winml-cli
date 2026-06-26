@@ -191,7 +191,7 @@ def test_quantize_onnx_applies_model_type_finalizer(
         output_path=output_path,
         config=WinMLQuantizationConfig(
             model_type="dummy_type",
-            model_name="some/model-id",
+            model_id="some/model-id",
         ),
     )
 

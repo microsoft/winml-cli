@@ -255,6 +255,29 @@ def test_catalog_saves_json_file(runner, patched_catalog, tmp_path):
     assert "size_mb" in first
 
 
+def test_catalog_existing_output_blocked_without_overwrite(runner, patched_catalog, tmp_path):
+    """An existing --output is not clobbered unless --overwrite is passed."""
+    out = tmp_path / "catalog.json"
+    out.write_text("ORIGINAL")
+    result = runner.invoke(catalog, ["--output", str(out)])
+    assert result.exit_code != 0
+    assert "already exists" in result.output
+    assert "--overwrite" in result.output
+    # The original file is left untouched.
+    assert out.read_text() == "ORIGINAL"
+
+
+def test_catalog_existing_output_replaced_with_overwrite(runner, patched_catalog, tmp_path):
+    """--overwrite allows replacing an existing output file."""
+    out = tmp_path / "catalog.json"
+    out.write_text("ORIGINAL")
+    result = runner.invoke(catalog, ["--output", str(out), "--overwrite"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(out.read_text())
+    assert isinstance(data, list)
+    assert len(data) == 4
+
+
 def test_catalog_filter_model_type(runner, patched_catalog, tmp_path):
     out = tmp_path / "out.json"
     result = runner.invoke(catalog, ["--model-type", "bert", "--output", str(out)])

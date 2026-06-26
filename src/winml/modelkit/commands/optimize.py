@@ -173,6 +173,7 @@ def capability_options(func: F) -> F:
     help="Input ONNX model file",
 )
 @cli_utils.output_option("Output path (default: {input}_opt.onnx)")
+@cli_utils.overwrite_option()
 @click.option(
     "--config",
     "-c",
@@ -189,6 +190,7 @@ def optimize(
     list_rewrites: bool,
     model: Path | None,
     output: Path | None,
+    overwrite: bool,
     config: Path | None,
     verbose: int,
     quiet: bool,
@@ -323,7 +325,7 @@ def optimize(
             else:
                 console.print(f"      source:  {group.sources[0]}")
             console.print(f"      target:  {group.target_class}")
-            console.print(f"      rule:    modelkit/pattern/rules/{rule_file}")
+            console.print(f"      rule:    winml/modelkit/pattern/rules/{rule_file}")
             if is_multi:
                 for src in group.sources:
                     src_flag = f"--enable-{source_flag_name(src, group.target_class)}"
@@ -345,6 +347,9 @@ def optimize(
     # Determine output path
     if output is None:
         output = model.parent / f"{model.stem}_opt.onnx"
+
+    # Refuse to clobber an existing output unless the user opted in.
+    cli_utils.guard_output(output, overwrite)
 
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")

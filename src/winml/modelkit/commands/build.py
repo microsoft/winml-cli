@@ -624,10 +624,10 @@ def build(
                     if cfg.loader is not None and cfg.loader.task:
                         resolved_quant.task = cfg.loader.task
                     if model_id:
-                        resolved_quant.model_name = model_id
+                        resolved_quant.model_id = model_id
                     cfg.quant = resolved_quant
                 else:
-                    # Only update precision fields; preserve task/model_name
+                    # Only update precision fields; preserve task/model_id
                     # and other calibration settings from the existing config.
                     cfg.quant.weight_type = resolved_quant.weight_type
                     cfg.quant.activation_type = resolved_quant.activation_type

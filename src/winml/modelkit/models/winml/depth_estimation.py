@@ -12,12 +12,15 @@ Pipeline execution (export/optimize/compile) is done by WinMLAutoModel factory.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from transformers.modeling_outputs import DepthEstimatorOutput
 
 from .base import WinMLPreTrainedModel
 
+
+if TYPE_CHECKING:
+    import torch
 
 logger = logging.getLogger(__name__)
 
@@ -48,4 +51,7 @@ class WinMLModelForDepthEstimation(WinMLPreTrainedModel):
             # Fall back to first output for non-standard output names.
             predicted_depth = next(iter(outputs.values()))
 
-        return DepthEstimatorOutput(predicted_depth=predicted_depth)
+        # transformers' Output fields are annotated FloatTensor (legacy, over-narrow);
+        # the ONNX session returns a real float Tensor.
+        depth: torch.FloatTensor = cast("torch.FloatTensor", predicted_depth)
+        return DepthEstimatorOutput(predicted_depth=depth)

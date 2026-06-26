@@ -109,7 +109,7 @@ def sample_config_file(tmp_path: Path) -> Path:
             "mode": "qdq",
             "samples": 10,
             "task": "image-classification",
-            "model_name": "test",
+            "model_id": "test",
         },
         "compile": {"execution_provider": "qnn"},
     }
@@ -463,7 +463,7 @@ class TestBuildFlagPassthrough:
                         "mode": "qdq",
                         "samples": 10,
                         "task": "image-classification",
-                        "model_name": "test",
+                        "model_id": "test",
                     },
                     "compile": None,
                 }
@@ -617,7 +617,7 @@ class TestBuildFlagPassthrough:
                 "mode": "qdq",
                 "samples": 10,
                 "task": "image-classification",
-                "model_name": "test",
+                "model_id": "test",
             },
             "compile": None,
         }

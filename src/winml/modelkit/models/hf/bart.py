@@ -71,7 +71,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
@@ -92,6 +92,10 @@ from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDe
 # from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
+
+if TYPE_CHECKING:
+    from transformers import GenerationConfig, PretrainedConfig
+    from transformers.models.bart.modeling_bart import BartLearnedPositionalEmbedding
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +144,7 @@ logger = logging.getLogger(__name__)
 
 
 def _patched_bart_learned_forward(
-    self,
+    self: BartLearnedPositionalEmbedding,  # monkey-patched onto this HF module
     input_ids: torch.Tensor,
     past_key_values_length: int = 0,
     position_ids: torch.Tensor | None = None,
@@ -229,10 +233,14 @@ class BartEncoderWrapper(nn.Module):
         attention_mask: torch.Tensor,
     ) -> torch.Tensor:
         """Return encoder last hidden state."""
-        return self.encoder(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        ).last_hidden_state
+        # self.encoder is a torch submodule (untyped __call__ -> Any).
+        return cast(
+            "torch.Tensor",
+            self.encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            ).last_hidden_state,
+        )
 
 
 class BartDecoderWrapper(nn.Module):
@@ -262,8 +270,10 @@ class BartDecoderWrapper(nn.Module):
         super().__init__()
         self.model = model
         self.num_layers = num_layers
-        # Expose config for OnnxConfig / NormalizedConfig access
-        self.config = model.config
+        # Expose config for OnnxConfig / NormalizedConfig access.
+        # model is typed nn.Module, so torch's __getattr__ types .config as
+        # Tensor | Module; it is really the model's PretrainedConfig.
+        self.config: PretrainedConfig = cast("PretrainedConfig", model.config)
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> BartDecoderWrapper:
@@ -358,7 +368,7 @@ class BartDecoderWrapper(nn.Module):
 
 
 @register_onnx_overwrite("bart", "feature-extraction", library_name="transformers")
-class BartEncoderIOConfig(OnnxConfig):
+class BartEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for BART encoder (feature-extraction task).
 
     Inputs:  input_ids, attention_mask
@@ -385,7 +395,7 @@ class BartEncoderIOConfig(OnnxConfig):
         }
 
 
-class _BartDecoderNormalizedConfig(NormalizedConfig):
+class _BartDecoderNormalizedConfig(NormalizedConfig):  # type: ignore[misc]  # optimum base is untyped
     """NormalizedConfig for BART decoder-side export.
 
     Maps NormalizedConfig attributes to BartConfig's decoder-side attrs.
@@ -400,11 +410,12 @@ class _BartDecoderNormalizedConfig(NormalizedConfig):
 
     @property
     def head_dim(self) -> int:
-        return self.hidden_size // self.num_attention_heads
+        # hidden_size / num_attention_heads come from the untyped NormalizedConfig base.
+        return cast("int", self.hidden_size // self.num_attention_heads)
 
 
 @register_onnx_overwrite("bart", "text2text-generation", library_name="transformers")
-class BartDecoderIOConfig(OnnxConfig):
+class BartDecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for BART decoder with sliding-window KV cache.
 
     Inputs:  decoder_input_ids, encoder_hidden_states, attention_mask,
@@ -517,7 +528,7 @@ class WinMLBartModel(WinMLEncoderDecoderModel):
         return WinMLStaticCache  # static cache (index_put_ → ScatterND)
 
     @property
-    def generation_config(self):  # noqa: D102
+    def generation_config(self) -> GenerationConfig:  # noqa: D102
         if not hasattr(self, "_generation_config"):
             from transformers import GenerationConfig
 

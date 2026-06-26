@@ -24,6 +24,7 @@ the ``ConvNextLayerNorm`` instance as ``self`` automatically -- no
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import torch
 import torch.nn.functional as F
@@ -31,6 +32,10 @@ from optimum.exporters.onnx.model_configs import ConvNextOnnxConfig
 from optimum.exporters.onnx.model_patcher import PatchingSpec
 
 from ...export import register_onnx_overwrite
+
+
+if TYPE_CHECKING:
+    from transformers.models.convnext.modeling_convnext import ConvNextLayerNorm
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +46,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _patched_layernorm_forward(self, x: torch.Tensor) -> torch.Tensor:
+def _patched_layernorm_forward(self: ConvNextLayerNorm, x: torch.Tensor) -> torch.Tensor:
     """ConvNextLayerNorm.forward replacement that enables ONNX LayerNorm fusion.
 
     The stock implementation branches on ``data_format`` with code paths
@@ -102,7 +107,7 @@ def _build_patching_specs() -> list[PatchingSpec]:
     "image-classification",
     library_name="transformers",
 )
-class ConvNextIOConfig(ConvNextOnnxConfig):
+class ConvNextIOConfig(ConvNextOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ConvNextOnnxConfig override that adds a LayerNorm fusion patch.
 
     Inherits all I/O specs from Optimum's ``ConvNextOnnxConfig``.  The only

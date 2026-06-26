@@ -38,7 +38,6 @@ from rich.text import Text
 
 from ..utils import cli as cli_utils
 from ..utils.constants import (
-    ALL_EP_NAMES,
     DEVICE_TYPE_TO_DEVICE,
     EP_SUPPORTED_DEVICES,
     SUPPORTED_DEVICES,
@@ -716,27 +715,22 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
 
 @click.command(name="analyze")
 @cli_utils.model_path_option(required=True)
-@click.option(
-    "--ep",
-    "--execution-provider",
+@cli_utils.ep_option(
     required=False,
     default="auto",
-    show_default=True,
-    type=click.Choice([*ALL_EP_NAMES, "all", "auto"], case_sensitive=False),
-    help=(
-        "Target execution provider. Supports canonical names, aliases, and all/auto. "
+    include_auto=True,
+    include_all=True,
+    optional_message=(
         "all = evaluate all rule-data-backed EPs; "
         "auto = infer a single best target from local availability"
     ),
 )
-@click.option(
-    "--device",
+@cli_utils.device_option(
     required=False,
     default="auto",
-    show_default=True,
-    type=click.Choice([*SUPPORTED_DEVICES, "all", "auto"], case_sensitive=False),
-    help=(
-        "Target device type. Supports CPU/GPU/NPU and all/auto. "
+    include_auto=True,
+    include_all=True,
+    optional_message=(
         "all = all rule-data-backed devices; "
         "auto = infer a single best target from local availability"
     ),
@@ -744,6 +738,7 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
 @cli_utils.verbosity_options()
 @cli_utils.build_config_option()
 @cli_utils.output_option("Save JSON output to file")
+@cli_utils.overwrite_option(optional_message="Applies to both --output and --optim-config.")
 @click.option(
     "--information/--no-information",
     default=True,
@@ -790,6 +785,7 @@ def analyze(
     ep: EPNameOrAlias | Literal["all", "auto"] | None,
     device: str | None,
     output: Path | None,
+    overwrite: bool,
     information: bool,
     output_format: cli_utils.OutputFormat,
     verbose: int,
@@ -832,6 +828,11 @@ def analyze(
     # and `winml analyze -v …` are equivalent.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
+
+    # Refuse to clobber existing outputs unless the user opted in — fail fast
+    # before analysis runs. Guards both result JSON and the optim-config dump.
+    cli_utils.guard_output(output, overwrite)
+    cli_utils.guard_output(optim_config, overwrite, label="Optimization config")
 
     try:
         from ..analyze import ONNXStaticAnalyzer
@@ -958,9 +959,7 @@ def analyze(
                     sys.exit(2)
                 compatible_eps = resolve_eps(ref_device)
                 if not compatible_eps:
-                    logger.error(
-                        "No execution provider is available for device '%s'.", ref_device
-                    )
+                    logger.error("No execution provider is available for device '%s'.", ref_device)
                     sys.exit(2)
                 eps = [compatible_eps[0]]
             else:

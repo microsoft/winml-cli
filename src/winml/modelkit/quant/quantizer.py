@@ -114,9 +114,7 @@ def _quantize_single_pass(
 
             finalizer = get_quant_finalizer(config.model_type)
             if finalizer is not None:
-                config = finalizer.finalize(
-                    config, onnx_path=model_path, model_id=config.model_name
-                )
+                config = finalizer.finalize(config, onnx_path=model_path, model_id=config.model_id)
 
         # Dispatch to the appropriate single-mode handler
         _mode_handlers: dict[str, Callable[..., QuantizeResult]] = {
@@ -298,7 +296,7 @@ def _quantize_qdq(
 
         task = config.task or "random"
         data_reader = DatasetCalibrationReader(
-            model_name=config.model_name or "random",
+            model_name=config.model_id or "random",
             task=task,
             max_samples=config.samples,
             dataset_name=config.dataset_name,

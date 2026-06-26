@@ -94,19 +94,28 @@ from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registra
 # reverse-looks-up the task name from the matching (model_type, default_task)
 # entry. See sam.py for the canonical example (mask-generation default for
 # SAM/SAM2).
+# Built via a comprehension (per-key write) rather than ** unpacking: the
+# sub-mappings are keyed tuple[str, str] while this aggregate is keyed
+# tuple[str, str | None] (for the task=None sentinel). dict key types are
+# invariant, so ** unpacking is rejected even though every tuple[str, str] is a
+# valid tuple[str, str | None]; a write-site assignment is covariant in the key.
 MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
-    **_BART_CLASS_MAPPING,
-    **_BLIP_CLASS_MAPPING,
-    **_CLIP_CLASS_MAPPING,
-    **_MARIAN_CLASS_MAPPING,
-    **_MU2_CLASS_MAPPING,
-    **_QWEN_CLASS_MAPPING,
-    **_QWEN_TO_CLASS_MAPPING,
-    **_SAM2_CLASS_MAPPING,
-    **_SEGFORMER_CLASS_MAPPING,
-    **_SIGLIP_CLASS_MAPPING,
-    **_T5_CLASS_MAPPING,
-    **_VED_CLASS_MAPPING,
+    _key: _model_cls
+    for _sub_mapping in (
+        _BART_CLASS_MAPPING,
+        _BLIP_CLASS_MAPPING,
+        _CLIP_CLASS_MAPPING,
+        _MARIAN_CLASS_MAPPING,
+        _MU2_CLASS_MAPPING,
+        _QWEN_CLASS_MAPPING,
+        _QWEN_TO_CLASS_MAPPING,
+        _SAM2_CLASS_MAPPING,
+        _SEGFORMER_CLASS_MAPPING,
+        _SIGLIP_CLASS_MAPPING,
+        _T5_CLASS_MAPPING,
+        _VED_CLASS_MAPPING,
+    )
+    for _key, _model_cls in _sub_mapping.items()
 }
 
 # Registry: model_type -> WinMLBuildConfig

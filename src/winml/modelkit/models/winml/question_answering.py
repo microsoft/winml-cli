@@ -15,7 +15,7 @@ Pipeline execution (export/optimize/compile) is done by WinMLAutoModel factory.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from transformers.modeling_outputs import QuestionAnsweringModelOutput
 
@@ -74,7 +74,9 @@ class WinMLModelForQuestionAnswering(WinMLPreTrainedModel):
         formatted = self._format_inputs(**inputs)
         outputs = self._run_inference(formatted)
 
+        # transformers' Output fields are annotated FloatTensor (legacy, over-narrow);
+        # the ONNX session returns real float Tensors.
         return QuestionAnsweringModelOutput(
-            start_logits=outputs.get("start_logits"),
-            end_logits=outputs.get("end_logits"),
+            start_logits=cast("torch.FloatTensor | None", outputs.get("start_logits")),
+            end_logits=cast("torch.FloatTensor | None", outputs.get("end_logits")),
         )
