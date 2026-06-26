@@ -323,7 +323,7 @@ def optimize(
             else:
                 console.print(f"      source:  {group.sources[0]}")
             console.print(f"      target:  {group.target_class}")
-            console.print(f"      rule:    modelkit/pattern/rules/{rule_file}")
+            console.print(f"      rule:    winml/modelkit/pattern/rules/{rule_file}")
             if is_multi:
                 for src in group.sources:
                     src_flag = f"--enable-{source_flag_name(src, group.target_class)}"

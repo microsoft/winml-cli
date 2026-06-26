@@ -74,12 +74,10 @@ logger = logging.getLogger(__name__)
     default=None,
     help="Task (e.g. 'image-classification'). Auto-detected from --model-id.",
 )
-@click.option(
-    "--device",
-    type=click.Choice(["auto", "cpu", "gpu", "npu"], case_sensitive=False),
+@cli_utils.device_option(
+    required=False,
     default="auto",
-    show_default=True,
-    help="Device to run on. 'auto' detects the best available device.",
+    include_auto=True,
 )
 @cli_utils.ep_option(required=False)
 @cli_utils.precision_option(
