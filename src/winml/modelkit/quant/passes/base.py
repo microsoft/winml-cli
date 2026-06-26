@@ -57,4 +57,3 @@ class BaseQuantPass(ABC):
             :class:`~winml.modelkit.quant.config.QuantizeResult` describing
             the outcome of this pass.
         """
-        ...

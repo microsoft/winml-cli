@@ -31,6 +31,10 @@ from .config import QuantizeResult, WinMLQuantizationConfig
 from .passes import BaseQuantPass, FP16Pass, QDQPass, RTNPass
 
 
+if TYPE_CHECKING:
+    from .quantizer import Quantizer, expand_precision, quantize_onnx
+
+
 __all__ = [
     "BaseQuantPass",
     "FP16Pass",
@@ -63,7 +67,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 
 
 def __getattr__(name: str) -> Any:
-    """Lazy-load quantizer (imports onnxruntime.quantization)."""
+    """Lazy-load quantizer module (avoids importing onnxruntime at package import time)."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]
         import importlib
