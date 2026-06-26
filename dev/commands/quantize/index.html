@@ -2678,10 +2678,10 @@ quantization-aware execution provider.</p>
 <td></td>
 <td>string</td>
 <td>—</td>
-<td>Task name (e.g., <code>image-classification</code>, <code>text-classification</code>) used to select a task-appropriate calibration dataset. Pair with <code>--model-name</code> so the dataset is preprocessed exactly the way the model expects. Without <code>--task</code>, calibration falls back to synthetic random data.</td>
+<td>Task name (e.g., <code>image-classification</code>, <code>text-classification</code>) used to select a task-appropriate calibration dataset. Pair with <code>--model-id</code> so the dataset is preprocessed exactly the way the model expects. Without <code>--task</code>, calibration falls back to synthetic random data.</td>
 </tr>
 <tr>
-<td><code>--model-name</code></td>
+<td><code>--model-id</code></td>
 <td></td>
 <td>string</td>
 <td>—</td>
@@ -2755,14 +2755,14 @@ extremes, <code>entropy</code> minimizes KL-divergence, and <code>percentile</co
 Precision can be set at a coarse level with <code>--precision</code> or tuned per tensor
 type with <code>--weight-type</code> and <code>--activation-type</code>; explicit type flags always
 override <code>--precision</code>.</p>
-<p>Calibration data is selected from <code>--task</code> and <code>--model-name</code>. For a supported
+<p>Calibration data is selected from <code>--task</code> and <code>--model-id</code>. For a supported
 task, a built-in default calibration dataset is loaded and preprocessed through
 the model's own tokenizer or image processor, so the calibration tensors match
 what the model will see at inference time. For an unsupported task — or when
 <code>--task</code> is omitted entirely — calibration falls back to synthetic random data
 synthesized from the ONNX input specification. Random-data calibration is fast
 and always works, but the resulting scales are typically less accurate than
-dataset-driven calibration, so always provide <code>--task</code> and <code>--model-name</code> when
+dataset-driven calibration, so always provide <code>--task</code> and <code>--model-id</code> when
 the model task is supported.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Minimal quantization: defaults (10 samples, uint8 weights and activations)</span>
@@ -2783,7 +2783,7 @@ the model task is supported.</p>
 </span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>Total time: 4.31s
 </span></code></pre></div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Task-aware calibration: real samples preprocessed through the model&#39;s own image processor</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span>quantize<span class="w"> </span>-m<span class="w"> </span>resnet50.onnx<span class="w"> </span>--task<span class="w"> </span>image-classification<span class="w"> </span>--model-name<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--samples<span class="w"> </span><span class="m">128</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span>quantize<span class="w"> </span>-m<span class="w"> </span>resnet50.onnx<span class="w"> </span>--task<span class="w"> </span>image-classification<span class="w"> </span>--model-id<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--samples<span class="w"> </span><span class="m">128</span>
 </span></code></pre></div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># int8 precision shorthand (equivalent to --weight-type int8 --activation-type int8)</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span>quantize<span class="w"> </span>-m<span class="w"> </span>resnet50.onnx<span class="w"> </span>-p<span class="w"> </span>int8
@@ -2799,7 +2799,7 @@ the model task is supported.</p>
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Calibration uses synthetic random data by default.</strong> Without <code>--task</code> and <code>--model-name</code>, scales and zero-points are computed from random tensors synthesized from the ONNX input specification — the model never sees realistic activations, so accuracy after quantization can degrade noticeably. Always pass <code>--task</code> and <code>--model-name</code> for supported tasks (e.g., <code>--task image-classification --model-name microsoft/resnet-50</code>) so calibration runs on real samples preprocessed through the model's own tokenizer or image processor.</li>
+<li><strong>Calibration uses synthetic random data by default.</strong> Without <code>--task</code> and <code>--model-id</code>, scales and zero-points are computed from random tensors synthesized from the ONNX input specification — the model never sees realistic activations, so accuracy after quantization can degrade noticeably. Always pass <code>--task</code> and <code>--model-id</code> for supported tasks (e.g., <code>--task image-classification --model-id microsoft/resnet-50</code>) so calibration runs on real samples preprocessed through the model's own tokenizer or image processor.</li>
 <li><strong><code>--weight-type</code> / <code>--activation-type</code> silently override <code>--precision</code>.</strong> If you pass both, the explicit type flags win. Omit <code>--precision</code> when setting types explicitly to avoid confusion.</li>
 <li><strong>Low sample counts can hurt accuracy.</strong> The default of 10 samples is sufficient for quick testing, but production models typically need 64–256 representative samples for good calibration.</li>
 <li><strong><code>--per-channel</code> increases model size.</strong> Per-channel quantization stores a separate scale and zero-point per output channel; this can noticeably inflate the model file size compared to per-tensor mode.</li>
