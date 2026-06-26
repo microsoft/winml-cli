@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""QDQ (Quantize-Dequantize) calibrated quantization pass."""
+"""Static (calibrated QDQ) quantization pass."""
 
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class QDQPass(BaseQuantPass):
-    """QDQ (static/dynamic) calibrated quantization pass.
+class StaticPass(BaseQuantPass):
+    """Static calibrated QDQ quantization pass.
 
     Reads all QDQ-relevant fields from
     :class:`~winml.modelkit.quant.config.WinMLQuantizationConfig`:
@@ -34,7 +34,7 @@ class QDQPass(BaseQuantPass):
 
     Example::
 
-        pass_ = QDQPass(config)
+        pass_ = StaticPass(config)
         result = pass_.run("model.onnx", "model_qdq.onnx")
     """
 

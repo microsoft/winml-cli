@@ -6,13 +6,13 @@
 
 from .base import BaseQuantPass
 from .fp16 import FP16Pass
-from .qdq import QDQPass
 from .rtn import RTNPass
+from .static import StaticPass
 
 
 __all__ = [
     "BaseQuantPass",
     "FP16Pass",
-    "QDQPass",
     "RTNPass",
+    "StaticPass",
 ]

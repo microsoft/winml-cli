@@ -14,7 +14,7 @@ import pytest
 
 from winml.modelkit.quant import WinMLQuantizationConfig
 from winml.modelkit.quant.config import QuantizeResult
-from winml.modelkit.quant.passes import BaseQuantPass, FP16Pass, QDQPass, RTNPass
+from winml.modelkit.quant.passes import BaseQuantPass, FP16Pass, RTNPass, StaticPass
 
 
 if TYPE_CHECKING:
@@ -87,7 +87,7 @@ class TestExpandPrecision:
         config = WinMLQuantizationConfig(mode="static")
         passes = expand_precision("static", config)
         assert len(passes) == 1
-        assert isinstance(passes[0], QDQPass)
+        assert isinstance(passes[0], StaticPass)
 
     def test_dynamic_returns_qdq_pass(self) -> None:
         from winml.modelkit.quant.quantizer import expand_precision
@@ -95,7 +95,7 @@ class TestExpandPrecision:
         config = WinMLQuantizationConfig(mode="static")
         passes = expand_precision("dynamic", config)
         assert len(passes) == 1
-        assert isinstance(passes[0], QDQPass)
+        assert isinstance(passes[0], StaticPass)
 
     def test_unknown_mode_raises(self) -> None:
         from winml.modelkit.quant.quantizer import expand_precision

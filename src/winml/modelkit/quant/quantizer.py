@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import QuantizeResult, WinMLQuantizationConfig
-from .passes import BaseQuantPass, FP16Pass, QDQPass, RTNPass
+from .passes import BaseQuantPass, FP16Pass, RTNPass, StaticPass
 
 
 logger = logging.getLogger(__name__)
@@ -38,8 +38,8 @@ def expand_precision(
     ========= =======================
     ``fp16``  ``[FP16Pass(config)]``
     ``rtn``   ``[RTNPass(config)]``
-    ``static``  ``[QDQPass(config)]``
-    ``dynamic`` ``[QDQPass(config)]``
+    ``static``  ``[StaticPass(config)]``
+    ``dynamic`` ``[StaticPass(config)]``  (placeholder until DynamicPass is implemented)
     ========= =======================
 
     Args:
@@ -59,8 +59,8 @@ def expand_precision(
     _pass_factories: dict[str, BaseQuantPass] = {
         "fp16": FP16Pass(config),
         "rtn": RTNPass(config),
-        "static": QDQPass(config),
-        "dynamic": QDQPass(config),
+        "static": StaticPass(config),
+        "dynamic": StaticPass(config),
     }
 
     if mode in _pass_factories:

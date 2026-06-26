@@ -438,6 +438,7 @@ def precision_option(
     optional_message: str | None = None,
     include_short: bool = True,
     help_text: str | None = None,
+    multiple: bool = False,
 ) -> Callable[[F], F]:
     """Add --precision option to a Click command.
 
@@ -459,6 +460,10 @@ def precision_option(
             values differ from the default float+int set (e.g. ``quantize``,
             which has no fp16/fp32) supply their own; ``optional_message`` is
             still appended to it.
+        multiple: Allow the flag to be specified multiple times to compose a
+            pass pipeline (e.g. ``-p int4 -p fp16``). When True the parameter
+            receives a ``tuple[str, ...]`` and ``default`` should be ``()``
+            (default: False).
 
     Returns:
         Decorator function.
@@ -478,7 +483,8 @@ def precision_option(
         *param_decls,
         type=str,
         default=default,
-        show_default=True,
+        multiple=multiple,
+        show_default=not multiple,
         help=base_help,
     )
 

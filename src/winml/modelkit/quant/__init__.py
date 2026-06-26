@@ -28,7 +28,7 @@ Usage:
 from typing import TYPE_CHECKING, Any
 
 from .config import QuantizeResult, WinMLQuantizationConfig
-from .passes import BaseQuantPass, FP16Pass, QDQPass, RTNPass
+from .passes import BaseQuantPass, FP16Pass, RTNPass, StaticPass
 
 
 if TYPE_CHECKING:
@@ -38,10 +38,10 @@ if TYPE_CHECKING:
 __all__ = [
     "BaseQuantPass",
     "FP16Pass",
-    "QDQPass",
     "QuantizeResult",
     "Quantizer",
     "RTNPass",
+    "StaticPass",
     "WinMLQuantizationConfig",
     "expand_precision",
     "get_quant_finalizer",
