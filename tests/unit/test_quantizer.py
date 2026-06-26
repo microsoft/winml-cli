@@ -37,13 +37,12 @@ def _write_minimal_onnx_model(path: Path) -> None:
     import, so tests that exercise the quantize flow need a real model on disk.
     """
     import onnx
-    from onnx import TensorProto, helper
 
-    x = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 3])
-    y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 3])
-    node = helper.make_node("Relu", ["X"], ["Y"])
-    graph = helper.make_graph([node], "g", [x], [y])
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    x = onnx.helper.make_tensor_value_info("X", onnx.TensorProto.FLOAT, [1, 3])
+    y = onnx.helper.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [1, 3])
+    node = onnx.helper.make_node("Relu", ["X"], ["Y"])
+    graph = onnx.helper.make_graph([node], "g", [x], [y])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
     onnx.save_model(model, str(path))
 
 
@@ -165,15 +164,16 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
 def _write_opsetless_onnx_model(path: Path) -> None:
     """Write a parseable ONNX model that declares no default (ai.onnx) opset."""
     import onnx
-    from onnx import TensorProto, helper
 
-    x = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 3])
-    y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 3])
-    node = helper.make_node("Relu", ["X"], ["Y"])
-    graph = helper.make_graph([node], "g", [x], [y])
+    x = onnx.helper.make_tensor_value_info("X", onnx.TensorProto.FLOAT, [1, 3])
+    y = onnx.helper.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [1, 3])
+    node = onnx.helper.make_node("Relu", ["X"], ["Y"])
+    graph = onnx.helper.make_graph([node], "g", [x], [y])
     # Only a custom-domain opset — no "" / "ai.onnx" import, which is the
     # signature ORT's get_opset_version() rejects.
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("com.example", 1)])
+    model = onnx.helper.make_model(
+        graph, opset_imports=[onnx.helper.make_opsetid("com.example", 1)]
+    )
     onnx.save_model(model, str(path))
 
 
@@ -222,7 +222,7 @@ def test_quantize_unparseable_input_model_surfaces_clear_error(
     def _raise_parse_error(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError("protobuf parse error")
 
-    monkeypatch.setattr(onnx, "load", _raise_parse_error)
+    monkeypatch.setattr(onnx, "load_model", _raise_parse_error)
 
     result = quantize_onnx(model_path, output_path=tmp_path / "quantized.onnx")
 

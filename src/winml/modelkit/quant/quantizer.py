@@ -32,13 +32,13 @@ def _check_input_model_opset(model_path: Path) -> str | None:
     because it ran out of disk space). Detecting it here lets us surface the
     real cause instead of ORT's opaque "Failed to find proper ai.onnx domain".
 
-    Reads only the graph (no external weights) directly via ``onnx.load`` so the
-    check stays cheap and never trips over a missing ``.data`` sidecar.
+    Reads only the graph (no external weights) directly via ``onnx.load_model``
+    so the check stays cheap and never trips over a missing ``.data`` sidecar.
     """
-    import onnx
+    from onnx import load_model
 
     try:
-        model = onnx.load(str(model_path), load_external_data=False)
+        model = load_model(str(model_path), load_external_data=False)
     except Exception as e:
         return (
             f"Input ONNX model could not be parsed: {model_path} ({e}). "
