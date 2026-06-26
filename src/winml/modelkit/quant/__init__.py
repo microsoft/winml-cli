@@ -7,23 +7,39 @@
 Provides QDQ (Quantize-Dequantize) quantization for ONNX models.
 
 Usage:
-    from winml.modelkit.quant import quantize_onnx, WinMLQuantizationConfig
+    from winml.modelkit.quant import (
+        quantize_onnx,
+        Quantizer,
+        expand_precision,
+        WinMLQuantizationConfig,
+    )
 
     # Quick quantize with defaults (10 samples, uint8)
     result = quantize_onnx("model.onnx")
 
     # Custom config
     result = quantize_onnx("model.onnx", WinMLQuantizationConfig(samples=100))
+
+    # Pipeline: RTN int4 followed by FP16 (w4a16)
+    config = WinMLQuantizationConfig(mode="w4a16", rtn_bits=4)
+    result = Quantizer(expand_precision("w4a16", config)).run("model.onnx", "out.onnx")
 """
 
 from typing import TYPE_CHECKING, Any
 
 from .config import QuantizeResult, WinMLQuantizationConfig
+from .passes import BaseQuantPass, FP16Pass, QDQPass, RTNPass
 
 
 __all__ = [
+    "BaseQuantPass",
+    "FP16Pass",
+    "QDQPass",
     "QuantizeResult",
+    "Quantizer",
+    "RTNPass",
     "WinMLQuantizationConfig",
+    "expand_precision",
     "get_quant_finalizer",
     "quantize_onnx",
 ]
@@ -35,11 +51,13 @@ __all__ = [
 # without triggering the heavy imports at runtime.
 if TYPE_CHECKING:
     from .calibration import get_quant_finalizer
-    from .quantizer import quantize_onnx
+    from .quantizer import Quantizer, expand_precision, quantize_onnx
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "quantize_onnx": (".quantizer", "quantize_onnx"),
+    "Quantizer": (".quantizer", "Quantizer"),
+    "expand_precision": (".quantizer", "expand_precision"),
     "get_quant_finalizer": (".calibration", "get_quant_finalizer"),
 }
 
