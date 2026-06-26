@@ -20,9 +20,9 @@ Usage:
     # Custom config
     result = quantize_onnx("model.onnx", WinMLQuantizationConfig(samples=100))
 
-    # Pipeline: RTN int4 followed by FP16 (w4a16)
-    config = WinMLQuantizationConfig(mode="w4a16", rtn_bits=4)
-    result = Quantizer(expand_precision("w4a16", config)).run("model.onnx", "out.onnx")
+    # Pipeline: RTN int4 weight-only
+    config = WinMLQuantizationConfig(mode="rtn", rtn_bits=4)
+    result = Quantizer(expand_precision("rtn", config)).run("model.onnx", "out.onnx")
 """
 
 from typing import TYPE_CHECKING, Any

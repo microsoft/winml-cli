@@ -51,19 +51,14 @@ class WinMLQuantizationConfig:
         # FP16 conversion (pure FP16, no quantization)
         config = WinMLQuantizationConfig(mode="fp16")
         result = quantize_onnx("model.onnx", config)
-
-        # RTN int4 + FP16 (w4a16)
-        config = WinMLQuantizationConfig(mode="w4a16", rtn_bits=4)
-        result = quantize_onnx("model.onnx", config)
     """
 
     # Quantization mode
-    mode: Literal["static", "dynamic", "rtn", "fp16", "w4a16"] = "static"
+    mode: Literal["static", "dynamic", "rtn", "fp16"] = "static"
     # "static"  — Calibrated QDQ quantization (requires calibration data)
     # "dynamic" — Dynamic quantization (no calibration) [planned, not yet wired]
     # "rtn"     — Round-To-Nearest weight-only (no calibration, block-wise)
     # "fp16"    — Pure FP16 conversion only (no quantization)
-    # "w4a16"   — RTN int4 weight quantization followed by FP16 conversion
 
     # Calibration settings (static/dynamic)
     samples: int = 10
@@ -157,12 +152,12 @@ class WinMLQuantizationConfig:
             result["dataset_name"] = self.dataset_name
         if self.model_type is not None:
             result["model_type"] = self.model_type
-        if self.mode in ("rtn", "w4a16"):
+        if self.mode == "rtn":
             result["rtn_bits"] = self.rtn_bits
             result["rtn_block_size"] = self.rtn_block_size
             result["rtn_symmetric"] = self.rtn_symmetric
             result["rtn_accuracy_level"] = self.rtn_accuracy_level
-        if self.mode in ("fp16", "w4a16"):
+        if self.mode == "fp16":
             result["fp16_keep_io_types"] = self.fp16_keep_io_types
             result["fp16_op_block_list"] = self.fp16_op_block_list
         return result

@@ -19,9 +19,7 @@ from .passes import BaseQuantPass, FP16Pass, QDQPass, RTNPass
 logger = logging.getLogger(__name__)
 
 # Precision strings that expand to multiple sequential passes.
-_COMPOSITE_PRECISIONS: dict[str, list[str]] = {
-    "w4a16": ["rtn", "fp16"],
-}
+_COMPOSITE_PRECISIONS: dict[str, list[str]] = {}
 
 
 def expand_precision(
@@ -42,11 +40,10 @@ def expand_precision(
     ``rtn``   ``[RTNPass(config)]``
     ``static``  ``[QDQPass(config)]``
     ``dynamic`` ``[QDQPass(config)]``
-    ``w4a16`` ``[RTNPass(config), FP16Pass(config)]``
     ========= =======================
 
     Args:
-        mode: Precision string (e.g. ``"w4a16"``).
+        mode: Precision string (e.g. ``"fp16"``).
         config: Shared quantization configuration.  If *None*, a default
             :class:`WinMLQuantizationConfig` is used.
 
@@ -98,9 +95,9 @@ class Quantizer:
 
         from winml.modelkit.quant import Quantizer, expand_precision, WinMLQuantizationConfig
 
-        config = WinMLQuantizationConfig(mode="w4a16", rtn_bits=4)
-        quantizer = Quantizer(expand_precision("w4a16", config))
-        result = quantizer.run("model.onnx", "model_w4a16.onnx")
+        config = WinMLQuantizationConfig(mode="rtn", rtn_bits=4)
+        quantizer = Quantizer(expand_precision("rtn", config))
+        result = quantizer.run("model.onnx", "model_rtn.onnx")
     """
 
     def __init__(self, passes: list[BaseQuantPass]) -> None:
@@ -234,7 +231,6 @@ def quantize_onnx(
     - ``"fp16"`` — FP16 conversion (no quantization)
     - ``"rtn"`` — RTN weight-only quantization
     - ``"static"`` / ``"dynamic"`` — QDQ calibrated quantization
-    - ``"w4a16"`` — RTN int4 followed by FP16 conversion
 
     Args:
         model_path: Path to input ONNX model.
@@ -247,7 +243,6 @@ def quantize_onnx(
     Examples:
         >>> result = quantize_onnx("model.onnx", config=WinMLQuantizationConfig(mode="rtn"))
         >>> result = quantize_onnx("model.onnx", config=WinMLQuantizationConfig(mode="fp16"))
-        >>> result = quantize_onnx("model.onnx", config=WinMLQuantizationConfig(mode="w4a16"))
     """
     model_path = Path(model_path)
     config = config or WinMLQuantizationConfig()
