@@ -185,7 +185,7 @@ class QDQPass(BaseQuantPass):
             1 for node in quantized_model.graph.node if node.op_type in QDQ_OP_TYPES
         )
 
-        save_onnx(quantized_model, output_path)
+        save_onnx(quantized_model, output_path, use_external_data=use_external_data)
 
         total_time = time.perf_counter() - start_time
 

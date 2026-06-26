@@ -257,6 +257,7 @@ def quantize_onnx(
     else:
         output_path = model_path.parent / f"{model_path.stem}_qdq.onnx"
 
+    use_external_data: bool = kwargs.pop("use_external_data", True)
     # Apply model-type-specific quant finalizer if registered. Some model types
     # finalize calibration reader / nodes-to-exclude / dtypes only once the
     # exported ONNX exists.

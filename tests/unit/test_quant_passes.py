@@ -100,7 +100,7 @@ class TestExpandPrecision:
     def test_w4a16_returns_rtn_then_fp16(self) -> None:
         from winml.modelkit.quant.quantizer import expand_precision
 
-        config = WinMLQuantizationConfig(mode="rtn", rtn_bits=4)
+        config = WinMLQuantizationConfig(mode="w4a16", rtn_bits=4)
         passes = expand_precision("w4a16", config)
         assert len(passes) == 2
         assert isinstance(passes[0], RTNPass)
@@ -121,6 +121,39 @@ class TestExpandPrecision:
         passes = expand_precision("fp16")
         assert len(passes) == 1
         assert isinstance(passes[0].config, WinMLQuantizationConfig)
+
+
+# ---------------------------------------------------------------------------
+# WinMLQuantizationConfig — w4a16 mode
+# ---------------------------------------------------------------------------
+
+
+class TestW4a16Config:
+    def test_w4a16_mode_is_valid(self) -> None:
+        """WinMLQuantizationConfig should accept mode='w4a16' without type error."""
+        config = WinMLQuantizationConfig(mode="w4a16", rtn_bits=4, fp16_keep_io_types=False)
+        assert config.mode == "w4a16"
+
+    def test_to_dict_includes_rtn_and_fp16_fields(self) -> None:
+        """to_dict() must serialise both rtn_* and fp16_* fields when mode='w4a16'."""
+        config = WinMLQuantizationConfig(
+            mode="w4a16",
+            rtn_bits=8,
+            rtn_block_size=64,
+            fp16_keep_io_types=False,
+            fp16_op_block_list=["Gather"],
+        )
+        d = config.to_dict()
+        assert d["rtn_bits"] == 8
+        assert d["rtn_block_size"] == 64
+        assert d["fp16_keep_io_types"] is False
+        assert d["fp16_op_block_list"] == ["Gather"]
+
+    def test_two_w4a16_configs_produce_distinct_dicts(self) -> None:
+        """Different rtn_bits must produce different to_dict() output (cache key stability)."""
+        c1 = WinMLQuantizationConfig(mode="w4a16", rtn_bits=4)
+        c2 = WinMLQuantizationConfig(mode="w4a16", rtn_bits=8)
+        assert c1.to_dict()["rtn_bits"] != c2.to_dict()["rtn_bits"]
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +208,23 @@ class TestQuantizerSinglePass:
 
         with pytest.raises(ValueError, match="at least one pass"):
             Quantizer([])
+
+
+# ---------------------------------------------------------------------------
+# quantize_onnx — kwargs guard
+# ---------------------------------------------------------------------------
+
+
+class TestQuantizeOnnxKwargsGuard:
+    def test_unexpected_kwarg_raises_type_error(self, tmp_path: Path) -> None:
+        """quantize_onnx must raise TypeError on unrecognised kwargs."""
+        from winml.modelkit.quant import quantize_onnx
+
+        model_path = tmp_path / "model.onnx"
+        model_path.write_text("x")
+
+        with pytest.raises(TypeError, match="unexpected keyword arguments"):
+            quantize_onnx(model_path, use_external_data_format=False)
 
 
 # ---------------------------------------------------------------------------
