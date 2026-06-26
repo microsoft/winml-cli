@@ -768,6 +768,44 @@ class TestRunWinmlEvalRecipePath:
         assert res["status"] == "PASS"
 
 
+class TestCleanJobArtifacts:
+    """``_clean_job_artifacts`` removes ONNX build outputs but keeps JSON facts."""
+
+    def test_removes_onnx_keeps_json(self, run_eval, tmp_path):
+        model_dir = tmp_path / "microsoft__resnet-50__image-classification__fp16"
+        model_dir.mkdir()
+        # Build artifacts that should be removed.
+        (model_dir / "export.onnx").write_text("x")
+        (model_dir / "optimized.onnx").write_text("x")
+        (model_dir / "model.onnx").write_text("x")
+        (model_dir / "model.onnx.data").write_text("x")
+        (model_dir / "model_npu_ctx.onnx_VITISAI.bin").write_text("x")
+        # Facts that must survive.
+        (model_dir / "eval_result.json").write_text("{}")
+        (model_dir / "winml_eval_output.json").write_text("{}")
+
+        run_eval._clean_job_artifacts(model_dir)
+
+        survivors = sorted(p.name for p in model_dir.iterdir())
+        assert survivors == ["eval_result.json", "winml_eval_output.json"]
+
+    def test_removes_composite_subdir_artifacts(self, run_eval, tmp_path):
+        model_dir = tmp_path / "m__image-to-text__fp16"
+        (model_dir / "encoder").mkdir(parents=True)
+        (model_dir / "decoder").mkdir(parents=True)
+        (model_dir / "encoder" / "model.onnx").write_text("x")
+        (model_dir / "decoder" / "model.onnx").write_text("x")
+        (model_dir / "eval_result.json").write_text("{}")
+
+        run_eval._clean_job_artifacts(model_dir)
+
+        # ONNX gone, empty component dirs pruned, JSON kept.
+        assert [p.name for p in model_dir.iterdir()] == ["eval_result.json"]
+
+    def test_missing_dir_is_noop(self, run_eval, tmp_path):
+        run_eval._clean_job_artifacts(tmp_path / "nope")  # must not raise
+
+
 class TestRunAccuracyPhaseSchema:
     """``_run_accuracy_phase`` records facts only (no inline PyTorch baseline)."""
 

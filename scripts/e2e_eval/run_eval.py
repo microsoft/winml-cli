@@ -224,6 +224,39 @@ def _clear_disk_caches() -> None:
             safe_print(f"  [cleanup] Removed {cleaned} leaked temp entries from {_TEMP_DIR}")
 
 
+# Result/metadata files that must survive per-job artifact cleanup.
+_JOB_KEEP_SUFFIXES = (".json", ".txt", ".md")
+
+
+def _clean_job_artifacts(model_dir: Path) -> None:
+    """Delete a job's large build outputs, keeping only the JSON/text facts.
+
+    Recipe builds write ``export.onnx``/``optimized.onnx``/``model.onnx`` (plus
+    ``.onnx.data`` / EP context ``.bin``) into the job's result dir via ``-o``;
+    these accumulate across models and fill the disk. Under ``--clean-cache`` we
+    remove them once the job's ``eval_result.json`` is written, so peak disk
+    stays at roughly one job's artifacts. The JSON results the report site reads
+    (``eval_result.json``, ``winml_eval_output.json``, …) are preserved.
+    """
+    if not model_dir.is_dir():
+        return
+    removed = 0
+    for entry in model_dir.rglob("*"):
+        if entry.is_file() and entry.suffix.lower() not in _JOB_KEEP_SUFFIXES:
+            try:
+                entry.unlink()
+                removed += 1
+            except OSError:
+                pass  # Best-effort; ignore locked/already-removed files
+    # Drop any now-empty component subdirectories (composite builds).
+    for entry in sorted(model_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if entry.is_dir():
+            with contextlib.suppress(OSError):
+                entry.rmdir()
+    if removed:
+        safe_print(f"  [cleanup] Removed {removed} build artifact(s) from {model_dir.name}")
+
+
 def safe_print(text: str) -> None:
     """Cross-platform safe print (handles Windows Unicode issues)."""
     try:
@@ -2712,6 +2745,7 @@ def main() -> None:
             safe_print(f"  [acc only]{acc_tag}")
 
         if args.clean_cache:
+            _clean_job_artifacts(model_dir)
             _clear_disk_caches()
 
     run_duration = time.perf_counter() - run_start
