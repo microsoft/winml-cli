@@ -20,7 +20,6 @@ Examples:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import click
@@ -32,6 +31,7 @@ from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from typing import Literal
 
 
@@ -40,13 +40,7 @@ console = Console()
 
 
 @click.command()
-@click.option(
-    "--model",
-    "-m",
-    required=True,
-    type=click.Path(exists=True, path_type=Path),
-    help="Input ONNX model file",
-)
+@cli_utils.model_path_option(required=True, help_text="Input ONNX model file")
 @cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
 @cli_utils.overwrite_option()
 @cli_utils.precision_option(

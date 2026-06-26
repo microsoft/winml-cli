@@ -165,12 +165,10 @@ def capability_options(func: F) -> F:
     default=False,
     help="List available pattern rewrite families and exit",
 )
-@click.option(
-    "--model",
-    "-m",
-    required=False,  # Not required when --list-capabilities/--list-rewrites is used
-    type=click.Path(exists=True, path_type=Path),
-    help="Input ONNX model file",
+@cli_utils.model_path_option(
+    # Not required when --list-capabilities/--list-rewrites is used
+    required=False,
+    help_text="Input ONNX model file",
 )
 @cli_utils.output_option("Output path (default: {input}_opt.onnx)")
 @cli_utils.overwrite_option()

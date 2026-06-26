@@ -29,13 +29,10 @@ logger = logging.getLogger(__name__)
 
 
 @click.command("eval")
-@click.option(
-    "-m",
-    "--model",
-    type=str,
+@cli_utils.model_option(
+    required=False,
     multiple=True,
-    default=(),
-    help=(
+    help_text=(
         "Model to evaluate. Accepts a HuggingFace model ID, an ONNX file path "
         "(requires --model-id), or split-encoder role=path pairs (see --schema)."
     ),
