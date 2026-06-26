@@ -34,7 +34,7 @@ Exports:
 from __future__ import annotations
 
 import types
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 import torch.nn.functional as F
@@ -51,7 +51,10 @@ from ...export import register_onnx_overwrite
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from optimum.utils import NormalizedConfig
+    from transformers.models.sam2.modeling_sam2 import Sam2MultiScaleBlock, Sam2PromptEncoder
 
 
 # =============================================================================
@@ -88,7 +91,7 @@ class Sam2VisionEncoder(torch.nn.Module):
         self.config = vision_encoder.config
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> Sam2VisionEncoder:
+    def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> Sam2VisionEncoder:
         full_model = Sam2Model.from_pretrained(model_name_or_path, **kwargs)
         return cls(full_model.vision_encoder)
 
@@ -134,12 +137,12 @@ class SAM2MaskGeneration(torch.nn.Module):
     """
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> SAM2MaskGeneration:
+    def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> SAM2MaskGeneration:
         """Load from a HuggingFace Sam2Model checkpoint."""
         sam2_model = Sam2Model.from_pretrained(model_name_or_path, **kwargs)
         return cls(sam2_model)
 
-    def __init__(self, sam2_model):
+    def __init__(self, sam2_model: Sam2Model) -> None:
         super().__init__()
 
         self.prompt_encoder = sam2_model.prompt_encoder
@@ -157,8 +160,11 @@ class SAM2MaskGeneration(torch.nn.Module):
     def _get_image_positional_embeddings(self, batch_size: int = 1) -> torch.Tensor:
         """Replicates Sam2Model.get_image_wide_positional_embeddings()."""
         size = self.image_embedding_size
-        target_device = self.shared_image_embedding.positional_embedding.device
-        target_dtype = self.shared_image_embedding.positional_embedding.dtype
+        # positional_embedding is a registered Parameter reached via torch's
+        # __getattr__ (typed Tensor | Module); narrow to Tensor for device/dtype.
+        pos_emb = cast("torch.Tensor", self.shared_image_embedding.positional_embedding)
+        target_device = pos_emb.device
+        target_dtype = pos_emb.dtype
 
         grid = torch.ones(size, device=target_device, dtype=target_dtype)
         y_embed = grid.cumsum(dim=0) - 0.5
@@ -168,7 +174,8 @@ class SAM2MaskGeneration(torch.nn.Module):
 
         positional_embedding = self.shared_image_embedding(torch.stack([x_embed, y_embed], dim=-1))
         positional_embedding = positional_embedding.permute(2, 0, 1).unsqueeze(0)
-        return positional_embedding.repeat(batch_size, 1, 1, 1)
+        # shared_image_embedding is a torch submodule (untyped __call__ -> Any).
+        return cast("torch.Tensor", positional_embedding.repeat(batch_size, 1, 1, 1))
 
     def forward(
         self,
@@ -265,12 +272,12 @@ class SAMMaskGeneration(torch.nn.Module):
     """
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> SAMMaskGeneration:
+    def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> SAMMaskGeneration:
         """Load from a HuggingFace SamModel checkpoint."""
         sam_model = SamModel.from_pretrained(model_name_or_path, **kwargs)
         return cls(sam_model)
 
-    def __init__(self, sam_model):
+    def __init__(self, sam_model: SamModel) -> None:
         super().__init__()
 
         self.prompt_encoder = sam_model.prompt_encoder
@@ -282,8 +289,11 @@ class SAMMaskGeneration(torch.nn.Module):
     def _get_image_positional_embeddings(self, batch_size: int = 1) -> torch.Tensor:
         """Replicates SamModel.get_image_wide_positional_embeddings()."""
         size = self.config.prompt_encoder_config.image_embedding_size
-        target_device = self.shared_image_embedding.positional_embedding.device
-        target_dtype = self.shared_image_embedding.positional_embedding.dtype
+        # positional_embedding is a registered Parameter reached via torch's
+        # __getattr__ (typed Tensor | Module); narrow to Tensor for device/dtype.
+        pos_emb = cast("torch.Tensor", self.shared_image_embedding.positional_embedding)
+        target_device = pos_emb.device
+        target_dtype = pos_emb.dtype
 
         grid = torch.ones((size, size), device=target_device, dtype=target_dtype)
         y_embed = grid.cumsum(dim=0) - 0.5
@@ -293,7 +303,8 @@ class SAMMaskGeneration(torch.nn.Module):
 
         positional_embedding = self.shared_image_embedding(torch.stack([x_embed, y_embed], dim=-1))
         positional_embedding = positional_embedding.permute(2, 0, 1).unsqueeze(0)
-        return positional_embedding.repeat(batch_size, 1, 1, 1)
+        # shared_image_embedding is a torch submodule (untyped __call__ -> Any).
+        return cast("torch.Tensor", positional_embedding.repeat(batch_size, 1, 1, 1))
 
     def forward(
         self,
@@ -395,7 +406,9 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
 # discovers optimization flags automatically. See issue #232.
 
 
-def _window_partition(hidden_state: torch.Tensor, window_size: int):
+def _window_partition(
+    hidden_state: torch.Tensor, window_size: int
+) -> tuple[torch.Tensor, tuple[int, int]]:
     """QNN-compatible window partition (5D instead of 6D).
 
     Original HF creates 6D view: [B, H//ws, ws, W//ws, ws, C]
@@ -451,7 +464,7 @@ def _window_unpartition(
 
 
 def _patched_sam2_multiscale_block_forward(
-    self, hidden_states: torch.Tensor, **kwargs
+    self: Sam2MultiScaleBlock, hidden_states: torch.Tensor, **kwargs: Any
 ) -> torch.Tensor:
     """Patched Sam2MultiScaleBlock.forward with 5D window functions.
 
@@ -461,9 +474,12 @@ def _patched_sam2_multiscale_block_forward(
 
     Applied via Sam2ModelPatcher during export.
     """
+    # _original_forward is added dynamically by Sam2ModelPatcher (not on the class),
+    # so it's reached via nn.Module.__getattr__ (typed Tensor | Module); type it callable.
+    orig_forward = cast("Callable[..., torch.Tensor]", self._original_forward)
     # No windowing needed, use original
     if self.window_size <= 0:
-        return self._original_forward(hidden_states, **kwargs)
+        return orig_forward(hidden_states, **kwargs)
 
     residual = hidden_states
     hidden_states = self.layer_norm1(hidden_states)
@@ -497,15 +513,20 @@ def _patched_sam2_multiscale_block_forward(
         pad_hw = (H + pad_h, W + pad_w)
 
     if self.window_size > 0:
+        # Set together with pad_hw under the same window_size > 0 guard above;
+        # mypy can't correlate the two blocks, so assert the shared invariant.
+        assert H is not None
+        assert W is not None
+        assert pad_hw is not None
         hidden_states = _window_unpartition(hidden_states, window_size, pad_hw, (H, W))
 
     hidden_states = residual + hidden_states
     layernorm_output = self.layer_norm2(hidden_states)
-    return hidden_states + self.mlp(layernorm_output)
+    return cast("torch.Tensor", hidden_states + self.mlp(layernorm_output))
 
 
 def _patched_sam2_embed_points(
-    self, points: torch.Tensor, labels: torch.Tensor, pad: bool
+    self: Sam2PromptEncoder, points: torch.Tensor, labels: torch.Tensor, pad: bool
 ) -> torch.Tensor:
     """Patched _embed_points with arithmetic masking instead of torch.where.
 
@@ -531,11 +552,11 @@ def _patched_sam2_embed_points(
     # Add point type embedding
     mask_ge0 = (labels >= 0).unsqueeze(-1).to(point_embedding.dtype)
     point_embed_lookup = self.point_embed(labels.clamp(min=0))
-    return point_embedding + point_embed_lookup * mask_ge0
+    return cast("torch.Tensor", point_embedding + point_embed_lookup * mask_ge0)
 
 
 def _patched_sam2_prompt_encoder_forward(
-    self,
+    self: Sam2PromptEncoder,
     input_points: torch.Tensor | None,
     input_labels: torch.Tensor | None,
     input_boxes: torch.Tensor | None,
@@ -551,12 +572,18 @@ def _patched_sam2_prompt_encoder_forward(
 
     Applied via Sam2ModelPatcher during export.
     """
-    # Patch _embed_points to use arithmetic masking
-    self._embed_points = types.MethodType(_patched_sam2_embed_points, self)
+    # Patch _embed_points to use arithmetic masking (intentional instance-method patch).
+    self._embed_points = types.MethodType(_patched_sam2_embed_points, self)  # type: ignore[method-assign]
+
+    # _original_forward is added dynamically by Sam2ModelPatcher (not on the class),
+    # so it's reached via nn.Module.__getattr__ (typed Tensor | Module); type it callable.
+    orig_forward = cast(
+        "Callable[..., tuple[torch.Tensor, torch.Tensor]]", self._original_forward
+    )
 
     # If use_mask_input not provided, use original behavior
     if use_mask_input is None:
-        return self._original_forward(input_points, input_labels, input_boxes, input_masks)
+        return orig_forward(input_points, input_labels, input_boxes, input_masks)
 
     # Get batch size
     batch_size = 1
@@ -566,7 +593,7 @@ def _patched_sam2_prompt_encoder_forward(
         batch_size = input_boxes.shape[0]
 
     # Get sparse embeddings (with patched _embed_points)
-    sparse_embeddings, _ = self._original_forward(input_points, input_labels, input_boxes, None)
+    sparse_embeddings, _ = orig_forward(input_points, input_labels, input_boxes, None)
 
     # Arithmetic mask blending
     mask_dense = self.mask_embed(input_masks)
@@ -587,13 +614,13 @@ def _patched_sam2_prompt_encoder_forward(
 # Target class names for instance-level patching.
 # These are matched by type(module).__name__ to stay architecture-agnostic
 # (no class import needed; the classes come from transformers internals).
-_SAM2_PATCH_TARGETS = {
+_SAM2_PATCH_TARGETS: dict[str, Callable[..., Any]] = {
     "Sam2MultiScaleBlock": _patched_sam2_multiscale_block_forward,
     "Sam2PromptEncoder": _patched_sam2_prompt_encoder_forward,
 }
 
 
-class Sam2ModelPatcher(ModelPatcher):
+class Sam2ModelPatcher(ModelPatcher):  # type: ignore[misc]  # optimum base is untyped
     """Custom ModelPatcher that applies SAM2 QNN-compatible patches during export.
 
     Patches Sam2MultiScaleBlock and Sam2PromptEncoder forward methods on all
@@ -613,7 +640,7 @@ class Sam2ModelPatcher(ModelPatcher):
         super().__init__(config, model, model_kwargs=model_kwargs)
         self._sam2_originals: list[tuple[torch.nn.Module, Any]] = []
 
-    def __enter__(self):
+    def __enter__(self) -> Sam2ModelPatcher:
         super().__enter__()
         for _name, module in self._model.named_modules():
             class_name = type(module).__name__
@@ -624,7 +651,7 @@ class Sam2ModelPatcher(ModelPatcher):
                 module.forward = types.MethodType(patch_fn, module)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         for module, original_forward in self._sam2_originals:
             module.forward = original_forward
             if hasattr(module, "_original_forward"):
@@ -636,7 +663,7 @@ class Sam2ModelPatcher(ModelPatcher):
 # =============================================================================
 # Custom Dummy Input Generators for SAM2
 # =============================================================================
-class Sam2PointsInputGenerator(DummyInputGenerator):
+class Sam2PointsInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Points input generator for SAM2 decoder.
 
     Generates:
@@ -653,8 +680,8 @@ class Sam2PointsInputGenerator(DummyInputGenerator):
         batch_size: int = 1,
         point_batch_size: int = 1,
         nb_points_per_image: int = 5,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         self.task = task
         self.batch_size = batch_size
         self.point_batch_size = point_batch_size
@@ -666,7 +693,7 @@ class Sam2PointsInputGenerator(DummyInputGenerator):
         framework: str = "pt",
         int_dtype: str = "int64",
         float_dtype: str = "fp32",
-    ):
+    ) -> torch.Tensor:
         if input_name == "input_points":
             shape = [
                 self.batch_size,
@@ -674,17 +701,24 @@ class Sam2PointsInputGenerator(DummyInputGenerator):
                 self.nb_points_per_image,
                 2,
             ]
-            # Scale to 0-1024 pixel coordinates
-            return self.random_float_tensor(shape, framework=framework, dtype=float_dtype) * 1024
+            # Scale to 0-1024 pixel coordinates. optimum's DummyInputGenerator is
+            # untyped, so random_*_tensor returns Any.
+            return cast(
+                "torch.Tensor",
+                self.random_float_tensor(shape, framework=framework, dtype=float_dtype) * 1024,
+            )
         # input_labels
         shape = [self.batch_size, self.point_batch_size, self.nb_points_per_image]
         # Labels: 1=positive for all test points
-        return self.random_int_tensor(
-            shape, max_value=2, min_value=1, framework=framework, dtype=int_dtype
+        return cast(
+            "torch.Tensor",
+            self.random_int_tensor(
+                shape, max_value=2, min_value=1, framework=framework, dtype=int_dtype
+            ),
         )
 
 
-class Sam2EmbeddingsInputGenerator(DummyInputGenerator):
+class Sam2EmbeddingsInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Embeddings input generator for SAM2 mask generation decoder.
 
     Generates raw (pre-projection) encoder outputs:
@@ -704,8 +738,8 @@ class Sam2EmbeddingsInputGenerator(DummyInputGenerator):
         task: str,
         normalized_config: NormalizedConfig,
         batch_size: int = 1,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         self.task = task
         self.batch_size = batch_size
 
@@ -715,7 +749,7 @@ class Sam2EmbeddingsInputGenerator(DummyInputGenerator):
         framework: str = "pt",
         int_dtype: str = "int64",
         float_dtype: str = "fp32",
-    ):
+    ) -> torch.Tensor:
         if input_name == "image_embeddings":
             shape = [self.batch_size, 256, 64, 64]
         elif input_name == "high_res_features0":
@@ -725,10 +759,13 @@ class Sam2EmbeddingsInputGenerator(DummyInputGenerator):
         else:
             raise ValueError(f"Unknown input: {input_name}")
 
-        return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+        # optimum's DummyInputGenerator is untyped, so random_float_tensor returns Any.
+        return cast(
+            "torch.Tensor", self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+        )
 
 
-class Sam2MaskInputGenerator(DummyInputGenerator):
+class Sam2MaskInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Mask input generator for SAM2 decoder refinement.
 
     Generates:
@@ -743,8 +780,8 @@ class Sam2MaskInputGenerator(DummyInputGenerator):
         task: str,
         normalized_config: NormalizedConfig,
         batch_size: int = 1,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         self.task = task
         self.batch_size = batch_size
 
@@ -754,7 +791,7 @@ class Sam2MaskInputGenerator(DummyInputGenerator):
         framework: str = "pt",
         int_dtype: str = "int64",
         float_dtype: str = "fp32",
-    ):
+    ) -> torch.Tensor:
         if input_name == "mask_input":
             shape = [self.batch_size, 1, 256, 256]
             return torch.zeros(shape, dtype=torch.float32)
@@ -767,7 +804,7 @@ class Sam2MaskInputGenerator(DummyInputGenerator):
 # =============================================================================
 # Normalized Config with Default Image Size
 # =============================================================================
-class Sam2NormalizedVisionConfig(NormalizedVisionConfig):
+class Sam2NormalizedVisionConfig(NormalizedVisionConfig):  # type: ignore[misc]  # optimum base is untyped
     """NormalizedVisionConfig with default image_size for SAM2.
 
     SAM2 uses 1024x1024 input images by default.
@@ -775,7 +812,7 @@ class Sam2NormalizedVisionConfig(NormalizedVisionConfig):
 
     DEFAULT_IMAGE_SIZE = 1024
 
-    def __getattr__(self, attr_name: str):
+    def __getattr__(self, attr_name: str) -> Any:
         """Return default image_size when not found in model config."""
         try:
             return super().__getattr__(attr_name)
@@ -798,7 +835,7 @@ class Sam2NormalizedVisionConfig(NormalizedVisionConfig):
 @register_onnx_overwrite("sam2", "feature-extraction", library_name="transformers")
 @register_onnx_overwrite("sam2_video", "feature-extraction", library_name="transformers")
 @register_onnx_overwrite("sam2_vision_model", "feature-extraction", library_name="transformers")
-class Sam2ImageEncoderIOConfig(OnnxConfig):
+class Sam2ImageEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SAM2 image encoder (vision_encoder component).
 
     Task: image-feature-extraction (encoder-only export)
@@ -839,7 +876,7 @@ class Sam2ImageEncoderIOConfig(OnnxConfig):
 # -----------------------------------------------------------------------------
 @register_onnx_overwrite("sam2", "image-segmentation", library_name="transformers")
 @register_onnx_overwrite("sam2_video", "image-segmentation", library_name="transformers")
-class Sam2IOConfig(OnnxConfig):
+class Sam2IOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SAM2 full model (encoder + decoder monolith).
 
     Task: image-segmentation (full model export)
@@ -885,7 +922,7 @@ class Sam2IOConfig(OnnxConfig):
 # -----------------------------------------------------------------------------
 @register_onnx_overwrite("sam2", "mask-generation", library_name="transformers")
 @register_onnx_overwrite("sam2_video", "mask-generation", library_name="transformers")
-class Sam2MaskGenerationIOConfig(OnnxConfig):
+class Sam2MaskGenerationIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SAM2MaskGeneration (decoder with raw FPN inputs).
 
     Model: facebook/sam2-hiera-small (decoder wrapper)
@@ -941,7 +978,7 @@ class Sam2MaskGenerationIOConfig(OnnxConfig):
 # =============================================================================
 # SAM v1 Custom Dummy Input Generators
 # =============================================================================
-class SamEmbeddingsInputGenerator(DummyInputGenerator):
+class SamEmbeddingsInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Embeddings input generator for SAM v1 mask generation decoder.
 
     Generates:
@@ -955,8 +992,8 @@ class SamEmbeddingsInputGenerator(DummyInputGenerator):
         task: str,
         normalized_config: NormalizedConfig,
         batch_size: int = 1,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         self.task = task
         self.batch_size = batch_size
 
@@ -966,11 +1003,14 @@ class SamEmbeddingsInputGenerator(DummyInputGenerator):
         framework: str = "pt",
         int_dtype: str = "int64",
         float_dtype: str = "fp32",
-    ):
+    ) -> torch.Tensor:
         # SAM v1 decoder export expects the canonical embedding shape from the
         # vision encoder output; this mirrors the existing SAM2 generator path.
         shape = [self.batch_size, 256, 64, 64]
-        return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+        # optimum's DummyInputGenerator is untyped, so random_float_tensor returns Any.
+        return cast(
+            "torch.Tensor", self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+        )
 
 
 # =============================================================================
@@ -982,7 +1022,7 @@ class SamEmbeddingsInputGenerator(DummyInputGenerator):
 # Mask generation export (SAMMaskGeneration wrapper) - SAM v1
 # -----------------------------------------------------------------------------
 @register_onnx_overwrite("sam", "mask-generation", library_name="transformers")
-class SamMaskGenerationIOConfig(OnnxConfig):
+class SamMaskGenerationIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for SAMMaskGeneration (SAM v1 decoder).
 
     Model: facebook/sam-vit-huge, facebook/sam-vit-large, facebook/sam-vit-base

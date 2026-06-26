@@ -23,6 +23,7 @@ This module provides:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from optimum.exporters.onnx.model_configs import (
     COMMON_TEXT_TASKS,
@@ -57,7 +58,7 @@ ROBERTA_FAMILY_CONFIG = WinMLBuildConfig(
 # =============================================================================
 
 
-def _adjust_position_embeddings(config) -> None:
+def _adjust_position_embeddings(config: Any) -> None:
     """Adjust max_position_embeddings for Roberta-style position offset.
 
     Roberta-family models define:
@@ -116,13 +117,15 @@ class _RobertaPositionOffsetMixin:
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (MaxLengthTextInputGenerator,)
 
-    def __init__(self, config, task, **kwargs):
+    def __init__(self, config: Any, task: str, **kwargs: Any) -> None:
         _adjust_position_embeddings(config)
-        super().__init__(config, task, **kwargs)
+        # Mixin is first in MRO; super() resolves to the (untyped) OnnxConfig
+        # base at runtime, which mypy can't see, so it thinks super() is object.
+        super().__init__(config, task, **kwargs)  # type: ignore[call-arg]
 
 
 @register_onnx_overwrite("roberta", *COMMON_TEXT_TASKS, library_name="transformers")
-class RobertaIOConfig(_RobertaPositionOffsetMixin, RobertaOnnxConfig):
+class RobertaIOConfig(_RobertaPositionOffsetMixin, RobertaOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Roberta OnnxConfig with position-offset-adjusted sequence_length.
 
     Inputs (same as DistilBERT — no token_type_ids):
@@ -137,17 +140,17 @@ class RobertaIOConfig(_RobertaPositionOffsetMixin, RobertaOnnxConfig):
 
 
 @register_onnx_overwrite("xlm-roberta", *COMMON_TEXT_TASKS, library_name="transformers")
-class XLMRobertaIOConfig(_RobertaPositionOffsetMixin, XLMRobertaOnnxConfig):
+class XLMRobertaIOConfig(_RobertaPositionOffsetMixin, XLMRobertaOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """XLM-Roberta OnnxConfig with position-offset-adjusted sequence_length."""
 
 
 @register_onnx_overwrite("camembert", *COMMON_TEXT_TASKS, library_name="transformers")
-class CamemBERTIOConfig(_RobertaPositionOffsetMixin, CamembertOnnxConfig):
+class CamemBERTIOConfig(_RobertaPositionOffsetMixin, CamembertOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """CamemBERT OnnxConfig with position-offset-adjusted sequence_length."""
 
 
 @register_onnx_overwrite("mpnet", *COMMON_TEXT_TASKS, library_name="transformers")
-class MPNetIOConfig(_RobertaPositionOffsetMixin, MPNetOnnxConfig):
+class MPNetIOConfig(_RobertaPositionOffsetMixin, MPNetOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """MPNet OnnxConfig with position-offset-adjusted sequence_length.
 
     MPNet, like Roberta-family models, sets:

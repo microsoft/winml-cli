@@ -40,7 +40,7 @@ def sample_config():
                 "mode": "qdq",
                 "samples": 10,
                 "task": "image-classification",
-                "model_name": "test-model",
+                "model_id": "test-model",
             },
             "compile": {
                 "execution_provider": "qnn",

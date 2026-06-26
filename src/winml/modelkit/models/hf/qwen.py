@@ -101,7 +101,7 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
@@ -121,6 +121,10 @@ from ..winml.decoder_only import (
     WinMLDecoderOnlyModel,
 )
 from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
+
+
+if TYPE_CHECKING:
+    from transformers import GenerationConfig, PretrainedConfig
 
 
 # =============================================================================
@@ -144,7 +148,9 @@ class QwenDecoderWrapper(nn.Module):
         super().__init__()
         self.model = model
         self.num_layers = num_layers
-        self.config = model.config
+        # model is typed nn.Module, so torch's __getattr__ types .config as
+        # Tensor | Module; it is really the model's PretrainedConfig.
+        self.config: PretrainedConfig = cast("PretrainedConfig", model.config)
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> QwenDecoderWrapper:
@@ -262,7 +268,7 @@ def _qwen_io_outputs(num_layers: int) -> dict[str, dict[int, str]]:
 
 
 @register_onnx_overwrite("qwen3", "feature-extraction", library_name="transformers")
-class QwenPrefillIOConfig(OnnxConfig):
+class QwenPrefillIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Qwen3 prefill (feature-extraction task).
 
     Inputs: input_ids [1, 64], attention_mask [1, 256], position_ids [1, 64],
@@ -283,7 +289,7 @@ class QwenPrefillIOConfig(OnnxConfig):
 
 
 @register_onnx_overwrite("qwen3", "text2text-generation", library_name="transformers")
-class QwenGenIOConfig(OnnxConfig):
+class QwenGenIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Qwen3 generation (text2text-generation task).
 
     Inputs: input_ids [1, 1], attention_mask [1, 256], position_ids [1, 1],
@@ -351,7 +357,7 @@ class WinMLQwen3Model(WinMLDecoderOnlyModel):
         return WinMLSlidingWindowCache
 
     @property
-    def generation_config(self):  # noqa: D102
+    def generation_config(self) -> GenerationConfig:  # noqa: D102
         if not hasattr(self, "_generation_config"):
             from transformers import GenerationConfig
 

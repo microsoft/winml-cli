@@ -16,6 +16,8 @@ The config resolves image_size and num_channels from the nested backbone_config
 
 from __future__ import annotations
 
+from typing import Any
+
 from optimum.exporters.onnx import OnnxConfig
 from optimum.utils import DEFAULT_DUMMY_SHAPES, NormalizedConfig
 from optimum.utils.input_generators import DummyVisionInputGenerator
@@ -23,7 +25,7 @@ from optimum.utils.input_generators import DummyVisionInputGenerator
 from ...export import register_onnx_overwrite
 
 
-class _DepthAnythingVisionInputGenerator(DummyVisionInputGenerator):
+class _DepthAnythingVisionInputGenerator(DummyVisionInputGenerator):  # type: ignore[misc]  # optimum/transformers base is untyped
     """Vision input generator that lets explicit height/width override config.image_size.
 
     Optimum's DummyVisionInputGenerator prioritizes normalized_config.image_size
@@ -37,13 +39,13 @@ class _DepthAnythingVisionInputGenerator(DummyVisionInputGenerator):
     def __init__(
         self,
         task: str,
-        normalized_config,
+        normalized_config: NormalizedConfig,
         batch_size: int = DEFAULT_DUMMY_SHAPES["batch_size"],
         num_channels: int = DEFAULT_DUMMY_SHAPES["num_channels"],
         width: int = DEFAULT_DUMMY_SHAPES["width"],
         height: int = DEFAULT_DUMMY_SHAPES["height"],
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         super().__init__(
             task,
             normalized_config,
@@ -62,7 +64,7 @@ class _DepthAnythingVisionInputGenerator(DummyVisionInputGenerator):
 
 
 @register_onnx_overwrite("depth_anything", "depth-estimation", library_name="transformers")
-class DepthAnythingIOConfig(OnnxConfig):
+class DepthAnythingIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum/transformers base is untyped
     """ONNX config for Depth Anything depth estimation.
 
     Model: depth-anything/Depth-Anything-V2-Small-hf
