@@ -56,4 +56,10 @@ class BaseQuantPass(ABC):
         Returns:
             :class:`~winml.modelkit.quant.config.QuantizeResult` describing
             the outcome of this pass.
+
+        Note:
+            Passes use file-based I/O because ORT's calibration and RTN APIs
+            operate on paths, and external-data models cannot be held fully in
+            memory.  A future enhancement could add an optional in-memory
+            fast-path for small single-pass models.
         """

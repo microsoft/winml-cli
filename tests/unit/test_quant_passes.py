@@ -110,6 +110,16 @@ class TestExpandPrecision:
         assert len(passes) == 1
         assert isinstance(passes[0].config, WinMLQuantizationConfig)
 
+    def test_no_mode_uses_config_mode(self) -> None:
+        """expand_precision(config=cfg) should use cfg.mode when mode is not given."""
+        from winml.modelkit.quant.quantizer import expand_precision
+
+        config = WinMLQuantizationConfig(mode="rtn", rtn_bits=4)
+        passes = expand_precision(config=config)
+        assert len(passes) == 1
+        assert isinstance(passes[0], RTNPass)
+        assert passes[0].config is config
+
 
 # ---------------------------------------------------------------------------
 # Quantizer — single pass

@@ -330,8 +330,6 @@ def _run_multi_precision(
     console: Console,
 ) -> None:
     """Execute a multi-pass quantization pipeline from ordered precision strings."""
-    from typing import cast
-
     from ..config.precision import extract_weight_bits
     from ..quant import Quantizer, WinMLQuantizationConfig, expand_precision
 

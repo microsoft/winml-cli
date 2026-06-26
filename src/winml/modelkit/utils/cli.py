@@ -434,7 +434,7 @@ def device_option(
 
 
 def precision_option(
-    default: str | None = "auto",
+    default: str | tuple[str, ...] | None = "auto",
     optional_message: str | None = None,
     include_short: bool = True,
     help_text: str | None = None,

@@ -23,13 +23,14 @@ _COMPOSITE_PRECISIONS: dict[str, list[str]] = {}
 
 
 def expand_precision(
-    mode: str,
+    mode: str | None = None,
     config: WinMLQuantizationConfig | None = None,
 ) -> list[BaseQuantPass]:
     """Expand a precision string into an ordered list of quantization passes.
 
     All passes share the same ``config`` so every pass can read the fields
-    relevant to it.
+    relevant to it.  When *mode* is omitted, ``config.mode`` is used so that
+    ``expand_precision(config=cfg)`` works as a single-precision convenience.
 
     Supported values:
 
@@ -43,7 +44,8 @@ def expand_precision(
     ========= =======================
 
     Args:
-        mode: Precision string (e.g. ``"fp16"``).
+        mode: Precision string (e.g. ``"fp16"``).  When *None*, falls back to
+            ``config.mode`` (or ``"static"`` if *config* is also *None*).
         config: Shared quantization configuration.  If *None*, a default
             :class:`WinMLQuantizationConfig` is used.
 
@@ -55,6 +57,7 @@ def expand_precision(
         ValueError: If *mode* is not recognised.
     """
     config = config or WinMLQuantizationConfig()
+    effective_mode = mode if mode is not None else config.mode
 
     _pass_factories: dict[str, BaseQuantPass] = {
         "fp16": FP16Pass(config),
@@ -63,14 +66,14 @@ def expand_precision(
         "dynamic": StaticPass(config),
     }
 
-    if mode in _pass_factories:
-        return [_pass_factories[mode]]
+    if effective_mode in _pass_factories:
+        return [_pass_factories[effective_mode]]
 
-    if mode in _COMPOSITE_PRECISIONS:
-        return [_pass_factories[step] for step in _COMPOSITE_PRECISIONS[mode]]
+    if effective_mode in _COMPOSITE_PRECISIONS:
+        return [_pass_factories[step] for step in _COMPOSITE_PRECISIONS[effective_mode]]
 
     raise ValueError(
-        f"Unknown precision mode {mode!r}. "
+        f"Unknown precision mode {effective_mode!r}. "
         f"Valid values: {sorted(_pass_factories) + sorted(_COMPOSITE_PRECISIONS)}"
     )
 
@@ -265,5 +268,5 @@ def quantize_onnx(
 
     if kwargs:
         raise TypeError(f"quantize_onnx() got unexpected keyword arguments: {sorted(kwargs)}")
-    passes = expand_precision(config.mode, config)
+    passes = expand_precision(config=config)
     return Quantizer(passes).run(model_path, output_path, use_external_data=use_external_data)

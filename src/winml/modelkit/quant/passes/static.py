@@ -90,7 +90,7 @@ class StaticPass(BaseQuantPass):
 
             task = self._config.task or "random"
             data_reader = DatasetCalibrationReader(
-                model_name=self._config.model_name or "random",
+                model_name=self._config.model_id or "random",
                 task=task,
                 max_samples=self._config.samples,
                 dataset_name=self._config.dataset_name,
