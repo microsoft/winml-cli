@@ -11,8 +11,6 @@ from typing import Any, ClassVar
 import onnx
 import onnxruntime as ort
 
-from ... import winml
-
 
 # TODO: allow test case iter to take dtypes as inputs
 # TODO: define dataclass for result
@@ -41,9 +39,34 @@ class EPChecker:
         self._provider_options = provider_options
 
     def _get_sess_options(self) -> ort.SessionOptions:
+        from ...session import (
+            EPDeviceTarget,
+            WinMLEPRegistry,
+            resolve_device,
+            short_ep_name,
+        )
+
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-        winml.add_ep_for_device(sess_options, self.ep_name, self.device_type)
+
+        # self.device_type is ort.OrtHardwareDeviceType (CPU/GPU/NPU enum).
+        # self.ep_name is the full EP name (e.g. "QNNExecutionProvider").
+        target = EPDeviceTarget(
+            ep=short_ep_name(self.ep_name),
+            device=self.device_type.name.lower(),
+        )
+        resolved = resolve_device(target)
+        ep_device = WinMLEPRegistry.instance().auto_device(resolved)
+
+        options: dict[str, str] = {}
+        if self._provider_options:
+            # _provider_options is Sequence[dict[Any, Any]] | None; take the first.
+            options = dict(self._provider_options[0])
+
+        sess_options.add_provider_for_devices(
+            [ep_device.device.ort_handle],
+            options,
+        )
         return sess_options
 
     def _needs_file_path(self) -> bool:

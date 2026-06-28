@@ -14,7 +14,7 @@ ONNX Runtime so that get_schema() calls succeed for non-standard operators.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from onnx.defs import OpSchema, get_schema
@@ -139,7 +139,7 @@ def _init_custom_schemas(domains: set[str] | None = None) -> None:
 _init_custom_schemas(_CUSTOM_DOMAINS_TO_REGISTER)
 
 
-class ONNXDomain(str, Enum):
+class ONNXDomain(StrEnum):
     """ONNX domain identifiers with helper methods for domain-specific operations.
 
     This enum encapsulates domain name conversions between different ONNX APIs:

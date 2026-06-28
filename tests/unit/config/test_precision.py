@@ -182,12 +182,12 @@ class TestEpOverride:
         assert policy.device == "gpu"
 
     def test_ep_overrides_default_dml(self) -> None:
-        """Without ep, gpu maps to dml. With ep='nv_tensorrt_rtx', should be nv_tensorrt_rtx."""
+        """Without ep, gpu maps to dml. With ep='nvtensorrtrtx', should be nvtensorrtrtx."""
         default = resolve_precision(device="gpu")
         assert default.compile_provider == "dml"
 
-        override = resolve_precision(device="gpu", ep="nv_tensorrt_rtx")
-        assert override.compile_provider == "nv_tensorrt_rtx"
+        override = resolve_precision(device="gpu", ep="nvtensorrtrtx")
+        assert override.compile_provider == "nvtensorrtrtx"
 
     def test_ep_infers_device_from_gpu_ep(self) -> None:
         """ep='migraphx' with device='auto' should infer device='gpu'."""
@@ -227,7 +227,7 @@ class TestEpOverride:
 
     def test_all_valid_eps(self) -> None:
         """All VALID_EPS should be accepted without error."""
-        from winml.modelkit.config.precision import VALID_EPS
+        from winml.modelkit.session import VALID_EPS
 
         for ep_name in VALID_EPS:
             policy = resolve_precision(ep=ep_name)
@@ -242,6 +242,76 @@ class TestEpOverride:
         """EP names should be case-insensitive."""
         policy = resolve_precision(ep="MiGraphX")
         assert policy.compile_provider == "migraphx"
+
+
+# =============================================================================
+# TestRegistrationAwareCompileProvider - spec §6.4 in 3_design_ep.md
+# =============================================================================
+
+
+class TestRegistrationAwareCompileProvider:
+    """resolve_precision must propagate registration-aware EP selection.
+
+    The internal call to `default_ep_for_device(resolved_device)` at
+    config/precision.py:275 currently returns the static-catalog default
+    (QNN for npu, DML for gpu). On a host where that EP is not registered,
+    the resulting `compile_provider` points at an EP the build pipeline
+    cannot actually load. See docs/design/session/3_design_ep.md §6.4.
+    """
+
+    def test_npu_on_openvino_only_box_picks_openvino(self) -> None:
+        """device='npu' on an OpenVINO-only host: compile_provider must be 'openvino'.
+
+        Today this returns 'qnn' because the static catalog orders QNN first
+        for npu. The fix to `default_ep_for_device` should propagate here
+        without any change to resolve_precision itself.
+        """
+        import contextlib
+        from unittest.mock import patch
+
+        from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+        available = frozenset({"OpenVINOExecutionProvider", "CPUExecutionProvider"})
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch.object(
+                    WinMLEPRegistry, "available_eps", return_value=available
+                )
+            )
+            policy = resolve_precision(device="npu", precision="int8")
+
+        assert policy.compile_provider == "openvino", (
+            f"Expected compile_provider='openvino' on an OpenVINO-only NPU box, "
+            f"got {policy.compile_provider!r}. The static-catalog QNN-first "
+            "default leaked through resolve_precision."
+        )
+
+    def test_gpu_on_migraphx_only_box_picks_migraphx(self) -> None:
+        """device='gpu' on AMD/MIGraphX-only host: compile_provider must be 'migraphx'.
+
+        MIGraphX is the only GPU-targeting EP in the catalog for AMD hardware.
+        The registration-aware deduction must skip the catalog's QNN/gpu
+        entry (QNN is not registered here) and return MIGraphXExecutionProvider.
+        """
+        import contextlib
+        from unittest.mock import patch
+
+        from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+        available = frozenset({"MIGraphXExecutionProvider", "CPUExecutionProvider"})
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch.object(
+                    WinMLEPRegistry, "available_eps", return_value=available
+                )
+            )
+            policy = resolve_precision(device="gpu", precision="fp16")
+
+        assert policy.compile_provider == "migraphx", (
+            f"Expected compile_provider='migraphx' on a MIGraphX-only GPU box, "
+            f"got {policy.compile_provider!r}. The static catalog leaked an "
+            "unregistered EP through resolve_precision."
+        )
 
 
 # =============================================================================

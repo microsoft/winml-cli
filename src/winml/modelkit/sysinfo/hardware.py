@@ -2,10 +2,39 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+import logging
 import re
 from enum import Enum
 
 from .helper import CimInstance, PnpDevice
+
+
+logger = logging.getLogger(__name__)
+
+
+def get_available_devices() -> list[str]:
+    """Prioritized list of device categories present on this host (via WMI).
+
+    Priority: NPU > GPU > CPU. Always includes "cpu" as fallback.
+    Returns category strings ("npu", "gpu", "cpu"), not hardware instances —
+    use ``NPU.get_all()`` / ``GPU.get_all()`` for instance-level inventory.
+    """
+    devices: list[str] = []
+
+    try:
+        if NPU.get_all():
+            devices.append("npu")
+    except Exception:
+        logger.debug("NPU detection failed or unavailable")
+
+    try:
+        if GPU.get_all():
+            devices.append("gpu")
+    except Exception:
+        logger.debug("GPU detection failed or unavailable")
+
+    devices.append("cpu")  # CPU always available
+    return devices
 
 
 def get_vendor_id_device_id_from_pnp_id(pnp_id: str) -> tuple[int, int]:

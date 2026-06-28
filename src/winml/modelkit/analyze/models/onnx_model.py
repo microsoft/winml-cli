@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 import onnx
 from pydantic import BaseModel, Field, field_validator
@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from ...onnx import ONNXDomain
 
 
-class ModelTag(str, Enum):
+class ModelTag(StrEnum):
     """Tags for marking model-level issues and validation states.
 
     These tags are stored in ONNXModel.model_tags to record various

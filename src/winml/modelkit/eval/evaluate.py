@@ -147,9 +147,16 @@ class EvalResult:
 def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
     """Load model from ONNX path or HF model ID."""
     from ..models import WinMLAutoModel
+    from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
     if config.model_id is None:
         raise ValueError("model_id is required.")
+
+    # Resolve EPDeviceTarget then bind a WinMLEPDevice at the boundary. Eval
+    # config has no explicit ep field; resolve_device deduces from device.
+    device = config.device.lower()
+    target = resolve_device(EPDeviceTarget(ep="auto", device=device))
+    ep_device = WinMLEPRegistry.instance().auto_device(target)
 
     if config.model_path is not None:
         from transformers import AutoConfig
@@ -157,8 +164,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         hf_config = AutoConfig.from_pretrained(config.model_id)
         model = WinMLAutoModel.from_onnx(
             onnx_path=Path(config.model_path),
+            ep_device=ep_device,
             task=config.task,
-            device=config.device,
             skip_build=True,
         )
         model.config = hf_config
@@ -166,8 +173,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
 
     return WinMLAutoModel.from_pretrained(
         config.model_id,
+        ep_device,
         task=config.task,
-        device=config.device,
     )
 
 

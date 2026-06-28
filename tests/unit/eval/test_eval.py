@@ -527,10 +527,7 @@ class TestEvalCli:
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
-            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
-        ):
+        with patch("winml.modelkit.eval.evaluate") as mock_evaluate:
             mock_evaluate.return_value = EvalResult(
                 config=WinMLEvaluationConfig(),
                 metrics={},
@@ -574,10 +571,7 @@ class TestEvalCli:
         onnx_file.touch()
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
-            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
-        ):
+        with patch("winml.modelkit.eval.evaluate") as mock_evaluate:
             mock_evaluate.return_value = EvalResult(
                 config=WinMLEvaluationConfig(),
                 metrics={},
@@ -676,10 +670,7 @@ class TestEvalCli:
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
-            patch("winml.modelkit.eval.evaluate", side_effect=RuntimeError("broken model")),
-        ):
+        with patch("winml.modelkit.eval.evaluate", side_effect=RuntimeError("broken model")):
             result = runner.invoke(
                 eval_cmd,
                 [
@@ -799,6 +790,24 @@ class TestDefaultDatasetImmutability:
 class TestLoadModel:
     """Tests for _load_model."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_resolve_device(self):
+        """Mock resolve_device + auto_device so unit tests don't hit live EP registry."""
+        from winml.modelkit.session import EPDeviceTarget
+
+        fake_cpu = EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=fake_cpu,
+            ),
+            patch(
+                "winml.modelkit.session.WinMLEPRegistry"
+            ) as mock_reg,
+        ):
+            mock_reg.instance.return_value.auto_device.return_value = MagicMock()
+            yield
+
     def test_load_model_no_model_id_raises(self):
         """_load_model raises ValueError when model_id is None."""
         from winml.modelkit.eval.evaluate import _load_model
@@ -832,11 +841,13 @@ class TestLoadModel:
         ):
             result = eval_mod._load_model(config)
 
-        mock_auto.from_pretrained.assert_called_once_with(
-            "test/model",
-            task="image-classification",
-            device="cpu",
-        )
+        mock_auto.from_pretrained.assert_called_once()
+        call_args = mock_auto.from_pretrained.call_args
+        # _load_model now passes a WinMLEPDevice as the 2nd positional arg.
+        assert call_args.args[0] == "test/model"
+        # The mock auto_device returns a MagicMock — just confirm it landed.
+        assert call_args.args[1] is not None
+        assert call_args.kwargs["task"] == "image-classification"
         assert result is mock_model
 
     def test_load_model_from_onnx(self):

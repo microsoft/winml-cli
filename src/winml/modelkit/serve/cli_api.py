@@ -289,7 +289,7 @@ async def _run_with_semaphore(command: str, args: dict[str, Any]) -> CliResponse
     sem = _heavy_semaphore if command in _HEAVY_COMMANDS else _light_semaphore
     try:
         await asyncio.wait_for(sem.acquire(), timeout=_SEMAPHORE_TIMEOUT_SEC)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise HTTPException(
             status_code=503,
             detail=f"Server busy. Command '{command}' is waiting for a slot. Try again later.",
@@ -301,7 +301,7 @@ async def _run_with_semaphore(command: str, args: dict[str, Any]) -> CliResponse
             loop.run_in_executor(None, _invoke, command, args),
             timeout=_EXEC_TIMEOUT_SEC,
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise HTTPException(
             status_code=504,
             detail=f"Command '{command}' timed out after {_EXEC_TIMEOUT_SEC}s.",

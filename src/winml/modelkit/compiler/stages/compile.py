@@ -15,7 +15,13 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 
 from ...onnx import load_onnx, save_onnx
-from ...session import WinMLQairtSession, WinMLSession
+from ...session import (
+    EPDeviceTarget,
+    WinMLEPRegistry,
+    WinMLQairtSession,
+    WinMLSession,
+    resolve_device,
+)
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -61,12 +67,27 @@ class CompileStage(BaseStage):
             model_path = self._ensure_model_file(context)
             context.log(f"Model path: {model_path}")
 
-            ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
-            # Create WinMLSession
-            context.log(f"Creating {session_cls.__name__} for device: {context.execution_provider}")
+            compile_cfg = WinMLCompileConfig.from_dict(context.config)
+            ep_config = compile_cfg.ep_config
+            # Prefer ep_device threaded from the CLI boundary (resolve_device called once).
+            # Fall back to inferring from execution_provider for non-CLI invocations.
+            ep_device_dict = context.config.get("ep_device")
+            if ep_device_dict:
+                target: EPDeviceTarget = EPDeviceTarget.from_dict(ep_device_dict)
+            elif compile_cfg.ep_device is not None:
+                target = compile_cfg.ep_device
+            else:
+                ep_str = context.execution_provider
+                target = resolve_device(
+                    EPDeviceTarget(ep=ep_str or "auto", device="auto")
+                )
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
+            context.log(
+                f"Creating {session_cls.__name__} for {target.ep}/{target.device}"
+            )
             winml_session = session_cls(
                 onnx_path=model_path,
-                device=context.execution_provider,
+                ep_device=ep_device,
                 ep_config=ep_config,
             )
             winml_session.compile()
@@ -207,11 +228,25 @@ class CompileStage(BaseStage):
         """
         device = context.execution_provider.lower()
 
+        # WinMLSession.compile() saves ctx as {stem}_{ep_device.device}_ctx.onnx
+        # (e.g. _npu_ctx.onnx), while context.execution_provider is the full
+        # provider name (e.g. QNNExecutionProvider).  We search both patterns.
+        from ...session import ep_to_device
+
+        try:
+            ep_device_str = ep_to_device(context.execution_provider)
+        except ValueError:
+            ep_device_str = None
+
         # Find EPContext in work_dir (where WinMLSession saved it)
         ctx_patterns = [
             model_path.parent / f"{model_path.stem}_{device}_ctx.onnx",
             model_path.parent / f"{model_path.stem}_ctx.onnx",
         ]
+        if ep_device_str:
+            ctx_patterns.insert(
+                0, model_path.parent / f"{model_path.stem}_{ep_device_str}_ctx.onnx"
+            )
 
         src_ctx_path = None
         for pattern in ctx_patterns:

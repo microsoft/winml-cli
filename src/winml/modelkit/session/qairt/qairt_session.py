@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...utils.python_env import ensure_venv
+from .. import EPDeviceTarget, WinMLEPDevice, WinMLEPRegistry, resolve_device
 from ..session import SessionState, WinMLSession
 
 
@@ -51,11 +52,15 @@ class WinMLQairtSession(WinMLSession):
     def __init__(
         self,
         onnx_path: str | Path,
-        device: str = "qnn",
+        ep_device: WinMLEPDevice | None = None,
         ep_config: EPConfig | None = None,
     ) -> None:
+        # Default to QNN NPU if no ep_device is provided.
+        if ep_device is None:
+            target = resolve_device(EPDeviceTarget(ep="qnn", device="npu"))
+            ep_device = WinMLEPRegistry.instance().auto_device(target)
         # Initialize parent WinMLSession
-        super().__init__(onnx_path, device=device, ep_config=ep_config)
+        super().__init__(onnx_path, ep_device, ep_config=ep_config)
 
         # QAIRT-specific paths
         self._bin_path = self._onnx_path.parent / f"{self._onnx_path.stem}_qnn_ctx_qnn.bin"
@@ -230,7 +235,14 @@ class WinMLQairtSession(WinMLSession):
         """Create ORT InferenceSession from EPContext model."""
         import onnxruntime as ort
 
-        sess_options = self._build_session_options(self._device)
+        from ..session import _build_session_options
+
+        sess_options = _build_session_options(
+            self._ep_device,
+            self._ep_config,
+            None,
+            self._base_session_options,
+        )
         self._session = ort.InferenceSession(str(self._ctx_path), sess_options=sess_options)
         self._state = SessionState.COMPILED
 

@@ -11,7 +11,7 @@ Domain acronyms in PascalCase class names **retain their uppercase form**, excep
 | Acronym | Meaning | Class Casing | Example |
 |---------|---------|--------------|---------|
 | ONNX | Open Neural Network Exchange | `ONNX` | `ONNXStaticAnalyzer`, `ONNXLoader` |
-| EP | Execution Provider | `EP` | `EPChecker`, `EPConfig`, `EPMonitor` |
+| EP | Execution Provider | `EP` | `EPChecker`, `EPConfig`, `WinMLEPMonitor` |
 | QDQ | Quantize-Dequantize | `QDQ` | `QDQParameterConfig`, `QDQGenerator` |
 | QNN | Qualcomm Neural Network | `QNN` | `QNNMonitor` |
 | Op | Operator (2-letter prefix) | `Op` | `OpUnsupportedError` |

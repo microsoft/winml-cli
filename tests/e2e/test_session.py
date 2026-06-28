@@ -29,18 +29,19 @@ class TestWinMLRegistryEPDiscovery:
     @pytest.mark.e2e
     def test_winml_registry_ep_discovery(self):
         """Test that WinMLEPRegistry can discover EPs when WinML SDK is present."""
-        registry = WinMLEPRegistry.get_instance()
+        registry = WinMLEPRegistry.instance()
 
         # Registry should be accessible
         assert registry is not None
 
-        # Skip if WinML SDK is not available on this environment
-        if not registry.winml_available:
+        # Skip if no plugin EP was discovered on this environment.
+        if not registry._discovered:
             pytest.skip("WinML SDK not available")
 
-        eps = registry.get_available_eps()
-        # If WinML is available, should have at least one EP
-        assert len(eps) > 0, "WinML available but no EPs discovered"
+        # If discovery yielded any entry, there's at least one EP name visible.
+        assert len({e.ep_name for e in registry._discovered}) > 0, (
+            "WinML available but no EPs discovered"
+        )
 
 
 @pytest.mark.e2e

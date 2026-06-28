@@ -43,7 +43,7 @@ from ..inference.types import PredictionResult
 from .cli_api import CliRequest, CliResponse, _run_with_semaphore
 from .manager import ModelSlotManager, SingleModelManager
 from .schema import (
-    EpSwitchRequest,
+    EPSwitchRequest,
     HealthResponse,
     LatencyStats,
     ModelInfo,
@@ -436,7 +436,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
     # POST /v1/ep — switch EP
     # ------------------------------------------------------------------
     @app.post("/v1/ep", tags=["management"], summary="Switch execution provider")
-    async def switch_ep(request: EpSwitchRequest) -> dict[str, Any]:
+    async def switch_ep(request: EPSwitchRequest) -> dict[str, Any]:
         ep = request.ep.lower()
         if ep not in _VALID_EPS:
             raise HTTPException(

@@ -42,9 +42,15 @@ pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.network]
 @pytest.fixture(autouse=True)
 def _mock_resolve_device():
     """Mock hardware detection to avoid failures in test environments."""
-    with patch(
-        "winml.modelkit.sysinfo.resolve_device",
-        return_value=("cpu", ["cpu"]),
+    with (
+        patch(
+            "winml.modelkit.session.auto_detect_device",
+            return_value="cpu",
+        ),
+        patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["cpu"],
+        ),
     ):
         yield
 

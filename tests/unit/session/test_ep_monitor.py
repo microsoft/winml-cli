@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for EPMonitor, VitisAIMonitor, and internal helpers."""
+"""Tests for WinMLEPMonitor, VitisAIMonitor, and internal helpers."""
 
 from __future__ import annotations
 
@@ -14,26 +14,30 @@ from unittest.mock import patch
 
 import pytest
 
-from winml.modelkit.session import EPMonitor, PerfStats, VitisAIMonitor
+from winml.modelkit.session import PerfStats, VitisAIMonitor, WinMLEPMonitor
 
 
 # ============================================================================
-# EPMonitor (ABC) tests
+# WinMLEPMonitor (ABC) tests
 # ============================================================================
 
 
 class TestEPMonitor:
-    """Test EPMonitor abstract base class."""
+    """Test WinMLEPMonitor abstract base class."""
 
     def test_cannot_instantiate(self):
-        """EPMonitor is abstract and cannot be instantiated directly."""
+        """WinMLEPMonitor is abstract and cannot be instantiated directly."""
         with pytest.raises(TypeError):
-            EPMonitor()
+            WinMLEPMonitor()
 
     def test_subclass_must_implement_all_methods(self):
-        """Concrete subclass missing methods raises TypeError."""
+        """Concrete subclass missing the remaining abstract methods raises TypeError.
 
-        class IncompleteMonitor(EPMonitor):
+        Post-v2.4 the ABC's abstract surface is ``__enter__``, ``__exit__``,
+        and ``is_available`` — ``to_dict`` is no longer in the contract.
+        """
+
+        class IncompleteMonitor(WinMLEPMonitor):
             pass
 
         with pytest.raises(TypeError):
@@ -42,23 +46,22 @@ class TestEPMonitor:
     def test_concrete_subclass_works(self):
         """A fully-implemented subclass can be instantiated."""
 
-        class DummyMonitor(EPMonitor):
+        class DummyMonitor(WinMLEPMonitor):
             def __enter__(self):
                 return self
 
             def __exit__(self, *exc):
                 pass
 
-            def to_dict(self):
-                return {"test": True}
-
             @classmethod
             def is_available(cls):
                 return True
 
         mon = DummyMonitor()
-        assert mon.to_dict() == {"test": True}
+        assert isinstance(mon, WinMLEPMonitor)
         assert DummyMonitor.is_available() is True
+        # Default v2.4 typed-accessor contract — None unless populated.
+        assert mon.result is None
 
     def test_null_ep_monitor(self):
         """NullEPMonitor implements Null Object Pattern correctly."""
@@ -66,15 +69,12 @@ class TestEPMonitor:
 
         mon = NullEPMonitor()
         assert NullEPMonitor.is_available() is True
-        assert mon.to_dict() == {}
+        # v2.4: NullEPMonitor exposes no data via the typed accessor.
+        assert mon.result is None
 
         # Context manager works
         with mon as m:
             assert m is mon
-
-        # JSON-serializable
-        serialized = json.dumps(mon.to_dict())
-        assert serialized == "{}"
 
 
 # ============================================================================
@@ -557,63 +557,36 @@ class TestHWMonitor:
 
 
 # ============================================================================
-# QNNMonitor tests (placeholder)
+# QNNMonitor tests — moved to tests/unit/session/monitor/test_qnn_monitor.py
+# (QNNMonitor is no longer a placeholder; it is a full implementation).
 # ============================================================================
 
 
-class TestQNNMonitor:
-    """Test QNNMonitor placeholder."""
+# ============================================================================
+# OpenVINOMonitor tests (placeholder)
+# ============================================================================
+
+
+class TestOpenVINOMonitor:
+    """Test OpenVINOMonitor placeholder."""
 
     def test_is_available_returns_false(self):
-        from winml.modelkit.session import QNNMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        assert QNNMonitor.is_available() is False
-
-    def test_context_manager_noop(self):
-        from winml.modelkit.session import QNNMonitor
-
-        with QNNMonitor() as hw:
-            pass
-
-        assert hw.to_dict()["ep"] == "QNN"
-
-    def test_to_dict_returns_stub(self):
-        from winml.modelkit.session import QNNMonitor
-
-        with QNNMonitor() as hw:
-            pass
-
-        d = hw.to_dict()
-        assert d["ep"] == "QNN"
-        assert d["device"] == "NPU"
-        assert d["status"] == "not_implemented"
-
-
-# ============================================================================
-# OpenVinoMonitor tests (placeholder)
-# ============================================================================
-
-
-class TestOpenVinoMonitor:
-    """Test OpenVinoMonitor placeholder."""
-
-    def test_is_available_returns_false(self):
-        from winml.modelkit.session import OpenVinoMonitor
-
-        assert OpenVinoMonitor.is_available() is False
+        assert OpenVINOMonitor.is_available() is False
 
     def test_context_manager_noop(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        with OpenVinoMonitor() as hw:
+        with OpenVINOMonitor() as hw:
             pass
 
         assert hw.to_dict()["ep"] == "OpenVINO"
 
     def test_to_dict_returns_stub(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        with OpenVinoMonitor() as hw:
+        with OpenVINOMonitor() as hw:
             pass
 
         d = hw.to_dict()
@@ -641,9 +614,9 @@ class TestMonitorImports:
         assert QNNMonitor is not None
 
     def test_import_openvino_monitor_from_submodule(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        assert OpenVinoMonitor is not None
+        assert OpenVINOMonitor is not None
 
     def test_import_hw_monitor_from_session(self):
         from winml.modelkit.session import HWMonitor
@@ -656,9 +629,9 @@ class TestMonitorImports:
         assert QNNMonitor is not None
 
     def test_import_openvino_monitor_from_session(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        assert OpenVinoMonitor is not None
+        assert OpenVINOMonitor is not None
 
 
 # ============================================================================
@@ -740,19 +713,30 @@ class TestToDictJsonSerializable:
         serialized = json.dumps(d)
         assert isinstance(serialized, str)
 
-    def test_qnn_monitor_to_dict_json(self):
+    def test_qnn_monitor_result_dict_json(self):
+        """v2.4: QNN exposes its data via the typed result accessor.
+
+        ``to_dict()`` was removed from the WinMLEPMonitor contract; consumers
+        access ``OpTraceResult`` via ``monitor.result`` and serialize via
+        ``result.to_dict()``.
+        """
         from winml.modelkit.session import QNNMonitor
 
         with QNNMonitor() as hw:
             pass
-        d = hw.to_dict()
+        # Post-exit: the monitor populated _result with a failure-shape
+        # OpTraceResult (status="no_data" — no CSV produced in this unit
+        # test). The typed accessor returns it; to_dict() on the result
+        # must be JSON-serializable.
+        assert hw.result is not None
+        d = hw.result.to_dict()
         serialized = json.dumps(d)
         assert isinstance(serialized, str)
 
     def test_openvino_monitor_to_dict_json(self):
-        from winml.modelkit.session import OpenVinoMonitor
+        from winml.modelkit.session import OpenVINOMonitor
 
-        with OpenVinoMonitor() as hw:
+        with OpenVINOMonitor() as hw:
             pass
         d = hw.to_dict()
         serialized = json.dumps(d)

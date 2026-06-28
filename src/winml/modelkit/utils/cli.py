@@ -12,7 +12,15 @@ from typing import TYPE_CHECKING
 
 import click
 
-from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES, SUPPORTED_DEVICES_WITH_AUTO
+from ..session import VALID_DEVICES, VALID_EPS
+
+
+# Sorted lowercase device choices consistent with the rest of the codebase.
+# Previously SUPPORTED_DEVICES = ["CPU", "GPU", "NPU"] (uppercase — bug).
+_DEVICE_CHOICES = sorted(VALID_DEVICES)
+
+# Sorted short EP names sourced from the session facade (single source of truth).
+_EP_CHOICES = sorted(VALID_EPS)
 
 
 if TYPE_CHECKING:
@@ -84,27 +92,27 @@ def ep_option(required=True, optional_message=None):
         "--ep",
         required=required,
         default=None,
-        type=click.Choice(ALL_EP_NAMES, case_sensitive=False),
+        type=click.Choice(_EP_CHOICES, case_sensitive=False),
         help=help_text,
     )
 
 
-def device_option(required=True, optional_message=None, default="NPU", include_auto=False):
+def device_option(required=True, optional_message=None, default="npu", include_auto=False):
     """Add --device option to a Click command.
 
     Args:
         required: Whether the device option is required (default: True)
         optional_message: Message to append to help text when
-            optional (e.g., "If not specified, uses NPU as
+            optional (e.g., "If not specified, uses npu as
             default.")
-        default: Default value when optional (default: "NPU")
-        include_auto: Whether to include "auto" as a valid choice
-            (default: False).
+        default: Default value when optional (default: "npu")
+        include_auto: Whether to include "auto" as a valid choice (default: False).
+            "auto" defers device selection to runtime via auto_detect_device().
 
     Returns:
         Decorator function
     """
-    choices = SUPPORTED_DEVICES_WITH_AUTO if include_auto else SUPPORTED_DEVICES
+    choices = [*_DEVICE_CHOICES, "auto"] if include_auto else _DEVICE_CHOICES
     help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:
         help_text = f"{help_text}. {optional_message}"
@@ -113,7 +121,6 @@ def device_option(required=True, optional_message=None, default="NPU", include_a
         "--device",
         required=required,
         default=default if not required else None,
-        show_default=True,
         type=click.Choice(choices, case_sensitive=False),
         help=help_text,
     )

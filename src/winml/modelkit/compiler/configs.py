@@ -16,10 +16,20 @@ WinMLQuantizationConfig in modelkit.quant.config (#241).
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Final
+
+
+if TYPE_CHECKING:
+    from ..session import EPDeviceTarget  # noqa: TC004
+
+
+# Per-EP default for ``EPConfig.enable_ep_context``: which EPs default to
+# emitting an EPContext model. Everything not listed defaults to False.
+# Single source of truth — replaces the per-EP factory boilerplate that
+# used to encode this same bit across 8 methods.
+_EP_CONTEXT_DEFAULTS: Final[frozenset[str]] = frozenset({"qnn", "openvino"})
 
 
 @dataclass
@@ -64,19 +74,20 @@ class WinMLCompileConfig:
         verbose: Enable verbose logging
 
     Examples:
-        # Default: QNN compilation
-        config = WinMLCompileConfig.for_qnn()
+        # Resolve hardware target, then build the compile config.
+        ep_device = resolve_device(EPDeviceTarget(ep="qnn", device="npu"))
+        config = WinMLCompileConfig.for_ep_device(ep_device)
 
-        # CPU (no EPContext)
-        config = WinMLCompileConfig.for_cpu()
-
-        # Custom provider options
-        config = WinMLCompileConfig.for_qnn()
+        # Custom provider options after construction.
         config.ep_config.provider_options["htp_performance_mode"] = "default"
     """
 
     # Target EP settings
     ep_config: EPConfig = field(default_factory=EPConfig)
+
+    # Resolved EP+device pair (set by CLI or API callers; None means compile
+    # stage will infer from ep_config.provider via resolve_device()).
+    ep_device: EPDeviceTarget | None = None
 
     # Behavior
     validate: bool = True
@@ -86,6 +97,26 @@ class WinMLCompileConfig:
     def device(self) -> str:
         """Get device/provider name for backward compatibility."""
         return self.ep_config.provider
+
+    @classmethod
+    def for_ep_device(cls, ep_device: EPDeviceTarget) -> WinMLCompileConfig:
+        """Factory that creates a config from a fully-resolved EPDeviceTarget.
+
+        The ep_device is stored on the config and threaded to the compile
+        stage so that resolve_device() is only called once at the CLI boundary.
+
+        Args:
+            ep_device: Fully-resolved (EP, device) binding.
+
+        Returns:
+            WinMLCompileConfig bound to the given EPDeviceTarget.
+        """
+        from ..session import short_ep_name
+
+        provider = short_ep_name(ep_device.ep)
+        base = cls.for_provider(provider) or cls(ep_config=EPConfig(provider=provider))
+        base.ep_device = ep_device
+        return base
 
     @classmethod
     def for_provider(cls, provider: str | None) -> WinMLCompileConfig | None:
@@ -239,7 +270,7 @@ class WinMLCompileConfig:
         Returns only EP-related fields. Quantization settings are
         serialized separately by WinMLQuantizationConfig.
         """
-        return {
+        d: dict[str, Any] = {
             "execution_provider": self.ep_config.provider,
             "provider_options": self.ep_config.provider_options,
             "enable_ep_context": self.ep_config.enable_ep_context,
@@ -250,6 +281,9 @@ class WinMLCompileConfig:
             ),
             "validate": self.validate,
         }
+        if self.ep_device is not None:
+            d["ep_device"] = self.ep_device.to_dict()
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
@@ -265,6 +299,8 @@ class WinMLCompileConfig:
         Returns:
             WinMLCompileConfig instance.
         """
+        from ..session import EPDeviceTarget as _EPDeviceTarget
+
         ep_config = EPConfig(
             provider=data.get("execution_provider", "qnn"),
             provider_options=data.get("provider_options", {}),
@@ -274,8 +310,13 @@ class WinMLCompileConfig:
             qnn_sdk_root=(Path(data["qnn_sdk_root"]) if data.get("qnn_sdk_root") else None),
         )
 
+        ep_device = None
+        if "ep_device" in data and data["ep_device"] is not None:
+            ep_device = _EPDeviceTarget.from_dict(data["ep_device"])
+
         return cls(
             ep_config=ep_config,
+            ep_device=ep_device,
             validate=data.get("validate", True),
             verbose=data.get("verbose", False),
         )

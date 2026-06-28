@@ -29,6 +29,8 @@ from typing import Any
 
 import click
 
+from ..session import VALID_DEVICES
+from ._ep_arg import EpAtSourceParamType
 from ..utils.console import (
     get_console,
     print_command_header,
@@ -114,19 +116,21 @@ def _is_onnx_file(model_input: str) -> bool:
     "-d",
     "--device",
     "device",
-    type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
+    type=click.Choice(["auto", *sorted(VALID_DEVICES)], case_sensitive=False),
     default="auto",
     help="Target device (affects quant/compile config). Default: auto (no changes to config).",
 )
 @click.option(
     "--ep",
     "ep",
-    type=str,
+    type=EpAtSourceParamType(),
     default=None,
     help="Force specific execution provider "
     "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
     "Overrides device-to-provider mapping. "
-    "When used without --device, device is inferred from EP.",
+    "When used without --device, device is inferred from EP. "
+    "(Source-pinning ``@<source-tag>`` is rejected: config's pipeline "
+    "takes a bare EP short-name.)",
 )
 @click.option(
     "-p",
@@ -250,6 +254,20 @@ def config(
         raise click.UsageError(
             "At least one of -m/--model, --model-type, or --model-class is required."
         )
+
+    # --ep arrives pre-split as (ep, source) or None thanks to the
+    # EpAtSourceParamType. config.py doesn't yet honor source pinning
+    # (its pipeline takes a bare EP short-name), so reject the @-form at
+    # the CLI boundary rather than silently dropping the tag.
+    if ep:
+        ep_part, ep_source = ep
+        if ep_source is not None:
+            raise click.UsageError(
+                f"`winml config` does not yet support source pinning "
+                f"(got --ep {ep_part}@{ep_source!r}); "
+                f"use --ep {ep_part!r} without '@'."
+            )
+        ep = ep_part
 
     try:
         from ..config import (
@@ -454,10 +472,11 @@ def config(
 
             console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
 
-            # Fix #4: Device from resolve_device (existing API)
-            from ..sysinfo import resolve_device as _rd
+            # Fix #4: Device from auto_detect_device (resolves "auto"
+            # to a concrete category without registering EPs).
+            from ..session import auto_detect_device
 
-            _resolved_dev, _ = _rd(device)
+            _resolved_dev = auto_detect_device() if device.lower() == "auto" else device.lower()
             console.print(f"      Device:     [cyan]{_resolved_dev.upper()}[/cyan]")
 
             # EP — only shown when user explicitly passed --ep

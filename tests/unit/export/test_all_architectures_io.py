@@ -30,12 +30,25 @@ from tests.assets.optimum_architectures import OPTIMUM_ARCHITECTURES
 # Build parametrize list: transformers-only
 # ---------------------------------------------------------------------------
 
-# Architectures with known Optimum bugs that prevent .inputs/.outputs access
-# with a default AutoConfig. These are xfailed so the user can track and fix later.
+# Architectures with known upstream bugs that prevent the test from passing
+# with a default AutoConfig. xfailed so the user can track and fix later.
 _XFAIL_ARCHS: dict[str, str] = {
     # SpeechT5OnnxConfig._behavior is unset when task="text-to-audio" with default config;
     # accessing .inputs raises ValueError in Optimum's model_configs.py.
     "speecht5": "Optimum bug: SpeechT5OnnxConfig._behavior unset for text-to-audio default config",
+    # transformers 5.7.0 + huggingface_hub 1.12.x regression: MusicgenConfig declares
+    # text_encoder/audio_encoder/decoder as `dict | PreTrainedConfig` with default=None.
+    # huggingface_hub's strict-dataclass __setattr__ validator rejects the None default
+    # (None doesn't satisfy dict | PreTrainedConfig), so AutoConfig.for_model('musicgen')
+    # raises StrictDataclassFieldValidationError on instantiation.
+    # The annotation should be `dict | PreTrainedConfig | None`. This is upstream defect
+    # in transformers/models/musicgen/configuration_musicgen.py — not in our code.
+    # Remove this entry once transformers fixes the annotation.
+    "musicgen": (
+        "transformers 5.7.0 bug: MusicgenConfig.{text_encoder,audio_encoder,decoder} "
+        "declared as `dict | PreTrainedConfig` with default=None, fails huggingface_hub "
+        "strict-dataclass validation. Annotation should include `| None`."
+    ),
 }
 
 TRANSFORMERS_ARCHS = [

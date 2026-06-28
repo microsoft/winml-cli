@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import onnx
-import onnxruntime as ort
 import pandas as pd
 from onnx import numpy_helper
 
@@ -1286,31 +1285,44 @@ class RuntimeCheckerQuery:
     def _is_ep_available_locally(self) -> bool:
         """Check if the target EP is available on the local machine.
 
+        Targeted probe through :meth:`WinMLEPRegistry.auto_device`: the
+        registry handles plugin discovery + DLL load lazily, so we no
+        longer need a separate module-level pre-register pass. Negative
+        outcomes (EP not discovered, registration failed, no matching
+        device) are caught and reported as "not available locally"
+        rather than propagated.
+
         Returns:
             True if the EP+device combination is available locally.
         """
         if self._ep_available_locally is not None:
             return self._ep_available_locally
 
-        from ... import winml
-
-        winml.register_execution_providers(ort=True)
-
-        from ...utils.constants import DEVICE_TO_DEVICE_TYPE
-
-        device_type_enum = DEVICE_TO_DEVICE_TYPE.get(self.device_type)
-        if device_type_enum is None:
-            self._ep_available_locally = False
-            return False
+        from ...session import (
+            DeviceNotFound,
+            EPDeviceTarget,
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+            WinMLEPRegistry,
+            resolve_device,
+            short_ep_name,
+        )
 
         try:
-            ep_devices = ort.get_ep_devices()
-            self._ep_available_locally = any(
-                ep_dev.ep_name == self.ep_name and ep_dev.device.type == device_type_enum
-                for ep_dev in ep_devices
+            target = EPDeviceTarget(
+                ep=short_ep_name(self.ep_name),
+                device=self.device_type.lower(),
             )
-        except Exception as e:
-            logger.debug("Failed to query EP devices: %s", e)
+            resolved = resolve_device(target)
+            WinMLEPRegistry.instance().auto_device(resolved)
+            self._ep_available_locally = True
+        except (
+            WinMLEPNotDiscovered,
+            WinMLEPRegistrationFailed,
+            DeviceNotFound,
+            ValueError,
+        ) as e:
+            logger.debug("EP %s on %s not available locally: %s", self.ep_name, self.device_type, e)
             self._ep_available_locally = False
 
         return self._ep_available_locally

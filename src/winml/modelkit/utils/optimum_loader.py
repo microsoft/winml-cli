@@ -65,6 +65,11 @@ class OptimumONNXModel:
             # Load with Optimum
             model = ort_model_class.from_pretrained(
                 temp_path,
+                # CARVE-OUT: HF Optimum's ORTModel uses CUDA as the generic non-CPU GPU EP.
+                # This is a cross-platform HF Optimum codepath and does NOT use the
+                # Windows-ML catalog's default GPU EP (DmlExecutionProvider on Windows).
+                # Do NOT replace with default_ep_for_device("gpu") — that breaks the Optimum
+                # integration on Linux + cuDNN setups.
                 provider="CPUExecutionProvider" if device == "cpu" else "CUDAExecutionProvider",
                 **kwargs,
             )

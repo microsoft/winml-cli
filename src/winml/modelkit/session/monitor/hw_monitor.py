@@ -6,7 +6,7 @@
 
 Monitors CPU utilization, system RAM, and NPU/GPU utilization and memory
 for any adapter that registers as a Windows GPU Engine device.
-Works independently of the EPMonitor hierarchy.
+Works independently of the WinMLEPMonitor hierarchy.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from ._pdh import PdhPoller
 
 
 if TYPE_CHECKING:
-    from typing_extensions import Self
+    from typing import Self
 
 
 class HWMonitor:
@@ -28,7 +28,7 @@ class HWMonitor:
     that registers as a Windows GPU Engine adapter with Compute-only
     engine types (Qualcomm, AMD, Intel).
 
-    Independent of the EPMonitor hierarchy — provides system-wide
+    Independent of the WinMLEPMonitor hierarchy — provides system-wide
     resource visibility rather than EP-specific proof-of-execution.
 
     Example::

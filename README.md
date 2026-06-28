@@ -2,7 +2,7 @@
 
 [![ModelKit CI](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml/badge.svg)](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml)
 ![Status](https://img.shields.io/badge/status-early%20access-blue)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **ModelKit** is a CLI toolkit to build **portable, performant, and high-quality** models for Windows ML. It covers the entire journey from pretrained model to on-device inference — export, optimization, quantization, compilation, and benchmarking — across **all execution providers**, regardless of silicon.
@@ -78,12 +78,12 @@ If `inspect` prints an error or shows `Unsupported`, **skip that model**. Only m
 
 ## :package: Installation
 
-ModelKit requires **Python 3.10** and is distributed as a Python wheel. We recommend [uv](https://docs.astral.sh/uv/) for fast, reproducible environment setup.
+ModelKit requires **Python 3.11** and is distributed as a Python wheel. We recommend [uv](https://docs.astral.sh/uv/) for fast, reproducible environment setup.
 
-**1. Create a Python 3.10 environment**
+**1. Create a Python 3.11 environment**
 
 ```bash
-uv venv --python 3.10
+uv venv --python 3.11
 ```
 
 Activate it:
