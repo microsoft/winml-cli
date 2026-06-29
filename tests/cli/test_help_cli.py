@@ -38,7 +38,12 @@ import pytest
 from click.testing import CliRunner, Result
 
 from winml.modelkit import __version__
-from winml.modelkit.cli import _COMMANDS_DIR, _DISABLED_COMMANDS, main
+from winml.modelkit.cli import (
+    _COMMANDS_DIR,
+    _DISABLED_COMMANDS,
+    _parse_click_help,
+    main,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +195,66 @@ class TestCommandList:
                 f"Command '{cmd}' row not found in Commands section — "
                 "docstring missing or AST extraction failed"
             )
+
+
+# ===========================================================================
+# Command summary truncation  (regression for #511)
+# ===========================================================================
+
+
+class TestNoMidWordTruncation:
+    """Subcommand summaries must never be cut mid-word in ``winml --help``.
+
+    Regression for issue #511: ``LazyGroup.format_commands`` used to slice
+    each help string at a fixed character count, which landed mid-token
+    (e.g. ``…HuggingFace model or .on``).  The fix hands the full first
+    docstring line to Click's ``write_dl``, which wraps at word boundaries
+    onto continuation lines.  The complete summary must therefore survive in
+    the rendered output (modulo the whitespace ``write_dl`` inserts when
+    wrapping), and no rendered line may exceed the formatter width.
+    """
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """Collapse all whitespace runs so wrapped text compares to source."""
+        return " ".join(text.split())
+
+    @pytest.mark.parametrize("cmd", ENABLED_COMMANDS)
+    def test_full_summary_present(self, cmd: str) -> None:
+        """The complete first docstring line appears in help, never truncated.
+
+        Empty expected text (no docstring) is caught by
+        ``TestCommandList.test_enabled_command_has_help_text``; here an empty
+        string is trivially a substring and simply doesn't constrain.
+        """
+        expected = self._normalize(_parse_click_help(_COMMANDS_DIR / f"{cmd}.py"))
+        rendered = self._normalize(_invoke("--help").output)
+        assert expected in rendered, f"'{cmd}' summary was truncated in winml --help"
+
+    def test_long_summary_wraps_within_narrow_width(self) -> None:
+        """At a narrow width the longest summary wraps — full text, no overflow.
+
+        Forces a width that guarantees wrapping regardless of the current
+        docstrings, proving the formatter wraps rather than hard-truncating.
+        """
+        import click
+
+        width = 50
+        formatter = click.HelpFormatter(width=width)
+        ctx = click.Context(main, info_name="winml")
+        main.format_commands(ctx, formatter)
+        rendered = formatter.getvalue()
+
+        for line in rendered.splitlines():
+            assert len(line) <= width, f"line exceeds width {width}: {line!r}"
+
+        longest = max(
+            (_parse_click_help(_COMMANDS_DIR / f"{c}.py") for c in ENABLED_COMMANDS),
+            key=len,
+        )
+        assert self._normalize(longest) in self._normalize(rendered), (
+            "longest summary was truncated instead of wrapped"
+        )
 
 
 # ===========================================================================

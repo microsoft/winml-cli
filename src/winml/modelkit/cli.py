@@ -225,19 +225,23 @@ class LazyGroup(ActionGroup):
         super().format_help(ctx, formatter)
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        """Format command list using AST-parsed help (no module imports)."""
-        commands = []
-        for cmd_name in self.list_commands(ctx):
-            help_text = _parse_click_help(_COMMANDS_DIR / f"{cmd_name}.py")
-            commands.append((cmd_name, help_text))
+        """Format command list using AST-parsed help (no module imports).
 
-        if commands:
-            limit = max(1, formatter.width - 6 - max(len(name) for name, _ in commands))
-            rows = []
-            for name, help_text in commands:
-                short = help_text[:limit].rstrip() if help_text else ""
-                rows.append((name, short))
+        Each command's first docstring line is handed verbatim to
+        :meth:`click.HelpFormatter.write_dl`, which wraps long descriptions
+        onto continuation lines at word boundaries with a hanging indent,
+        respecting the terminal width.
 
+        We deliberately do *not* pre-truncate the help text: a fixed
+        character slice would cut mid-word (e.g. ``…model or .on``), whereas
+        ``write_dl`` wraps cleanly and keeps the full summary visible.
+        """
+        rows = [
+            (cmd_name, _parse_click_help(_COMMANDS_DIR / f"{cmd_name}.py"))
+            for cmd_name in self.list_commands(ctx)
+        ]
+
+        if rows:
             with formatter.section("Commands"):
                 formatter.write_dl(rows)
 
