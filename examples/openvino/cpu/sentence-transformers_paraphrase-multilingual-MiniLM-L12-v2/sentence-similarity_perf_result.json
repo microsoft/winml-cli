@@ -1,0 +1,72 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                           "task":  "sentence-similarity",
+                           "device":  "cpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-21T12:16:23.527930+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask",
+                                           "token_type_ids"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "last_hidden_state",
+                                            "1341"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512,
+                                                 384
+                                             ],
+                                             [
+                                                 1,
+                                                 384
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  70.77,
+                       "min":  68.9,
+                       "max":  73.59,
+                       "p50":  70.14,
+                       "p90":  73.59,
+                       "p95":  73.59,
+                       "p99":  73.59,
+                       "std":  1.59,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  14.13,
+                       "batches_per_sec":  14.13
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

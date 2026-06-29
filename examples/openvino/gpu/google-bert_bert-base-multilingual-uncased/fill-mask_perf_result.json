@@ -1,0 +1,67 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "google-bert/bert-base-multilingual-uncased",
+                           "task":  "fill-mask",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T12:55:41.221868+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask",
+                                           "token_type_ids"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "logits"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512,
+                                                 105879
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  30.22,
+                       "min":  29.29,
+                       "max":  32.81,
+                       "p50":  29.93,
+                       "p90":  32.81,
+                       "p95":  32.81,
+                       "p99":  32.81,
+                       "std":  1.07,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  33.09,
+                       "batches_per_sec":  33.09
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

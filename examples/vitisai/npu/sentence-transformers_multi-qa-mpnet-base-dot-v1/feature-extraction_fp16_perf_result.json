@@ -1,0 +1,59 @@
+{
+  "benchmark_info": {
+    "model_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    "task": "feature-extraction",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T23:16:28.012353+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        768
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 49.88,
+    "min": 49.03,
+    "max": 50.85,
+    "p50": 50.1,
+    "p90": 50.85,
+    "p95": 50.85,
+    "p99": 50.85,
+    "std": 0.56,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 20.05,
+    "batches_per_sec": 20.05
+  },
+  "raw_samples_ms": []
+}

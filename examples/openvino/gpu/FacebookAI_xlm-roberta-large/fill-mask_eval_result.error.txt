@@ -1,0 +1,26 @@
+ were not used when initializing XLMRobertaForMaskedLM: ['roberta.pooler.dense.bias', 'roberta.pooler.dense.weight']
+- This IS expected if you are initializing XLMRobertaForMaskedLM from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing XLMRobertaForMaskedLM from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+[2026-05-26T12:05:27] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/870 [00:00<?, ?it/s]
+  7%|▋         | 64/870 [00:00<00:01, 629.79it/s]
+ 22%|██▏       | 189/870 [00:00<00:00, 982.84it/s]
+ 36%|███▋      | 317/870 [00:00<00:00, 1114.16it/s]
+ 51%|█████▏    | 446/870 [00:00<00:00, 1176.21it/s]
+ 66%|██████▋   | 578/870 [00:00<00:00, 1225.21it/s]
+ 81%|████████  | 701/870 [00:00<00:00, 1226.22it/s]
+ 96%|█████████▌| 832/870 [00:00<00:00, 1247.34it/s]
+100%|██████████| 870/870 [00:00<00:00, 1097.75it/s]
+[2026-05-26T12:07:17] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/772 [00:00<?, ?it/s]
+  7%|▋         | 53/772 [00:00<00:01, 529.08it/s]
+ 17%|█▋        | 134/772 [00:00<00:00, 688.01it/s]
+ 31%|███       | 237/772 [00:00<00:00, 716.52it/s]
+ 46%|████▌     | 354/772 [00:00<00:00, 877.58it/s]
+ 62%|██████▏   | 476/772 [00:00<00:00, 989.88it/s]
+ 75%|███████▍  | 577/772 [00:00<00:00, 974.07it/s]
+ 88%|████████▊ | 676/772 [00:00<00:00, 978.80it/s]
+100%|██████████| 772/772 [00:00<00:00, 868.26it/s]
+[2026-05-26T12:07:18] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.

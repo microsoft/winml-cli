@@ -1,0 +1,63 @@
+{
+  "benchmark_info": {
+    "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "task": "zero-shot-image-classification",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "w8a16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T18:43:30.538518+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values",
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        224,
+        224
+      ],
+      [
+        1,
+        77
+      ]
+    ],
+    "input_types": [
+      "float32",
+      "int32"
+    ],
+    "output_names": [
+      "image_embeds",
+      "text_embeds"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 8.55,
+    "min": 8.3,
+    "max": 8.84,
+    "p50": 8.54,
+    "p90": 8.84,
+    "p95": 8.84,
+    "p99": 8.84,
+    "std": 0.15
+  },
+  "throughput": {
+    "samples_per_sec": 116.97,
+    "batches_per_sec": 116.97
+  }
+}

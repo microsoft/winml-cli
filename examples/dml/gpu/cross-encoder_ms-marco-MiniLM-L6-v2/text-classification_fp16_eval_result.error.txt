@@ -1,0 +1,37 @@
+
+ 94%|█████████▍| 212/226 [00:05<00:00, 72.22it/s]
+ 97%|█████████▋| 220/226 [00:05<00:00, 64.07it/s]
+100%|██████████| 226/226 [00:05<00:00, 40.85it/s]
+
+  0%|          | 0/202 [00:00<?, ?it/s]
+  0%|          | 1/202 [00:03<10:03,  3.00s/it]
+  8%|▊         | 17/202 [00:03<00:24,  7.47it/s]
+ 15%|█▌        | 31/202 [00:03<00:11, 15.42it/s]
+ 21%|██        | 42/202 [00:03<00:07, 20.26it/s]
+ 28%|██▊       | 56/202 [00:03<00:04, 31.08it/s]
+ 33%|███▎      | 67/202 [00:03<00:03, 37.24it/s]
+ 38%|███▊      | 76/202 [00:03<00:03, 41.03it/s]
+ 46%|████▌     | 93/202 [00:04<00:01, 58.93it/s]
+ 51%|█████▏    | 104/202 [00:04<00:01, 53.18it/s]
+ 56%|█████▋    | 114/202 [00:04<00:01, 60.51it/s]
+ 64%|██████▍   | 129/202 [00:04<00:01, 68.48it/s]
+ 68%|██████▊   | 138/202 [00:04<00:00, 65.54it/s]
+ 77%|███████▋  | 155/202 [00:04<00:00, 81.08it/s]
+ 82%|████████▏ | 165/202 [00:05<00:00, 62.46it/s]
+ 87%|████████▋ | 176/202 [00:05<00:00, 67.39it/s]
+ 95%|█████████▍| 191/202 [00:05<00:00, 73.95it/s]
+ 99%|█████████▉| 200/202 [00:05<00:00, 68.65it/s]
+100%|██████████| 202/202 [00:05<00:00, 36.09it/s]
+
+Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
+Generating train split: 100%|██████████| 3668/3668 [00:00<00:00, 268963.41 examples/s]
+
+Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 408/408 [00:00<00:00, 117468.15 examples/s]
+
+Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 1725/1725 [00:00<00:00, 363521.80 examples/s]
+
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Error: Evaluation failed: Dataset 'nyu-mll/glue' is not compatible with task 'text-classification': label alignment failed for dataset 'nyu-mll/glue': 'equivalent'. Use --dataset to specify a different dataset, or run 'winml eval --schema --task text-classification' to see the expected schema.

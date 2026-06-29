@@ -1,0 +1,62 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "StanfordAIMI/dinov2-base-xray-224",
+                           "task":  "image-feature-extraction",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T11:37:00.781033+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "pixel_values"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                3,
+                                                224,
+                                                224
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "float32"
+                                       ],
+                       "output_names":  [
+                                            "last_hidden_state",
+                                            "1430"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 257,
+                                                 768
+                                             ],
+                                             [
+                                                 1,
+                                                 768
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  8.69,
+                       "min":  8.51,
+                       "max":  9.26,
+                       "p50":  8.63,
+                       "p90":  9.26,
+                       "p95":  9.26,
+                       "p99":  9.26,
+                       "std":  0.22,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  115.12,
+                       "batches_per_sec":  115.12
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

@@ -1,0 +1,53 @@
+{
+  "benchmark_info": {
+    "model_id": "microsoft/rad-dino",
+    "task": "image-feature-extraction",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T08:32:11.565427+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        518,
+        518
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        1370,
+        768
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 696.67,
+    "min": 662.25,
+    "max": 722.2,
+    "p50": 697.4,
+    "p90": 722.2,
+    "p95": 722.2,
+    "p99": 722.2,
+    "std": 16.24
+  },
+  "throughput": {
+    "samples_per_sec": 1.44,
+    "batches_per_sec": 1.44
+  }
+}

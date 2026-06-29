@@ -1,0 +1,38 @@
+{
+  "model_id": "ahotrod/electra_large_discriminator_squad2_512",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\vitisai\\npu\\ahotrod_electra_large_discriminator_squad2_512\\question-answering_w8a16_eval_result.json",
+  "metrics": {
+    "exact": 1.0,
+    "f1": 2.0378851540616245,
+    "total": 100,
+    "HasAns_exact": 0.0,
+    "HasAns_f1": 2.162260737628385,
+    "HasAns_total": 48,
+    "NoAns_exact": 1.9230769230769231,
+    "NoAns_f1": 1.9230769230769231,
+    "NoAns_total": 52,
+    "best_exact": 52.0,
+    "best_exact_thresh": 0.0,
+    "best_f1": 52.0,
+    "best_f1_thresh": 0.0,
+    "total_time_in_seconds": 25.850881299997127,
+    "samples_per_second": 3.8683400708667954,
+    "latency_in_seconds": 0.25850881299997125
+  }
+}

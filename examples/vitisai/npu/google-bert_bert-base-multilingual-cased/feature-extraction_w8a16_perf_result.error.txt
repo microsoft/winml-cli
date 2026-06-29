@@ -1,0 +1,22 @@
+1 ['last_hidden_state'], model trace inferred 2 ['last_hidden_state', 'pooler_output']. Keeping config names (from Optimum OnnxConfig).
+[2026-05-27T23:32:47] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/432 [00:00<?, ?it/s]
+ 16%|█▋        | 71/432 [00:00<00:00, 688.43it/s]
+ 32%|███▏      | 140/432 [00:00<00:00, 622.46it/s]
+ 47%|████▋     | 203/432 [00:00<00:00, 612.40it/s]
+ 61%|██████▏   | 265/432 [00:00<00:00, 557.21it/s]
+ 75%|███████▍  | 322/432 [00:00<00:00, 542.06it/s]
+ 92%|█████████▏| 399/432 [00:00<00:00, 599.82it/s]
+100%|██████████| 432/432 [00:00<00:00, 596.08it/s]
+[2026-05-27T23:33:00] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/384 [00:00<?, ?it/s]
+ 18%|█▊        | 70/384 [00:00<00:00, 621.35it/s]
+ 41%|████      | 158/384 [00:00<00:00, 737.06it/s]
+ 60%|██████    | 232/384 [00:00<00:00, 690.23it/s]
+ 84%|████████▍ | 322/384 [00:00<00:00, 733.20it/s]
+100%|██████████| 384/384 [00:00<00:00, 737.59it/s]
+[2026-05-27T23:33:01] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-27T23:33:56] ERROR: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_15450709674288708591_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_15450709674288708591_0_0' Status Message: No such query request (73)
+Error: Benchmark failed: Compilation failed: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_15450709674288708591_0 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_15450709674288708591_0_0' Status Message: No such query request (73)

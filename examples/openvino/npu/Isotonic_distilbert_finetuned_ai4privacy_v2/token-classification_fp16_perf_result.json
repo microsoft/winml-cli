@@ -1,0 +1,59 @@
+{
+  "benchmark_info": {
+    "model_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
+    "task": "token-classification",
+    "device": "npu",
+    "ep": "OpenVINOExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T13:59:26.521252+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        111
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 17.44,
+    "min": 14.11,
+    "max": 22.64,
+    "p50": 17.29,
+    "p90": 22.64,
+    "p95": 22.64,
+    "p99": 22.64,
+    "std": 2.62,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 57.33,
+    "batches_per_sec": 57.33
+  },
+  "raw_samples_ms": []
+}

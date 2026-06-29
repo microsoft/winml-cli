@@ -1,0 +1,62 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "facebook/dinov2-small",
+                           "task":  "image-feature-extraction",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T12:34:49.598236+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "pixel_values"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                3,
+                                                224,
+                                                224
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "float32"
+                                       ],
+                       "output_names":  [
+                                            "last_hidden_state",
+                                            "1430"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 257,
+                                                 384
+                                             ],
+                                             [
+                                                 1,
+                                                 384
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  4.27,
+                       "min":  3.99,
+                       "max":  5.49,
+                       "p50":  4.16,
+                       "p90":  5.49,
+                       "p95":  5.49,
+                       "p99":  5.49,
+                       "std":  0.42,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  234.02,
+                       "batches_per_sec":  234.02
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

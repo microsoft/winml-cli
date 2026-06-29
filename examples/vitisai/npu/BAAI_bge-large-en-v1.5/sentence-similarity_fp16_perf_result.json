@@ -1,0 +1,70 @@
+{
+  "benchmark_info": {
+    "model_id": "BAAI/bge-large-en-v1.5",
+    "task": "sentence-similarity",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T08:42:57.981910+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask",
+      "token_type_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state",
+      "2625"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        1024
+      ],
+      [
+        1,
+        1024
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 346.8,
+    "min": 345.27,
+    "max": 348.28,
+    "p50": 346.52,
+    "p90": 348.28,
+    "p95": 348.28,
+    "p99": 348.28,
+    "std": 0.99,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 2.88,
+    "batches_per_sec": 2.88
+  },
+  "raw_samples_ms": []
+}

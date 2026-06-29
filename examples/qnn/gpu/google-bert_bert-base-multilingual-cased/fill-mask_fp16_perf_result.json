@@ -1,0 +1,65 @@
+{
+  "benchmark_info": {
+    "model_id": "google-bert/bert-base-multilingual-cased",
+    "task": "fill-mask",
+    "device": "gpu",
+    "ep": "QNNExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-22T17:21:17.248122+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask",
+      "token_type_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        119547
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 412.11,
+    "min": 403.23,
+    "max": 423.01,
+    "p50": 411.98,
+    "p90": 423.01,
+    "p95": 423.01,
+    "p99": 423.01,
+    "std": 6.53,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 2.43,
+    "batches_per_sec": 2.43
+  },
+  "raw_samples_ms": []
+}

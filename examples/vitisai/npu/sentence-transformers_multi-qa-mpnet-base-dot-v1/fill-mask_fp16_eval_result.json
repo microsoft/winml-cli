@@ -1,0 +1,23 @@
+{
+  "model_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+  "task": "fill-mask",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Salesforce/wikitext",
+    "name": "wikitext-2-raw-v1",
+    "columns_mapping": {
+      "input_column": "text"
+    },
+    "streaming": true
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\vitisai\\npu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\fill-mask_fp16_eval_result.json",
+  "metrics": {
+    "pseudo_perplexity": 230126.5924,
+    "nll": 12.3464
+  }
+}

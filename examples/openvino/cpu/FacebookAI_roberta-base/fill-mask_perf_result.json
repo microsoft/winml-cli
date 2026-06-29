@@ -1,0 +1,61 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "FacebookAI/roberta-base",
+                           "task":  "fill-mask",
+                           "device":  "cpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-21T05:52:53.220897+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "logits"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512,
+                                                 50265
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  321.95,
+                       "min":  314.72,
+                       "max":  334.24,
+                       "p50":  318.27,
+                       "p90":  334.24,
+                       "p95":  334.24,
+                       "p99":  334.24,
+                       "std":  7.29,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  3.11,
+                       "batches_per_sec":  3.11
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

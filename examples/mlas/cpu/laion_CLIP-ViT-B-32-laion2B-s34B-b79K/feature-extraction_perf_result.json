@@ -1,0 +1,50 @@
+{
+  "benchmark_info": {
+    "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "task": "feature-extraction",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T07:59:50.514002+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        77
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "text_embeds"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 19.9,
+    "min": 19.2,
+    "max": 20.99,
+    "p50": 19.84,
+    "p90": 20.99,
+    "p95": 20.99,
+    "p99": 20.99,
+    "std": 0.61
+  },
+  "throughput": {
+    "samples_per_sec": 50.25,
+    "batches_per_sec": 50.25
+  }
+}

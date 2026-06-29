@@ -1,0 +1,1 @@
+Error: Evaluation failed: Failed to load model 'hustvl/yolos-small'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task object-detection' to see supported role=path model options.

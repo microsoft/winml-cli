@@ -1,0 +1,51 @@
+{
+  "benchmark_info": {
+    "model_id": "google-bert/bert-base-multilingual-uncased",
+    "task": "fill-mask",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T17:44:19.166420+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        105879
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 271.69,
+    "min": 270.43,
+    "max": 280.5,
+    "p50": 270.68,
+    "p90": 280.5,
+    "p95": 280.5,
+    "p99": 280.5,
+    "std": 2.95
+  },
+  "throughput": {
+    "samples_per_sec": 3.68,
+    "batches_per_sec": 3.68
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "model_id": "openai/clip-vit-base-patch16",
+  "task": "zero-shot-image-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "uoft-cs/cifar100",
+    "columns_mapping": {
+      "input_column": "img",
+      "label_column": "fine_label"
+    }
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\openai_clip-vit-base-patch16\\zero-shot-image-classification_eval_result.json",
+  "metrics": {
+    "top1_accuracy": 62.6,
+    "top5_accuracy": 85.8
+  }
+}

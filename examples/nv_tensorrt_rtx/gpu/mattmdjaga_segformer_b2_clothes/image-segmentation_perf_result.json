@@ -1,0 +1,54 @@
+{
+  "benchmark_info": {
+    "model_id": "mattmdjaga/segformer_b2_clothes",
+    "task": "image-segmentation",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T19:51:01.496404+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        512,
+        512
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        18,
+        128,
+        128
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 14.14,
+    "min": 14.01,
+    "max": 14.22,
+    "p50": 14.17,
+    "p90": 14.22,
+    "p95": 14.22,
+    "p99": 14.22,
+    "std": 0.06
+  },
+  "throughput": {
+    "samples_per_sec": 70.74,
+    "batches_per_sec": 70.74
+  }
+}

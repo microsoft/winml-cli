@@ -1,0 +1,26 @@
+05-26T17:10:19] WARNING: Optimum model patcher failed for model_type='vision-encoder-decoder', task='image-feature-extraction'. Export may produce incorrect results for models requiring Transformers 4.53+ tracing patches.
+Traceback (most recent call last):
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\export\htp\exporter.py", line 474, in _get_optimum_patcher
+    cfg_cls = TasksManager.get_exporter_config_constructor(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\repo\WinML-ModelKit\.venv\Lib\site-packages\optimum\exporters\tasks.py", line 1300, in get_exporter_config_constructor
+    raise ValueError(
+ValueError: vision-encoder-decoder doesn't support task image-feature-extraction for the onnx backend. Supported tasks are: image-to-text, image-to-text-with-past, feature-extraction, text2text-generation.
+[2026-05-26T17:12:53] WARNING: Model producer not matched: Expected "pytorch", Got "onnxruntime.transformers".Please specify correct --model_type parameter.
+[2026-05-26T17:13:03] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/702 [00:00<?, ?it/s]
+ 16%|█▌        | 109/702 [00:00<00:00, 1068.97it/s]
+ 32%|███▏      | 222/702 [00:00<00:00, 1099.86it/s]
+ 48%|████▊     | 340/702 [00:00<00:00, 1131.68it/s]
+ 65%|██████▍   | 454/702 [00:00<00:00, 1100.25it/s]
+ 80%|████████  | 565/702 [00:00<00:00, 1076.55it/s]
+ 99%|█████████▊| 693/702 [00:00<00:00, 1112.14it/s]
+100%|██████████| 702/702 [00:00<00:00, 1101.67it/s]
+[2026-05-26T17:13:04] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 341.17 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 109.27 examples/s]

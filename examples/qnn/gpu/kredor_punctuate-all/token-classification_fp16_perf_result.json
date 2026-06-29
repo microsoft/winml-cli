@@ -1,0 +1,59 @@
+{
+  "benchmark_info": {
+    "model_id": "kredor/punctuate-all",
+    "task": "token-classification",
+    "device": "gpu",
+    "ep": "QNNExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-23T01:07:39.564044+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        6
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 95.04,
+    "min": 85.45,
+    "max": 111.88,
+    "p50": 93.36,
+    "p90": 111.88,
+    "p95": 111.88,
+    "p99": 111.88,
+    "std": 8.82,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 10.52,
+    "batches_per_sec": 10.52
+  },
+  "raw_samples_ms": []
+}

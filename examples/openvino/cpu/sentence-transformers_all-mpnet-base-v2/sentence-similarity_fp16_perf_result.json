@@ -1,0 +1,66 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "sentence-transformers/all-mpnet-base-v2",
+                           "task":  "sentence-similarity",
+                           "device":  "cpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "fp16",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-21T12:09:58.012910+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "last_hidden_state",
+                                            "1260"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512,
+                                                 768
+                                             ],
+                                             [
+                                                 1,
+                                                 768
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  231.53,
+                       "min":  226.05,
+                       "max":  244.35,
+                       "p50":  230.22,
+                       "p90":  244.35,
+                       "p95":  244.35,
+                       "p99":  244.35,
+                       "std":  5.2,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  4.32,
+                       "batches_per_sec":  4.32
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

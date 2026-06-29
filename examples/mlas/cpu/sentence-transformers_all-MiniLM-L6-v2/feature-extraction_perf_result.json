@@ -1,0 +1,51 @@
+{
+  "benchmark_info": {
+    "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "feature-extraction",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T10:49:30.601015+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        384
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 48.52,
+    "min": 47.15,
+    "max": 51.57,
+    "p50": 47.79,
+    "p90": 51.57,
+    "p95": 51.57,
+    "p99": 51.57,
+    "std": 1.46
+  },
+  "throughput": {
+    "samples_per_sec": 20.61,
+    "batches_per_sec": 20.61
+  }
+}

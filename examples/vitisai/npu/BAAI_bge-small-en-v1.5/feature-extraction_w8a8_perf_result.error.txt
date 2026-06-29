@@ -1,0 +1,25 @@
+████▎| 402/432 [00:01<00:00, 199.34it/s]
+ 98%|█████████▊| 425/432 [00:01<00:00, 200.21it/s]
+100%|██████████| 432/432 [00:01<00:00, 222.79it/s]
+[2026-05-27T21:52:52] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/384 [00:00<?, ?it/s]
+  4%|▍         | 17/384 [00:00<00:03, 121.40it/s]
+ 12%|█▏        | 45/384 [00:00<00:01, 184.33it/s]
+ 17%|█▋        | 64/384 [00:00<00:01, 174.78it/s]
+ 22%|██▏       | 83/384 [00:00<00:01, 175.02it/s]
+ 29%|██▊       | 110/384 [00:00<00:01, 188.37it/s]
+ 36%|███▌      | 138/384 [00:00<00:01, 198.42it/s]
+ 42%|████▏     | 160/384 [00:00<00:01, 197.56it/s]
+ 48%|████▊     | 186/384 [00:00<00:00, 200.68it/s]
+ 54%|█████▍    | 207/384 [00:01<00:00, 203.03it/s]
+ 61%|██████    | 234/384 [00:01<00:00, 214.03it/s]
+ 68%|██████▊   | 262/384 [00:01<00:00, 223.84it/s]
+ 75%|███████▌  | 288/384 [00:01<00:00, 225.18it/s]
+ 81%|████████  | 311/384 [00:01<00:00, 218.27it/s]
+ 87%|████████▋ | 333/384 [00:01<00:00, 210.91it/s]
+ 93%|█████████▎| 359/384 [00:01<00:00, 216.20it/s]
+100%|██████████| 384/384 [00:01<00:00, 208.40it/s]
+[2026-05-27T21:52:54] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-27T21:53:48] ERROR: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_14737797432812559648_3 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_14737797432812559648_3_3' Status Message: No such query request (73)
+Error: Benchmark failed: Compilation failed: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_14737797432812559648_3 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_14737797432812559648_3_3' Status Message: No such query request (73)

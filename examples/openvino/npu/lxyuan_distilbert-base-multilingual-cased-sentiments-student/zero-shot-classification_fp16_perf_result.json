@@ -1,0 +1,58 @@
+{
+  "benchmark_info": {
+    "model_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
+    "task": "zero-shot-classification",
+    "device": "npu",
+    "ep": "OpenVINOExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T20:17:40.162099+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        3
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 17.83,
+    "min": 14.99,
+    "max": 22.78,
+    "p50": 17.67,
+    "p90": 22.78,
+    "p95": 22.78,
+    "p99": 22.78,
+    "std": 2.47,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 56.08,
+    "batches_per_sec": 56.08
+  },
+  "raw_samples_ms": []
+}

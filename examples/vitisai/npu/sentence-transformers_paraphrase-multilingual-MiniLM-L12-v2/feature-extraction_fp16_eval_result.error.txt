@@ -1,0 +1,39 @@
+ce has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+[XRT] ERROR: Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+Error: Evaluation failed: Failed to load model 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task feature-extraction' to see supported role=path model options.

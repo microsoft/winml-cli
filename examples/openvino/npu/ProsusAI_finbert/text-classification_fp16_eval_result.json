@@ -1,0 +1,20 @@
+{
+  "model_id": "ProsusAI/finbert",
+  "task": "text-classification",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "val",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "privet1mir/finbert_dataset"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\ProsusAI_finbert\\text-classification_fp16_eval_result.json",
+  "metrics": {
+    "accuracy": 0.7,
+    "total_time_in_seconds": 3.8252008000272326,
+    "samples_per_second": 26.142418457950775,
+    "latency_in_seconds": 0.03825200800027233
+  }
+}

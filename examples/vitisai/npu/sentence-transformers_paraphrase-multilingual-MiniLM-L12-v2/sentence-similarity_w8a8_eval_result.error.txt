@@ -1,0 +1,26 @@
+ [00:00<00:00, 311.71it/s]
+ 78%|███████▊  | 340/435 [00:01<00:00, 310.40it/s]
+ 86%|████████▌ | 372/435 [00:01<00:00, 310.84it/s]
+ 94%|█████████▎| 407/435 [00:01<00:00, 311.99it/s]
+100%|██████████| 435/435 [00:01<00:00, 312.18it/s]
+[2026-05-26T23:31:36] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/387 [00:00<?, ?it/s]
+  6%|▋         | 25/387 [00:00<00:01, 226.14it/s]
+ 13%|█▎        | 52/387 [00:00<00:01, 236.46it/s]
+ 21%|██▏       | 83/387 [00:00<00:01, 255.95it/s]
+ 29%|██▉       | 114/387 [00:00<00:01, 265.73it/s]
+ 37%|███▋      | 145/387 [00:00<00:00, 270.88it/s]
+ 45%|████▌     | 176/387 [00:00<00:00, 273.44it/s]
+ 53%|█████▎    | 207/387 [00:00<00:00, 275.42it/s]
+ 61%|██████▏   | 238/387 [00:00<00:00, 276.76it/s]
+ 70%|██████▉   | 269/387 [00:00<00:00, 277.60it/s]
+ 78%|███████▊  | 303/387 [00:01<00:00, 286.61it/s]
+ 88%|████████▊ | 341/387 [00:01<00:00, 291.16it/s]
+ 97%|█████████▋| 375/387 [00:01<00:00, 296.05it/s]
+100%|██████████| 387/387 [00:01<00:00, 281.05it/s]
+[2026-05-26T23:31:37] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-26T23:31:58] WARNING: Failed to register EP MIGraphXExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under MIGraphXExecutionProvider
+[2026-05-26T23:31:58] WARNING: Failed to register EP VitisAIExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under VitisAIExecutionProvider
+[2026-05-26T23:31:58] WARNING: Failed to register EP NvTensorRTRTXExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under NvTensorRTRTXExecutionProvider
+[0;93m2026-05-26 23:31:59.3543563 [W:onnxruntime:, pass_main.cpp:419 pass_main.cpp] Unexcepted exception: (Exception type: class std::invalid_argument) NodeArg name already exists in original graph[m

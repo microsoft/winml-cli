@@ -1,0 +1,29 @@
+█| 442/442 [00:00<00:00, 1067.52it/s]
+[2026-05-27T13:40:04] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/395 [00:00<?, ?it/s]
+ 14%|█▎        | 54/395 [00:00<00:00, 485.42it/s]
+ 30%|██▉       | 117/395 [00:00<00:00, 535.09it/s]
+ 50%|█████     | 199/395 [00:00<00:00, 627.99it/s]
+ 69%|██████▉   | 272/395 [00:00<00:00, 640.52it/s]
+ 89%|████████▉ | 352/395 [00:00<00:00, 679.31it/s]
+100%|██████████| 395/395 [00:00<00:00, 655.35it/s]
+[2026-05-27T13:40:04] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-27T13:40:06] WARNING: Task 'token-classification' not in supported tasks ['image-classification', 'image-feature-extraction', 'object-detection', 'text-classification', 'text-feature-extraction', 'feature-extraction', 'sentence-similarity', 'next-sentence-prediction', 'fill-mask', 'zero-shot-classification', 'image-segmentation', 'random'], falling back to RandomDataset
+[2026-05-27T13:40:49] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+
+Generating train split:   0%|          | 0/14041 [00:00<?, ? examples/s]
+Generating train split: 100%|██████████| 14041/14041 [00:00<00:00, 895780.95 examples/s]
+
+Generating validation split:   0%|          | 0/3250 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 3250/3250 [00:00<00:00, 205742.78 examples/s]
+
+Generating test split:   0%|          | 0/3453 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 3453/3453 [00:00<00:00, 213950.21 examples/s]
+
+Map:   0%|          | 0/100 [00:00<?, ? examples/s]
+Map: 100%|██████████| 100/100 [00:00<00:00, 1581.77 examples/s]
+
+Downloading builder script: 0.00B [00:00, ?B/s]
+Downloading builder script: 6.34kB [00:00, ?B/s]
+Error: Evaluation failed: list index out of range

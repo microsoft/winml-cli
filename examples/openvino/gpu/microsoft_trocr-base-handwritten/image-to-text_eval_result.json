@@ -1,0 +1,22 @@
+{
+  "model_id": "microsoft/trocr-base-handwritten",
+  "task": "image-to-text",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 500,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Teklia/IAM-line",
+    "columns_mapping": {
+      "input_column": "image",
+      "label_column": "text"
+    }
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\microsoft_trocr-base-handwritten\\image-to-text_eval_result.json",
+  "metrics": {
+    "cer": 0.0475,
+    "cider": 7.757,
+    "n_samples": 500
+  }
+}
