@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
@@ -518,6 +519,34 @@ def verbosity_options() -> Callable[[F], F]:
         )(f)
 
     return decorator
+
+
+def no_color_option() -> Callable[[F], F]:
+    """Add a ``--no-color`` flag that disables colored output.
+
+    Rich honors the ``NO_COLOR`` environment variable for every Console, so the
+    flag's callback just sets ``NO_COLOR=1`` for the remainder of the run — this
+    covers all consoles regardless of how they are constructed and matches the
+    existing ``NO_COLOR=1`` / ``CI=true`` environment behavior. The change lives
+    only in the current process, so the next invocation is colored again.
+
+    Returns:
+        Decorator function adding the ``--no-color`` flag (no exposed param).
+    """
+
+    def _disable_color(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
+        if value:
+            os.environ["NO_COLOR"] = "1"
+        return value
+
+    return click.option(
+        "--no-color",
+        is_flag=True,
+        default=False,
+        expose_value=False,
+        callback=_disable_color,
+        help="Disable colored output (also via NO_COLOR=1 or CI=true).",
+    )
 
 
 def resolve_verbosity(ctx: click.Context, verbose: int, quiet: bool) -> tuple[int, bool]:
