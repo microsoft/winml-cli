@@ -2701,6 +2701,9 @@ measure speed and accuracy.</p>
 differ per command (e.g., <code>-p</code> is a short form for <code>--precision</code> only on
 <code>config</code> and <code>quantize</code>); check the <strong>Flags</strong> section of each command page
 rather than assuming they transfer.</p>
+<p><code>--no-color</code> is accepted by every command and disables colored output for
+that invocation. Color is also auto-disabled when <code>NO_COLOR=1</code> or <code>CI=true</code>
+is set in the environment.</p>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../../concepts/how-it-works/">How winml-cli Works</a> — end-to-end pipeline overview</li>
