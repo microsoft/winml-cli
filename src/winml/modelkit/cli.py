@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 from . import __version__
 from .telemetry import ActionGroup
 from .telemetry import telemetry as _telemetry_mod
-from .utils.cli import verbosity_options
+from .utils.cli import no_color_option, verbosity_options
 from .utils.logging import configure_logging, flush_ort_startup_logs
 
 
@@ -249,6 +249,7 @@ class LazyGroup(ActionGroup):
 )
 @click.version_option(version=__version__, prog_name="winml")
 @verbosity_options()
+@no_color_option()
 @click.option(
     "--debug",
     is_flag=True,

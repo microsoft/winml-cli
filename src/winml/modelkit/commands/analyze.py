@@ -736,6 +736,7 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
     ),
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @cli_utils.build_config_option()
 @cli_utils.output_option("Save JSON output to file")
 @cli_utils.overwrite_option(optional_message="Applies to both --output and --optim-config.")
