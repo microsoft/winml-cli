@@ -121,6 +121,43 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="If set, copy the two ONNX (with external data) here as prefill.onnx / decode.onnx.",
     )
+
+    genai = p.add_argument_group(
+        "genai bundle",
+        "Options for producing an onnxruntime-genai inference bundle.",
+    )
+    genai.add_argument(
+        "--genai-bundle",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "If set, assemble a complete onnxruntime-genai bundle in DIR: "
+            "ctx.onnx (prefill), iter.onnx (decode), genai_config.json, and "
+            "tokenizer files.  Provide --embeddings and --lm-head to include "
+            "the placeholder models required for end-to-end inference."
+        ),
+    )
+    genai.add_argument(
+        "--embeddings",
+        type=Path,
+        default=None,
+        metavar="ONNX",
+        help=(
+            "Path to the embeddings ONNX to copy into the genai bundle as "
+            "embeddings.onnx.  Required for end-to-end genai inference."
+        ),
+    )
+    genai.add_argument(
+        "--lm-head",
+        type=Path,
+        default=None,
+        metavar="ONNX",
+        help=(
+            "Path to the lm_head ONNX to copy into the genai bundle as "
+            "lm_head.onnx.  Required for end-to-end genai inference."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -163,6 +200,38 @@ def main(argv: list[str] | None = None) -> int:
             dst = output_dir / f"{_OUTPUT_STEMS.get(name, name)}.onnx"
             copy_onnx_model(src, dst)
             print(f"   -> copied to {dst}")
+
+    # -----------------------------------------------------------------------
+    # Optional: assemble an onnxruntime-genai bundle.
+    # -----------------------------------------------------------------------
+    if args.genai_bundle is not None:
+        from winml.modelkit.models.hf.qwen3.genai import write_genai_bundle
+
+        prefill_path = Path(model.sub_models["decoder_prefill"].onnx_path)
+        decode_path = Path(model.sub_models["decoder_gen"].onnx_path)
+
+        print(f"\n=== assembling genai bundle -> {args.genai_bundle} ===")
+        config_path = write_genai_bundle(
+            args.genai_bundle,
+            context_onnx=prefill_path,
+            iterator_onnx=decode_path,
+            model_id=args.model_id,
+            max_cache_len=args.max_cache_len,
+            prefill_seq_len=args.prefill_seq_len,
+            embeddings_src=args.embeddings,
+            lm_head_src=args.lm_head,
+        )
+        print(f"   genai_config.json -> {config_path}")
+        if args.embeddings is None:
+            print(
+                "   WARNING: --embeddings not provided; "
+                "add embeddings.onnx to the bundle before inference."
+            )
+        if args.lm_head is None:
+            print(
+                "   WARNING: --lm-head not provided; "
+                "add lm_head.onnx to the bundle before inference."
+            )
 
     return 0
 
