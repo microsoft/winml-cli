@@ -333,6 +333,43 @@ class GenaiSession:
             del generator
 
     # ------------------------------------------------------------------
+    # Chat-template helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def apply_chatml_template(
+        prompt: str,
+        system: str | None = None,
+    ) -> str:
+        r"""Wrap *prompt* in the ChatML format used by Qwen2/3, Yi, Mistral, etc.
+
+        Produces::
+
+            <|im_start|>system
+            {system}<|im_end|>
+            <|im_start|>user
+            {prompt}<|im_end|>
+            <|im_start|>assistant
+
+        The trailing ``<|im_start|>assistant\\n`` primes the model to respond
+        as the assistant role with no leading newline in its output.
+
+        Args:
+            prompt: The user turn text.
+            system: Optional system prompt.  When ``None`` no system turn is
+                prepended.
+
+        Returns:
+            Formatted string ready to pass to :meth:`generate` /
+            :meth:`generate_streaming`.
+        """
+        parts: list[str] = []
+        if system is not None:
+            parts.append(f"<|im_start|>system\n{system}<|im_end|>\n")
+        parts.append(f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n")
+        return "".join(parts)
+
+    # ------------------------------------------------------------------
     # Tokenizer helpers
     # ------------------------------------------------------------------
 

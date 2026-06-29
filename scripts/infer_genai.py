@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-r"""onnxruntime-genai inference for the Qwen3 transformer-only pipeline.
+r"""onnxruntime-genai inference for a genai bundle (decoder-pipeline).
 
 Loads the genai bundle produced by ``export_qwen3_transformer_only.py
 --genai-bundle <DIR>`` and runs greedy text generation using
@@ -50,8 +50,8 @@ _SUPPORTED_EPS = ["cpu", "qnn", "dml"]
 
 
 def _wrap_chat_template(prompt: str) -> str:
-    """Wrap *prompt* in the Qwen3 chat template (no thinking mode)."""
-    return f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+    """Wrap *prompt* in the ChatML chat template."""
+    return GenaiSession.apply_chatml_template(prompt)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -90,7 +90,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--chat",
         action="store_true",
-        help="Wrap --prompt in the Qwen3 chat template.",
+        help="Wrap --prompt in the ChatML template (<|im_start|>user/assistant).",
     )
     p.add_argument(
         "--verbose",

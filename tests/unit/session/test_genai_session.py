@@ -315,6 +315,30 @@ class TestGenerate:
 
 
 # ---------------------------------------------------------------------------
+# Tests: apply_chatml_template
+# ---------------------------------------------------------------------------
+
+
+class TestApplyChatmlTemplate:
+    def test_user_only(self) -> None:
+        result = GenaiSession.apply_chatml_template("Hello")
+        assert result == "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n"
+
+    def test_with_system(self) -> None:
+        result = GenaiSession.apply_chatml_template("Hello", system="You are helpful.")
+        assert result.startswith("<|im_start|>system\nYou are helpful.<|im_end|>\n")
+        assert "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n" in result
+
+    def test_no_system_no_system_turn(self) -> None:
+        result = GenaiSession.apply_chatml_template("Hi")
+        assert "<|im_start|>system" not in result
+
+    def test_ends_with_assistant_priming(self) -> None:
+        result = GenaiSession.apply_chatml_template("Hi")
+        assert result.endswith("<|im_start|>assistant\n")
+
+
+# ---------------------------------------------------------------------------
 # Tests: GenerationConfig defaults
 # ---------------------------------------------------------------------------
 
