@@ -1436,7 +1436,7 @@ def analyze(
         # Exit code: 0 = fully supported, 1 = partial support
         overall_supported = all(run_result.is_fully_supported() for run_result in analysis_results)
         if not overall_supported:
-            raise cli_utils.PartialSupportError()
+            raise cli_utils.PartialSupportError
 
     except FileNotFoundError as e:
         raise click.UsageError(f"File not found: {e}") from e

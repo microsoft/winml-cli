@@ -519,6 +519,18 @@ def run(
     Uses embedded inference by default. Pass ``--connect`` to route
     through a running ``winml serve`` instance instead.
 
+    Exit Codes:
+
+        0: Success
+
+        1: General error
+
+        2: Usage error — invalid input or arguments
+
+        3: Model load failure
+
+        4: Inference failure
+
     Examples:
     \b
         # Image classification (shortcut)

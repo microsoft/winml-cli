@@ -40,6 +40,7 @@ class ModelLoadError(click.ClickException):
     exit_code = 3
 
     def show(self, file: Any = None) -> None:
+        """Print the message verbatim to stderr (no ``Error:`` prefix)."""
         click.echo(self.format_message(), err=True)
 
 
@@ -53,6 +54,7 @@ class InferenceError(click.ClickException):
     exit_code = 4
 
     def show(self, file: Any = None) -> None:
+        """Print the message verbatim to stderr (no ``Error:`` prefix)."""
         click.echo(self.format_message(), err=True)
 
 
