@@ -1149,7 +1149,7 @@ def _run_quantize_stage(
 ) -> Path:
     """Run the quantize stage (if quant is configured).
 
-    Delegates single-pass quantization to ``quantize_onnx(config=...)``.
+    Delegates quantization to ``quantize_onnx(config=...)``.
     The cmd layer only handles UI display and the QDQ skip check.
 
     Args:

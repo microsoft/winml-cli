@@ -288,6 +288,7 @@ class TestCopyOnnxModelDiskFull:
         err = exc_info.value
         assert err.disk_full is True
         assert isinstance(err, OSError)
+        assert err.errno == errno.ENOSPC  # preserved for callers inspecting e.errno
         assert "disk space" in str(err).lower()
         # The truncated destination must not be left behind.
         assert not dst.exists()

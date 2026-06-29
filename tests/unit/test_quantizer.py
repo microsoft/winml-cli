@@ -239,11 +239,10 @@ def test_quantize_onnx_applies_model_type_finalizer(
 ) -> None:
     """A registered model_type finalizer is resolved + applied before dispatch.
 
-    The model-type-specific quant policy used to be dispatched at each call site
-    (CLI build, library build). It now lives behind a single seam in
-    quantize_onnx, keyed on ``config.model_type``: the finalizer is resolved from
-    the calibration registry and its returned config is what the mode handler
-    receives.
+    The model-type-specific quant policy lives behind a single seam in
+    quantize_onnx, keyed on ``config.model_type``: the finalizer is resolved
+    from the calibration registry and its returned config is what the Quantizer
+    pipeline (and every pass built from it) runs against.
     """
     import winml.modelkit.quant.calibration as calibration_mod
     import winml.modelkit.quant.quantizer as quantizer_mod
@@ -266,13 +265,19 @@ def test_quantize_onnx_applies_model_type_finalizer(
 
     monkeypatch.setattr(calibration_mod, "get_quant_finalizer", lambda model_type: _StubFinalizer())
 
-    handler_calls: list[WinMLQuantizationConfig] = []
+    # The finalized config is threaded into the passes that expand_precision
+    # builds; capture the Quantizer's pass list to confirm it carries the
+    # finalized config rather than the original.
+    captured_passes: list[Any] = []
 
-    def _fake_qdq(*, config, **_kwargs):  # type: ignore[no-untyped-def]
-        handler_calls.append(config)
-        return SimpleNamespace(success=True, output_path=output_path, errors=[])
+    class _FakeQuantizer:
+        def __init__(self, passes: list[Any]) -> None:
+            captured_passes.extend(passes)
 
-    monkeypatch.setattr(quantizer_mod, "_quantize_qdq", _fake_qdq)
+        def run(self, _model_path, _output_path, *, use_external_data=True):  # type: ignore[no-untyped-def]
+            return SimpleNamespace(success=True, output_path=output_path, errors=[])
+
+    monkeypatch.setattr(quantizer_mod, "Quantizer", _FakeQuantizer)
 
     result = quantize_onnx(
         model_path,
@@ -288,8 +293,10 @@ def test_quantize_onnx_applies_model_type_finalizer(
     assert len(finalize_calls) == 1
     assert finalize_calls[0]["onnx_path"] == model_path
     assert finalize_calls[0]["model_id"] == "some/model-id"
-    # The handler ran against the finalized config, not the original.
-    assert handler_calls == [finalized_config]
+    # The pipeline was built from the finalized config, not the original
+    # (every pass shares the single config object).
+    assert captured_passes
+    assert all(p.config is finalized_config for p in captured_passes)
 
 
 def test_quantize_onnx_skips_finalizer_when_calibration_data_provided(
@@ -309,10 +316,14 @@ def test_quantize_onnx_skips_finalizer_when_calibration_data_provided(
 
     monkeypatch.setattr(calibration_mod, "get_quant_finalizer", _boom)
 
-    def _fake_qdq(*, config, **_kwargs):  # type: ignore[no-untyped-def]
-        return SimpleNamespace(success=True, output_path=output_path, errors=[])
+    class _FakeQuantizer:
+        def __init__(self, passes: list[Any]) -> None:
+            pass
 
-    monkeypatch.setattr(quantizer_mod, "_quantize_qdq", _fake_qdq)
+        def run(self, _model_path, _output_path, *, use_external_data=True):  # type: ignore[no-untyped-def]
+            return SimpleNamespace(success=True, output_path=output_path, errors=[])
+
+    monkeypatch.setattr(quantizer_mod, "Quantizer", _FakeQuantizer)
 
     result = quantize_onnx(
         model_path,

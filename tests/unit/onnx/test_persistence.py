@@ -667,6 +667,7 @@ class TestSaveOnnxDiskFull:
         err = exc_info.value
         assert err.disk_full is True
         assert isinstance(err, OSError)  # backward-compatible with except OSError
+        assert err.errno == errno.ENOSPC  # preserved for callers inspecting e.errno
         assert "disk space" in str(err).lower()
         # The truncated 0-byte file must not be left behind for a later stage.
         assert not model_path.exists()
@@ -683,6 +684,7 @@ class TestSaveOnnxDiskFull:
             save_onnx(model, model_path, threshold_size=0)  # force external data
 
         assert exc_info.value.disk_full is True
+        assert exc_info.value.errno == errno.ENOSPC
         assert "disk space" in str(exc_info.value).lower()
         assert not model_path.exists()
         assert not sidecar.exists()
@@ -699,5 +701,6 @@ class TestSaveOnnxDiskFull:
 
         err = exc_info.value
         assert err.disk_full is False
+        assert err.errno == errno.EACCES  # non-disk-full errno is preserved too
         assert "Failed to write ONNX model" in str(err)
         assert not model_path.exists()

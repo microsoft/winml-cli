@@ -36,15 +36,25 @@ class ONNXSaveError(OSError):
     """Raised when an ONNX model cannot be written to disk.
 
     Subclasses :class:`OSError` so existing ``except OSError`` handlers keep
-    working and ``errno`` is preserved, while surfacing a clear, actionable
-    message. This matters most for disk-full conditions: without it, a failed
-    write leaves a truncated/zero-byte ``.onnx`` behind and the real cause only
-    shows up much later as an opaque opset-parsing error in a downstream stage.
+    working and the original ``errno`` is preserved (see ``errno_code``), while
+    surfacing a clear, actionable message. This matters most for disk-full
+    conditions: without it, a failed write leaves a truncated/zero-byte
+    ``.onnx`` behind and the real cause only shows up much later as an opaque
+    opset-parsing error in a downstream stage.
+
+    Note:
+        ``OSError.__init__`` only populates ``errno`` from a 2-argument
+        ``(errno, strerror)`` call, which would also rewrite ``str(self)`` as
+        ``"[Errno N] <message>"``. To keep the clean message *and* preserve
+        ``errno`` for ``except OSError`` callers that inspect ``e.errno``, we
+        construct with the single message and set ``errno`` explicitly.
 
     Attributes:
         path: Destination path that could not be written.
         disk_full: ``True`` when the failure was caused by insufficient disk
             space (``errno.ENOSPC`` / Windows ``ERROR_DISK_FULL``).
+        errno: The originating OS error code, when known (inherited from
+            :class:`OSError`).
     """
 
     def __init__(
@@ -53,8 +63,13 @@ class ONNXSaveError(OSError):
         *,
         path: str | Path | None = None,
         disk_full: bool = False,
+        errno_code: int | None = None,
     ) -> None:
         super().__init__(message)
+        # super().__init__(message) leaves self.errno = None; set it explicitly
+        # so callers catching this as OSError can still inspect e.errno.
+        if errno_code is not None:
+            self.errno = errno_code
         self.path = path
         self.disk_full = disk_full
 
@@ -93,7 +108,9 @@ def _raise_save_error(error: OSError, path: Path) -> NoReturn:
         )
     else:
         message = f"Failed to write ONNX model to {path}: {error}"
-    raise ONNXSaveError(message, path=path, disk_full=disk_full) from error
+    raise ONNXSaveError(
+        message, path=path, disk_full=disk_full, errno_code=error.errno
+    ) from error
 
 
 def load_onnx(
