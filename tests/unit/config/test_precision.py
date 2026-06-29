@@ -51,13 +51,13 @@ class TestResolvePrecision:
             ("npu", "w8a16", "npu", "w8a16", "uint8", "uint16", "QNNExecutionProvider"),
             ("npu", "w8a8", "npu", "w8a8", "uint8", "uint8", "QNNExecutionProvider"),
             ("npu", "w16a16", "npu", "w16a16", "int16", "uint16", "QNNExecutionProvider"),
-            ("gpu", "auto", "gpu", "fp16", None, None, "DmlExecutionProvider"),
+            ("gpu", "auto", "gpu", "fp32", None, None, "DmlExecutionProvider"),
             ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "DmlExecutionProvider"),
             ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "DmlExecutionProvider"),
             ("gpu", "int16", "gpu", "int16", "int16", "uint16", "DmlExecutionProvider"),
             ("gpu", "fp16", "gpu", "fp16", None, None, "DmlExecutionProvider"),
             ("gpu", "fp32", "gpu", "fp32", None, None, "DmlExecutionProvider"),
-            ("cpu", "auto", "cpu", "fp16", None, None, None),
+            ("cpu", "auto", "cpu", "fp32", None, None, None),
             ("cpu", "int8", "cpu", "int8", "uint8", "uint8", None),
             ("cpu", "int16", "cpu", "int16", "int16", "uint16", None),
             ("cpu", "fp16", "cpu", "fp16", None, None, None),
@@ -144,7 +144,7 @@ class TestGpuLlmWarning:
             policy = resolve_precision(device="gpu", task="text-generation")
 
         assert policy.device == "gpu"
-        assert policy.precision == "fp16"
+        assert policy.precision == "fp32"
         assert any("w4a16" in record.message for record in caplog.records)
 
     def test_gpu_non_llm_no_warning(self, caplog) -> None:
@@ -152,7 +152,7 @@ class TestGpuLlmWarning:
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.config.precision"):
             policy = resolve_precision(device="gpu", task="image-classification")
 
-        assert policy.precision == "fp16"
+        assert policy.precision == "fp32"
         assert not any("w4a16" in record.message for record in caplog.records)
 
     def test_gpu_text2text_warning(self, caplog) -> None:

@@ -1544,6 +1544,7 @@ def _run_simple_loop(
 @cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def perf(
     ctx: click.Context,

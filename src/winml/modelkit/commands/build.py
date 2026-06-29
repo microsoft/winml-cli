@@ -475,6 +475,7 @@ def _validate_loader_tasks_for_model(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def build(
     ctx: click.Context,
