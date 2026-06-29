@@ -1,0 +1,29 @@
+Command line parameters
+-d;NPU
+-hint;latency
+-report_type;average_counters
+-report_folder;experiments/ov_estimation
+-m;experiments/ov_estimation/model.onnx
+
+Configuration setup
+topology;Model1
+target device;NPU
+API;sync
+inference_only;True
+precision;UNSPECIFIED
+batch size;1
+number of iterations;None
+number of parallel infer requests;1
+duration (ms);60000
+
+Execution results
+read model time (ms);59.32
+compile model time (ms);2113.87
+first inference time (ms);28.56
+total execution time (ms);60001.20
+total number of iterations;16506
+latency (ms);3.27
+avg latency;3.50
+min latency;2.73
+max latency;40.79
+throughput;275.09
