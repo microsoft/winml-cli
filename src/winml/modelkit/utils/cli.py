@@ -29,6 +29,44 @@ F = TypeVar("F", bound="Callable[..., Any]")
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
 
 
+class ModelLoadError(click.ClickException):
+    """Exit code 3: model could not be loaded onto the device/EP.
+
+    Use for failures loading a model onto a device/EP, missing accelerators,
+    or session creation that fails for hardware reasons. The message is printed
+    verbatim to stderr (no ``Error:`` prefix) so callers control the wording.
+    """
+
+    exit_code = 3
+
+    def show(self, file: Any = None) -> None:
+        click.echo(self.format_message(), err=True)
+
+
+class InferenceError(click.ClickException):
+    """Exit code 4: inference/prediction failed at runtime.
+
+    Use for prediction failures after the model loaded successfully. The
+    message is printed verbatim to stderr (no ``Error:`` prefix).
+    """
+
+    exit_code = 4
+
+    def show(self, file: Any = None) -> None:
+        click.echo(self.format_message(), err=True)
+
+
+class PartialSupportError(click.exceptions.Exit):
+    """Exit code 1: a valid negative result, not an error.
+
+    Raised silently (no ``Error:`` prefix) so commands can signal an
+    actionable-but-non-fatal outcome (e.g. analyze: model not fully supported).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(1)
+
+
 # Shared stderr console for security/diagnostic messages emitted from utils.
 # Mirrors the module-level ``console = Console()`` pattern used by individual
 # command modules, but targets stderr so messages survive ``-q/--quiet``.

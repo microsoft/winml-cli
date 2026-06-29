@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import re
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -832,8 +831,7 @@ def analyze(
 
         # Validate model
         if not model.exists():
-            logger.error("ONNX model file not found: %s", model)
-            sys.exit(2)
+            raise click.UsageError(f"ONNX model file not found: {model}")
 
         from ..analyze.utils.ep_utils import (
             has_any_rule_data,
@@ -883,15 +881,14 @@ def analyze(
                             "Resolved absolute path(s) from %s: (none)",
                             WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
                         )
-                sys.exit(2)
+                raise click.UsageError("--debug rules directory not configured.")
 
         search_dirs = get_runtime_rules_search_dirs()
         if not has_any_rule_data():
             searched = ", ".join(str(p) for p in search_dirs) if search_dirs else "(none)"
-            logger.error("No runtime rule parquet files were found.")
             logger.error("Please reinstall winml-cli, or manually download rule parquet files.")
             logger.error("Searched directories: %s", searched)
-            sys.exit(2)
+            raise click.UsageError("No runtime rule parquet files were found.")
 
         # Resolve the EP/device selection. `all` keeps the full rule-data-backed
         # set (fan-out, unchanged). `auto` resolves to a single best target from
@@ -913,8 +910,7 @@ def analyze(
             try:
                 resolved_device, _ = resolve_device(device="auto", ep=ep_hint)
             except (ValueError, RuntimeError) as e:
-                logger.error("Could not auto-select a device: %s", e)
-                sys.exit(2)
+                raise click.UsageError(f"Could not auto-select a device: {e}") from e
             devices = [resolved_device]
         elif device is not None:
             devices = [device]
@@ -948,14 +944,12 @@ def analyze(
                 # of raising an unguarded IndexError on ``devices[0]``.
                 ref_device = devices[0] if devices else None
                 if not ref_device:
-                    logger.error("No device context available for EP auto-resolution.")
-                    sys.exit(2)
+                    raise click.UsageError("No device context available for EP auto-resolution.")
                 compatible_eps = resolve_eps(ref_device)
                 if not compatible_eps:
-                    logger.error(
-                        "No execution provider is available for device '%s'.", ref_device
+                    raise click.UsageError(
+                        f"No execution provider is available for device '{ref_device}'."
                     )
-                    sys.exit(2)
                 eps = [compatible_eps[0]]
             else:
                 # ep is a specific EP or alias
@@ -983,8 +977,7 @@ def analyze(
         local_pairs = set(_get_local_ep_device_pairs())
 
         if not execution_pairs:
-            logger.error("No EP/device combination matched the current selection.")
-            sys.exit(2)
+            raise click.UsageError("No EP/device combination matched the current selection.")
 
         logger.info("Analyzing model: %s", model)
         logger.info(
@@ -1435,16 +1428,19 @@ def analyze(
 
         # Exit code: 0 = fully supported, 1 = partial support
         overall_supported = all(run_result.is_fully_supported() for run_result in analysis_results)
-        sys.exit(0 if overall_supported else 1)
+        if not overall_supported:
+            raise cli_utils.PartialSupportError()
 
     except FileNotFoundError as e:
-        logger.error("File not found: %s", e)
-        sys.exit(2)
+        raise click.UsageError(f"File not found: {e}") from e
+    except (click.exceptions.Exit, click.ClickException):
+        # Exit/click exceptions are intentional control flow; re-raise so the
+        # catch-all below doesn't relabel them as "Analysis failed".
+        raise
     except Exception as e:
-        logger.error("Analysis failed: %s", e)
         if verbose:
             logger.exception("Full traceback:")
-        sys.exit(2)
+        raise click.UsageError(f"Analysis failed: {e}") from e
 
 
 __all__ = ["analyze"]

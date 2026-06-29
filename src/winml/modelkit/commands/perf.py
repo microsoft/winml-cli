@@ -1807,9 +1807,10 @@ def perf(
             from ..optracing import is_qnn_profiling_available
 
             if not is_qnn_profiling_available():
-                console.print("[red]Error:[/red] Op-tracing requires onnxruntime-qnn")
-                console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
-                raise SystemExit(1)
+                raise click.ClickException(
+                    "Op-tracing requires onnxruntime-qnn. "
+                    "Install with: pip install onnxruntime-qnn"
+                )
 
             from ..optracing import (
                 display_op_trace_report,
@@ -1826,20 +1827,18 @@ def perf(
                 if onnx_for_trace is None:
                     raise AttributeError("benchmark._model not initialized")
             except AttributeError:
-                console.print(
-                    "[red]Error:[/red] Could not determine ONNX model path for op-tracing"
-                )
-                raise SystemExit(1) from None
+                raise click.ClickException(
+                    "Could not determine ONNX model path for op-tracing"
+                ) from None
 
             output_dir = output.parent if output else Path()
 
             # Look up tracer via registry (EP-agnostic).
             tracer_cls = get_tracer("QNNExecutionProvider", op_tracing)
             if tracer_cls is None:
-                console.print(
-                    f"[red]Error:[/red] No tracer registered for QNN EP at level '{op_tracing}'"
+                raise click.ClickException(
+                    f"No tracer registered for QNN EP at level '{op_tracing}'"
                 )
-                raise SystemExit(1)
 
             profiler = tracer_cls(
                 onnx_for_trace,
@@ -1866,6 +1865,10 @@ def perf(
         # the convention used by Click for argument problems.
         raise click.UsageError(f"Model not found: {e}") from e
 
+    except click.ClickException:
+        # Click exceptions are already intentional control flow; re-raise so
+        # the catch-all below doesn't relabel them as "Benchmark failed".
+        raise
     except Exception as e:
         if verbose:
             logger.exception("Benchmark failed")
