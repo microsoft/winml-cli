@@ -16,7 +16,7 @@ from .base import BaseQuantPass
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ..config import QuantizeResult, WinMLQuantizationConfig
+    from ..config import QuantizeResult
 
 
 logger = logging.getLogger(__name__)
@@ -38,9 +38,6 @@ class RTNPass(BaseQuantPass):
         pass_ = RTNPass(config)
         result = pass_.run("model.onnx", "model_rtn.onnx")
     """
-
-    def __init__(self, config: WinMLQuantizationConfig) -> None:
-        super().__init__(config)
 
     def run(
         self,

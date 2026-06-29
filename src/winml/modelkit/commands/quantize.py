@@ -347,14 +347,22 @@ def _run_multi_precision(
         4,
     )
 
+    # Resolve weight/activation types from the first static precision in the list
+    # (same logic as single-pass path) so -p int16 -p fp16 uses int16, not uint8.
+    first_static = next(
+        (p for p in precision if _cli_precision_to_mode(p) == "static"),
+        None,
+    )
+    resolved_weight, resolved_activation = _resolve_quant_types(
+        first_static, weight_type, activation_type
+    )
+
     config = WinMLQuantizationConfig(
         rtn_bits=rtn_bits,
         samples=samples,
         calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
-        weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', weight_type or "uint8"),
-        activation_type=cast(
-            'Literal["uint8", "int8", "uint16", "int16"]', activation_type or "uint8"
-        ),
+        weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
+        activation_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_activation),
         per_channel=per_channel,
         symmetric=symmetric,
         task=task,

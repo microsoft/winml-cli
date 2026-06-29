@@ -60,22 +60,22 @@ def expand_precision(
     config = config or WinMLQuantizationConfig()
     effective_precision = precision if precision is not None else config.mode
 
-    _pass_factories: dict[str, BaseQuantPass] = {
-        "fp16": FP16Pass(config),
-        "rtn": RTNPass(config),
-        "static": StaticPass(config),
-        "dynamic": StaticPass(config),
+    _pass_types: dict[str, type[BaseQuantPass]] = {
+        "fp16": FP16Pass,
+        "rtn": RTNPass,
+        "static": StaticPass,
+        "dynamic": StaticPass,
     }
 
-    if effective_precision in _pass_factories:
-        return [_pass_factories[effective_precision]]
+    if effective_precision in _pass_types:
+        return [_pass_types[effective_precision](config)]
 
     if effective_precision in _COMPOSITE_PRECISIONS:
-        return [_pass_factories[step] for step in _COMPOSITE_PRECISIONS[effective_precision]]
+        return [_pass_types[step](config) for step in _COMPOSITE_PRECISIONS[effective_precision]]
 
     raise ValueError(
         f"Unknown precision {effective_precision!r}. "
-        f"Valid values: {sorted(_pass_factories) + sorted(_COMPOSITE_PRECISIONS)}"
+        f"Valid values: {sorted(_pass_types) + sorted(_COMPOSITE_PRECISIONS)}"
     )
 
 

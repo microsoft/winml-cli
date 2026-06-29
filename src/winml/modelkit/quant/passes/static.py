@@ -111,8 +111,16 @@ class StaticPass(BaseQuantPass):
         calibrate_method = calibration_method_map[self._config.calibration_method]
 
         extra_options = {
-            "ActivationSymmetric": self._config.symmetric,
-            "WeightSymmetric": self._config.symmetric,
+            "ActivationSymmetric": (
+                self._config.activation_symmetric
+                if self._config.activation_symmetric is not None
+                else self._config.symmetric
+            ),
+            "WeightSymmetric": (
+                self._config.weight_symmetric
+                if self._config.weight_symmetric is not None
+                else self._config.symmetric
+            ),
         }
 
         logger.info("Generating QDQ config...")
