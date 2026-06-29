@@ -148,6 +148,21 @@ def _quantize_single_pass(
     warnings: list[str] = []
 
     try:
+        # Model-type-specific quant policy. Some model types finalize their
+        # scheme (calibration reader / nodes-to-exclude / fixed dtypes + mode)
+        # only once the exported ONNX exists. Resolve it from the quant registry
+        # keyed on ``config.model_type`` and apply it here — a single seam shared
+        # by every caller (CLI build, library build, standalone quantize) instead
+        # of duplicated dispatch at each call site. Unregistered types (and a
+        # caller-supplied ``calibration_data``) leave the config untouched, so
+        # the quantizer falls back to its default task-aware reader.
+        if config.model_type and config.calibration_data is None:
+            from .calibration import get_quant_finalizer
+
+            finalizer = get_quant_finalizer(config.model_type)
+            if finalizer is not None:
+                config = finalizer.finalize(config, onnx_path=model_path, model_id=config.model_id)
+
         # Dispatch to the appropriate single-mode handler
         _mode_handlers: dict[str, Callable[..., QuantizeResult]] = {
             "fp16": _quantize_fp16,
@@ -348,9 +363,18 @@ def _quantize_qdq(
     activation_type = activation_type_map[config.activation_type]
     calibrate_method = calibration_method_map[config.calibration_method]
 
+    # Weight/activation symmetry can be controlled independently (e.g. w8a16 =
+    # symmetric int8 weights + asymmetric uint16 activations); fall back to the
+    # single ``symmetric`` flag when a per-target override is unset.
+    weight_symmetric = (
+        config.weight_symmetric if config.weight_symmetric is not None else config.symmetric
+    )
+    activation_symmetric = (
+        config.activation_symmetric if config.activation_symmetric is not None else config.symmetric
+    )
     extra_options = {
-        "ActivationSymmetric": config.symmetric,
-        "WeightSymmetric": config.symmetric,
+        "ActivationSymmetric": activation_symmetric,
+        "WeightSymmetric": weight_symmetric,
     }
 
     logger.info("Generating QDQ config...")
