@@ -70,6 +70,7 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     help="HuggingFace model name or local path (e.g., prajjwal1/bert-tiny)",
 )
 @cli_utils.output_option("Output ONNX file path (e.g., model.onnx)", required=True)
+@cli_utils.overwrite_option()
 @click.option(
     "--with-report/--no-with-report",
     default=False,
@@ -136,6 +137,7 @@ def export(
     ctx: click.Context,
     model: str,
     output: Path,
+    overwrite: bool,
     verbose: int,
     quiet: bool,
     with_report: bool,
@@ -237,8 +239,11 @@ def export(
     if export_config:
         console.print(f"[bold blue]Export config:[/bold blue] {export_config}")
 
-    # Create output directory if needed
+    # Refuse to clobber an existing output unless the user opted in.
     output_path = Path(output)
+    cli_utils.guard_output(output_path, overwrite)
+
+    # Create output directory if needed
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Load export configuration from JSON file if provided, or create default

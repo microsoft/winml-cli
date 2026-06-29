@@ -40,11 +40,8 @@ logger = logging.getLogger(__name__)
         "(requires --model-id), or split-encoder role=path pairs (see --schema)."
     ),
 )
-@click.option(
-    "--model-id",
-    type=str,
-    default=None,
-    help="HuggingFace model ID when .onnx model file is provided in --model.",
+@cli_utils.model_id_option(
+    help_text="HuggingFace model ID when .onnx model file is provided in --model.",
 )
 @click.option(
     "--dataset",
@@ -138,6 +135,7 @@ logger = logging.getLogger(__name__)
     help='Path to a JSON file with label mapping: {"label_name": id}.',
 )
 @cli_utils.output_option("Output JSON file path.")
+@cli_utils.overwrite_option()
 @click.option(
     "--dataset-script",
     type=str,
@@ -192,6 +190,7 @@ def eval(
     column: tuple[str, ...],
     label_mapping_path: Path | None,
     output: Path | None,
+    overwrite: bool,
     output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
@@ -247,6 +246,10 @@ def eval(
     _resolve_device(cfg)
     _resolve_label_mapping(cfg)
     _run_dataset_script(cfg, trust_remote_code)
+
+    # Refuse to clobber an existing report unless the user opted in — fail fast
+    # before the (expensive) evaluation runs.
+    cli_utils.guard_output(cfg.output_path, overwrite)
 
     if cfg.model_path is not None and cfg.precision != "auto":
         logger.warning(

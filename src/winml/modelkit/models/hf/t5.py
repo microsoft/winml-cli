@@ -24,7 +24,7 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
@@ -40,6 +40,10 @@ from ...optim import WinMLOptimizationConfig
 from ..winml.composite_model import register_composite_model
 from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
 from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
+
+
+if TYPE_CHECKING:
+    from transformers import GenerationConfig, PretrainedConfig
 
 
 # =============================================================================
@@ -71,10 +75,14 @@ class T5EncoderWrapper(nn.Module):
         attention_mask: torch.Tensor,
     ) -> torch.Tensor:
         """Return encoder last hidden state."""
-        return self.encoder(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        ).last_hidden_state
+        # self.encoder is a torch submodule (untyped __call__ -> Any).
+        return cast(
+            "torch.Tensor",
+            self.encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            ).last_hidden_state,
+        )
 
 
 class T5DecoderWrapper(nn.Module):
@@ -110,7 +118,9 @@ class T5DecoderWrapper(nn.Module):
         self.model = model
         self.num_layers = num_layers
         # Expose config for OnnxConfig / NormalizedConfig access
-        self.config = model.config
+        # model is typed nn.Module, so torch's __getattr__ types .config as
+        # Tensor | Module; it is really the model's PretrainedConfig.
+        self.config: PretrainedConfig = cast("PretrainedConfig", model.config)
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> T5DecoderWrapper:
@@ -203,7 +213,7 @@ class T5DecoderWrapper(nn.Module):
 
 
 @register_onnx_overwrite("t5", "feature-extraction", library_name="transformers")
-class T5EncoderIOConfig(OnnxConfig):
+class T5EncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for T5 encoder (feature-extraction task).
 
     Inputs:  input_ids, attention_mask
@@ -231,7 +241,7 @@ class T5EncoderIOConfig(OnnxConfig):
 
 
 @register_onnx_overwrite("t5", "text2text-generation", library_name="transformers")
-class T5DecoderIOConfig(OnnxConfig):
+class T5DecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for T5 decoder with sliding-window KV cache.
 
     Inputs:  decoder_input_ids, encoder_hidden_states, attention_mask,
@@ -351,7 +361,7 @@ class WinMLT5Model(WinMLEncoderDecoderModel):
         return WinMLSlidingWindowCache
 
     @property
-    def generation_config(self):  # noqa: D102
+    def generation_config(self) -> GenerationConfig:  # noqa: D102
         if not hasattr(self, "_generation_config"):
             from transformers import GenerationConfig
 

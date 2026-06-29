@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
@@ -246,7 +246,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         if build_config is not None:
             loader = getattr(build_config, "loader", None)
             if loader:
-                return loader.task
+                # loader comes from getattr (Any); task is a str | None field.
+                return cast("str | None", loader.task)
         return None
 
     @property

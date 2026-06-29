@@ -109,7 +109,7 @@ def sample_config_file(tmp_path: Path) -> Path:
             "mode": "qdq",
             "samples": 10,
             "task": "image-classification",
-            "model_name": "test",
+            "model_id": "test",
         },
         "compile": {"execution_provider": "qnn"},
     }
@@ -463,7 +463,7 @@ class TestBuildFlagPassthrough:
                         "mode": "qdq",
                         "samples": 10,
                         "task": "image-classification",
-                        "model_name": "test",
+                        "model_id": "test",
                     },
                     "compile": None,
                 }
@@ -617,7 +617,7 @@ class TestBuildFlagPassthrough:
                 "mode": "qdq",
                 "samples": 10,
                 "task": "image-classification",
-                "model_name": "test",
+                "model_id": "test",
             },
             "compile": None,
         }
@@ -1716,6 +1716,121 @@ class TestRunCompileStageNoOutput:
 
         # current_path should be updated to compiled_path
         assert result == compiled_path
+
+
+class TestBuildHfPipelineModelType:
+    """Regression: the CLI HF pipeline must thread loader.model_type into _load_model.
+
+    Without this, a config requesting a derived model_type (e.g.
+    ``qwen3_transformer_only``) is silently loaded as its native type, so the
+    wrong model class is exported. See _build_hf_pipeline.
+    """
+
+    @patch("winml.modelkit.utils.console.StageLive")
+    @patch("winml.modelkit.export.export_onnx")
+    @patch("winml.modelkit.build.hf._load_model")
+    def test_load_model_receives_config_model_type(
+        self,
+        mock_load_model: MagicMock,
+        mock_export_onnx: MagicMock,
+        mock_stage_live: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.build import _build_hf_pipeline
+
+        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Stop the pipeline right after export so we only exercise the load call.
+        sentinel = RuntimeError("stop-after-export")
+        mock_export_onnx.side_effect = sentinel
+
+        config = MagicMock()
+        config.loader.model_type = "qwen3_transformer_only"
+        config.loader.task = "feature-extraction"
+        config.export = MagicMock()
+
+        with pytest.raises(RuntimeError, match="stop-after-export"):
+            _build_hf_pipeline(
+                config=config,
+                model_id="Qwen/Qwen3-0.6B",
+                output_dir=tmp_path / "out",
+                rebuild=True,
+                cache_key=None,
+                ep=None,
+                device="cpu",
+                extra_kwargs={},
+                preloaded_hf_config=None,
+            )
+
+        mock_load_model.assert_called_once()
+        assert mock_load_model.call_args.kwargs["model_type"] == "qwen3_transformer_only"
+
+    @patch("winml.modelkit.commands.build._run_compile_stage")
+    @patch("winml.modelkit.commands.build._run_quantize_stage")
+    @patch("winml.modelkit.commands.build._run_optimize_stage")
+    @patch("winml.modelkit.commands.build._show_io")
+    @patch("winml.modelkit.utils.console.StageLive")
+    @patch("winml.modelkit.export.export_onnx")
+    @patch("winml.modelkit.build.hf._load_model")
+    def test_quant_model_type_carried_into_quantize_stage(
+        self,
+        mock_load_model: MagicMock,
+        mock_export_onnx: MagicMock,
+        mock_stage_live: MagicMock,
+        mock_show_io: MagicMock,
+        mock_optimize: MagicMock,
+        mock_quantize: MagicMock,
+        mock_compile: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """The CLI HF pipeline must hand the model_type to the quantize stage.
+
+        The model-type-specific quant policy is resolved inside ``quantize_onnx``
+        from ``config.quant.model_type``; the pipeline is responsible for carrying
+        the resolved variant onto the quant config so the policy fires.
+        """
+        from winml.modelkit.commands.build import _build_hf_pipeline
+
+        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+
+        pytorch_model = MagicMock()
+        pytorch_model.config.model_type = "qwen3_transformer_only"
+        mock_load_model.return_value = pytorch_model
+
+        optimized = tmp_path / "optimized.onnx"
+        mock_optimize.return_value = (optimized, None)
+
+        # Stop right after the quantize stage so we don't exercise compile.
+        mock_quantize.side_effect = RuntimeError("stop-after-quantize")
+
+        config = MagicMock()
+        config.loader.model_type = "qwen3_transformer_only"
+        config.loader.task = "text2text-generation"
+        config.loader.model_class = None
+        config.export = MagicMock()
+        config.quant = MagicMock(name="quant_config")
+        config.quant.model_type = None
+        config.to_dict.return_value = {}
+
+        with pytest.raises(RuntimeError, match="stop-after-quantize"):
+            _build_hf_pipeline(
+                config=config,
+                model_id="Qwen/Qwen3-0.6B",
+                output_dir=tmp_path / "out",
+                rebuild=True,
+                cache_key=None,
+                ep=None,
+                device="cpu",
+                extra_kwargs={},
+                preloaded_hf_config=None,
+            )
+
+        # The resolved variant must be carried onto the quant config so that
+        # quantize_onnx can resolve + apply the model-type-specific policy.
+        assert config.quant.model_type == "qwen3_transformer_only"
+        mock_quantize.assert_called_once()
 
 
 class TestBuildEpResolution:

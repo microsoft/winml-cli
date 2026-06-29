@@ -715,7 +715,7 @@ class TestBuildSubmoduleConfig:
         assert result.loader.module_path == "encoder.layer.0.attention"
 
     def test_quant_uses_random_for_submodules(self, parent_config: WinMLBuildConfig) -> None:
-        """Submodule quant uses random dataset (task=None, model_name=None)."""
+        """Submodule quant uses random dataset (task=None, model_id=None)."""
         parent_config.loader.task = "fill-mask"
         parent_config.loader.model_type = "bert"
 
@@ -733,7 +733,7 @@ class TestBuildSubmoduleConfig:
         # Submodule quant should exist with task=None (random dataset fallback)
         assert result.quant is not None
         assert result.quant.task is None
-        assert result.quant.model_name is None
+        assert result.quant.model_id is None
         assert result.quant.samples == 1
 
     def test_submodule_config_with_quant_passes_validate(
@@ -762,7 +762,7 @@ class TestBuildSubmoduleConfig:
         self,
         parent_config: WinMLBuildConfig,
     ) -> None:
-        """Submodule quant serialization omits task, model_name, dataset_name when None."""
+        """Submodule quant serialization omits task, model_id, dataset_name when None."""
         parent_config.loader.task = "fill-mask"
         parent_config.loader.model_type = "bert"
 
@@ -779,7 +779,7 @@ class TestBuildSubmoduleConfig:
 
         quant_dict = result.quant.to_dict()
         assert "task" not in quant_dict
-        assert "model_name" not in quant_dict
+        assert "model_id" not in quant_dict
         assert "dataset_name" not in quant_dict
 
     def test_empty_inputs(self, parent_config: WinMLBuildConfig) -> None:
@@ -1055,7 +1055,7 @@ class TestModelTypeOverride:
         mock_model_class: MagicMock,
         mock_export_config: WinMLExportConfig,
     ) -> None:
-        """model_type + task: overrides hf_config.model_type, uses given task."""
+        """model_type + task: threads variant model_type through, uses given task."""
         gpt2_loader_config = WinMLLoaderConfig(
             task="text-generation",
             model_class="GPT2LMHeadModel",
@@ -1719,7 +1719,7 @@ class TestValidate:
             optim=WinMLOptimizationConfig(),
             quant=WinMLQuantizationConfig(
                 task="image-classification",
-                model_name="microsoft/resnet-50",
+                model_id="microsoft/resnet-50",
             ),
             compile=WinMLCompileConfig(
                 ep_config=EPConfig(provider="qnn"),
@@ -1776,12 +1776,12 @@ class TestValidate:
         config.validate()  # Should not raise
 
     def test_valid_onnx_build_with_quant_no_task(self) -> None:
-        """ONNX build with quant doesn't require quant.task or quant.model_name."""
+        """ONNX build with quant doesn't require quant.task or quant.model_id."""
         config = WinMLBuildConfig(
             loader=WinMLLoaderConfig(task=None),
             export=None,  # ONNX build
             optim=WinMLOptimizationConfig(),
-            quant=WinMLQuantizationConfig(task=None, model_name=None),
+            quant=WinMLQuantizationConfig(task=None, model_id=None),
             compile=WinMLCompileConfig(),
         )
         config.validate()  # Should not raise
@@ -1804,22 +1804,22 @@ class TestValidate:
             loader=WinMLLoaderConfig(task="fill-mask"),
             export=WinMLExportConfig(),  # HF build
             optim=WinMLOptimizationConfig(),
-            quant=WinMLQuantizationConfig(task=None, model_name="test-model"),
+            quant=WinMLQuantizationConfig(task=None, model_id="test-model"),
             compile=None,
         )
         with pytest.raises(ValueError, match=r"quant\.task is required"):
             config.validate()
 
-    def test_quant_missing_model_name_raises(self) -> None:
-        """quant enabled but model_name=None raises ValueError for HF builds."""
+    def test_quant_missing_model_id_raises(self) -> None:
+        """quant enabled but model_id=None raises ValueError for HF builds."""
         config = WinMLBuildConfig(
             loader=WinMLLoaderConfig(task="fill-mask"),
             export=WinMLExportConfig(),  # HF build
             optim=WinMLOptimizationConfig(),
-            quant=WinMLQuantizationConfig(task="fill-mask", model_name=None),
+            quant=WinMLQuantizationConfig(task="fill-mask", model_id=None),
             compile=None,
         )
-        with pytest.raises(ValueError, match=r"quant\.model_name is required"):
+        with pytest.raises(ValueError, match=r"quant\.model_id is required"):
             config.validate()
 
     def test_compile_missing_provider_raises(self) -> None:
@@ -1842,7 +1842,7 @@ class TestValidate:
             loader=WinMLLoaderConfig(task=None),
             export=WinMLExportConfig(),  # HF build (export present)
             optim=None,
-            quant=WinMLQuantizationConfig(task=None, model_name=None),
+            quant=WinMLQuantizationConfig(task=None, model_id=None),
             compile=WinMLCompileConfig(ep_config=EPConfig(provider="")),
         )
         with pytest.raises(ValueError, match="Invalid WinMLBuildConfig") as exc_info:
@@ -1852,7 +1852,7 @@ class TestValidate:
         assert "loader.task is required for full model builds" in error_msg
         assert "optim config is required" in error_msg
         assert "quant.task is required when quant is enabled for HF builds" in error_msg
-        assert "quant.model_name is required when quant is enabled for HF builds" in error_msg
+        assert "quant.model_id is required when quant is enabled for HF builds" in error_msg
         assert "compile.ep_config.provider is required" in error_msg
 
     def test_multiple_errors_collected_onnx_build(self) -> None:
@@ -1861,17 +1861,17 @@ class TestValidate:
             loader=WinMLLoaderConfig(task=None),
             export=None,  # ONNX build
             optim=None,
-            quant=WinMLQuantizationConfig(task=None, model_name=None),
+            quant=WinMLQuantizationConfig(task=None, model_id=None),
             compile=WinMLCompileConfig(ep_config=EPConfig(provider="")),
         )
         with pytest.raises(ValueError, match="Invalid WinMLBuildConfig") as exc_info:
             config.validate()
 
         error_msg = str(exc_info.value)
-        # ONNX build: loader.task NOT required, quant.task/model_name NOT required
+        # ONNX build: loader.task NOT required, quant.task/model_id NOT required
         assert "loader.task" not in error_msg
         assert "quant.task" not in error_msg
-        assert "quant.model_name" not in error_msg
+        assert "quant.model_id" not in error_msg
         # These still apply
         assert "optim config is required" in error_msg
         assert "compile.ep_config.provider is required" in error_msg
@@ -1922,6 +1922,22 @@ class TestInt16QuantTypes:
         config = WinMLQuantizationConfig()
         assert config.weight_type == "uint8"
         assert config.activation_type == "uint8"
+
+
+class TestQuantModelId:
+    """Tests for the quant model_id field (renamed from model_name)."""
+
+    def test_to_dict_emits_model_id_key(self) -> None:
+        """to_dict() serializes the HF model id under the 'model_id' key."""
+        config = WinMLQuantizationConfig(model_id="microsoft/resnet-50")
+        data = config.to_dict()
+        assert data["model_id"] == "microsoft/resnet-50"
+        assert "model_name" not in data
+
+    def test_from_dict_reads_model_id(self) -> None:
+        """from_dict() reads the canonical 'model_id' key."""
+        config = WinMLQuantizationConfig.from_dict({"model_id": "microsoft/resnet-50"})
+        assert config.model_id == "microsoft/resnet-50"
 
 
 # =============================================================================

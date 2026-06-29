@@ -42,7 +42,7 @@ for static KV cache inputs (``past_{i}_key``, ``past_{i}_value``).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from optimum.utils.input_generators import DummyInputGenerator
 from transformers import StaticCache
@@ -158,8 +158,10 @@ class WinMLCache(StaticCache, ABC):
         self.step = 0
         self.captured.clear()
         for i in range(self.num_layers):
-            self.layers[i].keys.zero_()
-            self.layers[i].values.zero_()
+            # keys/values are typed Tensor | None (None only pre-init); here the
+            # cache is always initialized, so narrow to Tensor.
+            cast("torch.Tensor", self.layers[i].keys).zero_()
+            cast("torch.Tensor", self.layers[i].values).zero_()
 
     @classmethod
     def create(
@@ -198,7 +200,7 @@ class WinMLStaticCache(WinMLCache):
     Mask is left-aligned: ``[1, 1, ..., 1, 0, 0, ..., 0]``.
     """
 
-    position_input_name: str = "cache_position"
+    position_input_name: ClassVar[str] = "cache_position"
 
     def update(
         self,
@@ -216,10 +218,14 @@ class WinMLStaticCache(WinMLCache):
         import torch
 
         self.captured[layer_idx] = (key_states, value_states)
+        if cache_kwargs is None:
+            raise ValueError("update() requires cache_kwargs with 'cache_position'")
         cache_position = cache_kwargs["cache_position"]
 
-        k_out = self.layers[layer_idx].keys
-        v_out = self.layers[layer_idx].values
+        # keys/values are typed Tensor | None (None only pre-init); the cache is
+        # always initialized before update(), so narrow to Tensor.
+        k_out = cast("torch.Tensor", self.layers[layer_idx].keys)
+        v_out = cast("torch.Tensor", self.layers[layer_idx].values)
 
         bsz, n_heads, n_new, _ = key_states.shape
         bi = torch.arange(bsz, device=k_out.device).view(bsz, 1, 1).expand(bsz, n_heads, n_new)
@@ -281,7 +287,7 @@ class WinMLSlidingWindowCache(WinMLCache):
     Mask is right-aligned: ``[0, 0, ..., 0, 1, 1, ..., 1]``.
     """
 
-    position_input_name: str = "position_id"
+    position_input_name: ClassVar[str] = "position_id"
 
     def update(
         self,
@@ -299,11 +305,15 @@ class WinMLSlidingWindowCache(WinMLCache):
         self.captured[layer_idx] = (key_states, value_states)
 
         n = key_states.size(2)
-        old_k = self.layers[layer_idx].keys[:, :, n:, :]
+        # keys/values are typed Tensor | None (None only pre-init); the cache is
+        # always initialized before update(), so narrow to Tensor.
+        cur_k = cast("torch.Tensor", self.layers[layer_idx].keys)
+        cur_v = cast("torch.Tensor", self.layers[layer_idx].values)
+        old_k = cur_k[:, :, n:, :]
         new_k = torch.cat([old_k, key_states], dim=2)
         self.layers[layer_idx].keys = new_k
 
-        old_v = self.layers[layer_idx].values[:, :, n:, :]
+        old_v = cur_v[:, :, n:, :]
         new_v = torch.cat([old_v, value_states], dim=2)
         self.layers[layer_idx].values = new_v
 
@@ -356,7 +366,7 @@ class WinMLSlidingWindowCache(WinMLCache):
 
     def get_seq_length(self, layer_idx: int = 0) -> int:
         """Filled positions: ``min(step, max_cache_len)``."""
-        max_len = self.layers[layer_idx].keys.shape[2]
+        max_len = cast("torch.Tensor", self.layers[layer_idx].keys).shape[2]
         return min(self.step, max_len)
 
 
@@ -365,14 +375,14 @@ class WinMLSlidingWindowCache(WinMLCache):
 # =============================================================================
 
 
-class PastKeyValueInputGenerator(DummyInputGenerator):
+class PastKeyValueInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum/transformers base is untyped
     """Generates ``past_{i}_key`` / ``past_{i}_value`` tensors for static KV cache.
 
     Reads ``num_layers``, ``num_attention_heads``, ``head_dim``, and
     ``max_cache_len`` from the ``NormalizedConfig``.
     """
 
-    SUPPORTED_INPUT_NAMES = ()  # dynamic — built in __init__
+    SUPPORTED_INPUT_NAMES: tuple[str, ...] = ()  # dynamic — built in __init__
 
     def __init__(
         self,
@@ -399,8 +409,12 @@ class PastKeyValueInputGenerator(DummyInputGenerator):
         float_dtype: str = "fp32",
     ) -> torch.Tensor:
         """Return a random float tensor of shape ``[batch, heads, max_cache_len, head_dim]``."""
-        return self.random_float_tensor(
-            (self.batch_size, self.num_heads, self.max_cache_len, self.head_dim),
-            framework=framework,
-            dtype=float_dtype,
+        # optimum's DummyInputGenerator is untyped, so random_float_tensor returns Any.
+        return cast(
+            "torch.Tensor",
+            self.random_float_tensor(
+                (self.batch_size, self.num_heads, self.max_cache_len, self.head_dim),
+                framework=framework,
+                dtype=float_dtype,
+            ),
         )

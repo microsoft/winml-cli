@@ -48,6 +48,7 @@ console = Console()
     help="Input ONNX model file",
 )
 @cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
+@cli_utils.overwrite_option()
 @cli_utils.precision_option(
     default=None,
     help_text="Quantization precision: auto, fp16, int4, int8, int16, or w{x}a{y} where "
@@ -98,11 +99,8 @@ console = Console()
     default=None,
     help="Task for calibration dataset selection (e.g., 'image-classification').",
 )
-@click.option(
-    "--model-name",
-    type=str,
-    default=None,
-    help="HuggingFace model name (e.g., 'microsoft/resnet-50'). When provided "
+@cli_utils.model_id_option(
+    help_text="HuggingFace model id (e.g., 'microsoft/resnet-50'). When provided "
     "with --task, enables task-aware calibration datasets using the model's preprocessor.",
 )
 @cli_utils.build_config_option()
@@ -112,6 +110,7 @@ def quantize(
     ctx: click.Context,
     model: Path,
     output: Path | None,
+    overwrite: bool,
     precision: str | None,
     samples: int,
     method: str,
@@ -120,7 +119,7 @@ def quantize(
     per_channel: bool,
     symmetric: bool,
     task: str | None,
-    model_name: str | None,
+    model_id: str | None,
     verbose: int,
     quiet: bool,
     config_file: Path | None,
@@ -177,8 +176,8 @@ def quantize(
             symmetric = qc["symmetric"]
         if not cli_utils.is_cli_provided(ctx, "task") and "task" in qc:
             task = qc["task"]
-        if not cli_utils.is_cli_provided(ctx, "model_name") and "model_name" in qc:
-            model_name = qc["model_name"]
+        if not cli_utils.is_cli_provided(ctx, "model_id") and "model_id" in qc:
+            model_id = qc["model_id"]
 
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
@@ -226,7 +225,7 @@ def quantize(
             per_channel=per_channel,
             symmetric=symmetric,
             task=task,
-            model_name=model_name,
+            model_id=model_id,
         )
         label = "Quantization"
 
@@ -244,6 +243,9 @@ def quantize(
         console.print(f"[bold blue]Dataset:[/bold blue] {_dataset_display}")
 
     # ── Shared execution: print header, run, report ──────────────
+    # Refuse to clobber an existing output unless the user opted in. Runs after
+    # the per-precision default path is resolved, before any mkdir/work.
+    cli_utils.guard_output(output, overwrite)
     output.parent.mkdir(parents=True, exist_ok=True)
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Output:[/bold blue] {output}")

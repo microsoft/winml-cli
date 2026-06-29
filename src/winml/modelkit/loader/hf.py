@@ -144,6 +144,7 @@ def load_hf_model(
     user_script: str | None = None,
     trust_remote_code: bool = False,
     hf_config: PretrainedConfig | None = None,
+    model_type: str | None = None,
 ) -> tuple[nn.Module, PretrainedConfig, str]:
     """Load, detect task, and prepare HuggingFace model.
 
@@ -218,6 +219,23 @@ def load_hf_model(
             trust_remote_code=trust_remote_code,
         )
 
+    # Explicit model_type override: thread the requested build variant (e.g.
+    # "qwen3_transformer_only") into task resolution WITHOUT mutating the
+    # freshly-loaded HF config. The torch model is instantiated from its own
+    # native config below, so export/patcher consumers keep the native type;
+    # only class/task resolution sees the variant.
+    model_type_override = (
+        model_type
+        if model_type is not None and getattr(hf_config, "model_type", None) != model_type
+        else None
+    )
+    if model_type_override is not None:
+        logger.info(
+            "Applying model_type override '%s' -> '%s' (explicit request)",
+            getattr(hf_config, "model_type", None),
+            model_type_override,
+        )
+
     # [2] Task & Model Class Resolution
     from .resolution import resolve_task
 
@@ -228,10 +246,15 @@ def load_hf_model(
         resolved_class = _load_class_from_script(user_script, model_class)
         logger.info("Using custom model class from script: %s", model_class)
         # Surfaced modality-aware task (consistent with the non-script branch).
-        task = resolve_task(hf_config, task=task).task
+        task = resolve_task(hf_config, task=task, model_type_override=model_type_override).task
     else:
         try:
-            resolution = resolve_task(hf_config, task=task, model_class=model_class)
+            resolution = resolve_task(
+                hf_config,
+                task=task,
+                model_class=model_class,
+                model_type_override=model_type_override,
+            )
             task, resolved_class = resolution.task, resolution.model_class
         except ValueError as e:
             raise ValueError(

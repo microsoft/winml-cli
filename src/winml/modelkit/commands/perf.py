@@ -1473,6 +1473,7 @@ def _run_simple_loop(
     "Output JSON file path. Defaults to "
     "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
 )
+@cli_utils.overwrite_option()
 @click.option(
     "--batch-size",
     type=int,
@@ -1555,6 +1556,7 @@ def perf(
     ep: EPNameOrAlias | None,
     ep_options: tuple[str, ...],
     output: Path | None,
+    overwrite: bool,
     batch_size: int,
     shape_config_path: Path | None,
     quant: bool,
@@ -1704,6 +1706,9 @@ def perf(
     # Resolve output path
     if output is None:
         output = generate_output_path(hf_model)
+
+    # Refuse to clobber an existing report unless the user opted in.
+    cli_utils.guard_output(output, overwrite)
 
     # Create config. The raw device/EP request is passed through unchanged;
     # PerfBenchmark resolves the concrete device + EP internally (failing fast

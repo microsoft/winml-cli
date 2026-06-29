@@ -67,8 +67,16 @@ class WinMLQuantizationConfig:
 
     # Task-aware calibration (used when calibration_data is None)
     task: str | None = None  # e.g., "image-classification"
-    model_name: str | None = None  # e.g., "microsoft/resnet-50"
+    model_id: str | None = None  # e.g., "microsoft/resnet-50"
     dataset_name: str | None = None  # Optional: override default dataset
+
+    # Model-type-specific quant policy selector. When set to a model_type that
+    # has a registered finalizer (see ``quant.calibration.QUANT_FINALIZERS``),
+    # ``quantize_onnx`` resolves and applies that policy — populating the
+    # calibration reader / nodes-to-exclude / fixed dtypes from the exported
+    # graph — before running the quantization pass. None = no model-specific
+    # policy (use the default task-aware calibration).
+    model_type: str | None = None
 
     # Quantization types (static/dynamic)
     weight_type: Literal["uint8", "int8", "uint16", "int16"] = "uint8"
@@ -77,6 +85,11 @@ class WinMLQuantizationConfig:
     # Quantization options (static/dynamic)
     per_channel: bool = False
     symmetric: bool = False
+    # Optional per-target symmetry overrides. When None, fall back to
+    # ``symmetric``. Lets w8a16 use symmetric weights (int8, zp=0) together
+    # with asymmetric activations (uint16).
+    weight_symmetric: bool | None = None
+    activation_symmetric: bool | None = None
 
     # Output settings
     save_calibration: bool = False
@@ -106,7 +119,7 @@ class WinMLQuantizationConfig:
 
         Includes all fields that affect quantization behavior so that
         ``generate_cache_key()`` produces distinct hashes for distinct configs.
-        Optional fields (task, model_name, dataset_name) are omitted when None
+        Optional fields (task, model_id, dataset_name) are omitted when None
         to keep submodule configs clean.
         """
         result: dict = {
@@ -117,6 +130,8 @@ class WinMLQuantizationConfig:
             "activation_type": self.activation_type,
             "per_channel": self.per_channel,
             "symmetric": self.symmetric,
+            "weight_symmetric": self.weight_symmetric,
+            "activation_symmetric": self.activation_symmetric,
             "save_calibration": self.save_calibration,
             "distribution": self.distribution,
             "seed": self.seed,
@@ -131,10 +146,12 @@ class WinMLQuantizationConfig:
         }
         if self.task is not None:
             result["task"] = self.task
-        if self.model_name is not None:
-            result["model_name"] = self.model_name
+        if self.model_id is not None:
+            result["model_id"] = self.model_id
         if self.dataset_name is not None:
             result["dataset_name"] = self.dataset_name
+        if self.model_type is not None:
+            result["model_type"] = self.model_type
         if self.mode == "rtn":
             result["rtn_bits"] = self.rtn_bits
             result["rtn_block_size"] = self.rtn_block_size
@@ -165,12 +182,15 @@ class WinMLQuantizationConfig:
             samples=data.get("samples", data.get("calibration_samples", 10)),
             calibration_method=data.get("calibration_method", "minmax"),
             task=data.get("task"),
-            model_name=data.get("model_name"),
+            model_id=data.get("model_id"),
             dataset_name=data.get("dataset_name"),
+            model_type=data.get("model_type"),
             weight_type=data.get("weight_type", "uint8"),
             activation_type=data.get("activation_type", "uint8"),
             per_channel=data.get("per_channel", False),
             symmetric=data.get("symmetric", False),
+            weight_symmetric=data.get("weight_symmetric"),
+            activation_symmetric=data.get("activation_symmetric"),
             save_calibration=data.get("save_calibration", False),
             distribution=data.get("distribution", "uniform"),
             seed=data.get("seed"),
