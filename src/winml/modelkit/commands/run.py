@@ -470,6 +470,7 @@ def _print_input_hint(engine: Any) -> None:
 )
 @cli_utils.format_option(short_flag=False)
 @cli_utils.output_option("Write output to file instead of stdout")
+@cli_utils.overwrite_option()
 @click.option(
     "--port",
     default=_DEFAULT_PORT,
@@ -506,6 +507,7 @@ def run(
     show_schema: bool,
     output_format: cli_utils.OutputFormat,
     output: Path | None,
+    overwrite: bool,
     port: int,
     connect_host: str,
     connect: bool,
@@ -536,6 +538,10 @@ def run(
     """
     if ctx.obj and ctx.obj.get("debug"):
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+
+    # Refuse to clobber an existing output file unless the user opted in —
+    # fail fast before loading the model / running inference.
+    cli_utils.guard_output(output, overwrite)
 
     # Parse -P/--param entries
     pipeline_kwargs: dict[str, Any] = {}

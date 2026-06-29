@@ -16,7 +16,7 @@ Usage:
     result = quantize_onnx("model.onnx", WinMLQuantizationConfig(samples=100))
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .config import QuantizeResult, WinMLQuantizationConfig
 
@@ -24,12 +24,23 @@ from .config import QuantizeResult, WinMLQuantizationConfig
 __all__ = [
     "QuantizeResult",
     "WinMLQuantizationConfig",
+    "get_quant_finalizer",
     "quantize_onnx",
 ]
 
 
+# Names below are loaded lazily via ``__getattr__`` to avoid pulling in
+# onnxruntime.quantization/torch at import time. The TYPE_CHECKING re-imports
+# give static analyzers (mypy, CodeQL) visibility into what ``__all__`` exports
+# without triggering the heavy imports at runtime.
+if TYPE_CHECKING:
+    from .calibration import get_quant_finalizer
+    from .quantizer import quantize_onnx
+
+
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "quantize_onnx": (".quantizer", "quantize_onnx"),
+    "get_quant_finalizer": (".calibration", "get_quant_finalizer"),
 }
 
 

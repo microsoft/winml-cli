@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import torch
-from transformers.utils import ModelOutput
+from transformers.utils.generic import ModelOutput
 
 from .base import WinMLPreTrainedModel
 
@@ -38,9 +38,9 @@ class ObjectDetectionOutput(ModelOutput):
         outputs.pred_boxes  — [B, num_queries, 4]
     """
 
-    loss: torch.FloatTensor | None = None
-    logits: torch.FloatTensor | None = None
-    pred_boxes: torch.FloatTensor | None = None
+    loss: torch.Tensor | None = None
+    logits: torch.Tensor | None = None
+    pred_boxes: torch.Tensor | None = None
 
 
 class WinMLModelForObjectDetection(WinMLPreTrainedModel):
@@ -51,7 +51,7 @@ class WinMLModelForObjectDetection(WinMLPreTrainedModel):
     so that image_processor.post_process_object_detection() works.
     """
 
-    def forward(
+    def forward(  # type: ignore[override]  # HF-pipeline base uses generic **kwargs; task-specific signature
         self,
         pixel_values: torch.Tensor | np.ndarray,
         pixel_mask: torch.Tensor | np.ndarray | None = None,

@@ -1394,7 +1394,11 @@ def _build_hf_pipeline(
 
         # Load + export (blocking)
         pytorch_model = _load_model(
-            config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
+            config,
+            model_id,
+            trust_remote_code=False,
+            hf_config=preloaded_hf_config,
+            model_type=config.loader.model_type,
         )
         t0 = time.monotonic()
         # config.export is None only for the ONNX build path; this is the HF path.
@@ -1438,7 +1442,15 @@ def _build_hf_pipeline(
     # Persist config after autoconf
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── Quantize stage ──────
+    # ── Quantize stage ───────────────────────────────────────────
+    # A model-type-specific quant policy (e.g. the qwen3_transformer_only w8a16
+    # finalizer) is resolved and applied inside ``quantize_onnx`` from
+    # ``config.quant.model_type``; no per-call-site dispatch needed here. Carry
+    # the resolved variant onto the quant config so configs that were hand-built
+    # or loaded from JSON (skipping assemble_build_config) still trigger it.
+    if config.quant is not None and config.quant.model_type is None:
+        config.quant.model_type = config.loader.model_type
+
     current_path = _run_quantize_stage(
         config=config,
         current_path=current_path,

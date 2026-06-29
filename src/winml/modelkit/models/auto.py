@@ -24,6 +24,7 @@ Design Principles
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,13 +36,12 @@ from .winml import get_supported_tasks, get_winml_class
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from transformers import PretrainedConfig
 
     from ..config import WinMLBuildConfig
     from ..utils.constants import EPNameOrAlias
     from .winml.base import WinMLPreTrainedModel
+    from .winml.composite_model import WinMLCompositeModel
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ class WinMLAutoModel:
         session_options: Any | None = None,
         hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
-    ) -> WinMLPreTrainedModel | WinMLCompositeModel:  # noqa: F821
+    ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Build from a pre-exported ONNX file.
 
         Runs optimize -> [quantize] -> [compile] via ``build_onnx_model()``.
@@ -149,7 +149,7 @@ class WinMLAutoModel:
         Returns:
             WinMLPreTrainedModel inference wrapper.
         """
-        if isinstance(onnx_path, dict):
+        if isinstance(onnx_path, Mapping):
             from .winml.composite_model import WinMLCompositeModel
 
             return WinMLCompositeModel.from_onnx(
@@ -272,9 +272,10 @@ class WinMLAutoModel:
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
         no_compile: bool = False,
+        model_type: str | None = None,
         allow_unsupported_nodes: bool = False,
         **kwargs: Any,
-    ) -> WinMLPreTrainedModel:
+    ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Load appropriate WinML model based on task detection.
 
         Supports two input modes:
@@ -306,6 +307,10 @@ class WinMLAutoModel:
             shape_config: Shape overrides passed to generate_build_config().
                 Valid keys -- text: sequence_length; vision: height, width;
                 audio: feature_size, nb_max_frames, audio_sequence_length.
+            model_type: Explicit model_type override. When provided alongside a
+                HF model_id, selects a registered build variant (e.g.
+                ``"qwen3_transformer_only"``) instead of the architecture's
+                native model_type. Leave ``None`` for normal auto-detection.
             allow_unsupported_nodes: If True, warn instead of raising when the
                 analyzer reports unsupported nodes that persist; the build
                 proceeds and the EP may fall back to another device for them.
@@ -367,6 +372,11 @@ class WinMLAutoModel:
             else:
                 _model_type = None
 
+            # Explicit override wins so a variant composite (e.g.
+            # "qwen3_transformer_only") can be selected over the native type.
+            if model_type is not None:
+                _model_type = model_type
+
             if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
                 from .winml.composite_model import WinMLCompositeModel
 
@@ -404,10 +414,13 @@ class WinMLAutoModel:
             trust_remote_code=trust_remote_code,
             ep=kwargs.get("ep"),
             no_compile=no_compile,
+            model_type=model_type,
         )
 
         resolved_task = build_config.loader.task
         logger.debug("Generated config with task: %s", resolved_task)
+        if resolved_task is None:
+            raise ValueError(f"Could not resolve a task for model {model_id!r}.")
 
         config = build_config
         task = resolved_task
@@ -438,7 +451,9 @@ class WinMLAutoModel:
         from transformers import AutoConfig
 
         hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=effective_trust)
-        model_type = getattr(hf_config, "model_type", "unknown")
+        # Honor an explicit model_type override; otherwise probe from the config.
+        if model_type is None:
+            model_type = getattr(hf_config, "model_type", "unknown")
         logger.debug("Model type: %s, task: %s", model_type, resolved_task)
 
         # =====================================================================
@@ -476,6 +491,7 @@ class WinMLAutoModel:
             cache_key=cache_key,
             ep=resolved_ep,
             device=device,
+            model_type=model_type,
             allow_unsupported_nodes=allow_unsupported_nodes,
             **build_control_kwargs,
         )

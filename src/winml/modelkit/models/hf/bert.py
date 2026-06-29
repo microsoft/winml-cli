@@ -44,7 +44,7 @@ BERT_CONFIG = WinMLBuildConfig(
 
 
 @register_onnx_overwrite("bert", *COMMON_TEXT_TASKS, library_name="transformers")
-class BertIOConfig(BertOnnxConfig):
+class BertIOConfig(BertOnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """BERT OnnxConfig using max_position_embeddings as sequence_length.
 
     Inputs:

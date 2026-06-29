@@ -58,7 +58,7 @@ Design principles (same as composite_model.py):
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from optimum.utils.input_generators import DummyInputGenerator
@@ -71,6 +71,8 @@ from .composite_model import WinMLCompositeModel
 if TYPE_CHECKING:
     from transformers import Cache, PretrainedConfig
 
+    from .kv_cache import WinMLCache
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,7 +81,7 @@ logger = logging.getLogger(__name__)
 # =========================================================================
 
 
-class DecoderOnlyInputGenerator(DummyInputGenerator):
+class DecoderOnlyInputGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum/transformers base is untyped
     """Generates base inputs for decoder-only models with static KV cache.
 
     Produces ``input_ids``, ``attention_mask``, ``position_ids``, and
@@ -118,7 +120,9 @@ class DecoderOnlyInputGenerator(DummyInputGenerator):
         self.batch_size = batch_size
         self.vocab_size = normalized_config.vocab_size
         self.max_cache_len = max_cache_len or normalized_config.max_cache_len
-        self.seq_len: int = seq_len or getattr(normalized_config, "seq_len", self._default_seq_len)
+        self.seq_len: int = seq_len or cast(
+            "int", getattr(normalized_config, "seq_len", self._default_seq_len)
+        )
 
     def generate(
         self,
@@ -129,11 +133,15 @@ class DecoderOnlyInputGenerator(DummyInputGenerator):
     ) -> torch.Tensor:
         """Generate a dummy tensor for the given input name."""
         if input_name == "input_ids":
-            return self.random_int_tensor(
-                (self.batch_size, self.seq_len),
-                max_value=self.vocab_size,
-                framework=framework,
-                dtype=int_dtype,
+            # optimum's DummyInputGenerator is untyped, so random_int_tensor returns Any.
+            return cast(
+                "torch.Tensor",
+                self.random_int_tensor(
+                    (self.batch_size, self.seq_len),
+                    max_value=self.vocab_size,
+                    framework=framework,
+                    dtype=int_dtype,
+                ),
             )
         if input_name == "attention_mask":
             mask = torch.zeros(self.batch_size, self.max_cache_len, dtype=torch.int64)
@@ -225,7 +233,7 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
     # ----- Cache + GenerationMixin interface -----
 
     @classmethod
-    def get_cache_class(cls) -> type:
+    def get_cache_class(cls) -> type[WinMLCache]:
         """Return the WinMLCache subclass. Subclasses must override."""
         raise NotImplementedError
 
@@ -258,7 +266,7 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
     def can_generate(self) -> bool:  # noqa: D102
         return True
 
-    def prepare_inputs_for_generation(
+    def prepare_inputs_for_generation(  # type: ignore[override]  # GenerationMixin's base signature differs; static-cache flow
         self,
         input_ids: torch.LongTensor,
         past_key_values: Cache | None = None,
@@ -269,7 +277,7 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         from .kv_cache import WinMLCache
 
         if isinstance(past_key_values, WinMLCache) and past_key_values.get_seq_length() > 0:
-            input_ids = input_ids[:, -1:]
+            input_ids = cast("torch.LongTensor", input_ids[:, -1:])
         else:
             past_key_values = None
         return {
@@ -280,7 +288,7 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
 
     # ----- Forward -----
 
-    def forward(
+    def forward(  # type: ignore[override]  # HF-pipeline base uses generic **kwargs; task-specific signature
         self,
         *,
         input_ids: torch.Tensor,
@@ -311,8 +319,10 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         else:
             logits = self._run_gen(input_ids, cache)
 
+        # transformers' Output fields are annotated FloatTensor (legacy, over-narrow);
+        # the ONNX session returns a real float Tensor.
         return CausalLMOutputWithPast(
-            logits=logits,
+            logits=cast("torch.FloatTensor", logits),
             past_key_values=cache,
         )
 
@@ -395,4 +405,4 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         outputs = self._gen_model(**feeds)
         cache.update_all_layers(outputs)
 
-        return outputs["logits"]
+        return cast("torch.Tensor", outputs["logits"])

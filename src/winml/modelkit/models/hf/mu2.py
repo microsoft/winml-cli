@@ -59,7 +59,7 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
@@ -75,6 +75,10 @@ from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDe
 from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 
 
+if TYPE_CHECKING:
+    from transformers import GenerationConfig
+
+
 # =============================================================================
 # Wrapper nn.Modules
 # =============================================================================
@@ -85,7 +89,9 @@ class Mu2EncoderWrapper(nn.Module):
 
     def __init__(self, model: nn.Module) -> None:
         super().__init__()
-        self.encoder = model.encoder
+        # model is typed nn.Module, so torch's __getattr__ types submodule/attr
+        # access as Tensor | Module; narrow to their real types.
+        self.encoder = cast("nn.Module", model.encoder)
         self.config = model.config
 
     @classmethod
@@ -100,9 +106,8 @@ class Mu2EncoderWrapper(nn.Module):
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         """Return encoder last hidden state."""
-        return self.encoder(
-            input_ids=input_ids, attention_mask=attention_mask.bool()
-        ).last_hidden_state
+        out = self.encoder(input_ids=input_ids, attention_mask=attention_mask.bool())
+        return cast("torch.Tensor", out.last_hidden_state)
 
 
 class Mu2DecoderWrapper(nn.Module):
@@ -118,8 +123,11 @@ class Mu2DecoderWrapper(nn.Module):
     def __init__(self, model: nn.Module) -> None:
         super().__init__()
         self.model = model
-        self.config = model.config
-        self.num_layers = model.config.n_decoder_layer
+        # Mu2's config is a custom architecture config with dynamic attributes
+        # (n_decoder_layer, n_kv_head, head_dim) absent from any stub.
+        config: Any = model.config
+        self.config = config
+        self.num_layers = config.n_decoder_layer
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> Mu2DecoderWrapper:
@@ -170,7 +178,9 @@ class Mu2DecoderWrapper(nn.Module):
 
         # Delegate to model's decoder — position_id is passed as cache_position
         # for RoPE computation (WinMLSlidingWindowCache.update ignores it for indexing)
-        hidden_states = self.model.decoder(
+        # self.model is nn.Module; torch's __getattr__ types submodules as
+        # Tensor | Module, so narrow decoder/lm_head to callable Modules.
+        hidden_states = cast("nn.Module", self.model.decoder)(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
             encoder_hidden_states=encoder_hidden_states,
@@ -178,7 +188,7 @@ class Mu2DecoderWrapper(nn.Module):
             past_key_values=cache,
             cache_position=position_id,
         )
-        logits = self.model.lm_head(hidden_states)
+        logits = cast("nn.Module", self.model.lm_head)(hidden_states)
 
         # Output new-token KV only (same as T5 — captured during update)
         result: list[torch.Tensor] = [logits]
@@ -194,7 +204,7 @@ class Mu2DecoderWrapper(nn.Module):
 
 
 @register_onnx_overwrite("mu2", "feature-extraction", library_name="transformers")
-class Mu2EncoderIOConfig(OnnxConfig):
+class Mu2EncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Mu2 encoder (feature-extraction task)."""
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -218,7 +228,7 @@ class Mu2EncoderIOConfig(OnnxConfig):
 
 
 @register_onnx_overwrite("mu2", "text2text-generation", library_name="transformers")
-class Mu2DecoderIOConfig(OnnxConfig):
+class Mu2DecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Mu2 decoder with static KV cache."""
 
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
@@ -298,7 +308,7 @@ class WinMLMu2Model(WinMLEncoderDecoderModel):
         return WinMLSlidingWindowCache
 
     @property
-    def generation_config(self):  # noqa: D102
+    def generation_config(self) -> GenerationConfig:  # noqa: D102
         if not hasattr(self, "_generation_config"):
             from transformers import GenerationConfig
 

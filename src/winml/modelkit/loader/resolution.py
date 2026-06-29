@@ -238,6 +238,7 @@ def _get_custom_model_class(model_type: str, task: str) -> type | None:
 
     return None
 
+
 # Component-name -> sub-task, e.g. {"encoder": "feature-extraction",
 # "decoder": "text2text-generation"} (the composite ``_SUB_MODEL_CONFIG`` shape).
 CompositeComponents = dict[str, str]
@@ -372,16 +373,21 @@ def resolve_task(
     *,
     task: str | None = None,
     model_class: str | None = None,
+    model_type_override: str | None = None,
 ) -> TaskResolution:
     """Resolve a single model's task + class from an HF config.
 
     Stages: 0 user override -> 1 detect (override / no-architectures /
     TasksManager / default) -> 2 model class -> 3 modality upgrade
     (detection path only) -> 4 composite tag.
+
+    ``model_type_override`` lets a caller drive resolution with a build variant
+    (e.g. ``qwen3_transformer_only``) without mutating the loaded HF config; when
+    ``None`` the architecture's native ``config.model_type`` is used.
     """
     from optimum.exporters.tasks import TasksManager
 
-    model_type = getattr(config, "model_type", None)
+    model_type = model_type_override or getattr(config, "model_type", None)
     model_type_norm = model_type.lower().replace("_", "-") if model_type else ""
     model_id = getattr(config, "_name_or_path", "") or None
 

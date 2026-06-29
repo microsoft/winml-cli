@@ -35,7 +35,7 @@ Pipeline task: ``image-to-text``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import torch
 import torch.nn as nn
@@ -55,7 +55,7 @@ from .decoder_wrapper import WinMLDecoderWrapper, WinMLStaticCacheDecoderIOConfi
 
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig
+    from transformers import GenerationConfig, PretrainedConfig
 
 
 # =============================================================================
@@ -85,7 +85,7 @@ BLIP_CONFIG = WinMLBuildConfig(
 
 @register_onnx_overwrite("blip", "image-to-text", library_name="transformers")
 @register_onnx_overwrite("blip", "image-text-to-text", library_name="transformers")
-class BlipCaptioningIOConfig(OnnxConfig):
+class BlipCaptioningIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Monolithic ONNX config for BLIP captioning — single-graph fallback.
 
     Traces ``BlipForConditionalGeneration.forward`` with pixel_values +
@@ -144,11 +144,12 @@ class BlipVisionEncoderWrapper(nn.Module):
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
         """Trace ``pixel_values → encoder_hidden_states``."""
-        return self.vision_model(pixel_values=pixel_values).last_hidden_state
+        # self.vision_model is a torch submodule (untyped __call__ -> Any).
+        return cast("torch.Tensor", self.vision_model(pixel_values=pixel_values).last_hidden_state)
 
 
 @register_onnx_overwrite("blip", "feature-extraction", library_name="transformers")
-class BlipVisionEncoderIOConfig(OnnxConfig):
+class BlipVisionEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for the BLIP vision encoder.
 
     ``image-feature-extraction`` is a synonym that Optimum's TasksManager
@@ -264,7 +265,9 @@ class BlipDecoderWrapper(WinMLDecoderWrapper):
             dtype=torch.long,
             device=encoder_hidden_states.device,
         )
-        outputs = self.model.text_decoder(
+        # self.model is nn.Module; torch's __getattr__ types text_decoder as
+        # Tensor | Module, so narrow to a callable Module.
+        outputs = cast("nn.Module", self.model.text_decoder)(
             input_ids=inputs["decoder_input_ids"],
             # HF's causal-mask reconstruction traces as ops the NPU analyzer
             # doesn't support; pass a 3-D mask to bypass that reconstruction.
@@ -280,7 +283,7 @@ class BlipDecoderWrapper(WinMLDecoderWrapper):
             cache_position=inputs["cache_position"],
             return_dict=True,
         )
-        return outputs.logits
+        return cast("torch.Tensor", outputs.logits)
 
 
 # =============================================================================
@@ -315,7 +318,7 @@ class WinMLBlipImageToText(WinMLEncoderDecoderModel):
         return WinMLStaticCache
 
     @property
-    def generation_config(self):  # noqa: D102
+    def generation_config(self) -> GenerationConfig:  # noqa: D102
         if not hasattr(self, "_generation_config"):
             from transformers import GenerationConfig
 

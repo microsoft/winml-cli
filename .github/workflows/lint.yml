@@ -36,39 +36,15 @@ jobs:
       - name: Lint
         run: uv run ruff check src/ tests/
 
-      # Required type check: these packages are clean against the strict
-      # config in pyproject.toml. Any new mypy error here blocks the PR.
-      # Expand the package list as more folders are cleaned up.
+      # Required type check: the ENTIRE winml.modelkit package is clean against
+      # the strict config in pyproject.toml. Any new mypy error here blocks the PR.
       #
-      # Single mypy invocation across all packages — a per-package loop pays
-      # cold typeshed/plugin startup per package and tipped the job past the
-      # 5-minute timeout once the list grew to 12. The combined summary still
-      # reports total error/file counts; error lines include file paths so
-      # the failing package is identifiable without per-package groups.
+      # A single whole-package invocation (not a per-subpackage list) — it covers
+      # every subpackage plus the top-level modules (cli.py, __init__.py, etc.),
+      # and surfaces cross-package interactions (import cycles, shared return-type
+      # unions) that per-subpackage runs miss. Relaxed/ignored modules (tests,
+      # analyze.onnx_opset) are scoped via [[tool.mypy.overrides]] in pyproject.
       - name: Type check (required)
         run: >-
           uv run mypy
-          -p winml.modelkit.analyze
-          -p winml.modelkit.build
-          -p winml.modelkit.cache
-          -p winml.modelkit.commands
-          -p winml.modelkit.compiler
-          -p winml.modelkit.config
-          -p winml.modelkit.core
-          -p winml.modelkit.data
-          -p winml.modelkit.datasets
-          -p winml.modelkit.eval
-          -p winml.modelkit.export
-          -p winml.modelkit.inference
-          -p winml.modelkit.inspect
-          -p winml.modelkit.loader
-          -p winml.modelkit.onnx
-          -p winml.modelkit.optim
-          -p winml.modelkit.optracing
-          -p winml.modelkit.pattern
-          -p winml.modelkit.quant
-          -p winml.modelkit.serve
-          -p winml.modelkit.session
-          -p winml.modelkit.sysinfo
-          -p winml.modelkit.telemetry
-          -p winml.modelkit.utils
+          -p winml.modelkit

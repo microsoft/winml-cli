@@ -1055,7 +1055,7 @@ class TestModelTypeOverride:
         mock_model_class: MagicMock,
         mock_export_config: WinMLExportConfig,
     ) -> None:
-        """model_type + task: overrides hf_config.model_type, uses given task."""
+        """model_type + task: threads variant model_type through, uses given task."""
         gpt2_loader_config = WinMLLoaderConfig(
             task="text-generation",
             model_class="GPT2LMHeadModel",
