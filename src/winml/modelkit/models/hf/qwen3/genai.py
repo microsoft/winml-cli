@@ -2,10 +2,10 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Generate an onnxruntime-genai bundle for the Qwen3 transformer-only pipeline.
+r"""Generate an onnxruntime-genai bundle for a transformer-only decoder pipeline.
 
 The bundle is a directory that ``onnxruntime-genai`` can load directly via
-``og.Config(str(bundle_dir))``. It contains:
+``og.Config(str(bundle_dir))``.  It contains:
 
   genai_config.json    — pipeline config consumed by onnxruntime-genai
   ctx.onnx             — prefill/context ONNX (built by winml-cli)
@@ -23,14 +23,29 @@ The pipeline follows the same 4-stage layout as the reference bundle:
            → [lm_head] → logits
 
 The context stage runs on the prompt (prefill); the iterator stage runs on each
-subsequent decode step. Both share the same KV cache buffer via genai's
+subsequent decode step.  Both share the same KV cache buffer via genai's
 ``past_present_share_buffer`` mode.
 
 Public API::
 
-    from winml.modelkit.models.hf.qwen3.genai import build_genai_config, write_genai_bundle
+    from winml.modelkit.models.hf.qwen3.genai import (
+        build_genai_config,
+        build_qwen3_transformer_only_stages,
+        write_genai_bundle,
+        DecoderIOMapping,
+        PipelineStage,
+    )
 
-    cfg = build_genai_config(hf_config, max_cache_len=256, prefill_seq_len=64)
+    # High-level: derive everything from the built ONNX files
+    stages, decoder_io = build_qwen3_transformer_only_stages(
+        ctx_path, iter_path, num_layers=hf_config.num_hidden_layers
+    )
+    cfg = build_genai_config(
+        hf_config, max_cache_len=256, prefill_seq_len=64,
+        pipeline=stages, decoder_io=decoder_io,
+    )
+
+    # Or one-shot bundle assembly
     write_genai_bundle(
         Path("out/bundle"),
         context_onnx=ctx_path,
@@ -47,25 +62,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Fixed tensor name constants — must match qwen_transformer_only.py I/O.
-# ---------------------------------------------------------------------------
-_INPUT_IDS = "input_ids"
-_INPUT_HIDDEN_STATES = "input_hidden_states"
-_OUTPUT_HIDDEN_STATES = "output_hidden_states"
-_PAST_SEQ_LEN = "past_seq_len"
-_TOTAL_SEQ_LEN = "total_seq_len"
-_PAST_KEY_FMT = "past_keys_%d"
-_PAST_VALUE_FMT = "past_values_%d"
-_PRESENT_KEY_FMT = "present_keys_%d"
-_PRESENT_VALUE_FMT = "present_values_%d"
-_LOGITS = "logits"
 
 # Default filenames inside the bundle directory.
 DEFAULT_EMBEDDINGS_FILENAME = "embeddings.onnx"
@@ -73,7 +76,7 @@ DEFAULT_CONTEXT_FILENAME = "ctx.onnx"
 DEFAULT_ITERATOR_FILENAME = "iter.onnx"
 DEFAULT_LM_HEAD_FILENAME = "lm_head.onnx"
 
-# Tokenizer files to save from the HF snapshot.
+# Tokenizer files written by AutoTokenizer.save_pretrained.
 _TOKENIZER_FILES = [
     "tokenizer.json",
     "tokenizer_config.json",
@@ -83,9 +86,93 @@ _TOKENIZER_FILES = [
     "special_tokens_map.json",
 ]
 
+# Regex for detecting indexed tensor names such as ``past_keys_3``.
+_KV_INDEXED_RE = re.compile(r"^(.+?)(\d+)$")
+
 
 # ---------------------------------------------------------------------------
-# Config builder
+# Pipeline data structures
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PipelineStage:
+    """One stage in an onnxruntime-genai multi-model pipeline.
+
+    Attributes:
+        name: Stage key used inside the ``pipeline`` list of ``genai_config.json``.
+        filename: ONNX filename inside the bundle directory.
+        run_on_prompt: Whether genai runs this stage during the prefill pass.
+        run_on_token_gen: Whether genai runs this stage during decode steps.
+        inputs: Actual ONNX input tensor names (not format strings).
+        outputs: Actual ONNX output tensor names (not format strings).
+        is_lm_head: Set ``True`` for the final language-model head stage.
+    """
+
+    name: str
+    filename: str
+    run_on_prompt: bool
+    run_on_token_gen: bool
+    inputs: list[str]
+    outputs: list[str]
+    is_lm_head: bool = False
+
+    def to_dict(self) -> dict:
+        """Serialize to the dict format expected by ``genai_config.json``."""
+        d: dict = {
+            "filename": self.filename,
+            "inputs": list(self.inputs),
+            "outputs": list(self.outputs),
+            "run_on_prompt": self.run_on_prompt,
+            "run_on_token_gen": self.run_on_token_gen,
+        }
+        if self.is_lm_head:
+            d["is_lm_head"] = True
+        return d
+
+
+@dataclass
+class DecoderIOMapping:
+    """Maps genai's abstract I/O concepts to ONNX tensor name format strings.
+
+    The ``*_names`` fields use ``%d`` as the layer-index placeholder, which is
+    the convention genai uses to expand per-layer KV cache tensor names
+    (e.g. ``"past_keys_%d"`` → ``"past_keys_0"``, ``"past_keys_1"``, …).
+
+    All fields default to the names produced by the Qwen3 transformer-only
+    export.
+    """
+
+    input_ids: str = "input_ids"
+    past_sequence_length: str = "past_seq_len"
+    total_sequence_length: str = "total_seq_len"
+    past_key_names: str = "past_keys_%d"
+    past_value_names: str = "past_values_%d"
+    logits: str = "logits"
+    present_key_names: str = "present_keys_%d"
+    present_value_names: str = "present_values_%d"
+
+    def inputs_dict(self) -> dict:
+        """Return the ``decoder.inputs`` mapping dict for ``genai_config.json``."""
+        return {
+            "input_ids": self.input_ids,
+            "past_sequence_length": self.past_sequence_length,
+            "total_sequence_length": self.total_sequence_length,
+            "past_key_names": self.past_key_names,
+            "past_value_names": self.past_value_names,
+        }
+
+    def outputs_dict(self) -> dict:
+        """Return the ``decoder.outputs`` mapping dict for ``genai_config.json``."""
+        return {
+            "logits": self.logits,
+            "present_key_names": self.present_key_names,
+            "present_value_names": self.present_value_names,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Generic config builder
 # ---------------------------------------------------------------------------
 
 
@@ -93,32 +180,37 @@ def build_genai_config(
     hf_config: Any,
     *,
     max_cache_len: int,
-    prefill_seq_len: int,
-    embeddings_filename: str = DEFAULT_EMBEDDINGS_FILENAME,
-    context_filename: str = DEFAULT_CONTEXT_FILENAME,
-    iterator_filename: str = DEFAULT_ITERATOR_FILENAME,
-    lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
+    prefill_seq_len: int | None = None,
+    pipeline: list[PipelineStage],
+    decoder_io: DecoderIOMapping | None = None,
 ) -> dict:
-    """Build the ``genai_config.json`` dict for the transformer-only pipeline.
+    """Build a ``genai_config.json`` dict for any decoder-pipeline model.
+
+    This function is architecture-agnostic: the caller supplies the pipeline
+    stages and the I/O name mapping so no tensor names are hardcoded here.
 
     Args:
-        hf_config: A ``transformers.PretrainedConfig`` (e.g. from
-            ``AutoConfig.from_pretrained``). Reads: ``num_hidden_layers``,
-            ``hidden_size``, ``num_attention_heads``, ``num_key_value_heads``,
-            ``head_dim`` (or derived), ``bos_token_id``, ``eos_token_id``,
-            ``pad_token_id``, ``vocab_size``.
-        max_cache_len: Static KV cache length.  Becomes ``context_length`` and
-            ``search.max_length`` in the generated config.
-        prefill_seq_len: Prefill / context sequence length.  Becomes
-            ``decoder.sliding_window.window_size``.
-        embeddings_filename: Filename of the embeddings ONNX in the bundle.
-        context_filename: Filename of the context (prefill) ONNX.
-        iterator_filename: Filename of the iterator (decode) ONNX.
-        lm_head_filename: Filename of the lm_head ONNX.
+        hf_config: A ``transformers.PretrainedConfig``.  Reads:
+            ``num_hidden_layers``, ``hidden_size``, ``num_attention_heads``,
+            ``num_key_value_heads``, ``head_dim`` (optional, falls back to
+            ``hidden_size // num_attention_heads``), ``bos_token_id``,
+            ``eos_token_id``, ``pad_token_id``, ``vocab_size``.
+        max_cache_len: Static KV cache length → ``context_length`` and
+            ``search.max_length``.
+        prefill_seq_len: When given, emits a ``sliding_window`` section with
+            ``window_size=prefill_seq_len``.  Pass ``None`` to omit.
+        pipeline: Ordered list of :class:`PipelineStage` describing each
+            model in the genai pipeline.
+        decoder_io: Format-string mapping from genai's abstract I/O names to
+            actual ONNX tensor names.  Defaults to
+            :class:`DecoderIOMapping` (the Qwen3 default names).
 
     Returns:
-        A ``dict`` ready for ``json.dumps`` as ``genai_config.json``.
+        A ``dict`` suitable for ``json.dumps`` as ``genai_config.json``.
     """
+    if decoder_io is None:
+        decoder_io = DecoderIOMapping()
+
     num_layers: int = hf_config.num_hidden_layers
     head_size: int = getattr(
         hf_config,
@@ -132,21 +224,26 @@ def build_genai_config(
 
     pad_token_id = getattr(hf_config, "pad_token_id", None) or hf_config.bos_token_id
 
-    # Build per-layer KV name lists (same ordering as the reference config).
-    past_keys = [f"past_keys_{i}" for i in range(num_layers)]
-    past_values = [f"past_values_{i}" for i in range(num_layers)]
-    present_keys = [f"present_keys_{i}" for i in range(num_layers)]
-    present_values = [f"present_values_{i}" for i in range(num_layers)]
+    decoder_section: dict = {
+        "hidden_size": hf_config.hidden_size,
+        "num_attention_heads": hf_config.num_attention_heads,
+        "num_key_value_heads": hf_config.num_key_value_heads,
+        "num_hidden_layers": num_layers,
+        "head_size": head_size,
+    }
 
-    # Transformer stage I/O: hidden states + seq lens + KV buffers.
-    transformer_inputs = [
-        _INPUT_HIDDEN_STATES,
-        _PAST_SEQ_LEN,
-        _TOTAL_SEQ_LEN,
-        *past_keys,
-        *past_values,
-    ]
-    transformer_outputs = [_OUTPUT_HIDDEN_STATES, *present_keys, *present_values]
+    if prefill_seq_len is not None:
+        decoder_section["sliding_window"] = {
+            "window_size": prefill_seq_len,
+            "pad_value": 0,
+            "alignment": "left",
+            "slide_inputs": True,
+            "slide_key_value_cache": False,
+        }
+
+    decoder_section["inputs"] = decoder_io.inputs_dict()
+    decoder_section["outputs"] = decoder_io.outputs_dict()
+    decoder_section["pipeline"] = [{s.name: s.to_dict()} for s in pipeline]
 
     return {
         "model": {
@@ -156,71 +253,7 @@ def build_genai_config(
             "pad_token_id": pad_token_id,
             "vocab_size": hf_config.vocab_size,
             "context_length": max_cache_len,
-            "decoder": {
-                "hidden_size": hf_config.hidden_size,
-                "num_attention_heads": hf_config.num_attention_heads,
-                "num_key_value_heads": hf_config.num_key_value_heads,
-                "num_hidden_layers": num_layers,
-                "head_size": head_size,
-                "sliding_window": {
-                    "window_size": prefill_seq_len,
-                    "pad_value": 0,
-                    "alignment": "left",
-                    "slide_inputs": True,
-                    "slide_key_value_cache": False,
-                },
-                "inputs": {
-                    "input_ids": _INPUT_IDS,
-                    "past_sequence_length": _PAST_SEQ_LEN,
-                    "total_sequence_length": _TOTAL_SEQ_LEN,
-                    "past_key_names": _PAST_KEY_FMT,
-                    "past_value_names": _PAST_VALUE_FMT,
-                },
-                "outputs": {
-                    "logits": _LOGITS,
-                    "present_key_names": _PRESENT_KEY_FMT,
-                    "present_value_names": _PRESENT_VALUE_FMT,
-                },
-                "pipeline": [
-                    {
-                        "embeddings": {
-                            "filename": embeddings_filename,
-                            "inputs": [_INPUT_IDS],
-                            "outputs": [_INPUT_HIDDEN_STATES],
-                            "run_on_prompt": True,
-                            "run_on_token_gen": True,
-                        }
-                    },
-                    {
-                        "context": {
-                            "filename": context_filename,
-                            "inputs": transformer_inputs,
-                            "outputs": transformer_outputs,
-                            "run_on_prompt": True,
-                            "run_on_token_gen": False,
-                        }
-                    },
-                    {
-                        "iterator": {
-                            "filename": iterator_filename,
-                            "inputs": transformer_inputs,
-                            "outputs": transformer_outputs,
-                            "run_on_prompt": False,
-                            "run_on_token_gen": True,
-                        }
-                    },
-                    {
-                        "lm_head": {
-                            "filename": lm_head_filename,
-                            "inputs": [_OUTPUT_HIDDEN_STATES],
-                            "outputs": [_LOGITS],
-                            "is_lm_head": True,
-                            "run_on_prompt": True,
-                            "run_on_token_gen": True,
-                        }
-                    },
-                ],
-            },
+            "decoder": decoder_section,
         },
         "search": {
             "max_length": max_cache_len,
@@ -229,6 +262,186 @@ def build_genai_config(
             "past_present_share_buffer": True,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# ONNX introspection helpers
+# ---------------------------------------------------------------------------
+
+
+def _introspect_onnx_io(onnx_path: Path) -> tuple[list[str], list[str]]:
+    """Return ``(input_names, output_names)`` from an ONNX model graph header.
+
+    External data is intentionally not loaded — only the graph topology is read,
+    so this is fast even for large quantized models.
+    """
+    try:
+        import onnx
+    except ImportError as exc:
+        raise ImportError(
+            "The 'onnx' package is required for ONNX introspection. "
+            "Install it with: pip install onnx"
+        ) from exc
+    model = onnx.load(str(onnx_path), load_external_data=False)
+    return (
+        [inp.name for inp in model.graph.input],
+        [out.name for out in model.graph.output],
+    )
+
+
+def _detect_format_patterns(names: list[str], num_layers: int) -> dict[str, str]:
+    """Detect ``prefix%d`` patterns from a list of indexed tensor names.
+
+    Scans *names* for entries matching ``<prefix><integer>`` where exactly
+    *num_layers* consecutive zero-based indices are present.
+
+    Returns:
+        ``{prefix: "prefix%d"}`` for each qualifying group, in the order the
+        prefixes first appear in *names*.  Only groups covering the full
+        ``[0, num_layers)`` index range are returned.
+
+    Examples::
+
+        >>> _detect_format_patterns(
+        ...     ["past_keys_0", "past_keys_1", "past_values_0", "past_values_1"],
+        ...     num_layers=2,
+        ... )
+        {"past_keys_": "past_keys_%d", "past_values_": "past_values_%d"}
+    """
+    groups: dict[str, list[int]] = {}
+    for name in names:
+        m = _KV_INDEXED_RE.match(name)
+        if m:
+            prefix, idx = m.group(1), int(m.group(2))
+            groups.setdefault(prefix, []).append(idx)
+
+    return {
+        prefix: f"{prefix}%d"
+        for prefix, indices in groups.items()
+        if len(indices) == num_layers and sorted(indices) == list(range(num_layers))
+    }
+
+
+def _sort_patterns_by_first_occurrence(patterns: dict[str, str], names: list[str]) -> list[str]:
+    """Sort *patterns* keys by when ``<prefix>0`` first appears in *names*."""
+
+    def _key(prefix: str) -> int:
+        try:
+            return names.index(f"{prefix}0")
+        except ValueError:
+            return len(names)
+
+    return sorted(patterns.keys(), key=_key)
+
+
+# ---------------------------------------------------------------------------
+# Qwen3 transformer-only pipeline factory
+# ---------------------------------------------------------------------------
+
+
+def build_qwen3_transformer_only_stages(
+    context_onnx: str | Path,
+    iterator_onnx: str | Path,
+    num_layers: int,
+    *,
+    context_filename: str = DEFAULT_CONTEXT_FILENAME,
+    iterator_filename: str = DEFAULT_ITERATOR_FILENAME,
+    embeddings_filename: str = DEFAULT_EMBEDDINGS_FILENAME,
+    lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
+) -> tuple[list[PipelineStage], DecoderIOMapping]:
+    """Build pipeline stages by introspecting the built ONNX models.
+
+    Reads actual tensor names from *context_onnx* and *iterator_onnx* so the
+    generated ``genai_config.json`` can never drift out of sync with the real
+    model I/O — no tensor names are hardcoded.
+
+    Args:
+        context_onnx: Path to the built prefill/context ONNX.
+        iterator_onnx: Path to the built decode/iterator ONNX.
+        num_layers: Number of transformer layers (``hf_config.num_hidden_layers``).
+        context_filename: Bundle filename for the context model.
+        iterator_filename: Bundle filename for the iterator model.
+        embeddings_filename: Bundle filename for the embeddings model.
+        lm_head_filename: Bundle filename for the lm_head model.
+
+    Returns:
+        ``(stages, decoder_io)`` — a 4-element :class:`PipelineStage` list and
+        the :class:`DecoderIOMapping` derived from the introspected tensor names.
+    """
+    ctx_inputs, ctx_outputs = _introspect_onnx_io(Path(context_onnx))
+    iter_inputs, iter_outputs = _introspect_onnx_io(Path(iterator_onnx))
+
+    # Detect per-layer KV format-string patterns in the context model.
+    input_patterns = _detect_format_patterns(ctx_inputs, num_layers)
+    output_patterns = _detect_format_patterns(ctx_outputs, num_layers)
+
+    in_sorted = _sort_patterns_by_first_occurrence(input_patterns, ctx_inputs)
+    out_sorted = _sort_patterns_by_first_occurrence(output_patterns, ctx_outputs)
+
+    past_key_fmt = input_patterns[in_sorted[0]] if len(in_sorted) > 0 else "past_keys_%d"
+    past_val_fmt = input_patterns[in_sorted[1]] if len(in_sorted) > 1 else "past_values_%d"
+    pres_key_fmt = output_patterns[out_sorted[0]] if len(out_sorted) > 0 else "present_keys_%d"
+    pres_val_fmt = output_patterns[out_sorted[1]] if len(out_sorted) > 1 else "present_values_%d"
+
+    # Non-indexed inputs: hidden-state tensor + scalar seq-length scalars.
+    non_indexed = [n for n in ctx_inputs if not _KV_INDEXED_RE.match(n)]
+    seq_len_names = [n for n in non_indexed if re.search(r"seq|len", n, re.IGNORECASE)]
+    hidden_state_in = next(
+        (n for n in non_indexed if n not in seq_len_names), "input_hidden_states"
+    )
+    past_seq_name = next((n for n in seq_len_names if "past" in n.lower()), "past_seq_len")
+    total_seq_name = next((n for n in seq_len_names if "total" in n.lower()), "total_seq_len")
+
+    # Non-indexed output: hidden-state output of the transformer stack.
+    hidden_state_out = next(
+        (n for n in ctx_outputs if not _KV_INDEXED_RE.match(n)), "output_hidden_states"
+    )
+
+    decoder_io = DecoderIOMapping(
+        past_sequence_length=past_seq_name,
+        total_sequence_length=total_seq_name,
+        past_key_names=past_key_fmt,
+        past_value_names=past_val_fmt,
+        present_key_names=pres_key_fmt,
+        present_value_names=pres_val_fmt,
+    )
+
+    stages: list[PipelineStage] = [
+        PipelineStage(
+            name="embeddings",
+            filename=embeddings_filename,
+            run_on_prompt=True,
+            run_on_token_gen=True,
+            inputs=[decoder_io.input_ids],
+            outputs=[hidden_state_in],
+        ),
+        PipelineStage(
+            name="context",
+            filename=context_filename,
+            run_on_prompt=True,
+            run_on_token_gen=False,
+            inputs=ctx_inputs,
+            outputs=ctx_outputs,
+        ),
+        PipelineStage(
+            name="iterator",
+            filename=iterator_filename,
+            run_on_prompt=False,
+            run_on_token_gen=True,
+            inputs=iter_inputs,
+            outputs=iter_outputs,
+        ),
+        PipelineStage(
+            name="lm_head",
+            filename=lm_head_filename,
+            run_on_prompt=True,
+            run_on_token_gen=True,
+            inputs=[hidden_state_out],
+            outputs=[decoder_io.logits],
+            is_lm_head=True,
+        ),
+    ]
+    return stages, decoder_io
 
 
 # ---------------------------------------------------------------------------
@@ -255,27 +468,22 @@ def write_genai_bundle(
 
     Copies the winml-built transformer ONNX files, placeholder embedding /
     lm_head models (when provided), HF tokenizer files, and writes
-    ``genai_config.json``.
+    ``genai_config.json``.  Tensor names in the config are derived by
+    introspecting the built ONNX files rather than being hardcoded.
 
     Args:
         output_dir: Destination directory (created if absent).
-        context_onnx: Path to the built prefill/context ONNX
-            (``decoder_prefill`` sub-model output).
-        iterator_onnx: Path to the built iteration/decode ONNX
-            (``decoder_gen`` sub-model output).
-        model_id: HuggingFace model ID or local path used to download the HF
-            config and tokenizer files.
+        context_onnx: Path to the built prefill/context ONNX.
+        iterator_onnx: Path to the built decode/iterator ONNX.
+        model_id: HuggingFace model ID or local path for config + tokenizer.
         max_cache_len: Static KV cache length (= ``context_length`` in genai).
         prefill_seq_len: Prefill sequence length (= ``sliding_window.window_size``).
-        embeddings_src: Source path of the embeddings ONNX to copy into the
-            bundle.  Pass ``None`` to skip (the bundle will be incomplete until
-            the embeddings model is added separately).
-        lm_head_src: Source path of the lm_head ONNX to copy.  Pass ``None``
-            to skip.
-        context_filename: Filename used for the context ONNX inside the bundle.
-        iterator_filename: Filename used for the iterator ONNX.
-        embeddings_filename: Filename used for the embeddings ONNX.
-        lm_head_filename: Filename used for the lm_head ONNX.
+        embeddings_src: Source path of the embeddings ONNX.  ``None`` = skip.
+        lm_head_src: Source path of the lm_head ONNX.  ``None`` = skip.
+        context_filename: Bundle filename for the context model.
+        iterator_filename: Bundle filename for the iterator model.
+        embeddings_filename: Bundle filename for the embeddings model.
+        lm_head_filename: Bundle filename for the lm_head model.
 
     Returns:
         Path to the written ``genai_config.json``.
@@ -289,25 +497,20 @@ def write_genai_bundle(
     context_onnx = Path(context_onnx)
     iterator_onnx = Path(iterator_onnx)
 
-    # ------------------------------------------------------------------
     # 1. Copy winml-built transformer ONNX files.
-    # ------------------------------------------------------------------
     logger.info("Copying context ONNX: %s -> %s", context_onnx.name, context_filename)
     copy_onnx_model(context_onnx, output_dir / context_filename)
 
     logger.info("Copying iterator ONNX: %s -> %s", iterator_onnx.name, iterator_filename)
     copy_onnx_model(iterator_onnx, output_dir / iterator_filename)
 
-    # ------------------------------------------------------------------
     # 2. Copy placeholder models (embeddings + lm_head).
-    # ------------------------------------------------------------------
     if embeddings_src is not None:
         logger.info("Copying embeddings: %s -> %s", Path(embeddings_src).name, embeddings_filename)
         copy_onnx_model(Path(embeddings_src), output_dir / embeddings_filename)
     else:
         logger.warning(
-            "embeddings_src not provided — '%s' is missing from bundle; "
-            "add it manually before running inference.",
+            "embeddings_src not provided — '%s' is missing from bundle.",
             embeddings_filename,
         )
 
@@ -316,40 +519,34 @@ def write_genai_bundle(
         copy_onnx_model(Path(lm_head_src), output_dir / lm_head_filename)
     else:
         logger.warning(
-            "lm_head_src not provided — '%s' is missing from bundle; "
-            "add it manually before running inference.",
+            "lm_head_src not provided — '%s' is missing from bundle.",
             lm_head_filename,
         )
 
-    # ------------------------------------------------------------------
     # 3. Save tokenizer files from the HF snapshot.
-    # ------------------------------------------------------------------
     logger.info("Saving tokenizer from '%s' to %s", model_id, output_dir)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.save_pretrained(str(output_dir))
-    # Prune any extra files that save_pretrained creates but genai doesn't need
-    # (e.g. tokenizer.model for sentencepiece models).  Keep only known files.
-    onnx_filenames = {context_filename, iterator_filename, embeddings_filename, lm_head_filename}
-    for path in output_dir.iterdir():
-        if (
-            path.name not in _TOKENIZER_FILES
-            and path.suffix in (".json", ".txt", ".model")
-            and path.name not in onnx_filenames
-        ):
-            logger.debug("Keeping extra tokenizer file: %s", path.name)
 
-    # ------------------------------------------------------------------
-    # 4. Write genai_config.json.
-    # ------------------------------------------------------------------
+    # 4. Build pipeline stages by introspecting the source ONNX files.
     hf_config = AutoConfig.from_pretrained(model_id)
+    stages, decoder_io = build_qwen3_transformer_only_stages(
+        context_onnx,
+        iterator_onnx,
+        num_layers=hf_config.num_hidden_layers,
+        context_filename=context_filename,
+        iterator_filename=iterator_filename,
+        embeddings_filename=embeddings_filename,
+        lm_head_filename=lm_head_filename,
+    )
+
+    # 5. Write genai_config.json.
     config = build_genai_config(
         hf_config,
         max_cache_len=max_cache_len,
         prefill_seq_len=prefill_seq_len,
-        embeddings_filename=embeddings_filename,
-        context_filename=context_filename,
-        iterator_filename=iterator_filename,
-        lm_head_filename=lm_head_filename,
+        pipeline=stages,
+        decoder_io=decoder_io,
     )
     config_path = output_dir / "genai_config.json"
     config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -387,6 +584,9 @@ __all__ = [
     "DEFAULT_EMBEDDINGS_FILENAME",
     "DEFAULT_ITERATOR_FILENAME",
     "DEFAULT_LM_HEAD_FILENAME",
+    "DecoderIOMapping",
+    "PipelineStage",
     "build_genai_config",
+    "build_qwen3_transformer_only_stages",
     "write_genai_bundle",
 ]

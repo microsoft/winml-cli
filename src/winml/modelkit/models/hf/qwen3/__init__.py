@@ -12,10 +12,19 @@ Modules:
   genai                  — genai_config.json generator + bundle assembler.
 """
 
-from .genai import build_genai_config, write_genai_bundle
+from .genai import (
+    DecoderIOMapping,
+    PipelineStage,
+    build_genai_config,
+    build_qwen3_transformer_only_stages,
+    write_genai_bundle,
+)
 
 
 __all__ = [
+    "DecoderIOMapping",
+    "PipelineStage",
     "build_genai_config",
+    "build_qwen3_transformer_only_stages",
     "write_genai_bundle",
 ]
