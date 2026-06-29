@@ -23,29 +23,30 @@ _COMPOSITE_PRECISIONS: dict[str, list[str]] = {}
 
 
 def expand_precision(
-    mode: str | None = None,
+    precision: str | None = None,
     config: WinMLQuantizationConfig | None = None,
 ) -> list[BaseQuantPass]:
     """Expand a precision string into an ordered list of quantization passes.
 
     All passes share the same ``config`` so every pass can read the fields
-    relevant to it.  When *mode* is omitted, ``config.mode`` is used so that
-    ``expand_precision(config=cfg)`` works as a single-precision convenience.
+    relevant to it.  When *precision* is omitted, ``config.mode`` is used so
+    that ``expand_precision(config=cfg)`` works as a single-precision
+    convenience.
 
     Supported values:
 
-    ========= =======================
-    mode      passes
-    ========= =======================
-    ``fp16``  ``[FP16Pass(config)]``
-    ``rtn``   ``[RTNPass(config)]``
-    ``static``  ``[StaticPass(config)]``
-    ``dynamic`` ``[StaticPass(config)]``  (placeholder until DynamicPass is implemented)
-    ========= =======================
+    ============= =======================
+    precision     passes
+    ============= =======================
+    ``fp16``      ``[FP16Pass(config)]``
+    ``rtn``       ``[RTNPass(config)]``
+    ``static``    ``[StaticPass(config)]``
+    ``dynamic``   ``[StaticPass(config)]``  (placeholder until DynamicPass is implemented)
+    ============= =======================
 
     Args:
-        mode: Precision string (e.g. ``"fp16"``).  When *None*, falls back to
-            ``config.mode`` (or ``"static"`` if *config* is also *None*).
+        precision: Precision string (e.g. ``"fp16"``).  When *None*, falls back
+            to ``config.mode`` (or ``"static"`` if *config* is also *None*).
         config: Shared quantization configuration.  If *None*, a default
             :class:`WinMLQuantizationConfig` is used.
 
@@ -54,10 +55,10 @@ def expand_precision(
         instances ready to be executed by :class:`Quantizer`.
 
     Raises:
-        ValueError: If *mode* is not recognised.
+        ValueError: If *precision* is not recognised.
     """
     config = config or WinMLQuantizationConfig()
-    effective_mode = mode if mode is not None else config.mode
+    effective_precision = precision if precision is not None else config.mode
 
     _pass_factories: dict[str, BaseQuantPass] = {
         "fp16": FP16Pass(config),
@@ -66,14 +67,14 @@ def expand_precision(
         "dynamic": StaticPass(config),
     }
 
-    if effective_mode in _pass_factories:
-        return [_pass_factories[effective_mode]]
+    if effective_precision in _pass_factories:
+        return [_pass_factories[effective_precision]]
 
-    if effective_mode in _COMPOSITE_PRECISIONS:
-        return [_pass_factories[step] for step in _COMPOSITE_PRECISIONS[effective_mode]]
+    if effective_precision in _COMPOSITE_PRECISIONS:
+        return [_pass_factories[step] for step in _COMPOSITE_PRECISIONS[effective_precision]]
 
     raise ValueError(
-        f"Unknown precision mode {effective_mode!r}. "
+        f"Unknown precision {effective_precision!r}. "
         f"Valid values: {sorted(_pass_factories) + sorted(_COMPOSITE_PRECISIONS)}"
     )
 
@@ -237,7 +238,7 @@ def quantize_onnx(
 
     Args:
         model_path: Path to input ONNX model.
-        output_path: Path for output model (defaults to ``{model_stem}_qdq.onnx``).
+        output_path: Path for output model (defaults to ``{model_stem}_quantized.onnx``).
         config: Quantization configuration (uses defaults if *None*).
 
     Returns:
@@ -253,7 +254,7 @@ def quantize_onnx(
     if output_path is not None:
         output_path = Path(output_path)
     else:
-        output_path = model_path.parent / f"{model_path.stem}_qdq.onnx"
+        output_path = model_path.parent / f"{model_path.stem}_quantized.onnx"
 
     use_external_data: bool = kwargs.pop("use_external_data", True)
     # Apply model-type-specific quant finalizer if registered. Some model types

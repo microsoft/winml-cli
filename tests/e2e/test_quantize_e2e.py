@@ -668,7 +668,7 @@ class TestOutputBehavior:
         local = target_dir / "tiny.onnx"
         local.write_bytes(tiny_onnx.read_bytes())
         r = _invoke(runner, ["-m", str(local), "--samples", "4"])
-        expected = target_dir / "tiny_qdq.onnx"
+        expected = target_dir / "tiny_quantized.onnx"
         assert expected.exists()
         _assert_quantized_output(input_onnx=local, output_onnx=expected, stdout=r.output)
 

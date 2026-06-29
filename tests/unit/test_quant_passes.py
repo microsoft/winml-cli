@@ -100,7 +100,7 @@ class TestExpandPrecision:
     def test_unknown_mode_raises(self) -> None:
         from winml.modelkit.quant.quantizer import expand_precision
 
-        with pytest.raises(ValueError, match="Unknown precision mode"):
+        with pytest.raises(ValueError, match="Unknown precision"):
             expand_precision("int8_only")
 
     def test_none_config_uses_default(self) -> None:
@@ -111,7 +111,7 @@ class TestExpandPrecision:
         assert isinstance(passes[0].config, WinMLQuantizationConfig)
 
     def test_no_mode_uses_config_mode(self) -> None:
-        """expand_precision(config=cfg) should use cfg.mode when mode is not given."""
+        """expand_precision(config=cfg) should use cfg.mode when precision is not given."""
         from winml.modelkit.quant.quantizer import expand_precision
 
         config = WinMLQuantizationConfig(mode="rtn", rtn_bits=4)

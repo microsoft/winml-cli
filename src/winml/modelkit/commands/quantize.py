@@ -13,7 +13,7 @@ Usage:
 Examples:
     winml quantize -m model.onnx
     winml quantize -m model.onnx --precision int8
-    winml quantize -m model.onnx -o model_qdq.onnx --samples 100
+    winml quantize -m model.onnx -o model_quantized.onnx --samples 100
     winml quantize -m model.onnx --weight-type int8 --activation-type uint8
 """
 
@@ -47,7 +47,7 @@ console = Console()
     type=click.Path(exists=True, path_type=Path),
     help="Input ONNX model file",
 )
-@cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
+@cli_utils.output_option("Output path (default: {input}_quantized.onnx)")
 @cli_utils.overwrite_option()
 @cli_utils.precision_option(
     default=(),
@@ -243,7 +243,7 @@ def quantize(
             single, weight_type, activation_type
         )
         if output is None:
-            output = model.parent / f"{model.stem}_qdq.onnx"
+            output = model.parent / f"{model.stem}_quantized.onnx"
         config = WinMLQuantizationConfig(
             samples=samples,
             calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
