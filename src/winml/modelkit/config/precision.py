@@ -34,8 +34,8 @@ _LLM_TASKS = frozenset(
 # Default auto-precision mapping: device -> precision
 _AUTO_PRECISION: dict[str, str] = {
     "npu": "w8a16",
-    "gpu": "fp16",
-    "cpu": "fp16",
+    "gpu": "fp32",
+    "cpu": "fp32",
 }
 
 # Precision -> weight/activation type mapping (named presets)
@@ -407,7 +407,7 @@ def resolve_precision(
         # GPU + LLM: warn about w4a16 recommendation
         if resolved_device == "gpu" and task in _LLM_TASKS:
             logger.warning(
-                "GPU + LLM task '%s': auto-precision is fp16 (no quantization). "
+                "GPU + LLM task '%s': auto-precision is fp32 (no conversion). "
                 "For better performance, consider w4a16 quantization manually.",
                 task,
             )
