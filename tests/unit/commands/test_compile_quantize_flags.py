@@ -625,9 +625,9 @@ class TestOverwriteGuard:
         assert r.exit_code == 0, r.output
 
     def test_quantize_default_derived_output_guarded(self, tmp_path):
-        """The guard covers the defaulted ``{stem}_qdq.onnx`` path, not just -o."""
+        """The guard covers the defaulted ``{stem}_quantized.onnx`` path, not just -o."""
         model, _ = TestQuantizeCliConfigPrecedence._setup(tmp_path)
-        default_out = model.parent / f"{model.stem}_qdq.onnx"
+        default_out = model.parent / f"{model.stem}_quantized.onnx"
         default_out.write_text("ORIGINAL")
         r = self._quantize(["-m", str(model)], tmp_path, expect_called=False)
         assert r.exit_code != 0
