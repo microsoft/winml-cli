@@ -61,6 +61,33 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Module-level compilation worker (must be at module scope for multiprocessing
+# spawn on Windows, which serialises the target via pickle).
+# ---------------------------------------------------------------------------
+
+
+def _qnn_compile_worker(src: str, dst: str, qnn_options: dict) -> None:
+    """Compile *src* ONNX to an EPContext ONNX at *dst* using QNN HTP.
+
+    Executed in a subprocess by :meth:`GenaiSession._compile_stage`.
+    """
+    import onnxruntime as ort
+
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+    from winml.modelkit.winml import add_ep_for_device
+
+    registry = WinMLEPRegistry.get_instance()
+    registry.register_execution_providers()
+    so = ort.SessionOptions()
+    so.add_session_config_entry("ep.context_enable", "1")
+    so.add_session_config_entry("ep.context_file_path", dst)
+    add_ep_for_device(so, "QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU, qnn_options)
+    mc = ort.ModelCompiler(so, src, embed_compiled_data_into_model=False)
+    mc.compile_to_file(dst)
+
+
 # ---------------------------------------------------------------------------
 # Valid EP short names.
 # "mixed" = use genai_config.json as-is (embeddings/lm_head on CPU,
@@ -485,14 +512,16 @@ class GenaiSession:
             # Skip recompilation if cache is up-to-date.
             if ctx_onnx.exists() and ctx_onnx.stat().st_mtime >= src_onnx.stat().st_mtime:
                 logger.info("Stage %r: reusing cached EPContext %s", stage_key, ctx_onnx.name)
-                self._patch_stage_filename(modified_cfg, stage_key, str(ctx_onnx))
+                # Use just the filename — genai_config.json lives in compiled_dir,
+                # so ort-genai resolves filenames relative to compiled_dir.
+                self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
                 any_compiled = True
                 continue
 
             # Attempt compilation.
             success = self._compile_stage(src_onnx, ctx_onnx, stage_key, qnn_opts)
             if success:
-                self._patch_stage_filename(modified_cfg, stage_key, str(ctx_onnx))
+                self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
                 any_compiled = True
             else:
                 logger.warning(
@@ -502,9 +531,9 @@ class GenaiSession:
         if not any_compiled:
             return self._bundle_dir
 
-        # Write the modified genai_config into the compiled sub-directory so that
-        # ort-genai can resolve all ONNX paths (absolute paths are used).
-        # Also symlink/copy every other file that og.Config expects.
+        # Write the modified genai_config into the compiled sub-directory.
+        # ONNX filenames are relative to compiled_dir; ort-genai resolves them
+        # from the directory it loads og.Config from.
         compiled_config = compiled_dir / "genai_config.json"
         compiled_config.write_text(
             json.dumps(modified_cfg, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -574,25 +603,10 @@ class GenaiSession:
             compile_qnn_opts,
         )
 
-        def _do_compile(src: str, dst: str, qnn_options: dict) -> None:
-            import onnxruntime as ort
-
-            from winml.modelkit.session.ep_registry import WinMLEPRegistry
-            from winml.modelkit.winml import add_ep_for_device
-
-            registry = WinMLEPRegistry.get_instance()
-            registry.register_execution_providers()
-            so = ort.SessionOptions()
-            so.add_session_config_entry("ep.context_enable", "1")
-            so.add_session_config_entry("ep.context_file_path", dst)
-            add_ep_for_device(
-                so, "QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU, qnn_options
-            )
-            mc = ort.ModelCompiler(so, src, embed_compiled_data_into_model=False)
-            mc.compile_to_file(dst)
-
         ctx = multiprocessing.get_context("spawn")
-        proc = ctx.Process(target=_do_compile, args=(str(src_onnx), str(ctx_out), compile_qnn_opts))
+        proc = ctx.Process(
+            target=_qnn_compile_worker, args=(str(src_onnx), str(ctx_out), compile_qnn_opts)
+        )
         proc.start()
         proc.join(timeout=compile_timeout_s)
 
