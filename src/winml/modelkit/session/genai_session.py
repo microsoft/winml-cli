@@ -481,8 +481,12 @@ class GenaiSession:
         # genai_config pipeline entries: [{"context": {...}}, {"iterator": {...}}, ...]
         # provider_options format: [{"qnn": {...}}]
         pipeline_list: list = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
-        # [(stage_key, onnx_filename, qnn_opts), ...]
-        qnn_stages: list[tuple[str, str, dict]] = []
+        # [(stage_key, onnx_filename, qnn_opts, is_prefill), ...]
+        # is_prefill=True when run_on_prompt=True and run_on_token_gen=False.
+        # Prefill stages with seq_len>1 require htp_graph_finalization_optimization_mode="0"
+        # to avoid a QNN SDK deadlock; generation stages (seq_len=1) can use the full
+        # configured optimization level for maximum throughput.
+        qnn_stages: list[tuple[str, str, dict, bool]] = []
         for stage_entry in pipeline_list:
             if not isinstance(stage_entry, dict):
                 continue
@@ -494,7 +498,11 @@ class GenaiSession:
                 for p in providers:
                     if isinstance(p, dict) and "qnn" in p:
                         onnx_filename = stage_cfg.get("filename", f"{stage_key}.onnx")
-                        qnn_stages.append((stage_key, onnx_filename, dict(p["qnn"])))
+                        is_prefill = bool(
+                            stage_cfg.get("run_on_prompt", False)
+                            and not stage_cfg.get("run_on_token_gen", False)
+                        )
+                        qnn_stages.append((stage_key, onnx_filename, dict(p["qnn"]), is_prefill))
                         break
 
         if not qnn_stages:
@@ -505,7 +513,7 @@ class GenaiSession:
         modified_cfg = json.loads(config_src.read_text(encoding="utf-8"))
         any_compiled = False
 
-        for stage_key, onnx_filename, qnn_opts in qnn_stages:
+        for stage_key, onnx_filename, qnn_opts, is_prefill in qnn_stages:
             src_onnx = self._bundle_dir / onnx_filename
             ctx_onnx = compiled_dir / f"{stage_key}_ctx.onnx"
 
@@ -519,7 +527,7 @@ class GenaiSession:
                 continue
 
             # Attempt compilation.
-            success = self._compile_stage(src_onnx, ctx_onnx, stage_key, qnn_opts)
+            success = self._compile_stage(src_onnx, ctx_onnx, stage_key, qnn_opts, is_prefill)
             if success:
                 self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
                 any_compiled = True
@@ -560,38 +568,42 @@ class GenaiSession:
         ctx_out: Path,
         stage_key: str,
         qnn_opts: dict | None = None,
+        is_prefill: bool = False,
     ) -> bool:
         """Compile *src_onnx* to EPContext format via ``ort.ModelCompiler``.
 
         Runs in a subprocess so that a ModelCompiler failure does not block
-        the caller.  The QNN options from ``genai_config.json`` are forwarded
-        to the compilation session, with ``htp_graph_finalization_optimization_mode``
-        forced to ``"0"``.  This avoids a QNN SDK deadlock that occurs when
-        compiling w8a16 quantized models with multi-token static input shapes
-        (``seq_len > 1``) at higher optimization levels.
+        the caller.  QNN options from ``genai_config.json`` are forwarded to
+        the compilation session.
 
-        The resulting EPContext ONNX is identical in interface to the original;
-        at runtime, ort-genai loads the pre-compiled QNN binary and the
-        inference-time ``htp_graph_finalization_optimization_mode`` from
-        ``genai_config.json`` governs any further JIT compilation.
+        For prefill stages (``is_prefill=True``) ``htp_graph_finalization_
+        optimization_mode`` is forced to ``"0"`` to avoid a QNN SDK deadlock
+        that occurs when compiling w8a16 quantized models with multi-token
+        static input shapes (``seq_len > 1``) at higher optimization levels.
+        For generation stages (``is_prefill=False``, ``seq_len=1``) the
+        configured optimization level is preserved so that the compiled kernels
+        are as fast as the JIT path.
 
         Args:
             src_onnx: Source ONNX file path.
             ctx_out: Destination EPContext ONNX path.
             stage_key: Human-readable label for logging.
             qnn_opts: QNN provider options from genai_config (e.g. backend_path,
-                htp_performance_mode, soc_model).  ``htp_graph_finalization_
-                optimization_mode`` is always overridden to ``"0"``.
+                htp_performance_mode, soc_model).
+            is_prefill: ``True`` when the stage runs only on prompt (ctx) and has
+                multi-token input; forces ``htp_graph_finalization_optimization_mode``
+                to ``"0"`` to avoid the QNN SDK deadlock.
 
         Returns:
             ``True`` if compilation succeeded; ``False`` on timeout or error.
         """
         import multiprocessing
 
-        # Force graph-finalization optimization off.  Levels 1-3 deadlock QNN
-        # ModelCompiler for w8a16 quantized models with multi-token input shapes.
         compile_qnn_opts = dict(qnn_opts or {})
-        compile_qnn_opts["htp_graph_finalization_optimization_mode"] = "0"
+        if is_prefill:
+            # QNN SDK deadlocks at levels 1-3 for w8a16 models with seq_len > 1.
+            compile_qnn_opts["htp_graph_finalization_optimization_mode"] = "0"
+        # else: keep the configured mode (typically "3") for generation stages.
 
         compile_timeout_s = 300  # 5 minutes; ctx compiles in ~41s, iter in ~67s
 
