@@ -13,6 +13,7 @@ Orchestrates the end-to-end profiling workflow:
    (detail) post-processing.
 5. Return a structured ``OpTraceResult``.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ...winml import add_ep_for_device
 from ..base import OpTracer
 from ..result import OperatorMetrics, OpTraceResult
 from .csv_parser import parse_qnn_profiling_csv
@@ -125,14 +127,16 @@ class QNNProfiler(OpTracer):
         csv_path = self.output_dir / "profiling_output.csv"
         options = self._build_session_options(ort)
         provider_options = self._build_provider_options(csv_path)
+        if not add_ep_for_device(
+            options, "QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU, provider_options
+        ):
+            raise RuntimeError("Failed to add QNNExecutionProvider for NPU device.")
 
         # CWD must be output_dir so schematic.bin lands there.
         with _working_directory(self.output_dir):
             session = ort.InferenceSession(
                 str(self.onnx_path),
                 sess_options=options,
-                providers=["QNNExecutionProvider"],
-                provider_options=provider_options,
             )
 
             inputs = self._generate_inputs(session)
@@ -158,16 +162,12 @@ class QNNProfiler(OpTracer):
     def _build_session_options(self, ort_module: Any) -> Any:
         """Create ``ort.SessionOptions`` with profiling config entries."""
         options = ort_module.SessionOptions()
-        options.add_session_config_entry(
-            "session.disable_cpu_ep_fallback", "1"
-        )
+        options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
         options.add_session_config_entry("ep.context_enable", "1")
         options.add_session_config_entry("ep.context_embed_mode", "0")
         return options
 
-    def _build_provider_options(
-        self, csv_path: Path
-    ) -> list[dict[str, str]]:
+    def _build_provider_options(self, csv_path: Path) -> dict[str, str]:
         """Build QNN EP provider options dict.
 
         - ``basic`` mode uses ``profiling_level=detailed`` (per-op cycles).
@@ -175,16 +175,13 @@ class QNNProfiler(OpTracer):
         """
         profiling_level = "optrace" if self.level == "detail" else "detailed"
 
-        return [
-            {
-                "backend_path": "QnnHtp.dll",
-                "htp_performance_mode": "high_performance",
-                "htp_graph_finalization_optimization_mode": "3",
-                "enable_htp_fp16_precision": "1",
-                "profiling_level": profiling_level,
-                "profiling_file_path": str(csv_path),
-            }
-        ]
+        return {
+            "htp_performance_mode": "high_performance",
+            "htp_graph_finalization_optimization_mode": "3",
+            "enable_htp_fp16_precision": "1",
+            "profiling_level": profiling_level,
+            "profiling_file_path": str(csv_path),
+        }
 
     # ------------------------------------------------------------------
     # Input generation
@@ -204,9 +201,7 @@ class QNNProfiler(OpTracer):
     # Result collection
     # ------------------------------------------------------------------
 
-    def _collect_results(
-        self, csv_path: Path, iterations: int
-    ) -> OpTraceResult:
+    def _collect_results(self, csv_path: Path, iterations: int) -> OpTraceResult:
         """Parse profiling artifacts into an ``OpTraceResult``."""
         artifacts: dict[str, str] = {}
         qnn_log = Path(str(csv_path) + "_qnn.log")
@@ -260,15 +255,11 @@ class QNNProfiler(OpTracer):
         import json as _json
 
         if schematic is None or not schematic.is_file():
-            logger.info(
-                "No schematic found; falling back to CSV for detail mode"
-            )
+            logger.info("No schematic found; falling back to CSV for detail mode")
             return None
 
         qhas_output = self.output_dir / "qhas_output.json"
-        result_path = run_qhas_viewer(
-            qnn_log, schematic, qhas_output, sdk_root=find_qnn_sdk()
-        )
+        result_path = run_qhas_viewer(qnn_log, schematic, qhas_output, sdk_root=find_qnn_sdk())
 
         if result_path is None or not result_path.is_file():
             logger.info("QHAS viewer did not produce output; falling back")
@@ -329,9 +320,7 @@ class QNNProfiler(OpTracer):
                 op_path=op["name"],
                 op_id=op["op_id"],
                 duration_us=op["cycles"] * cycle_to_us,
-                percent_of_total=(
-                    op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0
-                ),
+                percent_of_total=(op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0),
             )
             for op in parsed["operators"]
         ]

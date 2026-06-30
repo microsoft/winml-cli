@@ -1876,10 +1876,9 @@ def perf(
             # Display and save
             display_op_trace_report(trace_result, console)
 
-            model_slug = hf_model.replace("/", "_").replace("\\", "_")
-            if is_onnx:
-                model_slug = model_path.stem
-            trace_output = output_dir / f"{model_slug}_op_trace.json"
+            # Mirror the benchmark report path so the two files sit side by side:
+            # a/b.json -> a/b_op_trace.json.
+            trace_output = output.with_name(f"{output.stem}_op_trace{output.suffix}")
             write_op_trace_json(trace_result, trace_output)
             console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
