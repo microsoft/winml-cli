@@ -20,7 +20,7 @@ from .dtypes import SupportedONNXType, remove_optional_from_type_annotation
 from .external_data import copy_onnx_model, get_onnx_model_hash
 from .io import InputTensorSpec, OutputTensorSpec, generate_inputs_from_onnx, get_io_config
 from .metadata import capture_metadata, restore_metadata
-from .persistence import cleanup_onnx, load_onnx, save_onnx
+from .persistence import ONNXSaveError, cleanup_onnx, load_onnx, save_onnx
 from .shape import infer_onnx_shapes, infer_shapes
 from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size
 
@@ -29,6 +29,7 @@ __all__ = [
     "EXTERNAL_DATA_THRESHOLD",
     "InputTensorSpec",
     "ONNXDomain",
+    "ONNXSaveError",
     "OutputTensorSpec",
     "SupportedONNXType",
     "capture_metadata",

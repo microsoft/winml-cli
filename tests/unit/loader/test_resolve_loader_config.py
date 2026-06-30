@@ -142,8 +142,15 @@ class TestResolveLoaderConfig:
         mock_create.assert_called_once_with("bert")
         assert loader_config.task == "feature-extraction"
 
-    def test_hf_config_never_mutated(self) -> None:
-        """hf_config is never mutated — model_type param does not override it."""
+    def test_explicit_model_type_overrides_hf_config(self) -> None:
+        """An explicit model_type (with a model_id) overrides the resolved type.
+
+        Needed so a variant model_type such as ``qwen3_transformer_only`` selects
+        the variant rather than the architecture's native type. The override is
+        threaded into resolution as ``model_type_override`` and surfaces on the
+        loader config WITHOUT mutating the loaded HF config — export/patcher
+        consumers must keep seeing the native type.
+        """
         mock_config = MagicMock()
         mock_config.model_type = "original_type"
         mock_class = MagicMock(spec=[])
@@ -158,16 +165,18 @@ class TestResolveLoaderConfig:
             patch(
                 "winml.modelkit.loader.resolution.resolve_task",
                 return_value=_make_resolution("text-generation", mock_class),
-            ),
+            ) as mock_resolve,
         ):
             loader_config, hf_config, _, _resolution = resolve_loader_config(
                 "some-model", model_type="gpt2", task="text-generation"
             )
 
-        # hf_config retains its original model_type — never mutated
+        # The loaded HF config is NOT mutated — it keeps its native type.
         assert hf_config.model_type == "original_type"
-        # loader_config.model_type reflects the REAL hf_config, not the param
-        assert loader_config.model_type == "original_type"
+        # loader_config.model_type reflects the overridden (variant) type.
+        assert loader_config.model_type == "gpt2"
+        # The override is threaded into resolve_task rather than mutated in place.
+        assert mock_resolve.call_args.kwargs.get("model_type_override") == "gpt2"
 
     def test_auto_detect_task_from_model_type(self) -> None:
         """model_type without task auto-detects first supported task."""

@@ -70,6 +70,14 @@ class WinMLQuantizationConfig:
     model_id: str | None = None  # e.g., "microsoft/resnet-50"
     dataset_name: str | None = None  # Optional: override default dataset
 
+    # Model-type-specific quant policy selector. When set to a model_type that
+    # has a registered finalizer (see ``quant.calibration.QUANT_FINALIZERS``),
+    # ``quantize_onnx`` resolves and applies that policy — populating the
+    # calibration reader / nodes-to-exclude / fixed dtypes from the exported
+    # graph — before running the quantization pass. None = no model-specific
+    # policy (use the default task-aware calibration).
+    model_type: str | None = None
+
     # Quantization types (static/dynamic)
     weight_type: Literal["uint8", "int8", "uint16", "int16"] = "uint8"
     activation_type: Literal["uint8", "int8", "uint16", "int16"] = "uint8"
@@ -77,6 +85,11 @@ class WinMLQuantizationConfig:
     # Quantization options (static/dynamic)
     per_channel: bool = False
     symmetric: bool = False
+    # Optional per-target symmetry overrides. When None, fall back to
+    # ``symmetric``. Lets w8a16 use symmetric weights (int8, zp=0) together
+    # with asymmetric activations (uint16).
+    weight_symmetric: bool | None = None
+    activation_symmetric: bool | None = None
 
     # Output settings
     save_calibration: bool = False
@@ -117,6 +130,8 @@ class WinMLQuantizationConfig:
             "activation_type": self.activation_type,
             "per_channel": self.per_channel,
             "symmetric": self.symmetric,
+            "weight_symmetric": self.weight_symmetric,
+            "activation_symmetric": self.activation_symmetric,
             "save_calibration": self.save_calibration,
             "distribution": self.distribution,
             "seed": self.seed,
@@ -135,6 +150,8 @@ class WinMLQuantizationConfig:
             result["model_id"] = self.model_id
         if self.dataset_name is not None:
             result["dataset_name"] = self.dataset_name
+        if self.model_type is not None:
+            result["model_type"] = self.model_type
         if self.mode == "rtn":
             result["rtn_bits"] = self.rtn_bits
             result["rtn_block_size"] = self.rtn_block_size
@@ -167,10 +184,13 @@ class WinMLQuantizationConfig:
             task=data.get("task"),
             model_id=data.get("model_id"),
             dataset_name=data.get("dataset_name"),
+            model_type=data.get("model_type"),
             weight_type=data.get("weight_type", "uint8"),
             activation_type=data.get("activation_type", "uint8"),
             per_channel=data.get("per_channel", False),
             symmetric=data.get("symmetric", False),
+            weight_symmetric=data.get("weight_symmetric"),
+            activation_symmetric=data.get("activation_symmetric"),
             save_calibration=data.get("save_calibration", False),
             distribution=data.get("distribution", "uniform"),
             seed=data.get("seed"),

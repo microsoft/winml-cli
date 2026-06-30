@@ -26,9 +26,26 @@ from typing import cast
 
 logger = logging.getLogger(__name__)
 
-# Task abbreviations for cache keys (47 tasks from HuggingFace Transformers)
-TASK_ABBREV: dict[str, str] = {
-    # Vision tasks
+# =============================================================================
+# Task registry — single source of truth
+# =============================================================================
+#
+# ``_TASK_REGISTRY`` is the one authoritative table of canonical task names that
+# ``winml`` recognizes, each paired with its cache-key abbreviation (``None`` ->
+# ``get_task_abbrev`` falls back to an 8-char truncation). Both public views are
+# *derived* from it, so they can no longer drift apart (the root cause of #724):
+#
+#   * ``KNOWN_TASKS``  (validation / ``inspect --list-tasks``)  = the names
+#   * ``TASK_ABBREV``  (cache-key abbreviations)                = the (name, abbrev) pairs
+#
+# Kept hand-curated (not imported from optimum) so the ``--list-tasks`` fast path
+# stays import-cheap — importing ``optimum.exporters`` would transitively pull in
+# ``transformers`` and cost ~10s. ``tests/unit/loader/test_known_tasks.py`` guards
+# this set against optimum's task list, ``HF_TASK_DEFAULTS``,
+# ``HF_MODEL_CLASS_MAPPING`` and ``inference.tasks`` so any task added there fails
+# CI until it is mirrored here.
+_TASK_REGISTRY: dict[str, str | None] = {
+    # Vision
     "image-classification": "imgcls",
     "image-segmentation": "imgseg",
     "image-feature-extraction": "imgfeat",
@@ -37,96 +54,76 @@ TASK_ABBREV: dict[str, str] = {
     "image-text-to-text": "imgtxt2t",
     "object-detection": "objdet",
     "depth-estimation": "depth",
-    "instance-segmentation": "instseg",
     "semantic-segmentation": "semseg",
-    "universal-segmentation": "uniseg",
     "keypoint-detection": "kptdet",
     "keypoint-matching": "kptmtch",
     "mask-generation": "maskgen",
-    "masked-image-modeling": "mskim",
+    "masked-im": None,
     "video-classification": "vidcls",
     "zero-shot-image-classification": "zsimg",
     "zero-shot-object-detection": "zsobj",
-    # NLP tasks
+    "inpainting": None,
+    "text-to-image": None,
+    # NLP
     "text-classification": "txtcls",
-    "sequence-classification": "seqcls",
     "token-classification": "tokcls",
     "question-answering": "qa",
     "text-generation": "txtgen",
     "text2text-generation": "txt2txt",
     "fill-mask": "mask",
     "feature-extraction": "feat",
-    "text-encoding": "txtenc",
-    "summarization": "summ",
-    "translation": "transl",
     "multiple-choice": "mltchs",
     "next-sentence-prediction": "nsp",
-    "pretraining": "pretrain",
     "table-question-answering": "tabqa",
     "document-question-answering": "docqa",
-    "zero-shot-classification": "zscls",
-    # Audio tasks
+    "sentence-similarity": None,
+    # Audio
     "audio-classification": "audiocls",
     "audio-frame-classification": "audfrm",
-    "audio-tokenization": "audtok",
     "audio-xvector": "audxvc",
     "automatic-speech-recognition": "asr",
     "text-to-audio": "txt2aud",
     "zero-shot-audio-classification": "zsaud",
-    # Multimodal tasks
+    # Multimodal
     "visual-question-answering": "vqa",
     "any-to-any": "a2a",
-    "multimodal-lm": "mmlm",
-    # Other tasks
-    "backbone": "bkbone",
-    "time-series-prediction": "tseries",
+    # Other
+    "reinforcement-learning": None,
+    "time-series-forecasting": None,
 }
 
 
-# Canonical set of task names recognized by `winml inspect`.
-# Hand-coded so that `winml inspect --list-tasks` does not need to import
-# optimum.exporters (which transitively imports transformers and costs ~10s).
-# Synced with optimum.exporters.tasks.TasksManager.get_all_tasks() plus our
-# own HF_TASK_DEFAULTS entries; add new tasks here when optimum gains them.
-KNOWN_TASKS: frozenset[str] = frozenset(
-    {
-        "audio-classification",
-        "audio-frame-classification",
-        "audio-xvector",
-        "automatic-speech-recognition",
-        "depth-estimation",
-        "document-question-answering",
-        "feature-extraction",
-        "fill-mask",
-        "image-classification",
-        "image-feature-extraction",
-        "image-segmentation",
-        "image-text-to-text",
-        "image-to-image",
-        "image-to-text",
-        "inpainting",
-        "keypoint-detection",
-        "mask-generation",
-        "masked-im",
-        "multiple-choice",
-        "next-sentence-prediction",
-        "object-detection",
-        "question-answering",
-        "reinforcement-learning",
-        "semantic-segmentation",
-        "sentence-similarity",
-        "text-classification",
-        "text-generation",
-        "text-to-audio",
-        "text-to-image",
-        "text2text-generation",
-        "time-series-forecasting",
-        "token-classification",
-        "visual-question-answering",
-        "zero-shot-image-classification",
-        "zero-shot-object-detection",
-    }
-)
+# Aliases that ``normalize_task()`` / ``to_optimum_task()`` collapse to canonical
+# forms, so they are deliberately *excluded* from ``KNOWN_TASKS``. They keep a
+# stable cache-key abbreviation because a few callers still use the alias name
+# directly as the resolved task — composite models register ``summarization`` /
+# ``translation`` (see ``models/hf/bart.py``, ``t5.py``, ``marian.py``) and
+# ``inference.tasks`` defines a ``TaskInputSpec`` for ``zero-shot-classification``
+# — so existing cache directories and the ``serve`` reverse-decode map
+# (``app.py``: ``{v: k for k, v in TASK_ABBREV.items()}``) must round-trip.
+_TASK_ALIAS_ABBREV: dict[str, str] = {
+    "pretraining": "pretrain",
+    "sequence-classification": "seqcls",
+    "summarization": "summ",
+    "translation": "transl",
+    "zero-shot-classification": "zscls",
+}
+
+
+# Canonical set of task names recognized by `winml inspect` (names only).
+# Derived from `_TASK_REGISTRY` above — do not hand-edit; add tasks to the
+# registry instead so `KNOWN_TASKS` and `TASK_ABBREV` stay in lockstep.
+KNOWN_TASKS: frozenset[str] = frozenset(_TASK_REGISTRY)
+
+
+# Task -> abbreviation for cache keys. Derived from `_TASK_REGISTRY`: canonical
+# tasks whose abbreviation is `None` are omitted here (and truncated to 8 chars
+# by `get_task_abbrev`); the collapsed aliases are appended for cache-key and
+# `serve` reverse-decode stability.
+TASK_ABBREV: dict[str, str] = {
+    **{task: abbrev for task, abbrev in _TASK_REGISTRY.items() if abbrev is not None},
+    **_TASK_ALIAS_ABBREV,
+}
 
 
 # =============================================================================

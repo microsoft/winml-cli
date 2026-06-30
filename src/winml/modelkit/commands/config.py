@@ -128,6 +128,7 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
 )
 @cli_utils.trust_remote_code_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def config(
     ctx: click.Context,

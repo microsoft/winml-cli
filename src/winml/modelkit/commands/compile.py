@@ -97,6 +97,7 @@ console = Console()
 )
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def compile(
     ctx: click.Context,

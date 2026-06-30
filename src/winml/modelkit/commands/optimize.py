@@ -180,6 +180,7 @@ def capability_options(func: F) -> F:
     help="Configuration file (YAML/JSON)",
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @capability_options
 @click.pass_context  # type: ignore[arg-type]  # capability_options widens the signature; click stubs want positional-only ctx but we keep it keyword-callable for back-compat
 def optimize(

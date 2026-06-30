@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
@@ -464,10 +465,11 @@ def device_option(
 
 
 def precision_option(
-    default: str | None = "auto",
+    default: str | tuple[str, ...] | None = "auto",
     optional_message: str | None = None,
     include_short: bool = True,
     help_text: str | None = None,
+    multiple: bool = False,
 ) -> Callable[[F], F]:
     """Add --precision option to a Click command.
 
@@ -489,6 +491,10 @@ def precision_option(
             values differ from the default float+int set (e.g. ``quantize``,
             which has no fp16/fp32) supply their own; ``optional_message`` is
             still appended to it.
+        multiple: Allow the flag to be specified multiple times to compose a
+            pass pipeline (e.g. ``-p int4 -p fp16``). When True the parameter
+            receives a ``tuple[str, ...]`` and ``default`` should be ``()``
+            (default: False).
 
     Returns:
         Decorator function.
@@ -508,7 +514,8 @@ def precision_option(
         *param_decls,
         type=str,
         default=default,
-        show_default=True,
+        multiple=multiple,
+        show_default=not multiple,
         help=base_help,
     )
 
@@ -542,6 +549,34 @@ def verbosity_options() -> Callable[[F], F]:
         )(f)
 
     return decorator
+
+
+def no_color_option() -> Callable[[F], F]:
+    """Add a ``--no-color`` flag that disables colored output.
+
+    Rich honors the ``NO_COLOR`` environment variable for every Console, so the
+    flag's callback just sets ``NO_COLOR=1`` for the remainder of the run — this
+    covers all consoles regardless of how they are constructed and matches the
+    existing ``NO_COLOR=1`` / ``CI=true`` environment behavior. The change lives
+    only in the current process, so the next invocation is colored again.
+
+    Returns:
+        Decorator function adding the ``--no-color`` flag (no exposed param).
+    """
+
+    def _disable_color(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
+        if value:
+            os.environ["NO_COLOR"] = "1"
+        return value
+
+    return click.option(
+        "--no-color",
+        is_flag=True,
+        default=False,
+        expose_value=False,
+        callback=_disable_color,
+        help="Disable colored output (also via NO_COLOR=1 or CI=true).",
+    )
 
 
 def resolve_verbosity(ctx: click.Context, verbose: int, quiet: bool) -> tuple[int, bool]:
