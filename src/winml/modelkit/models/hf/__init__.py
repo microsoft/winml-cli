@@ -84,6 +84,7 @@ from .vision_encoder_decoder import (
     VisionDecoderIOConfig as _VisionDecoderIOConfig,  # triggers registration
 )
 from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
+from .vitpose import MODEL_CLASS_MAPPING as _VITPOSE_CLASS_MAPPING
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
@@ -114,6 +115,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _SIGLIP_CLASS_MAPPING,
         _T5_CLASS_MAPPING,
         _VED_CLASS_MAPPING,
+        _VITPOSE_CLASS_MAPPING,
     )
     for _key, _model_cls in _sub_mapping.items()
 }
