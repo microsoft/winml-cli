@@ -93,47 +93,77 @@ def warn_ignored_calibration_options(
         out.print(f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — {reason}")
 
 
-def model_path_option(required: bool = True) -> Callable[[F], F]:
-    """Add --model option that accepts a local ONNX file path.
+def model_path_option(
+    required: bool = True,
+    multiple: bool = False,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add ``-m/--model`` option that accepts a local ONNX file path.
 
-    The path is validated for existence on disk.
+    The path is validated for existence on disk and delivered as a
+    :class:`pathlib.Path`. Shared by the ONNX-only commands (``analyze``,
+    ``compile``, ``optimize``, ``quantize``) so the flag spelling, ``Path``
+    type, and existence check stay identical. The decorated function receives
+    the value as the ``model`` parameter (a tuple when ``multiple=True``).
 
     Args:
-        required: Whether the model option is required (default: True)
+        required: Whether the model option is required (default: True).
+        multiple: Accept the flag repeatably; the value becomes a tuple
+            (default: False).
+        help_text: Override for the help string (default: a generic
+            ONNX-file description).
 
     Returns:
-        Decorator function
+        Decorator function.
     """
     return click.option(
         "--model",
         "-m",
         required=required,
+        multiple=multiple,
         type=click.Path(exists=True, path_type=Path),
-        help="Path to ONNX model file to analyze",
+        help=help_text or "Path to ONNX model file to analyze",
     )
 
 
-def model_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
-    """Add --model option that accepts any model reference.
+def model_option(
+    required: bool = True,
+    optional_message: str | None = None,
+    multiple: bool = False,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add ``-m/--model`` option that accepts any model reference.
 
     Accepts a HuggingFace model ID, build output directory, or .onnx file path.
-    No path existence validation is performed.
+    No path existence validation is performed. Shared by the flexible-input
+    commands (``build``, ``config``, ``eval``, ``export``, ``inspect``,
+    ``perf``, ``run``, ``serve``) so the flag spelling stays identical. The
+    decorated function receives the value as the ``model`` parameter (a tuple
+    when ``multiple=True``).
 
     Args:
-        required: Whether the model option is required (default: True)
+        required: Whether the model option is required (default: True).
+        optional_message: Command-specific note appended after the help text.
+        multiple: Accept the flag repeatably; the value becomes a tuple
+            (default: False).
+        help_text: Override for the base help string. Commands whose accepted
+            inputs are narrower (e.g. ``inspect`` takes only an HF ID) supply
+            their own; ``optional_message`` is still appended to it.
 
     Returns:
-        Decorator function
+        Decorator function.
     """
-    help = "Model: HF model ID, build output directory, or .onnx file path"
+    help = help_text or "Model: HF model ID, build output directory, or .onnx file path"
     if optional_message:
         help = f"{help}. {optional_message}"
+    # ``multiple`` options default to an empty tuple; single-valued ones to None.
+    kwargs: dict[str, Any] = {"multiple": True} if multiple else {"default": None}
     return click.option(
         "--model",
         "-m",
         required=required,
-        default=None,
         help=help,
+        **kwargs,
     )
 
 

@@ -81,13 +81,9 @@ def _looks_like_local_path(model_id: str) -> bool:
 
 
 @click.command("inspect")
-@click.option(
-    "-m",
-    "--model",
-    "model_id",
+@cli_utils.model_option(
     required=False,
-    default=None,
-    help="HuggingFace model ID (e.g., microsoft/resnet-50)",
+    help_text="HuggingFace model ID (e.g., microsoft/resnet-50)",
 )
 @cli_utils.format_option(choices=["table", "json"], default="table")
 @click.option(
@@ -128,7 +124,7 @@ def _looks_like_local_path(model_id: str) -> bool:
 @click.pass_context
 def inspect(
     ctx: click.Context,
-    model_id: str | None,
+    model: str | None,
     output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
@@ -174,7 +170,7 @@ def inspect(
         return
 
     # Validate: need at least one of model_id, model_type, model_class
-    if model_id is None and model_type is None and model_class is None:
+    if model is None and model_type is None and model_class is None:
         raise click.UsageError(
             "At least one of -m/--model, --model-type, or --model-class is required. "
             "Use --list-tasks to see available tasks."
@@ -183,17 +179,17 @@ def inspect(
     # Classify the input before hitting HF Hub: local paths must exist.
     # _looks_like_local_path uses a conservative allowlist to avoid misclassifying
     # HF IDs with version dots (Phi-3.5, Qwen2.5, …) as local paths.
-    if model_id and _looks_like_local_path(model_id):
+    if model and _looks_like_local_path(model):
         from pathlib import Path
 
-        _p = Path(model_id).expanduser()
+        _p = Path(model).expanduser()
         if _p.suffix == ".onnx" and _p.is_file():
             raise click.ClickException(
                 "ONNX file inspection is not yet supported. "
                 "Use 'winml config -m model.onnx' for ONNX build config."
             )
         if not _p.exists():
-            raise click.ClickException(f"Local path '{model_id}' does not exist.")
+            raise click.ClickException(f"Local path '{model}' does not exist.")
 
     # Merge top-level -v/-q with subcommand-level flags so either position
     # works, once and up front. The banner decision below needs the merged
@@ -208,7 +204,7 @@ def inspect(
     # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
     # and JSON consumers expect clean stdout regardless).
     json_mode = output_format == "json"
-    target = model_id or model_type or model_class
+    target = model or model_type or model_class
     if not quiet and not json_mode:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
 
@@ -220,7 +216,7 @@ def inspect(
     try:
         if quiet or json_mode:
             result = _inspect_model_v2(
-                model_id=model_id,
+                model_id=model,
                 task_override=task,
                 model_type_override=model_type,
                 model_class_override=model_class,
@@ -232,7 +228,7 @@ def inspect(
                 spinner="dots",
             ):
                 result = _inspect_model_v2(
-                    model_id=model_id,
+                    model_id=model,
                     task_override=task,
                     model_type_override=model_type,
                     model_class_override=model_class,

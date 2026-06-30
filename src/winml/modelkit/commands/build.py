@@ -420,12 +420,9 @@ def _validate_loader_tasks_for_model(
     default=None,
     help="WinMLBuildConfig JSON file. If omitted, config is auto-generated from -m.",
 )
-@click.option(
-    "-m",
-    "--model",
-    "model_id",
-    default=None,
-    help="HuggingFace model ID or path to .onnx file. Omit for random-weight build.",
+@cli_utils.model_option(
+    required=False,
+    help_text="HuggingFace model ID or path to .onnx file. Omit for random-weight build.",
 )
 @click.option(
     "-o",
@@ -480,7 +477,7 @@ def _validate_loader_tasks_for_model(
 def build(
     ctx: click.Context,
     config_file: str | None,
-    model_id: str | None,
+    model: str | None,
     output_dir: str | None,
     use_cache: bool,
     rebuild: bool,
@@ -586,12 +583,12 @@ def build(
                 no_compile=no_compile,
             )
         else:
-            if not model_id:
+            if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
             from ..config import generate_build_config
 
             config_or_configs = generate_build_config(
-                model_id,
+                model,
                 trust_remote_code=trust_remote_code,
                 device=device,
                 precision=precision,
@@ -624,8 +621,8 @@ def build(
                     # so the resulting config passes HF-build validation.
                     if cfg.loader is not None and cfg.loader.task:
                         resolved_quant.task = cfg.loader.task
-                    if model_id:
-                        resolved_quant.model_id = model_id
+                    if model:
+                        resolved_quant.model_id = model
                     cfg.quant = resolved_quant
                 else:
                     # Only update precision fields; preserve task/model_id
@@ -668,7 +665,7 @@ def build(
             raise click.UsageError(f"Config validation failed: {e}") from e
 
         preloaded_hf_config = _validate_loader_tasks_for_model(
-            model_id=model_id,
+            model_id=model,
             configs=_configs_to_validate,
             trust_remote_code=trust_remote_code,
         )
@@ -705,7 +702,7 @@ def build(
 
             print_setup(
                 console,
-                model=model_id or "random-init",
+                model=model or "random-init",
                 config=Path(config_file).name if config_file else "(auto)",
                 output=str(resolved_dir),
                 source="HuggingFace",
@@ -749,7 +746,7 @@ def build(
 
             write_module_summary(
                 output_path=resolved_dir / "module_summary.json",
-                model_id=model_id or "random-init",
+                model_id=model or "random-init",
                 module_class=configs[0].loader.model_class or "unknown",
                 instances=summary_instances,
             )
@@ -769,7 +766,7 @@ def build(
 
                 task = config.loader.task if config.loader else None
                 resolved_dir = get_model_dir(
-                    model_id or "random-init",
+                    model or "random-init",
                     cache_dir=get_cache_dir(),
                 )
                 if not task:
@@ -790,7 +787,7 @@ def build(
             _run_single_build(
                 config=config,
                 config_file=config_file,
-                model_id=model_id,
+                model_id=model,
                 resolved_dir=resolved_dir,
                 rebuild=rebuild,
                 cache_key=cache_key,

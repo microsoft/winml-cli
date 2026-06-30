@@ -41,13 +41,10 @@ console = Console()
 
 
 @click.command()
-@click.option(
-    "--model",
-    "-m",
+@cli_utils.model_path_option(
     required=False,
     multiple=True,
-    type=click.Path(exists=True, path_type=Path),
-    help="Input ONNX model file. Repeat -m to compile multiple models with a shared "
+    help_text="Input ONNX model file. Repeat -m to compile multiple models with a shared "
     "EP context (weight sharing). Required unless --list.",
 )
 @cli_utils.output_option("Output file path (e.g., model_compiled.onnx)")
