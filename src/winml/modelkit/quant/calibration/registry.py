@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 # ``config.model_type``.
 QUANT_FINALIZERS: dict[str, tuple[str, str]] = {
     "qwen3_transformer_only": (".qwen3_transformer_only", "Qwen3TransformerOnlyQuantFinalizer"),
+    "qwen3_lm_head_only": (".qwen3_lm_head_only", "Qwen3LMHeadOnlyQuantFinalizer"),
 }
 
 
