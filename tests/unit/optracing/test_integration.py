@@ -22,28 +22,25 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 def test_basic_pipeline_csv_to_json(tmp_path):
-    """Full basic mode: CSV -> OpTraceResult -> JSON file."""
+    """Full basic mode: CSV -> OpTraceResult -> JSON matches the golden fixture."""
     samples = parse_qnn_profiling_csv(FIXTURE_DIR / "optrace_resnet50.csv")
-
-    operators = _csv_operator_metrics(samples)
 
     result = OpTraceResult(
         model="resnet-50",
         device="npu",
         tracing_level="basic",
-        operators=operators,
+        operators=_csv_operator_metrics(samples),
         num_samples=len(samples),
         summary=_csv_summary(samples),
+        timestamp="",  # pinned: the only otherwise non-deterministic field
     )
 
     out = tmp_path / "basic_op_trace.json"
     write_op_trace_json(result, out)
 
-    assert out.exists()
-    data = json.loads(out.read_text())
-    assert data["metadata"]["tracing_level"] == "basic"
-    assert len(data["operators"]) > 0
-    assert data["operators"][0]["duration_us"] > 0
+    produced = json.loads(out.read_text())
+    expected = json.loads((FIXTURE_DIR / "basic_pipeline_expected.json").read_text())
+    assert produced == expected
 
 
 def test_detail_pipeline_qhas_to_json(tmp_path):
