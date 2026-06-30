@@ -2815,6 +2815,10 @@
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nb">Remove-Item</span> <span class="n">-Recurse</span> <span class="n">-Force</span> <span class="s2">&quot;$env:USERPROFILE\.cache\winml&quot;</span>
 </span></code></pre></div>
 <p>The next <code>winml build</code> will re-create the cache as needed. Use <code>--rebuild</code> to force a full rebuild without relying on cached intermediates.</p>
+<p>When a build runs out of disk space mid-write, <code>winml</code> now stops with a clear message instead of a misleading downstream error:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>ONNXSaveError: Insufficient disk space — unable to write ONNX model to &lt;path&gt;. Free up disk space and try again.
+</span></code></pre></div>
+<p>The partially written file is removed automatically, so a later stage never reads a truncated model. (Previously this surfaced much later as a confusing <code>ValueError: Failed to find proper ai.onnx domain</code> during quantization.) Free up space using the command above and re-run the build.</p>
 <hr />
 <h2 id="general-tips">General Tips<a class="headerlink" href="#general-tips" title="Permanent link">&para;</a></h2>
 <table>
