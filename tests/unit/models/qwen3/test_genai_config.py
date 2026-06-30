@@ -387,7 +387,7 @@ class TestBuildQwen3TransformerOnlyStages:
         ctx_io = (self._ctx_inputs(n), self._ctx_outputs(n))
         iter_io = (self._ctx_inputs(n), self._ctx_outputs(n))
         return patch(
-            "winml.modelkit.models.hf.qwen3.genai._introspect_onnx_io",
+            "winml.modelkit.utils.genai._introspect_onnx_io",
             side_effect=[ctx_io, iter_io],
         )
 

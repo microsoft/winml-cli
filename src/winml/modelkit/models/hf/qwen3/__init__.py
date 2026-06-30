@@ -15,6 +15,7 @@ Modules:
 from .genai import (
     DecoderIOMapping,
     PipelineStage,
+    build_decoder_pipeline_stages,
     build_genai_config,
     build_qwen3_transformer_only_stages,
     write_genai_bundle,
@@ -24,6 +25,7 @@ from .genai import (
 __all__ = [
     "DecoderIOMapping",
     "PipelineStage",
+    "build_decoder_pipeline_stages",
     "build_genai_config",
     "build_qwen3_transformer_only_stages",
     "write_genai_bundle",

@@ -363,17 +363,16 @@ class GenaiSession:
 
         stream = self._tokenizer.create_stream()  # type: ignore[union-attr]
         n = 0
-        try:
-            while not generator.is_done():
-                generator.generate_next_token()
-                new_token = generator.get_next_tokens()[0]
-                yield stream.decode(new_token)
-                n += 1
-                if n >= cfg.max_new_tokens:
-                    break
-        finally:
-            # Explicit deletion releases the KV cache buffer held by the generator.
-            del generator
+        while not generator.is_done():
+            generator.generate_next_token()
+            new_token = generator.get_next_tokens()[0]
+            yield stream.decode(new_token)
+            n += 1
+            if n >= cfg.max_new_tokens:
+                break
+        # ``generator`` (og.Generator) holds the KV cache buffer; releasing the
+        # reference here (end of scope) frees it before the caller processes the
+        # last yielded token, which is earlier than waiting for GC.
 
     # ------------------------------------------------------------------
     # Chat-template helpers
