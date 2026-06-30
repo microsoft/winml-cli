@@ -26,6 +26,11 @@ Usage::
     uv run python scripts/infer_genai.py \\
         --model-dir out/my_bundle --prompt "Hi" --ep cpu
 
+    # Pre-compile QNN stages to EPContext on first run; reuse cache on subsequent runs.
+    # Eliminates per-run JIT overhead (~60-90 s saved on Snapdragon X Elite).
+    uv run python scripts/infer_genai.py \\
+        --prompt "Hello" --ep mixed --compile
+
 Dependencies (install in a fresh venv)::
 
     pip install onnxruntime-genai-winml
@@ -94,6 +99,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Wrap --prompt in the ChatML template (<|im_start|>user/assistant).",
     )
     p.add_argument(
+        "--compile",
+        action="store_true",
+        help=(
+            "Pre-compile QNN pipeline stages to EPContext ONNX before loading. "
+            "On first use this triggers ort.ModelCompiler per stage (~60-90 s for iter). "
+            "Compiled artifacts are cached in bundle_dir/_compiled/; "
+            "subsequent runs reuse the cache and skip JIT. "
+            "Has no effect when --ep cpu."
+        ),
+    )
+    p.add_argument(
         "--verbose",
         action="store_true",
         help="Enable onnxruntime-genai native model I/O logging.",
@@ -109,7 +125,9 @@ def main(argv: list[str] | None = None) -> int:
     gen_cfg = GenerationConfig(max_new_tokens=args.max_new, do_sample=False)
 
     try:
-        session = GenaiSession(args.model_dir, ep=args.ep, verbose=args.verbose)
+        session = GenaiSession(
+            args.model_dir, ep=args.ep, verbose=args.verbose, compile=args.compile
+        )
     except FileNotFoundError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

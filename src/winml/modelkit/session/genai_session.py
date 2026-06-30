@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -149,7 +150,16 @@ class GenaiSession:
             ``None`` (default), read from ``genai_config.json``.
             Must match the ``--max-cache-len`` used during the winml-cli build.
         verbose: Enable ``onnxruntime-genai`` native model I/O logging.
+        compile: Pre-compile QNN pipeline stages to EPContext ONNX on first
+            run (inside ``bundle_dir/_compiled/``).  Subsequent calls reuse
+            the cached EPContext files, eliminating per-run JIT overhead.
+            Only stages that can be compiled without hanging are attempted;
+            stages that fail compilation fall back to the original ONNX.
+            Has no effect when ``ep="cpu"``.
     """
+
+    # Sub-directory within the bundle that holds pre-compiled EPContext ONNX files.
+    _COMPILED_SUBDIR: str = "_compiled"
 
     def __init__(
         self,
@@ -158,11 +168,13 @@ class GenaiSession:
         *,
         context_length: int | None = None,
         verbose: bool = False,
+        compile: bool = False,
     ) -> None:
         self._bundle_dir = Path(bundle_dir)
         self._ep = ep.lower()
         self._context_length_override = context_length
         self._verbose = verbose
+        self._compile = compile
 
         # Resolved at load() time.
         self._context_length: int | None = None
@@ -210,8 +222,13 @@ class GenaiSession:
         if self._verbose:
             og.set_log_options(enabled=True, model_input_values=True, model_output_shapes=True)
 
+        # Determine which bundle directory og.Config should load from.
+        load_dir = self._bundle_dir
+        if self._compile and self._ep in _NEEDS_WINML_EPS:
+            load_dir = self._prepare_compiled_bundle()
+
         try:
-            config = og.Config(str(self._bundle_dir))
+            config = og.Config(str(load_dir))
             # EP routing is driven entirely by genai_config.json (per-stage
             # session_options).  Do NOT call clear_providers/append_provider —
             # those only touch the top-level provider and cannot override
@@ -221,9 +238,7 @@ class GenaiSession:
         except Exception as exc:
             self._model = None
             self._tokenizer = None
-            raise GenaiLoadError(
-                f"Failed to load genai bundle from {self._bundle_dir}: {exc}"
-            ) from exc
+            raise GenaiLoadError(f"Failed to load genai bundle from {load_dir}: {exc}") from exc
 
         self._context_length = self._context_length_override or self._read_context_length()
         logger.info(
@@ -415,6 +430,173 @@ class GenaiSession:
     def _ensure_loaded(self) -> None:
         if self._model is None:
             self.load()
+
+    def _prepare_compiled_bundle(self) -> Path:
+        """Create (or reuse) a *compiled* bundle directory.
+
+        Reads ``genai_config.json``, finds QNN-accelerated stages (those with
+        ``QNNExecutionProvider`` in their ``session_options``), and tries to
+        compile their ONNX to EPContext format using ``ort.ModelCompiler``.
+
+        The compiled bundle is stored under ``bundle_dir/_compiled/``.  On
+        every call the helper checks whether the cached EPContext file is
+        newer than the source ONNX; if so, it skips recompilation.
+
+        Returns:
+            Path to the compiled bundle directory (may equal ``bundle_dir``
+            if no compilable stages were found, or if all compilations failed).
+        """
+        compiled_dir = self._bundle_dir / self._COMPILED_SUBDIR
+        config_src = self._bundle_dir / "genai_config.json"
+        cfg = json.loads(config_src.read_text(encoding="utf-8"))
+
+        # Collect pipeline stages that use QNNExecutionProvider.
+        # genai_config pipeline entries: {"ctx": {...}, "iter": {...}, ...}
+        pipeline: dict = cfg.get("model", {}).get("decoder", {})
+        qnn_stages: list[tuple[str, str]] = []  # [(stage_key, onnx_filename), ...]
+        for stage_key, stage_cfg in pipeline.items():
+            if not isinstance(stage_cfg, dict):
+                continue
+            so = stage_cfg.get("session_options", {})
+            providers = so.get("provider_options", [])
+            for p in providers:
+                if isinstance(p, dict) and "QNNExecutionProvider" in p:
+                    onnx_filename = stage_cfg.get("filename", f"{stage_key}.onnx")
+                    qnn_stages.append((stage_key, onnx_filename))
+                    break
+
+        if not qnn_stages:
+            logger.info("No QNN stages found in genai_config.json; skipping compilation")
+            return self._bundle_dir
+
+        compiled_dir.mkdir(exist_ok=True)
+        modified_cfg = json.loads(config_src.read_text(encoding="utf-8"))
+        any_compiled = False
+
+        for stage_key, onnx_filename in qnn_stages:
+            src_onnx = self._bundle_dir / onnx_filename
+            ctx_onnx = compiled_dir / f"{stage_key}_ctx.onnx"
+
+            # Skip recompilation if cache is up-to-date.
+            if ctx_onnx.exists() and ctx_onnx.stat().st_mtime >= src_onnx.stat().st_mtime:
+                logger.info("Stage %r: reusing cached EPContext %s", stage_key, ctx_onnx.name)
+                self._patch_stage_filename(modified_cfg, stage_key, str(ctx_onnx))
+                any_compiled = True
+                continue
+
+            # Attempt compilation.
+            success = self._compile_stage(src_onnx, ctx_onnx, stage_key)
+            if success:
+                self._patch_stage_filename(modified_cfg, stage_key, str(ctx_onnx))
+                any_compiled = True
+            else:
+                logger.warning(
+                    "Stage %r: compilation failed or was skipped; using original ONNX", stage_key
+                )
+
+        if not any_compiled:
+            return self._bundle_dir
+
+        # Write the modified genai_config into the compiled sub-directory so that
+        # ort-genai can resolve all ONNX paths (absolute paths are used).
+        # Also symlink/copy every other file that og.Config expects.
+        compiled_config = compiled_dir / "genai_config.json"
+        compiled_config.write_text(
+            json.dumps(modified_cfg, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        self._mirror_non_onnx_files(compiled_dir)
+
+        logger.info("Compiled bundle prepared at %s", compiled_dir)
+        return compiled_dir
+
+    @staticmethod
+    def _patch_stage_filename(cfg: dict, stage_key: str, abs_path: str) -> None:
+        """Rewrite a pipeline stage's ``filename`` to an absolute path."""
+        decoder: dict = cfg.get("model", {}).get("decoder", {})
+        if stage_key in decoder and isinstance(decoder[stage_key], dict):
+            decoder[stage_key]["filename"] = abs_path
+
+    def _compile_stage(self, src_onnx: Path, ctx_out: Path, stage_key: str) -> bool:
+        """Compile *src_onnx* to EPContext format via ``ort.ModelCompiler``.
+
+        Runs in a subprocess so that a ModelCompiler hang (a known QNN SDK bug
+        with w8a16 + multi-token prefill) does not block the caller.
+
+        Args:
+            src_onnx: Source ONNX file path.
+            ctx_out: Destination EPContext ONNX path.
+            stage_key: Human-readable label for logging.
+
+        Returns:
+            ``True`` if compilation succeeded; ``False`` on timeout or error.
+        """
+        import multiprocessing
+
+        compile_timeout_s = 300  # 5 minutes; iter compiles in ~67s normally
+
+        logger.info("Compiling stage %r: %s → %s", stage_key, src_onnx.name, ctx_out.name)
+
+        def _do_compile(src: str, dst: str) -> None:
+            import onnxruntime as ort
+
+            from winml.modelkit.session.ep_registry import WinMLEPRegistry
+            from winml.modelkit.winml import add_ep_for_device
+
+            registry = WinMLEPRegistry.get_instance()
+            registry.register_execution_providers()
+            so = ort.SessionOptions()
+            so.add_session_config_entry("ep.context_enable", "1")
+            so.add_session_config_entry("ep.context_file_path", dst)
+            add_ep_for_device(so, "QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)
+            mc = ort.ModelCompiler(so, src, embed_compiled_data_into_model=False)
+            mc.compile_to_file(dst)
+
+        ctx = multiprocessing.get_context("spawn")
+        proc = ctx.Process(target=_do_compile, args=(str(src_onnx), str(ctx_out)))
+        proc.start()
+        proc.join(timeout=compile_timeout_s)
+
+        if proc.is_alive():
+            logger.warning(
+                "Stage %r compilation timed out after %ds (QNN SDK hang). "
+                "This is a known issue with multi-token prefill + w8a16 quantization. "
+                "Falling back to JIT compilation for this stage.",
+                stage_key,
+                compile_timeout_s,
+            )
+            proc.kill()
+            proc.join()
+            # Remove partial output file.
+            ctx_out.unlink(missing_ok=True)
+            return False
+
+        if proc.exitcode != 0:
+            logger.warning("Stage %r compilation failed (exit %d)", stage_key, proc.exitcode)
+            ctx_out.unlink(missing_ok=True)
+            return False
+
+        logger.info("Stage %r compiled successfully → %s", stage_key, ctx_out)
+        return True
+
+    def _mirror_non_onnx_files(self, compiled_dir: Path) -> None:
+        """Create symlinks (or copies on Windows) for every non-ONNX file.
+
+        Files are linked/copied into *compiled_dir* so that ``og.Config``
+        finds tokenizer files, specials maps, etc.  Existing files are left
+        untouched.
+        """
+        for src in self._bundle_dir.iterdir():
+            if src.name == self._COMPILED_SUBDIR:
+                continue
+            dst = compiled_dir / src.name
+            if dst.exists():
+                continue
+            if src.is_file():
+                try:
+                    dst.symlink_to(src.resolve())
+                except (OSError, NotImplementedError):
+                    # Symlinks may require elevated privileges on Windows; fall back to copy.
+                    shutil.copy2(src, dst)
 
     @staticmethod
     def _import_og() -> object:
