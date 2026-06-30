@@ -61,14 +61,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# EP name mapping: user-friendly short name → ORT GenAI provider string.
-# None means "do not append a provider" (= default CPU execution).
+# Valid EP short names.
+# "mixed" = use genai_config.json as-is (embeddings/lm_head on CPU,
+#           ctx/iter on the target accelerator).
+# EP routing is driven entirely by per-stage session_options in the bundle's
+# genai_config.json — GenaiSession never calls clear_providers/append_provider.
 # ---------------------------------------------------------------------------
-_EP_PROVIDER_MAP: dict[str, str | None] = {
-    "cpu": None,
-    "qnn": "QNNExecutionProvider",
-    "dml": "DmlExecutionProvider",
-}
+_VALID_EPS: frozenset[str] = frozenset({"cpu", "mixed", "qnn", "dml"})
+# EPs that require WinML EP discovery + registration before og.Model() init.
+_NEEDS_WINML_EPS: frozenset[str] = frozenset({"mixed", "qnn", "dml"})
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +179,8 @@ class GenaiSession:
                 f"genai_config.json not found in {self._bundle_dir}. "
                 "Run export_qwen3_transformer_only.py --genai-bundle <DIR> first."
             )
-        if self._ep not in _EP_PROVIDER_MAP:
-            raise ValueError(f"Unknown EP {ep!r}. Supported: {sorted(_EP_PROVIDER_MAP)}")
+        if self._ep not in _VALID_EPS:
+            raise ValueError(f"Unknown EP {ep!r}. Supported: {sorted(_VALID_EPS)}")
 
         logger.info("GenaiSession initialized: bundle=%s ep=%s", self._bundle_dir, self._ep)
 
@@ -202,8 +203,8 @@ class GenaiSession:
 
         og = self._import_og()
 
-        # Register WinML EPs to ORT GenAI (skipped for CPU; idempotent).
-        if self._ep != "cpu":
+        # Register WinML EPs to ORT GenAI when the bundle may use a hardware EP.
+        if self._ep in _NEEDS_WINML_EPS:
             self._register_eps(og)
 
         if self._verbose:
@@ -211,10 +212,10 @@ class GenaiSession:
 
         try:
             config = og.Config(str(self._bundle_dir))
-            config.clear_providers()
-            provider = _EP_PROVIDER_MAP[self._ep]
-            if provider is not None:
-                config.append_provider(provider)
+            # EP routing is driven entirely by genai_config.json (per-stage
+            # session_options).  Do NOT call clear_providers/append_provider —
+            # those only touch the top-level provider and cannot override
+            # per-stage session_options already embedded in the pipeline config.
             self._model = og.Model(config)
             self._tokenizer = og.Tokenizer(self._model)
         except Exception as exc:

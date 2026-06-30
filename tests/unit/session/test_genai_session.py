@@ -114,7 +114,7 @@ class TestGenaiSessionInit:
         assert session.bundle_dir == bundle_dir
 
     def test_supported_eps(self, bundle_dir: Path) -> None:
-        for ep in ("cpu", "qnn", "dml"):
+        for ep in ("cpu", "mixed", "qnn", "dml"):
             session = GenaiSession(bundle_dir, ep=ep)
             assert session.ep == ep
 
@@ -225,20 +225,27 @@ class TestEPRegistration:
             session.load()
         mock_registry.register_execution_providers.assert_called_once_with(ort_genai=True)
 
-    def test_non_cpu_appends_provider_to_config(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+    def test_mixed_registers_winml_eps(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        mock_registry = MagicMock()
+        mock_registry.winml_available = True
+        mock_registry.register_execution_providers.return_value = {
+            "onnxruntime_genai": ["QNNExecutionProvider"]
+        }
         with (
             _patch_og(mock_og),
             patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
         ):
-            mock_reg_cls.get_instance.return_value = MagicMock(winml_available=False)
-            session = GenaiSession(bundle_dir, ep="qnn")
+            mock_reg_cls.get_instance.return_value = mock_registry
+            session = GenaiSession(bundle_dir, ep="mixed")
             session.load()
-        mock_og.Config.return_value.append_provider.assert_called_once_with("QNNExecutionProvider")
+        mock_registry.register_execution_providers.assert_called_once_with(ort_genai=True)
 
-    def test_cpu_does_not_append_provider(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+    def test_config_not_modified_at_load(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        # EP routing is driven by genai_config.json — we must NOT touch the config.
         with _patch_og(mock_og):
             session = GenaiSession(bundle_dir, ep="cpu")
             session.load()
+        mock_og.Config.return_value.clear_providers.assert_not_called()
         mock_og.Config.return_value.append_provider.assert_not_called()
 
 

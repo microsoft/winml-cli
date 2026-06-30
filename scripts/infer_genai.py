@@ -46,7 +46,7 @@ from winml.modelkit.session import GenaiSession, GenerationConfig
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL_DIR = _REPO_ROOT / "out" / "qwen3_bundle"
 
-_SUPPORTED_EPS = ["cpu", "qnn", "dml"]
+_SUPPORTED_EPS = ["cpu", "mixed", "qnn", "dml"]
 
 
 def _wrap_chat_template(prompt: str) -> str:
@@ -78,8 +78,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--ep",
         choices=_SUPPORTED_EPS,
-        default="cpu",
-        help="Execution provider (default: cpu).",
+        default="mixed",
+        help="Execution provider: 'mixed' uses genai_config.json as-is (default); "
+        "'cpu' forces all stages to CPU; 'qnn'/'dml' for full NPU/GPU.",
     )
     p.add_argument(
         "--max-new",
