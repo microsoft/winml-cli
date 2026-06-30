@@ -450,20 +450,25 @@ class GenaiSession:
         config_src = self._bundle_dir / "genai_config.json"
         cfg = json.loads(config_src.read_text(encoding="utf-8"))
 
-        # Collect pipeline stages that use QNNExecutionProvider.
-        # genai_config pipeline entries: {"ctx": {...}, "iter": {...}, ...}
-        pipeline: dict = cfg.get("model", {}).get("decoder", {})
-        qnn_stages: list[tuple[str, str]] = []  # [(stage_key, onnx_filename), ...]
-        for stage_key, stage_cfg in pipeline.items():
-            if not isinstance(stage_cfg, dict):
+        # Collect pipeline stages that use a QNN EP ("qnn" key in provider_options).
+        # genai_config pipeline entries: [{"context": {...}}, {"iterator": {...}}, ...]
+        # provider_options format: [{"qnn": {...}}]
+        pipeline_list: list = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
+        # [(stage_key, onnx_filename, qnn_opts), ...]
+        qnn_stages: list[tuple[str, str, dict]] = []
+        for stage_entry in pipeline_list:
+            if not isinstance(stage_entry, dict):
                 continue
-            so = stage_cfg.get("session_options", {})
-            providers = so.get("provider_options", [])
-            for p in providers:
-                if isinstance(p, dict) and "QNNExecutionProvider" in p:
-                    onnx_filename = stage_cfg.get("filename", f"{stage_key}.onnx")
-                    qnn_stages.append((stage_key, onnx_filename))
-                    break
+            for stage_key, stage_cfg in stage_entry.items():
+                if not isinstance(stage_cfg, dict):
+                    continue
+                so = stage_cfg.get("session_options", {})
+                providers = so.get("provider_options", [])
+                for p in providers:
+                    if isinstance(p, dict) and "qnn" in p:
+                        onnx_filename = stage_cfg.get("filename", f"{stage_key}.onnx")
+                        qnn_stages.append((stage_key, onnx_filename, dict(p["qnn"])))
+                        break
 
         if not qnn_stages:
             logger.info("No QNN stages found in genai_config.json; skipping compilation")
@@ -473,7 +478,7 @@ class GenaiSession:
         modified_cfg = json.loads(config_src.read_text(encoding="utf-8"))
         any_compiled = False
 
-        for stage_key, onnx_filename in qnn_stages:
+        for stage_key, onnx_filename, qnn_opts in qnn_stages:
             src_onnx = self._bundle_dir / onnx_filename
             ctx_onnx = compiled_dir / f"{stage_key}_ctx.onnx"
 
@@ -485,13 +490,13 @@ class GenaiSession:
                 continue
 
             # Attempt compilation.
-            success = self._compile_stage(src_onnx, ctx_onnx, stage_key)
+            success = self._compile_stage(src_onnx, ctx_onnx, stage_key, qnn_opts)
             if success:
                 self._patch_stage_filename(modified_cfg, stage_key, str(ctx_onnx))
                 any_compiled = True
             else:
                 logger.warning(
-                    "Stage %r: compilation failed or was skipped; using original ONNX", stage_key
+                    "Stage %r: compilation failed; using original ONNX (JIT fallback)", stage_key
                 )
 
         if not any_compiled:
@@ -512,31 +517,64 @@ class GenaiSession:
     @staticmethod
     def _patch_stage_filename(cfg: dict, stage_key: str, abs_path: str) -> None:
         """Rewrite a pipeline stage's ``filename`` to an absolute path."""
-        decoder: dict = cfg.get("model", {}).get("decoder", {})
-        if stage_key in decoder and isinstance(decoder[stage_key], dict):
-            decoder[stage_key]["filename"] = abs_path
+        pipeline_list: list = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
+        for stage_entry in pipeline_list:
+            if isinstance(stage_entry, dict) and stage_key in stage_entry:
+                stage_cfg = stage_entry[stage_key]
+                if isinstance(stage_cfg, dict):
+                    stage_cfg["filename"] = abs_path
+                    return
 
-    def _compile_stage(self, src_onnx: Path, ctx_out: Path, stage_key: str) -> bool:
+    def _compile_stage(
+        self,
+        src_onnx: Path,
+        ctx_out: Path,
+        stage_key: str,
+        qnn_opts: dict | None = None,
+    ) -> bool:
         """Compile *src_onnx* to EPContext format via ``ort.ModelCompiler``.
 
-        Runs in a subprocess so that a ModelCompiler hang (a known QNN SDK bug
-        with w8a16 + multi-token prefill) does not block the caller.
+        Runs in a subprocess so that a ModelCompiler failure does not block
+        the caller.  The QNN options from ``genai_config.json`` are forwarded
+        to the compilation session, with ``htp_graph_finalization_optimization_mode``
+        forced to ``"0"``.  This avoids a QNN SDK deadlock that occurs when
+        compiling w8a16 quantized models with multi-token static input shapes
+        (``seq_len > 1``) at higher optimization levels.
+
+        The resulting EPContext ONNX is identical in interface to the original;
+        at runtime, ort-genai loads the pre-compiled QNN binary and the
+        inference-time ``htp_graph_finalization_optimization_mode`` from
+        ``genai_config.json`` governs any further JIT compilation.
 
         Args:
             src_onnx: Source ONNX file path.
             ctx_out: Destination EPContext ONNX path.
             stage_key: Human-readable label for logging.
+            qnn_opts: QNN provider options from genai_config (e.g. backend_path,
+                htp_performance_mode, soc_model).  ``htp_graph_finalization_
+                optimization_mode`` is always overridden to ``"0"``.
 
         Returns:
             ``True`` if compilation succeeded; ``False`` on timeout or error.
         """
         import multiprocessing
 
-        compile_timeout_s = 300  # 5 minutes; iter compiles in ~67s normally
+        # Force graph-finalization optimization off.  Levels 1-3 deadlock QNN
+        # ModelCompiler for w8a16 quantized models with multi-token input shapes.
+        compile_qnn_opts = dict(qnn_opts or {})
+        compile_qnn_opts["htp_graph_finalization_optimization_mode"] = "0"
 
-        logger.info("Compiling stage %r: %s → %s", stage_key, src_onnx.name, ctx_out.name)
+        compile_timeout_s = 300  # 5 minutes; ctx compiles in ~41s, iter in ~67s
 
-        def _do_compile(src: str, dst: str) -> None:
+        logger.info(
+            "Compiling stage %r: %s → %s (qnn_opts=%s)",
+            stage_key,
+            src_onnx.name,
+            ctx_out.name,
+            compile_qnn_opts,
+        )
+
+        def _do_compile(src: str, dst: str, qnn_options: dict) -> None:
             import onnxruntime as ort
 
             from winml.modelkit.session.ep_registry import WinMLEPRegistry
@@ -547,26 +585,25 @@ class GenaiSession:
             so = ort.SessionOptions()
             so.add_session_config_entry("ep.context_enable", "1")
             so.add_session_config_entry("ep.context_file_path", dst)
-            add_ep_for_device(so, "QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)
+            add_ep_for_device(
+                so, "QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU, qnn_options
+            )
             mc = ort.ModelCompiler(so, src, embed_compiled_data_into_model=False)
             mc.compile_to_file(dst)
 
         ctx = multiprocessing.get_context("spawn")
-        proc = ctx.Process(target=_do_compile, args=(str(src_onnx), str(ctx_out)))
+        proc = ctx.Process(target=_do_compile, args=(str(src_onnx), str(ctx_out), compile_qnn_opts))
         proc.start()
         proc.join(timeout=compile_timeout_s)
 
         if proc.is_alive():
-            logger.warning(
-                "Stage %r compilation timed out after %ds (QNN SDK hang). "
-                "This is a known issue with multi-token prefill + w8a16 quantization. "
-                "Falling back to JIT compilation for this stage.",
+            logger.error(
+                "Stage %r compilation timed out after %ds — killing subprocess.",
                 stage_key,
                 compile_timeout_s,
             )
             proc.kill()
             proc.join()
-            # Remove partial output file.
             ctx_out.unlink(missing_ok=True)
             return False
 
