@@ -527,6 +527,7 @@ def _load_model(
         pytorch_model, _, _ = load_hf_model(
             model_name_or_path=model_id,
             task=task,
+            model_class=config.loader.model_class,
             trust_remote_code=effective_trust,
             hf_config=hf_config,
             model_type=model_type,
