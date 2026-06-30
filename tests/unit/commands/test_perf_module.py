@@ -543,3 +543,113 @@ class TestPerfModuleQuantCompileToggles:
         cfg = self._run(tmp_path, ["--no-quantize", "--compile"])
         assert cfg.quant is None
         assert cfg.compile is not None
+
+
+class TestPerfModuleCache:
+    """--rebuild / --ignore-cache control the per-module build cache the same
+    way they do for the single-model path (mirrors auto.py).
+
+    Regression guard: per-module builds previously always used a throwaway
+    temp dir and never passed rebuild/cache_key, so artifacts were rebuilt
+    every run and the cache flags were silently ignored.
+    """
+
+    @staticmethod
+    def _run_build_kwargs(tmp_path: Path, extra_args: list[str]) -> dict:
+        """Invoke ``perf --module`` and return the build_hf_model call kwargs.
+
+        get_cache_dir is pinned to a known directory so the resolved
+        persistent build dir is deterministic. The benchmark is short-circuited
+        via a failing ``session.perf()`` — build_hf_model is already called by
+        then, so its kwargs are captured.
+        """
+        cache_root = tmp_path / "cache"
+
+        fake_cfg = MagicMock()
+        fake_cfg.loader.model_type = "bert"
+        fake_cfg.loader.module_path = "encoder.layer.0"
+        fake_cfg.generate_cache_key.return_value = "deadbeefdeadbeef"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        fake_session = MagicMock()
+        fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
+
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[fake_cfg],
+            ),
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ) as mock_build,
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+            # Pin the cache root so the resolved persistent build dir is
+            # deterministic. Patch the source attribute — _perf_modules binds
+            # the name via a function-local `from ..cache import get_cache_dir`.
+            patch(
+                "winml.modelkit.cache.get_cache_dir",
+                return_value=cache_root,
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                    *extra_args,
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        return dict(mock_build.call_args.kwargs)
+
+    def test_default_uses_persistent_cache_no_rebuild(self, tmp_path: Path) -> None:
+        kwargs = self._run_build_kwargs(tmp_path, [])
+        # Builds into the model's persistent cache dir (under the pinned root),
+        # not a temp dir, and does not force a rebuild.
+        assert kwargs["rebuild"] is False
+        assert (tmp_path / "cache") in kwargs["output_dir"].parents
+        # cache_key disambiguates instances within the shared model dir.
+        assert kwargs["cache_key"]
+
+    def test_rebuild_forces_rebuild_in_cache_dir(self, tmp_path: Path) -> None:
+        kwargs = self._run_build_kwargs(tmp_path, ["--rebuild"])
+        # Reuses the persistent cache dir but overwrites artifacts.
+        assert kwargs["rebuild"] is True
+        assert (tmp_path / "cache") in kwargs["output_dir"].parents
+
+    def test_ignore_cache_uses_temp_dir_and_rebuilds(self, tmp_path: Path) -> None:
+        kwargs = self._run_build_kwargs(tmp_path, ["--ignore-cache"])
+        # Throwaway temp dir (outside the pinned cache root) + forced rebuild.
+        assert kwargs["rebuild"] is True
+        assert (tmp_path / "cache") not in kwargs["output_dir"].parents
