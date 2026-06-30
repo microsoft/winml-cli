@@ -184,7 +184,7 @@ def test_round_trip_json():
 
     op1 = parsed["operators"][1]
     assert op1["name"] == "ReLU"
-    assert op1["dram_read_bytes"] is None  # not set => None preserved
+    assert "dram_read_bytes" not in op1  # unset fields are omitted, not null
 
     # Summary round-trip
     assert parsed["summary"]["time_us"] == 270.5
