@@ -25,8 +25,6 @@ from .base_evaluator import WinMLEvaluator
 
 
 if TYPE_CHECKING:
-    from transformers.image_processing_utils import BaseImageProcessor
-
     from ..models.winml.base import WinMLPreTrainedModel
     from .config import WinMLEvaluationConfig
 
@@ -77,7 +75,7 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
 
         super().__init__(config, model)
 
-    def prepare_pipeline(self) -> BaseImageProcessor:
+    def prepare_pipeline(self) -> Any:
         """Load the image processor (no HF pipeline exists for this task).
 
         The processor size is forced to the exported ONNX input shape so the
@@ -91,7 +89,7 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         input_shapes = io_config.get("input_shapes", [])
         if input_shapes and len(input_shapes[0]) == 4:
             _, _, h, w = input_shapes[0]
-            processor.size = {"height": h, "width": w}  # type: ignore[attr-defined]
+            processor.size = {"height": h, "width": w}
 
         return processor
 
@@ -153,7 +151,7 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
 
     def _predict_poses(
         self,
-        processor: BaseImageProcessor,
+        processor: Any,
         image: Any,
         boxes: list[list[float]],
     ) -> list[dict[str, Any]]:
@@ -175,7 +173,10 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
 
         wrapped = SimpleNamespace(heatmaps=torch.cat(heatmaps, dim=0))
         # post_process returns one list per image; we pass a single image.
-        return processor.post_process_pose_estimation(wrapped, boxes=[boxes])[0]
+        results: list[dict[str, Any]] = processor.post_process_pose_estimation(
+            wrapped, boxes=[boxes]
+        )[0]
+        return results
 
     @staticmethod
     def _extract_heatmaps(outputs: Any) -> Any:

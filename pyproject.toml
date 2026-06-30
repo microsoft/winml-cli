@@ -510,6 +510,7 @@ module = [
   "sklearn.*",       # used in eval/metrics; no community stubs
   "evaluate",        # HF evaluate, used in eval/; no community stubs
   "evaluate.*",
+  "pycocotools.*",   # COCO keypoint OKS-AP in eval/metrics/keypoint.py; no stubs
   # QAIRT (Qualcomm AI Runtime) SDK — imported only inside compile_qairt_bin.py,
   # which runs in a separate venv-winml subprocess where the SDK is installed.
   # Not a dependency of the main/CI environment, so it has no stubs here.
