@@ -52,13 +52,14 @@ def test_qnn_profiler_creates_session_options():
 
 
 def test_qnn_profiler_provider_options_basic():
-    """Verify provider options for basic mode (profiling_level=detailed)."""
-    profiler = QNNProfiler(Path("model.onnx"), output_dir=Path("out"), level="basic")
-    opts = profiler._build_provider_options(Path("out/profiling.csv"))
+    """Verify provider options for basic mode (profiling_level=detailed).
 
-    assert len(opts) == 1
-    po = opts[0]
-    assert po["backend_path"] == "QnnHtp.dll"
+    The QNN backend/device is now selected by ``add_ep_for_device``, so the
+    options dict no longer carries ``backend_path``.
+    """
+    profiler = QNNProfiler(Path("model.onnx"), output_dir=Path("out"), level="basic")
+    po = profiler._build_provider_options(Path("out/profiling.csv"))
+
     assert po["htp_performance_mode"] == "high_performance"
     assert po["htp_graph_finalization_optimization_mode"] == "3"
     assert po["enable_htp_fp16_precision"] == "1"
@@ -69,11 +70,9 @@ def test_qnn_profiler_provider_options_basic():
 def test_qnn_profiler_provider_options_detail():
     """Verify provider options for detail mode (profiling_level=optrace)."""
     profiler = QNNProfiler(Path("model.onnx"), output_dir=Path("out"), level="detail")
-    opts = profiler._build_provider_options(Path("out/profiling.csv"))
+    po = profiler._build_provider_options(Path("out/profiling.csv"))
 
-    po = opts[0]
     assert po["profiling_level"] == "optrace"
-    assert po["backend_path"] == "QnnHtp.dll"
 
 
 # =====================================================================
@@ -182,7 +181,7 @@ def test_qnn_profiler_run_basic(tmp_path):
         # Verify session creation was called correctly via builder methods.
         profiler._build_session_options(mock_ort)
         po = profiler._build_provider_options(output_dir / "profiling_output.csv")
-        assert po[0]["profiling_level"] == "detailed"
+        assert po["profiling_level"] == "detailed"
 
         # Now test the CSV parsing path directly.
         result = profiler._from_csv(
