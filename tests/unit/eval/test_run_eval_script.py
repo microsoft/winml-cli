@@ -806,6 +806,41 @@ class TestCleanJobArtifacts:
         run_eval._clean_job_artifacts(tmp_path / "nope")  # must not raise
 
 
+class TestCleanStrayCwdArtifacts:
+    """``_clean_stray_cwd_artifacts`` sweeps UUID/sym-shape temps from the cwd."""
+
+    def test_removes_uuid_and_sym_shape_keeps_real(self, run_eval, tmp_path):
+        # Stray scratch models libraries leak into the process cwd.
+        (tmp_path / "88158373-7198-11f1-ab34-2c9c5846c436.data").write_text("x")
+        (tmp_path / "b305c74d-7171-11f1-9869-2c9c5846c436.onnx").write_text("x")
+        (tmp_path / "c97746cf-714d-11f1-aa19-2c9c5846c436.onnx.data").write_text("x")
+        # QNN EP-context dump form: <uuid>.onnx_<EP>.bin
+        (tmp_path / "a1b2c3d4-1234-5678-9abc-def012345678.onnx_QNN.bin").write_text("x")
+        (tmp_path / "sym_shape_infer_temp.onnx").write_text("x")
+        # Real files that must survive (not UUID-prefixed).
+        (tmp_path / "README.md").write_text("x")
+        (tmp_path / "model.onnx").write_text("x")
+        (tmp_path / "pyproject.toml").write_text("x")
+
+        removed = run_eval._clean_stray_cwd_artifacts(tmp_path)
+
+        assert removed == 5
+        survivors = sorted(p.name for p in tmp_path.iterdir())
+        assert survivors == ["README.md", "model.onnx", "pyproject.toml"]
+
+    def test_does_not_recurse_into_subdirs(self, run_eval, tmp_path):
+        # Only the top-level cwd is swept; a UUID dir/file one level down is left.
+        sub = tmp_path / "eval_results"
+        sub.mkdir()
+        (sub / "88158373-7198-11f1-ab34-2c9c5846c436.data").write_text("x")
+        removed = run_eval._clean_stray_cwd_artifacts(tmp_path)
+        assert removed == 0
+        assert (sub / "88158373-7198-11f1-ab34-2c9c5846c436.data").exists()
+
+    def test_missing_dir_is_noop(self, run_eval, tmp_path):
+        assert run_eval._clean_stray_cwd_artifacts(tmp_path / "nope") == 0
+
+
 class TestRunAccuracyPhaseSchema:
     """``_run_accuracy_phase`` records facts only (no inline PyTorch baseline)."""
 

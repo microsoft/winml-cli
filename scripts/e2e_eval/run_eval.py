@@ -257,6 +257,49 @@ def _clean_job_artifacts(model_dir: Path) -> None:
         safe_print(f"  [cleanup] Removed {removed} build artifact(s) from {model_dir.name}")
 
 
+# Stray scratch models that onnxruntime/QNN libraries write into the *process
+# working directory* (the repo root when the harness is launched from there),
+# outside any path the harness controls via ``-o``/``--output``:
+#   * ``<uuid>.onnx`` / ``<uuid>.data`` / ``<uuid>.onnx.data`` — external-data
+#     serializations from shape inference / quant preprocessing.
+#   * ``<uuid>.onnx_<EP>.bin`` / ``<uuid>_ctx.onnx`` — QNN/VitisAI EP context
+#     dumps (can be very large, which is what fills a QNN box's disk).
+#   * ``sym_shape_infer_temp.onnx`` — onnxruntime symbolic shape inference temp.
+# Matched conservatively (UUID-prefixed names or the fixed sym-shape temp) so
+# real, non-temporary files in the cwd are never touched.
+_UUID_PREFIX_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+_STRAY_CWD_PREFIXES = ("sym_shape_infer_temp",)
+
+
+def _clean_stray_cwd_artifacts(directory: Path) -> int:
+    """Remove ORT/QNN scratch ONNX models libraries leak into ``directory``.
+
+    These land in the subprocess working directory (inherited from the harness,
+    i.e. the repo root) and are not covered by the per-job or cache cleanups, so
+    across many jobs they fill the disk even with ``--clean-cache``. Only clearly
+    temporary names are removed (see ``_UUID_PREFIX_RE`` / ``_STRAY_CWD_PREFIXES``).
+    Returns the number of files removed.
+    """
+    if not directory.is_dir():
+        return 0
+    removed = 0
+    for entry in directory.iterdir():
+        if not entry.is_file():
+            continue
+        name = entry.name
+        if _UUID_PREFIX_RE.match(name) or name.startswith(_STRAY_CWD_PREFIXES):
+            try:
+                entry.unlink()
+                removed += 1
+            except OSError:
+                pass  # Best-effort; ignore locked/already-removed files
+    if removed:
+        safe_print(f"  [cleanup] Removed {removed} stray scratch model(s) from {directory}")
+    return removed
+
+
 def safe_print(text: str) -> None:
     """Cross-platform safe print (handles Windows Unicode issues)."""
     try:
@@ -2341,7 +2384,12 @@ def parse_args() -> argparse.Namespace:
         "--clean-cache",
         dest="clean_cache",
         action="store_true",
-        help="Delete caches and leaked temp files after each model evaluation (saves disk space)",
+        help=(
+            "After each job, delete HF/winml caches, the job's ONNX build "
+            "artifacts, and stray scratch models libraries leak into the cwd "
+            "(UUID-named *.onnx/*.data, QNN EP-context dumps, sym_shape_infer_temp) "
+            "to keep disk bounded."
+        ),
     )
     parser.add_argument("--list", action="store_true", help="List filtered models and exit")
     parser.add_argument(
@@ -2551,7 +2599,10 @@ def main() -> None:
     else:
         safe_print("Recipes: disabled (winml config for all builds)")
     if args.clean_cache:
-        safe_print("Cache cleanup: ON (caches + temp files cleaned after each job)")
+        safe_print("Cache cleanup: ON (caches + per-job ONNX + stray cwd models cleaned)")
+        # Sweep any stray scratch models left in the cwd by a prior interrupted
+        # run so a resumed run does not start from an already-polluted root.
+        _clean_stray_cwd_artifacts(Path.cwd())
     if retry_types is not None:
         if retry_types:
             safe_print(f"Retry mode: {', '.join(sorted(retry_types))}")
@@ -2746,6 +2797,7 @@ def main() -> None:
 
         if args.clean_cache:
             _clean_job_artifacts(model_dir)
+            _clean_stray_cwd_artifacts(Path.cwd())
             _clear_disk_caches()
 
     run_duration = time.perf_counter() - run_start
