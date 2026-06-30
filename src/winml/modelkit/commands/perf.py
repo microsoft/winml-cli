@@ -1827,7 +1827,7 @@ def perf(
             ):
                 console.print(
                     "[red]Error:[/red] Op-tracing is only supported for the QNN EP "
-                    "on NPU at the 'basic' level "
+                    "on NPU or the CPU EP on CPU, at the 'basic' level "
                     f"(resolved EP={benchmark.resolved_ep}, "
                     f"device={benchmark.resolved_device}, level={op_tracing})."
                 )
@@ -1838,6 +1838,7 @@ def perf(
                 get_tracer,
                 write_op_trace_json,
             )
+            from ..utils.constants import normalize_ep_name
 
             # Determine the ONNX model path from the benchmark flow.
             # For HF models the ONNX is built internally by PerfBenchmark.
@@ -1855,11 +1856,14 @@ def perf(
 
             output_dir = output.parent if output else Path()
 
-            # Look up tracer via registry (EP-agnostic).
-            tracer_cls = get_tracer("QNNExecutionProvider", op_tracing)
+            # Look up tracer via registry (EP-agnostic). The resolved EP was
+            # already validated by is_profiling_available() above.
+            trace_ep = normalize_ep_name(benchmark.resolved_ep)
+            tracer_cls = get_tracer(trace_ep, op_tracing) if trace_ep else None
             if tracer_cls is None:
                 console.print(
-                    f"[red]Error:[/red] No tracer registered for QNN EP at level '{op_tracing}'"
+                    f"[red]Error:[/red] No tracer registered for EP "
+                    f"'{trace_ep}' at level '{op_tracing}'"
                 )
                 raise SystemExit(1)
 

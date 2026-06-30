@@ -17,11 +17,12 @@ from .result import OperatorMetrics, OpTraceResult
 if TYPE_CHECKING:
     from ..utils.constants import EPNameOrAlias
 
-# The single EP / device / tracing-level combination op-tracing currently
-# supports. Expanded as more tracers land.
-_SUPPORTED_EP = "QNNExecutionProvider"
-_SUPPORTED_DEVICE = "npu"
-_SUPPORTED_LEVEL = "basic"
+# The EP / device / tracing-level combinations op-tracing currently supports,
+# as ``(canonical_ep, device, level)`` tuples. Expanded as more tracers land.
+_SUPPORTED_COMBINATIONS: set[tuple[str, str, str]] = {
+    ("QNNExecutionProvider", "npu", "basic"),
+    ("CPUExecutionProvider", "cpu", "basic"),
+}
 
 
 def is_profiling_available(
@@ -31,8 +32,8 @@ def is_profiling_available(
 ) -> bool:
     """Check whether op-tracing is supported for a resolved EP/device/level.
 
-    Op-tracing is currently limited to the QNN EP on NPU at the ``"basic"``
-    level; every other combination is unsupported.
+    Op-tracing currently supports the QNN EP on NPU and the CPU EP on CPU, both
+    at the ``"basic"`` level; every other combination is unsupported.
 
     Args:
         resolved_ep: Concrete EP the benchmark resolved to (full name or alias).
@@ -40,15 +41,18 @@ def is_profiling_available(
         op_tracing: Requested tracing level (e.g. ``"basic"``), or ``None``.
 
     Returns:
-        ``True`` only for the QNN + NPU + ``"basic"`` combination.
+        ``True`` only for a supported EP/device/level combination.
     """
     from ..utils.constants import normalize_ep_name
 
+    ep = normalize_ep_name(resolved_ep)
+    if ep is None:
+        return False
     return (
-        normalize_ep_name(resolved_ep) == _SUPPORTED_EP
-        and (resolved_device or "").lower() == _SUPPORTED_DEVICE
-        and (op_tracing or "").lower() == _SUPPORTED_LEVEL
-    )
+        ep,
+        (resolved_device or "").lower(),
+        (op_tracing or "").lower(),
+    ) in _SUPPORTED_COMBINATIONS
 
 
 __all__ = [

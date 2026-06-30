@@ -54,10 +54,12 @@ def get_tracer(ep_name: EPName, level: str) -> type[OpTracer] | None:
 
 def _register_defaults() -> None:
     """Auto-register built-in tracers."""
+    from .cpu.profiler import CPUProfiler
     from .qnn.profiler import QNNProfiler
 
     register_tracer("QNN", "basic", QNNProfiler)
     register_tracer("QNN", "detail", QNNProfiler)
+    register_tracer("CPU", "basic", CPUProfiler)
 
 
 # Eagerly register defaults on import.

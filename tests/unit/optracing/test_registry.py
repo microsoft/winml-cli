@@ -119,6 +119,13 @@ def test_default_qnn_tracers_registered():
     assert detail_cls is QNNProfiler
 
 
+def test_default_cpu_tracer_registered():
+    """The auto-registered CPU basic tracer should be present."""
+    from winml.modelkit.optracing.cpu.profiler import CPUProfiler
+
+    assert get_tracer("CPUExecutionProvider", "basic") is CPUProfiler
+
+
 def test_pattern_substring_not_exact():
     """Pattern matching uses substring, not exact match."""
     register_tracer("Custom", "basic", _MockTracer)
