@@ -58,6 +58,29 @@ def _resolve_shape(shape: list, default_dim: int = 1) -> list[int]:
     return [default_dim if not isinstance(d, int) or d <= 0 else d for d in shape]
 
 
+def _csv_operator_metrics(
+    operators: list[dict[str, Any]],
+    total_cycles: float,
+    cycle_to_us: float,
+) -> list[OperatorMetrics]:
+    """Convert aggregated CSV operator dicts into ``OperatorMetrics``.
+
+    ``total_cycles`` is the accelerator execute-time used to express each
+    operator's share of the run; ``cycle_to_us`` converts raw cycle counts
+    into microseconds. Both come from the parsed CSV metadata.
+    """
+    return [
+        OperatorMetrics(
+            name=op["name"],
+            op_path=op["name"],
+            op_id=op["op_id"],
+            duration_us=op["cycles"] * cycle_to_us,
+            percent_of_total=(op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0),
+        )
+        for op in operators
+    ]
+
+
 @contextlib.contextmanager
 def _working_directory(path: Path) -> Iterator[None]:
     """Temporarily change CWD and restore on exit.
@@ -314,16 +337,7 @@ class QNNProfiler(OpTracer):
         accel_us = meta.get("accel_execute_us", 0)
         cycle_to_us = accel_us / total_cycles if total_cycles > 0 else 0.0
 
-        operators = [
-            OperatorMetrics(
-                name=op["name"],
-                op_path=op["name"],
-                op_id=op["op_id"],
-                duration_us=op["cycles"] * cycle_to_us,
-                percent_of_total=(op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0),
-            )
-            for op in parsed["operators"]
-        ]
+        operators = _csv_operator_metrics(parsed["operators"], total_cycles, cycle_to_us)
 
         return OpTraceResult(
             model=self.onnx_path.name,

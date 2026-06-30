@@ -13,9 +13,11 @@ ROOT rows carry aggregate metadata (HVX thread count, accelerator
 execute time in cycles/US).  NODE SUB-EVENT rows carry per-operator
 cycle counts.  UNKNOWN SUB-EVENT rows (compile stages) are ignored.
 
-Multiple inference samples are separated by ROOT
-"Accelerator (execute) time (cycles)" boundaries.
+Multiple inference samples are delimited by the ROOT
+"Number of HVX threads used" marker (the first ROOT metric of each
+inference); every sample carries its own ROOT metadata.
 """
+
 from __future__ import annotations
 
 import csv
@@ -41,13 +43,17 @@ def parse_qnn_profiling_csv(csv_path: str | Path) -> dict[str, Any]:
     Returns:
     -------
     dict with keys:
-        metadata : dict  -- hvx_threads, accel_execute_cycles, num_samples
-        operators : list[dict]  -- aggregated ops sorted by cycles desc
-        samples : list[list[dict]]  -- per-sample operator lists
+        metadata : dict  -- aggregate hvx_threads, accel_execute_cycles,
+            accel_execute_us, num_samples (representative of all samples)
+        operators : list[dict]  -- ops averaged across samples, sorted by
+            cycles desc
+        samples : list[dict]  -- one entry per inference sample, each
+            ``{"metadata": {...}, "samples": [op, ...]}`` carrying that
+            sample's own ROOT metadata and per-operator cycle counts
     """
     rows = _read_csv(csv_path)
-    metadata = _extract_metadata(rows)
     samples = _extract_samples(rows)
+    metadata = _aggregate_metadata(samples)
     metadata["num_samples"] = len(samples)
     operators = _aggregate_operators(samples)
     return {
@@ -70,62 +76,21 @@ def _read_csv(csv_path: str | Path) -> list[dict[str, str]]:
         return list(reader)
 
 
-def _extract_metadata(rows: list[dict[str, str]]) -> dict[str, Any]:
-    """Extract ROOT-level metadata from the CSV rows.
+def _extract_samples(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Split the CSV rows into per-sample records.
 
-    Captures the *first* occurrence of each metric so the result
-    reflects the initial inference sample.
+    A sample begins at the ROOT ``Number of HVX threads used`` marker — the
+    first ROOT metric QNN emits for each inference — and runs until the next
+    such marker (or end-of-file). This groups every ROOT metric (HVX threads,
+    accelerator execute cycles/US) with the NODE rows of the same inference,
+    so each sample carries its *own* metadata rather than sharing a single
+    first-occurrence snapshot.
+
+    Returns a list of ``{"metadata": {...}, "samples": [op, ...]}`` dicts;
+    samples that produced no operator rows are dropped.
     """
-    hvx_threads: int | None = None
-    accel_execute_cycles: int | None = None
-    accel_execute_us: int | None = None
-
-    for row in rows:
-        event_level = row.get("Event Level", "").strip()
-        event_id = row.get("Event Identifier", "").strip()
-        time_val = row.get("Time", "").strip()
-        unit = row.get("Unit of Measurement", "").strip()
-
-        if event_level != "ROOT":
-            continue
-
-        if (
-            event_id == "Number of HVX threads used"
-            and unit == "COUNT"
-            and hvx_threads is None
-        ):
-            hvx_threads = int(time_val)
-
-        if (
-            event_id == "Accelerator (execute) time (cycles)"
-            and unit == "CYCLES"
-            and accel_execute_cycles is None
-        ):
-            accel_execute_cycles = int(time_val)
-
-        if (
-            event_id == "Accelerator (execute) time"
-            and unit == "US"
-            and accel_execute_us is None
-        ):
-            accel_execute_us = int(time_val)
-
-    return {
-        "hvx_threads": hvx_threads or 0,
-        "accel_execute_cycles": accel_execute_cycles or 0,
-        "accel_execute_us": accel_execute_us or 0,
-    }
-
-
-def _extract_samples(rows: list[dict[str, str]]) -> list[list[dict[str, Any]]]:
-    """Parse NODE SUB-EVENT rows into per-sample operator lists.
-
-    Each sample begins at a ROOT row with
-    ``Accelerator (execute) time (cycles)`` and ends before the
-    next such row (or end-of-file).
-    """
-    samples: list[list[dict[str, Any]]] = []
-    current_sample: list[dict[str, Any]] | None = None
+    samples: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
 
     for row in rows:
         event_level = row.get("Event Level", "").strip()
@@ -134,39 +99,71 @@ def _extract_samples(rows: list[dict[str, str]]) -> list[list[dict[str, Any]]]:
         time_val = row.get("Time", "").strip()
         unit = row.get("Unit of Measurement", "").strip()
 
-        # Detect sample boundary.
+        # Sample boundary: a new HVX-threads marker starts a fresh sample.
+        if event_level == "ROOT" and event_id == "Number of HVX threads used" and unit == "COUNT":
+            if current is not None and current["samples"]:
+                samples.append(current)
+            current = {
+                "metadata": {
+                    "hvx_threads": int(time_val),
+                    "accel_execute_cycles": 0,
+                    "accel_execute_us": 0,
+                },
+                "samples": [],
+            }
+            continue
+
+        if current is None:
+            # Rows before the first HVX marker are compile/finalize noise.
+            continue
+
+        meta = current["metadata"]
+
         if (
             event_level == "ROOT"
             and event_id == "Accelerator (execute) time (cycles)"
             and unit == "CYCLES"
         ):
-            # Close any previous sample before starting a new one.
-            if current_sample is not None:
-                samples.append(current_sample)
-            current_sample = []
+            meta["accel_execute_cycles"] = int(time_val)
             continue
 
-        # Only collect NODE SUB-EVENT rows with CYCLES unit.
-        if (
-            current_sample is not None
-            and message == "NODE"
-            and event_level == "SUB-EVENT"
-            and unit == "CYCLES"
-        ):
+        if event_level == "ROOT" and event_id == "Accelerator (execute) time" and unit == "US":
+            meta["accel_execute_us"] = int(time_val)
+            continue
+
+        # Collect NODE SUB-EVENT rows with CYCLES unit.
+        if message == "NODE" and event_level == "SUB-EVENT" and unit == "CYCLES":
             parsed = _parse_node_event(event_id, time_val)
             if parsed is not None:
-                current_sample.append(parsed)
+                current["samples"].append(parsed)
 
     # Flush the last sample.
-    if current_sample is not None and len(current_sample) > 0:
-        samples.append(current_sample)
+    if current is not None and current["samples"]:
+        samples.append(current)
 
     return samples
 
 
-def _parse_node_event(
-    event_id: str, time_val: str
-) -> dict[str, Any] | None:
+def _aggregate_metadata(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build a representative metadata dict spanning all samples.
+
+    ``hvx_threads`` is constant across samples, so the first sample's value is
+    used. Accelerator cycles/US are averaged so the headline figures reflect
+    the whole run rather than a single inference.
+    """
+    if not samples:
+        return {"hvx_threads": 0, "accel_execute_cycles": 0, "accel_execute_us": 0}
+
+    n = len(samples)
+    metas = [s["metadata"] for s in samples]
+    return {
+        "hvx_threads": metas[0]["hvx_threads"],
+        "accel_execute_cycles": round(sum(m["accel_execute_cycles"] for m in metas) / n),
+        "accel_execute_us": round(sum(m["accel_execute_us"] for m in metas) / n),
+    }
+
+
+def _parse_node_event(event_id: str, time_val: str) -> dict[str, Any] | None:
     """Parse a single NODE SUB-EVENT identifier into name/op_id/cycles."""
     m = _OP_PATTERN.match(event_id)
     if m is None:
@@ -183,7 +180,7 @@ def _parse_node_event(
 
 
 def _aggregate_operators(
-    samples: list[list[dict[str, Any]]],
+    samples: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Average operator cycles across samples and sort by cycles desc.
 
@@ -198,7 +195,7 @@ def _aggregate_operators(
     counts: dict[int, int] = {}
 
     for sample in samples:
-        for op in sample:
+        for op in sample["samples"]:
             oid = op["op_id"]
             if oid not in totals:
                 totals[oid] = {
