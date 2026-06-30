@@ -867,26 +867,18 @@ class TestONNXStaticAnalyzer:
     def test_map_ep_to_ihv_qnn(self) -> None:
         """Test EP to IHV mapping for QNN."""
         assert infer_ihv_from_ep_name("QNNExecutionProvider") == IHVType.QC
-        assert infer_ihv_from_ep_name("qnnexecutionprovider") == IHVType.QC
-        assert infer_ihv_from_ep_name("QualcommProvider") == IHVType.QC
 
     def test_map_ep_to_ihv_openvino(self) -> None:
         """Test EP to IHV mapping for OpenVINO."""
         assert infer_ihv_from_ep_name("OpenVINOExecutionProvider") == IHVType.INTEL
-        assert infer_ihv_from_ep_name("openvino") == IHVType.INTEL
-        assert infer_ihv_from_ep_name("IntelProvider") == IHVType.INTEL
 
     def test_map_ep_to_ihv_vitisai(self) -> None:
         """Test EP to IHV mapping for VitisAI."""
         assert infer_ihv_from_ep_name("VitisAIExecutionProvider") == IHVType.AMD
-        assert infer_ihv_from_ep_name("vitis") == IHVType.AMD
-        assert infer_ihv_from_ep_name("AMDProvider") == IHVType.AMD
 
     def test_map_ep_to_ihv_nvidia(self) -> None:
         """Test EP to IHV mapping for NvTensorRTRTX."""
         assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
-        assert infer_ihv_from_ep_name("nvtensorrtx") == IHVType.NVIDIA
-        assert infer_ihv_from_ep_name("TensorRTProvider") == IHVType.NVIDIA
 
     def test_map_ep_to_ihv_invalid(self) -> None:
         """Test EP to IHV mapping with unrecognized EP resolves to MICROSOFT."""

@@ -21,18 +21,18 @@ logger = logging.getLogger(__name__)
 
 
 def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
-    """Infer IHVType from Execution Provider name.
+    """Infer IHVType from a canonical Execution Provider name.
 
-    Maps an execution provider name to its corresponding IHV type.
-    Supports multiple name variations for each provider.
-    Unknown EPs (e.g., CPUExecutionProvider, DmlExecutionProvider) resolve
-    to IHVType.MICROSOFT.
+    ``EPName`` is a closed set of canonical EP names, so this is a direct,
+    exact lookup. Any name without an explicit IHV owner (e.g.
+    ``CPUExecutionProvider``, ``DmlExecutionProvider``) resolves to
+    ``IHVType.MICROSOFT``.
 
     Args:
-        ep_name: Execution Provider name (e.g., QNNExecutionProvider, OpenVINOExecutionProvider)
+        ep_name: Canonical Execution Provider name (see ``utils.constants.EPName``).
 
     Returns:
-        IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, or MICROSOFT)
+        IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, or MICROSOFT).
 
     Examples:
         >>> infer_ihv_from_ep_name("QNNExecutionProvider")
@@ -48,30 +48,19 @@ def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
     """
     from ..models.ihv_type import IHVType
 
-    ep_lower = ep_name.lower()
+    ep_name_to_ihv: dict[EPName, IHVType] = {
+        "QNNExecutionProvider": IHVType.QC,
+        "OpenVINOExecutionProvider": IHVType.INTEL,
+        "VitisAIExecutionProvider": IHVType.AMD,
+        "MIGraphXExecutionProvider": IHVType.AMD,
+        "NvTensorRTRTXExecutionProvider": IHVType.NVIDIA,
+        "CUDAExecutionProvider": IHVType.NVIDIA,
+        "CPUExecutionProvider": IHVType.MICROSOFT,
+        "DmlExecutionProvider": IHVType.MICROSOFT,
+    }
 
-    # QNN / Qualcomm
-    if "qnn" in ep_lower or "qualcomm" in ep_lower:
-        return IHVType.QC
-
-    # OpenVINO / Intel
-    if "openvino" in ep_lower or "intel" in ep_lower:
-        return IHVType.INTEL
-
-    # VitisAI / MIGraphX / AMD / ACE (AMD)
-    amd_keywords = ("amd", "quark", "vitis", "ace", "migraphx")
-    if any(kw in ep_lower for kw in amd_keywords):
-        return IHVType.AMD
-
-    # NVIDIA / TensorRT RTX
-    # This is intentionally a permissive substring fallback to cover common
-    # TensorRT naming variants. Callers should prefer canonical EP names.
-    nvidia_keywords = ("nvidia", "nvtensorrt", "trtrtx", "tensorrt", "rtx")
-    if any(kw in ep_lower for kw in nvidia_keywords):
-        return IHVType.NVIDIA
-
-    # Default: Microsoft (e.g., CPUExecutionProvider, DmlExecutionProvider)
-    return IHVType.MICROSOFT
+    # EPName is a closed set; anything without an explicit owner is Microsoft.
+    return ep_name_to_ihv.get(ep_name, IHVType.MICROSOFT)
 
 
 def get_devices_with_rule_data(ep_name: EPName) -> list[str]:

@@ -48,13 +48,11 @@ class TestInferIHVFromEPName:
 
         assert infer_ihv_from_ep_name("MIGraphXExecutionProvider") == IHVType.AMD
 
-    def test_case_insensitive(self) -> None:
+    def test_cuda_maps_to_nvidia(self) -> None:
+        """CUDAExecutionProvider is an NVIDIA EP — should map to IHVType.NVIDIA."""
         from winml.modelkit.analyze.models.ihv_type import IHVType
 
-        assert infer_ihv_from_ep_name("qnnexecutionprovider") == IHVType.QC
-        assert infer_ihv_from_ep_name("OPENVINOEXECUTIONPROVIDER") == IHVType.INTEL
-        assert infer_ihv_from_ep_name("vitisaiexecutionprovider") == IHVType.AMD
-        assert infer_ihv_from_ep_name("nvtensorrtxexecutionprovider") == IHVType.NVIDIA
+        assert infer_ihv_from_ep_name("CUDAExecutionProvider") == IHVType.NVIDIA
 
     def test_unknown_ep_resolves_to_microsoft(self) -> None:
         from winml.modelkit.analyze.models.ihv_type import IHVType
@@ -78,12 +76,6 @@ class TestInferIHVFromEPName:
         from winml.modelkit.analyze.models.ihv_type import IHVType
 
         assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
-
-    def test_trtrtx_ep_maps_to_nvidia(self) -> None:
-        """TrtRTXExecutionProvider should map to IHVType.NVIDIA."""
-        from winml.modelkit.analyze.models.ihv_type import IHVType
-
-        assert infer_ihv_from_ep_name("TrtRTXExecutionProvider") == IHVType.NVIDIA
 
 
 class TestHasRuleDataForEP:
