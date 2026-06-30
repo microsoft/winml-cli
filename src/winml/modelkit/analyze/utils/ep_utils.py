@@ -24,15 +24,16 @@ def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
     """Infer IHVType from a canonical Execution Provider name.
 
     ``EPName`` is a closed set of canonical EP names, so this is a direct,
-    exact lookup. Any name without an explicit IHV owner (e.g.
-    ``CPUExecutionProvider``, ``DmlExecutionProvider``) resolves to
-    ``IHVType.MICROSOFT``.
+    exact lookup covering every member of that set.
 
     Args:
         ep_name: Canonical Execution Provider name (see ``utils.constants.EPName``).
 
     Returns:
         IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, or MICROSOFT).
+
+    Raises:
+        ValueError: If ``ep_name`` is not a known canonical EP name.
 
     Examples:
         >>> infer_ihv_from_ep_name("QNNExecutionProvider")
@@ -59,8 +60,10 @@ def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
         "DmlExecutionProvider": IHVType.MICROSOFT,
     }
 
-    # EPName is a closed set; anything without an explicit owner is Microsoft.
-    return ep_name_to_ihv.get(ep_name, IHVType.MICROSOFT)
+    try:
+        return ep_name_to_ihv[ep_name]
+    except KeyError:
+        raise ValueError(f"Cannot infer IHV for unknown EP name: {ep_name!r}") from None
 
 
 def get_devices_with_rule_data(ep_name: EPName) -> list[str]:

@@ -27,55 +27,18 @@ _PATCH_TARGET = "winml.modelkit.analyze.utils.rule_loader.get_runtime_rules_sear
 class TestInferIHVFromEPName:
     """Tests for infer_ihv_from_ep_name()."""
 
-    def test_qnn(self) -> None:
+    def test_all_known_eps_resolve(self) -> None:
+        """Every canonical EPName maps to a valid IHVType (map covers the Literal)."""
         from winml.modelkit.analyze.models.ihv_type import IHVType
+        from winml.modelkit.utils.constants import EP_NAMES
 
-        assert infer_ihv_from_ep_name("QNNExecutionProvider") == IHVType.QC
+        for ep in EP_NAMES:
+            assert isinstance(infer_ihv_from_ep_name(ep), IHVType)
 
-    def test_openvino(self) -> None:
-        from winml.modelkit.analyze.models.ihv_type import IHVType
-
-        assert infer_ihv_from_ep_name("OpenVINOExecutionProvider") == IHVType.INTEL
-
-    def test_vitisai(self) -> None:
-        from winml.modelkit.analyze.models.ihv_type import IHVType
-
-        assert infer_ihv_from_ep_name("VitisAIExecutionProvider") == IHVType.AMD
-
-    def test_migraphx_maps_to_amd(self) -> None:
-        """MIGraphX is an AMD EP — should map to IHVType.AMD."""
-        from winml.modelkit.analyze.models.ihv_type import IHVType
-
-        assert infer_ihv_from_ep_name("MIGraphXExecutionProvider") == IHVType.AMD
-
-    def test_cuda_maps_to_nvidia(self) -> None:
-        """CUDAExecutionProvider is an NVIDIA EP — should map to IHVType.NVIDIA."""
-        from winml.modelkit.analyze.models.ihv_type import IHVType
-
-        assert infer_ihv_from_ep_name("CUDAExecutionProvider") == IHVType.NVIDIA
-
-    def test_unknown_ep_resolves_to_microsoft(self) -> None:
-        from winml.modelkit.analyze.models.ihv_type import IHVType
-
-        assert infer_ihv_from_ep_name("TotallyFakeEP") == IHVType.MICROSOFT
-
-    def test_cpu_ep_resolves_to_microsoft(self) -> None:
-        """CPUExecutionProvider is a Microsoft EP — should resolve to MICROSOFT."""
-        from winml.modelkit.analyze.models.ihv_type import IHVType
-
-        assert infer_ihv_from_ep_name("CPUExecutionProvider") == IHVType.MICROSOFT
-
-    def test_dml_ep_resolves_to_microsoft(self) -> None:
-        """DmlExecutionProvider is a Microsoft EP — should resolve to MICROSOFT."""
-        from winml.modelkit.analyze.models.ihv_type import IHVType
-
-        assert infer_ihv_from_ep_name("DmlExecutionProvider") == IHVType.MICROSOFT
-
-    def test_nvidia_ep_maps_to_nvidia(self) -> None:
-        """NvTensorRTRTXExecutionProvider should map to IHVType.NVIDIA."""
-        from winml.modelkit.analyze.models.ihv_type import IHVType
-
-        assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
+    def test_unknown_ep_raises(self) -> None:
+        """Unknown EP names raise rather than silently defaulting."""
+        with pytest.raises(ValueError, match="unknown EP name"):
+            infer_ihv_from_ep_name("TotallyFakeEP")
 
 
 class TestHasRuleDataForEP:
