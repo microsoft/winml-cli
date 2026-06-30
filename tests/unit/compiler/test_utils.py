@@ -86,6 +86,13 @@ class TestNeedsFormatConversion:
         onnx.save(model, str(path))
         assert needs_format_conversion(path, "qnn") is True
 
+    def test_qlinear_for_qnn_canonical_name(self, tmp_path: Path) -> None:
+        """Canonical EP name must be recognized, not just the alias."""
+        model = _make_simple_model(["QLinearConv", "Relu"])
+        path = tmp_path / "qlinear.onnx"
+        onnx.save(model, str(path))
+        assert needs_format_conversion(path, "QNNExecutionProvider") is True
+
     def test_qdq_for_qnn(self, tmp_path: Path) -> None:
         model = _make_simple_model(["QuantizeLinear", "DequantizeLinear"])
         path = tmp_path / "qdq.onnx"
