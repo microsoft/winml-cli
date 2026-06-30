@@ -37,30 +37,26 @@ _OP_PATTERN = re.compile(r"(.+?)(?:\s+|:)OpId_(\d+)\s*\(cycles\)")
 _TOKEN_SUFFIX = re.compile(r"_token_\d+(?:_\d+)?")
 
 
-def parse_qnn_profiling_csv(csv_path: str | Path) -> dict[str, Any]:
-    """Parse a QNN basic-mode profiling CSV into a structured dict.
+def parse_qnn_profiling_csv(csv_path: str | Path) -> list[dict[str, Any]]:
+    """Parse a QNN basic-mode profiling CSV into a list of per-sample records.
 
-    Returns:
-    -------
-    dict with keys:
-        metadata : dict  -- aggregate hvx_threads, accel_execute_cycles,
-            accel_execute_us, num_samples (representative of all samples)
-        operators : list[dict]  -- ops averaged across samples, sorted by
-            cycles desc
-        samples : list[dict]  -- one entry per inference sample, each
-            ``{"metadata": {...}, "samples": [op, ...]}`` carrying that
-            sample's own ROOT metadata and per-operator cycle counts
+    Returns one entry per inference sample::
+
+        [
+            {
+                "metadata": {hvx_threads, accel_execute_cycles, accel_execute_us},
+                "samples": [{name, op_id, cycles}, ...],
+            },
+            ...
+        ]
+
+    Each sample carries its *own* ROOT metadata so per-operator durations can
+    be derived against the accelerator cycle counts of the same inference
+    (the cycle->US factor varies slightly between samples). Operator
+    aggregation across samples is left to the caller.
     """
     rows = _read_csv(csv_path)
-    samples = _extract_samples(rows)
-    metadata = _aggregate_metadata(samples)
-    metadata["num_samples"] = len(samples)
-    operators = _aggregate_operators(samples)
-    return {
-        "metadata": metadata,
-        "operators": operators,
-        "samples": samples,
-    }
+    return _extract_samples(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -144,25 +140,6 @@ def _extract_samples(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
     return samples
 
 
-def _aggregate_metadata(samples: list[dict[str, Any]]) -> dict[str, Any]:
-    """Build a representative metadata dict spanning all samples.
-
-    ``hvx_threads`` is constant across samples, so the first sample's value is
-    used. Accelerator cycles/US are averaged so the headline figures reflect
-    the whole run rather than a single inference.
-    """
-    if not samples:
-        return {"hvx_threads": 0, "accel_execute_cycles": 0, "accel_execute_us": 0}
-
-    n = len(samples)
-    metas = [s["metadata"] for s in samples]
-    return {
-        "hvx_threads": metas[0]["hvx_threads"],
-        "accel_execute_cycles": round(sum(m["accel_execute_cycles"] for m in metas) / n),
-        "accel_execute_us": round(sum(m["accel_execute_us"] for m in metas) / n),
-    }
-
-
 def _parse_node_event(event_id: str, time_val: str) -> dict[str, Any] | None:
     """Parse a single NODE SUB-EVENT identifier into name/op_id/cycles."""
     m = _OP_PATTERN.match(event_id)
@@ -177,48 +154,3 @@ def _parse_node_event(event_id: str, time_val: str) -> dict[str, Any] | None:
     name = _TOKEN_SUFFIX.sub("", raw_name)
 
     return {"name": name, "op_id": op_id, "cycles": cycles}
-
-
-def _aggregate_operators(
-    samples: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Average operator cycles across samples and sort by cycles desc.
-
-    Operators are keyed by ``op_id`` so identically-named ops in
-    different positions are kept separate.
-    """
-    if not samples:
-        return []
-
-    # Accumulate totals keyed by op_id.
-    totals: dict[int, dict[str, Any]] = {}
-    counts: dict[int, int] = {}
-
-    for sample in samples:
-        for op in sample["samples"]:
-            oid = op["op_id"]
-            if oid not in totals:
-                totals[oid] = {
-                    "name": op["name"],
-                    "op_id": oid,
-                    "cycles": 0,
-                }
-                counts[oid] = 0
-            totals[oid]["cycles"] += op["cycles"]
-            counts[oid] += 1
-
-    # Average.
-    aggregated: list[dict[str, Any]] = []
-    for oid, entry in totals.items():
-        avg_cycles = entry["cycles"] / counts[oid]
-        aggregated.append(
-            {
-                "name": entry["name"],
-                "op_id": entry["op_id"],
-                "cycles": avg_cycles,
-            }
-        )
-
-    # Sort descending by cycles.
-    aggregated.sort(key=lambda op: op["cycles"], reverse=True)
-    return aggregated

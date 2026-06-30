@@ -11,6 +11,10 @@ from winml.modelkit.optracing import OperatorMetrics, OpTraceResult, write_op_tr
 from winml.modelkit.optracing.qnn.csv_parser import (
     parse_qnn_profiling_csv,  # Testing internal implementation
 )
+from winml.modelkit.optracing.qnn.profiler import (
+    _csv_operator_metrics,  # Testing internal implementation
+    _csv_summary,
+)
 from winml.modelkit.optracing.qnn.qhas_parser import parse_qhas  # Testing internal implementation
 
 
@@ -19,28 +23,17 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 def test_basic_pipeline_csv_to_json(tmp_path):
     """Full basic mode: CSV -> OpTraceResult -> JSON file."""
-    csv_data = parse_qnn_profiling_csv(FIXTURE_DIR / "optrace_resnet50.csv")
+    samples = parse_qnn_profiling_csv(FIXTURE_DIR / "optrace_resnet50.csv")
 
-    total_cycles = sum(op["cycles"] for op in csv_data["operators"])
-
-    operators = [
-        OperatorMetrics(
-            name=op["name"],
-            op_path=op["name"],  # CSV doesn't distinguish type vs path
-            op_id=op["op_id"],
-            duration_us=op["cycles"],  # keep raw cycles as duration placeholder
-            percent_of_total=((op["cycles"] / total_cycles * 100) if total_cycles else 0),
-        )
-        for op in csv_data["operators"]
-    ]
+    operators = _csv_operator_metrics(samples)
 
     result = OpTraceResult(
         model="resnet-50",
         device="npu",
         tracing_level="basic",
         operators=operators,
-        num_samples=csv_data["metadata"]["num_samples"],
-        summary=csv_data["metadata"],
+        num_samples=len(samples),
+        summary=_csv_summary(samples),
     )
 
     out = tmp_path / "basic_op_trace.json"
@@ -202,9 +195,10 @@ def test_round_trip_json():
 
 def test_csv_parser_operator_count():
     """CSV parser finds the expected number of operators."""
-    data = parse_qnn_profiling_csv(FIXTURE_DIR / "optrace_resnet50.csv")
+    samples = parse_qnn_profiling_csv(FIXTURE_DIR / "optrace_resnet50.csv")
+    operators = _csv_operator_metrics(samples)
     # ResNet-50 produces ~79 aggregated QNN ops from the fixture
-    assert len(data["operators"]) > 50
+    assert len(operators) > 50
 
 
 def test_qhas_parser_operator_count():
@@ -216,9 +210,9 @@ def test_qhas_parser_operator_count():
 
 def test_cross_parser_top_operator_is_conv():
     """Both parsers should show Conv as the top operator for ResNet."""
-    # CSV: operators are sorted by cycles descending
-    csv_data = parse_qnn_profiling_csv(FIXTURE_DIR / "optrace_resnet50.csv")
-    top_csv = csv_data["operators"][0]["name"].lower()
+    # CSV: aggregated operators are sorted by duration descending
+    samples = parse_qnn_profiling_csv(FIXTURE_DIR / "optrace_resnet50.csv")
+    top_csv = _csv_operator_metrics(samples)[0].name.lower()
 
     # QHAS: operators are not pre-sorted; find the one with max duration
     qhas_raw = json.loads((FIXTURE_DIR / "qhas_resnet50.json").read_text())
