@@ -810,8 +810,14 @@ def build(
 
         # Map common errors to actionable hints
         err_str = str(e)
+        err_lower = err_str.lower()
         hint = None
-        if "Quantization failed" in err_str:
+        if "disk space" in err_lower or "no space left" in err_lower:
+            hint = (
+                "Free up disk space (e.g. clear the HuggingFace cache or "
+                "~/.cache/winml) and rebuild."
+            )
+        elif "Quantization failed" in err_str:
             hint = "Try: --no-quant to skip quantization"
         elif "Compilation failed" in err_str:
             hint = "Try: --no-compile to skip compilation"

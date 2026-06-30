@@ -333,6 +333,7 @@ def _run_multi_precision(
     """Execute a multi-pass quantization pipeline from ordered precision strings."""
     from ..config.precision import extract_weight_bits
     from ..quant import Quantizer, WinMLQuantizationConfig, expand_precision
+    from ..quant.quantizer import _check_input_model_opset
 
     modes = [_cli_precision_to_mode(p) for p in precision]
     has_calibration_pass = any(m == "static" for m in modes)
@@ -387,6 +388,17 @@ def _run_multi_precision(
 
     try:
         console.print(f"\n[bold]Running pipeline: {label}...[/bold]")
+        # Mirror quantize_onnx's input guard: the multi-precision path drives the
+        # Quantizer pipeline directly (bypassing quantize_onnx), so surface a
+        # clear disk-full/corruption error here too instead of ORT's opaque
+        # "Failed to find proper ai.onnx domain" deep inside a pass. A missing
+        # file is left to Quantizer.run(), which reports "Model not found".
+        opset_error = _check_input_model_opset(model) if model.exists() else None
+        if opset_error is not None:
+            console.print("\n[bold red]Pipeline failed:[/bold red]")
+            console.print(f"  {opset_error}")
+            raise click.ClickException("Pipeline failed")
+
         result = Quantizer(passes).run(model, output)
 
         if result.success:
