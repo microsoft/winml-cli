@@ -116,6 +116,13 @@ class PipelineStage:
     inputs: list[str]
     outputs: list[str]
     is_lm_head: bool = False
+    session_options: dict | None = None
+    """Per-stage ORT session options (e.g. provider_options for QNN).
+
+    When set, emitted verbatim as the ``session_options`` key in the
+    ``genai_config.json`` pipeline stage.  Leave ``None`` (default) for
+    stages that should run on the default (CPU) provider.
+    """
 
     def to_dict(self) -> dict:
         """Serialize to the dict format expected by ``genai_config.json``."""
@@ -126,6 +133,8 @@ class PipelineStage:
             "run_on_prompt": self.run_on_prompt,
             "run_on_token_gen": self.run_on_token_gen,
         }
+        if self.session_options:
+            d["session_options"] = self.session_options
         if self.is_lm_head:
             d["is_lm_head"] = True
         return d
@@ -335,6 +344,42 @@ def _sort_patterns_by_first_occurrence(patterns: dict[str, str], names: list[str
 
 
 # ---------------------------------------------------------------------------
+# Per-EP stage session_options helpers
+# ---------------------------------------------------------------------------
+
+
+def _qnn_stage_session_options(log_id: str, soc_model: str = "60") -> dict:
+    """Return the ``session_options`` block that routes a stage to QNN HTP.
+
+    Args:
+        log_id: ORT log identifier (shown in ORT logs), e.g.
+            ``"onnxruntime-genai.context"``.
+        soc_model: Snapdragon SoC model number passed to the QNN HTP backend.
+            ``"60"`` targets Snapdragon 8 Gen 3 (X Elite).  Change for other
+            SoCs (e.g. ``"55"`` for 8 Gen 2, ``"73"`` for 8 Elite).
+
+    Returns:
+        Dict suitable for the ``session_options`` key of a pipeline stage in
+        ``genai_config.json``.
+    """
+    return {
+        "log_id": log_id,
+        "provider_options": [
+            {
+                "qnn": {
+                    "backend_path": "QnnHtp.dll",
+                    "htp_performance_mode": "burst",
+                    "htp_graph_finalization_optimization_mode": "3",
+                    "soc_model": soc_model,
+                }
+            }
+        ],
+        "intra_op_num_threads": 2,
+        "inter_op_num_threads": 1,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Qwen3 transformer-only pipeline factory
 # ---------------------------------------------------------------------------
 
@@ -348,6 +393,8 @@ def build_qwen3_transformer_only_stages(
     iterator_filename: str = DEFAULT_ITERATOR_FILENAME,
     embeddings_filename: str = DEFAULT_EMBEDDINGS_FILENAME,
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
+    ep: str = "cpu",
+    soc_model: str = "60",
 ) -> tuple[list[PipelineStage], DecoderIOMapping]:
     """Build pipeline stages by introspecting the built ONNX models.
 
@@ -363,6 +410,13 @@ def build_qwen3_transformer_only_stages(
         iterator_filename: Bundle filename for the iterator model.
         embeddings_filename: Bundle filename for the embeddings model.
         lm_head_filename: Bundle filename for the lm_head model.
+        ep: Execution provider for the transformer stages.  ``"qnn"`` injects
+            QNN HTP ``session_options`` into the ``context`` and ``iterator``
+            stages so they run on the NPU while ``embeddings`` and ``lm_head``
+            continue on CPU.  ``"cpu"`` (default) omits ``session_options``
+            from all stages.
+        soc_model: Snapdragon SoC model number forwarded to the QNN backend
+            when ``ep="qnn"``.  Default ``"60"`` targets Snapdragon 8 Gen 3.
 
     Returns:
         ``(stages, decoder_io)`` — a 4-element :class:`PipelineStage` list and
@@ -406,6 +460,17 @@ def build_qwen3_transformer_only_stages(
         present_value_names=pres_val_fmt,
     )
 
+    # Per-stage session_options: NPU stages get QNN config; CPU and others get None.
+    ctx_session_opts: dict | None = None
+    iter_session_opts: dict | None = None
+    if ep == "qnn":
+        ctx_session_opts = _qnn_stage_session_options(
+            "onnxruntime-genai.context", soc_model=soc_model
+        )
+        iter_session_opts = _qnn_stage_session_options(
+            "onnxruntime-genai.iterator", soc_model=soc_model
+        )
+
     stages: list[PipelineStage] = [
         PipelineStage(
             name="embeddings",
@@ -422,6 +487,7 @@ def build_qwen3_transformer_only_stages(
             run_on_token_gen=False,
             inputs=ctx_inputs,
             outputs=ctx_outputs,
+            session_options=ctx_session_opts,
         ),
         PipelineStage(
             name="iterator",
@@ -430,6 +496,7 @@ def build_qwen3_transformer_only_stages(
             run_on_token_gen=True,
             inputs=iter_inputs,
             outputs=iter_outputs,
+            session_options=iter_session_opts,
         ),
         PipelineStage(
             name="lm_head",
@@ -463,6 +530,8 @@ def write_genai_bundle(
     iterator_filename: str = DEFAULT_ITERATOR_FILENAME,
     embeddings_filename: str = DEFAULT_EMBEDDINGS_FILENAME,
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
+    ep: str = "cpu",
+    soc_model: str = "60",
 ) -> Path:
     """Assemble a complete ``onnxruntime-genai`` bundle in *output_dir*.
 
@@ -484,6 +553,12 @@ def write_genai_bundle(
         iterator_filename: Bundle filename for the iterator model.
         embeddings_filename: Bundle filename for the embeddings model.
         lm_head_filename: Bundle filename for the lm_head model.
+        ep: Execution provider for the transformer (context/iterator) stages.
+            ``"qnn"`` injects QNN HTP ``session_options`` so those stages run
+            on the NPU while embeddings and lm_head run on CPU.
+            ``"cpu"`` (default) omits ``session_options`` (all stages on CPU).
+        soc_model: Snapdragon SoC model passed to the QNN backend when
+            ``ep="qnn"``.  Default ``"60"`` = Snapdragon 8 Gen 3 / X Elite.
 
     Returns:
         Path to the written ``genai_config.json``.
@@ -538,6 +613,8 @@ def write_genai_bundle(
         iterator_filename=iterator_filename,
         embeddings_filename=embeddings_filename,
         lm_head_filename=lm_head_filename,
+        ep=ep,
+        soc_model=soc_model,
     )
 
     # 5. Write genai_config.json.

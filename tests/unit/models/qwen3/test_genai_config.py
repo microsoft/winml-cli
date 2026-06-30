@@ -456,3 +456,60 @@ class TestBuildQwen3TransformerOnlyStages:
         )
         assert result["model"]["type"] == "decoder-pipeline"
         assert len(result["model"]["decoder"]["pipeline"]) == 4
+
+    def test_cpu_ep_no_session_options(self) -> None:
+        """Default cpu ep: context/iterator stages have no session_options."""
+        with self._patch_onnx():
+            stages, _ = build_qwen3_transformer_only_stages(
+                "ctx.onnx", "iter.onnx", num_layers=4, ep="cpu"
+            )
+        ctx = next(s for s in stages if s.name == "context")
+        itr = next(s for s in stages if s.name == "iterator")
+        assert ctx.session_options is None
+        assert itr.session_options is None
+
+    def test_qnn_ep_injects_session_options(self) -> None:
+        """ep='qnn': context/iterator get QNN session_options; emb/lm_head do not."""
+        with self._patch_onnx():
+            stages, _ = build_qwen3_transformer_only_stages(
+                "ctx.onnx", "iter.onnx", num_layers=4, ep="qnn"
+            )
+        stage_map = {s.name: s for s in stages}
+        assert stage_map["embeddings"].session_options is None
+        assert stage_map["lm_head"].session_options is None
+        ctx_opts = stage_map["context"].session_options
+        itr_opts = stage_map["iterator"].session_options
+        assert ctx_opts is not None
+        assert itr_opts is not None
+        assert ctx_opts["provider_options"][0]["qnn"]["backend_path"] == "QnnHtp.dll"
+        assert itr_opts["log_id"] == "onnxruntime-genai.iterator"
+
+    def test_qnn_session_options_in_serialized_config(self) -> None:
+        """QNN session_options appear in genai_config.json pipeline output."""
+        with self._patch_onnx():
+            stages, decoder_io = build_qwen3_transformer_only_stages(
+                "ctx.onnx", "iter.onnx", num_layers=4, ep="qnn"
+            )
+        cfg = build_genai_config(
+            _mock_config(num_hidden_layers=4),
+            max_cache_len=256,
+            prefill_seq_len=64,
+            pipeline=stages,
+            decoder_io=decoder_io,
+        )
+        pipeline = cfg["model"]["decoder"]["pipeline"]
+        ctx_dict = next(s for s in pipeline if "context" in s)["context"]
+        itr_dict = next(s for s in pipeline if "iterator" in s)["iterator"]
+        emb_dict = next(s for s in pipeline if "embeddings" in s)["embeddings"]
+        assert "session_options" in ctx_dict
+        assert "session_options" in itr_dict
+        assert "session_options" not in emb_dict
+
+    def test_custom_soc_model(self) -> None:
+        """soc_model parameter propagates to QNN provider_options."""
+        with self._patch_onnx():
+            stages, _ = build_qwen3_transformer_only_stages(
+                "ctx.onnx", "iter.onnx", num_layers=4, ep="qnn", soc_model="73"
+            )
+        ctx = next(s for s in stages if s.name == "context")
+        assert ctx.session_options["provider_options"][0]["qnn"]["soc_model"] == "73"

@@ -220,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
             prefill_seq_len=args.prefill_seq_len,
             embeddings_src=args.embeddings,
             lm_head_src=args.lm_head,
+            ep="qnn" if args.device == "npu" else args.device,
         )
         print(f"   genai_config.json -> {config_path}")
         if args.embeddings is None:
