@@ -535,19 +535,6 @@ class WinMLSession:
 
         return ort_inputs
 
-    def _detect_best_device(self) -> str:
-        """Auto-detect best available device.
-
-        Returns "auto" to let ORT select the best provider based on PREFER_NPU policy.
-        This avoids using any explicit EP provider names.
-        """
-        # With PREFER_NPU policy, ORT will automatically select:
-        # 1. NPU (QNN) if available
-        # 2. GPU (CUDA/DML) if no NPU
-        # 3. CPU as fallback
-        logger.info("Auto-detecting device (using PREFER_NPU policy)")
-        return "auto"
-
     def _get_compile_suggestion(self, device: str, error: Exception) -> str:
         """Get compile error suggestion based on device policy."""
         error_str = str(error).lower()
@@ -561,14 +548,6 @@ class WinMLSession:
             return "Verify GPU drivers and ONNX Runtime GPU package are installed"
 
         return "Check error details above"
-
-    def _get_install_suggestion(self, device: str) -> str:
-        """Get install suggestion for device policy."""
-        suggestions = {
-            "npu": "Install onnxruntime-windowsml",
-            "gpu": "Install onnxruntime-windowsml",
-        }
-        return suggestions.get(device.lower(), "")
 
     @property
     def state(self) -> SessionState:

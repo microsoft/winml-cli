@@ -16,6 +16,7 @@ from winml.modelkit.session.monitor.op_metrics import (
 )
 from winml.modelkit.session.monitor.report import (
     _format_bytes,  # Testing internal implementation
+    _top_n,  # Testing internal implementation (T-10 dedup helper)
     display_op_trace_report,
     write_op_trace_json,
 )
@@ -338,3 +339,48 @@ class TestFormatBytes:
         result = _format_bytes(42)
         assert result == "42 B"
         assert "." not in result
+
+
+# ---------------------------------------------------------------------------
+# _top_n helper (T-10 dedup of basic/detail sort+slice block)
+# ---------------------------------------------------------------------------
+
+
+class TestTopN:
+    """Test ``_top_n`` — the deduplicated sort+slice helper.
+
+    Both ``_display_basic_report`` and ``_display_detail_report`` used to
+    carry an identical ``sorted(...)[:top_n]`` block; T-10 extracts the
+    pattern into one place so adding a tertiary tie-break (or changing
+    the sort key) only happens once.
+    """
+
+    def _ops(self) -> list[OperatorMetrics]:
+        return [
+            OperatorMetrics(name="A", op_path="z", percent_of_total=10.0),
+            OperatorMetrics(name="B", op_path="a", percent_of_total=50.0),
+            OperatorMetrics(name="C", op_path="m", percent_of_total=50.0),
+            OperatorMetrics(name="D", op_path="b", percent_of_total=20.0),
+        ]
+
+    def test_sorts_descending_by_key(self) -> None:
+        """``_top_n`` returns the highest-key entries first."""
+        result = _top_n(self._ops(), n=4, key=lambda o: -o.percent_of_total)
+        percents = [o.percent_of_total for o in result]
+        assert percents == sorted(percents, reverse=True)
+
+    def test_slices_to_top_n_entries(self) -> None:
+        """``_top_n(ops, n=2)`` returns at most 2 entries."""
+        result = _top_n(self._ops(), n=2, key=lambda o: -o.percent_of_total)
+        assert len(result) == 2
+        assert {o.name for o in result} == {"B", "C"}  # the two 50% rows
+
+    def test_returns_empty_on_empty_input(self) -> None:
+        """Empty input survives — caller's empty-guard handles the message."""
+        assert _top_n([], n=10, key=lambda o: -o.percent_of_total) == []
+
+    def test_n_larger_than_input_returns_all(self) -> None:
+        """``n`` larger than ``len(ops)`` returns every operator."""
+        ops = self._ops()
+        result = _top_n(ops, n=100, key=lambda o: -o.percent_of_total)
+        assert len(result) == len(ops)

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..optim.config import WinMLOptimizationConfig
-from ..utils.constants import normalize_ep_name
+from ..utils.cli import normalize_ep_name
 from .models.information import Information
 from .models.support_level import SupportLevel
 

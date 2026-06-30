@@ -607,11 +607,10 @@ def generate_hf_build_config(
     else:
         # Even in auto/auto mode, set compile provider from detected hardware
         # instead of preserving the hardcoded EPConfig default (#412).
-        from ..session import default_ep_for_device, short_ep_name
+        from ..session import _ep_short_or_none, default_ep_for_device
 
         _canonical = default_ep_for_device(resolved_device)
-        _short = short_ep_name(_canonical) if _canonical is not None else None
-        hw_provider = _short if _short != "cpu" else None
+        hw_provider = _ep_short_or_none(_canonical) if _canonical is not None else None
         if hw_provider is not None:
             parent_config.compile = WinMLCompileConfig.for_provider(
                 hw_provider,

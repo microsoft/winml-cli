@@ -33,12 +33,37 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Final
 
+import onnxruntime as ort
+
 
 if TYPE_CHECKING:
-    import onnxruntime as ort
+    pass
 
 
 logger = logging.getLogger(__name__)
+
+
+# Bidirectional bridge between lowercase short device strings ("cpu", "gpu",
+# "npu" — the project-wide convention used by ``VALID_DEVICES``,
+# ``EPDeviceTarget.device``, ``EPDeviceSpec.device``) and ORT's
+# :class:`onnxruntime.OrtHardwareDeviceType` enum used by the runtime checker
+# pipeline (``EPChecker`` and friends).
+#
+# Previously these lived in ``utils/constants.py`` with **uppercase** keys
+# (``"CPU"``, ``"GPU"``, ``"NPU"``) — a silent casing-mismatch footgun
+# whenever a lowercase device string from the session taxonomy reached the
+# lookup. Unified on lowercase by T-16 so the whole codebase agrees.
+DEVICE_TO_DEVICE_TYPE: Final[dict[str, ort.OrtHardwareDeviceType]] = {
+    "cpu": ort.OrtHardwareDeviceType.CPU,
+    "gpu": ort.OrtHardwareDeviceType.GPU,
+    "npu": ort.OrtHardwareDeviceType.NPU,
+}
+
+DEVICE_TYPE_TO_DEVICE: Final[dict[ort.OrtHardwareDeviceType, str]] = {
+    ort.OrtHardwareDeviceType.CPU: "cpu",
+    ort.OrtHardwareDeviceType.GPU: "gpu",
+    ort.OrtHardwareDeviceType.NPU: "npu",
+}
 
 
 # --- exceptions ------------------------------------------------------------
@@ -88,7 +113,6 @@ _SHORT_TO_FULL: Final[dict[str, str]] = {
     "vitisai": "VitisAIExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
     "nvtensorrtrtx": "NvTensorRtRtxExecutionProvider",
-    "cuda": "CUDAExecutionProvider",
     "tensorrt": "TensorrtExecutionProvider",
     "dml": "DmlExecutionProvider",
     "cpu": "CPUExecutionProvider",
@@ -125,6 +149,21 @@ def short_ep_name(full: str) -> str:
     if full in _FULL_TO_SHORT:
         return _FULL_TO_SHORT[full]
     return full.removesuffix("ExecutionProvider").lower()
+
+
+def _ep_short_or_none(ep_full: str) -> str | None:
+    """Map a full EP name to its short form, collapsing ``"cpu"`` to ``None``.
+
+    ``CPUExecutionProvider`` has no compile step, so callers that wire
+    a compile-stage EP off a resolved device want ``None`` (= "no compile
+    stage"), not the short string ``"cpu"``. The two consumers
+    (``config/build.py`` STEP 4 auto/auto branch and ``config/precision.py``
+    ``resolve_precision``) previously inlined the same
+    ``_short if _short != "cpu" else None`` collapse — centralized here
+    so the rule lives in exactly one place.
+    """
+    short = short_ep_name(ep_full)
+    return None if short == "cpu" else short
 
 
 # --- validation closed-sets -----------------------------------------------
@@ -737,12 +776,8 @@ class WinMLDevice:
         return tuple(out)
 
 
-def _format_bytes(n: int) -> str:
-    """Format bytes as a human-readable string. Best-effort."""
-    if n >= 1024**3:
-        return f"{n / 1024**3:.1f} GiB"
-    if n >= 1024**2:
-        return f"{n / 1024**2:.1f} MiB"
-    if n >= 1024:
-        return f"{n / 1024:.1f} KiB"
-    return f"{n} B"
+# T-14: single source of truth for byte formatting lives in
+# ``session.monitor.report`` (signature is the strict superset, accepting
+# ``int | float | None``). Re-exported here so existing call sites in
+# ``WinMLDevice.ep_facts()`` keep working through a private import.
+from .monitor.report import _format_bytes  # noqa: E402, F401

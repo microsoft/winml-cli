@@ -257,17 +257,11 @@ def config(
 
     # --ep arrives pre-split as (ep, source) or None thanks to the
     # EpAtSourceParamType. config.py doesn't yet honor source pinning
-    # (its pipeline takes a bare EP short-name), so reject the @-form at
-    # the CLI boundary rather than silently dropping the tag.
-    if ep:
-        ep_part, ep_source = ep
-        if ep_source is not None:
-            raise click.UsageError(
-                f"`winml config` does not yet support source pinning "
-                f"(got --ep {ep_part}@{ep_source!r}); "
-                f"use --ep {ep_part!r} without '@'."
-            )
-        ep = ep_part
+    # (its pipeline takes a bare EP short-name); _reject_ep_source raises
+    # at the CLI boundary if @<source> was given, else returns the bare
+    # ep short name (or None when --ep was not supplied).
+    from ._ep_arg import _reject_ep_source
+    ep = _reject_ep_source(ep, "winml config")
 
     try:
         from ..config import (
@@ -481,7 +475,7 @@ def config(
 
             # EP — only shown when user explicitly passed --ep
             if ep:
-                from ..utils.constants import normalize_ep_name
+                from ..utils.cli import normalize_ep_name
 
                 _ep_full = normalize_ep_name(ep) or ep
                 console.print(f"      EP:         [cyan]{_ep_full}[/cyan]")

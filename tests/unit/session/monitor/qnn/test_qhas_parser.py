@@ -221,3 +221,43 @@ def test_qnn_internal_missing_transform_key_named_in_error():
 
     msg = str(exc_info.value)
     assert "cycles" in msg, f"KeyError message must name the missing field 'cycles'; got: {msg!r}"
+
+
+# ---------------------------------------------------------------------------
+# T-12: _REQUIRED_SUMMARY_KEYS table (dedup driver for _extract_summary)
+# ---------------------------------------------------------------------------
+
+
+def test_required_summary_keys_drives_full_renderer_surface() -> None:
+    """The ``_REQUIRED_SUMMARY_KEYS`` table maps every renderer-canonical
+    key to its raw QHAS key, replacing the 14 hand-written ``_require``
+    calls in ``_extract_summary``.
+
+    Pins the dedup contract introduced by T-12: ``_extract_summary`` is
+    one loop over this table, not 14 boilerplate lines. The table itself
+    is the single source of truth for the QHAS → renderer name mapping.
+    """
+    from winml.modelkit.session.monitor.qnn._internal import (
+        _REQUIRED_SUMMARY_KEYS,
+    )
+
+    expected = {
+        "inference_us": "time_us",
+        "execute_us": "graph_execute_us",
+        "inf_per_s": "inf_per_s",
+        "timeline_cycles": "timeline_cycles",
+        "utilization_pct": "percent_utilization",
+        "dram_read_bytes": "total_dram_read",
+        "dram_write_bytes": "total_dram_write",
+        "vtcm_read_bytes": "total_vtcm_read",
+        "vtcm_write_bytes": "total_vtcm_write",
+        "vtcm_peak_bytes": "peak_vtcm_alloc",
+        "qnn_nodes": "qnn_nodes",
+        "htp_nodes": "htp_nodes",
+        "unique_qnn_ops": "unique_qnn_ops",
+        "unique_htp_ops": "unique_htp_ops",
+    }
+    assert dict(_REQUIRED_SUMMARY_KEYS) == expected, (
+        "_REQUIRED_SUMMARY_KEYS must enumerate every renderer key the "
+        "old 14-call hand-written block produced."
+    )

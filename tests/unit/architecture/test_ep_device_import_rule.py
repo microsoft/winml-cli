@@ -192,7 +192,7 @@ def test_detector_does_not_flag_allowed_forms(source: str) -> None:
 # --------------------------------------------------------------------------
 
 _EP_SHORT_NAMES: frozenset[str] = frozenset(
-    {"qnn", "openvino", "vitisai", "migraphx", "dml", "cuda", "tensorrt", "nv_tensorrt_rtx"}
+    {"qnn", "openvino", "vitisai", "migraphx", "dml", "tensorrt", "nv_tensorrt_rtx"}
 )
 _DEVICE_STRINGS: frozenset[str] = frozenset({"npu", "gpu", "cpu"})
 # ep_device.py and utils/cli.py are the only authorised homes for EP/device literals.

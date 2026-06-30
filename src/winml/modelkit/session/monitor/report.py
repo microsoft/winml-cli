@@ -10,11 +10,12 @@ Relocated from optracing/report.py as part of the op-tracing refactor.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from rich.console import Console
 from rich.table import Table
 
-from .op_metrics import OpTraceResult  # noqa: TC001 (used at runtime)
+from .op_metrics import OperatorMetrics, OpTraceResult  # noqa: TC001 (used at runtime)
 
 
 def display_op_trace_report(
@@ -62,6 +63,23 @@ def write_op_trace_json(result: OpTraceResult, output_path: Path | str) -> None:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _top_n(
+    operators: list[OperatorMetrics],
+    n: int,
+    key: Callable[[OperatorMetrics], object],
+) -> list[OperatorMetrics]:
+    """Return the top-``n`` operators by ``key`` with deterministic tie-break.
+
+    Both basic and detail rendering paths want operators presented in
+    descending order of ``percent_of_total`` so the ``% Tot`` column scans
+    naturally and ``Cum %`` (detail mode) is monotonic. Upstream parsers vary
+    (CSV sorts by cycles, QHAS preserves JSON order), so this defensive sort
+    runs regardless. ``op_path`` is appended as the tie-breaker so identical
+    percentages render in deterministic order.
+    """
+    return sorted(operators, key=lambda o: (key(o), o.op_path))[:n]
 
 
 def _format_bytes(n: int | float | None) -> str:
@@ -125,16 +143,7 @@ def _display_basic_report(result: OpTraceResult, console: Console, top_n: int) -
         console.print(" | ".join(parts))
     console.print()
 
-    # Defensive sort: render layer guarantees ops are presented in
-    # descending order of percent_of_total so the % Tot column scans
-    # naturally and downstream Cum % (detail mode) is monotonic.
-    # Upstream parsers vary (CSV sorts by cycles, QHAS preserves JSON
-    # order), so we sort here regardless. Tie-break on op_path for
-    # deterministic output.
-    ops = sorted(
-        result.operators,
-        key=lambda o: (-o.percent_of_total, o.op_path),
-    )[:top_n]
+    ops = _top_n(result.operators, top_n, key=lambda o: -o.percent_of_total)
     if not ops:
         console.print("[dim]No operator data available.[/dim]")
         return
@@ -197,16 +206,7 @@ def _display_detail_report(result: OpTraceResult, console: Console, top_n: int) 
     console.print()
 
     # Operator table — 10 columns (mockup canon: console_mockup.py:448-465)
-    # Defensive sort: render layer guarantees ops are presented in
-    # descending order of percent_of_total so the % Tot column scans
-    # naturally and downstream Cum % (detail mode) is monotonic.
-    # Upstream parsers vary (CSV sorts by cycles, QHAS preserves JSON
-    # order), so we sort here regardless. Tie-break on op_path for
-    # deterministic output.
-    ops = sorted(
-        result.operators,
-        key=lambda o: (-o.percent_of_total, o.op_path),
-    )[:top_n]
+    ops = _top_n(result.operators, top_n, key=lambda o: -o.percent_of_total)
     if not ops:
         console.print("[dim]No operator data available.[/dim]")
         return

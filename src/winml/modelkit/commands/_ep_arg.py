@@ -96,3 +96,41 @@ class EpAtSourceParamType(click.ParamType):
             return split_ep_at_source(value)
         except ValueError as e:
             self.fail(str(e), param, ctx)
+
+
+def _reject_ep_source(
+    ep: tuple[str, str | None] | None,
+    command_name: str,
+) -> str | None:
+    """Reject the ``--ep <name>@<source>`` form at the CLI boundary.
+
+    Used by commands that route ``--ep`` through
+    :class:`EpAtSourceParamType` but whose downstream pipeline does not
+    yet honor the source-tag (build, config). Collapses the verbatim
+    try/except block that those commands previously duplicated.
+
+    Args:
+        ep: The pre-split value from :class:`EpAtSourceParamType` —
+            ``None`` when ``--ep`` was not given, otherwise
+            ``(ep_short_name, source_tag_or_None)``.
+        command_name: User-visible command string for the error message
+            (e.g. ``"winml build"``, ``"winml config"``).
+
+    Returns:
+        The bare ``ep`` short name (``str``) when given, or ``None``
+        when ``--ep`` was not supplied.
+
+    Raises:
+        click.UsageError: when ``ep`` carries a non-``None`` source tag
+            (e.g. ``--ep openvino@pypi``).
+    """
+    if ep is None:
+        return None
+    ep_part, ep_source = ep
+    if ep_source is not None:
+        raise click.UsageError(
+            f"`{command_name}` does not yet support source pinning "
+            f"(got --ep {ep_part}@{ep_source!r}); "
+            f"use --ep {ep_part!r} without '@'."
+        )
+    return ep_part

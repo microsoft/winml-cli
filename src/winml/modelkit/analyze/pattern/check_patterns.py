@@ -26,8 +26,8 @@ from ...pattern.base import (
     get_pattern_input_generator,
     get_registered_pattern_input_generators,
 )
+from ...session import DEVICE_TO_DEVICE_TYPE, DEVICE_TYPE_TO_DEVICE
 from ...sysinfo import SysInfo
-from ...utils import constants
 from ..runtime_checker.ep_checker import EPChecker
 from ..utils import CheckResultWriter
 
@@ -122,7 +122,7 @@ def check_patterns(
             opset_suffix = f"_{first_domain.value}_opset{first_version}"
 
         # Prepare output file
-        device = constants.DEVICE_TYPE_TO_DEVICE[ep_checker.device_type]
+        device = DEVICE_TYPE_TO_DEVICE[ep_checker.device_type].upper()
         output_filename = f"{pattern_name}_{ep_checker.ep_name}_{device}{opset_suffix}.json"
         output_path = output_dir / output_filename
 
@@ -225,7 +225,7 @@ def get_ep_checker(ep_name: str, device: str) -> EPChecker:
     Raises:
         ValueError: If the execution provider name is not supported.
     """
-    device_type = constants.DEVICE_TO_DEVICE_TYPE[device]
+    device_type = DEVICE_TO_DEVICE_TYPE[device.lower()]
     ep_name_to_checker: dict[str, Any] = {
         "QNNExecutionProvider": QNNNPUChecker,
         "OpenVINOExecutionProvider": OpenVINONPUChecker,

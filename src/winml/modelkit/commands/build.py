@@ -374,17 +374,11 @@ def build(
 
     # --ep arrives pre-split as (ep, source) or None thanks to the
     # EpAtSourceParamType. build.py doesn't yet honor source pinning
-    # (its analyzer pipeline takes a bare EP short-name), so reject the
-    # @-form at the CLI boundary rather than silently dropping the tag.
-    if ep:
-        ep_part, ep_source = ep
-        if ep_source is not None:
-            raise click.UsageError(
-                f"`winml build` does not yet support source pinning "
-                f"(got --ep {ep_part}@{ep_source!r}); "
-                f"use --ep {ep_part!r} without '@'."
-            )
-        ep = ep_part
+    # (its analyzer pipeline takes a bare EP short-name); _reject_ep_source
+    # raises at the CLI boundary if @<source> was given, else returns the
+    # bare ep short name (or None when --ep was not supplied).
+    from ._ep_arg import _reject_ep_source
+    ep = _reject_ep_source(ep, "winml build")
 
     # If ep unspecified, defer to the unified resolver — auto-detects the best
     # available (EP, device) pair via the catalog + host inventory.  No

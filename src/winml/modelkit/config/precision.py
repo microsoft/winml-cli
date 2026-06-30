@@ -21,9 +21,9 @@ from dataclasses import dataclass
 from ..session import (
     VALID_DEVICES,
     VALID_EPS,
+    _ep_short_or_none,
     default_ep_for_device,
     ep_to_device,
-    short_ep_name,
 )
 
 
@@ -273,8 +273,7 @@ def resolve_precision(
         compile_provider: str | None = ep
     else:
         _canonical = default_ep_for_device(resolved_device)
-        _short = short_ep_name(_canonical) if _canonical is not None else None
-        compile_provider = _short if _short != "cpu" else None
+        compile_provider = _ep_short_or_none(_canonical) if _canonical is not None else None
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}
     if is_quantized_precision(resolved_precision):

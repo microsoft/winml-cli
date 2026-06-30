@@ -233,16 +233,20 @@ def test_short_ep_name_round_trip_with_expand() -> None:
         assert short_ep_name(expand_ep_name(short)) == short
 
 
-def test_expand_ep_name_cuda_tensorrt() -> None:
-    """cuda and tensorrt short names expand to canonical ORT EP names."""
-    assert expand_ep_name("cuda") == "CUDAExecutionProvider"
+def test_expand_ep_name_tensorrt() -> None:
+    """``tensorrt`` short name expands to ``TensorrtExecutionProvider``.
+
+    Post-T-15: ``cuda`` is no longer a recognized alias (the catalog has
+    no ``CUDAExecutionProvider`` row; ``cuda`` was dropped from
+    ``_SHORT_TO_FULL`` so ``EPDeviceTarget(ep="cuda", ...)`` is rejected
+    at construction time, matching the catalog's authoritative scope).
+    """
     assert expand_ep_name("tensorrt") == "TensorrtExecutionProvider"
 
 
-def test_short_ep_name_cuda_tensorrt_round_trip() -> None:
-    """Round-trip via expand and short for cuda/tensorrt."""
-    for short in ("cuda", "tensorrt"):
-        assert short_ep_name(expand_ep_name(short)) == short
+def test_short_ep_name_tensorrt_round_trip() -> None:
+    """Round-trip via expand and short for ``tensorrt``."""
+    assert short_ep_name(expand_ep_name("tensorrt")) == "tensorrt"
 
 
 # --- EPDeviceSpec catalog tests -------------------------------------------
@@ -824,3 +828,55 @@ def test_default_ep_for_device_composes_l1_and_l2_filters() -> None:
         f"filters for NPU), but got {result!r}. L1 and L2 must AND-compose, "
         f"not OR-compose."
     )
+
+
+# ---------------------------------------------------------------------------
+# T-13: _ep_short_or_none — dedup driver for build.py + precision.py
+# ---------------------------------------------------------------------------
+
+
+def test_valid_eps_matches_known_short_names() -> None:
+    """``VALID_EPS`` and ``known_ep_short_names()`` must enumerate the same EPs.
+
+    Pre-T-15 drift: ``_SHORT_TO_FULL`` carried ``"cuda"`` even though the
+    EP catalog has no row for ``CUDAExecutionProvider`` (CUDA was dropped
+    when the v1 catalog landed — see ``test_ep_device_specs_count``'s
+    comment). ``EPDeviceTarget(ep="cuda", ...)`` passed validation but
+    ``default_device_for_ep("CUDAExecutionProvider")`` returned ``None``,
+    setting up a silent crash downstream.
+
+    Post-T-15 contract: the two sets are equal — the catalog
+    (``EP_DEVICE_SPECS`` → ``VALID_EPS``) is the single source of truth;
+    ``_SHORT_TO_FULL`` only contains names the catalog also recognizes.
+    """
+    from winml.modelkit.session import VALID_EPS, known_ep_short_names
+
+    assert VALID_EPS == known_ep_short_names()
+
+
+class TestEpShortOrNone:
+    """Pin the ``_ep_short_or_none`` contract.
+
+    Both ``config/build.py`` and ``config/precision.py`` carried the same
+    expression ``short_ep_name(canonical) if canonical is not None else None``
+    followed by ``_short if _short != "cpu" else None``. T-13 centralizes
+    the ``"cpu" -> None`` collapse so the rule lives in one place.
+    """
+
+    def test_returns_short_name_for_non_cpu(self) -> None:
+        """A non-CPU full EP name maps to its short form."""
+        from winml.modelkit.session import _ep_short_or_none
+
+        assert _ep_short_or_none("QNNExecutionProvider") == "qnn"
+        assert _ep_short_or_none("OpenVINOExecutionProvider") == "openvino"
+
+    def test_returns_none_for_cpu_execution_provider(self) -> None:
+        """``CPUExecutionProvider`` collapses to ``None``.
+
+        Load-bearing per ``config/build.py`` audit notes: without the
+        collapse, a CPU-only build would emit a non-None compile stage
+        where the design contract says "no compile stage for CPU".
+        """
+        from winml.modelkit.session import _ep_short_or_none
+
+        assert _ep_short_or_none("CPUExecutionProvider") is None

@@ -182,6 +182,43 @@ class TestAutoDevice:
             with pytest.raises(DeviceNotFound, match="NPU"):
                 fresh_registry.auto_device(target)
 
+    def test_fail_then_succeed_but_wrong_device_raises_device_not_found(
+        self, fresh_registry: WinMLEPRegistry
+    ) -> None:
+        """T-04 regression guard: stale ``last_error`` must not surface when
+        a later candidate registered cleanly but exposed no matching device.
+
+        Sequence: candidate #1 raises ``WinMLEPRegistrationFailed``;
+        candidate #2 registers cleanly but its ``devices`` tuple has no
+        match for ``target.device``. The precedence loop exhausts.
+        Expected exception type: ``DeviceNotFound`` (the second outcome).
+        Pre-fix bug: ``WinMLEPRegistrationFailed`` (the first outcome's
+        stale traceback survives because ``last_error`` is never reset
+        after the successful registration).
+        """
+        primary = _pypi_entry("OpenVINOExecutionProvider", dll="C:/fake/primary.dll")
+        shadowed = _pypi_entry(
+            "OpenVINOExecutionProvider", dll="C:/fake/shadow.dll"
+        )
+        # Shadowed candidate registers cleanly but its only device is GPU
+        # while target asks for NPU — no match → fall through to next.
+        shadowed_ep = _winml_ep_with_device(shadowed, "GPU")
+
+        primary_error = WinMLEPRegistrationFailed("primary DLL boom")
+
+        def selective_register(entry: EPEntry) -> WinMLEP:
+            if entry.dll_path == primary.dll_path:
+                raise primary_error
+            return shadowed_ep
+
+        fresh_registry._discovered = [primary, shadowed]
+        with patch.object(
+            fresh_registry, "register_ep", side_effect=selective_register
+        ):
+            target = EPDeviceTarget(ep="openvino", device="npu")
+            with pytest.raises(DeviceNotFound):
+                fresh_registry.auto_device(target)
+
     def test_e_all_candidates_fail_registration(
         self, fresh_registry: WinMLEPRegistry
     ) -> None:

@@ -318,7 +318,7 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
 
 **Comparison to prior signature.** v2.3 doc said `resolve(target) -> EPDeviceTarget`; code said `resolve_device(ep: str | None, device: str | None, source: str | None = None) -> EPDeviceTarget` — both wrong. v2.4 unifies on `resolve_device(target)`: keeps the original function name; takes typed `EPDeviceTarget` input matching its `EPDeviceTarget` output everywhere else.
 
-`IncompatibleListingPick` is deferred to a later batch (it needs visibility into a prior Path B broad-loop failure list; Path A invocations don't have one).
+_v2.9: `IncompatibleListingPick` and `AmbiguousMatch` were deleted as dead code — neither was ever raised in production. The L2 vendor-compat check now lives at render time only (via `EP_CATALOG.is_compatible(ep_name)`) and never raises from inside `resolve_device`._
 
 ### 5.4 `WinMLDevice(handle)` — direct constructor (no factory)
 
@@ -341,7 +341,7 @@ class WinMLEPRegistry:
 **Used by:** Scenarios A.1–A.6 transitively through `auto_device` (Step 5.6); Scenarios B.1 and B.2 directly via the caller-side broad-loop (§7.1).
 
 **Raises:**
-- `WinMLEPRegistrationFailed` — ORT's `register_execution_provider_library` raised, OR the loaded DLL contributed zero `OrtEpDevice` rows for this entry's `ep_name` (empty device set is a registration failure under the success-only invariant).
+- `WinMLEPRegistrationFailed` — ORT's `register_execution_provider_library` raised, OR `_ort_get_ep_devices_or_fail()` failed (translates any `ort.get_ep_devices()` exception into the canonical registry exception), OR the resulting handle set contributed zero `OrtEpDevice` rows for this entry's `ep_name` (empty device set is a registration failure under the success-only invariant).
 
 **Pseudocode (v2.9):**
 ```python
@@ -361,7 +361,7 @@ def register_ep(self, entry: EPEntry) -> WinMLEP:
         cached = self._builtin_registered.get(entry.ep_name)
         if cached is not None:
             return cached
-        handles = [d for d in ort.get_ep_devices() if d.ep_name == entry.ep_name]
+        handles = [d for d in _ort_get_ep_devices_or_fail(entry) if d.ep_name == entry.ep_name]
         deduped = _dedup_ort_devices(handles)
         if not deduped:
             raise WinMLEPRegistrationFailed(...)
@@ -447,14 +447,19 @@ def auto_device(self, target: EPDeviceTarget) -> WinMLEPDevice:
     target_device = target.device.upper()
     for cand in candidates:                       # precedence order
         try:
-            ep = self.register_ep(cand)
+            winml_ep = self.register_ep(cand)
         except WinMLEPRegistrationFailed as e:
             last_exc = e
             continue
         any_registered = True
-        for pair in ep.ep_devices():
-            if pair.device.device_type == target_device:
-                return pair                       # invariant: pair.device in pair.ep.devices
+        for device in winml_ep.devices:
+            if device.device_type == target_device:
+                return WinMLEPDevice(ep=winml_ep, device=device)
+        # Successful registration but no device-class match — clear the
+        # stale exception so the post-loop branch sees this as
+        # DeviceNotFound, not as a chained WinMLEPRegistrationFailed
+        # from an earlier candidate.
+        last_exc = None
 
     # Split: clean registration but missing device class vs total failure.
     if any_registered:
@@ -506,10 +511,18 @@ def __init__(self, onnx_path, ep_device, *,
         ep_device, ep_config, ep_monitor, base_session_options,
     )
 
-    # Eager construction matches current shape at session/session.py:200.
-    # On compile-time error, ORT raises RuntimeException; we let it bubble.
-    self._session = ort.InferenceSession(str(self._onnx_path), sess_options=so)
-    self._state = SessionState.COMPILED
+    # Conditional InferenceSession construction. EPContext-emitting
+    # compiles (ep_config.enable_ep_context=True) defer the eager
+    # InferenceSession build because the compile-stage caller owns
+    # session lifetime explicitly; non-context compiles construct
+    # eagerly to match the existing shape. On compile-time error,
+    # ORT raises RuntimeException; we let it bubble.
+    if ep_config is not None and getattr(ep_config, "enable_ep_context", False):
+        self._session = None
+        self._state = SessionState.INITIALIZED
+    else:
+        self._session = ort.InferenceSession(str(self._onnx_path), sess_options=so)
+        self._state = SessionState.COMPILED
 ```
 
 Subclass extension: `WinMLQairtSession` (`session/qairt/qairt_session.py:44`) extends `__init__` to default `ep_device` to `auto_device(resolve_device(EPDeviceTarget(ep="qnn", device="npu")))` when `None`; the new `ep_monitor` kwarg propagates via `**kwargs` in subclasses that don't name it explicitly.
@@ -612,7 +625,7 @@ def _build_session_options(
     return so
 ```
 
-The current body at `session/session.py:191` calls `WinMLEPRegistry.get_instance().register_ep(ep_device)` to *re-derive* the `OrtEpDevice` handle from the intent-meaning `WinMLEPDevice`. Under the locked-in taxonomy, the caller has already done the registration and pair pick (Steps 5.3 + 5.6 of the Path A composition), so `_build_session_options` receives the new-meaning `WinMLEPDevice` pair and reaches the handle directly via `ep_device.device._ort`. **No `register_ep` call inside the helper.** The session-options helper becomes a thin wrapper over `add_provider_for_devices` plus the monitor's session-config entries.
+Under the locked-in taxonomy, the caller has already done the registration and pair pick (Steps 5.3 + 5.6 of the Path A composition), so `_build_session_options` receives the new-meaning `WinMLEPDevice` pair and reaches the handle directly via `ep_device.device._ort`. **No `register_ep` call inside the helper.** The session-options helper becomes a thin wrapper over `add_provider_for_devices` plus the monitor's session-config entries.
 
 ## 6. Path A — User Intent → Session
 
@@ -672,7 +685,7 @@ flowchart TD
 | no | yes | `default_ep_for_device(device)` filtered by `available_eps()` (registration-aware — see [`3_design_ep.md`](3_design_ep.md) §6.4) |
 | no | no | `auto_detect_device()` walks the hardware-priority list, intersects with `available_eps()`, falls through to the device-only branch |
 
-The `"auto"` sentinel on either axis is normalized to `None` up-front. Because `available_eps()` is cheap, lru-cached, and name-only, the entire deduction phase stays sub-millisecond.
+The `"auto"` sentinel on either axis is compared against the literal `"auto"` at each branch — no up-front normalization. Because `available_eps()` is cheap, lru-cached, and name-only, the entire deduction phase stays sub-millisecond.
 
 Invariant: `resolve_device` either returns an `EPDeviceTarget` with no `"auto"` values whose `(ep, device)` is in `EP_DEVICE_SPECS`, or it raises `ValueError`. In Scenario A, `target.source` stays `None` — `auto_device` (Step 2) picks the precedence winner at registration time.
 
@@ -747,7 +760,6 @@ The Scenario B contract is intentionally stricter than Scenario A's: A silently 
 |---|---|---|---|---|
 | `resolve_device` | A.1-A.4 | Unknown EP short-name (`--ep foo`) | `ValueError` | Fix input |
 | `resolve_device` | A.1-A.4 | `--device` only, no installed EP claims that class | `ValueError("No registered EP for device …")` | Install plugin, set `WINMLCLI_EP_PATH`, or pass `--ep` |
-| `resolve_device` | A.1-A.4 | Both given; resolved EP not in `available_eps()` | `ValueError("EP X not registered on this host. Hint: install the plugin or set WINMLCLI_EP_PATH.")` | Install plugin, set env var |
 | `resolve_device` | A.4 | `auto_detect_device()` finds no plugin EP backing any hardware | falls through to bundled CPU | None needed; CPU always works |
 | `auto_device` | A.5-A.6 | Source tag does not match any discovered `EPEntry` for the EP | `UnknownListingPick(ep, source_tag)` | Re-run `winml sys --list-ep` to see valid tags |
 | `auto_device` | A.5 | `device="auto"` and entry contributes multiple classes with no clean catalog default | falls through to `DeviceNotFound` after the precedence loop exhausts | Add `--device <class>` |
@@ -836,23 +848,25 @@ flowchart TD
 **The caller-side loop:**
 
 ```python
-results, failures = [], []
+ep_records: dict[str, list[tuple[EPEntry, WinMLEP | None, Exception | None, dict | None]]] = {}
 for entry in discover_all_eps():
+    rec: list[tuple[EPEntry, WinMLEP | None, Exception | None, dict | None]] = ep_records.setdefault(entry.ep_name, [])
     try:
-        results.append(registry.register_ep(entry))
-    except Exception as e:
-        failures.append((entry, e))
+        ep = registry.register_ep(entry)
+        rec.append((entry, ep, None, _build_descriptor(entry, ep)))
+    except WinMLEPRegistrationFailed as e:
+        rec.append((entry, None, e, None))
 ```
 
-This is the **only** place that `register_ep` is called in a fan-out pattern. Path A's `register_ep` is one-call-one-`WinMLEP`; Path B's enumeration is the explicit six-line loop that captures failures as data so the renderer can show `[incompatible]` rows inline.
+This is the **only** place that `register_ep` is called in a fan-out pattern. Path A's `register_ep` is one-call-one-`WinMLEP`; Path B's enumeration captures **both** successes and failures as data per `ep_name` so the renderer can show all rows (primary / shadowed / failed / incompatible) inline without a second pass.
 
-There is no `registry.list_all()`. The registry stays atomic-and-idempotent (§5.8); the cardinality lives where the cardinality decision is made — at the CLI command. Both `--list-ep` and `--doctor` write the same six-line loop; their downstream renderer logic diverges, the enumeration loop does not.
+There is no `registry.list_all()`. The registry stays atomic-and-idempotent (§5.8); the cardinality lives where the cardinality decision is made — at the CLI command. Both `--list-ep` and `--doctor` write the same loop shape; their downstream renderer logic diverges, the enumeration loop does not.
 
 The `register_ep` idempotency cache (keyed by `entry.dll_path`) means that if a process already ran the inline loop once and then runs a Path A invocation against the same DLL, the second call is a fast O(1) cache hit — the DLL was loaded by the earlier walk.
 
 ### 7.1 `--list-ep` inventory render
 
-Consumer: [`commands/sys.py`](../../../src/winml/modelkit/commands/sys.py). The render takes the loop's `(results, failures)` output and produces one numbered entry per `(ep_name, source)` pair, grouped under an EP heading.
+Consumer: [`commands/sys.py`](../../../src/winml/modelkit/commands/sys.py). The render walks the loop's `ep_records: dict[ep_name, list[4-tuple]]` output and produces one numbered entry per `(ep_name, source)` pair, grouped under an EP heading.
 
 #### 7.1.1 Two independent failure layers
 
@@ -861,7 +875,7 @@ A row can end up "not a usable target" for two semantically distinct reasons. Th
 | Layer | What it checks | Mechanism | User-visible status |
 |---|---|---|---|
 | **L1 — Registration outcome** | Did ORT actually load the DLL and expose at least one matching device? | `register_ep(entry)` raised `WinMLEPRegistrationFailed` | `[failed]` (with `error` field) |
-| **L2 — Vendor compatibility rule** | Does the host hardware match what the EP targets? | `entry.source.is_compatible()` returned `False` for the EP-level first-entry source | `[incompatible]` |
+| **L2 — Vendor compatibility rule** | Does the host hardware match what the EP targets? | `EP_CATALOG.is_compatible(entry.ep_name)` returned `False` for the EP | `[incompatible]` |
 
 The two layers are **independent** and can disagree. Common cases:
 
@@ -870,7 +884,7 @@ The two layers are **independent** and can disagree. Common cases:
 - **Both fail:** rare but possible (incompatible AND the DLL can't even load) — L1 wins because it's the more concrete failure; the row renders as `[failed]`.
 - **Both pass:** normal — row renders as `[primary]` or `[shadowed]` per the precedence walk below.
 
-**Important clarification on registry state.** An `[incompatible]` row IS in `_registered` (the DLL loaded successfully — that's why L1 didn't fire). Presence in `_registered` only guarantees the load step succeeded; it does NOT guarantee the row is usable. L2 vendor compatibility is evaluated by the renderer AFTER registration, by inspecting the entry's `source.is_compatible()`. A reader debugging the registry should not assume `_registered ⇒ usable`. See `_registered`'s docstring in §5.8 for the full semantic.
+**Important clarification on registry state.** An `[incompatible]` row IS in `_registered` (the DLL loaded successfully — that's why L1 didn't fire). Presence in `_registered` only guarantees the load step succeeded; it does NOT guarantee the row is usable. L2 vendor compatibility is evaluated by the renderer AFTER registration, by calling `EP_CATALOG.is_compatible(entry.ep_name)`. A reader debugging the registry should not assume `_registered ⇒ usable`. See `_registered`'s docstring in §5.8 for the full semantic.
 
 #### 7.1.2 Status derivation
 
@@ -878,8 +892,8 @@ Render-time only; no `status` field exists on `WinMLEP`. The discovery-time `EPE
 
 ```
 For each ep_name appearing in results or failures:
-  # L2 evaluated once per EP, from first row's source.
-  ep_compatible = first_row.entry.source.is_compatible()
+  # L2 evaluated once per EP via the catalog.
+  ep_compatible = EP_CATALOG.is_compatible(ep_name)
 
   primary_seen = False
   for entry in walk order:
@@ -1087,9 +1101,9 @@ The Path A vs Path B split is **cardinality of intent**: one target (perf, compi
 
 Items below surfaced during the design discussion but are out of scope for this refactor. Each is a concrete question with a deferred decision; resolving any of them is a separate PR.
 
-- **`Ep` → `EP` casing sweep + `EpEntry` nesting in `src/`.** The locked-in classes here use `EP` uppercase per the canonical acronym table ([`docs/naming-convention.md`](../../naming-convention.md) §1). Current `src/winml/modelkit/ep_path.py` still has `EpCatalog`, `EpSource`, `PyPiSource`, `MsixPackageSource`, `ResolvedEp` — all queued for a one-shot rename PR (see §11 inventory). The same PR nests the old `EpEntry` (EP-metadata catalog row) into `EPCatalog` as `EPCatalog.Row` so the top-level `EPEntry` name belongs to the new discovery record (renamed from `ResolvedEp`). Test imports and downstream consumers update in the same PR.
+- _(shipped) `Ep` → `EP` casing sweep + `EPCatalog.Row` nesting + `ResolvedEp → EPEntry` rename. `ep_path.py` now has `EPCatalog`, `EPSource`, `PyPISource`, `MSIXPackageSource`. `EPEntry` is the discovery record; `EPCatalog.Row` is the EP-metadata catalog row._
 
-- **`EPSource.resolve() -> Iterator[EPEntry]` refactor.** The current signature is `Iterator[tuple[str, Path]]` — i.e., the caller receives raw `(ep_name, dll_path)` pairs and `discover_all_eps()` constructs the `ResolvedEp` (→ `EPEntry`) records itself. The locked-in `EPSource.resolve() -> Iterator[EPEntry]` shape moves the record construction into each source, so `discover_all_eps()` becomes a simple flatten. The refactor is queued for the same PR as the casing sweep.
+- _(shipped) `EPSource.resolve() -> Iterator[EPEntry]`. Each source constructs `EPEntry` records directly; `discover_all_eps()` flattens._
 
 - **`WinMLEPDevice` flat-pair construction ergonomics.** `WinMLEPDevice(ep: WinMLEP, device: WinMLDevice)` requires both halves and is system-generated. The convenience accessor `WinMLEP.ep_devices() -> tuple[WinMLEPDevice, ...]` is mandatory; whether to also expose `WinMLEPDevice.__getitem__` patterns (e.g., subscript by `device_type` string) is open. Recommendation: ship without, add if call-sites demand it.
 
@@ -1119,7 +1133,7 @@ This appendix enumerates every existing class in the EP / session / discovery / 
 
 | Current name | File:line | Casing | Corrected name | Role | Scenario | Lifecycle | Verdict |
 |---|---|---|---|---|---|---|---|
-| `WinMLEPDevice` | `session/ep_device.py:54` | OK | `EPDeviceTarget` | **Currently** = pure intent `(ep, device)`; **being redefined** as the flat `(WinMLEP, WinMLDevice)` pair. The intent role moves to a new class `EPDeviceTarget`. | CLI parse, JSON config rehydrate. | Constructed at CLI parse; consumed by `resolve_device` and dropped after `auto_device`. | **RENAME-AND-KEEP (semantic split)**: split into `EPDeviceTarget` (intent, no prefix) + new `WinMLEPDevice` (system-generated flat pair). The current single-class meaning is dropped. |
+| `WinMLEPDevice` | `session/ep_registry.py:143` | OK | `EPDeviceTarget` | **Currently** = pure intent `(ep, device)`; **being redefined** as the flat `(WinMLEP, WinMLDevice)` pair. The intent role moves to a new class `EPDeviceTarget`. | CLI parse, JSON config rehydrate. | Constructed at CLI parse; consumed by `resolve_device` and dropped after `auto_device`. | **RENAME-AND-KEEP (semantic split)**: split into `EPDeviceTarget` (intent, no prefix) + new `WinMLEPDevice` (system-generated flat pair). The current single-class meaning is dropped. |
 
 ### 11.2 Catalog layer
 
@@ -1180,7 +1194,7 @@ This appendix enumerates every existing class in the EP / session / discovery / 
 
 | Name | File | Status |
 |---|---|---|
-| `available_eps()` | `session/ep_registry.py:434` | **KEEP as `WinMLEPRegistry` instance method** (consumed by `resolve_device()`); v2.8 promoted it onto the registry's public surface to make the singleton the single source of truth for "which EP names are discovered" (built-ins included since v2.9). v2.17 memoizes the derived frozenset on `_available_eps_cache` because the discovery set is immutable post-init. |
+| `available_eps()` | `session/ep_registry.py:434` | **KEEP as `WinMLEPRegistry` instance method** (consumed by `resolve_device()`); v2.8 promoted it onto the registry's public surface to make the singleton the single source of truth for "which EP names are discovered" (built-ins included since v2.9). Currently implemented as a memoized derived frozenset on `_available_eps_cache` because the discovery set is immutable post-init. |
 | `available_ep_devices()` | (no longer in `session/ep_registry.py`) | **DROPPED** — superseded by Path B inline loop over `register_ep`. |
 | `ensure_initialized()` | (no longer in `session/ep_registry.py`) | **DROPPED** — pre-loading EPs is a CLI-side concern; the registry's singleton constructor (`instance()` classmethod) handles lazy init transparently. |
 | `discover_eps()` | `ep_path.py:1203` | **KEEP** (winner-per-EP convenience; built on top of `discover_all_eps()`). |

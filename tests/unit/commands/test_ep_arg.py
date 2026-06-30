@@ -234,3 +234,32 @@ def test_ep_at_source_param_type_raises_usage_error_on_bad_tag() -> None:
     pt = EpAtSourceParamType()
     with pytest.raises(click.exceptions.BadParameter, match=r"(?i)source"):
         pt.convert("openvino@bogus", None, None)
+
+
+def test_reject_ep_source_passes_through_on_none() -> None:
+    """``_reject_ep_source(None, ...)`` returns ``None`` (no --ep given)."""
+    from winml.modelkit.commands._ep_arg import _reject_ep_source
+
+    assert _reject_ep_source(None, "winml build") is None
+
+
+def test_reject_ep_source_returns_bare_ep_when_no_source_tag() -> None:
+    """``(ep, None)`` round-trips to ``ep`` — no rejection needed."""
+    from winml.modelkit.commands._ep_arg import _reject_ep_source
+
+    assert _reject_ep_source(("openvino", None), "winml build") == "openvino"
+
+
+def test_reject_ep_source_raises_when_source_tag_present() -> None:
+    """``(ep, "pypi")`` raises UsageError naming the command + suggested form."""
+    import click
+
+    from winml.modelkit.commands._ep_arg import _reject_ep_source
+
+    with pytest.raises(click.UsageError) as ei:
+        _reject_ep_source(("openvino", "pypi"), "winml build")
+    msg = str(ei.value)
+    assert "winml build" in msg
+    assert "source pinning" in msg
+    assert "openvino" in msg
+    assert "pypi" in msg

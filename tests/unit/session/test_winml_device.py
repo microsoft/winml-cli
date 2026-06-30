@@ -449,7 +449,7 @@ class TestEpFacts:
             ep_metadata={"NPU_DEVICE_TOTAL_MEM_SIZE": str(1024**3)},  # 1 GiB
         )
         facts = WinMLDevice(handle).ep_facts()
-        assert any("Memory: 1.0 GiB" in f for f in facts)
+        assert any("Memory: 1.0 GB" in f for f in facts)
 
     def test_openvino_gpu_ep_facts_include_memory_and_capabilities(self) -> None:
         handle = make_fake_ort_ep_device(
@@ -462,7 +462,7 @@ class TestEpFacts:
         )
         facts = WinMLDevice(handle).ep_facts()
         joined = " | ".join(facts)
-        assert "Memory: 2.0 GiB" in joined
+        assert "Memory: 2.0 GB" in joined
         assert "Capabilities: FP32, FP16" in joined
 
     def test_ep_facts_returns_memory_and_capabilities_only(self) -> None:
@@ -520,16 +520,22 @@ class TestEpFacts:
 
 
 class TestFormatBytesHelper:
-    """_format_bytes helper exercised indirectly via memory_bytes + facts."""
+    """_format_bytes helper exercised indirectly via memory_bytes + facts.
 
-    def test_format_gib(self) -> None:
-        assert _format_bytes(1024**3) == "1.0 GiB"
+    T-14: the helper is now sourced from ``session.monitor.report`` so the
+    codebase has a single byte-formatter. The renderer uses ``GB/MB/KB``
+    labels (1024-based math); the IEC ``GiB/MiB/KiB`` labels previously
+    emitted here are gone with the local copy.
+    """
 
-    def test_format_mib(self) -> None:
-        assert _format_bytes(2 * 1024**2) == "2.0 MiB"
+    def test_format_gb(self) -> None:
+        assert _format_bytes(1024**3) == "1.0 GB"
 
-    def test_format_kib(self) -> None:
-        assert _format_bytes(4 * 1024) == "4.0 KiB"
+    def test_format_mb(self) -> None:
+        assert _format_bytes(2 * 1024**2) == "2.0 MB"
+
+    def test_format_kb(self) -> None:
+        assert _format_bytes(4 * 1024) == "4.0 KB"
 
     def test_format_bytes(self) -> None:
         assert _format_bytes(512) == "512 B"
@@ -542,4 +548,17 @@ class TestFormatBytesHelper:
             ep_metadata={"NPU_DEVICE_TOTAL_MEM_SIZE": str(8 * 1024**3)},
         )
         facts = WinMLDevice(handle).ep_facts()
-        assert any("Memory: 8.0 GiB" in f for f in facts)
+        assert any("Memory: 8.0 GB" in f for f in facts)
+
+    def test_format_bytes_is_single_source_of_truth(self) -> None:
+        """``ep_device._format_bytes`` IS ``monitor.report._format_bytes``.
+
+        Pins the T-14 dedup contract: there is exactly one ``_format_bytes``
+        implementation, owned by ``session.monitor.report``. ``ep_device``
+        re-exports it via a module-level import so both consumers stay in
+        sync.
+        """
+        from winml.modelkit.session import ep_device as _ep_device
+        from winml.modelkit.session.monitor import report as _report
+
+        assert _ep_device._format_bytes is _report._format_bytes

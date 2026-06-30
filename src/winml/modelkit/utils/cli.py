@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from ..session import VALID_DEVICES, VALID_EPS
+from ..session import VALID_DEVICES, VALID_EPS, expand_ep_name
 
 
 # Sorted lowercase device choices consistent with the rest of the codebase.
@@ -21,6 +21,64 @@ _DEVICE_CHOICES = sorted(VALID_DEVICES)
 
 # Sorted short EP names sourced from the session facade (single source of truth).
 _EP_CHOICES = sorted(VALID_EPS)
+
+
+# EP alias prefixes used by :func:`extract_ep_options` for CLI parameter parsing.
+# Kept as a local tuple — not exported; does not duplicate the session taxonomy.
+# Added "migraphx" alongside the pre-existing entries to match the
+# ``TestExtractEPOptions::test_new_aliases_work`` contract that the
+# (collection-broken) baseline test file already asserted.
+_EP_CLI_PREFIXES = ("qnn", "openvino", "ov", "vitisai", "vitis", "migraphx")
+
+
+def normalize_ep_name(ep: str | None) -> str | None:
+    """Normalize EP name from shorthand or alias to full canonical name.
+
+    Delegates to :func:`expand_ep_name` from the session facade, which covers
+    all registered short names. The legacy aliases ``ov`` and ``vitis`` are
+    mapped here before forwarding so existing callers keep working.
+
+    Args:
+        ep: Execution provider name (can be full name, short name, or alias)
+
+    Returns:
+        Full execution provider name, or ``None`` if input is ``None``.
+    """
+    if ep is None:
+        return None
+
+    # Map non-canonical short-form spellings to the canonical short.
+    # Values must exist as keys in session.ep_device._SHORT_TO_FULL.
+    _short_aliases = {
+        "ov":              "openvino",      # convenience: 2-letter shorthand
+        "vitis":           "vitisai",       # convenience: 2-letter shorthand
+        "nv_tensorrt_rtx": "nvtensorrtrtx", # rename: pre-2026-05-18 short form
+    }
+    ep_lower = ep.lower()
+    if ep_lower in _short_aliases:
+        ep = _short_aliases[ep_lower]
+
+    return expand_ep_name(ep)
+
+
+def extract_ep_options(kwargs: dict) -> dict[str, str]:
+    """Extract EP-specific options from CLI parameters.
+
+    Collects parameters that start with an EP alias prefix (e.g. ``qnn_``,
+    ``ov_``) and extracts the option name by removing the prefix.
+
+    Args:
+        kwargs: Dictionary of CLI parameters.
+
+    Returns:
+        Dictionary of EP-specific options with prefix removed.
+    """
+    ep_options = {}
+    for param_name, param_value in kwargs.items():
+        parts = param_name.split("_", 1)
+        if param_value is not None and len(parts) == 2 and parts[0] in _EP_CLI_PREFIXES:
+            ep_options[parts[1]] = str(param_value)
+    return ep_options
 
 
 if TYPE_CHECKING:

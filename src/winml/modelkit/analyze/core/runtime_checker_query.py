@@ -1334,11 +1334,11 @@ class RuntimeCheckerQuery:
             EPChecker instance configured for the target EP+device.
         """
         if self._ep_checker is None:
-            from ...utils.constants import DEVICE_TO_DEVICE_TYPE
+            from ...session import DEVICE_TO_DEVICE_TYPE
 
             self._ep_checker = EPChecker(
                 ep_name=self.ep_name,
-                device_type=DEVICE_TO_DEVICE_TYPE[self.device_type],
+                device_type=DEVICE_TO_DEVICE_TYPE[self.device_type.lower()],
             )
         return self._ep_checker
 

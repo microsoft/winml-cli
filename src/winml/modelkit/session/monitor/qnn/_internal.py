@@ -294,6 +294,31 @@ def _aggregate_operators(
 # ---------------------------------------------------------------------------
 
 
+#: ``renderer_key -> raw QHAS key`` mapping driving
+#: :func:`_extract_summary`. The renderer (
+#: :func:`winml.modelkit.session.monitor.report._display_detail_report`)
+#: owns the user-facing vocabulary because its names make units explicit
+#: (``_us``, ``_bytes``); raw QHAS keys (``time_us``,
+#: ``total_dram_read``, …) come from the SDK schema. Adding a new field
+#: means one entry here, not another ``_require`` call.
+_REQUIRED_SUMMARY_KEYS: tuple[tuple[str, str], ...] = (
+    ("inference_us", "time_us"),
+    ("execute_us", "graph_execute_us"),
+    ("inf_per_s", "inf_per_s"),
+    ("timeline_cycles", "timeline_cycles"),
+    ("utilization_pct", "percent_utilization"),
+    ("dram_read_bytes", "total_dram_read"),
+    ("dram_write_bytes", "total_dram_write"),
+    ("vtcm_read_bytes", "total_vtcm_read"),
+    ("vtcm_write_bytes", "total_vtcm_write"),
+    ("vtcm_peak_bytes", "peak_vtcm_alloc"),
+    ("qnn_nodes", "qnn_nodes"),
+    ("htp_nodes", "htp_nodes"),
+    ("unique_qnn_ops", "unique_qnn_ops"),
+    ("unique_htp_ops", "unique_htp_ops"),
+)
+
+
 def _require(d: dict, key: str, context: str) -> Any:
     """Return ``d[key]``, raising a named :exc:`KeyError` if absent.
 
@@ -354,20 +379,8 @@ def _extract_summary(data: dict) -> dict:
     raw = rows[0]
     ctx = "htp_overall_summary row"
     return {
-        "inference_us": _require(raw, "time_us", ctx),
-        "execute_us": _require(raw, "graph_execute_us", ctx),
-        "inf_per_s": _require(raw, "inf_per_s", ctx),
-        "timeline_cycles": _require(raw, "timeline_cycles", ctx),
-        "utilization_pct": _require(raw, "percent_utilization", ctx),
-        "dram_read_bytes": _require(raw, "total_dram_read", ctx),
-        "dram_write_bytes": _require(raw, "total_dram_write", ctx),
-        "vtcm_read_bytes": _require(raw, "total_vtcm_read", ctx),
-        "vtcm_write_bytes": _require(raw, "total_vtcm_write", ctx),
-        "vtcm_peak_bytes": _require(raw, "peak_vtcm_alloc", ctx),
-        "qnn_nodes": _require(raw, "qnn_nodes", ctx),
-        "htp_nodes": _require(raw, "htp_nodes", ctx),
-        "unique_qnn_ops": _require(raw, "unique_qnn_ops", ctx),
-        "unique_htp_ops": _require(raw, "unique_htp_ops", ctx),
+        render_key: _require(raw, raw_key, ctx)
+        for render_key, raw_key in _REQUIRED_SUMMARY_KEYS
     }
 
 

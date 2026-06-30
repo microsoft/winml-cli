@@ -405,6 +405,11 @@ class WinMLEPRegistry:
             for device in winml_ep.devices:
                 if device.device_type == target_device_upper:
                     return WinMLEPDevice(ep=winml_ep, device=device)
+            # Registration succeeded but no device-class match — this
+            # candidate is NOT a registration failure, so don't let a
+            # prior candidate's stale traceback survive into the
+            # post-loop `last_error is not None` branch (T-04).
+            last_error = None
 
         # All candidates exhausted without a match.
         if last_error is not None:

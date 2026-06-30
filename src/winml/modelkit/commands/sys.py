@@ -548,9 +548,19 @@ def _describe_source(entry: EPEntry) -> dict[str, Any]:
     dispatch here only adds source-kind-specific identifying fields
     (distribution, family prefix, catalog name, etc.) — no version
     recovery.
+
+    The canonical short ``source_tag`` (``"pypi"``, ``"bundled"`` …) is
+    derived by :func:`session.ep_registry._entry_source_tag` so adding a
+    new ``EPSource`` subclass means updating the tag table in exactly
+    one place.
     """
+    from ..session.ep_registry import _entry_source_tag
+
     source = entry.source
-    desc: dict[str, Any] = {"source_kind": type(source).__name__}
+    desc: dict[str, Any] = {
+        "source_kind": type(source).__name__,
+        "source_tag": _entry_source_tag(entry),
+    }
     if entry.version is not None:
         desc["version"] = entry.version
     if isinstance(source, PyPISource):
