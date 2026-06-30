@@ -211,7 +211,7 @@ class QNNProfiler(OpTracer):
             del session
 
         # ---- Post-processing ----
-        return self._collect_results(csv_path, iterations)
+        return self._collect_results(csv_path, iterations, warmup)
 
     # ------------------------------------------------------------------
     # ORT configuration builders
@@ -259,7 +259,7 @@ class QNNProfiler(OpTracer):
     # Result collection
     # ------------------------------------------------------------------
 
-    def _collect_results(self, csv_path: Path, iterations: int) -> OpTraceResult:
+    def _collect_results(self, csv_path: Path, iterations: int, warmup: int) -> OpTraceResult:
         """Parse profiling artifacts into an ``OpTraceResult``."""
         artifacts: dict[str, str] = {}
         qnn_log = Path(str(csv_path) + "_qnn.log")
@@ -282,7 +282,7 @@ class QNNProfiler(OpTracer):
 
         # --- Fallback / basic mode: parse CSV ---
         if csv_path.is_file():
-            return self._from_csv(csv_path, iterations, artifacts)
+            return self._from_csv(csv_path, iterations, warmup, artifacts)
 
         # No artifacts at all -- return empty result.
         logger.warning("No profiling artifacts found in %s", self.output_dir)
@@ -361,12 +361,25 @@ class QNNProfiler(OpTracer):
         self,
         csv_path: Path,
         iterations: int,
+        warmup: int,
         artifacts: dict[str, str],
     ) -> OpTraceResult:
-        """Build an ``OpTraceResult`` from the basic CSV parser."""
+        """Build an ``OpTraceResult`` from the basic CSV parser.
+
+        The CSV records every execute call, warmup runs included. Warmup
+        carries graph-finalization / JIT overhead, so the first ``warmup``
+        samples are dropped; the remaining samples — which must number
+        ``iterations`` — feed the operator metrics.
+        """
         samples = parse_qnn_profiling_csv(csv_path)
 
-        operators = _csv_operator_metrics(samples)
+        measured = samples[warmup:]
+        assert len(measured) == iterations, (
+            f"Expected {iterations} measured sample(s) after skipping {warmup} "
+            f"warmup, got {len(measured)} from {len(samples)} total."
+        )
+
+        operators = _csv_operator_metrics(measured)
 
         return OpTraceResult(
             model=self.onnx_path.name,
@@ -375,7 +388,7 @@ class QNNProfiler(OpTracer):
             ep="QNNExecutionProvider",
             tracing_backend="qnn",
             operators=operators,
-            num_samples=len(samples),
-            summary=_csv_summary(samples),
+            num_samples=len(measured),
+            summary=_csv_summary(measured),
             artifacts=artifacts,
         )
