@@ -52,6 +52,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .._ep_compile_worker import qnn_compile_to_ep_context as _qnn_compile_worker
 from .ep_registry import WinMLEPRegistry
 
 
@@ -60,32 +61,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Module-level compilation worker (must be at module scope for multiprocessing
-# spawn on Windows, which serialises the target via pickle).
-# ---------------------------------------------------------------------------
-
-
-def _qnn_compile_worker(src: str, dst: str, qnn_options: dict) -> None:
-    """Compile *src* ONNX to an EPContext ONNX at *dst* using QNN HTP.
-
-    Executed in a subprocess by :meth:`GenaiSession._compile_stage`.
-    """
-    import onnxruntime as ort
-
-    from ..winml import add_ep_for_device
-    from .ep_registry import WinMLEPRegistry
-
-    registry = WinMLEPRegistry.get_instance()
-    registry.register_execution_providers()
-    so = ort.SessionOptions()
-    so.add_session_config_entry("ep.context_enable", "1")
-    so.add_session_config_entry("ep.context_file_path", dst)
-    add_ep_for_device(so, "QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU, qnn_options)
-    mc = ort.ModelCompiler(so, src, embed_compiled_data_into_model=False)
-    mc.compile_to_file(dst)
 
 
 # ---------------------------------------------------------------------------
