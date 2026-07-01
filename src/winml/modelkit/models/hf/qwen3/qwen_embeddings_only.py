@@ -69,9 +69,7 @@ class QwenEmbeddingsOnlyWrapper(nn.Module):
         self.config.model_type = EMBEDDINGS_ONLY_MODEL_TYPE
 
     @classmethod
-    def from_pretrained(
-        cls, model_name_or_path: str, **kwargs: Any
-    ) -> QwenEmbeddingsOnlyWrapper:
+    def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> QwenEmbeddingsOnlyWrapper:
         """Load the HF model and wrap its input embedding for export."""
         kwargs.setdefault("torch_dtype", torch.float32)
         model = AutoModelForCausalLM.from_pretrained(model_name_or_path, **kwargs)
@@ -124,7 +122,9 @@ class _EmbeddingsInputIdsGenerator(DummyInputGenerator):
         float_dtype: str = "fp32",
     ) -> torch.Tensor:
         if input_name == "input_ids":
-            return torch.randint(0, self.vocab_size, (self.batch_size, self.seq_len), dtype=torch.int64)
+            return torch.randint(
+                0, self.vocab_size, (self.batch_size, self.seq_len), dtype=torch.int64
+            )
         raise ValueError(f"Unknown input: {input_name}")
 
 
