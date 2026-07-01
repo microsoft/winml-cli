@@ -39,6 +39,8 @@ from winml.modelkit.models.auto import WinMLAutoModel
 from winml.modelkit.models.hf.qwen3.qwen_transformer_only import (
     WinMLQwen3TransformerOnlyModel,
 )
+from winml.modelkit.onnx import strip_node_attrs
+from winml.modelkit.session import GenaiSession, GenerationConfig
 
 
 _DEVICE_TO_EP = {
@@ -56,6 +58,19 @@ _COMPANION_COMPONENTS: dict[str, dict[str, str]] = {
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_BUNDLE = _REPO_ROOT / "out" / "bundle"
 
+_SUPPORTED_EPS = ["cpu", "mixed", "qnn", "dml"]
+
+# Attributes that com.microsoft::GroupQueryAttention requires for Qwen3.
+# Any other attributes (e.g. k_quant_type, local_window_size, qk_output,
+# smooth_softmax, v_quant_type) are default-valued extras injected by the
+# TorchScript exporter from the ORT op schema; strip them so the bundle
+# matches the expected minimal attribute set.
+_GQA_KEEP_ATTRS = frozenset({"do_rotary", "kv_num_heads", "num_heads"})
+
+
+def _strip_gqa_default_attrs(model: onnx.ModelProto) -> onnx.ModelProto:
+    """Remove exporter-injected default attributes from GQA nodes."""
+    return strip_node_attrs(model, "GroupQueryAttention", _GQA_KEEP_ATTRS, domain="com.microsoft")
 
 # ---------------------------------------------------------------------------
 # Helpers shared between sub-commands
@@ -220,6 +235,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         embeddings_src=embeddings_src,
         lm_head_src=lm_head_src,
         ep="qnn" if args.device == "npu" else args.device,
+        transformer_onnx_passes=[_strip_gqa_default_attrs],
     )
     print(f"  genai_config.json -> {config_path}")
 

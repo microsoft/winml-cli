@@ -70,7 +70,13 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    import onnx
 
 
 logger = logging.getLogger(__name__)
@@ -533,6 +539,7 @@ def write_genai_bundle(
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
     context_session_options: dict | None = None,
     iterator_session_options: dict | None = None,
+    transformer_onnx_passes: Sequence[Callable[[onnx.ModelProto], onnx.ModelProto]] | None = None,
 ) -> Path:
     """Assemble a complete ``onnxruntime-genai`` bundle in *output_dir*.
 
@@ -561,10 +568,18 @@ def write_genai_bundle(
             supplies any EP-specific options.
         iterator_session_options: Same as *context_session_options* but for the
             ``iterator`` stage.
+        transformer_onnx_passes: Optional list of callables applied to each
+            transformer ONNX (context + iterator) **after** copying to the
+            bundle directory.  Each callable receives an
+            ``onnx.ModelProto``, may modify it in-place, and must return it.
+            Passes are applied in order to the context model first, then the
+            iterator model.  Use this to strip exporter-injected default
+            attributes that are not needed at inference time.
 
     Returns:
         Path to the written ``genai_config.json``.
     """
+    import onnx as _onnx
     from transformers import AutoConfig, AutoTokenizer
 
     from ..onnx import copy_onnx_model
@@ -580,6 +595,16 @@ def write_genai_bundle(
 
     logger.info("Copying iterator ONNX: %s -> %s", iterator_onnx.name, iterator_filename)
     copy_onnx_model(iterator_onnx, output_dir / iterator_filename)
+
+    # 1b. Apply optional post-copy ONNX passes to the transformer stages.
+    if transformer_onnx_passes:
+        for fname in (context_filename, iterator_filename):
+            dst = output_dir / fname
+            model = _onnx.load(str(dst), load_external_data=False)
+            for pass_fn in transformer_onnx_passes:
+                model = pass_fn(model)
+            _onnx.save(model, str(dst))
+            logger.info("Applied %d ONNX pass(es) to %s", len(transformer_onnx_passes), fname)
 
     # 2. Copy embeddings + lm_head models.
     if embeddings_src is not None:
