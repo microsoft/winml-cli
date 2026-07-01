@@ -37,7 +37,6 @@ if TYPE_CHECKING:
 
     from ...utils.constants import EPName
 from ...pattern.op_input_gen.qdq_gen import QDQGenerator
-from ...sysinfo import SysInfo
 from ...utils import constants
 from ..utils import CheckResultWriter, load_case_indices_from_conflict_file
 from ..utils.model_utils import get_op_since_version
@@ -98,7 +97,6 @@ def check_ops(
         case_index = load_case_indices_from_conflict_file(conflict_file)
         print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
 
-    sys_info = SysInfo().to_dict()
     domain = ONNXDomain.from_str(opset_domain)
 
     qdq_gen = QDQGenerator(1, ONNXDomain.COM_MICROSOFT) if use_qdq else None
@@ -160,7 +158,6 @@ def check_ops(
             # Use writer as context manager (auto-flushes on exit)
             with CheckResultWriter(
                 output_path,
-                sys_info,
                 save_per_cases=None if dry_run else 100,
                 rerun_failed=rerun_failed,
                 delta_only=delta_only,
@@ -181,9 +178,6 @@ def check_ops(
                     save_model=save_model,
                     model_output_dir=model_output_dir,
                     skip_signature_fn=writer.should_skip_case,
-                    # Also yield skipped cases (with skip
-                    # marker) to maintain order
-                    yield_skipped=True,
                     dry_run=dry_run,
                 )
 

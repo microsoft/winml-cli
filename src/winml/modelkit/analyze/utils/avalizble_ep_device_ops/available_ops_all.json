@@ -1007,7 +1007,15 @@
         "13": "8s",
         "14": "8t",
         "21": "8u"
-      }
+      },
+      "check_for_eps": [
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
+      ]
     },
     "TransposeAttentionPattern": {
       "ops": [
@@ -1031,7 +1039,15 @@
         "19": "8z",
         "21": "91",
         "22": "92"
-      }
+      },
+      "check_for_eps": [
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
+      ]
     },
     "Conv2DInplaceLinear3DPattern": {
       "ops": [
@@ -1048,7 +1064,15 @@
         "19": "96",
         "21": "97",
         "22": "98"
-      }
+      },
+      "check_for_eps": [
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
+      ]
     },
     "Conv2DInplaceLinear2DPattern": {
       "ops": [
@@ -1063,7 +1087,15 @@
         "19": "9c",
         "21": "9d",
         "22": "9e"
-      }
+      },
+      "check_for_eps": [
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
+      ]
     },
     "Gelu1Pattern": {
       "ops": [
@@ -1078,7 +1110,12 @@
         "14": "9h"
       },
       "check_for_eps": [
-        "qnn_npu"
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
       ]
     },
     "Gelu2Pattern": {
@@ -1094,7 +1131,12 @@
         "14": "9k"
       },
       "check_for_eps": [
-        "qnn_npu"
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
       ]
     },
     "Gelu3Pattern": {
@@ -1110,7 +1152,12 @@
         "14": "9n"
       },
       "check_for_eps": [
-        "qnn_npu"
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
       ]
     },
     "Gelu4Pattern": {
@@ -1125,7 +1172,12 @@
         "14": "9q"
       },
       "check_for_eps": [
-        "qnn_npu"
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
       ]
     },
     "MatMulAddPattern": {
@@ -1139,7 +1191,12 @@
         "14": "9t"
       },
       "check_for_eps": [
-        "qnn_npu"
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
       ]
     },
     "ReshapeGemmReshapePattern": {
@@ -1155,7 +1212,12 @@
         "21": "9y"
       },
       "check_for_eps": [
-        "qnn_npu"
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
       ]
     },
     "LayerNormalizationPowPattern": {
@@ -1174,7 +1236,15 @@
         "14": "a2",
         "15": "a3",
         "18": "a4"
-      }
+      },
+      "check_for_eps": [
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
+      ]
     },
     "LayerNormalizationMulPattern": {
       "ops": [
@@ -1190,7 +1260,15 @@
         "13": "a6",
         "14": "a7",
         "18": "a8"
-      }
+      },
+      "check_for_eps": [
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
+      ]
     },
     "TransposedSingleLayerNormalizationPattern": {
       "ops": [
@@ -1202,7 +1280,15 @@
         "17": "a9",
         "19": "aa",
         "21": "ab"
-      }
+      },
+      "check_for_eps": [
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
+      ]
     },
     "RMSNormalizationPowPattern": {
       "ops": [
@@ -1259,7 +1345,12 @@
         "21": "aq"
       },
       "check_for_eps": [
-        "ov_npu"
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
       ]
     },
     "ReshapeTransposeReshapeLowDimPattern": {
@@ -1275,8 +1366,14 @@
         "21": "av"
       },
       "check_for_eps": [
-        "ov_npu"
+        "ov_cpu",
+        "ov_gpu",
+        "ov_npu",
+        "qnn_gpu",
+        "qnn_npu",
+        "nv_npu"
       ]
     }
   }
 }
+
