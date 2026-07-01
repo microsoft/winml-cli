@@ -40,6 +40,58 @@ class TestInferIHVFromEPName:
         with pytest.raises(ValueError, match="unknown EP name"):
             infer_ihv_from_ep_name("TotallyFakeEP")
 
+    def test_qnn(self) -> None:
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("QNNExecutionProvider") == IHVType.QC
+
+    def test_openvino(self) -> None:
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("OpenVINOExecutionProvider") == IHVType.INTEL
+
+    def test_vitisai(self) -> None:
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("VitisAIExecutionProvider") == IHVType.AMD
+
+    def test_migraphx_maps_to_amd(self) -> None:
+        """MIGraphX is an AMD EP — should map to IHVType.AMD."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("MIGraphXExecutionProvider") == IHVType.AMD
+
+    def test_alias_resolves(self) -> None:
+        """Shorthand aliases are normalized before lookup (EPNameOrAlias)."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("openvino") == IHVType.INTEL
+        assert infer_ihv_from_ep_name("qnn") == IHVType.QC
+
+    def test_cpu_ep_resolves_to_microsoft(self) -> None:
+        """CPUExecutionProvider is a Microsoft EP — should resolve to MICROSOFT."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("CPUExecutionProvider") == IHVType.MICROSOFT
+
+    def test_dml_ep_resolves_to_microsoft(self) -> None:
+        """DmlExecutionProvider is a Microsoft EP — should resolve to MICROSOFT."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("DmlExecutionProvider") == IHVType.MICROSOFT
+
+    def test_nvidia_ep_maps_to_nvidia(self) -> None:
+        """NvTensorRTRTXExecutionProvider should map to IHVType.NVIDIA."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
+
+    def test_cuda_ep_maps_to_nvidia(self) -> None:
+        """CUDAExecutionProvider should map to IHVType.NVIDIA."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("CUDAExecutionProvider") == IHVType.NVIDIA
+
 
 class TestHasRuleDataForEP:
     """Tests for has_rule_data_for_ep()."""

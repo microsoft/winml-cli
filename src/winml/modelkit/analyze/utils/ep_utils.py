@@ -13,32 +13,33 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ...utils.constants import EPName
+    from ...utils.constants import EPName, EPNameOrAlias
     from ..models.ihv_type import IHVType
 
 
 logger = logging.getLogger(__name__)
 
 
-def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
-    """Infer IHVType from a canonical Execution Provider name.
+def infer_ihv_from_ep_name(ep_name: EPNameOrAlias) -> IHVType:
+    """Infer IHVType from an Execution Provider name or alias.
 
-    ``EPName`` is a closed set of canonical EP names, so this is a direct,
-    exact lookup covering every member of that set.
+    Accepts either a canonical ``EPName`` or a shorthand ``EPAlias`` (e.g.
+    ``"openvino"``); aliases are normalized to their canonical name before the
+    exact lookup, which covers every member of the canonical set.
 
     Args:
-        ep_name: Canonical Execution Provider name (see ``utils.constants.EPName``).
+        ep_name: Execution Provider name or alias (see ``utils.constants``).
 
     Returns:
         IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, or MICROSOFT).
 
     Raises:
-        ValueError: If ``ep_name`` is not a known canonical EP name.
+        ValueError: If ``ep_name`` is not a known EP name or alias.
 
     Examples:
         >>> infer_ihv_from_ep_name("QNNExecutionProvider")
         <IHVType.QC: 'QC'>
-        >>> infer_ihv_from_ep_name("OpenVINOExecutionProvider")
+        >>> infer_ihv_from_ep_name("openvino")
         <IHVType.INTEL: 'INTEL'>
         >>> infer_ihv_from_ep_name("VitisAIExecutionProvider")
         <IHVType.AMD: 'AMD'>
@@ -47,6 +48,7 @@ def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
         >>> infer_ihv_from_ep_name("CPUExecutionProvider")
         <IHVType.MICROSOFT: 'Microsoft'>
     """
+    from ...utils.constants import normalize_ep_name
     from ..models.ihv_type import IHVType
 
     ep_name_to_ihv: dict[EPName, IHVType] = {
@@ -60,8 +62,9 @@ def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
         "DmlExecutionProvider": IHVType.MICROSOFT,
     }
 
+    canonical = normalize_ep_name(ep_name)
     try:
-        return ep_name_to_ihv[ep_name]
+        return ep_name_to_ihv[canonical]  # type: ignore[index]
     except KeyError:
         raise ValueError(f"Cannot infer IHV for unknown EP name: {ep_name!r}") from None
 

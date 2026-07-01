@@ -418,9 +418,7 @@ class TestBatchedConstMatMulValidator:
 
     def test_detects_for_openvino_gpu(self):
         """Emits a GraphOptimization action enabling the surgery for OV GPU."""
-        info = self._validate(
-            _make_batched_const_matmul_proto(), "OpenVINOExecutionProvider", "GPU"
-        )
+        info = self._validate(_make_batched_const_matmul_proto(), "openvino", "GPU")
         assert info is not None
         assert info.pattern_id == "MODEL/BatchedConstantMatMul"
         items = info.actions[0].action_items
@@ -429,10 +427,7 @@ class TestBatchedConstMatMulValidator:
 
     def test_skipped_for_openvino_npu(self):
         """Device-gated: NPU is unaffected."""
-        assert (
-            self._validate(_make_batched_const_matmul_proto(), "OpenVINOExecutionProvider", "NPU")
-            is None
-        )
+        assert self._validate(_make_batched_const_matmul_proto(), "openvino", "NPU") is None
 
     def test_skipped_for_non_intel_gpu(self):
         """IHV-gated: a non-Intel GPU EP is unaffected."""
@@ -441,9 +436,7 @@ class TestBatchedConstMatMulValidator:
 
     def test_skipped_for_two_dim_constant(self):
         """Rank-2 constant gemm compiles on OV GPU; not flagged."""
-        info = self._validate(
-            _make_batched_const_matmul_proto(const_rank=2), "OpenVINOExecutionProvider", "GPU"
-        )
+        info = self._validate(_make_batched_const_matmul_proto(const_rank=2), "openvino", "GPU")
         assert info is None
 
     def test_manager_wires_validator_for_openvino_gpu(self):
