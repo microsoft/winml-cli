@@ -363,19 +363,22 @@ class WinMLAutoModel:
         if task is not None:
             from .winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-            _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
-            if task in _known_composite_tasks:
-                from transformers import AutoConfig
-
-                _hf_cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
-                _model_type = getattr(_hf_cfg, "model_type", None)
-            else:
-                _model_type = None
-
             # Explicit override wins so a variant composite (e.g.
             # "qwen3_transformer_only") can be selected over the native type.
+            _model_type: str | None
             if model_type is not None:
                 _model_type = model_type
+            else:
+                _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
+                if task in _known_composite_tasks:
+                    from transformers import AutoConfig
+
+                    _hf_cfg = AutoConfig.from_pretrained(
+                        model_id, trust_remote_code=trust_remote_code
+                    )
+                    _model_type = getattr(_hf_cfg, "model_type", None)
+                else:
+                    _model_type = None
 
             if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
                 from .winml.composite_model import WinMLCompositeModel
