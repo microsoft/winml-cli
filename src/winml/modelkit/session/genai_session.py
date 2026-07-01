@@ -544,7 +544,11 @@ class GenaiSession:
         compiled_config.write_text(
             json.dumps(modified_cfg, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        self._mirror_non_onnx_files(compiled_dir)
+        # Only skip the QNN-stage ONNX files (compiled → new path, or failed →
+        # absolute path patch).  Non-QNN ONNX files (embeddings, lm_head) must
+        # be symlinked into compiled_dir so ort-genai can find them by filename.
+        compiled_onnx_names = {onnx_filename for _, onnx_filename, _ in qnn_stages}
+        self._mirror_non_onnx_files(compiled_dir, skip_filenames=compiled_onnx_names)
 
         logger.info("Compiled bundle prepared at %s", compiled_dir)
         return compiled_dir
@@ -624,22 +628,24 @@ class GenaiSession:
         logger.info("Stage %r compiled successfully → %s", stage_key, ctx_out)
         return True
 
-    def _mirror_non_onnx_files(self, compiled_dir: Path) -> None:
-        """Create symlinks (or copies on Windows) for every non-ONNX file.
+    def _mirror_non_onnx_files(
+        self, compiled_dir: Path, skip_filenames: set[str] | None = None
+    ) -> None:
+        """Create symlinks (or copies on Windows) for files not being compiled.
 
-        Files are linked/copied into *compiled_dir* so that ``og.Config``
-        finds tokenizer files, specials maps, etc.  ONNX files are intentionally
-        skipped — compiled stages land at different filenames inside *compiled_dir*,
-        and non-compiled stages fall back to their original path via an absolute
-        filename written into the modified genai_config.json.  Existing files are
-        left untouched.
+        Links files into *compiled_dir* so ``og.Config`` finds tokenizer files,
+        non-QNN ONNX models (embeddings, lm_head), etc.  Only ONNX files listed
+        in *skip_filenames* (the QNN-compiled stages) and their external ``.data``
+        siblings are skipped — everything else, including CPU-side ONNX files, is
+        linked.  Existing files are left untouched.
         """
+        skip = set(skip_filenames or [])
+        # Also skip .data sidecars of the compiled-stage ONNX files.
+        skip_data = {f"{name}.data" for name in skip} | {f"{name}.data" for name in skip}
         for src in self._bundle_dir.iterdir():
             if src.name == self._COMPILED_SUBDIR:
                 continue
-            if src.suffix in (".onnx", ".data"):
-                # Skip model files — compiled stages are already at their new paths;
-                # large ONNX weights (potentially several GB) must not be duplicated.
+            if src.name in skip or src.name in skip_data:
                 continue
             dst = compiled_dir / src.name
             if dst.exists():
@@ -648,7 +654,6 @@ class GenaiSession:
                 try:
                     dst.symlink_to(src.resolve())
                 except (OSError, NotImplementedError):
-                    # Symlinks may require elevated privileges on Windows; fall back to copy.
                     shutil.copy2(src, dst)
 
     @staticmethod
