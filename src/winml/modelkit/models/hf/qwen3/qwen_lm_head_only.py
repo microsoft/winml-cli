@@ -39,6 +39,7 @@ from transformers import AutoModelForCausalLM
 from ....config import WinMLBuildConfig
 from ....export import register_onnx_overwrite
 from ....export.config import WinMLExportConfig
+from ....optim.config import WinMLOptimizationConfig
 from ...winml import register_specialization
 
 
@@ -89,7 +90,7 @@ class QwenLMHeadOnlyWrapper(nn.Module):
         The ``lm_head`` is loaded in float32, so its output is already FP32 —
         no explicit cast is added (keeps the graph a single projection).
         """
-        return self.lm_head(output_hidden_states)
+        return self.lm_head(output_hidden_states)  # type: ignore[no-any-return]
 
 
 # =============================================================================
@@ -97,7 +98,7 @@ class QwenLMHeadOnlyWrapper(nn.Module):
 # =============================================================================
 
 
-class _LMHeadHiddenStateGenerator(DummyInputGenerator):
+class _LMHeadHiddenStateGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Generates ``output_hidden_states`` (FP32, ``[1, seq_len, hidden]``)."""
 
     SUPPORTED_INPUT_NAMES = ("output_hidden_states",)
@@ -114,7 +115,11 @@ class _LMHeadHiddenStateGenerator(DummyInputGenerator):
     ) -> None:
         self.batch_size = batch_size
         self.hidden_size = normalized_config.hidden_size
-        self.seq_len = seq_len or getattr(normalized_config, "seq_len", self._default_seq_len)
+        self.seq_len = (
+            int(seq_len)
+            if seq_len
+            else int(getattr(normalized_config, "seq_len", self._default_seq_len))
+        )
 
     def generate(
         self,
@@ -140,10 +145,8 @@ _QWEN_LM_HEAD_NORMALIZED = NormalizedConfig.with_args(
 )
 
 
-@register_onnx_overwrite(
-    LM_HEAD_ONLY_MODEL_TYPE, "feature-extraction", library_name="transformers"
-)
-class QwenLMHeadOnlyIOConfig(OnnxConfig):
+@register_onnx_overwrite(LM_HEAD_ONLY_MODEL_TYPE, "feature-extraction", library_name="transformers")
+class QwenLMHeadOnlyIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """LM head — ``output_hidden_states`` -> ``logits``."""
 
     NORMALIZED_CONFIG_CLASS = _QWEN_LM_HEAD_NORMALIZED
@@ -168,7 +171,7 @@ class QwenLMHeadOnlyIOConfig(OnnxConfig):
 QWEN_LM_HEAD_ONLY_CONFIG = WinMLBuildConfig(
     export=WinMLExportConfig(dynamo=False, opset_version=18),
     # Pure graph (no post-export fusion).
-    optim=None,
+    optim=WinMLOptimizationConfig(),
 )
 
 
@@ -184,9 +187,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 }
 
 # Inference specialization (GenericTask — the wrapper returns raw logits).
-register_specialization(
-    LM_HEAD_ONLY_MODEL_TYPE, "feature-extraction", "WinMLModelForGenericTask"
-)
+register_specialization(LM_HEAD_ONLY_MODEL_TYPE, "feature-extraction", "WinMLModelForGenericTask")
 
 
 __all__ = [

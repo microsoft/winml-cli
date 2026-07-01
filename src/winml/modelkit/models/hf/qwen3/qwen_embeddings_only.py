@@ -37,6 +37,7 @@ from transformers import AutoModelForCausalLM
 from ....config import WinMLBuildConfig
 from ....export import register_onnx_overwrite
 from ....export.config import WinMLExportConfig
+from ....optim.config import WinMLOptimizationConfig
 from ...winml import register_specialization
 
 
@@ -87,7 +88,7 @@ class QwenEmbeddingsOnlyWrapper(nn.Module):
         The embedding table is loaded in float32, so its output is already
         FP32 — no explicit cast is added (keeps the graph a single ``Gather``).
         """
-        return self.embed_tokens(input_ids)
+        return self.embed_tokens(input_ids)  # type: ignore[no-any-return]
 
 
 # =============================================================================
@@ -95,7 +96,7 @@ class QwenEmbeddingsOnlyWrapper(nn.Module):
 # =============================================================================
 
 
-class _EmbeddingsInputIdsGenerator(DummyInputGenerator):
+class _EmbeddingsInputIdsGenerator(DummyInputGenerator):  # type: ignore[misc]  # optimum base is untyped
     """Generates ``input_ids`` (INT, ``[1, seq_len]``)."""
 
     SUPPORTED_INPUT_NAMES = ("input_ids",)
@@ -112,7 +113,11 @@ class _EmbeddingsInputIdsGenerator(DummyInputGenerator):
     ) -> None:
         self.batch_size = batch_size
         self.vocab_size = normalized_config.vocab_size
-        self.seq_len = seq_len or getattr(normalized_config, "seq_len", self._default_seq_len)
+        self.seq_len = (
+            int(seq_len)
+            if seq_len
+            else int(getattr(normalized_config, "seq_len", self._default_seq_len))
+        )
 
     def generate(
         self,
@@ -143,7 +148,7 @@ _QWEN_EMBEDDINGS_NORMALIZED = NormalizedConfig.with_args(
 @register_onnx_overwrite(
     EMBEDDINGS_ONLY_MODEL_TYPE, "feature-extraction", library_name="transformers"
 )
-class QwenEmbeddingsOnlyIOConfig(OnnxConfig):
+class QwenEmbeddingsOnlyIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Embeddings lookup — ``input_ids`` -> ``input_hidden_states``."""
 
     NORMALIZED_CONFIG_CLASS = _QWEN_EMBEDDINGS_NORMALIZED
@@ -168,7 +173,7 @@ class QwenEmbeddingsOnlyIOConfig(OnnxConfig):
 QWEN_EMBEDDINGS_ONLY_CONFIG = WinMLBuildConfig(
     export=WinMLExportConfig(dynamo=False, opset_version=18),
     # Pure graph (no post-export fusion).
-    optim=None,
+    optim=WinMLOptimizationConfig(),
 )
 
 
