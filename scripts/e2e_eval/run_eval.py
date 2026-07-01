@@ -257,7 +257,7 @@ def _clean_job_artifacts(model_dir: Path) -> None:
         safe_print(f"  [cleanup] Removed {removed} build artifact(s) from {model_dir.name}")
 
 
-# Stray scratch models that onnxruntime/QNN libraries write into the *process
+# Stray scratch files that onnxruntime/QNN/EP libraries write into the *process
 # working directory* (the repo root when the harness is launched from there),
 # outside any path the harness controls via ``-o``/``--output``:
 #   * ``<uuid>.onnx`` / ``<uuid>.data`` / ``<uuid>.onnx.data`` — external-data
@@ -265,22 +265,25 @@ def _clean_job_artifacts(model_dir: Path) -> None:
 #   * ``<uuid>.onnx_<EP>.bin`` / ``<uuid>_ctx.onnx`` — QNN/VitisAI EP context
 #     dumps (can be very large, which is what fills a QNN box's disk).
 #   * ``sym_shape_infer_temp.onnx`` — onnxruntime symbolic shape inference temp.
-# Matched conservatively (UUID-prefixed names or the fixed sym-shape temp) so
-# real, non-temporary files in the cwd are never touched.
+#   * ``timing_log.csv`` — engine-compile timing dump written by some EP
+#     runtimes (TensorRT-RTX / MIGraphX / VitisAI) on session creation.
+# Matched conservatively (UUID-prefixed names, the sym-shape prefix, or an exact
+# fixed filename) so real, non-temporary files in the cwd are never touched.
 _UUID_PREFIX_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
 _STRAY_CWD_PREFIXES = ("sym_shape_infer_temp",)
+_STRAY_CWD_EXACT = frozenset({"timing_log.csv"})
 
 
 def _clean_stray_cwd_artifacts(directory: Path) -> int:
-    """Remove ORT/QNN scratch ONNX models libraries leak into ``directory``.
+    """Remove ORT/QNN/EP scratch files libraries leak into ``directory``.
 
     These land in the subprocess working directory (inherited from the harness,
     i.e. the repo root) and are not covered by the per-job or cache cleanups, so
     across many jobs they fill the disk even with ``--clean-cache``. Only clearly
-    temporary names are removed (see ``_UUID_PREFIX_RE`` / ``_STRAY_CWD_PREFIXES``).
-    Returns the number of files removed.
+    temporary names are removed (see ``_UUID_PREFIX_RE`` / ``_STRAY_CWD_PREFIXES``
+    / ``_STRAY_CWD_EXACT``). Returns the number of files removed.
     """
     if not directory.is_dir():
         return 0
@@ -289,14 +292,18 @@ def _clean_stray_cwd_artifacts(directory: Path) -> int:
         if not entry.is_file():
             continue
         name = entry.name
-        if _UUID_PREFIX_RE.match(name) or name.startswith(_STRAY_CWD_PREFIXES):
+        if (
+            _UUID_PREFIX_RE.match(name)
+            or name.startswith(_STRAY_CWD_PREFIXES)
+            or name in _STRAY_CWD_EXACT
+        ):
             try:
                 entry.unlink()
                 removed += 1
             except OSError:
                 pass  # Best-effort; ignore locked/already-removed files
     if removed:
-        safe_print(f"  [cleanup] Removed {removed} stray scratch model(s) from {directory}")
+        safe_print(f"  [cleanup] Removed {removed} stray scratch file(s) from {directory}")
     return removed
 
 
@@ -1861,6 +1868,11 @@ def _run_winml_eval(
             num_samples = (dataset or {}).get("samples", ds_config.get("num_samples"))
             metric = {"metric": winml_key, "value": float(metrics[winml_key]), "num_samples": num_samples}
 
+    # PASS requires a non-empty metrics map: a model that exits 0 but emits no
+    # measured metrics ({}) is treated as FAIL, not PASS (an empty dict is
+    # falsy here on purpose). The legacy PyTorch-baseline path parses a single
+    # metric object instead and uses `is not None`; both mean "no metric => not
+    # a pass".
     status = "PASS" if (proc["exit_code"] == 0 and metrics) else "FAIL"
 
     return {
@@ -2423,10 +2435,13 @@ def parse_args() -> argparse.Namespace:
         nargs="*",
         metavar="TYPE",
         help=(
-            "Re-run models matching given failure types or accuracy verdicts "
-            "(e.g. ENVIRONMENT, ACCURACY_REGRESSION). "
-            "Use without args to retry ALL non-PASS models. "
-            "Implies --continue for passing models."
+            "Re-run jobs whose recorded status matches one of the given types. "
+            "Valid values are the perf failure classifications "
+            "(EXPORT_FAIL, ANALYZER_BLOCK, OPT_FAIL, COMPILE_FAIL, RUNTIME_FAIL, "
+            "ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status FAIL "
+            "(e.g. --retry-failed ENVIRONMENT FAIL). "
+            "Use without args to retry ALL non-PASS jobs. "
+            "Implies --continue for passing jobs."
         ),
     )
     return parser.parse_args()

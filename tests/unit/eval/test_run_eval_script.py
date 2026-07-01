@@ -810,23 +810,26 @@ class TestCleanStrayCwdArtifacts:
     """``_clean_stray_cwd_artifacts`` sweeps UUID/sym-shape temps from the cwd."""
 
     def test_removes_uuid_and_sym_shape_keeps_real(self, run_eval, tmp_path):
-        # Stray scratch models libraries leak into the process cwd.
+        # Stray scratch files libraries leak into the process cwd.
         (tmp_path / "88158373-7198-11f1-ab34-2c9c5846c436.data").write_text("x")
         (tmp_path / "b305c74d-7171-11f1-9869-2c9c5846c436.onnx").write_text("x")
         (tmp_path / "c97746cf-714d-11f1-aa19-2c9c5846c436.onnx.data").write_text("x")
         # QNN EP-context dump form: <uuid>.onnx_<EP>.bin
         (tmp_path / "a1b2c3d4-1234-5678-9abc-def012345678.onnx_QNN.bin").write_text("x")
         (tmp_path / "sym_shape_infer_temp.onnx").write_text("x")
-        # Real files that must survive (not UUID-prefixed).
+        # EP engine-compile timing dump (exact fixed name).
+        (tmp_path / "timing_log.csv").write_text("x")
+        # Real files that must survive (not UUID-prefixed / not the timing dump).
         (tmp_path / "README.md").write_text("x")
         (tmp_path / "model.onnx").write_text("x")
         (tmp_path / "pyproject.toml").write_text("x")
+        (tmp_path / "my_timing_log.csv").write_text("x")  # similar but not exact -> keep
 
         removed = run_eval._clean_stray_cwd_artifacts(tmp_path)
 
-        assert removed == 5
+        assert removed == 6
         survivors = sorted(p.name for p in tmp_path.iterdir())
-        assert survivors == ["README.md", "model.onnx", "pyproject.toml"]
+        assert survivors == ["README.md", "model.onnx", "my_timing_log.csv", "pyproject.toml"]
 
     def test_does_not_recurse_into_subdirs(self, run_eval, tmp_path):
         # Only the top-level cwd is swept; a UUID dir/file one level down is left.
@@ -878,3 +881,68 @@ class TestRunAccuracyPhaseSchema:
         _, kwargs = mock_eval.call_args
         assert kwargs["recipe_config"] == tmp_path / "r.json"
         assert kwargs["trust_remote_code"] is True
+
+
+class TestShouldSkipExistingRetry:
+    """``_should_skip_existing`` retry-type matching.
+
+    Guards the fix for the stale ``--retry-failed`` help: accuracy retry types
+    are the coarse ``accuracy_status`` values (PASS/FAIL/SKIPPED/NOT_RUN), never
+    the removed ``ACCURACY_*`` verdicts. Perf retry types are the failure
+    classifications.
+    """
+
+    @staticmethod
+    def _result(perf_passed=True, perf_stdout="", acc_status=None):
+        r = {
+            "perf": {
+                "passed": perf_passed,
+                "timeout": False,
+                "stdout_output": perf_stdout,
+                "stderr_output": "",
+                "exit_code": 0 if perf_passed else 1,
+            }
+        }
+        if acc_status == "PASS":
+            r["accuracy"] = {"skipped": False, "winml_eval_status": "PASS", "metrics": {"a": 1}}
+        elif acc_status == "FAIL":
+            r["accuracy"] = {"skipped": False, "winml_eval_status": "FAIL", "metrics": None}
+        elif acc_status == "SKIPPED":
+            r["accuracy"] = {"skipped": True, "skip_reason": "perf_failed"}
+        else:
+            r["accuracy"] = None
+        return r
+
+    def test_continue_without_retry_skips_all(self, run_eval):
+        # retry_types=None means plain --continue: skip every existing result.
+        res = self._result(perf_passed=False, acc_status="FAIL")
+        assert run_eval._should_skip_existing(res, None, "both") is True
+
+    def test_retry_all_reruns_accuracy_fail(self, run_eval):
+        # empty set = retry ALL non-PASS; an accuracy FAIL must be re-run.
+        res = self._result(perf_passed=True, acc_status="FAIL")
+        assert run_eval._should_skip_existing(res, set(), "both") is False
+
+    def test_retry_fail_matches_accuracy_fail(self, run_eval):
+        # The documented `--retry-failed FAIL` must actually match acc=FAIL.
+        res = self._result(perf_passed=True, acc_status="FAIL")
+        assert run_eval._should_skip_existing(res, {"FAIL"}, "both") is False
+
+    def test_retry_fail_does_not_match_accuracy_pass(self, run_eval):
+        res = self._result(perf_passed=True, acc_status="PASS")
+        assert run_eval._should_skip_existing(res, {"FAIL"}, "both") is True
+
+    def test_stale_accuracy_regression_matches_nothing(self, run_eval):
+        # The removed verdict must never match (the bug the help fix addresses).
+        res = self._result(perf_passed=True, acc_status="FAIL")
+        assert run_eval._should_skip_existing(res, {"ACCURACY_REGRESSION"}, "both") is True
+
+    def test_perf_classification_matches(self, run_eval):
+        # Perf retry types are failure classifications (e.g. RUNTIME_FAIL).
+        res = self._result(
+            perf_passed=False, perf_stdout="RuntimeError: boom", acc_status="SKIPPED"
+        )
+        cls = run_eval.classify_result(res)
+        assert run_eval._should_skip_existing(res, {cls}, "both") is False
+        env_match = run_eval._should_skip_existing(res, {"ENVIRONMENT"}, "both")
+        assert env_match is (cls != "ENVIRONMENT")
