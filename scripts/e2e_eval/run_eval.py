@@ -2159,11 +2159,37 @@ def _get_disk_free_gb() -> float:
     return shutil.disk_usage(anchor).free / (1024**3)
 
 
+def _needs_accuracy_backfill(existing: dict, eval_type: str) -> bool:
+    """True when an existing result is missing accuracy that this run wants.
+
+    A perf-only result (``accuracy is None``) is *incomplete* for an accuracy
+    run, so ``--continue`` should top it up with accuracy instead of skipping —
+    reusing the already-recorded perf rather than re-benchmarking it.
+
+    - ``perf``            : never (accuracy is not wanted).
+    - ``accuracy``        : always, when accuracy has not been recorded yet.
+    - ``both``            : only when the recorded perf passed (a failed-perf
+      job would have accuracy skipped as ``perf_failed``, not backfilled).
+    """
+    if eval_type not in ("both", "accuracy"):
+        return False
+    if existing.get("accuracy") is not None:
+        return False
+    if eval_type == "accuracy":
+        return True
+    return bool((existing.get("perf") or {}).get("passed"))
+
+
 def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_type: str) -> bool:
     """Return True if an existing eval_result should be skipped (not re-run).
 
     Used by both --list-json and the main eval loop to share continue/retry logic.
     """
+    # Accuracy backfill takes priority over a plain skip: a perf-only result is
+    # not "done" for an accuracy run, so we re-process it (accuracy only).
+    if _needs_accuracy_backfill(existing, eval_type):
+        return False
+
     if retry_types is None:
         return True  # --continue without --retry-failed: skip all existing
 
@@ -2241,6 +2267,37 @@ def _build_jobs(
         else:
             jobs.append(EvalJob(entry, None))
     return jobs
+
+
+def _build_for_job(
+    job: EvalJob, args: argparse.Namespace, model_dir: Path
+) -> tuple[dict, Path | None, bool]:
+    """Build a job's model, returning ``(build_result, recipe_meta, trust)``.
+
+    Shared by the normal perf/accuracy path and the accuracy-backfill path: an
+    authored recipe is built with ``winml build -c`` when the job has a variant,
+    otherwise the ``winml config`` fallback is used. ``recipe_meta`` is the
+    eval/dataset config for ``winml eval -c`` (None for the fallback) and
+    ``trust`` is whether the recipe's dataset needs ``--trust-remote-code``.
+    """
+    if job.variant is not None:
+        build_result = _run_recipe_build(
+            job.entry, job.variant, args.timeout, model_dir, ep=args.ep
+        )
+        recipe_meta = build_result.get("meta_config")
+        trust = _needs_trust_remote_code(recipe_meta)
+    else:
+        build_result = _run_build(
+            job.entry,
+            args.device,
+            _resolve_precision(args.device, job.entry.precision, ep=args.ep),
+            args.timeout,
+            model_dir,
+            ep=args.ep,
+        )
+        recipe_meta = None
+        trust = False
+    return build_result, recipe_meta, trust
 
 
 # ---------------------------------------------------------------------------
@@ -2428,7 +2485,12 @@ def parse_args() -> argparse.Namespace:
         "--continue",
         dest="continue_run",
         action="store_true",
-        help="Skip models that already have eval_result.json",
+        help=(
+            "Skip jobs that already have an eval_result.json. Exception: with "
+            "--eval-type accuracy/both, a perf-only result (accuracy not yet run) "
+            "is topped up with accuracy, reusing its cached perf instead of "
+            "re-benchmarking."
+        ),
     )
     parser.add_argument(
         "--retry-failed",
@@ -2637,7 +2699,6 @@ def main() -> None:
 
     for i, job in enumerate(jobs, 1):
         entry = job.entry
-        variant = job.variant
         precision = job.precision
         prec_tag = f" [{precision}]" if precision else ""
         base_label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
@@ -2672,6 +2733,7 @@ def main() -> None:
             continue
 
         # --continue / --retry-failed: check existing eval_result.json
+        backfill_existing: dict | None = None
         if args.continue_run and result_path.exists():
             try:
                 existing = load_result_json(result_path)
@@ -2689,16 +2751,25 @@ def main() -> None:
                     )
                     continue
 
-                retry_label = classify_result(existing) or (
-                    accuracy_status(existing.get("accuracy"))
-                    if existing.get("accuracy")
-                    else "?"
-                )
-                safe_print(f"\n[{i}/{total_jobs}] {label}  (RETRY - was {retry_label})")
+                if _needs_accuracy_backfill(existing, args.eval_type):
+                    # Perf already recorded (and passed); only (re)build + run
+                    # accuracy, then merge it into the existing result.
+                    backfill_existing = existing
+                    safe_print(
+                        f"\n[{i}/{total_jobs}] {label}  (BACKFILL accuracy - perf cached)"
+                    )
+                else:
+                    retry_label = classify_result(existing) or (
+                        accuracy_status(existing.get("accuracy"))
+                        if existing.get("accuracy")
+                        else "?"
+                    )
+                    safe_print(f"\n[{i}/{total_jobs}] {label}  (RETRY - was {retry_label})")
             except (json.JSONDecodeError, KeyError):
                 pass  # Corrupted result file — re-run
 
-        safe_print(f"\n[{i}/{total_jobs}] {label}  ({entry.priority}, {entry.group})")
+        if backfill_existing is None:
+            safe_print(f"\n[{i}/{total_jobs}] {label}  ({entry.priority}, {entry.group})")
 
         try:
             perf_proc: dict | None = None
@@ -2707,28 +2778,29 @@ def main() -> None:
             # Build phase: an authored recipe (winml build -c) when one exists
             # for this precision, else the winml-config fallback. Both return
             # {success, onnx_paths, stage, proc}; build is shared by perf + eval.
-            if variant is not None:
-                build_result = _run_recipe_build(
-                    entry, variant, args.timeout, model_dir, ep=args.ep
-                )
-                recipe_meta = build_result.get("meta_config")
-                trust = _needs_trust_remote_code(recipe_meta)
-            else:
-                build_result = _run_build(
-                    entry,
-                    args.device,
-                    _resolve_precision(args.device, entry.precision, ep=args.ep),
-                    args.timeout,
-                    model_dir,
-                    ep=args.ep,
-                )
-                recipe_meta = None
-                trust = False
+            build_result, recipe_meta, trust = _build_for_job(job, args, model_dir)
 
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
             onnx_size = _compute_onnx_size(onnx_paths)
 
-            if not build_result["success"]:
+            if backfill_existing is not None:
+                # Accuracy backfill: perf was already recorded (and passed), so
+                # skip run_model and only (re)build + run accuracy. A build that
+                # now fails records a skipped accuracy without touching perf.
+                if not build_result["success"]:
+                    accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
+                else:
+                    accuracy_result = _run_accuracy_phase(
+                        entry,
+                        args.device,
+                        args.timeout,
+                        model_dir,
+                        onnx_paths,
+                        ep=args.ep,
+                        recipe_config=recipe_meta,
+                        trust_remote_code=trust,
+                    )
+            elif not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
                 fail_proc = build_result["proc"]
                 fail_proc["device"] = args.device
@@ -2774,17 +2846,27 @@ def main() -> None:
             interrupted = True
             break
 
-        result = build_eval_result(
-            entry,
-            perf_proc,
-            args.device,
-            eval_types_run,
-            accuracy_result,
-            ep=args.ep,
-            onnx_size_bytes=onnx_size,
-            sanitize_fn=None if args.raw_output else _sanitize_output,
-            precision=precision,
-        )
+        if backfill_existing is not None:
+            # Merge the freshly-run accuracy into the existing result, preserving
+            # its recorded perf verbatim. accuracy_result has the same shape
+            # build_eval_result would store, so it's spliced in directly.
+            result = dict(backfill_existing)
+            result["accuracy"] = accuracy_result
+            etr = result.get("eval_types_run") or []
+            if "accuracy" not in etr:
+                result["eval_types_run"] = [*etr, "accuracy"]
+        else:
+            result = build_eval_result(
+                entry,
+                perf_proc,
+                args.device,
+                eval_types_run,
+                accuracy_result,
+                ep=args.ep,
+                onnx_size_bytes=onnx_size,
+                sanitize_fn=None if args.raw_output else _sanitize_output,
+                precision=precision,
+            )
         results.append(result)
 
         # Write eval_result.json immediately (crash-safe, facts only)
@@ -2798,7 +2880,10 @@ def main() -> None:
             else:
                 acc_tag = f"  acc={accuracy_status(accuracy_result)}"
 
-        if perf_proc is not None:
+        if backfill_existing is not None:
+            # Perf was reused from the cached result; report the backfilled acc.
+            safe_print(f"  [BACKFILL]{acc_tag}")
+        elif perf_proc is not None:
             perf_passed = perf_proc["exit_code"] == 0
             perf_cls = classify_result(result) or "UNKNOWN"
             perf_tag = "PASS" if perf_passed else f"FAIL ({perf_cls})"

@@ -83,6 +83,9 @@ uv run python scripts/e2e_eval/run_eval.py --priority P0 --list
 # Resume an interrupted run
 uv run python scripts/e2e_eval/run_eval.py --continue
 
+# Backfill accuracy onto an existing perf-only batch (reuses cached perf)
+uv run python scripts/e2e_eval/run_eval.py --eval-type both --continue
+
 # Retry only ENVIRONMENT failures (disk/network issues)
 uv run python scripts/e2e_eval/run_eval.py --retry-failed ENVIRONMENT UNKNOWN
 
@@ -111,7 +114,7 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--update-baseline` | off | Offline mode: refresh `cache/baseline_cache.json` via the PyTorch baseline, then exit (no build/perf/eval) |
 | `--list` | off | List models and exit |
 | `--verbose` | off | Print stderr for failed models |
-| `--continue` | off | Skip jobs with existing results |
+| `--continue` | off | Skip jobs with existing results (but backfill accuracy onto perf-only results when `--eval-type` wants it) |
 | `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`) |
 | `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
 
@@ -260,6 +263,13 @@ passes** (otherwise accuracy is recorded as `skipped` with `skip_reason="perf_fa
 The runner records the measured metric; the delta vs the PyTorch baseline and the
 PASS/REGRESSION verdict are computed by the report site against `baseline_cache.json`.
 Refresh that cache offline with `--update-baseline`.
+
+**Accuracy backfill**: running `--eval-type both`/`accuracy` with `--continue` over a
+directory of perf-only results (`accuracy: null`) does not skip them — it rebuilds the
+model and runs `winml eval`, reusing the already-recorded perf instead of
+re-benchmarking, then merges accuracy into the same `eval_result.json`. This lets a
+fast `--eval-type perf` sweep be topped up with accuracy later. (Perf-only results
+whose perf *failed* are left as-is; there is nothing to backfill.)
 
 ### Priority & Groups
 

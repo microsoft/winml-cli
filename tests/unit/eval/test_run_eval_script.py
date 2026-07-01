@@ -946,3 +946,58 @@ class TestShouldSkipExistingRetry:
         assert run_eval._should_skip_existing(res, {cls}, "both") is False
         env_match = run_eval._should_skip_existing(res, {"ENVIRONMENT"}, "both")
         assert env_match is (cls != "ENVIRONMENT")
+
+
+class TestAccuracyBackfill:
+    """``_needs_accuracy_backfill`` + ``_should_skip_existing`` top up perf-only
+    results with accuracy under ``--continue`` instead of skipping them.
+    """
+
+    @staticmethod
+    def _perf_only(perf_passed=True):
+        # A perf-only run: accuracy never ran (None).
+        return {
+            "perf": {"passed": perf_passed, "timeout": False, "exit_code": 0 if perf_passed else 1},
+            "accuracy": None,
+        }
+
+    def test_backfill_both_perf_passed(self, run_eval):
+        res = self._perf_only(perf_passed=True)
+        assert run_eval._needs_accuracy_backfill(res, "both") is True
+        # Even plain --continue (retry_types=None) must NOT skip it.
+        assert run_eval._should_skip_existing(res, None, "both") is False
+
+    def test_no_backfill_both_perf_failed(self, run_eval):
+        # A failed-perf job has nothing to backfill (accuracy would be skipped).
+        res = self._perf_only(perf_passed=False)
+        assert run_eval._needs_accuracy_backfill(res, "both") is False
+        assert run_eval._should_skip_existing(res, None, "both") is True
+
+    def test_backfill_accuracy_mode_regardless_of_perf(self, run_eval):
+        # accuracy-only mode backfills whenever accuracy is missing.
+        res = self._perf_only(perf_passed=False)
+        assert run_eval._needs_accuracy_backfill(res, "accuracy") is True
+        assert run_eval._should_skip_existing(res, None, "accuracy") is False
+
+    def test_no_backfill_perf_mode(self, run_eval):
+        # A perf run never wants accuracy; a perf-only result is complete.
+        res = self._perf_only(perf_passed=True)
+        assert run_eval._needs_accuracy_backfill(res, "perf") is False
+        assert run_eval._should_skip_existing(res, None, "perf") is True
+
+    def test_no_backfill_when_accuracy_present(self, run_eval):
+        # Already has accuracy -> nothing to backfill -> plain continue skips.
+        res = {
+            "perf": {"passed": True},
+            "accuracy": {"skipped": False, "winml_eval_status": "PASS", "metrics": {"a": 1}},
+        }
+        assert run_eval._needs_accuracy_backfill(res, "both") is False
+        assert run_eval._should_skip_existing(res, None, "both") is True
+
+    def test_no_backfill_when_accuracy_skipped(self, run_eval):
+        # perf_failed skip is a recorded outcome, not a missing accuracy.
+        res = {
+            "perf": {"passed": False},
+            "accuracy": {"skipped": True, "skip_reason": "perf_failed"},
+        }
+        assert run_eval._needs_accuracy_backfill(res, "both") is False
