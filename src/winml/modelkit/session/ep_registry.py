@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from typing import TYPE_CHECKING, Any, cast
 
 
@@ -67,20 +68,33 @@ def _make_progress_bar() -> Any:
 
     tqdm is a dev-only optional dep in this package, so production installs
     without it must still complete EP downloads — they just lose the live bar.
+    Also tolerates non-interactive runtimes where ``sys.stderr`` may be None
+    (e.g., GUI/no-console hosts) so progress rendering failures cannot block
+    EP discovery.
     The pre-download Console notice is emitted by the caller and is unaffected.
 
     Format: ``Downloading... ████████████░░░░░░ 62%``
     """
+    if sys.stderr is None or not hasattr(sys.stderr, "write"):
+        logger.debug("stderr is unavailable; using no-op progress bar.")
+        return _NoopBar()
+
     try:
         from tqdm import tqdm
     except ImportError:
         return _NoopBar()
-    return tqdm(
-        total=100,
-        bar_format="Downloading... {bar} {percentage:3.0f}%",
-        ascii="░█",
-        leave=True,
-    )
+
+    try:
+        return tqdm(
+            total=100,
+            bar_format="Downloading... {bar} {percentage:3.0f}%",
+            ascii="░█",
+            leave=True,
+            file=sys.stderr,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Failed to initialize tqdm progress bar; falling back to no-op: %s", e)
+        return _NoopBar()
 
 
 def _parse_ep_metadata_from_path(library_path: str) -> tuple[str, str]:
