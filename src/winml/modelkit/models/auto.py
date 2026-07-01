@@ -365,6 +365,7 @@ class WinMLAutoModel:
 
             # Explicit override wins so a variant composite (e.g.
             # "qwen3_transformer_only") can be selected over the native type.
+            _model_type: str | None
             if model_type is not None:
                 _model_type = model_type
             else:

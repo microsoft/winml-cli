@@ -127,12 +127,14 @@ class InformationEngine:
         # resolves to IHVType.UNKNOWN, which we treat as "no IHV filter" so the
         # loader falls back to loading all rules.
         infer_ihv_start = time.perf_counter()
-        ihv_type: IHVType | None = infer_ihv_from_ep_name(self._ep)
-        if ihv_type is IHVType.UNKNOWN:
+        inferred_ihv = infer_ihv_from_ep_name(self._ep)
+        ihv_type: IHVType | None
+        if inferred_ihv is IHVType.UNKNOWN:
             logger.warning("Could not infer IHV from EP %s. Loading all rules.", self._ep)
             ihv_type = None
         else:
-            logger.info("Inferred IHV type %s from EP %s", ihv_type.value, self._ep)
+            logger.info("Inferred IHV type %s from EP %s", inferred_ihv.value, self._ep)
+            ihv_type = inferred_ihv
         infer_ihv_ms = int((time.perf_counter() - infer_ihv_start) * 1000)
 
         load_predefined_start = time.perf_counter()
