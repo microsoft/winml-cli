@@ -473,6 +473,56 @@ class TestCompileTimeout:
 
 
 # ---------------------------------------------------------------------------
+# Tests: _compile_stage_worker (delegation to the shared compiler)
+# ---------------------------------------------------------------------------
+
+
+class TestCompileStageWorker:
+    def test_delegates_to_compile_onnx(self) -> None:
+        """The worker calls the shared compiler with src/dst, not hand-rolled ORT."""
+        from winml.modelkit.session.genai_session import _compile_stage_worker
+
+        mock_result = MagicMock(success=True)
+        with patch(
+            "winml.modelkit.compiler.compile_onnx", return_value=mock_result
+        ) as mock_compile:
+            _compile_stage_worker("src.onnx", "dst.onnx", {})
+
+        mock_compile.assert_called_once()
+        args = mock_compile.call_args.args
+        assert args[0] == "src.onnx"
+        assert args[1] == "dst.onnx"
+
+    def test_forwards_provider_options_to_qnn_config(self) -> None:
+        """QNN options from genai_config are forwarded onto the compiler EP config."""
+        from winml.modelkit.session.genai_session import _compile_stage_worker
+
+        mock_result = MagicMock(success=True)
+        with patch(
+            "winml.modelkit.compiler.compile_onnx", return_value=mock_result
+        ) as mock_compile:
+            _compile_stage_worker(
+                "src.onnx", "dst.onnx", {"htp_performance_mode": "burst", "soc_model": "60"}
+            )
+
+        config = mock_compile.call_args.args[2]
+        assert config.ep_config.provider == "qnn"
+        assert config.ep_config.provider_options["htp_performance_mode"] == "burst"
+        assert config.ep_config.provider_options["soc_model"] == "60"
+
+    def test_raises_when_compile_unsuccessful(self) -> None:
+        """A failed CompileResult surfaces as a RuntimeError (non-zero subprocess exit)."""
+        from winml.modelkit.session.genai_session import _compile_stage_worker
+
+        mock_result = MagicMock(success=False, errors=["ep unavailable"])
+        with (
+            patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
+            pytest.raises(RuntimeError, match="Compilation failed"),
+        ):
+            _compile_stage_worker("src.onnx", "dst.onnx", {})
+
+
+# ---------------------------------------------------------------------------
 # Tests: _prepare_compiled_bundle
 # ---------------------------------------------------------------------------
 

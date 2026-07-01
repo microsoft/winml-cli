@@ -52,7 +52,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .._ep_compile_worker import qnn_compile_to_ep_context as _qnn_compile_worker
 from .ep_registry import WinMLEPRegistry
 
 
@@ -61,6 +60,42 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Module-level compilation worker.
+#
+# Must be at module scope so ``multiprocessing`` (spawn start method on Windows)
+# can pickle it as the subprocess target.  The body delegates to the shared
+# compiler component (:func:`compile_onnx`) instead of re-implementing the
+# ONNX Runtime ``ModelCompiler`` wiring — the compiler owns all EP-specific
+# EPContext logic (SessionOptions, provider registration, ``.bin`` handling).
+# ---------------------------------------------------------------------------
+
+
+def _compile_stage_worker(src: str, dst: str, provider_options: dict) -> None:
+    """Compile a single pipeline stage ONNX to EPContext via the shared compiler.
+
+    Executed in a subprocess by :meth:`GenaiSession._compile_stage` so a hang
+    or crash can be bounded by a timeout in the parent process.
+
+    Args:
+        src: Absolute path to the source ONNX file.
+        dst: Absolute path where the compiled EPContext ONNX should be written.
+        provider_options: QNN provider options taken verbatim from the bundle's
+            ``genai_config.json`` (e.g. ``backend_path``, ``htp_performance_mode``,
+            ``soc_model``).  Forwarded to the compiler's EP config.
+
+    Raises:
+        RuntimeError: If the compiler reports the compilation was unsuccessful.
+    """
+    from ..compiler import WinMLCompileConfig, compile_onnx
+
+    config = WinMLCompileConfig.for_qnn()
+    config.ep_config.provider_options.update(provider_options)
+    result = compile_onnx(src, dst, config)
+    if not result.success:
+        raise RuntimeError(f"Compilation failed: {result.errors}")
 
 
 # ---------------------------------------------------------------------------
@@ -551,12 +586,13 @@ class GenaiSession:
         stage_key: str,
         qnn_opts: dict | None = None,
     ) -> bool:
-        """Compile *src_onnx* to EPContext format via ``ort.ModelCompiler``.
+        """Compile *src_onnx* to EPContext format via the shared compiler.
 
-        Runs in a subprocess so that a ModelCompiler failure does not block
-        the caller.  The QNN options from ``genai_config.json`` are forwarded
-        unchanged to the compilation session, so each stage is compiled at
-        exactly the optimization level configured in the bundle.
+        Runs :func:`compile_onnx` in a subprocess so that a compilation hang or
+        crash does not block the caller.  The QNN options from
+        ``genai_config.json`` are forwarded unchanged to the compiler's EP
+        config, so each stage is compiled at exactly the optimization level
+        configured in the bundle.
 
         Args:
             src_onnx: Source ONNX file path.
@@ -583,7 +619,7 @@ class GenaiSession:
 
         ctx = multiprocessing.get_context("spawn")
         proc = ctx.Process(
-            target=_qnn_compile_worker, args=(str(src_onnx), str(ctx_out), compile_qnn_opts)
+            target=_compile_stage_worker, args=(str(src_onnx), str(ctx_out), compile_qnn_opts)
         )
         proc.start()
         proc.join(timeout=self._compile_timeout)

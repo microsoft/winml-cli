@@ -45,6 +45,7 @@ dependencies = [
   "numpy>=2.2,<2.3",
   "onnx==1.18",
   "onnx-ir>=0.1",
+  "onnxruntime-genai-winml==0.14.1",
   "onnxruntime-windowsml==1.24.5.202604171637",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
