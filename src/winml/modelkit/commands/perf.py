@@ -387,6 +387,16 @@ class PerfBenchmark:
         self._resolved_ep = resolved_ep
 
     @property
+    def resolved_device(self) -> str | None:
+        """Concrete device driving the build/inference (``None`` until resolved)."""
+        return self._resolved_device
+
+    @property
+    def resolved_ep(self) -> EPNameOrAlias | None:
+        """Concrete EP driving the build/inference (``None`` until resolved)."""
+        return self._resolved_ep
+
+    @property
     def _is_composite(self) -> bool:
         """Composite models orchestrate multiple sub-sessions (e.g. CLIP/SigLIP).
 
@@ -1544,6 +1554,7 @@ def _run_simple_loop(
 @cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def perf(
     ctx: click.Context,
@@ -1809,12 +1820,16 @@ def perf(
         # Op-tracing (additive to existing benchmark)
         # =================================================================
         if op_tracing:
-            from ..optracing import is_qnn_profiling_available
+            from ..optracing import is_profiling_available
 
-            if not is_qnn_profiling_available():
+            if not is_profiling_available(
+                benchmark.resolved_ep, benchmark.resolved_device, op_tracing
+            ):
                 raise click.ClickException(
-                    "Op-tracing requires onnxruntime-qnn. "
-                    "Install with: pip install onnxruntime-qnn"
+                    "Op-tracing is only supported for the QNN EP "
+                    "on NPU at the 'basic' level "
+                    f"(resolved EP={benchmark.resolved_ep}, "
+                    f"device={benchmark.resolved_device}, level={op_tracing})."
                 )
 
             from ..optracing import (
@@ -1858,10 +1873,9 @@ def perf(
             # Display and save
             display_op_trace_report(trace_result, console)
 
-            model_slug = hf_model.replace("/", "_").replace("\\", "_")
-            if is_onnx:
-                model_slug = model_path.stem
-            trace_output = output_dir / f"{model_slug}_op_trace.json"
+            # Mirror the benchmark report path so the two files sit side by side:
+            # a/b.json -> a/b_op_trace.json.
+            trace_output = output.with_name(f"{output.stem}_op_trace{output.suffix}")
             write_op_trace_json(trace_result, trace_output)
             console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 

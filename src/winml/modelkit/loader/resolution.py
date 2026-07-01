@@ -413,15 +413,29 @@ def resolve_task(
             # image-feature-extraction rather than the modality-blind feature-extraction.
             opt_task = _infer_task_from_architecture(config)
             surfaced = _resolve_task_modality(config, opt_task)
-        try:
-            resolved = TasksManager.get_model_class_for_task(
-                opt_task, framework="pt", model_class_name=model_class
-            )
-        except (KeyError, AttributeError) as e:
-            raise ValueError(
-                f"Model class '{model_class}' not found for task '{opt_task}'. "
-                f"Check that the class name is correct and available in transformers."
-            ) from e
+        # A WinML build variant (model_type_override) may name a custom wrapper
+        # registered in MODEL_CLASS_MAPPING rather than a transformers class —
+        # e.g. the single-model qwen3_embeddings_only / qwen3_lm_head_only
+        # builds, whose loader config carries the wrapper's __name__ as
+        # model_class. TasksManager can't resolve those, so when the requested
+        # class name IS that custom wrapper, resolve it directly. Guarded on the
+        # class name so a genuine transformers class still falls through (e.g. a
+        # CLIP --model-class override).
+        resolved = None
+        if model_type_norm:
+            custom = _get_custom_model_class(model_type_norm, opt_task)
+            if custom is not None and custom.__name__ == model_class:
+                resolved = custom
+        if resolved is None:
+            try:
+                resolved = TasksManager.get_model_class_for_task(
+                    opt_task, framework="pt", model_class_name=model_class
+                )
+            except (KeyError, AttributeError) as e:
+                raise ValueError(
+                    f"Model class '{model_class}' not found for task '{opt_task}'. "
+                    f"Check that the class name is correct and available in transformers."
+                ) from e
         return TaskResolution(
             surfaced, to_optimum_task(surfaced), resolved, TaskSource.USER_CLASS, None
         )

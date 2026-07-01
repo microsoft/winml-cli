@@ -30,6 +30,22 @@ class _FakeCalibrationReader:
         return None
 
 
+def _write_minimal_onnx_model(path: Path) -> None:
+    """Write a tiny but valid ONNX model (with an ai.onnx opset) to *path*.
+
+    The quantizer's input guard parses the file and requires a default opset
+    import, so tests that exercise the quantize flow need a real model on disk.
+    """
+    import onnx
+
+    x = onnx.helper.make_tensor_value_info("X", onnx.TensorProto.FLOAT, [1, 3])
+    y = onnx.helper.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [1, 3])
+    node = onnx.helper.make_node("Relu", ["X"], ["Y"])
+    graph = onnx.helper.make_graph([node], "g", [x], [y])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+    onnx.save_model(model, str(path))
+
+
 class _FakeOrtModule(ModuleType):
     quantization: ModuleType
 
@@ -94,7 +110,7 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
 ) -> None:
     """Cleanup should remove only the exact .data sidecar for the output model."""
     model_path = tmp_path / "model.onnx"
-    model_path.write_text("input")
+    _write_minimal_onnx_model(model_path)
     output_path = tmp_path / "quantized.onnx"
     exact_sidecar = tmp_path / f"{output_path.name}.data"
     extra_suffix_sidecar = tmp_path / f"{output_path.name}.data.bak"
@@ -145,23 +161,94 @@ def test_quantize_onnx_removes_only_exact_external_data_sidecar(
     assert extra_suffix_sidecar.exists()
 
 
+def _write_opsetless_onnx_model(path: Path) -> None:
+    """Write a parseable ONNX model that declares no default (ai.onnx) opset."""
+    import onnx
+
+    x = onnx.helper.make_tensor_value_info("X", onnx.TensorProto.FLOAT, [1, 3])
+    y = onnx.helper.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [1, 3])
+    node = onnx.helper.make_node("Relu", ["X"], ["Y"])
+    graph = onnx.helper.make_graph([node], "g", [x], [y])
+    # Only a custom-domain opset — no "" / "ai.onnx" import, which is the
+    # signature ORT's get_opset_version() rejects.
+    model = onnx.helper.make_model(
+        graph, opset_imports=[onnx.helper.make_opsetid("com.example", 1)]
+    )
+    onnx.save_model(model, str(path))
+
+
+def test_quantize_empty_input_model_surfaces_clear_error(tmp_path: Path) -> None:
+    """A zero-byte input model yields a clear disk-space/corruption error.
+
+    Regression for #259: a truncated optimize output must not surface as ORT's
+    opaque "Failed to find proper ai.onnx domain".
+    """
+    model_path = tmp_path / "optimized.onnx"
+    model_path.write_bytes(b"")  # truncated/zero-byte write left by disk-full
+
+    result = quantize_onnx(model_path, output_path=tmp_path / "quantized.onnx")
+
+    assert result.success is False
+    assert result.output_path is None
+    joined = " ".join(result.errors).lower()
+    assert "disk space" in joined
+    assert "failed to find proper ai.onnx domain" not in joined
+
+
+def test_quantize_opsetless_input_model_surfaces_clear_error(tmp_path: Path) -> None:
+    """A model with no ai.onnx opset import yields a clear, specific error."""
+    model_path = tmp_path / "optimized.onnx"
+    _write_opsetless_onnx_model(model_path)
+
+    result = quantize_onnx(model_path, output_path=tmp_path / "quantized.onnx")
+
+    assert result.success is False
+    assert result.output_path is None
+    joined = " ".join(result.errors)
+    assert "no ai.onnx opset import" in joined
+    assert "Failed to find proper ai.onnx domain" not in joined
+
+
+def test_quantize_unparseable_input_model_surfaces_clear_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An input model that fails to parse yields a clear error, not a traceback."""
+    import onnx
+
+    model_path = tmp_path / "optimized.onnx"
+    _write_minimal_onnx_model(model_path)
+
+    def _raise_parse_error(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("protobuf parse error")
+
+    monkeypatch.setattr(onnx, "load_model", _raise_parse_error)
+
+    result = quantize_onnx(model_path, output_path=tmp_path / "quantized.onnx")
+
+    assert result.success is False
+    assert result.output_path is None
+    joined = " ".join(result.errors)
+    assert "could not be parsed" in joined
+    assert "disk space" in joined.lower()
+
+
 def test_quantize_onnx_applies_model_type_finalizer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A registered model_type finalizer is resolved + applied before dispatch.
 
-    The model-type-specific quant policy used to be dispatched at each call site
-    (CLI build, library build). It now lives behind a single seam in
-    quantize_onnx, keyed on ``config.model_type``: the finalizer is resolved from
-    the calibration registry and its returned config is what the mode handler
-    receives.
+    The model-type-specific quant policy lives behind a single seam in
+    quantize_onnx, keyed on ``config.model_type``: the finalizer is resolved
+    from the calibration registry and its returned config is what the Quantizer
+    pipeline (and every pass built from it) runs against.
     """
     import winml.modelkit.quant.calibration as calibration_mod
     import winml.modelkit.quant.quantizer as quantizer_mod
 
     model_path = tmp_path / "model.onnx"
-    model_path.write_text("input")
+    _write_minimal_onnx_model(model_path)
     output_path = tmp_path / "quantized.onnx"
 
     finalized_config = WinMLQuantizationConfig(
@@ -178,13 +265,19 @@ def test_quantize_onnx_applies_model_type_finalizer(
 
     monkeypatch.setattr(calibration_mod, "get_quant_finalizer", lambda model_type: _StubFinalizer())
 
-    handler_calls: list[WinMLQuantizationConfig] = []
+    # The finalized config is threaded into the passes that expand_precision
+    # builds; capture the Quantizer's pass list to confirm it carries the
+    # finalized config rather than the original.
+    captured_passes: list[Any] = []
 
-    def _fake_qdq(*, config, **_kwargs):  # type: ignore[no-untyped-def]
-        handler_calls.append(config)
-        return SimpleNamespace(success=True, output_path=output_path, errors=[])
+    class _FakeQuantizer:
+        def __init__(self, passes: list[Any]) -> None:
+            captured_passes.extend(passes)
 
-    monkeypatch.setattr(quantizer_mod, "_quantize_qdq", _fake_qdq)
+        def run(self, _model_path, _output_path, *, use_external_data=True):  # type: ignore[no-untyped-def]
+            return SimpleNamespace(success=True, output_path=output_path, errors=[])
+
+    monkeypatch.setattr(quantizer_mod, "Quantizer", _FakeQuantizer)
 
     result = quantize_onnx(
         model_path,
@@ -200,8 +293,10 @@ def test_quantize_onnx_applies_model_type_finalizer(
     assert len(finalize_calls) == 1
     assert finalize_calls[0]["onnx_path"] == model_path
     assert finalize_calls[0]["model_id"] == "some/model-id"
-    # The handler ran against the finalized config, not the original.
-    assert handler_calls == [finalized_config]
+    # The pipeline was built from the finalized config, not the original
+    # (every pass shares the single config object).
+    assert captured_passes
+    assert all(p.config is finalized_config for p in captured_passes)
 
 
 def test_quantize_onnx_skips_finalizer_when_calibration_data_provided(
@@ -213,7 +308,7 @@ def test_quantize_onnx_skips_finalizer_when_calibration_data_provided(
     import winml.modelkit.quant.quantizer as quantizer_mod
 
     model_path = tmp_path / "model.onnx"
-    model_path.write_text("input")
+    _write_minimal_onnx_model(model_path)
     output_path = tmp_path / "quantized.onnx"
 
     def _boom(_model_type):  # type: ignore[no-untyped-def]
@@ -221,10 +316,14 @@ def test_quantize_onnx_skips_finalizer_when_calibration_data_provided(
 
     monkeypatch.setattr(calibration_mod, "get_quant_finalizer", _boom)
 
-    def _fake_qdq(*, config, **_kwargs):  # type: ignore[no-untyped-def]
-        return SimpleNamespace(success=True, output_path=output_path, errors=[])
+    class _FakeQuantizer:
+        def __init__(self, passes: list[Any]) -> None:
+            pass
 
-    monkeypatch.setattr(quantizer_mod, "_quantize_qdq", _fake_qdq)
+        def run(self, _model_path, _output_path, *, use_external_data=True):  # type: ignore[no-untyped-def]
+            return SimpleNamespace(success=True, output_path=output_path, errors=[])
+
+    monkeypatch.setattr(quantizer_mod, "Quantizer", _FakeQuantizer)
 
     result = quantize_onnx(
         model_path,

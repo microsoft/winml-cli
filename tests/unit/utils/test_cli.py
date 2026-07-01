@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import click
@@ -18,6 +19,7 @@ from winml.modelkit.utils.cli import (
     guard_output,
     ignored_build_flags_warning,
     max_optim_iterations_option,
+    no_color_option,
     optimize_option,
     overwrite_option,
     parse_ep_options,
@@ -72,6 +74,44 @@ class TestParseEpOptions:
     def test_empty_key_raises(self) -> None:
         with pytest.raises(click.BadParameter):
             parse_ep_options(("=value",))
+
+
+class TestNoColorOption:
+    """Tests for the shared no_color_option() decorator."""
+
+    @staticmethod
+    def _make_cmd() -> click.Command:
+        @click.command()
+        @no_color_option()
+        def cmd() -> None:
+            click.echo("NO_COLOR" in os.environ)
+
+        return cmd
+
+    def test_no_flag_leaves_env_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without --no-color, NO_COLOR is not set by the callback."""
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        result = CliRunner().invoke(self._make_cmd(), [])
+        assert result.exit_code == 0
+        assert result.output.strip() == "False"
+
+    def test_flag_sets_no_color_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--no-color sets NO_COLOR=1 so Rich disables color for the run."""
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        result = CliRunner().invoke(self._make_cmd(), ["--no-color"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "True"
+
+    def test_flag_not_exposed_as_param(self) -> None:
+        """expose_value=False: the command takes no extra parameter."""
+        result = CliRunner().invoke(self._make_cmd(), ["--no-color"])
+        assert result.exit_code == 0
+
+    def test_help_documents_env_vars(self) -> None:
+        """Help mentions the NO_COLOR / CI environment fallbacks."""
+        result = CliRunner().invoke(self._make_cmd(), ["--help"])
+        assert "--no-color" in result.output
+        assert "NO_COLOR" in result.output
 
 
 class TestPrecisionOption:

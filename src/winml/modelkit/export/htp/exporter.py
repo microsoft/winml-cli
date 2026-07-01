@@ -229,7 +229,13 @@ class HTPExporter:
             monitor.update(ExportStep.INPUT_GEN, **input_gen_data)
 
             # Step 3: Hierarchy Building
-            self._trace_model_hierarchy(model, inputs)
+            # Trace under the Optimum patcher so models that inject constant
+            # forward arguments at export time (e.g. ViTPose MoE's dataset_index)
+            # are traced with the same inputs they are exported with. The export
+            # in Step 4 re-enters the patcher; the contexts are sequential, not
+            # nested.
+            with self._get_optimum_patcher(model, task):
+                self._trace_model_hierarchy(model, inputs)
 
             execution_steps = (
                 self._hierarchy_builder.get_execution_summary().get("execution_steps", 0)
@@ -487,7 +493,11 @@ class HTPExporter:
                 task=to_optimum_task(task),
                 library_name="transformers",
             )
-            return cfg_cls(model_config).patch_model_for_export(model)
+            # Pass an explicit empty model_kwargs so patchers that inject extra
+            # forward arguments can populate it. Some patchers (e.g. ViTPose MoE,
+            # which sets a constant dataset_index) assume a mutable dict and crash
+            # on the None default from patch_model_for_export.
+            return cfg_cls(model_config).patch_model_for_export(model, model_kwargs={})
         except KeyError:
             logger.debug(
                 "Model type '%s' (task='%s') not in Optimum registry; "

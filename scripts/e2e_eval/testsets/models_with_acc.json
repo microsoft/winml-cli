@@ -1927,5 +1927,115 @@
         "depth_column": "depth_map"
       }
     }
+  },
+  {
+    "hf_id": "usyd-community/vitpose-base-simple",
+    "task": "keypoint-detection",
+    "model_type": "vitpose",
+    "group": "Top200",
+    "priority": "P3",
+    "dataset_config": {
+      "build_script": "scripts/build_coco_keypoints.py",
+      "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
+      "split": "validation",
+      "metric": "map",
+      "winml_metric_key": "map",
+      "columns_mapping": {
+        "input_column": "image",
+        "annotation_column": "objects",
+        "keypoints_key": "keypoints",
+        "bbox_key": "bbox",
+        "area_key": "area",
+        "box_format": "xywh"
+      }
+    }
+  },
+  {
+    "hf_id": "usyd-community/vitpose-plus-small",
+    "task": "keypoint-detection",
+    "model_type": "vitpose",
+    "group": "Top200",
+    "priority": "P3",
+    "dataset_config": {
+      "build_script": "scripts/build_coco_keypoints.py",
+      "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
+      "split": "validation",
+      "metric": "map",
+      "winml_metric_key": "map",
+      "columns_mapping": {
+        "input_column": "image",
+        "annotation_column": "objects",
+        "keypoints_key": "keypoints",
+        "bbox_key": "bbox",
+        "area_key": "area",
+        "box_format": "xywh"
+      }
+    }
+  },
+  {
+    "hf_id": "usyd-community/vitpose-plus-base",
+    "task": "keypoint-detection",
+    "model_type": "vitpose",
+    "group": "Top200",
+    "priority": "P3",
+    "dataset_config": {
+      "build_script": "scripts/build_coco_keypoints.py",
+      "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
+      "split": "validation",
+      "metric": "map",
+      "winml_metric_key": "map",
+      "columns_mapping": {
+        "input_column": "image",
+        "annotation_column": "objects",
+        "keypoints_key": "keypoints",
+        "bbox_key": "bbox",
+        "area_key": "area",
+        "box_format": "xywh"
+      }
+    }
+  },
+  {
+    "hf_id": "usyd-community/vitpose-plus-large",
+    "task": "keypoint-detection",
+    "model_type": "vitpose",
+    "group": "Top200",
+    "priority": "P3",
+    "dataset_config": {
+      "build_script": "scripts/build_coco_keypoints.py",
+      "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
+      "split": "validation",
+      "metric": "map",
+      "winml_metric_key": "map",
+      "columns_mapping": {
+        "input_column": "image",
+        "annotation_column": "objects",
+        "keypoints_key": "keypoints",
+        "bbox_key": "bbox",
+        "area_key": "area",
+        "box_format": "xywh"
+      }
+    }
+  },
+  {
+    "hf_id": "usyd-community/vitpose-plus-huge",
+    "task": "keypoint-detection",
+    "model_type": "vitpose",
+    "group": "Top200",
+    "priority": "P3",
+    "dataset_config": {
+      "build_script": "scripts/build_coco_keypoints.py",
+      "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
+      "split": "validation",
+      "metric": "map",
+      "winml_metric_key": "map",
+      "columns_mapping": {
+        "input_column": "image",
+        "annotation_column": "objects",
+        "keypoints_key": "keypoints",
+        "bbox_key": "bbox",
+        "area_key": "area",
+        "box_format": "xywh"
+      }
+    }
   }
 ]

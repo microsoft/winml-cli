@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
@@ -132,47 +133,77 @@ def warn_ignored_calibration_options(
         out.print(f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — {reason}")
 
 
-def model_path_option(required: bool = True) -> Callable[[F], F]:
-    """Add --model option that accepts a local ONNX file path.
+def model_path_option(
+    required: bool = True,
+    multiple: bool = False,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add ``-m/--model`` option that accepts a local ONNX file path.
 
-    The path is validated for existence on disk.
+    The path is validated for existence on disk and delivered as a
+    :class:`pathlib.Path`. Shared by the ONNX-only commands (``analyze``,
+    ``compile``, ``optimize``, ``quantize``) so the flag spelling, ``Path``
+    type, and existence check stay identical. The decorated function receives
+    the value as the ``model`` parameter (a tuple when ``multiple=True``).
 
     Args:
-        required: Whether the model option is required (default: True)
+        required: Whether the model option is required (default: True).
+        multiple: Accept the flag repeatably; the value becomes a tuple
+            (default: False).
+        help_text: Override for the help string (default: a generic
+            ONNX-file description).
 
     Returns:
-        Decorator function
+        Decorator function.
     """
     return click.option(
         "--model",
         "-m",
         required=required,
+        multiple=multiple,
         type=click.Path(exists=True, path_type=Path),
-        help="Path to ONNX model file to analyze",
+        help=help_text or "Path to ONNX model file to analyze",
     )
 
 
-def model_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
-    """Add --model option that accepts any model reference.
+def model_option(
+    required: bool = True,
+    optional_message: str | None = None,
+    multiple: bool = False,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add ``-m/--model`` option that accepts any model reference.
 
     Accepts a HuggingFace model ID, build output directory, or .onnx file path.
-    No path existence validation is performed.
+    No path existence validation is performed. Shared by the flexible-input
+    commands (``build``, ``config``, ``eval``, ``export``, ``inspect``,
+    ``perf``, ``run``, ``serve``) so the flag spelling stays identical. The
+    decorated function receives the value as the ``model`` parameter (a tuple
+    when ``multiple=True``).
 
     Args:
-        required: Whether the model option is required (default: True)
+        required: Whether the model option is required (default: True).
+        optional_message: Command-specific note appended after the help text.
+        multiple: Accept the flag repeatably; the value becomes a tuple
+            (default: False).
+        help_text: Override for the base help string. Commands whose accepted
+            inputs are narrower (e.g. ``inspect`` takes only an HF ID) supply
+            their own; ``optional_message`` is still appended to it.
 
     Returns:
-        Decorator function
+        Decorator function.
     """
-    help = "Model: HF model ID, build output directory, or .onnx file path"
+    help = help_text or "Model: HF model ID, build output directory, or .onnx file path"
     if optional_message:
         help = f"{help}. {optional_message}"
+    # ``multiple`` options default to an empty tuple; single-valued ones to None.
+    kwargs: dict[str, Any] = {"multiple": True} if multiple else {"default": None}
     return click.option(
         "--model",
         "-m",
         required=required,
-        default=None,
         help=help,
+        **kwargs,
     )
 
 
@@ -474,10 +505,11 @@ def device_option(
 
 
 def precision_option(
-    default: str | None = "auto",
+    default: str | tuple[str, ...] | None = "auto",
     optional_message: str | None = None,
     include_short: bool = True,
     help_text: str | None = None,
+    multiple: bool = False,
 ) -> Callable[[F], F]:
     """Add --precision option to a Click command.
 
@@ -499,6 +531,10 @@ def precision_option(
             values differ from the default float+int set (e.g. ``quantize``,
             which has no fp16/fp32) supply their own; ``optional_message`` is
             still appended to it.
+        multiple: Allow the flag to be specified multiple times to compose a
+            pass pipeline (e.g. ``-p int4 -p fp16``). When True the parameter
+            receives a ``tuple[str, ...]`` and ``default`` should be ``()``
+            (default: False).
 
     Returns:
         Decorator function.
@@ -518,7 +554,8 @@ def precision_option(
         *param_decls,
         type=str,
         default=default,
-        show_default=True,
+        multiple=multiple,
+        show_default=not multiple,
         help=base_help,
     )
 
@@ -552,6 +589,34 @@ def verbosity_options() -> Callable[[F], F]:
         )(f)
 
     return decorator
+
+
+def no_color_option() -> Callable[[F], F]:
+    """Add a ``--no-color`` flag that disables colored output.
+
+    Rich honors the ``NO_COLOR`` environment variable for every Console, so the
+    flag's callback just sets ``NO_COLOR=1`` for the remainder of the run — this
+    covers all consoles regardless of how they are constructed and matches the
+    existing ``NO_COLOR=1`` / ``CI=true`` environment behavior. The change lives
+    only in the current process, so the next invocation is colored again.
+
+    Returns:
+        Decorator function adding the ``--no-color`` flag (no exposed param).
+    """
+
+    def _disable_color(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
+        if value:
+            os.environ["NO_COLOR"] = "1"
+        return value
+
+    return click.option(
+        "--no-color",
+        is_flag=True,
+        default=False,
+        expose_value=False,
+        callback=_disable_color,
+        help="Disable colored output (also via NO_COLOR=1 or CI=true).",
+    )
 
 
 def resolve_verbosity(ctx: click.Context, verbose: int, quiet: bool) -> tuple[int, bool]:
