@@ -213,7 +213,7 @@ class WinMLAutoModel:
 
         # Resolve output directory and cache key
         task_abbrev = get_task_abbrev(resolved_task) if resolved_task else "onnx"
-        cache_key = get_cache_key(task_abbrev, config.generate_cache_key())
+        cache_key = get_cache_key(task_abbrev, config.generate_cache_key(), kwargs)
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
             output_dir = get_model_dir(
@@ -441,7 +441,7 @@ class WinMLAutoModel:
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 
-        cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key())
+        cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key(), kwargs)
         output_dir = get_model_dir(model_id, cache_dir=cache_dir_path)
 
         # =====================================================================
