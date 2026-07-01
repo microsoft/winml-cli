@@ -954,6 +954,15 @@ def _perf_modules(
     task_abbrev = get_task_abbrev(parent_loader_cfg.task) if parent_loader_cfg.task else "module"
     cache_model_dir = get_model_dir(hf_model, cache_dir=get_cache_dir()) if use_cache else None
 
+    # Optimize/analyze toggles aren't part of ``cfg``; fold them into the cache
+    # key so e.g. a later ``--no-optimize`` run doesn't silently reuse a cached
+    # optimized artifact (mirrors the single-model path in auto.py).
+    build_control_kwargs = cli_utils.build_pipeline_extra_kwargs(
+        optimize=not no_optimize,
+        analyze=not no_analyze,
+        max_optim_iterations=max_optim_iterations,
+    )
+
     all_results: list[dict[str, Any]] = []
     for i, cfg in enumerate(module_configs):
         module_path = cfg.loader.module_path
@@ -983,8 +992,9 @@ def _perf_modules(
             cfg.compile = None
 
         # Compute the cache key AFTER the quant/compile mutations above so it
-        # reflects what is actually built.
-        cache_key = get_cache_key(task_abbrev, cfg.generate_cache_key())
+        # reflects what is actually built. Build controls (optimize/analyze
+        # toggles) are folded in too since they aren't part of ``cfg``.
+        cache_key = get_cache_key(task_abbrev, cfg.generate_cache_key(), build_control_kwargs)
 
         # Persistent model dir (reused across runs) when caching, else a
         # throwaway temp dir that is removed when the with-block exits.
@@ -1005,11 +1015,7 @@ def _perf_modules(
                     ep=ep,
                     device=resolved_device,
                     allow_unsupported_nodes=allow_unsupported_nodes,
-                    **cli_utils.build_pipeline_extra_kwargs(
-                        optimize=not no_optimize,
-                        analyze=not no_analyze,
-                        max_optim_iterations=max_optim_iterations,
-                    ),
+                    **build_control_kwargs,
                 )
 
                 # Benchmark using WinMLSession

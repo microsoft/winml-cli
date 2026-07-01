@@ -653,3 +653,96 @@ class TestPerfModuleCache:
         # Throwaway temp dir (outside the pinned cache root) + forced rebuild.
         assert kwargs["rebuild"] is True
         assert (tmp_path / "cache") not in kwargs["output_dir"].parents
+
+    def test_sibling_instances_get_distinct_cache_keys(self, tmp_path: Path) -> None:
+        """Two configs with distinct ``generate_cache_key()`` (as real sibling
+        instances have, since their ``loader.module_path`` differ) must reach
+        ``build_hf_model`` with distinct ``cache_key``s so their artifacts don't
+        collide in the shared model dir.
+
+        Guards the PR's central collision-free claim at this layer; the other
+        cache tests mock ``generate_cache_key`` to a constant and so can't.
+        """
+        cache_root = tmp_path / "cache"
+
+        cfg_a = MagicMock()
+        cfg_a.loader.model_type = "bert"
+        cfg_a.loader.module_path = "encoder.layer.0"
+        cfg_a.generate_cache_key.return_value = "aaaaaaaaaaaaaaaa"
+
+        cfg_b = MagicMock()
+        cfg_b.loader.model_type = "bert"
+        cfg_b.loader.module_path = "encoder.layer.1"
+        cfg_b.generate_cache_key.return_value = "bbbbbbbbbbbbbbbb"
+
+        fake_build_result = MagicMock()
+        fake_build_result.final_onnx_path = tmp_path / "model.onnx"
+
+        fake_session = MagicMock()
+        fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
+
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[cfg_a, cfg_b],
+            ),
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock(), MagicMock()),
+            ),
+            patch(
+                "winml.modelkit.commands.build._instantiate_parent_model",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "winml.modelkit.build.build_hf_model",
+                return_value=fake_build_result,
+            ) as mock_build,
+            patch(
+                "winml.modelkit.session.WinMLSession",
+                return_value=fake_session,
+            ),
+            patch(
+                "winml.modelkit.cache.get_cache_dir",
+                return_value=cache_root,
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "perf",
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "BertLayer",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+            )
+        assert result.exit_code == 0, result.output
+
+        cache_keys = [call.kwargs["cache_key"] for call in mock_build.call_args_list]
+        assert len(cache_keys) == 2
+        # Distinct config hashes -> distinct cache keys (collision-free).
+        assert cache_keys[0] != cache_keys[1]
+        assert "aaaaaaaaaaaaaaaa" in cache_keys[0]
+        assert "bbbbbbbbbbbbbbbb" in cache_keys[1]
+
+    def test_no_optimize_changes_cache_key(self, tmp_path: Path) -> None:
+        """``--no-optimize`` must alter the cache key so a prior optimized build
+        isn't silently reused (the optimize toggle isn't part of the config)."""
+        default_key = self._run_build_kwargs(tmp_path, [])["cache_key"]
+        no_opt_key = self._run_build_kwargs(tmp_path, ["--no-optimize"])["cache_key"]
+        assert default_key != no_opt_key

@@ -780,6 +780,7 @@ def build(
                 cache_key = get_cache_key(
                     get_task_abbrev(task),
                     config.generate_cache_key(),
+                    extra_kwargs,
                 )
             else:
                 # Guarded earlier (line ~381: `if not output_dir and not use_cache`).
