@@ -88,6 +88,10 @@ from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
 from .t5 import T5_CONFIG
 from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
 from .t5 import T5EncoderIOConfig as _T5EncoderIOConfig  # triggers registration
+from .unlimited_ocr import MODEL_CLASS_MAPPING as _UNLIMITED_OCR_CLASS_MAPPING
+from .unlimited_ocr import (
+    UnlimitedOCRVisionIOConfig as _UnlimitedOCRVisionIOConfig,  # triggers registration
+)
 from .vision_encoder_decoder import MODEL_CLASS_MAPPING as _VED_CLASS_MAPPING
 from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
 from .vision_encoder_decoder import (
@@ -126,6 +130,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _SEGFORMER_CLASS_MAPPING,
         _SIGLIP_CLASS_MAPPING,
         _T5_CLASS_MAPPING,
+        _UNLIMITED_OCR_CLASS_MAPPING,
         _VED_CLASS_MAPPING,
         _VITPOSE_CLASS_MAPPING,
     )
