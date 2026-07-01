@@ -245,7 +245,7 @@ def test_qnn_profiler_from_csv_sample_count_mismatch(tmp_path):
     csv_path.write_text(csv_content, encoding="utf-8")
 
     profiler = QNNProfiler(tmp_path / "model.onnx", output_dir=tmp_path, level="basic")
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         profiler._from_csv(csv_path, iterations=5, warmup=0, artifacts={})
 
 

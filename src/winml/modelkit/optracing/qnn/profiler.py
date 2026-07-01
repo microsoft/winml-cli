@@ -109,8 +109,15 @@ def _csv_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
 
     n = len(samples)
     metas = [s["metadata"] for s in samples]
+    hvx_threads = metas[0]["hvx_threads"]
+    if any(m["hvx_threads"] != hvx_threads for m in metas):
+        logger.warning(
+            "HVX thread count varies across samples (%s); using first sample's value %s",
+            [m["hvx_threads"] for m in metas],
+            hvx_threads,
+        )
     return {
-        "hvx_threads": metas[0]["hvx_threads"],
+        "hvx_threads": hvx_threads,
         "accel_execute_cycles": round(sum(m["accel_execute_cycles"] for m in metas) / n),
         "accel_execute_us": round(sum(m["accel_execute_us"] for m in metas) / n),
     }
@@ -374,10 +381,11 @@ class QNNProfiler(OpTracer):
         samples = parse_qnn_profiling_csv(csv_path)
 
         measured = samples[warmup:]
-        assert len(measured) == iterations, (
-            f"Expected {iterations} measured sample(s) after skipping {warmup} "
-            f"warmup, got {len(measured)} from {len(samples)} total."
-        )
+        if len(measured) != iterations:
+            raise ValueError(
+                f"Expected {iterations} measured sample(s) after skipping {warmup} "
+                f"warmup, got {len(measured)} from {len(samples)} total."
+            )
 
         operators = _csv_operator_metrics(measured)
 
