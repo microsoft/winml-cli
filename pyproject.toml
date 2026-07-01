@@ -299,6 +299,8 @@ lint.per-file-ignores."scripts/e2e_eval/**" = [ "ANN", "D103", "E501", "PERF203"
 # Download scripts: Allow subprocess, print, missing docstrings
 lint.per-file-ignores."scripts/download_rules.py" = [ "D103", "E501", "PERF401", "S603", "S607", "SIM108", "T20" ]
 lint.per-file-ignores."docs/reports/download_report.py" = [ "D103", "E501", "PERF401", "S603", "S607", "SIM108", "T20" ]
+# COCO dataset build script: Allow print, missing docstrings, broad excepts
+lint.per-file-ignores."scripts/build_coco_keypoints.py" = [ "BLE001", "D103", "E501", "T20" ]
 # CLI: Allow print statements
 lint.per-file-ignores."src/winml/modelkit/cli.py" = [ "T20", "T201" ]
 lint.per-file-ignores."src/winml/modelkit/commands/**" = [ "T20", "T201" ]
@@ -508,6 +510,7 @@ module = [
   "sklearn.*",       # used in eval/metrics; no community stubs
   "evaluate",        # HF evaluate, used in eval/; no community stubs
   "evaluate.*",
+  "pycocotools.*",   # COCO keypoint OKS-AP in eval/metrics/keypoint.py; no stubs
   # QAIRT (Qualcomm AI Runtime) SDK — imported only inside compile_qairt_bin.py,
   # which runs in a separate venv-winml subprocess where the SDK is installed.
   # Not a dependency of the main/CI environment, so it has no stubs here.

@@ -63,6 +63,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
     "depth-estimation":
         "winml.modelkit.eval.depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
+    "keypoint-detection":
+        "winml.modelkit.eval.keypoint_detection_evaluator:WinMLKeypointDetectionEvaluator",
     "compare-tensor":
         "winml.modelkit.eval.tensor_similarity_evaluator:TensorSimilarityEvaluator",
 }
@@ -172,6 +174,21 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         # Loaded via the parquet-mirror revision so the dataset works without
         # the legacy `nyu_depth_v2.py` loader script.
         "revision": "refs/convert/parquet",
+    },
+    "keypoint-detection": {
+        # Built locally by scripts/build_coco_keypoints.py (COCO has no
+        # script-free HF mirror for person keypoints). Run that script first,
+        # or pass --dataset-path to point at your own build.
+        "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
+        "split": "validation",
+        "columns_mapping": {
+            "input_column": "image",
+            "annotation_column": "objects",
+            "keypoints_key": "keypoints",
+            "bbox_key": "bbox",
+            "area_key": "area",
+            "box_format": "xywh",
+        },
     },
 }
 
