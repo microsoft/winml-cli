@@ -25,28 +25,30 @@ def infer_ihv_from_ep_name(ep_name: EPNameOrAlias) -> IHVType:
 
     Accepts either a canonical ``EPName`` or a shorthand ``EPAlias`` (e.g.
     ``"openvino"``); aliases are normalized to their canonical name before the
-    exact lookup, which covers every member of the canonical set.
+    exact lookup, which covers every member of the canonical set. Names that
+    are neither a known EP nor a known alias resolve to ``IHVType.UNKNOWN``
+    rather than raising, so callers can treat inference as total.
 
     Args:
         ep_name: Execution Provider name or alias (see ``utils.constants``).
 
     Returns:
-        IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, or MICROSOFT).
-
-    Raises:
-        ValueError: If ``ep_name`` is not a known EP name or alias.
+        IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, MICROSOFT, or
+        UNKNOWN for unrecognized names).
 
     Examples:
         >>> infer_ihv_from_ep_name("QNNExecutionProvider")
         <IHVType.QC: 'QC'>
         >>> infer_ihv_from_ep_name("openvino")
-        <IHVType.INTEL: 'INTEL'>
+        <IHVType.INTEL: 'Intel'>
         >>> infer_ihv_from_ep_name("VitisAIExecutionProvider")
         <IHVType.AMD: 'AMD'>
         >>> infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider")
         <IHVType.NVIDIA: 'NVIDIA'>
         >>> infer_ihv_from_ep_name("CPUExecutionProvider")
         <IHVType.MICROSOFT: 'Microsoft'>
+        >>> infer_ihv_from_ep_name("TotallyFakeEP")
+        <IHVType.UNKNOWN: 'Unknown'>
     """
     from ...utils.constants import normalize_ep_name
     from ..models.ihv_type import IHVType
@@ -63,10 +65,7 @@ def infer_ihv_from_ep_name(ep_name: EPNameOrAlias) -> IHVType:
     }
 
     canonical = normalize_ep_name(ep_name)
-    try:
-        return ep_name_to_ihv[canonical]  # type: ignore[index]
-    except KeyError:
-        raise ValueError(f"Cannot infer IHV for unknown EP name: {ep_name!r}") from None
+    return ep_name_to_ihv.get(canonical, IHVType.UNKNOWN)  # type: ignore[arg-type]
 
 
 def get_devices_with_rule_data(ep_name: EPName) -> list[str]:

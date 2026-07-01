@@ -15,3 +15,4 @@ class IHVType(str, Enum):
     AMD = "AMD"
     NVIDIA = "NVIDIA"
     MICROSOFT = "Microsoft"
+    UNKNOWN = "Unknown"

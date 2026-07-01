@@ -35,10 +35,11 @@ class TestInferIHVFromEPName:
         for ep in EP_NAMES:
             assert isinstance(infer_ihv_from_ep_name(ep), IHVType)
 
-    def test_unknown_ep_raises(self) -> None:
-        """Unknown EP names raise rather than silently defaulting."""
-        with pytest.raises(ValueError, match="unknown EP name"):
-            infer_ihv_from_ep_name("TotallyFakeEP")
+    def test_unknown_ep_resolves_to_unknown(self) -> None:
+        """Unknown EP names resolve to IHVType.UNKNOWN rather than raising."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("TotallyFakeEP") == IHVType.UNKNOWN
 
     def test_qnn(self) -> None:
         from winml.modelkit.analyze.models.ihv_type import IHVType
