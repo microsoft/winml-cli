@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
             n += 1
 
     dt = time.monotonic() - t0
-    print(f"\n\n[done] {n} tokens in {dt:.1f}s  ({n / dt:.1f} tok/s)")
+    print(f"\n\n[done] {n} tokens in {dt:.1f}s  ({n / max(dt, 1e-9):.1f} tok/s)")
     return 0
 
 

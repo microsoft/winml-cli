@@ -75,8 +75,8 @@ def _qnn_compile_worker(src: str, dst: str, qnn_options: dict) -> None:
     """
     import onnxruntime as ort
 
-    from winml.modelkit.session.ep_registry import WinMLEPRegistry
-    from winml.modelkit.winml import add_ep_for_device
+    from ..winml import add_ep_for_device
+    from .ep_registry import WinMLEPRegistry
 
     registry = WinMLEPRegistry.get_instance()
     registry.register_execution_providers()
@@ -530,6 +530,9 @@ class GenaiSession:
                 logger.warning(
                     "Stage %r: compilation failed; using original ONNX (JIT fallback)", stage_key
                 )
+                # Patch to the absolute source path so ort-genai can find the
+                # file when loading from compiled_dir (where it doesn't exist).
+                self._patch_stage_filename(modified_cfg, stage_key, str(src_onnx.resolve()))
 
         if not any_compiled:
             return self._bundle_dir

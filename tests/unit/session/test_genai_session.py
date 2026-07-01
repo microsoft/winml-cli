@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.session.genai_session import (
+from winml.modelkit.session import (
     GenaiLoadError,
     GenaiNotInstalledError,
     GenaiSession,

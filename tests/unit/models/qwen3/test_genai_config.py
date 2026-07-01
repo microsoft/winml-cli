@@ -9,15 +9,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from winml.modelkit.models.hf.qwen3 import (
+    DecoderIOMapping,
+    PipelineStage,
+    build_genai_config,
+    build_qwen3_transformer_only_stages,
+)
 from winml.modelkit.models.hf.qwen3.genai import (
     DEFAULT_CONTEXT_FILENAME,
     DEFAULT_EMBEDDINGS_FILENAME,
     DEFAULT_ITERATOR_FILENAME,
     DEFAULT_LM_HEAD_FILENAME,
-    DecoderIOMapping,
-    PipelineStage,
-    build_genai_config,
-    build_qwen3_transformer_only_stages,
 )
 from winml.modelkit.utils.genai import _detect_format_patterns
 

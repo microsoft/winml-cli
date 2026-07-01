@@ -581,7 +581,7 @@ def write_genai_bundle(
     """
     from transformers import AutoConfig, AutoTokenizer
 
-    from winml.modelkit.onnx import copy_onnx_model
+    from ..onnx import copy_onnx_model
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

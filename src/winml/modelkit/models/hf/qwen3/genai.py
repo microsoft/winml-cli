@@ -15,7 +15,7 @@ This module re-exports that API unchanged and adds
 
 from __future__ import annotations
 
-from winml.modelkit.utils.genai import (
+from ....utils.genai import (
     DEFAULT_CONTEXT_FILENAME,
     DEFAULT_EMBEDDINGS_FILENAME,
     DEFAULT_ITERATOR_FILENAME,
