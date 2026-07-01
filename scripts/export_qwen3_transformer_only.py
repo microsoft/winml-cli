@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""One-shot export of the Qwen3 transformer-only prefill + decode pair.
+r"""One-shot export of the Qwen3 transformer-only prefill + decode pair.
 
 Leverages the registered ``WinMLQwen3TransformerOnlyModel`` composite to build
 BOTH transformer-only sub-models in a single call:
@@ -27,6 +27,10 @@ Usage::
     uv run python scripts/export_qwen3_transformer_only.py \
         --model-id Qwen/Qwen3-0.6B --device npu \
         --max-cache-len 256 --prefill-seq-len 64 --force-rebuild
+
+    # Assemble a complete genai bundle (auto-builds embeddings + lm_head):
+    uv run python scripts/export_qwen3_transformer_only.py \\
+        --device npu --genai-bundle out/bundle
 """
 
 from __future__ import annotations
@@ -39,10 +43,19 @@ from pathlib import Path
 
 import onnx
 
+from winml.modelkit.models.auto import WinMLAutoModel
 from winml.modelkit.models.hf.qwen3.qwen_transformer_only import (
     WinMLQwen3TransformerOnlyModel,
 )
 from winml.modelkit.onnx import copy_onnx_model
+
+
+# Build settings for the two companion sub-models. Embeddings stay float;
+# lm_head is weight-only int4 (MatMulNBits / RTN).
+_COMPANION_COMPONENTS: dict[str, dict[str, str]] = {
+    "embeddings": {"model_type": "qwen3_embeddings_only", "precision": "fp32"},
+    "lm_head": {"model_type": "qwen3_lm_head_only", "precision": "w4a32"},
+}
 
 
 # Component name -> output file stem used when --output-dir is given.
@@ -133,9 +146,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="DIR",
         help=(
             "If set, assemble a complete onnxruntime-genai bundle in DIR: "
-            "ctx.onnx (prefill), iter.onnx (decode), genai_config.json, and "
-            "tokenizer files.  Provide --embeddings and --lm-head to include "
-            "the placeholder models required for end-to-end inference."
+            "ctx.onnx (prefill), iter.onnx (decode), embeddings.onnx, "
+            "lm_head.onnx, genai_config.json, and tokenizer files.  "
+            "Embeddings (fp32) and lm_head (w4a32) are built automatically "
+            "from --model-id; use --embeddings / --lm-head to override with "
+            "a pre-built ONNX path instead."
         ),
     )
     genai.add_argument(
@@ -144,8 +159,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="ONNX",
         help=(
-            "Path to the embeddings ONNX to copy into the genai bundle as "
-            "embeddings.onnx.  Required for end-to-end genai inference."
+            "Override path to the embeddings ONNX.  When omitted and "
+            "--genai-bundle is set, the embeddings model is built automatically."
         ),
     )
     genai.add_argument(
@@ -154,8 +169,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="ONNX",
         help=(
-            "Path to the lm_head ONNX to copy into the genai bundle as "
-            "lm_head.onnx.  Required for end-to-end genai inference."
+            "Override path to the lm_head ONNX.  When omitted and "
+            "--genai-bundle is set, the lm_head model is built automatically."
         ),
     )
     return p.parse_args(argv)
@@ -210,6 +225,39 @@ def main(argv: list[str] | None = None) -> int:
         prefill_path = Path(model.sub_models["decoder_prefill"].onnx_path)
         decode_path = Path(model.sub_models["decoder_gen"].onnx_path)
 
+        # Resolve embeddings / lm_head: use override paths when provided,
+        # otherwise build them automatically from the same model_id.
+        embeddings_src = args.embeddings
+        lm_head_src = args.lm_head
+
+        for key, override in (("embeddings", embeddings_src), ("lm_head", lm_head_src)):
+            if override is not None:
+                print(f"\n=== using provided {key} ONNX: {override} ===")
+            else:
+                spec = _COMPANION_COMPONENTS[key]
+                print(
+                    f"\n=== building {key} "
+                    f"(model_type={spec['model_type']}, precision={spec['precision']}) ==="
+                )
+                companion = WinMLAutoModel.from_pretrained(
+                    args.model_id,
+                    task="feature-extraction",
+                    model_type=spec["model_type"],
+                    precision=spec["precision"],
+                    device="cpu",
+                    ep=_DEVICE_TO_EP["cpu"],
+                    no_compile=True,
+                    use_cache=True,
+                    force_rebuild=args.force_rebuild,
+                    shape_config={"seq_len": args.prefill_seq_len},
+                )
+                companion_path = Path(companion.onnx_path)
+                print(f"   [{key}] {companion_path}")
+                if key == "embeddings":
+                    embeddings_src = companion_path
+                else:
+                    lm_head_src = companion_path
+
         print(f"\n=== assembling genai bundle -> {args.genai_bundle} ===")
         config_path = write_genai_bundle(
             args.genai_bundle,
@@ -218,21 +266,11 @@ def main(argv: list[str] | None = None) -> int:
             model_id=args.model_id,
             max_cache_len=args.max_cache_len,
             prefill_seq_len=args.prefill_seq_len,
-            embeddings_src=args.embeddings,
-            lm_head_src=args.lm_head,
+            embeddings_src=embeddings_src,
+            lm_head_src=lm_head_src,
             ep="qnn" if args.device == "npu" else args.device,
         )
         print(f"   genai_config.json -> {config_path}")
-        if args.embeddings is None:
-            print(
-                "   WARNING: --embeddings not provided; "
-                "add embeddings.onnx to the bundle before inference."
-            )
-        if args.lm_head is None:
-            print(
-                "   WARNING: --lm-head not provided; "
-                "add lm_head.onnx to the bundle before inference."
-            )
 
     return 0
 
