@@ -68,6 +68,8 @@ def _make_progress_bar() -> Any:
 
     tqdm is a dev-only optional dep in this package, so production installs
     without it must still complete EP downloads — they just lose the live bar.
+    In Windows spawn workers, ``sys.stderr`` can be unavailable; tqdm write
+    failures must not abort provider readiness and leave child EP paths empty.
     Also tolerates non-interactive runtimes where ``sys.stderr`` may be None
     (e.g., GUI/no-console hosts) so progress rendering failures cannot block
     EP discovery.
