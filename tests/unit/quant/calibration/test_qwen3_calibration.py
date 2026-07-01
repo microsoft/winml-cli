@@ -234,12 +234,12 @@ def test_decode_trajectory_reader_respects_max_cache():
     assert max(int(f["past_seq_len"][0, 0]) for f in feeds) == max_cache_len - 1
 
 
-def test_finalize_pins_static_w8a8_scheme(tmp_path, monkeypatch):
+def test_finalize_pins_static_w8a16_scheme(tmp_path, monkeypatch):
     """The finalizer is authoritative over the precision policy.
 
     The precision-driven build keys the quantizer dispatch on ``config.mode``,
     so the transformer-only policy must pin ``mode="static"`` (QDQ) along with
-    the reference-matched w8a8 dtypes/symmetry + GQA exclusion — even when the
+    the reference-matched w8a16 dtypes/symmetry + GQA exclusion — even when the
     incoming config arrived as a non-QDQ mode (e.g. ``fp16``/``rtn``).
     """
     from winml.modelkit.quant import WinMLQuantizationConfig
@@ -275,7 +275,7 @@ def test_finalize_pins_static_w8a8_scheme(tmp_path, monkeypatch):
 
     assert result.mode == "static"
     assert result.weight_type == "int8"
-    assert result.activation_type == "uint8"
+    assert result.activation_type == "uint16"
     assert result.weight_symmetric is True
     assert result.activation_symmetric is False
     assert result.calibration_method == "minmax"

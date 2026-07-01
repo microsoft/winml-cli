@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Config-driven w8a8 calibration for the transformer-only Qwen3 build.
+"""Config-driven w8a16 calibration for the transformer-only Qwen3 build.
 
 The transformer-only export (``models.hf.qwen3.qwen_transformer_only``) emits a graph
 whose only quantization-relevant runtime inputs (the calibration feeds and the
@@ -351,7 +351,7 @@ def finalize_transformer_only_quant_config(
     picks generic dtypes; the transformer-only scheme is fixed and reference-
     matched, so this hook is authoritative:
 
-      - **int8-symmetric weights** (zp=0) + **uint8 asymmetric activations**,
+      - **int8-symmetric weights** (zp=0) + **uint16 asymmetric activations**,
       - **MinMax** calibration, ``mode="static"`` (forces QDQ dispatch),
       - GroupQueryAttention nodes excluded from QDQ (read from the graph),
       - the matching :class:`CalibrationDataReader` (prefill vs. decode-trajectory,
@@ -365,16 +365,16 @@ def finalize_transformer_only_quant_config(
     seq_len, max_cache_len = _graph_shapes(onnx_path)
     gqa_nodes = _gqa_node_names(onnx_path)
 
-    # Fixed, reference-matched w8a8 scheme (authoritative over policy dtypes).
+    # Fixed, reference-matched w8a16 scheme (authoritative over policy dtypes).
     # ``mode`` must be pinned to "static": the new precision-driven flow keys the
     # quantizer dispatch on ``config.mode`` (fp16/rtn/static), so a build whose
     # precision policy resolved to "fp16"/"rtn" would otherwise bypass QDQ and
     # silently ignore the calibration reader + GQA exclusion set below.
-    # uint8 activations (matching the reference model) keep ctx/iter at opset 18;
-    # uint16 would force opset 21 (ORT requires opset >= 21 for 16-bit QDQ).
+    # uint16 activations give higher precision than uint8; the trade-off is that
+    # ORT requires opset >= 21 for 16-bit QDQ, so ctx/iter will export at opset 21.
     quant.mode = "static"
     quant.weight_type = "int8"
-    quant.activation_type = "uint8"
+    quant.activation_type = "uint16"
     quant.weight_symmetric = True
     quant.activation_symmetric = False
     quant.calibration_method = "minmax"
