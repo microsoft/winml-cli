@@ -58,6 +58,71 @@ def _resolve_shape(shape: list, default_dim: int = 1) -> list[int]:
     return [default_dim if not isinstance(d, int) or d <= 0 else d for d in shape]
 
 
+def _csv_operator_metrics(samples: list[dict[str, Any]]) -> list[OperatorMetrics]:
+    """Aggregate per-sample CSV operator records into ``OperatorMetrics``.
+
+    Each operator's duration and percentage are computed against the metadata
+    of the *same* sample — the accelerator cycle total and cycle->US factor
+    differ slightly between inferences — then averaged across every sample the
+    operator appears in. Operators are keyed by ``op_id`` so identically-named
+    ops in different positions stay separate. The result is sorted by duration
+    descending.
+    """
+    acc: dict[int, dict[str, Any]] = {}
+
+    for sample in samples:
+        meta = sample["metadata"]
+        total_cycles = meta.get("accel_execute_cycles", 0)
+        accel_us = meta.get("accel_execute_us", 0)
+        cycle_to_us = accel_us / total_cycles if total_cycles > 0 else 0.0
+
+        for op in sample["samples"]:
+            oid = op["op_id"]
+            entry = acc.setdefault(
+                oid,
+                {"name": op["name"], "op_id": oid, "duration_us": 0.0, "percent": 0.0, "count": 0},
+            )
+            entry["duration_us"] += op["cycles"] * cycle_to_us
+            entry["percent"] += op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0.0
+            entry["count"] += 1
+
+    metrics = [
+        OperatorMetrics(
+            name=entry["name"],
+            op_path=entry["name"],
+            op_id=entry["op_id"],
+            duration_us=entry["duration_us"] / entry["count"],
+            percent_of_total=entry["percent"] / entry["count"],
+        )
+        for entry in acc.values()
+    ]
+    # duration is the headline metric; percent breaks ties when US timing is
+    # absent (so durations collapse to 0 but cycle shares still differ).
+    metrics.sort(key=lambda m: (m.duration_us, m.percent_of_total), reverse=True)
+    return metrics
+
+
+def _csv_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    """Headline metadata across samples (HVX threads constant; cycles/US averaged)."""
+    if not samples:
+        return {"hvx_threads": 0, "accel_execute_cycles": 0, "accel_execute_us": 0}
+
+    n = len(samples)
+    metas = [s["metadata"] for s in samples]
+    hvx_threads = metas[0]["hvx_threads"]
+    if any(m["hvx_threads"] != hvx_threads for m in metas):
+        logger.warning(
+            "HVX thread count varies across samples (%s); using first sample's value %s",
+            [m["hvx_threads"] for m in metas],
+            hvx_threads,
+        )
+    return {
+        "hvx_threads": hvx_threads,
+        "accel_execute_cycles": round(sum(m["accel_execute_cycles"] for m in metas) / n),
+        "accel_execute_us": round(sum(m["accel_execute_us"] for m in metas) / n),
+    }
+
+
 @contextlib.contextmanager
 def _working_directory(path: Path) -> Iterator[None]:
     """Temporarily change CWD and restore on exit.
@@ -153,7 +218,7 @@ class QNNProfiler(OpTracer):
             del session
 
         # ---- Post-processing ----
-        return self._collect_results(csv_path, iterations)
+        return self._collect_results(csv_path, iterations, warmup)
 
     # ------------------------------------------------------------------
     # ORT configuration builders
@@ -201,7 +266,7 @@ class QNNProfiler(OpTracer):
     # Result collection
     # ------------------------------------------------------------------
 
-    def _collect_results(self, csv_path: Path, iterations: int) -> OpTraceResult:
+    def _collect_results(self, csv_path: Path, iterations: int, warmup: int) -> OpTraceResult:
         """Parse profiling artifacts into an ``OpTraceResult``."""
         artifacts: dict[str, str] = {}
         qnn_log = Path(str(csv_path) + "_qnn.log")
@@ -224,7 +289,7 @@ class QNNProfiler(OpTracer):
 
         # --- Fallback / basic mode: parse CSV ---
         if csv_path.is_file():
-            return self._from_csv(csv_path, iterations, artifacts)
+            return self._from_csv(csv_path, iterations, warmup, artifacts)
 
         # No artifacts at all -- return empty result.
         logger.warning("No profiling artifacts found in %s", self.output_dir)
@@ -303,27 +368,26 @@ class QNNProfiler(OpTracer):
         self,
         csv_path: Path,
         iterations: int,
+        warmup: int,
         artifacts: dict[str, str],
     ) -> OpTraceResult:
-        """Build an ``OpTraceResult`` from the basic CSV parser."""
-        parsed = parse_qnn_profiling_csv(csv_path)
-        meta = parsed["metadata"]
+        """Build an ``OpTraceResult`` from the basic CSV parser.
 
-        # Convert cycles to microseconds using the cycle-to-us factor.
-        total_cycles = meta.get("accel_execute_cycles", 0)
-        accel_us = meta.get("accel_execute_us", 0)
-        cycle_to_us = accel_us / total_cycles if total_cycles > 0 else 0.0
+        The CSV records every execute call, warmup runs included. Warmup
+        carries graph-finalization / JIT overhead, so the first ``warmup``
+        samples are dropped; the remaining samples — which must number
+        ``iterations`` — feed the operator metrics.
+        """
+        samples = parse_qnn_profiling_csv(csv_path)
 
-        operators = [
-            OperatorMetrics(
-                name=op["name"],
-                op_path=op["name"],
-                op_id=op["op_id"],
-                duration_us=op["cycles"] * cycle_to_us,
-                percent_of_total=(op["cycles"] / total_cycles * 100 if total_cycles > 0 else 0),
+        measured = samples[warmup:]
+        if len(measured) != iterations:
+            raise ValueError(
+                f"Expected {iterations} measured sample(s) after skipping {warmup} "
+                f"warmup, got {len(measured)} from {len(samples)} total."
             )
-            for op in parsed["operators"]
-        ]
+
+        operators = _csv_operator_metrics(measured)
 
         return OpTraceResult(
             model=self.onnx_path.name,
@@ -332,11 +396,7 @@ class QNNProfiler(OpTracer):
             ep="QNNExecutionProvider",
             tracing_backend="qnn",
             operators=operators,
-            num_samples=meta.get("num_samples", 0),
-            summary={
-                "hvx_threads": meta.get("hvx_threads", 0),
-                "accel_execute_cycles": meta.get("accel_execute_cycles", 0),
-                "accel_execute_us": accel_us,
-            },
+            num_samples=len(measured),
+            summary=_csv_summary(measured),
             artifacts=artifacts,
         )
