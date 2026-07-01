@@ -28,6 +28,9 @@ class DepthMetric:
 
     _VALID_ALIGN = ("none", "median", "affine")
     _VALID_DEPTH_KIND = ("depth", "disparity")
+    # Aligned disparities at or below this are treated as invalid (their
+    # inverse depth would be non-positive or unbounded).
+    _DISPARITY_EPS = 1e-12
 
     def __init__(
         self,
@@ -49,9 +52,9 @@ class DepthMetric:
                 models like ZoeDepth and DepthPro.
             depth_kind: Output space of ``prediction``. ``"depth"``
                 (default) treats values as forward depth/distance.
-                ``"disparity"`` first inverts the prediction to depth
-                (``1 / pred``) — for DPT/MiDaS-style models whose
-                output is inverse depth.
+                ``"disparity"`` treats values as inverse depth
+                (DPT/MiDaS/Depth-Anything-style models): they are aligned
+                to ``1 / gt`` and inverted back to depth before scoring.
             min_depth: Lower bound (inclusive) for valid ground-truth
                 pixels in the same units as ``gt``.
             max_depth: Upper bound (inclusive) for valid ground-truth
@@ -99,10 +102,6 @@ class DepthMetric:
                 f"prediction and reference must share shape; got {pred.shape} vs {gt.shape}.",
             )
 
-        if self._depth_kind == "disparity":
-            with np.errstate(divide="ignore", invalid="ignore"):
-                pred = np.where(pred > 0, 1.0 / pred, np.nan)
-
         valid = self._valid_mask(pred, gt)
         if not valid.any():
             self._image_count += 1
@@ -111,26 +110,47 @@ class DepthMetric:
         pred_v = pred[valid].astype(np.float64)
         gt_v = gt[valid].astype(np.float64)
 
-        if self._align == "median":
-            scale = np.median(gt_v) / np.median(pred_v)
-            pred_v = pred_v * scale
-        elif self._align == "affine":
-            # Least-squares fit of (s, t) such that s * pred + t ~ gt.
-            # Standard scale-and-shift alignment for relative-depth models
-            # (MiDaS, Depth-Anything, Marigold).
-            ones = np.ones_like(pred_v)
-            a = np.stack([pred_v, ones], axis=1)
-            (scale, shift), *_ = np.linalg.lstsq(a, gt_v, rcond=None)
-            pred_v = pred_v * scale + shift
-            # Affine alignment can introduce non-positive predicted depths.
-            # Re-filter them after scale-and-shift, following Eigen/MiDaS eval
-            # behavior; affine may therefore use fewer pixels than median/none.
-            pos = pred_v > self._min_depth
+        # Disparity models (MiDaS, DPT, Depth-Anything) output inverse depth and
+        # need a dedicated alignment + inversion; metric-depth models align
+        # directly in depth space.
+        if self._depth_kind == "disparity":
+            # Align in disparity space against 1 / gt, then invert back to
+            # metric depth. Pixels whose aligned disparity is non-positive are
+            # dropped (their inverse depth would be unbounded).
+            target = 1.0 / gt_v
+            if self._align == "median":
+                pred_v = pred_v * (np.median(target) / np.median(pred_v))
+            elif self._align == "affine":
+                a = np.stack([pred_v, np.ones_like(pred_v)], axis=1)
+                (scale, shift), *_ = np.linalg.lstsq(a, target, rcond=None)
+                pred_v = pred_v * scale + shift
+            pos = pred_v > self._DISPARITY_EPS
             if not pos.any():
                 self._image_count += 1
                 return
-            pred_v = pred_v[pos]
+            pred_v = 1.0 / pred_v[pos]
             gt_v = gt_v[pos]
+        else:
+            if self._align == "median":
+                scale = np.median(gt_v) / np.median(pred_v)
+                pred_v = pred_v * scale
+            elif self._align == "affine":
+                # Least-squares fit of (s, t) such that s * pred + t ~ gt.
+                # Standard scale-and-shift alignment for relative-depth models
+                # (MiDaS, Depth-Anything, Marigold).
+                ones = np.ones_like(pred_v)
+                a = np.stack([pred_v, ones], axis=1)
+                (scale, shift), *_ = np.linalg.lstsq(a, gt_v, rcond=None)
+                pred_v = pred_v * scale + shift
+                # Affine alignment can introduce non-positive predicted depths.
+                # Re-filter them after scale-and-shift, following Eigen/MiDaS eval
+                # behavior; affine may therefore use fewer pixels than median/none.
+                pos = pred_v > self._min_depth
+                if not pos.any():
+                    self._image_count += 1
+                    return
+                pred_v = pred_v[pos]
+                gt_v = gt_v[pos]
 
         diff = pred_v - gt_v
         ratio = np.maximum(pred_v / gt_v, gt_v / pred_v)
