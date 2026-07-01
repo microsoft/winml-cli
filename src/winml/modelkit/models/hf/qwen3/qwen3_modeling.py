@@ -96,8 +96,18 @@ class WinMLQwen3Attention(nn.Module):
     v_proj: nn.Module
     o_proj: nn.Module
 
-    def prepare_for_onnx_export(self, *, matmul_to_conv: bool) -> None:
-        """Optionally swap the Q/K/V/O projections for 1x1 convs."""
+    def prepare_for_onnx_export(
+        self, *, matmul_to_conv: bool, max_rope_len: int | None = None
+    ) -> None:
+        """Optionally swap the Q/K/V/O projections for 1x1 convs.
+
+        ``max_rope_len`` pins the cos/sin rope cache to exactly that many
+        positions so the exported ONNX constant has shape ``[max_rope_len, 64]``
+        instead of ``[config.max_position_embeddings, 64]``.  It must be a
+        plain Python ``int`` (not a tensor) so the ``torch.arange`` call in
+        ``forward`` bakes a static-shape constant into the ONNX graph rather
+        than a dynamic symbolic range.
+        """
         if matmul_to_conv:
             self.q_proj = TransposeConv2d1x1Transpose.from_linear_module(
                 cast("nn.Linear", self.q_proj)
@@ -112,6 +122,9 @@ class WinMLQwen3Attention(nn.Module):
                 cast("nn.Linear", self.o_proj)
             )
         self._matmul_to_conv = matmul_to_conv
+        self._max_rope_len: int = (
+            int(max_rope_len) if max_rope_len is not None else self.config.max_position_embeddings
+        )
 
     def forward(
         self,
@@ -155,11 +168,7 @@ class WinMLQwen3Attention(nn.Module):
 
         cos, sin = cast("nn.Module", self.rotary_emb)(
             value_states,
-            torch.arange(
-                int(total_seq_len.item())
-                if total_seq_len is not None
-                else self.config.max_position_embeddings
-            ).unsqueeze(0),
+            torch.arange(self._max_rope_len).unsqueeze(0),
         )
         cos = cos.squeeze(0)[:, : cos.shape[-1] // 2]
         sin = sin.squeeze(0)[:, : sin.shape[-1] // 2]
@@ -277,7 +286,7 @@ class WinMLQwen3Model(nn.Module):
 
 
 def apply_transformer_only_export_prep(
-    causal_lm: nn.Module, *, matmul_to_conv: bool = True
+    causal_lm: nn.Module, *, matmul_to_conv: bool = True, max_rope_len: int | None = None
 ) -> None:
     """Mutate ``Qwen3ForCausalLM`` in-place into the export topology.
 
@@ -291,6 +300,11 @@ def apply_transformer_only_export_prep(
         causal_lm: A ``transformers.Qwen3ForCausalLM`` instance.
         matmul_to_conv: Swap ``nn.Linear`` projections to 1x1 ``Conv2d`` so
             QNN sees them as Conv.
+        max_rope_len: Number of positions to pre-compute for the cos/sin rope
+            cache.  Pass the model's ``max_cache_len`` (e.g. 4096) so the
+            exported constant has shape ``[max_rope_len, 64]`` instead of
+            ``[config.max_position_embeddings, 64]`` (40960).  Must be a plain
+            Python ``int`` — see ``WinMLQwen3Attention.prepare_for_onnx_export``.
 
     Raises:
         RuntimeError: If any expected Qwen3 submodule class is not found,
@@ -325,7 +339,9 @@ def apply_transformer_only_export_prep(
     for mod in causal_lm.modules():
         if _is(mod, "Qwen3Attention"):
             WinMLQwen3Attention.prepare_for_onnx_export(
-                cast("WinMLQwen3Attention", mod), matmul_to_conv=matmul_to_conv
+                cast("WinMLQwen3Attention", mod),
+                matmul_to_conv=matmul_to_conv,
+                max_rope_len=max_rope_len,
             )
             _bind(mod, WinMLQwen3Attention)
             patched["Qwen3Attention"] += 1

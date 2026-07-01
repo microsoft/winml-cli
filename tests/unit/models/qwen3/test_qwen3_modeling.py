@@ -2,7 +2,13 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Unit tests for WinMLQwen3Attention.forward — rope cache sizing."""
+"""Unit tests for WinMLQwen3Attention rope cache — static _max_rope_len approach.
+
+The rope cache length is now pinned to a plain Python int attribute
+``_max_rope_len`` set by ``prepare_for_onnx_export``, so the ONNX exporter
+bakes a static-shape constant rather than a symbolic range derived from
+``total_seq_len.item()``.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +31,7 @@ def _make_attention_module(
     num_kv_heads: int = 8,
     head_dim: int = 64,
 ) -> MagicMock:
-    """Build a minimal mock bound to WinMLQwen3Attention.forward."""
+    """Build a minimal mock bound to WinMLQwen3Attention methods."""
     hidden_size = num_heads * head_dim
     kv_size = num_kv_heads * head_dim
 
@@ -98,66 +104,64 @@ def _run_forward(
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Tests for prepare_for_onnx_export — _max_rope_len attribute
+# ---------------------------------------------------------------------------
+
+
+class TestPrepareForOnnxExport:
+    def test_explicit_max_rope_len_is_stored(self):
+        """prepare_for_onnx_export stores the supplied max_rope_len as a Python int."""
+        mod = _make_attention_module(max_position_embeddings=40960)
+        WinMLQwen3Attention.prepare_for_onnx_export(mod, matmul_to_conv=False, max_rope_len=4096)
+        assert mod._max_rope_len == 4096
+        assert isinstance(mod._max_rope_len, int)
+
+    def test_fallback_to_max_position_embeddings(self):
+        """Without max_rope_len, _max_rope_len falls back to max_position_embeddings."""
+        mod = _make_attention_module(max_position_embeddings=512)
+        WinMLQwen3Attention.prepare_for_onnx_export(mod, matmul_to_conv=False)
+        assert mod._max_rope_len == 512
+
+    def test_max_rope_len_is_plain_int(self):
+        """_max_rope_len must be a plain int, not a tensor or other type."""
+        mod = _make_attention_module()
+        WinMLQwen3Attention.prepare_for_onnx_export(mod, matmul_to_conv=False, max_rope_len=4096)
+        assert type(mod._max_rope_len) is int
+
+
+# ---------------------------------------------------------------------------
+# Tests for forward — uses _max_rope_len, ignores total_seq_len for rope
 # ---------------------------------------------------------------------------
 
 
 class TestRopeCacheSizing:
-    def test_rope_cache_uses_total_seq_len_not_max_position_embeddings(self):
-        """rope cache length == max_cache_len, not max_position_embeddings."""
+    def test_forward_uses_max_rope_len_attribute(self):
+        """forward passes torch.arange(_max_rope_len) to rotary_emb regardless of total_seq_len."""
         mod = _make_attention_module(max_position_embeddings=40960)
-        pos_ids = _run_forward(mod, seq_len=64, max_cache_len=256)
+        mod._max_rope_len = 256  # explicitly set; different from total_seq_len=4096 below
+
+        pos_ids = _run_forward(mod, seq_len=1, max_cache_len=4096)
         assert len(pos_ids) == 1
         assert pos_ids[0].shape[-1] == 256, (
-            f"Expected rope cache length 256 but got {pos_ids[0].shape[-1]}"
+            f"Expected rope cache length 256 (from _max_rope_len) but got {pos_ids[0].shape[-1]}"
         )
 
-    def test_rope_cache_matches_max_cache_len(self):
-        """rope cache length equals the max_cache_len used for KV cache."""
-        for max_cache_len in (128, 512, 4096):
-            mod = _make_attention_module(max_position_embeddings=40960)
-            pos_ids = _run_forward(mod, seq_len=1, max_cache_len=max_cache_len)
-            assert pos_ids[0].shape[-1] == max_cache_len
+    def test_rope_cache_does_not_depend_on_total_seq_len(self):
+        """Changing total_seq_len does NOT change the rope cache length."""
+        mod_a = _make_attention_module()
+        mod_a._max_rope_len = 512
+        pos_a = _run_forward(mod_a, seq_len=1, max_cache_len=128)
 
-    def test_rope_cache_much_smaller_than_max_position_embeddings(self):
-        """With max_cache_len=256, cache is 160x smaller than full rope."""
-        mod = _make_attention_module(max_position_embeddings=40960)
-        pos_ids = _run_forward(mod, seq_len=1, max_cache_len=256)
-        assert pos_ids[0].shape[-1] < mod.config.max_position_embeddings
+        mod_b = _make_attention_module()
+        mod_b._max_rope_len = 512
+        pos_b = _run_forward(mod_b, seq_len=1, max_cache_len=4096)
 
-    def test_fallback_when_total_seq_len_is_none(self):
-        """When total_seq_len is None, falls back to max_position_embeddings."""
+        # Both use _max_rope_len=512; total_seq_len differs but rope length must match
+        assert pos_a[0].shape[-1] == pos_b[0].shape[-1] == 512
+
+    def test_fallback_rope_len_is_max_position_embeddings(self):
+        """Without max_rope_len arg, forward uses max_position_embeddings as rope len."""
         mod = _make_attention_module(max_position_embeddings=512)
-        hidden = torch.zeros(1, 1, mod.config.num_attention_heads * mod.head_dim)
-        past_keys = torch.zeros(
-            1, mod.config.num_key_value_heads, 256, mod.head_dim, dtype=torch.float16
-        )
-        past_vals = torch.zeros_like(past_keys)
-
-        captured: list[torch.Tensor] = []
-
-        def _fake_rotary_emb(values, position_ids):
-            captured.append(position_ids)
-            seq_dim = position_ids.shape[-1]
-            cos = torch.ones(1, seq_dim, mod.head_dim, dtype=values.dtype)
-            sin = torch.zeros(1, seq_dim, mod.head_dim, dtype=values.dtype)
-            return cos, sin
-
-        mod.rotary_emb.side_effect = _fake_rotary_emb
-
-        with patch(
-            "winml.modelkit.models.hf.qwen3.qwen3_modeling.GroupQueryAttentionOnnxExport.apply"
-        ) as mock_gqa:
-            attn_out = torch.zeros(
-                1, 1, mod.config.num_attention_heads * mod.head_dim, dtype=torch.float16
-            )
-            mock_gqa.return_value = (attn_out, past_keys, past_vals)
-            WinMLQwen3Attention.forward(
-                mod,
-                hidden,
-                past_key_value=(past_keys, past_vals),
-                past_seq_len=torch.zeros(1, 1, dtype=torch.int32),
-                total_seq_len=None,
-            )
-
-        assert captured[0].shape[-1] == 512  # falls back to max_position_embeddings
+        WinMLQwen3Attention.prepare_for_onnx_export(mod, matmul_to_conv=False)
+        pos_ids = _run_forward(mod, seq_len=1, max_cache_len=256)
+        assert pos_ids[0].shape[-1] == 512
