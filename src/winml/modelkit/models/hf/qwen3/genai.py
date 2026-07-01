@@ -22,7 +22,6 @@ from winml.modelkit.utils.genai import (
     DEFAULT_LM_HEAD_FILENAME,
     DecoderIOMapping,
     PipelineStage,
-    _detect_format_patterns,
     build_decoder_pipeline_stages,
     build_genai_config,
     qnn_stage_session_options,
@@ -34,7 +33,8 @@ from winml.modelkit.utils.genai import (
 # ``build_qwen3_transformer_only_stages`` continue to work unchanged.
 build_qwen3_transformer_only_stages = build_decoder_pipeline_stages
 
-# Keep the internal helper accessible for tests that import it directly.
+# Keep the private EP helper importable under its old name for any callers
+# that referenced it before the rename.
 _qnn_stage_session_options = qnn_stage_session_options
 
 __all__ = [
@@ -44,7 +44,6 @@ __all__ = [
     "DEFAULT_LM_HEAD_FILENAME",
     "DecoderIOMapping",
     "PipelineStage",
-    "_detect_format_patterns",
     "build_decoder_pipeline_stages",
     "build_genai_config",
     "build_qwen3_transformer_only_stages",

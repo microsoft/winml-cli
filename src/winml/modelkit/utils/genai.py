@@ -219,9 +219,11 @@ def build_genai_config(
         hf_config.hidden_size // hf_config.num_attention_heads,
     )
 
-    eos_token_id = hf_config.eos_token_id
-    if isinstance(eos_token_id, list):
-        eos_token_id = eos_token_id[0]
+    eos_token_id: int | list[int] = hf_config.eos_token_id
+    # Pass lists through unchanged — ORT genai accepts a JSON array of EOS token
+    # IDs and treats any of them as a valid stop signal.  Truncating to [0] would
+    # silently discard secondary EOS tokens (e.g. Qwen3 uses [151645, 151643])
+    # and cause generation to run until max_length instead of stopping early.
 
     pad_token_id = getattr(hf_config, "pad_token_id", None) or hf_config.bos_token_id
 
@@ -424,10 +426,31 @@ def build_decoder_pipeline_stages(
     in_sorted = _sort_patterns_by_first_occurrence(input_patterns, ctx_inputs)
     out_sorted = _sort_patterns_by_first_occurrence(output_patterns, ctx_outputs)
 
-    past_key_fmt = input_patterns[in_sorted[0]] if len(in_sorted) > 0 else "past_keys_%d"
-    past_val_fmt = input_patterns[in_sorted[1]] if len(in_sorted) > 1 else "past_values_%d"
-    pres_key_fmt = output_patterns[out_sorted[0]] if len(out_sorted) > 0 else "present_keys_%d"
-    pres_val_fmt = output_patterns[out_sorted[1]] if len(out_sorted) > 1 else "present_values_%d"
+    # Assign key/value patterns by name (look for "key"/"val" in the prefix),
+    # falling back to positional order only when names are ambiguous.  Pure
+    # positional assignment would silently swap KV if a model lists values
+    # before keys in its ONNX graph.
+    def _pick_kv(
+        sorted_prefixes: list[str],
+        patterns: dict[str, str],
+        key_default: str,
+        val_default: str,
+    ) -> tuple[str, str]:
+        key_prefix = next((p for p in sorted_prefixes if "key" in p.lower()), None)
+        val_prefix = next((p for p in sorted_prefixes if "val" in p.lower()), None)
+        if key_prefix and val_prefix:
+            return patterns[key_prefix], patterns[val_prefix]
+        # Fallback: positional (preserves original behaviour for unambiguous names)
+        key_fmt = patterns[sorted_prefixes[0]] if len(sorted_prefixes) > 0 else key_default
+        val_fmt = patterns[sorted_prefixes[1]] if len(sorted_prefixes) > 1 else val_default
+        return key_fmt, val_fmt
+
+    past_key_fmt, past_val_fmt = _pick_kv(
+        in_sorted, input_patterns, "past_keys_%d", "past_values_%d"
+    )
+    pres_key_fmt, pres_val_fmt = _pick_kv(
+        out_sorted, output_patterns, "present_keys_%d", "present_values_%d"
+    )
 
     # Non-indexed inputs: hidden-state tensor + scalar seq-length scalars.
     non_indexed = [n for n in ctx_inputs if not _KV_INDEXED_RE.match(n)]

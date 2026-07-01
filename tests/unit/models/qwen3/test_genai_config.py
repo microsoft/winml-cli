@@ -16,10 +16,10 @@ from winml.modelkit.models.hf.qwen3.genai import (
     DEFAULT_LM_HEAD_FILENAME,
     DecoderIOMapping,
     PipelineStage,
-    _detect_format_patterns,
     build_genai_config,
     build_qwen3_transformer_only_stages,
 )
+from winml.modelkit.utils.genai import _detect_format_patterns
 
 
 # ---------------------------------------------------------------------------
@@ -260,12 +260,14 @@ class TestBuildGenaiConfig:
         assert pipeline[2]["iterator"]["filename"] == "decode.onnx"
         assert pipeline[3]["lm_head"]["filename"] == "head.onnx"
 
-    def test_eos_token_id_list_unpacked(self) -> None:
+    def test_eos_token_id_list_preserved(self) -> None:
         cfg = _mock_config(eos_token_id=[151645, 151643])
         result = build_genai_config(
             cfg, max_cache_len=256, prefill_seq_len=64, pipeline=_make_pipeline()
         )
-        assert result["model"]["eos_token_id"] == 151645
+        # ORT genai accepts a list of EOS token IDs; all must be preserved so that
+        # any secondary stop token (e.g. 151643 in some Qwen3 variants) is honoured.
+        assert result["model"]["eos_token_id"] == [151645, 151643]
 
     def test_head_size_derived_when_head_dim_missing(self) -> None:
         cfg = SimpleNamespace(

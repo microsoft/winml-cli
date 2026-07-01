@@ -363,16 +363,20 @@ class GenaiSession:
 
         stream = self._tokenizer.create_stream()  # type: ignore[union-attr]
         n = 0
-        while not generator.is_done():
-            generator.generate_next_token()
-            new_token = generator.get_next_tokens()[0]
-            yield stream.decode(new_token)
-            n += 1
-            if n >= cfg.max_new_tokens:
-                break
-        # ``generator`` (og.Generator) holds the KV cache buffer; releasing the
-        # reference here (end of scope) frees it before the caller processes the
-        # last yielded token, which is earlier than waiting for GC.
+        try:
+            while not generator.is_done():
+                generator.generate_next_token()
+                new_token = generator.get_next_tokens()[0]
+                yield stream.decode(new_token)
+                n += 1
+                if n >= cfg.max_new_tokens:
+                    break
+        finally:
+            # Explicit deletion releases the KV cache buffer held by the generator.
+            # This runs whether the caller exhausts the iterator normally, breaks
+            # out early, or the generator is garbage-collected — preventing the NPU
+            # memory from being held until a later GC cycle.
+            del generator
 
     # ------------------------------------------------------------------
     # Chat-template helpers
@@ -621,11 +625,18 @@ class GenaiSession:
         """Create symlinks (or copies on Windows) for every non-ONNX file.
 
         Files are linked/copied into *compiled_dir* so that ``og.Config``
-        finds tokenizer files, specials maps, etc.  Existing files are left
-        untouched.
+        finds tokenizer files, specials maps, etc.  ONNX files are intentionally
+        skipped — compiled stages land at different filenames inside *compiled_dir*,
+        and non-compiled stages fall back to their original path via an absolute
+        filename written into the modified genai_config.json.  Existing files are
+        left untouched.
         """
         for src in self._bundle_dir.iterdir():
             if src.name == self._COMPILED_SUBDIR:
+                continue
+            if src.suffix in (".onnx", ".data"):
+                # Skip model files — compiled stages are already at their new paths;
+                # large ONNX weights (potentially several GB) must not be duplicated.
                 continue
             dst = compiled_dir / src.name
             if dst.exists():
