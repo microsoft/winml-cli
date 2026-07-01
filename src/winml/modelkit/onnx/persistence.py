@@ -12,9 +12,11 @@ See also: docs/design/onnx/persistence.md (if available)
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 from pathlib import Path
+from typing import NoReturn
 
 import onnx
 from onnx.external_data_helper import _get_all_tensors, uses_external_data
@@ -23,6 +25,92 @@ from .utils import EXTERNAL_DATA_THRESHOLD, get_model_size
 
 
 logger = logging.getLogger(__name__)
+
+
+# Windows ERROR_DISK_FULL. Python usually maps this to errno.ENOSPC via the CRT,
+# but we check the raw winerror too so a disk-full write is always recognised.
+_WINDOWS_ERROR_DISK_FULL = 112
+
+
+class ONNXSaveError(OSError):
+    """Raised when an ONNX model cannot be written to disk.
+
+    Subclasses :class:`OSError` so existing ``except OSError`` handlers keep
+    working and the original ``errno`` is preserved (see ``errno_code``), while
+    surfacing a clear, actionable message. This matters most for disk-full
+    conditions: without it, a failed write leaves a truncated/zero-byte
+    ``.onnx`` behind and the real cause only shows up much later as an opaque
+    opset-parsing error in a downstream stage.
+
+    Note:
+        ``OSError.__init__`` only populates ``errno`` from a 2-argument
+        ``(errno, strerror)`` call, which would also rewrite ``str(self)`` as
+        ``"[Errno N] <message>"``. To keep the clean message *and* preserve
+        ``errno`` for ``except OSError`` callers that inspect ``e.errno``, we
+        construct with the single message and set ``errno`` explicitly.
+
+    Attributes:
+        path: Destination path that could not be written.
+        disk_full: ``True`` when the failure was caused by insufficient disk
+            space (``errno.ENOSPC`` / Windows ``ERROR_DISK_FULL``).
+        errno: The originating OS error code, when known (inherited from
+            :class:`OSError`).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        path: str | Path | None = None,
+        disk_full: bool = False,
+        errno_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        # super().__init__(message) leaves self.errno = None; set it explicitly
+        # so callers catching this as OSError can still inspect e.errno.
+        if errno_code is not None:
+            self.errno = errno_code
+        self.path = path
+        self.disk_full = disk_full
+
+
+def _is_disk_full_error(error: OSError) -> bool:
+    """Return ``True`` when *error* represents an out-of-disk-space condition."""
+    return (
+        error.errno == errno.ENOSPC
+        or getattr(error, "winerror", None) == _WINDOWS_ERROR_DISK_FULL
+    )
+
+
+def _cleanup_partial_save(*paths: Path | None) -> None:
+    """Best-effort removal of partial artifacts left by a failed write.
+
+    A failed ``onnx.save_model`` / copy can leave a zero-byte or truncated
+    ``.onnx`` file (and ``.data`` sidecar) behind. Removing them prevents a
+    later stage from loading a corrupt model and reporting a misleading error.
+    """
+    for partial in paths:
+        if partial is None:
+            continue
+        try:
+            Path(partial).unlink(missing_ok=True)
+        except OSError:
+            logger.debug("Could not remove partial artifact: %s", partial, exc_info=True)
+
+
+def _raise_save_error(error: OSError, path: Path) -> NoReturn:
+    """Translate a write ``OSError`` into a clear :class:`ONNXSaveError`."""
+    disk_full = _is_disk_full_error(error)
+    if disk_full:
+        message = (
+            f"Insufficient disk space — unable to write ONNX model to {path}. "
+            "Free up disk space and try again."
+        )
+    else:
+        message = f"Failed to write ONNX model to {path}: {error}"
+    raise ONNXSaveError(
+        message, path=path, disk_full=disk_full, errno_code=error.errno
+    ) from error
 
 
 def load_onnx(
@@ -127,20 +215,31 @@ def save_onnx(
         # path.parent is guaranteed to exist: mkdir() was called above.
         original_cwd = Path.cwd()
         try:
-            os.chdir(path.parent)
-            onnx.save_model(
-                model,
-                path.name,
-                save_as_external_data=True,
-                all_tensors_to_one_file=True,
-                location=ext_location,
-                size_threshold=1024,
-            )
-        finally:
-            os.chdir(original_cwd)
+            try:
+                os.chdir(path.parent)
+                onnx.save_model(
+                    model,
+                    path.name,
+                    save_as_external_data=True,
+                    all_tensors_to_one_file=True,
+                    location=ext_location,
+                    size_threshold=1024,
+                )
+            finally:
+                os.chdir(original_cwd)
+        except OSError as e:
+            # A failed external-data write can leave a truncated .onnx and/or
+            # .data sidecar behind; remove them so a later stage never loads a
+            # corrupt model and reports a misleading error.
+            _cleanup_partial_save(path, ext_path)
+            _raise_save_error(e, path)
     else:
         logger.debug("Saving ONNX model inline to %s", path)
-        onnx.save_model(model, str(path))
+        try:
+            onnx.save_model(model, str(path))
+        except OSError as e:
+            _cleanup_partial_save(path)
+            _raise_save_error(e, path)
 
 
 def cleanup_onnx(path: str | Path) -> list[Path]:

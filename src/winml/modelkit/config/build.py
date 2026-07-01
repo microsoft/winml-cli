@@ -1071,6 +1071,10 @@ def _assemble_config(
                 model_type,
             )
         quant_config.model_id = model_id or model_type
+        # Carry the resolved model_type so quantize_onnx can resolve a
+        # model-type-specific quant policy (e.g. the qwen3_transformer_only
+        # w8a16 finalizer) from the exported graph.
+        quant_config.model_type = loader_config.model_type
 
     return WinMLBuildConfig(
         loader=loader_config,

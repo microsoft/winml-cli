@@ -213,7 +213,7 @@ class WinMLAutoModel:
 
         # Resolve output directory and cache key
         task_abbrev = get_task_abbrev(resolved_task) if resolved_task else "onnx"
-        cache_key = get_cache_key(task_abbrev, config.generate_cache_key())
+        cache_key = get_cache_key(task_abbrev, config.generate_cache_key(), kwargs)
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
             output_dir = get_model_dir(
@@ -272,6 +272,7 @@ class WinMLAutoModel:
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
         no_compile: bool = False,
+        model_type: str | None = None,
         allow_unsupported_nodes: bool = False,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:
@@ -306,6 +307,10 @@ class WinMLAutoModel:
             shape_config: Shape overrides passed to generate_build_config().
                 Valid keys -- text: sequence_length; vision: height, width;
                 audio: feature_size, nb_max_frames, audio_sequence_length.
+            model_type: Explicit model_type override. When provided alongside a
+                HF model_id, selects a registered build variant (e.g.
+                ``"qwen3_transformer_only"``) instead of the architecture's
+                native model_type. Leave ``None`` for normal auto-detection.
             allow_unsupported_nodes: If True, warn instead of raising when the
                 analyzer reports unsupported nodes that persist; the build
                 proceeds and the EP may fall back to another device for them.
@@ -358,14 +363,22 @@ class WinMLAutoModel:
         if task is not None:
             from .winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-            _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
-            if task in _known_composite_tasks:
-                from transformers import AutoConfig
-
-                _hf_cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
-                _model_type = getattr(_hf_cfg, "model_type", None)
+            # Explicit override wins so a variant composite (e.g.
+            # "qwen3_transformer_only") can be selected over the native type.
+            _model_type: str | None
+            if model_type is not None:
+                _model_type = model_type
             else:
-                _model_type = None
+                _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
+                if task in _known_composite_tasks:
+                    from transformers import AutoConfig
+
+                    _hf_cfg = AutoConfig.from_pretrained(
+                        model_id, trust_remote_code=trust_remote_code
+                    )
+                    _model_type = getattr(_hf_cfg, "model_type", None)
+                else:
+                    _model_type = None
 
             if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
                 from .winml.composite_model import WinMLCompositeModel
@@ -404,6 +417,7 @@ class WinMLAutoModel:
             trust_remote_code=trust_remote_code,
             ep=kwargs.get("ep"),
             no_compile=no_compile,
+            model_type=model_type,
         )
 
         resolved_task = build_config.loader.task
@@ -427,7 +441,7 @@ class WinMLAutoModel:
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 
-        cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key())
+        cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key(), kwargs)
         output_dir = get_model_dir(model_id, cache_dir=cache_dir_path)
 
         # =====================================================================
@@ -440,7 +454,9 @@ class WinMLAutoModel:
         from transformers import AutoConfig
 
         hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=effective_trust)
-        model_type = getattr(hf_config, "model_type", "unknown")
+        # Honor an explicit model_type override; otherwise probe from the config.
+        if model_type is None:
+            model_type = getattr(hf_config, "model_type", "unknown")
         logger.debug("Model type: %s, task: %s", model_type, resolved_task)
 
         # =====================================================================
@@ -478,6 +494,7 @@ class WinMLAutoModel:
             cache_key=cache_key,
             ep=resolved_ep,
             device=device,
+            model_type=model_type,
             allow_unsupported_nodes=allow_unsupported_nodes,
             **build_control_kwargs,
         )

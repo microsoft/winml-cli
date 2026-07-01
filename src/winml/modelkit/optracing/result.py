@@ -48,8 +48,13 @@ class OperatorMetrics:
     dims: list[int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to dict, preserving None for unavailable fields."""
-        return asdict(self)
+        """Serialize to dict, omitting fields left unset (``None``).
+
+        Basic-mode traces only populate identity + timing, so dropping ``None``
+        keeps the output free of the many detail-only fields (DMA/VTCM/roofline)
+        that would otherwise serialize as ``null``.
+        """
+        return {k: v for k, v in asdict(self).items() if v is not None}
 
 
 @dataclass

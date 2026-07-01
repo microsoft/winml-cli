@@ -56,6 +56,25 @@ from .qwen import MODEL_CLASS_MAPPING as _QWEN_CLASS_MAPPING
 from .qwen import QWEN_CONFIG
 from .qwen import QwenGenIOConfig as _QwenGenIOConfig
 from .qwen import QwenPrefillIOConfig as _QwenPrefillIOConfig
+from .qwen3.qwen_embeddings_only import MODEL_CLASS_MAPPING as _QWEN_EMB_CLASS_MAPPING
+from .qwen3.qwen_embeddings_only import QWEN_EMBEDDINGS_ONLY_CONFIG
+from .qwen3.qwen_embeddings_only import (
+    QwenEmbeddingsOnlyIOConfig as _QwenEmbeddingsOnlyIOConfig,  # triggers registration
+)
+from .qwen3.qwen_lm_head_only import MODEL_CLASS_MAPPING as _QWEN_LMH_CLASS_MAPPING
+from .qwen3.qwen_lm_head_only import QWEN_LM_HEAD_ONLY_CONFIG
+from .qwen3.qwen_lm_head_only import (
+    QwenLMHeadOnlyIOConfig as _QwenLMHeadOnlyIOConfig,  # triggers registration
+)
+from .qwen3.qwen_transformer_only import MODEL_CLASS_MAPPING as _QWEN_TO_CLASS_MAPPING
+from .qwen3.qwen_transformer_only import QWEN_TRANSFORMER_ONLY_CONFIG
+from .qwen3.qwen_transformer_only import (
+    QwenTransformerOnlyGenIOConfig as _QwenTransformerOnlyGenIOConfig,  # triggers registration
+)
+from .qwen3.qwen_transformer_only import (
+    # triggers registration
+    QwenTransformerOnlyPrefillIOConfig as _QwenTransformerOnlyPrefillIOConfig,
+)
 from .roberta import ROBERTA_FAMILY_CONFIG
 from .roberta import RobertaIOConfig as _RobertaIOConfig  # triggers registration
 from .sam import MODEL_CLASS_MAPPING as _SAM2_CLASS_MAPPING
@@ -75,6 +94,7 @@ from .vision_encoder_decoder import (
     VisionDecoderIOConfig as _VisionDecoderIOConfig,  # triggers registration
 )
 from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
+from .vitpose import MODEL_CLASS_MAPPING as _VITPOSE_CLASS_MAPPING
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
@@ -99,11 +119,15 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _MARIAN_CLASS_MAPPING,
         _MU2_CLASS_MAPPING,
         _QWEN_CLASS_MAPPING,
+        _QWEN_TO_CLASS_MAPPING,
+        _QWEN_EMB_CLASS_MAPPING,
+        _QWEN_LMH_CLASS_MAPPING,
         _SAM2_CLASS_MAPPING,
         _SEGFORMER_CLASS_MAPPING,
         _SIGLIP_CLASS_MAPPING,
         _T5_CLASS_MAPPING,
         _VED_CLASS_MAPPING,
+        _VITPOSE_CLASS_MAPPING,
     )
     for _key, _model_cls in _sub_mapping.items()
 }
@@ -124,6 +148,9 @@ MODEL_BUILD_CONFIGS = {
     "roberta": ROBERTA_FAMILY_CONFIG,
     "mu2": MU2_CONFIG,
     "qwen3": QWEN_CONFIG,
+    "qwen3-transformer-only": QWEN_TRANSFORMER_ONLY_CONFIG,
+    "qwen3-embeddings-only": QWEN_EMBEDDINGS_ONLY_CONFIG,
+    "qwen3-lm-head-only": QWEN_LM_HEAD_ONLY_CONFIG,
     "siglip": SIGLIP_CONFIG,
     "siglip-text-model": SIGLIP_CONFIG,
     "siglip-vision-model": SIGLIP_CONFIG,

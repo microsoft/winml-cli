@@ -7,34 +7,67 @@
 Provides QDQ (Quantize-Dequantize) quantization for ONNX models.
 
 Usage:
-    from winml.modelkit.quant import quantize_onnx, WinMLQuantizationConfig
+    from winml.modelkit.quant import (
+        quantize_onnx,
+        Quantizer,
+        expand_precision,
+        WinMLQuantizationConfig,
+    )
 
     # Quick quantize with defaults (10 samples, uint8)
     result = quantize_onnx("model.onnx")
 
     # Custom config
     result = quantize_onnx("model.onnx", WinMLQuantizationConfig(samples=100))
+
+    # Pipeline: RTN int4 weight-only
+    config = WinMLQuantizationConfig(mode="rtn", rtn_bits=4)
+    result = Quantizer(expand_precision("rtn", config)).run("model.onnx", "out.onnx")
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .config import QuantizeResult, WinMLQuantizationConfig
+from .passes import BaseQuantPass, FP16Pass, RTNPass, StaticPass
+
+
+if TYPE_CHECKING:
+    from .quantizer import Quantizer, expand_precision, quantize_onnx
 
 
 __all__ = [
+    "BaseQuantPass",
+    "FP16Pass",
     "QuantizeResult",
+    "Quantizer",
+    "RTNPass",
+    "StaticPass",
     "WinMLQuantizationConfig",
+    "expand_precision",
+    "get_quant_finalizer",
     "quantize_onnx",
 ]
 
 
+# Names below are loaded lazily via ``__getattr__`` to avoid pulling in
+# onnxruntime.quantization/torch at import time. The TYPE_CHECKING re-imports
+# give static analyzers (mypy, CodeQL) visibility into what ``__all__`` exports
+# without triggering the heavy imports at runtime.
+if TYPE_CHECKING:
+    from .calibration import get_quant_finalizer
+    from .quantizer import Quantizer, expand_precision, quantize_onnx
+
+
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "quantize_onnx": (".quantizer", "quantize_onnx"),
+    "Quantizer": (".quantizer", "Quantizer"),
+    "expand_precision": (".quantizer", "expand_precision"),
+    "get_quant_finalizer": (".calibration", "get_quant_finalizer"),
 }
 
 
 def __getattr__(name: str) -> Any:
-    """Lazy-load quantizer (imports onnxruntime.quantization)."""
+    """Lazy-load quantizer module (avoids importing onnxruntime at package import time)."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]
         import importlib

@@ -201,7 +201,7 @@ class TestAnalyzeCliSurface:
     def test_invalid_device_choice_exits_two(self, onnx_model_path: Path) -> None:
         result = _invoke(["-m", str(onnx_model_path), "--device", "TPU"])
         assert result.exit_code == 2
-        assert "Invalid value for '--device'" in result.output
+        assert "Invalid value for '-d' / '--device'" in result.output
 
     def test_invalid_save_node_choice_exits_two(self, onnx_model_path: Path) -> None:
         result = _invoke(["-m", str(onnx_model_path), "--save-node", "supported"])

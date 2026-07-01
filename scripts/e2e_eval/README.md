@@ -91,6 +91,119 @@ uv run python scripts/e2e_eval/run_eval.py --retry-failed
 | `--verbose` | off | Print stderr for failed models |
 | `--continue` | off | Skip models with existing results |
 | `--retry-failed [TYPE ...]` | — | Re-run failed models (implies `--continue`) |
+| `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
+
+#### `--build-only` — Generate per-stage models (no EP required)
+
+`--build-only` runs config + build with `--no-compile`, writing each stage's ONNX —
+`export.onnx`, `optimized.onnx`, `quantized.onnx`. Because compile is skipped, this
+needs **no execution-provider hardware** and runs on any CPU machine. Perf and accuracy
+phases are skipped.
+
+When `--ep`/`--device` are **omitted**, every model is built once per EP in the
+build-only matrix, each into a `<ep>_<device>/` subdir:
+
+| Label | EP | Device |
+|---|---|---|
+| `qnn_npu` | qnn | npu |
+| `qnn_gpu` | qnn | gpu |
+| `ov_cpu` | openvino | cpu |
+| `ov_npu` | openvino | npu |
+| `ov_gpu` | openvino | gpu |
+| `mlas_cpu` | cpu (MLAS) | cpu |
+| `dml_gpu` | dml | gpu |
+| `vitisai_npu` | vitisai | npu |
+
+Precision per combo follows the eval policy: NPU defaults to `w8a16`, CPU/GPU omit the
+flag (winml auto), and native-quant EPs (VitisAI) are built unquantized (`--no-quant`).
+When `--ep` or `--device` is pinned, a single build is written directly into
+`<output-dir>/models/<slug>/`.
+
+```bash
+# Build all EP-matrix variants for P0 models (8 builds per model)
+uv run python scripts/e2e_eval/run_eval.py --build-only --priority P0
+
+# Pin a single EP/device (no matrix; writes directly to model dir)
+uv run python scripts/e2e_eval/run_eval.py --build-only --hf-model microsoft/resnet-50 --ep qnn --device npu
+```
+
+Composite models (multiple sub-components) are built into per-component subdirectories
+under each EP subdir.
+
+**Export dedup** (without `--upload`): the `export.onnx` stage is EP/device-independent,
+so it is identical across all matrix combos. It is stored once under
+`<model_dir>/_shared/export.onnx` and removed from each `<ep>_<device>/` subdir,
+keeping only one copy on disk. With `--upload` each combo is published and deleted on
+its own, so there is nothing to share and dedup is skipped.
+
+#### Streaming upload to the Azure Artifacts feed (`--upload`)
+
+Running the full matrix over many models fills the local disk fast. `--upload`
+publishes each **EP/device combo** to the **`Modelkit`** Azure Artifacts feed
+(Universal Package) as soon as it is built, then deletes that combo's local copy —
+so peak disk stays at roughly one combo, and a large/slow upload of one combo can't
+fill the disk.
+
+- **Auth**: uses `az login` (Entra ID) — no PAT. The script verifies the
+  `azure-devops` az extension is installed (auto-adds it) and that you're logged in;
+  if not, it aborts (so disk isn't silently filled).
+- **Package**: one package `winml-cli-models`, **one version per combo**, named
+  `0.0.0-<run-stamp>-<ep>-<device>-<model-slug>` where the run-stamp is a date
+  (default today, `YYYYMMDD`). e.g.
+  `0.0.0-20260609-qnn-npu-microsoft-resnet-50-image-classification` (the `0.0.0-`
+  core keeps it valid SemVer 2.0; the rest is the pre-release segment). Uploading
+  per combo keeps each package small, which lowers the per-upload timeout risk and
+  lets a single combo be retried on its own.
+- **Disk is always bounded**: each combo's local dir is deleted after *every*
+  outcome — uploaded, version-exists, upload-failed, **timed-out**, or build-failed
+  — unless `--keep-local`. A failed or timed-out combo is recorded and the run
+  continues; a host-level az failure (not logged in / token expired) aborts so you
+  can re-auth and resume.
+- A `build_only_results.json` log (combo version → build status + upload status +
+  error tail + timestamps) is written in the output dir for *every* run (with or
+  without `--upload`), so you can audit which combos succeeded, failed, or timed
+  out. It also drives `--continue` (skips combos already in the feed).
+
+```bash
+# Build the matrix and stream each model to the feed, deleting locals
+uv run python scripts/e2e_eval/run_eval.py --build-only --upload --priority P0
+
+# Resume an interrupted batch: same run-stamp + --continue skips combos already
+# uploaded (per the results log / feed) without rebuilding them. Pair it with
+# --upload-skip-existing: a combo whose upload timed out may have committed
+# server-side, so the retry hits a 409 that should count as done, not failed.
+uv run python scripts/e2e_eval/run_eval.py --build-only --upload --continue \
+  --upload-skip-existing --run-stamp 20260609 --priority P0
+
+# --upload-skip-existing on its own: if the feed already has a version (e.g. the
+# results log was lost), treat the publish conflict as done and delete the local copy.
+uv run python scripts/e2e_eval/run_eval.py --build-only --upload --upload-skip-existing
+
+# Upload but keep local copies (debug)
+uv run python scripts/e2e_eval/run_eval.py --build-only --upload --keep-local
+```
+
+Download a specific model's specific file later with `--file-filter`:
+
+```bash
+az artifacts universal download \
+  --organization https://dev.azure.com/microsoft --project windows.ai.toolkit \
+  --scope project --feed Modelkit --name winml-cli-models \
+  --version 0.0.0-20260609-qnn-npu-microsoft-resnet-50-image-classification \
+  --path ./out --file-filter 'quantized.onnx'
+```
+
+| Upload flag | Default | Description |
+|---|---|---|
+| `--upload` | off | Publish each EP/device combo to the feed, then delete it locally |
+| `--run-stamp` | today (`YYYYMMDD`) | Version prefix; pass the same stamp + `--continue` to resume |
+| `--continue` | off | Skip combos already uploaded for this run-stamp (no rebuild) |
+| `--feed` | `Modelkit` | Azure Artifacts feed name |
+| `--feed-org` | `https://dev.azure.com/microsoft` | Azure DevOps org URL |
+| `--feed-project` | `windows.ai.toolkit` | Project for the project-scoped feed |
+| `--package-name` | `winml-cli-models` | Universal Package name |
+| `--keep-local` | off | Upload but do not delete local combos (also keeps build-failed combos) |
+| `--upload-skip-existing` | off | Treat an existing feed version as done; recommended with `--continue` (a timed-out upload may have committed server-side) |
 
 ### `generate_report.py` — Regenerate Reports
 
