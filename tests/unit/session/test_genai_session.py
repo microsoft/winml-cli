@@ -374,6 +374,23 @@ class TestGenerate:
             list(session.generate_streaming("hi"))
             assert session.is_loaded
 
+    def test_encode_returns_token_ids(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        """encode() delegates to the bundle tokenizer and returns a list of IDs."""
+        mock_og.Tokenizer.return_value.encode.return_value.tolist.return_value = [5, 6, 7]
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            ids = session.encode("hi there")
+        assert ids == [5, 6, 7]
+        mock_og.Tokenizer.return_value.encode.assert_called_once_with("hi there")
+
+    def test_encode_auto_loads(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        """encode() auto-loads the session on first use."""
+        mock_og.Tokenizer.return_value.encode.return_value.tolist.return_value = [1]
+        with _patch_og(mock_og):
+            session = GenaiSession(bundle_dir)
+            assert not session.is_loaded
+            session.encode("hi")
+            assert session.is_loaded
+
 
 # ---------------------------------------------------------------------------
 # Tests: apply_chatml_template
