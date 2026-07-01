@@ -155,7 +155,11 @@ class WinMLQwen3Attention(nn.Module):
 
         cos, sin = cast("nn.Module", self.rotary_emb)(
             value_states,
-            torch.arange(self.config.max_position_embeddings).unsqueeze(0),
+            torch.arange(
+                int(total_seq_len.item())
+                if total_seq_len is not None
+                else self.config.max_position_embeddings
+            ).unsqueeze(0),
         )
         cos = cos.squeeze(0)[:, : cos.shape[-1] // 2]
         sin = sin.squeeze(0)[:, : sin.shape[-1] // 2]
