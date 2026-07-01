@@ -239,6 +239,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"\n=== building {key} "
                     f"(model_type={spec['model_type']}, precision={spec['precision']}) ==="
                 )
+                # Embeddings has dynamic seq_len (Gather op; no static shape needed).
+                # LM head also uses dynamic seq_len. Omit shape_config so the
+                # dynamic axes in the OnnxConfig are not overridden by a fixed value.
                 companion = WinMLAutoModel.from_pretrained(
                     args.model_id,
                     task="feature-extraction",
@@ -249,7 +252,6 @@ def main(argv: list[str] | None = None) -> int:
                     no_compile=True,
                     use_cache=True,
                     force_rebuild=args.force_rebuild,
-                    shape_config={"seq_len": args.prefill_seq_len},
                 )
                 companion_path = Path(companion.onnx_path)
                 print(f"   [{key}] {companion_path}")

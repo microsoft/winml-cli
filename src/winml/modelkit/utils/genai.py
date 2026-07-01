@@ -531,6 +531,35 @@ def build_decoder_pipeline_stages(
 # ---------------------------------------------------------------------------
 
 
+def _patch_seq_dim_dynamic(onnx_path: Path, dim_index: int = 1) -> None:
+    """Make dimension *dim_index* of all graph inputs/outputs symbolic.
+
+    ort-genai calls the embeddings model with the full prompt on prefill
+    (seq_len = prompt_len) and with a single token on each decode step
+    (seq_len = 1).  The ONNX export may bake in a concrete value; this
+    helper replaces it with the symbolic name ``"seq_len"`` so the runtime
+    accepts any sequence length.
+
+    The model weights (external data) are not touched — only the protobuf
+    shape annotations are updated.
+    """
+    import onnx
+
+    model = onnx.load(str(onnx_path), load_external_data=False)
+    changed = False
+    for value_info in list(model.graph.input) + list(model.graph.output):
+        shape = value_info.type.tensor_type.shape
+        if shape and len(shape.dim) > dim_index:
+            dim = shape.dim[dim_index]
+            if dim.HasField("dim_value"):  # it's a fixed integer
+                dim.ClearField("dim_value")
+                dim.dim_param = "seq_len"
+                changed = True
+    if changed:
+        onnx.save(model, str(onnx_path))
+        logger.info("Patched seq_len dim to dynamic in %s", onnx_path.name)
+
+
 def write_genai_bundle(
     output_dir: str | Path,
     *,
@@ -595,10 +624,15 @@ def write_genai_bundle(
     logger.info("Copying iterator ONNX: %s -> %s", iterator_onnx.name, iterator_filename)
     copy_onnx_model(iterator_onnx, output_dir / iterator_filename)
 
-    # 2. Copy placeholder models (embeddings + lm_head).
+    # 2. Copy embeddings + lm_head models.
     if embeddings_src is not None:
         logger.info("Copying embeddings: %s -> %s", Path(embeddings_src).name, embeddings_filename)
-        copy_onnx_model(Path(embeddings_src), output_dir / embeddings_filename)
+        dst_embeddings = output_dir / embeddings_filename
+        copy_onnx_model(Path(embeddings_src), dst_embeddings)
+        # Patch seq_len to dynamic: ort-genai calls embeddings with the full
+        # prompt on prefill and with a single token on every decode step, so the
+        # seq_len dimension must be symbolic, not a fixed value.
+        _patch_seq_dim_dynamic(dst_embeddings)
     else:
         logger.warning(
             "embeddings_src not provided — '%s' is missing from bundle.",
@@ -607,7 +641,11 @@ def write_genai_bundle(
 
     if lm_head_src is not None:
         logger.info("Copying lm_head: %s -> %s", Path(lm_head_src).name, lm_head_filename)
-        copy_onnx_model(Path(lm_head_src), output_dir / lm_head_filename)
+        dst_lm_head = output_dir / lm_head_filename
+        copy_onnx_model(Path(lm_head_src), dst_lm_head)
+        # Same reason as embeddings: lm_head is called with prefill seq_len
+        # and with seq_len=1 on each decode step.
+        _patch_seq_dim_dynamic(dst_lm_head)
     else:
         logger.warning(
             "lm_head_src not provided — '%s' is missing from bundle.",
