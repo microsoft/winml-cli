@@ -145,12 +145,13 @@ class TestWinMLCompileConfig:
     """Test WinMLCompileConfig dataclass."""
 
     def test_default_values(self):
-        """AC-1: Test default compile config requires ep_config."""
-        from winml.modelkit.compiler import EPConfig, WinMLCompileConfig
+        """AC-1: Test default compile config."""
+        from winml.modelkit.compiler import WinMLCompileConfig
 
-        config = WinMLCompileConfig(ep_config=EPConfig(provider="qnn"))
+        config = WinMLCompileConfig()
 
-        assert config.device == "qnn"
+        # Default provider is None (no hidden EP default)
+        assert config.device == ""
         assert config.validate is True
 
     def test_device_via_ep_config(self):

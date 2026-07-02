@@ -43,7 +43,7 @@ class EPConfig:
         device: Target device ("npu", "gpu", "cpu", "auto")
     """
 
-    provider: EPAlias
+    provider: EPAlias | None = None
     provider_options: dict[str, str] = field(default_factory=dict)
     enable_ep_context: bool = True
     embed_context: bool = False
@@ -83,7 +83,7 @@ class WinMLCompileConfig:
     """
 
     # Target EP settings
-    ep_config: EPConfig
+    ep_config: EPConfig = field(default_factory=EPConfig)
 
     # Behavior
     validate: bool = True
@@ -92,7 +92,7 @@ class WinMLCompileConfig:
     @property
     def device(self) -> str:
         """Get device/provider name for backward compatibility."""
-        return self.ep_config.provider
+        return self.ep_config.provider or ""
 
     @classmethod
     def for_provider(
@@ -250,17 +250,10 @@ class WinMLCompileConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig | None:
-        """Create from dictionary. Unknown keys are ignored.
-
-        Returns None when ``execution_provider`` is absent (e.g. empty
-        ``{"compile": {}}`` section in a JSON config).
-        """
-        ep = data.get("execution_provider")
-        if ep is None:
-            return None
+    def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
+        """Create from dictionary. Unknown keys are ignored."""
         ep_config = EPConfig(
-            provider=ep,
+            provider=data.get("execution_provider"),
             provider_options=data.get("provider_options", {}),
             enable_ep_context=data.get("enable_ep_context", True),
             embed_context=data.get("embed_context", False),

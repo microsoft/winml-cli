@@ -241,8 +241,8 @@ class TestPerfUnifiedPipeline:
         override = mock_from_onnx.call_args.kwargs["config"]
         assert override is not None
         assert override.quant is None
-        # compile defaults to None (no EP assumed) — only quant is explicitly disabled
-        assert override.compile is None
+        # compile should NOT be set to None -- it should remain at default
+        assert override.compile is not None
 
     def test_no_quantize_hf_only_sets_quant_none(self) -> None:
         """--no-quantize with HF model only sets quant=None, not compile=None."""
@@ -269,8 +269,8 @@ class TestPerfUnifiedPipeline:
         assert override is not None
         # quant should be explicitly set to None
         assert override.quant is None
-        # compile defaults to None (no EP assumed) — only quant is explicitly disabled
-        assert override.compile is None
+        # compile should NOT be set to None -- override only affects quant
+        assert override.compile is not None
 
     def test_no_quantize_false_passes_no_override(self) -> None:
         """Without --no-quantize, config override should be None."""

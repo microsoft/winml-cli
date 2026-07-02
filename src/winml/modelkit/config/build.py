@@ -133,7 +133,7 @@ class WinMLBuildConfig:
     export: WinMLExportConfig | None = field(default_factory=WinMLExportConfig)
     optim: WinMLOptimizationConfig = field(default_factory=WinMLOptimizationConfig)
     quant: WinMLQuantizationConfig | None = field(default_factory=WinMLQuantizationConfig)
-    compile: WinMLCompileConfig | None = None
+    compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
     auto: bool = True
     # Original precision string (e.g., "w4a16", "int4", "fp16") used to derive
@@ -1056,7 +1056,9 @@ def _assemble_config(
         else WinMLQuantizationConfig()
     )
     compile_config = (
-        copy.deepcopy(registered.compile) if registered and registered.compile else None
+        copy.deepcopy(registered.compile)
+        if registered and registered.compile
+        else WinMLCompileConfig()
     )
 
     # Populate quant config with task and model_id for task-aware calibration

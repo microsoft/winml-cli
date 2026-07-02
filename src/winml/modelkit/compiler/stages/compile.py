@@ -96,10 +96,7 @@ class CompileStage(BaseStage):
         model_path = self._ensure_model_file(context)
         context.log(f"Model path: {model_path}")
 
-        compile_cfg = WinMLCompileConfig.from_dict(context.config)
-        if compile_cfg is None:
-            raise RuntimeError("Cannot compile: execution_provider not set in config")
-        ep_config = compile_cfg.ep_config
+        ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
         # Derive the target device from the runtime session so the compile
         # stage stays aligned with the actual EPContext filename produced by
         # WinMLSession instead of carrying device metadata in provider_options.
@@ -154,10 +151,7 @@ class CompileStage(BaseStage):
         from ...utils.constants import DEVICE_TO_DEVICE_TYPE
         from ...winml import add_ep_for_device, register_execution_providers
 
-        ep_config = WinMLCompileConfig.from_dict(context.config)
-        if ep_config is None:
-            raise RuntimeError("Cannot compile: execution_provider not set in config")
-        ep_config = ep_config.ep_config
+        ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
         multi = context.n_total_models > 1
         is_last = context.n_compiled_models >= context.n_total_models - 1
         use_is = context.use_inference_session

@@ -23,7 +23,6 @@ from typing import Any
 
 import pytest
 
-from winml.modelkit.compiler import WinMLCompileConfig
 from winml.modelkit.config import WinMLBuildConfig, merge_config
 from winml.modelkit.export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
 from winml.modelkit.optim import WinMLOptimizationConfig
@@ -100,7 +99,7 @@ class TestMergeConfigNested:
 
     def test_nested_compile_override(self) -> None:
         """Test overriding nested compile config."""
-        base = WinMLBuildConfig(compile=WinMLCompileConfig.for_qnn())
+        base = WinMLBuildConfig()
         merged = merge_config(base, {"compile": {"validate": False, "verbose": True}})
 
         assert merged.compile is not None
@@ -171,7 +170,7 @@ class TestMergeConfigNoneHandling:
 
     def test_explicit_none_unsets_compile(self) -> None:
         """Test that explicit None unsets compile config."""
-        base = WinMLBuildConfig(compile=WinMLCompileConfig.for_qnn())
+        base = WinMLBuildConfig()
         assert base.compile is not None
 
         merged = merge_config(base, {"compile": None})
@@ -472,7 +471,7 @@ class TestMergeConfigEdgeCases:
 
     def test_deeply_nested_merge(self) -> None:
         """Test merging with deeply nested structure."""
-        base = WinMLBuildConfig(compile=WinMLCompileConfig.for_qnn())
+        base = WinMLBuildConfig()
         # WinMLCompileConfig has nested EPConfig, QDQConfig, CalibrationConfig
         merged = merge_config(
             base,
@@ -500,8 +499,7 @@ class TestMergeConfigEdgeCases:
         assert merged.optim is not None
         assert isinstance(merged.optim, WinMLOptimizationConfig)
         assert merged.quant is not None
-        # compile defaults to None (no EP assumed)
-        assert merged.compile is None
+        assert merged.compile is not None
 
 
 class TestMergeConfigRealWorldScenarios:
@@ -543,12 +541,11 @@ class TestMergeConfigRealWorldScenarios:
         assert disabled.quant is None
         # Other configs unchanged
         assert disabled.export is not None
-        # compile defaults to None (no EP assumed)
-        assert disabled.compile is None
+        assert disabled.compile is not None
 
     def test_quick_config_adjustment(self) -> None:
         """Test quick config adjustments for testing/debugging."""
-        base = WinMLBuildConfig(compile=WinMLCompileConfig.for_qnn())
+        base = WinMLBuildConfig()
 
         # Quick adjustment for debugging
         debug_config = merge_config(

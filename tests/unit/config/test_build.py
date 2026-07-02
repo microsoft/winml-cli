@@ -592,7 +592,7 @@ class TestBuildSubmoduleConfig:
 
         return WinMLBuildConfig(
             optim=WinMLOptimizationConfig(gelu_fusion=True, matmul_add_fusion=True),
-            compile=WinMLCompileConfig.for_qnn(),
+            compile=WinMLCompileConfig(),
         )
 
     def test_single_input_single_output(self, parent_config: WinMLBuildConfig) -> None:
@@ -1782,7 +1782,7 @@ class TestValidate:
             export=None,  # ONNX build
             optim=WinMLOptimizationConfig(),
             quant=WinMLQuantizationConfig(task=None, model_id=None),
-            compile=None,
+            compile=WinMLCompileConfig(),
         )
         config.validate()  # Should not raise
 
