@@ -1785,13 +1785,15 @@ class TestDevicePrecisionIntegration:
             ("npu", "auto", True, "uint8", "uint16", "qnn"),
             ("npu", "fp16", False, None, None, "qnn"),
             ("npu", "int8", True, "uint8", "uint8", "qnn"),
-            ("gpu", "auto", False, None, None, "dml"),
-            ("gpu", "int8", True, "uint8", "uint8", "dml"),
-            ("gpu", "fp16", False, None, None, "dml"),
-            ("cpu", "auto", False, None, None, None),
-            ("cpu", "int8", True, "uint8", "uint8", None),
-            ("cpu", "int16", True, "int16", "uint16", None),
-            ("cpu", "fp16", False, None, None, None),
+            # After the built-ins-as-fallback catalog reorder: gpu/cpu deduce
+            # to first-plugin (openvino) rather than the DML/CPU built-in.
+            ("gpu", "auto", False, None, None, "openvino"),
+            ("gpu", "int8", True, "uint8", "uint8", "openvino"),
+            ("gpu", "fp16", False, None, None, "openvino"),
+            ("cpu", "auto", False, None, None, "openvino"),
+            ("cpu", "int8", True, "uint8", "uint8", "openvino"),
+            ("cpu", "int16", True, "int16", "uint16", "openvino"),
+            ("cpu", "fp16", False, None, None, "openvino"),
             # auto device + explicit precision → picks NPU (mock returns npu first)
             ("auto", "fp16", False, None, None, "qnn"),
             ("auto", "int8", True, "uint8", "uint8", "qnn"),
@@ -2054,10 +2056,10 @@ class TestDevicePrecisionCli:
         data = json.loads(output_file.read_text())
         assert data["quant"] is None
         assert data["compile"] is not None
-        assert data["compile"]["execution_provider"] == "dml"
+        assert data["compile"]["execution_provider"] == "openvino"
 
     def test_device_cpu_precision_fp32(self, tmp_path) -> None:
-        """--device cpu --precision fp32 → no quant, no compile."""
+        """--device cpu --precision fp32 → no quant, compile=openvino (first plugin CPU EP)."""
         self._patches["auto_detect"] = patch(
             "winml.modelkit.session.auto_detect_device",
             return_value="cpu",
@@ -2074,7 +2076,8 @@ class TestDevicePrecisionCli:
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
         assert data["quant"] is None
-        assert data["compile"] is None
+        assert data["compile"] is not None
+        assert data["compile"]["execution_provider"] == "openvino"
 
     def test_default_no_flags_preserves_defaults(self, tmp_path) -> None:
         """No --device/--precision flags preserves default config."""
@@ -2242,7 +2245,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.compile.ep_config.provider == "qnn"
 
     def test_raw_onnx_cpu(self, tmp_path) -> None:
-        """Raw ONNX + device=cpu resolves quant=None and compile=None."""
+        """Raw ONNX + device=cpu resolves quant=None, compile=openvino (first plugin CPU EP)."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2262,7 +2265,8 @@ class TestGenerateBuildConfigOnnxPath:
 
         assert config.export is None
         assert config.quant is None
-        assert config.compile is None
+        assert config.compile is not None
+        assert config.compile.ep_config.provider == "openvino"
 
     def test_quantized_onnx_skips_quant(self, tmp_path) -> None:
         """Quantized ONNX + device=npu sets quant=None, compile=qnn."""
@@ -2288,7 +2292,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.compile.ep_config.provider == "qnn"
 
     def test_quantized_onnx_cpu(self, tmp_path) -> None:
-        """Quantized ONNX + device=cpu sets quant=None, compile=None."""
+        """Quantized ONNX + device=cpu sets quant=None, compile=openvino."""
         onnx_file = tmp_path / "quantized.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2307,7 +2311,8 @@ class TestGenerateBuildConfigOnnxPath:
             config = generate_onnx_build_config(str(onnx_file), device="cpu")
 
         assert config.quant is None
-        assert config.compile is None
+        assert config.compile is not None
+        assert config.compile.ep_config.provider == "openvino"
 
     def test_compiled_onnx_skips_all(self, tmp_path) -> None:
         """Compiled ONNX (EPContext) sets quant=None and compile=None."""
@@ -2675,7 +2680,7 @@ class TestGenerateBuildConfigOnnxPath:
         mock_resolve.assert_not_called()
 
     def test_raw_onnx_with_gpu(self, tmp_path) -> None:
-        """Raw ONNX + device=gpu resolves quant=None, compile=dml."""
+        """Raw ONNX + device=gpu resolves quant=None, compile=openvino (first plugin GPU EP)."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2693,10 +2698,11 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file), device="gpu")
 
-        # GPU auto-precision is fp16 -> no quantization, compile=dml
+        # GPU auto-precision is fp16 -> no quantization; compile=openvino
+        # (first plugin EP for gpu after built-ins-as-fallback catalog reorder).
         assert config.quant is None
         assert config.compile is not None
-        assert config.compile.ep_config.provider == "dml"
+        assert config.compile.ep_config.provider == "openvino"
 
     def test_ep_override_forwarded(self, tmp_path) -> None:
         """Explicit ep parameter is forwarded to resolve_quant_compile_config."""
@@ -2774,8 +2780,8 @@ class TestResolveQuantCompileConfig:
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 
-    def test_gpu_returns_none_quant_and_dml_compile(self) -> None:
-        """device=gpu returns (None, WinMLCompileConfig(dml))."""
+    def test_gpu_returns_none_quant_and_openvino_compile(self) -> None:
+        """device=gpu returns (None, WinMLCompileConfig(openvino)) — first plugin GPU EP."""
         with (
             patch(
                 "winml.modelkit.session.auto_detect_device",
@@ -2790,10 +2796,10 @@ class TestResolveQuantCompileConfig:
 
         assert quant is None
         assert isinstance(compile_cfg, WinMLCompileConfig)
-        assert compile_cfg.ep_config.provider == "dml"
+        assert compile_cfg.ep_config.provider == "openvino"
 
-    def test_cpu_returns_none_none(self) -> None:
-        """device=cpu returns (None, None) since CPU has no compile provider."""
+    def test_cpu_returns_none_quant_and_openvino_compile(self) -> None:
+        """device=cpu returns (None, WinMLCompileConfig(openvino)) — first plugin CPU EP."""
         with (
             patch(
                 "winml.modelkit.session.auto_detect_device",
@@ -2807,7 +2813,8 @@ class TestResolveQuantCompileConfig:
             quant, compile_cfg = resolve_quant_compile_config(device="cpu")
 
         assert quant is None
-        assert compile_cfg is None
+        assert isinstance(compile_cfg, WinMLCompileConfig)
+        assert compile_cfg.ep_config.provider == "openvino"
 
     def test_ep_override_changes_provider(self) -> None:
         """Explicit ep overrides the default device-to-provider mapping."""

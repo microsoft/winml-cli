@@ -338,67 +338,113 @@ def test_default_ep_for_device_npu() -> None:
     assert default_ep_for_device("npu") == "QNNExecutionProvider"
 
 
-def test_default_ep_for_device_gpu() -> None:
-    """default_ep_for_device returns DmlExecutionProvider for gpu.
+def test_default_ep_for_device_gpu_prefers_plugin_over_builtin() -> None:
+    """default_ep_for_device returns OpenVINO GPU (first plugin) for gpu.
 
-    The EP_DEVICE_SPECS catalog comment claims "gpu-first: DmlExecutionProvider"
-    (ep_device.py:154). This test pins that invariant. A failure here means
-    either the catalog ordering drifted (DML/gpu was moved off the primary
-    position) or `default_ep_for_device` is walking entries it shouldn't.
+    Built-in EPs (DML) are ordered LAST in EP_DEVICE_SPECS per the design
+    intent stated in ``ep_registry.py:302-306`` ("built-ins are lowest
+    priority — only used when no plugin provided the EP"). When OpenVINO
+    is available, it wins over DML.
 
-    Related: docs/design/session/3_design_ep.md §6.4 — the same comment also
-    promises QNN's gpu/cpu *secondary* entries must not shadow the primary
-    GPU/CPU EPs in deduction.
+    A failure here means either the catalog ordering drifted or
+    ``default_ep_for_device`` is skipping plugin entries it shouldn't.
     """
     from winml.modelkit.session import default_ep_for_device
 
+    assert default_ep_for_device("gpu") == "OpenVINOExecutionProvider"
+
+
+def test_default_ep_for_device_gpu_falls_back_to_dml(monkeypatch) -> None:
+    """DML wins for gpu when no plugin GPU EP is registered — fallback path."""
+    from winml.modelkit.session import default_ep_for_device
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    monkeypatch.setattr(
+        WinMLEPRegistry, "available_eps",
+        lambda self: frozenset({"DmlExecutionProvider", "CPUExecutionProvider"}),
+    )
     assert default_ep_for_device("gpu") == "DmlExecutionProvider"
 
 
-def test_default_ep_for_device_cpu() -> None:
-    """default_ep_for_device returns CPUExecutionProvider for cpu.
+def test_default_ep_for_device_cpu_prefers_plugin_over_builtin() -> None:
+    """default_ep_for_device returns OpenVINO CPU (first plugin) for cpu.
 
-    Catalog comment (ep_device.py:155) promises "cpu-first: CPUExecutionProvider".
-    A failure means QNN's secondary cpu row shadowed the primary CPU EP.
-    See test_default_ep_for_device_gpu for the related GPU case.
+    Same design intent as the gpu case: built-in CPU EP is the fallback.
     """
     from winml.modelkit.session import default_ep_for_device
 
+    assert default_ep_for_device("cpu") == "OpenVINOExecutionProvider"
+
+
+def test_default_ep_for_device_cpu_falls_back_to_cpu_ep(monkeypatch) -> None:
+    """Built-in CPU EP wins for cpu when no plugin CPU EP is registered."""
+    from winml.modelkit.session import default_ep_for_device
+    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+
+    monkeypatch.setattr(
+        WinMLEPRegistry, "available_eps",
+        lambda self: frozenset({"DmlExecutionProvider", "CPUExecutionProvider"}),
+    )
     assert default_ep_for_device("cpu") == "CPUExecutionProvider"
 
 
-def test_ep_device_specs_primary_per_device_invariant() -> None:
-    """EP_DEVICE_SPECS must order documented primaries before secondary EPs.
+def test_ep_device_specs_first_plugin_per_device_invariant() -> None:
+    """EP_DEVICE_SPECS must order vendor-optimal plugin EPs before built-ins.
 
-    The catalog's own comment (ep_device.py:152-157) declares:
-        npu-first: QNNExecutionProvider
-        gpu-first: DmlExecutionProvider
-        cpu-first: CPUExecutionProvider
+    Per the design intent stated in ``ep_registry.py:302-306`` — "built-ins
+    are lowest priority — only used when no plugin provided the EP" — the
+    catalog's first entry for each device must be a plugin (vendor-specific)
+    EP, not a built-in fallback. Built-ins (DML/CPU/Azure) trail as
+    fallbacks.
 
-    For each device, the FIRST catalog entry for that device must match the
-    documented primary. A failure means the comment and the code disagree —
-    same root cause as the registration-aware deduction gap in §6.4: callers
-    that walk EP_DEVICE_SPECS in order get an answer the docstring did not
-    promise them.
+    Expected first-plugin per device (from EP_DEVICE_SPECS ordering):
+        npu: QNNExecutionProvider          (Snapdragon HTP)
+        gpu: OpenVINOExecutionProvider     (Intel GPU / Intel Arc)
+        cpu: OpenVINOExecutionProvider     (Intel CPU-optimized runtime)
     """
     from winml.modelkit.session import EP_DEVICE_SPECS
 
-    expected_primary = {
+    expected_first = {
         "npu": "QNNExecutionProvider",
-        "gpu": "DmlExecutionProvider",
-        "cpu": "CPUExecutionProvider",
+        "gpu": "OpenVINOExecutionProvider",
+        "cpu": "OpenVINOExecutionProvider",
     }
     first_per_device: dict[str, str] = {}
     for spec in EP_DEVICE_SPECS:
         first_per_device.setdefault(spec.device, spec.ep)
 
-    for device, expected_ep in expected_primary.items():
+    for device, expected_ep in expected_first.items():
         assert first_per_device.get(device) == expected_ep, (
             f"EP_DEVICE_SPECS first entry for {device!r} is "
-            f"{first_per_device.get(device)!r}, but the catalog comment "
-            f"declares the primary is {expected_ep!r}. Either move the "
-            "primary to positions 0-2 or update the docstring/comments."
+            f"{first_per_device.get(device)!r}; expected {expected_ep!r} "
+            "per the built-ins-as-fallback design intent. Either move the "
+            "plugin EP to the head of its device group or update this test."
         )
+
+
+def test_ep_device_specs_builtins_come_last() -> None:
+    """Built-in EPs (DML/CPU/Azure) must appear AFTER every plugin entry.
+
+    Enforces the trailing-fallback position that matches
+    ``ep_registry.py:302-306``'s design intent.
+    """
+    from winml.modelkit.session import EP_DEVICE_SPECS
+
+    builtin_names = frozenset({
+        "DmlExecutionProvider",
+        "CPUExecutionProvider",
+        "AzureExecutionProvider",
+    })
+    seen_builtin = False
+    for spec in EP_DEVICE_SPECS:
+        is_builtin = spec.ep in builtin_names
+        if is_builtin:
+            seen_builtin = True
+        else:
+            assert not seen_builtin, (
+                f"Plugin EP {spec.ep!r}/{spec.device!r} appears AFTER a "
+                "built-in — built-ins must come last per the design intent."
+            )
 
 
 def test_default_ep_for_device_unknown_returns_none() -> None:

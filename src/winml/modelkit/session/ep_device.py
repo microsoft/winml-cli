@@ -369,12 +369,18 @@ class EPDeviceSpec:
 
 
 EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
-    # Order encodes first-match deduction preference per device:
-    #   npu-first:  QNNExecutionProvider   (Snapdragon HTP — highest-throughput)
-    #   gpu-first:  DmlExecutionProvider   (Windows-native; compile-path default)
-    #   cpu-first:  CPUExecutionProvider   (bundled with ORT — always available)
-    # Secondary entries follow their primary within each device group.
-    # ---- Primary per-device (positions 0-2) ----
+    # Order encodes first-match deduction preference per device. Plugin
+    # (vendor-optimal) EPs come first; built-ins (CPU / DML / Azure) trail
+    # as fallbacks. This matches the design intent stated in
+    # ``ep_registry.py`` where synthetic ``BuiltinSource`` entries are
+    # appended AFTER filesystem discovery so "built-ins are lowest priority
+    # — only used when no plugin provided the EP".
+    #
+    # Within each device group ordering is:
+    #   npu:  QNN → OpenVINO → VitisAI                          (no NPU built-in)
+    #   gpu:  OpenVINO → MIGraphX → Tensorrt → NvTensorRtRtx → QNN(2ary) → DML
+    #   cpu:  OpenVINO → QNN(2ary) → CPU
+    # ---- Plugin EPs (vendor-optimal — preferred) ----
     EPDeviceSpec(
         ep="QNNExecutionProvider",
         device="npu",
@@ -383,23 +389,20 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
             "htp_performance_mode": "burst",
             "htp_graph_finalization_optimization_mode": "3",
         },
-    ),  # primary NPU
-    EPDeviceSpec(ep="DmlExecutionProvider", device="gpu"),  # primary GPU
-    EPDeviceSpec(ep="CPUExecutionProvider", device="cpu"),  # primary CPU
-    # ---- QNN secondary ----
-    EPDeviceSpec(ep="QNNExecutionProvider", device="gpu"),  # TODO: measure
-    EPDeviceSpec(ep="QNNExecutionProvider", device="cpu"),
-    # ---- OpenVINO family ----
-    # TODO: verify whether `device_type` is needed under add_provider_for_devices,
-    # or auto-derived from OrtEpDevice handle (like QNN's backend_type).
+    ),
     EPDeviceSpec(ep="OpenVINOExecutionProvider", device="npu"),
-    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="gpu"),
-    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="cpu"),
-    # ---- Other single-device EPs ----
     EPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
+    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="MIGraphXExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="TensorrtExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="NvTensorRtRtxExecutionProvider", device="gpu"),
+    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="cpu"),
+    # ---- QNN secondary (Snapdragon boxes without vendor-optimal alternatives) ----
+    EPDeviceSpec(ep="QNNExecutionProvider", device="gpu"),  # TODO: measure
+    EPDeviceSpec(ep="QNNExecutionProvider", device="cpu"),
+    # ---- Built-in fallbacks (last per registry design intent) ----
+    EPDeviceSpec(ep="DmlExecutionProvider", device="gpu"),  # cross-vendor GPU fallback
+    EPDeviceSpec(ep="CPUExecutionProvider", device="cpu"),  # always-available CPU fallback
 )
 
 # O(1) lookup cache built from the ordered catalog.

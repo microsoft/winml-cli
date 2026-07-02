@@ -47,17 +47,20 @@ class TestResolvePrecision:
             ("npu", "w8a16", "npu", "w8a16", "uint8", "uint16", "qnn"),
             ("npu", "w8a8", "npu", "w8a8", "uint8", "uint8", "qnn"),
             ("npu", "w16a16", "npu", "w16a16", "int16", "uint16", "qnn"),
-            ("gpu", "auto", "gpu", "fp16", None, None, "dml"),
-            ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "dml"),
-            ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "dml"),
-            ("gpu", "int16", "gpu", "int16", "int16", "uint16", "dml"),
-            ("gpu", "fp16", "gpu", "fp16", None, None, "dml"),
-            ("gpu", "fp32", "gpu", "fp32", None, None, "dml"),
-            ("cpu", "auto", "cpu", "fp16", None, None, None),
-            ("cpu", "int8", "cpu", "int8", "uint8", "uint8", None),
-            ("cpu", "int16", "cpu", "int16", "int16", "uint16", None),
-            ("cpu", "fp16", "cpu", "fp16", None, None, None),
-            ("cpu", "fp32", "cpu", "fp32", None, None, None),
+            # After the built-ins-as-fallback catalog reorder, gpu deduces
+            # to OpenVINO (first plugin) instead of DML (built-in fallback),
+            # and cpu deduces to OpenVINO instead of the CPU built-in.
+            ("gpu", "auto", "gpu", "fp16", None, None, "openvino"),
+            ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "openvino"),
+            ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "openvino"),
+            ("gpu", "int16", "gpu", "int16", "int16", "uint16", "openvino"),
+            ("gpu", "fp16", "gpu", "fp16", None, None, "openvino"),
+            ("gpu", "fp32", "gpu", "fp32", None, None, "openvino"),
+            ("cpu", "auto", "cpu", "fp16", None, None, "openvino"),
+            ("cpu", "int8", "cpu", "int8", "uint8", "uint8", "openvino"),
+            ("cpu", "int16", "cpu", "int16", "int16", "uint16", "openvino"),
+            ("cpu", "fp16", "cpu", "fp16", None, None, "openvino"),
+            ("cpu", "fp32", "cpu", "fp32", None, None, "openvino"),
         ],
     )
     def test_resolve_precision_matrix(
@@ -181,10 +184,10 @@ class TestEpOverride:
         assert policy.compile_provider == "migraphx"
         assert policy.device == "gpu"
 
-    def test_ep_overrides_default_dml(self) -> None:
-        """Without ep, gpu maps to dml. With ep='nvtensorrtrtx', should be nvtensorrtrtx."""
+    def test_ep_overrides_default_plugin(self) -> None:
+        """Without ep, gpu maps to the first-plugin default (openvino). Explicit ep wins."""
         default = resolve_precision(device="gpu")
-        assert default.compile_provider == "dml"
+        assert default.compile_provider == "openvino"
 
         override = resolve_precision(device="gpu", ep="nvtensorrtrtx")
         assert override.compile_provider == "nvtensorrtrtx"
