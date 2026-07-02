@@ -43,7 +43,7 @@ class EPChecker:
     EPS_REQUIRING_CASE_ISOLATION_BY_DEVICE: ClassVar[
         dict[EPName, set[ort.OrtHardwareDeviceType]]
     ] = {
-        "OpenVINOExecutionProvider": {ort.OrtHardwareDeviceType.NPU},
+        # "OpenVINOExecutionProvider": {ort.OrtHardwareDeviceType.NPU},
     }
 
     def __init__(
@@ -73,6 +73,56 @@ class EPChecker:
         if required_device_types is None:
             return False
         return self.device_type in required_device_types
+
+    def build_rules_prefilter_check_result(
+        self,
+        onnx_model: onnx.ModelProto,
+    ) -> dict[str, Any] | None:
+        """Return synthetic check_result when all nodes are rule-supported.
+
+        Returns None when rules data is missing, any node is unsupported,
+        or prefilter evaluation fails. Caller should then run real compile/run.
+        """
+        try:
+            # Keep import local to avoid import cycles with RuntimeCheckerQuery module.
+            from ..core.runtime_checker_query import RuntimeCheckerQuery
+
+            query = RuntimeCheckerQuery(
+                model_proto=onnx_model,
+                ep_name=self.ep_name,
+                device_type=self.device_type,
+            )
+            node_results = [
+                query.run_for_node(node, run_unknown_op=False)
+                for node in query.model_proto.graph.node
+            ]
+
+            if not node_results:
+                return None
+
+            all_supported = all(
+                result.result.compile and result.result.run and not result.result.no_data
+                for result in node_results
+            )
+            if not all_supported:
+                return None
+
+            reason = f"rules_prefilter_all_{len(node_results)}_nodes_supported"
+            return {
+                "compile": {
+                    "result": {"success": True, "reason": reason},
+                    "stdout": "skipped_by_rules_prefilter",
+                    "stderr": "",
+                },
+                "run": {
+                    "result": {"success": True, "reason": reason},
+                    "stdout": "skipped_by_rules_prefilter",
+                    "stderr": "",
+                },
+            }
+        except Exception as exc:  # noqa: BLE001
+            print(f"Rules prefilter failed for one case ({exc}); fallback to ep_checker.")
+            return None
 
     def check_compile(
         self,

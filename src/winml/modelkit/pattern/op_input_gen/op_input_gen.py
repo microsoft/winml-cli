@@ -1493,7 +1493,6 @@ class OpInputGenerator(ABC):
         save_model: bool = False,
         model_output_dir: str | Path | None = None,
         skip_signature_fn: Callable[[dict], bool] | None = None,
-        yield_skipped: bool = False,
         dry_run: bool = False,
     ) -> Any:
         """Test the given OpInputGenerator by generating ONNX models.
@@ -1506,9 +1505,12 @@ class OpInputGenerator(ABC):
         skip_cases: number of test cases to skip before starting to run tests.
         skip_signature_fn: if not None, a function that takes
             a result dict and returns True if the case should
-            be skipped (for delta or rerun mode).
-        yield_skipped: if True, also yield skipped cases with a "_skipped" marker.
-                       This allows the caller to reuse existing results in order.
+            be skipped (for delta or rerun mode). Skipped cases are yielded
+            with a "_skipped" marker so callers can reuse existing results.
+        For non-dry-run cases, rules prefilter always runs before compile/run.
+        When all nodes in a generated model are supported by rules,
+        compile/run on ep_checker is skipped and a synthetic successful
+        check_result is written for that case.
 
         Yields:
             Test result dictionaries one at a time.
@@ -1565,13 +1567,12 @@ class OpInputGenerator(ABC):
                     # the model is deferred until we know the case is not discarded.
                     if skip_signature_fn is not None:
                         if skip_signature_fn(final_tags):
-                            if yield_skipped:
-                                # Reused cases still need the model payload for replay.
-                                final_tags["model_bytes_b64"] = model_bytes_to_b64(
-                                    onnx_model.SerializeToString()
-                                )
-                                final_tags["_skipped"] = True
-                                yield final_tags
+                            # Reused cases still need the model payload for replay.
+                            final_tags["model_bytes_b64"] = model_bytes_to_b64(
+                                onnx_model.SerializeToString()
+                            )
+                            final_tags["_skipped"] = True
+                            yield final_tags
                             continue
                     # Check if we need to skip this case
                     elif cases_skipped < skip_cases:
@@ -1581,6 +1582,29 @@ class OpInputGenerator(ABC):
                     model_bytes = onnx_model.SerializeToString()
                     # Keep model payload by default so every persisted case can be replayed.
                     final_tags["model_bytes_b64"] = model_bytes_to_b64(model_bytes)
+
+                    prefilter_check_result: dict[str, Any] | None = None
+                    if not dry_run:
+                        prefilter_check_result = ep_checker.build_rules_prefilter_check_result(
+                            onnx_model
+                        )
+
+                    if prefilter_check_result is not None:
+                        compile_count = _increment_test_phase_global_count("compile", True)
+                        run_count = _increment_test_phase_global_count("run", True)
+                        final_tags["check_result"] = prefilter_check_result
+                        print(
+                            f"{Fore.GREEN}Rules prefilter hit. "
+                            f"compile_count: success<{compile_count['success']}> "
+                            f"failed<{compile_count['failed']}> "
+                            f"all<{compile_count['all']}>, "
+                            f"run_count: success<{run_count['success']}> "
+                            f"failed<{run_count['failed']}> "
+                            f"all<{run_count['all']}>"
+                            f"{Style.RESET_ALL}"
+                        )
+                        yield final_tags
+                        continue
 
                     qdq_types = final_tags.get(self.qdq_types_key, None)
                     ep_checker_inputs = self.create_input_dict(kwargs, qdq_types=qdq_types)
