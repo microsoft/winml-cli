@@ -123,29 +123,13 @@ def _resolve_ep_monitor(
 ) -> Any:
     """Pick the WinMLEPMonitor for the requested EP and optional op-tracing level.
 
-    Explicit dispatch — no registry, no plugin loading. Raises RuntimeError
-    when op-tracing is requested against an EP that has no op-tracing monitor.
+    Explicit dispatch — no registry, no plugin loading. Case-insensitive EP
+    match. When ``op_tracing`` is set and ``ep`` is empty, ``device`` is
+    consulted to pick the first monitor whose ``is_available()`` returns True.
 
-    EP names are matched case-insensitively (``QNN``, ``Qnn``, ``qnn`` all
-    behave identically). When ``op_tracing`` is set and ``ep`` is empty,
-    ``device`` is consulted to auto-infer the EP (e.g. ``device="npu"``
-    selects QNN when QNNMonitor reports availability). This keeps the
-    headline ``wmk perf --device npu --op-tracing basic`` invocation working
-    without requiring an explicit ``--ep qnn``.
-
-    Args:
-        ep: Short EP name from CLI (e.g. "qnn", "vitisai", "cpu", None/empty).
-        op_tracing: "basic" | "detail" | None (from --op-tracing flag).
-        output_dir: Directory for monitor artifacts (CSV, schematic, etc.).
-        device: Device hint from CLI (``"npu"``, ``"cpu"``, etc.). Used only
-            to auto-infer EP when ``op_tracing`` is set and ``ep`` is empty.
-
-    Returns:
-        An WinMLEPMonitor subclass instance. NullEPMonitor when no monitor applies.
-
-    Raises:
-        RuntimeError: If op_tracing is truthy but the EP has no op-tracing
-            monitor available on this system.
+    Returns NullEPMonitor when no monitor applies; raises RuntimeError when
+    op-tracing is requested but no supporting monitor is available on this
+    system.
     """
     from ..session.monitor.ep_monitor import NullEPMonitor
 
@@ -153,31 +137,51 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        from ..session.monitor.openvino_monitor import OpenVINOMonitor
         from ..session.monitor.qnn_monitor import QNNMonitor
 
-        # Auto-infer EP when not explicitly set. --op-tracing is itself a
-        # strong intent signal for QNN-only profiling, so:
-        #   --device npu  -> QNN (SC-1 invocation)
-        #   --device auto -> QNN when available (default CLI invocation)
-        #   --device ""   -> QNN when available (programmatic callers)
-        # Explicit --device cpu / --device gpu still falls through to the
-        # hard-fail branch below — those EPs have no op-tracing monitor.
-        if not ep_norm and device_norm in ("npu", "auto", "") and QNNMonitor.is_available():
-            ep_norm = "qnn"
+        if not ep_norm:
+            if device_norm in ("npu", "auto", ""):
+                if QNNMonitor.is_available():
+                    ep_norm = "qnn"
+                elif OpenVINOMonitor.is_available():
+                    ep_norm = "openvino"
+            elif device_norm == "gpu" and OpenVINOMonitor.is_available():
+                ep_norm = "openvino"
 
         if ep_norm == "qnn":
             if not QNNMonitor.is_available():
                 raise RuntimeError(
-                    "Op-tracing requires QNN EP, but QNN is not available on this system. "
-                    "Install onnxruntime-qnn or onnxruntime-windowsml with QNN runtime, "
-                    "or run `wmk perf` without --op-tracing."
+                    "Op-tracing --ep qnn requested but QNN is not available on "
+                    "this system. Install onnxruntime-qnn or onnxruntime-windowsml "
+                    "with QNN runtime, or run `wmk perf` without --op-tracing."
                 )
             return QNNMonitor(level=op_tracing, output_dir=output_dir)
 
+        if ep_norm == "openvino":
+            if op_tracing == "detail":
+                raise RuntimeError(
+                    "Op-tracing --level detail is not supported for OpenVINO EP; "
+                    "use --op-tracing basic."
+                )
+            if not OpenVINOMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep openvino requested but OpenVINO is not "
+                    "available on this system. Install onnxruntime-openvino or "
+                    "onnxruntime-windowsml with OpenVINO runtime, or run "
+                    "`wmk perf` without --op-tracing."
+                )
+            # Map CLI --device to OpenVINO device string.
+            ov_device = {
+                "npu": "NPU", "gpu": "GPU", "cpu": "CPU",
+            }.get(device_norm, "AUTO")
+            return OpenVINOMonitor(
+                level=op_tracing, output_dir=output_dir, device=ov_device,
+            )
+
         raise RuntimeError(
             f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-            "Op-tracing currently requires QNN. Ensure QNN is available "
-            "(install onnxruntime-qnn or onnxruntime-windowsml with QNN runtime)."
+            "Supported EPs: qnn, openvino."
         )
 
     # Proof-of-execution monitors (no op-tracing)
@@ -1331,9 +1335,11 @@ def _run_onnx_benchmark(
     "op_tracing",
     type=click.Choice(["basic", "detail"], case_sensitive=False),
     default=None,
-    help="Enable operator-level profiling (requires onnxruntime-qnn). "
-    "Currently supported only for HuggingFace model IDs and built model "
-    "directories — not for direct .onnx file inputs.",
+    help="Enable operator-level profiling. Auto-selects the monitor for the "
+    "chosen EP; the level must be one it supports (e.g. 'detail' rejected "
+    "when the resolved EP has no detail surface). Currently supported only "
+    "for HuggingFace model IDs and built model directories -- not for direct "
+    ".onnx file inputs.",
 )
 @click.option(
     "--top-k",

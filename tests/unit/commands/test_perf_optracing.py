@@ -255,6 +255,94 @@ class TestResolveEpMonitor:
         assert "QNN is not available" in msg
         assert "onnxruntime" in msg
 
+    # ---- OpenVINO dispatch ----
+
+    def test_op_tracing_openvino_available_returns_ov_monitor(self, tmp_path: Path):
+        """--ep openvino --op-tracing basic returns OpenVINOMonitor when available."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVINOMonitor
+
+        with patch.object(OpenVINOMonitor, "is_available", return_value=True):
+            monitor = _resolve_ep_monitor(
+                ep="openvino", op_tracing="basic", output_dir=tmp_path,
+            )
+        assert isinstance(monitor, OpenVINOMonitor)
+
+    def test_op_tracing_openvino_detail_raises(self, tmp_path: Path):
+        """--ep openvino --op-tracing detail must reject — OV surface is basic-only."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVINOMonitor
+
+        with (
+            patch.object(OpenVINOMonitor, "is_available", return_value=True),
+            pytest.raises(RuntimeError, match="detail is not supported for OpenVINO"),
+        ):
+            _resolve_ep_monitor(
+                ep="openvino", op_tracing="detail", output_dir=tmp_path,
+            )
+
+    def test_op_tracing_openvino_unavailable_raises(self, tmp_path: Path):
+        """--ep openvino --op-tracing basic must clearly explain when OV is unavailable."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVINOMonitor
+
+        with (
+            patch.object(OpenVINOMonitor, "is_available", return_value=False),
+            pytest.raises(RuntimeError, match="OpenVINO is not"),
+        ):
+            _resolve_ep_monitor(
+                ep="openvino", op_tracing="basic", output_dir=tmp_path,
+            )
+
+    def test_auto_infers_openvino_when_qnn_unavailable_on_npu(self, tmp_path: Path):
+        """--device npu --op-tracing basic falls back to OpenVINO on non-QNN NPU boxes (Intel NPU)."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVINOMonitor
+        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+        with (
+            patch.object(QNNMonitor, "is_available", return_value=False),
+            patch.object(OpenVINOMonitor, "is_available", return_value=True),
+        ):
+            monitor = _resolve_ep_monitor(
+                ep=None, op_tracing="basic", output_dir=tmp_path, device="npu",
+            )
+        assert isinstance(monitor, OpenVINOMonitor)
+
+    def test_auto_infers_openvino_from_gpu_device(self, tmp_path: Path):
+        """--device gpu --op-tracing basic auto-infers OpenVINO."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVINOMonitor
+
+        with patch.object(OpenVINOMonitor, "is_available", return_value=True):
+            monitor = _resolve_ep_monitor(
+                ep=None, op_tracing="basic", output_dir=tmp_path, device="gpu",
+            )
+        assert isinstance(monitor, OpenVINOMonitor)
+
+    def test_openvino_device_mapping(self, tmp_path: Path):
+        """CLI --device values map to correct OpenVINO device strings."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVINOMonitor
+
+        cases = [("npu", "NPU"), ("gpu", "GPU"), ("cpu", "CPU"), ("auto", "AUTO")]
+        for cli_device, ov_device in cases:
+            with patch.object(OpenVINOMonitor, "is_available", return_value=True):
+                monitor = _resolve_ep_monitor(
+                    ep="openvino",
+                    op_tracing="basic",
+                    output_dir=tmp_path,
+                    device=cli_device,
+                )
+            assert monitor._device == ov_device, (
+                f"--device {cli_device} should map to OpenVINO device {ov_device}, "
+                f"got {monitor._device}"
+            )
+
+    def test_unsupported_ep_error_mentions_both_supported_eps(self, tmp_path: Path):
+        """When neither QNN nor OpenVINO fits, the error names both supported paths."""
+        with pytest.raises(RuntimeError) as excinfo:
+            _resolve_ep_monitor(
+                ep="dml", op_tracing="basic", output_dir=tmp_path,
+            )
+        msg = str(excinfo.value)
+        assert "qnn" in msg.lower()
+        assert "openvino" in msg.lower()
+
 
 class TestOpTracingIterationsSmartDefault:
     """--op-tracing collapses default iterations to 1 unless user overrides."""
