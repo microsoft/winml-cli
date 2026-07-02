@@ -4,16 +4,16 @@
 # --------------------------------------------------------------------------
 """Tests for the winml-genai perf runtime -- mock-based, no model, no genai.
 
-A fake GenaiSession (``generate_streaming`` yields controlled tokens) plus an
-injected monotonic clock make the timing deterministic, so these tests never
-touch onnxruntime-genai or a real bundle.
+A fake GenaiSession whose ``generate_timed`` returns canned
+:class:`GenerationTiming` objects makes the aggregation deterministic, so these
+tests never touch onnxruntime-genai or a real bundle.  (The og-boundary timing
+itself is unit-tested in ``tests/unit/session/test_genai_session.py``.)
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
@@ -33,11 +33,11 @@ from winml.modelkit.commands._perf_genai import (
     write_genai_report,
 )
 from winml.modelkit.commands.perf import perf
-from winml.modelkit.session import GenaiNotInstalledError
-
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+from winml.modelkit.session import (
+    GenaiNotInstalledError,
+    GenaiSessionError,
+    GenerationTiming,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -45,31 +45,52 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+def _timing(
+    prefill_s: float,
+    first_token_s: float,
+    decode_s: list[float],
+    *,
+    input_tokens: int = 3,
+) -> GenerationTiming:
+    """Build a GenerationTiming with ``1 + len(decode_s)`` generated tokens."""
+    return GenerationTiming(
+        input_tokens=input_tokens,
+        generated_tokens=1 + len(decode_s),
+        prefill_s=prefill_s,
+        first_token_s=first_token_s,
+        decode_s=list(decode_s),
+    )
+
+
 class _FakeSession:
-    """Minimal GenaiSession stand-in for deterministic benchmark timing."""
+    """GenaiSession stand-in returning canned GenerationTiming objects.
+
+    Each ``generate_timed`` call returns the next entry from *timings*.  An
+    empty *timings* list makes ``generate_timed`` raise ``GenaiSessionError``
+    (mirroring the real empty-output guard).
+    """
 
     def __init__(
         self,
-        tokens: list[str],
+        timings: list[GenerationTiming],
         *,
         prompt_ids: list[int] | None = None,
         context_length: int = 256,
     ) -> None:
-        self._tokens = tokens
+        self._timings = list(timings)
+        self._i = 0
         self._prompt_ids = prompt_ids if prompt_ids is not None else [1, 2, 3]
         self.context_length = context_length
 
     def encode(self, text: str) -> list[int]:
         return list(self._prompt_ids)
 
-    def generate_streaming(self, prompt: object, config: object = None) -> Iterator[str]:
-        yield from self._tokens
-
-
-def _clock_from(values: list[float]) -> Callable[[], float]:
-    """Return a clock that yields ``values`` in order (one per call)."""
-    it = iter(values)
-    return lambda: next(it)
+    def generate_timed(self, prompt: object, config: object = None) -> GenerationTiming:
+        if self._i >= len(self._timings):
+            raise GenaiSessionError("genai: generation produced no tokens (empty bundle output?)")
+        timing = self._timings[self._i]
+        self._i += 1
+        return timing
 
 
 def _make_bundle(tmp_path: Path, name: str = "bundle") -> Path:
@@ -108,10 +129,11 @@ class TestDeviceToGenaiEp:
 
 class TestMetricMath:
     def test_single_run_metrics(self) -> None:
-        # clock: t0=0, t_first=1, t_end=3 (3 calls per generation)
         cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=0, iterations=1, max_new_tokens=4)
-        session = _FakeSession(["a", "b", "c", "d"], prompt_ids=[1, 2, 3, 4, 5], context_length=256)
-        bench = GenaiPerfBenchmark(cfg, session=session, clock=_clock_from([0.0, 1.0, 3.0]))
+        # prefill 0.4s + first token 0.6s -> TTFT 1.0s; 3 decode steps of 0.4s.
+        timing = _timing(0.4, 0.6, [0.4, 0.4, 0.4], input_tokens=5)
+        session = _FakeSession([timing], prompt_ids=[1, 2, 3, 4, 5], context_length=256)
+        bench = GenaiPerfBenchmark(cfg, session=session)
 
         result = bench.run()
 
@@ -119,53 +141,69 @@ class TestMetricMath:
         assert result.generated_tokens == 4
         assert result.context_length == 256
         assert result.ttft_mean_ms == pytest.approx(1000.0)
-        assert result.total_generation_mean_ms == pytest.approx(3000.0)
-        # decode: (4 - 1) tokens over (3 - 1) seconds = 1.5 tok/s
-        assert result.decode_tokens_per_sec == pytest.approx(1.5)
-        # avg per-token latency: 3000 ms / 4 tokens = 750 ms
-        assert result.avg_token_latency_ms == pytest.approx(750.0)
+        assert result.prefill_mean_ms == pytest.approx(400.0)
+        # total = 0.4 + 0.6 + 3*0.4 = 2.2s
+        assert result.total_generation_mean_ms == pytest.approx(2200.0)
+        # decode: 3 steps over 1.2s -> 2.5 tok/s
+        assert result.decode_tokens_per_sec == pytest.approx(2.5)
+        # TPOT: mean of [0.4, 0.4, 0.4] = 0.4s
+        assert result.tpot_mean_ms == pytest.approx(400.0)
+        # avg per-token latency: 2200 ms / 4 tokens = 550 ms
+        assert result.avg_token_latency_ms == pytest.approx(550.0)
         assert result.raw_ttft_ms == pytest.approx([1000.0])
+        assert result.raw_prefill_ms == pytest.approx([400.0])
+        assert result.raw_tpot_ms == pytest.approx([400.0])
 
     def test_warmup_runs_excluded(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=1, iterations=2, max_new_tokens=4)
-        session = _FakeSession(["a", "b", "c", "d"])
-        # 3 runs x 3 clock calls: warmup=[0,5,15], run1=[100,101,103], run2=[200,202,206]
-        clock = _clock_from([0, 5, 15, 100, 101, 103, 200, 202, 206])
-        bench = GenaiPerfBenchmark(cfg, session=session, clock=clock)
+        # warmup TTFT 5000 ms must be excluded; timed runs: TTFT 1000 / 2000 ms.
+        warmup = _timing(2.5, 2.5, [1.0])
+        run1 = _timing(0.4, 0.6, [0.5])  # ttft 1.0s, total 1.5s
+        run2 = _timing(0.8, 1.2, [1.0])  # ttft 2.0s, total 3.0s
+        session = _FakeSession([warmup, run1, run2])
+        bench = GenaiPerfBenchmark(cfg, session=session)
 
         result = bench.run()
 
-        # Warmup's 5000 ms TTFT must not appear in the aggregates.
         assert len(result.raw_ttft_ms) == 2
         assert result.raw_ttft_ms == pytest.approx([1000.0, 2000.0])
         assert result.ttft_mean_ms == pytest.approx(1500.0)
-        assert result.total_generation_mean_ms == pytest.approx(4500.0)
+        # totals 1500 / 3000 ms -> mean 2250 ms
+        assert result.total_generation_mean_ms == pytest.approx(2250.0)
 
     def test_single_token_generation_has_zero_decode_rate(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=0, iterations=1, max_new_tokens=1)
-        session = _FakeSession(["only"])
-        bench = GenaiPerfBenchmark(cfg, session=session, clock=_clock_from([0.0, 2.0, 2.0]))
+        # Single token: no steady-state decode phase.
+        session = _FakeSession([_timing(1.0, 1.0, [])])
+        bench = GenaiPerfBenchmark(cfg, session=session)
 
         result = bench.run()
 
         assert result.generated_tokens == 1
         assert result.decode_tokens_per_sec == 0.0
+        assert result.tpot_mean_ms == 0.0
         assert result.ttft_mean_ms == pytest.approx(2000.0)
 
     def test_no_tokens_raises(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=0, iterations=1)
+        # Empty timings -> generate_timed raises GenaiSessionError (empty output).
         session = _FakeSession([])
-        bench = GenaiPerfBenchmark(cfg, session=session, clock=_clock_from([0.0, 1.0]))
+        bench = GenaiPerfBenchmark(cfg, session=session)
 
-        with pytest.raises(RuntimeError, match="no tokens"):
+        with pytest.raises(GenaiSessionError, match="no tokens"):
             bench.run()
 
     def test_percentiles_over_multiple_runs(self) -> None:
         cfg = GenaiPerfConfig(bundle_dir=Path("x"), warmup=0, iterations=4, max_new_tokens=2)
-        session = _FakeSession(["a", "b"])
-        # 4 runs; TTFTs of 1000, 2000, 3000, 4000 ms
-        clock = _clock_from([0, 1, 2, 10, 12, 14, 20, 23, 26, 30, 34, 38])
-        bench = GenaiPerfBenchmark(cfg, session=session, clock=clock)
+        # 4 runs with TTFTs of 1000, 2000, 3000, 4000 ms.
+        timings = [
+            _timing(0.5, 0.5, [0.1]),
+            _timing(1.0, 1.0, [0.1]),
+            _timing(1.5, 1.5, [0.1]),
+            _timing(2.0, 2.0, [0.1]),
+        ]
+        session = _FakeSession(timings)
+        bench = GenaiPerfBenchmark(cfg, session=session)
 
         result = bench.run()
 
@@ -191,14 +229,21 @@ class TestResultToDict:
             compile=True,
             compile_timeout=120,
         )
-        session = _FakeSession(["a", "b", "c", "d"], prompt_ids=[1, 2, 3])
-        bench = GenaiPerfBenchmark(cfg, session=session, clock=_clock_from([0.0, 1.0, 3.0]))
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])], prompt_ids=[1, 2, 3])
+        bench = GenaiPerfBenchmark(cfg, session=session)
         return bench.run()
 
     def test_to_dict_shape(self) -> None:
         d = self._result().to_dict()
 
-        assert set(d) == {"benchmark_info", "ttft_ms", "decode", "total_generation_ms", "raw"}
+        assert set(d) == {
+            "benchmark_info",
+            "ttft_ms",
+            "prefill_ms",
+            "decode",
+            "total_generation_ms",
+            "raw",
+        }
         info = d["benchmark_info"]
         assert info["runtime_type"] == "winml-genai"
         assert info["ep"] == "qnn"
@@ -209,8 +254,15 @@ class TestResultToDict:
         assert info["compile"] is True
         assert info["compile_timeout"] == 120
         assert set(d["ttft_ms"]) == {"mean", "min", "max", "p50", "p90", "p95", "p99"}
-        assert set(d["decode"]) == {"tokens_per_sec", "avg_token_latency_ms"}
-        assert set(d["raw"]) == {"ttft_ms", "decode_tokens_per_sec", "total_ms"}
+        assert set(d["prefill_ms"]) == {"mean"}
+        assert set(d["decode"]) == {"tokens_per_sec", "avg_token_latency_ms", "tpot_ms"}
+        assert set(d["raw"]) == {
+            "ttft_ms",
+            "prefill_ms",
+            "decode_tokens_per_sec",
+            "tpot_ms",
+            "total_ms",
+        }
 
     def test_to_dict_is_json_serializable(self) -> None:
         # Round-trips without error.
@@ -231,8 +283,8 @@ class TestReporting:
             iterations=1,
             warmup=0,
         )
-        session = _FakeSession(["a", "b", "c", "d"])
-        bench = GenaiPerfBenchmark(cfg, session=session, clock=_clock_from([0.0, 1.0, 3.0]))
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])])
+        bench = GenaiPerfBenchmark(cfg, session=session)
         return bench.run()
 
     def test_write_genai_report_writes_json(self, tmp_path: Path) -> None:
@@ -266,7 +318,7 @@ class TestRunGenaiPerf:
             max_new_tokens=4,
             output_path=tmp_path / "out.json",
         )
-        session = _FakeSession(["a", "b", "c", "d"])
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])])
         # Inject the fake session by patching the benchmark's session builder.
         monkeypatch.setattr(perf_genai.GenaiPerfBenchmark, "_build_session", lambda self: session)
 
@@ -283,7 +335,7 @@ class TestRunGenaiPerf:
             max_new_tokens=4,
             output_path=tmp_path / "out.json",
         )
-        session = _FakeSession(["a", "b", "c", "d"])
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])])
         monkeypatch.setattr(perf_genai.GenaiPerfBenchmark, "_build_session", lambda self: session)
 
         run_genai_perf(cfg, console=Console(stderr=True), json_mode=True)

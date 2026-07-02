@@ -1614,7 +1614,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     type=int,
     default=300,
     show_default=True,
-    help="[winml-genai] Max seconds to compile each QNN stage before falling back "
+    help="[winml-genai] Max seconds to compile each EPContext stage before falling back "
     "to the original ONNX (requires --compile).",
 )
 @click.option(

@@ -48,7 +48,8 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -56,7 +57,7 @@ from .ep_registry import WinMLEPRegistry
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 
 logger = logging.getLogger(__name__)
@@ -73,25 +74,36 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _compile_stage_worker(src: str, dst: str, provider_options: dict) -> None:
+def _compile_stage_worker(src: str, dst: str, ep_alias: str, provider_options: dict) -> None:
     """Compile a single pipeline stage ONNX to EPContext via the shared compiler.
 
     Executed in a subprocess by :meth:`GenaiSession._compile_stage` so a hang
     or crash can be bounded by a timeout in the parent process.
 
+    The target execution provider is resolved generically from *ep_alias* via
+    :meth:`WinMLCompileConfig.for_provider`, so any EPContext-capable
+    accelerator (QNN, OpenVINO, VitisAI, …) is compiled with its own EP config.
+    There is no provider-specific branching here.
+
     Args:
         src: Absolute path to the source ONNX file.
         dst: Absolute path where the compiled EPContext ONNX should be written.
-        provider_options: QNN provider options taken verbatim from the bundle's
+        ep_alias: EP short name for this stage (e.g. ``"qnn"``, ``"openvino"``),
+            taken from the stage's ``provider_options`` key in
+            ``genai_config.json``.
+        provider_options: EP provider options taken verbatim from the bundle's
             ``genai_config.json`` (e.g. ``backend_path``, ``htp_performance_mode``,
-            ``soc_model``).  Forwarded to the compiler's EP config.
+            ``soc_model`` for QNN).  Merged onto the resolved EP config.
 
     Raises:
-        RuntimeError: If the compiler reports the compilation was unsuccessful.
+        RuntimeError: If *ep_alias* is not an EPContext-capable EP, or if the
+            compiler reports the compilation was unsuccessful.
     """
     from ..compiler import WinMLCompileConfig, compile_onnx
 
-    config = WinMLCompileConfig.for_qnn()
+    config = WinMLCompileConfig.for_provider(ep_alias)
+    if config is None:
+        raise RuntimeError(f"EP {ep_alias!r} does not support EPContext pre-compilation")
     config.ep_config.provider_options.update(provider_options)
     result = compile_onnx(src, dst, config)
     if not result.success:
@@ -147,6 +159,69 @@ class GenerationConfig:
     repetition_penalty: float = 1.0
 
 
+@dataclass
+class GenerationTiming:
+    """Per-generation timing captured at onnxruntime-genai call boundaries.
+
+    onnxruntime-genai exposes no native performance-metrics API (unlike
+    OpenVINO GenAI's ``perf_metrics``), so these spans are wall-clock
+    measurements taken immediately around the library calls.  The segmentation
+    mirrors onnxruntime-genai's official ``benchmark_e2e.py``:
+
+    * ``prefill_s`` — cost of ``Generator.append_tokens`` (the prompt forward
+      pass, a.k.a. prompt processing).
+    * ``first_token_s`` — cost of the first ``Generator.generate_next_token``.
+    * ``decode_s`` — cost of each subsequent ``generate_next_token`` (one entry
+      per generated token after the first).
+
+    Detokenization is intentionally excluded — only model-compute boundaries
+    are timed, so the numbers reflect the pipeline rather than tokenizer/string
+    overhead.
+
+    Attributes:
+        input_tokens: Number of prompt tokens fed to ``append_tokens``.
+        generated_tokens: Number of tokens produced (including the first).
+        prefill_s: Prompt-processing time in seconds.
+        first_token_s: Time to produce the first token, in seconds.
+        decode_s: Per-token times for the steady-state decode phase (tokens
+            after the first), in seconds.
+    """
+
+    input_tokens: int = 0
+    generated_tokens: int = 0
+    prefill_s: float = 0.0
+    first_token_s: float = 0.0
+    decode_s: list[float] = field(default_factory=list)
+
+    @property
+    def ttft_s(self) -> float:
+        """Time to first token = prefill + first decode step, in seconds."""
+        return self.prefill_s + self.first_token_s
+
+    @property
+    def tpot_s(self) -> float:
+        """Mean time per output token over the steady-state decode phase.
+
+        Averages :attr:`decode_s` (tokens after the first).  Returns ``0.0``
+        when fewer than two tokens were generated.
+        """
+        return sum(self.decode_s) / len(self.decode_s) if self.decode_s else 0.0
+
+    @property
+    def decode_tokens_per_sec(self) -> float:
+        """Steady-state decode throughput (tokens/sec), excluding the first token.
+
+        Returns ``0.0`` when fewer than two tokens were generated.
+        """
+        total = sum(self.decode_s)
+        return len(self.decode_s) / total if total > 0 else 0.0
+
+    @property
+    def total_s(self) -> float:
+        """Total model-compute time = prefill + first token + all decode steps."""
+        return self.prefill_s + self.first_token_s + sum(self.decode_s)
+
+
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -187,12 +262,13 @@ class GenaiSession:
             ``None`` (default), read from ``genai_config.json``.
             Must match the ``--max-cache-len`` used during the winml-cli build.
         verbose: Enable ``onnxruntime-genai`` native model I/O logging.
-        compile: Pre-compile QNN pipeline stages to EPContext ONNX on first
-            run (inside ``bundle_dir/_compiled/``).  Subsequent calls reuse
-            the cached EPContext files, eliminating per-run JIT overhead.
-            Only stages that can be compiled without hanging are attempted;
-            stages that fail compilation fall back to the original ONNX.
-            Has no effect when ``ep="cpu"``.
+        compile: Pre-compile EPContext-capable pipeline stages (e.g. QNN) to
+            EPContext ONNX on first run (inside ``bundle_dir/_compiled/``).
+            Subsequent calls reuse the cached EPContext files, eliminating
+            per-run JIT overhead.  Only stages whose EP supports EPContext and
+            that can be compiled without hanging are attempted; stages that fail
+            compilation fall back to the original ONNX.  Has no effect when
+            ``ep="cpu"``.
         compile_timeout: Maximum seconds to wait for each stage to compile
             before killing the subprocess and falling back to the original
             ONNX.  Defaults to 300 seconds (5 minutes).
@@ -354,26 +430,9 @@ class GenaiSession:
             Decoded string for each newly generated token.
         """
         self._ensure_loaded()
-        og = self._import_og()
         cfg = config or GenerationConfig()
-
-        tokens = (
-            self._tokenizer.encode(prompt)  # type: ignore[union-attr]
-            if isinstance(prompt, str)
-            else prompt
-        )
-
-        params = og.GeneratorParams(self._model)
-        params.set_search_options(
-            max_length=self._context_length,
-            do_sample=cfg.do_sample,
-            temperature=cfg.temperature,
-            top_p=cfg.top_p,
-            top_k=cfg.top_k,
-            repetition_penalty=cfg.repetition_penalty,
-        )
-
-        generator = og.Generator(self._model, params)
+        tokens = self._encode_prompt(prompt)
+        generator = self._new_generator(cfg)
         generator.append_tokens(tokens)
 
         stream = self._tokenizer.create_stream()  # type: ignore[union-attr]
@@ -389,9 +448,79 @@ class GenaiSession:
         finally:
             # Explicit deletion releases the KV cache buffer held by the generator.
             # This runs whether the caller exhausts the iterator normally, breaks
-            # out early, or the generator is garbage-collected — preventing the NPU
-            # memory from being held until a later GC cycle.
+            # out early, or the generator is garbage-collected — preventing the
+            # device memory from being held until a later GC cycle.
             del generator
+
+    def generate_timed(
+        self,
+        prompt: str | list[int],
+        config: GenerationConfig | None = None,
+        *,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> GenerationTiming:
+        """Run one generation, timing each onnxruntime-genai operation boundary.
+
+        Unlike :meth:`generate_streaming` (which yields decoded text), this
+        drives the same ``og.Generator`` loop but records wall-clock spans
+        around the library calls and returns a :class:`GenerationTiming`.  It
+        does **not** decode tokens — only model-compute boundaries are timed,
+        so tokenizer / string overhead is excluded.
+
+        The segmentation matches onnxruntime-genai's official
+        ``benchmark_e2e.py``: ``append_tokens`` is the prefill (prompt
+        processing) and each ``generate_next_token`` is one decode step.
+        onnxruntime-genai has no native perf-metrics API, so the timing is
+        taken externally with *clock* (injectable for deterministic tests).
+
+        Args:
+            prompt: Input text (auto-encoded via the bundle tokenizer) or a
+                pre-encoded token-ID list.
+            config: Generation parameters.  Uses :class:`GenerationConfig`
+                defaults when ``None``.
+            clock: Monotonic clock returning seconds.  Defaults to
+                :func:`time.perf_counter`.
+
+        Returns:
+            A :class:`GenerationTiming` with per-boundary spans and token counts.
+
+        Raises:
+            GenaiSessionError: The bundle produced no tokens (empty output).
+        """
+        self._ensure_loaded()
+        cfg = config or GenerationConfig()
+        tokens = self._encode_prompt(prompt)
+        generator = self._new_generator(cfg)
+
+        # marks[0]  = before prefill
+        # marks[1]  = after prefill (append_tokens)
+        # marks[2+k]= after the (k+1)-th generated token
+        marks: list[float] = []
+        generated = 0
+        try:
+            marks.append(clock())
+            generator.append_tokens(tokens)
+            marks.append(clock())
+            while not generator.is_done():
+                generator.generate_next_token()
+                marks.append(clock())
+                generated += 1
+                if generated >= cfg.max_new_tokens:
+                    break
+        finally:
+            # See generate_streaming: release the KV cache buffer eagerly.
+            del generator
+
+        if generated == 0:
+            raise GenaiSessionError("genai: generation produced no tokens (empty bundle output?)")
+
+        return GenerationTiming(
+            input_tokens=len(tokens),
+            generated_tokens=generated,
+            prefill_s=marks[1] - marks[0],
+            first_token_s=marks[2] - marks[1],
+            decode_s=[marks[i + 1] - marks[i] for i in range(2, 1 + generated)],
+        )
 
     # ------------------------------------------------------------------
     # Chat-template helpers
@@ -476,16 +605,44 @@ class GenaiSession:
         if self._model is None:
             self.load()
 
+    def _encode_prompt(self, prompt: str | list[int]) -> list[int]:
+        """Return prompt token IDs, encoding via the bundle tokenizer if needed."""
+        if isinstance(prompt, str):
+            return self._tokenizer.encode(prompt).tolist()  # type: ignore[union-attr]
+        return prompt
+
+    def _new_generator(self, cfg: GenerationConfig) -> object:
+        """Build an ``og.Generator`` with search options from *cfg*.
+
+        The prompt is **not** appended — callers decide whether to time
+        ``append_tokens`` separately (see :meth:`generate_timed`).
+        """
+        og = self._import_og()
+        params = og.GeneratorParams(self._model)
+        params.set_search_options(
+            max_length=self._context_length,
+            do_sample=cfg.do_sample,
+            temperature=cfg.temperature,
+            top_p=cfg.top_p,
+            top_k=cfg.top_k,
+            repetition_penalty=cfg.repetition_penalty,
+        )
+        return og.Generator(self._model, params)
+
     def _prepare_compiled_bundle(self) -> Path:
         """Create (or reuse) a *compiled* bundle directory.
 
-        Reads ``genai_config.json``, finds QNN-accelerated stages (those with
-        ``QNNExecutionProvider`` in their ``session_options``), and tries to
-        compile their ONNX to EPContext format using ``ort.ModelCompiler``.
+        Reads ``genai_config.json`` and finds pipeline stages whose execution
+        provider supports EPContext pre-compilation (resolved generically via
+        :meth:`WinMLCompileConfig.for_provider` — QNN, OpenVINO, VitisAI, …),
+        then tries to compile their ONNX to EPContext format through the shared
+        compiler.  Stages on EPs that do not emit EPContext (CPU, DML, …) are
+        left untouched and load via JIT.
 
-        The compiled bundle is stored under ``bundle_dir/_compiled/``.  On
-        every call the helper checks whether the cached EPContext file is
-        newer than the source ONNX; if so, it skips recompilation.
+        The compiled bundle is stored under ``bundle_dir/_compiled/``.  A cached
+        EPContext file is reused only when it is newer than the source graph and
+        its external-weights sidecar *and* was built with the same provider
+        options (see :meth:`_epcontext_is_fresh`); otherwise it is recompiled.
 
         Returns:
             Path to the compiled bundle directory (may equal ``bundle_dir``
@@ -495,12 +652,12 @@ class GenaiSession:
         config_src = self._bundle_dir / "genai_config.json"
         cfg = json.loads(config_src.read_text(encoding="utf-8"))
 
-        # Collect pipeline stages that use a QNN EP ("qnn" key in provider_options).
+        # Collect pipeline stages whose EP supports EPContext pre-compilation.
         # genai_config pipeline entries: [{"context": {...}}, {"iterator": {...}}, ...]
-        # provider_options format: [{"qnn": {...}}]
+        # provider_options format: [{"<ep_alias>": {...}}]
         pipeline_list: list = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
-        # [(stage_key, onnx_filename, qnn_opts), ...]
-        qnn_stages: list[tuple[str, str, dict]] = []
+        # [(stage_key, onnx_filename, ep_alias, ep_opts), ...]
+        compilable_stages: list[tuple[str, str, str, dict]] = []
         for stage_entry in pipeline_list:
             if not isinstance(stage_entry, dict):
                 continue
@@ -508,27 +665,27 @@ class GenaiSession:
                 if not isinstance(stage_cfg, dict):
                     continue
                 so = stage_cfg.get("session_options", {})
-                providers = so.get("provider_options", [])
-                for p in providers:
-                    if isinstance(p, dict) and "qnn" in p:
-                        onnx_filename = stage_cfg.get("filename", f"{stage_key}.onnx")
-                        qnn_stages.append((stage_key, onnx_filename, dict(p["qnn"])))
-                        break
+                ep_alias, ep_opts = self._resolve_stage_ep(so.get("provider_options", []))
+                if ep_alias is not None:
+                    onnx_filename = stage_cfg.get("filename", f"{stage_key}.onnx")
+                    compilable_stages.append((stage_key, onnx_filename, ep_alias, ep_opts))
 
-        if not qnn_stages:
-            logger.info("No QNN stages found in genai_config.json; skipping compilation")
+        if not compilable_stages:
+            logger.info(
+                "No EPContext-capable stages found in genai_config.json; skipping pre-compilation"
+            )
             return self._bundle_dir
 
         compiled_dir.mkdir(exist_ok=True)
         modified_cfg = json.loads(config_src.read_text(encoding="utf-8"))
         any_compiled = False
 
-        for stage_key, onnx_filename, qnn_opts in qnn_stages:
+        for stage_key, onnx_filename, ep_alias, ep_opts in compilable_stages:
             src_onnx = self._bundle_dir / onnx_filename
             ctx_onnx = compiled_dir / f"{stage_key}_ctx.onnx"
 
-            # Skip recompilation if cache is up-to-date.
-            if ctx_onnx.exists() and ctx_onnx.stat().st_mtime >= src_onnx.stat().st_mtime:
+            # Skip recompilation only when the cache is genuinely up-to-date.
+            if self._epcontext_is_fresh(src_onnx, ctx_onnx, ep_opts):
                 logger.info("Stage %r: reusing cached EPContext %s", stage_key, ctx_onnx.name)
                 # Use just the filename — genai_config.json lives in compiled_dir,
                 # so ort-genai resolves filenames relative to compiled_dir.
@@ -537,8 +694,9 @@ class GenaiSession:
                 continue
 
             # Attempt compilation.
-            success = self._compile_stage(src_onnx, ctx_onnx, stage_key, qnn_opts)
+            success = self._compile_stage(src_onnx, ctx_onnx, stage_key, ep_alias, ep_opts)
             if success:
+                self._write_compile_marker(ctx_onnx, ep_alias, ep_opts)
                 self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
                 any_compiled = True
             else:
@@ -559,14 +717,79 @@ class GenaiSession:
         compiled_config.write_text(
             json.dumps(modified_cfg, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        # Only skip the QNN-stage ONNX files (compiled → new path, or failed →
-        # absolute path patch).  Non-QNN ONNX files (embeddings, lm_head) must
-        # be symlinked into compiled_dir so ort-genai can find them by filename.
-        compiled_onnx_names = {onnx_filename for _, onnx_filename, _ in qnn_stages}
+        # Only skip the compiled-stage ONNX files (compiled → new path, or failed
+        # → absolute path patch).  Every other ONNX file (e.g. embeddings,
+        # lm_head, or stages on non-EPContext EPs) must be symlinked into
+        # compiled_dir so ort-genai can find it by filename.
+        compiled_onnx_names = {onnx_filename for _, onnx_filename, _, _ in compilable_stages}
         self._mirror_non_onnx_files(compiled_dir, skip_filenames=compiled_onnx_names)
 
         logger.info("Compiled bundle prepared at %s", compiled_dir)
         return compiled_dir
+
+    @staticmethod
+    def _resolve_stage_ep(provider_options: list) -> tuple[str | None, dict]:
+        """Resolve a stage's EPContext-capable EP from its ``provider_options``.
+
+        A genai_config ``provider_options`` is a list of single-key mappings
+        ``[{ep_alias: {opts...}}]``.  Returns ``(ep_alias, opts)`` for the first
+        alias that :meth:`WinMLCompileConfig.for_provider` recognizes as
+        EPContext-capable; otherwise ``(None, {})`` so the stage stays on JIT.
+        This is the single point of EP dispatch — no provider name is hardcoded.
+        """
+        from ..compiler import WinMLCompileConfig
+
+        for entry in provider_options:
+            if not isinstance(entry, dict):
+                continue
+            for ep_alias, opts in entry.items():
+                if WinMLCompileConfig.for_provider(ep_alias) is not None:
+                    return ep_alias, dict(opts) if isinstance(opts, dict) else {}
+        return None, {}
+
+    @staticmethod
+    def _compile_marker_path(ctx_onnx: Path) -> Path:
+        """Path of the sidecar recording how *ctx_onnx* was compiled (cache key)."""
+        return ctx_onnx.parent / f"{ctx_onnx.name}.meta.json"
+
+    @classmethod
+    def _write_compile_marker(cls, ctx_onnx: Path, ep_alias: str, ep_opts: dict) -> None:
+        """Record the EP + options a compiled stage was built with (cache key)."""
+        cls._compile_marker_path(ctx_onnx).write_text(
+            json.dumps({"ep": ep_alias, "provider_options": ep_opts}, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    @classmethod
+    def _epcontext_is_fresh(cls, src_onnx: Path, ctx_onnx: Path, ep_opts: dict) -> bool:
+        """Return ``True`` when a cached EPContext file may be reused as-is.
+
+        The cache is stale (forcing a recompile) when any of these hold:
+
+        * the compiled artifact or its marker is missing;
+        * the source stage ONNX graph is newer than the compiled artifact;
+        * the source external-weights ``.data`` sidecar is newer (decoder graphs
+          often keep all weights there, so the ``.onnx`` mtime alone is not a
+          sufficient cache key);
+        * the provider options recorded at compile time differ from *ep_opts*
+          (so changing a knob like ``soc_model`` re-compiles even when the
+          ``.onnx`` mtime is unchanged).
+        """
+        marker = cls._compile_marker_path(ctx_onnx)
+        if not ctx_onnx.exists() or not marker.exists():
+            return False
+
+        ctx_mtime = ctx_onnx.stat().st_mtime
+        # Source graph + its external-weights sidecar must both be no newer.
+        sources = [src_onnx, src_onnx.parent / f"{src_onnx.name}.data"]
+        if any(s.exists() and s.stat().st_mtime > ctx_mtime for s in sources):
+            return False
+
+        try:
+            recorded = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return recorded.get("provider_options") == ep_opts
 
     @staticmethod
     def _patch_stage_filename(cfg: dict, stage_key: str, abs_path: str) -> None:
@@ -584,42 +807,46 @@ class GenaiSession:
         src_onnx: Path,
         ctx_out: Path,
         stage_key: str,
-        qnn_opts: dict | None = None,
+        ep_alias: str,
+        ep_opts: dict | None = None,
     ) -> bool:
         """Compile *src_onnx* to EPContext format via the shared compiler.
 
         Runs :func:`compile_onnx` in a subprocess so that a compilation hang or
-        crash does not block the caller.  The QNN options from
-        ``genai_config.json`` are forwarded unchanged to the compiler's EP
-        config, so each stage is compiled at exactly the optimization level
-        configured in the bundle.
+        crash does not block the caller.  The EP is resolved generically from
+        *ep_alias* and the stage's provider options from ``genai_config.json``
+        are forwarded unchanged, so each stage is compiled for its own
+        accelerator at exactly the optimization level configured in the bundle.
 
         Args:
             src_onnx: Source ONNX file path.
             ctx_out: Destination EPContext ONNX path.
             stage_key: Human-readable label for logging.
-            qnn_opts: QNN provider options from genai_config (e.g. backend_path,
+            ep_alias: EP short name for the stage (e.g. ``"qnn"``, ``"openvino"``).
+            ep_opts: EP provider options from genai_config (e.g. backend_path,
                 htp_performance_mode, htp_graph_finalization_optimization_mode,
-                soc_model).
+                soc_model for QNN).
 
         Returns:
             ``True`` if compilation succeeded; ``False`` on timeout or error.
         """
         import multiprocessing
 
-        compile_qnn_opts = dict(qnn_opts or {})
+        compile_opts = dict(ep_opts or {})
 
         logger.info(
-            "Compiling stage %r: %s → %s (qnn_opts=%s)",
+            "Compiling stage %r for EP %r: %s → %s (options=%s)",
             stage_key,
+            ep_alias,
             src_onnx.name,
             ctx_out.name,
-            compile_qnn_opts,
+            compile_opts,
         )
 
         ctx = multiprocessing.get_context("spawn")
         proc = ctx.Process(
-            target=_compile_stage_worker, args=(str(src_onnx), str(ctx_out), compile_qnn_opts)
+            target=_compile_stage_worker,
+            args=(str(src_onnx), str(ctx_out), ep_alias, compile_opts),
         )
         proc.start()
         proc.join(timeout=self._compile_timeout)
@@ -632,16 +859,22 @@ class GenaiSession:
             )
             proc.kill()
             proc.join()
-            ctx_out.unlink(missing_ok=True)
+            self._discard_compiled_stage(ctx_out)
             return False
 
         if proc.exitcode != 0:
             logger.warning("Stage %r compilation failed (exit %d)", stage_key, proc.exitcode)
-            ctx_out.unlink(missing_ok=True)
+            self._discard_compiled_stage(ctx_out)
             return False
 
         logger.info("Stage %r compiled successfully → %s", stage_key, ctx_out)
         return True
+
+    @classmethod
+    def _discard_compiled_stage(cls, ctx_out: Path) -> None:
+        """Remove a partial/failed EPContext artifact and its cache marker."""
+        ctx_out.unlink(missing_ok=True)
+        cls._compile_marker_path(ctx_out).unlink(missing_ok=True)
 
     def _mirror_non_onnx_files(
         self, compiled_dir: Path, skip_filenames: set[str] | None = None
@@ -649,14 +882,14 @@ class GenaiSession:
         """Create symlinks (or copies on Windows) for files not being compiled.
 
         Links files into *compiled_dir* so ``og.Config`` finds tokenizer files,
-        non-QNN ONNX models (embeddings, lm_head), etc.  Only ONNX files listed
-        in *skip_filenames* (the QNN-compiled stages) and their external ``.data``
-        siblings are skipped — everything else, including CPU-side ONNX files, is
-        linked.  Existing files are left untouched.
+        non-compiled ONNX models (embeddings, lm_head, stages on non-EPContext
+        EPs), etc.  Only ONNX files listed in *skip_filenames* (the compiled
+        stages) and their external ``.data`` siblings are skipped — everything
+        else is linked.  Existing files are left untouched.
         """
         skip = set(skip_filenames or [])
-        # Also skip .data sidecars of the compiled-stage ONNX files.
-        skip_data = {f"{name}.data" for name in skip} | {f"{name}.data" for name in skip}
+        # Also skip the external-weights ``.data`` sidecars of the compiled stages.
+        skip_data = {f"{name}.data" for name in skip}
         for src in self._bundle_dir.iterdir():
             if src.name == self._COMPILED_SUBDIR:
                 continue
@@ -711,4 +944,5 @@ __all__ = [
     "GenaiSession",
     "GenaiSessionError",
     "GenerationConfig",
+    "GenerationTiming",
 ]

@@ -11,6 +11,7 @@ from .genai_session import (
     GenaiSession,
     GenaiSessionError,
     GenerationConfig,
+    GenerationTiming,
 )
 from .monitor.ep_monitor import EPMonitor, NullEPMonitor
 from .monitor.hw_monitor import HWMonitor
@@ -29,6 +30,7 @@ __all__ = [
     "GenaiSession",
     "GenaiSessionError",
     "GenerationConfig",
+    "GenerationTiming",
     "HWMonitor",
     "InferenceError",
     "NullEPMonitor",

@@ -11,6 +11,7 @@ real model files or GPU/NPU hardware is required.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -23,6 +24,7 @@ from winml.modelkit.session import (
     GenaiSession,
     GenaiSessionError,
     GenerationConfig,
+    GenerationTiming,
 )
 
 
@@ -117,6 +119,12 @@ def mock_og() -> MagicMock:
 def _patch_og(mock: MagicMock):
     """Context manager: inject mock_og as onnxruntime_genai in sys.modules."""
     return patch.dict(sys.modules, {"onnxruntime_genai": mock})
+
+
+def _clock_from(values: list[float]):
+    """Return a clock callable that yields ``values`` in order (one per call)."""
+    it = iter(values)
+    return lambda: next(it)
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +401,131 @@ class TestGenerate:
 
 
 # ---------------------------------------------------------------------------
+# Tests: GenerationTiming dataclass
+# ---------------------------------------------------------------------------
+
+
+class TestGenerationTiming:
+    def test_ttft_is_prefill_plus_first_token(self) -> None:
+        t = GenerationTiming(prefill_s=0.4, first_token_s=0.1)
+        assert t.ttft_s == pytest.approx(0.5)
+
+    def test_tpot_is_mean_of_decode_steps(self) -> None:
+        t = GenerationTiming(decode_s=[0.2, 0.4])
+        assert t.tpot_s == pytest.approx(0.3)
+
+    def test_tpot_is_zero_without_decode_steps(self) -> None:
+        assert GenerationTiming(decode_s=[]).tpot_s == 0.0
+
+    def test_decode_tokens_per_sec(self) -> None:
+        # 4 decode steps totalling 1.0s -> 4 tokens/sec
+        t = GenerationTiming(decode_s=[0.25, 0.25, 0.25, 0.25])
+        assert t.decode_tokens_per_sec == pytest.approx(4.0)
+
+    def test_decode_tokens_per_sec_is_zero_without_decode_steps(self) -> None:
+        assert GenerationTiming(decode_s=[]).decode_tokens_per_sec == 0.0
+
+    def test_total_is_prefill_plus_first_plus_decode(self) -> None:
+        t = GenerationTiming(prefill_s=1.0, first_token_s=0.5, decode_s=[0.2, 0.3])
+        assert t.total_s == pytest.approx(2.0)
+
+    def test_defaults_are_zero(self) -> None:
+        t = GenerationTiming()
+        assert t.input_tokens == 0
+        assert t.generated_tokens == 0
+        assert t.ttft_s == 0.0
+        assert t.total_s == 0.0
+        assert t.decode_s == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: generate_timed (og-boundary timing)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateTimed:
+    def test_segments_prefill_first_token_and_decode(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        # mock_og generator yields 2 tokens (is_done: F, F, T).
+        # clock calls: before append(0.0), after append(1.0), token1(2.5), token2(3.0).
+        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            timing = session.generate_timed([1, 2, 3, 4, 5], clock=clock)
+
+        assert timing.input_tokens == 5
+        assert timing.generated_tokens == 2
+        assert timing.prefill_s == pytest.approx(1.0)
+        assert timing.first_token_s == pytest.approx(1.5)
+        assert timing.decode_s == pytest.approx([0.5])
+        # TTFT = prefill + first token.
+        assert timing.ttft_s == pytest.approx(2.5)
+        assert timing.total_s == pytest.approx(3.0)
+
+    def test_does_not_decode_tokens(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        """Only model-compute boundaries are timed — no tokenizer detokenization."""
+        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            session.generate_timed([1, 2, 3], clock=clock)
+
+        stream = mock_og.Tokenizer.return_value.create_stream.return_value
+        stream.decode.assert_not_called()
+
+    def test_forwards_token_list_to_append_tokens(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            session.generate_timed([7, 8, 9], clock=clock)
+
+        mock_og.Generator.return_value.append_tokens.assert_called_once_with([7, 8, 9])
+
+    def test_respects_max_new_tokens(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        gen = mock_og.Generator.return_value
+        gen.is_done.side_effect = None
+        gen.is_done.return_value = False  # never signals done
+        # max_new_tokens=1 -> single token: clock before(0.0), after append(1.0), token1(2.0)
+        clock = _clock_from([0.0, 1.0, 2.0])
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            timing = session.generate_timed([1, 2], GenerationConfig(max_new_tokens=1), clock=clock)
+
+        assert timing.generated_tokens == 1
+        # A single token has no steady-state decode phase.
+        assert timing.decode_s == []
+        assert timing.tpot_s == 0.0
+        assert timing.decode_tokens_per_sec == 0.0
+        assert timing.ttft_s == pytest.approx(2.0)  # prefill 1.0 + first token 1.0
+
+    def test_raises_when_no_tokens(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        gen = mock_og.Generator.return_value
+        gen.is_done.side_effect = None
+        gen.is_done.return_value = True  # done immediately -> 0 tokens
+        clock = _clock_from([0.0, 1.0])
+        with (
+            _patch_og(mock_og),
+            GenaiSession(bundle_dir) as session,
+            pytest.raises(GenaiSessionError, match="no tokens"),
+        ):
+            session.generate_timed([1, 2], clock=clock)
+
+    def test_auto_loads_on_first_call(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        with _patch_og(mock_og):
+            session = GenaiSession(bundle_dir)
+            assert not session.is_loaded
+            session.generate_timed([1, 2, 3], clock=clock)
+            assert session.is_loaded
+
+    def test_uses_context_length_as_max_length(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=128) as session:
+            session.generate_timed([1, 2, 3], clock=clock)
+
+        params = mock_og.GeneratorParams.return_value
+        assert params.set_search_options.call_args.kwargs["max_length"] == 128
+
+
+# ---------------------------------------------------------------------------
 # Tests: apply_chatml_template
 # ---------------------------------------------------------------------------
 
@@ -503,15 +636,15 @@ class TestCompileStageWorker:
         with patch(
             "winml.modelkit.compiler.compile_onnx", return_value=mock_result
         ) as mock_compile:
-            _compile_stage_worker("src.onnx", "dst.onnx", {})
+            _compile_stage_worker("src.onnx", "dst.onnx", "qnn", {})
 
         mock_compile.assert_called_once()
         args = mock_compile.call_args.args
         assert args[0] == "src.onnx"
         assert args[1] == "dst.onnx"
 
-    def test_forwards_provider_options_to_qnn_config(self) -> None:
-        """QNN options from genai_config are forwarded onto the compiler EP config."""
+    def test_forwards_provider_options_to_ep_config(self) -> None:
+        """Stage options from genai_config are forwarded onto the resolved EP config."""
         from winml.modelkit.session.genai_session import _compile_stage_worker
 
         mock_result = MagicMock(success=True)
@@ -519,13 +652,40 @@ class TestCompileStageWorker:
             "winml.modelkit.compiler.compile_onnx", return_value=mock_result
         ) as mock_compile:
             _compile_stage_worker(
-                "src.onnx", "dst.onnx", {"htp_performance_mode": "burst", "soc_model": "60"}
+                "src.onnx",
+                "dst.onnx",
+                "qnn",
+                {"htp_performance_mode": "burst", "soc_model": "60"},
             )
 
         config = mock_compile.call_args.args[2]
         assert config.ep_config.provider == "qnn"
         assert config.ep_config.provider_options["htp_performance_mode"] == "burst"
         assert config.ep_config.provider_options["soc_model"] == "60"
+
+    def test_dispatches_generically_per_ep_alias(self) -> None:
+        """A non-QNN EPContext EP (e.g. OpenVINO) is resolved from its alias, not hardcoded."""
+        from winml.modelkit.session.genai_session import _compile_stage_worker
+
+        mock_result = MagicMock(success=True)
+        with patch(
+            "winml.modelkit.compiler.compile_onnx", return_value=mock_result
+        ) as mock_compile:
+            _compile_stage_worker("src.onnx", "dst.onnx", "openvino", {})
+
+        config = mock_compile.call_args.args[2]
+        assert config.ep_config.provider == "openvino"
+
+    def test_raises_for_non_epcontext_ep(self) -> None:
+        """An EP without an EPContext compile step is rejected instead of guessed."""
+        from winml.modelkit.session.genai_session import _compile_stage_worker
+
+        with (
+            patch("winml.modelkit.compiler.compile_onnx") as mock_compile,
+            pytest.raises(RuntimeError, match="does not support EPContext"),
+        ):
+            _compile_stage_worker("src.onnx", "dst.onnx", "dml", {})
+        mock_compile.assert_not_called()
 
     def test_raises_when_compile_unsuccessful(self) -> None:
         """A failed CompileResult surfaces as a RuntimeError (non-zero subprocess exit)."""
@@ -536,7 +696,7 @@ class TestCompileStageWorker:
             patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
             pytest.raises(RuntimeError, match="Compilation failed"),
         ):
-            _compile_stage_worker("src.onnx", "dst.onnx", {})
+            _compile_stage_worker("src.onnx", "dst.onnx", "qnn", {})
 
 
 # ---------------------------------------------------------------------------
@@ -545,11 +705,40 @@ class TestCompileStageWorker:
 
 
 class TestPrepareCompiledBundle:
-    def test_no_qnn_stages_returns_original_bundle_dir(self, bundle_dir: Path) -> None:
-        """When no QNN stages exist, bundle_dir is returned unchanged."""
+    def test_no_compilable_stages_returns_original_bundle_dir(self, bundle_dir: Path) -> None:
+        """When no EPContext-capable stages exist, bundle_dir is returned unchanged."""
         session = GenaiSession(bundle_dir, ep="qnn", compile=True)
         result = session._prepare_compiled_bundle()
         assert result == bundle_dir
+        assert not (bundle_dir / "_compiled").exists()
+
+    def test_non_epcontext_stage_is_skipped(self, tmp_path: Path) -> None:
+        """A pipeline stage on a non-EPContext EP (DML) stays on JIT, not compiled."""
+        cfg = {
+            "model": {
+                "type": "decoder-pipeline",
+                "context_length": 256,
+                "decoder": {
+                    "pipeline": [
+                        {
+                            "context": {
+                                "filename": "ctx.onnx",
+                                "session_options": {"provider_options": [{"dml": {}}]},
+                            }
+                        }
+                    ]
+                },
+            },
+            "search": {"max_length": 256},
+        }
+        (tmp_path / "genai_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        (tmp_path / "ctx.onnx").write_bytes(b"fake")
+
+        session = GenaiSession(tmp_path, ep="dml", compile=True)
+        result = session._prepare_compiled_bundle()
+
+        assert result == tmp_path
+        assert not (tmp_path / "_compiled").exists()
 
     def test_writes_modified_genai_config_to_compiled_dir(
         self, bundle_dir_with_pipeline: Path
@@ -566,14 +755,6 @@ class TestPrepareCompiledBundle:
 
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
 
-        # Pre-create fake compiled ONNX so _compile_stage "succeeds" from cache
-        compiled_dir.mkdir(exist_ok=True)
-        import time
-
-        time.sleep(0.01)
-        (compiled_dir / "context_ctx.onnx").write_bytes(b"ep_ctx")
-        (compiled_dir / "iterator_ctx.onnx").write_bytes(b"ep_ctx")
-
         with patch("multiprocessing.get_context", return_value=ctx_mock):
             result = session._prepare_compiled_bundle()
 
@@ -582,6 +763,72 @@ class TestPrepareCompiledBundle:
         assert config_out.exists()
         written = json.loads(config_out.read_text(encoding="utf-8"))
         assert "model" in written
+        # A cache marker is written next to each compiled stage.
+        assert (compiled_dir / "context_ctx.onnx.meta.json").exists()
+
+    @staticmethod
+    def _prime_cache(bundle_dir: Path, marker_opts: dict) -> Path:
+        """Pre-create fresh cached EPContext files + markers for both stages."""
+        compiled_dir = bundle_dir / "_compiled"
+        compiled_dir.mkdir()
+        for stage, src_name in (("context", "ctx.onnx"), ("iterator", "iter.onnx")):
+            ctx = compiled_dir / f"{stage}_ctx.onnx"
+            ctx.write_bytes(b"ep_ctx")
+            GenaiSession._write_compile_marker(ctx, "qnn", marker_opts)
+            src_mtime = (bundle_dir / src_name).stat().st_mtime
+            os.utime(ctx, (src_mtime + 100, src_mtime + 100))
+        return compiled_dir
+
+    def test_reuses_cached_epcontext_when_fresh(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fresh cache (marker matches, ctx newer than sources) is not recompiled."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = self._prime_cache(bundle_dir_with_pipeline, {"backend_path": "QnnHtp.dll"})
+
+        spy = MagicMock(return_value=True)
+        monkeypatch.setattr(session, "_compile_stage", spy)
+        result = session._prepare_compiled_bundle()
+
+        spy.assert_not_called()
+        assert result == compiled_dir
+        assert (compiled_dir / "genai_config.json").exists()
+
+    def test_recompiles_when_provider_options_change(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cached EPContext built with different provider options is recompiled."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        # Marker records stale options; the bundle uses backend_path=QnnHtp.dll.
+        self._prime_cache(bundle_dir_with_pipeline, {"backend_path": "OLD.dll"})
+
+        spy = MagicMock(return_value=True)
+        monkeypatch.setattr(session, "_compile_stage", spy)
+        session._prepare_compiled_bundle()
+
+        assert spy.call_count == 2
+
+    def test_recompiles_when_data_sidecar_is_newer(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A newer external-weights .data sidecar invalidates the cached EPContext."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = self._prime_cache(bundle_dir_with_pipeline, {"backend_path": "QnnHtp.dll"})
+
+        # ctx.onnx.data is newer than the compiled context stage -> stale.
+        ctx_stage = compiled_dir / "context_ctx.onnx"
+        data_sidecar = bundle_dir_with_pipeline / "ctx.onnx.data"
+        data_sidecar.write_bytes(b"weights")
+        ctx_mtime = ctx_stage.stat().st_mtime
+        os.utime(data_sidecar, (ctx_mtime + 100, ctx_mtime + 100))
+
+        spy = MagicMock(return_value=True)
+        monkeypatch.setattr(session, "_compile_stage", spy)
+        session._prepare_compiled_bundle()
+
+        # Only the context stage (whose .data changed) is recompiled.
+        assert spy.call_count == 1
+        assert spy.call_args.args[2] == "context"
 
 
 # ---------------------------------------------------------------------------

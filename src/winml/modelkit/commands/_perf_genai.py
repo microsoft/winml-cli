@@ -8,9 +8,16 @@ Benchmarks a prebuilt ``onnxruntime-genai`` bundle folder through
 :class:`GenaiSession`.  Unlike the single-shot WinML path (which times each
 ``session.run()`` call), decoder pipelines split into a **prefill** phase
 (prompt -> first token) and a **decode** phase (subsequent tokens), so this
-module reports LLM-style metrics: time-to-first-token (TTFT), decode
-throughput (tokens/sec), average per-token latency, and total generation
-time.
+module reports LLM-style metrics: time-to-first-token (TTFT), prefill latency,
+decode throughput (tokens/sec), time-per-output-token (TPOT), and total
+generation time.
+
+Timing is captured inside :meth:`GenaiSession.generate_timed` at the
+onnxruntime-genai call boundaries (``append_tokens`` = prefill, each
+``generate_next_token`` = one decode step), mirroring onnxruntime-genai's
+official ``benchmark_e2e.py``.  onnxruntime-genai exposes no native
+perf-metrics API, so these are external wall-clock spans taken around the
+library calls.
 
 The ``perf`` command validates the folder input and delegates here via
 :func:`run_genai_perf`; ``perf.py`` itself stays single-shot-focused.
@@ -20,7 +27,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,8 +43,6 @@ from ..session import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from rich.console import Console
 
 logger = logging.getLogger(__name__)
@@ -136,8 +140,10 @@ class _RunSample:
     """Timing captured for a single full generation."""
 
     ttft_ms: float
+    prefill_ms: float
     total_ms: float
     decode_tokens_per_sec: float
+    tpot_ms: float
     n_tokens: int
 
 
@@ -162,16 +168,23 @@ class GenaiBenchmarkResult:
     ttft_p95_ms: float = 0.0
     ttft_p99_ms: float = 0.0
 
+    # Prefill / prompt-processing phase (og append_tokens), milliseconds
+    prefill_mean_ms: float = 0.0
+
     # Decode phase
     decode_tokens_per_sec: float = 0.0
     avg_token_latency_ms: float = 0.0
+    # Time per output token — steady-state decode (og generate_next_token), ms
+    tpot_mean_ms: float = 0.0
 
     # Whole generation (prefill + all decode), milliseconds
     total_generation_mean_ms: float = 0.0
 
     # Per-iteration samples (warmup excluded)
     raw_ttft_ms: list[float] = field(default_factory=list)
+    raw_prefill_ms: list[float] = field(default_factory=list)
     raw_decode_tokens_per_sec: list[float] = field(default_factory=list)
+    raw_tpot_ms: list[float] = field(default_factory=list)
     raw_total_ms: list[float] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -201,14 +214,18 @@ class GenaiBenchmarkResult:
                 "p95": round(self.ttft_p95_ms, 3),
                 "p99": round(self.ttft_p99_ms, 3),
             },
+            "prefill_ms": {"mean": round(self.prefill_mean_ms, 3)},
             "decode": {
                 "tokens_per_sec": round(self.decode_tokens_per_sec, 2),
                 "avg_token_latency_ms": round(self.avg_token_latency_ms, 3),
+                "tpot_ms": round(self.tpot_mean_ms, 3),
             },
             "total_generation_ms": {"mean": round(self.total_generation_mean_ms, 3)},
             "raw": {
                 "ttft_ms": [round(v, 3) for v in self.raw_ttft_ms],
+                "prefill_ms": [round(v, 3) for v in self.raw_prefill_ms],
                 "decode_tokens_per_sec": [round(v, 2) for v in self.raw_decode_tokens_per_sec],
+                "tpot_ms": [round(v, 3) for v in self.raw_tpot_ms],
                 "total_ms": [round(v, 3) for v in self.raw_total_ms],
             },
         }
@@ -226,15 +243,16 @@ class GenaiPerfBenchmark:
         config: The resolved benchmark request.
         session: Pre-built session (dependency injection for tests).  When
             ``None`` a :class:`GenaiSession` is constructed from ``config``.
-        clock: Monotonic clock returning seconds.  Injectable so tests can
-            drive deterministic timing.
 
     Note:
         The prompt is pre-encoded once (via :meth:`GenaiSession.encode`, which
         also loads the model) so model-load and tokenization costs are
-        excluded from the timed generations.  Each timed generation is passed
-        the pre-encoded token IDs, so TTFT reflects prefill + first token
-        rather than re-tokenization.
+        excluded from the timed generations.  Each timed generation is driven
+        by :meth:`GenaiSession.generate_timed`, which captures wall-clock spans
+        at the onnxruntime-genai call boundaries (``append_tokens`` = prefill,
+        each ``generate_next_token`` = one decode step), so TTFT and TPOT
+        reflect model compute rather than generator-construction or
+        detokenization overhead.
     """
 
     def __init__(
@@ -242,11 +260,9 @@ class GenaiPerfBenchmark:
         config: GenaiPerfConfig,
         *,
         session: GenaiSession | None = None,
-        clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self._config = config
         self._session = session
-        self._clock = clock
         self._prompt_token_ids: list[int] = []
 
     def _build_session(self) -> GenaiSession:
@@ -288,44 +304,32 @@ class GenaiPerfBenchmark:
         session: GenaiSession,
         gen_config: GenerationConfig,
     ) -> _RunSample:
-        """Run one generation, timing TTFT and decode throughput.
+        """Run one generation and convert its og-boundary timing to a sample.
 
-        ``generate_streaming`` is lazy: nothing runs until the first ``next``,
-        so prefill and the first token are both captured between ``t0`` and
-        the first yield.
+        Timing is captured inside :meth:`GenaiSession.generate_timed` at the
+        onnxruntime-genai call boundaries (``append_tokens`` = prefill, each
+        ``generate_next_token`` = one decode step), so TTFT and TPOT reflect
+        model compute rather than generator-construction / detokenization
+        overhead.
         """
-        clock = self._clock
-        stream = session.generate_streaming(self._prompt_token_ids, gen_config)
-
-        t0 = clock()
-        t_first: float | None = None
-        n = 0
-        for _ in stream:
-            if t_first is None:
-                t_first = clock()
-            n += 1
-        t_end = clock()
-
-        if n == 0 or t_first is None:
-            raise RuntimeError("genai perf: generation produced no tokens (empty bundle output?)")
-
-        ttft_ms = (t_first - t0) * 1000.0
-        total_ms = (t_end - t0) * 1000.0
-        decode_seconds = t_end - t_first
-        decode_tps = (n - 1) / decode_seconds if n > 1 and decode_seconds > 0 else 0.0
+        timing = session.generate_timed(self._prompt_token_ids, gen_config)
         return _RunSample(
-            ttft_ms=ttft_ms,
-            total_ms=total_ms,
-            decode_tokens_per_sec=decode_tps,
-            n_tokens=n,
+            ttft_ms=timing.ttft_s * 1000.0,
+            prefill_ms=timing.prefill_s * 1000.0,
+            total_ms=timing.total_s * 1000.0,
+            decode_tokens_per_sec=timing.decode_tokens_per_sec,
+            tpot_ms=timing.tpot_s * 1000.0,
+            n_tokens=timing.generated_tokens,
         )
 
     def _aggregate(self, samples: list[_RunSample]) -> GenaiBenchmarkResult:
         """Aggregate timed samples (first ``warmup`` runs excluded)."""
         timed = samples[self._config.warmup :] or samples
         ttfts = [s.ttft_ms for s in timed]
+        prefills = [s.prefill_ms for s in timed]
         totals = [s.total_ms for s in timed]
         decode_tps = [s.decode_tokens_per_sec for s in timed]
+        tpots = [s.tpot_ms for s in timed]
         token_latencies = [s.total_ms / s.n_tokens for s in timed if s.n_tokens]
         sorted_ttfts = sorted(ttfts)
 
@@ -341,11 +345,15 @@ class GenaiPerfBenchmark:
             ttft_p90_ms=_percentile(sorted_ttfts, 90),
             ttft_p95_ms=_percentile(sorted_ttfts, 95),
             ttft_p99_ms=_percentile(sorted_ttfts, 99),
+            prefill_mean_ms=_mean(prefills),
             decode_tokens_per_sec=_mean(decode_tps),
             avg_token_latency_ms=_mean(token_latencies),
+            tpot_mean_ms=_mean(tpots),
             total_generation_mean_ms=_mean(totals),
             raw_ttft_ms=ttfts,
+            raw_prefill_ms=prefills,
             raw_decode_tokens_per_sec=decode_tps,
+            raw_tpot_ms=tpots,
             raw_total_ms=totals,
         )
 
@@ -389,8 +397,11 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
 
     console.print()
     console.print(
+        f"[bold]Prefill:[/bold]   {result.prefill_mean_ms:.2f} ms avg (prompt processing)"
+    )
+    console.print(
         f"[bold]Decode:[/bold]    {result.decode_tokens_per_sec:.2f} tokens/sec  |  "
-        f"{result.avg_token_latency_ms:.2f} ms/token avg"
+        f"{result.tpot_mean_ms:.2f} ms/token (TPOT)"
     )
     console.print(
         f"[bold]Total:[/bold]     {result.total_generation_mean_ms:.2f} ms avg per generation"
