@@ -250,10 +250,17 @@ class WinMLCompileConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
-        """Create from dictionary. Unknown keys are ignored."""
+    def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig | None:
+        """Create from dictionary. Unknown keys are ignored.
+
+        Returns None when ``execution_provider`` is absent (e.g. empty
+        ``{"compile": {}}`` section in a JSON config).
+        """
+        ep = data.get("execution_provider")
+        if ep is None:
+            return None
         ep_config = EPConfig(
-            provider=data["execution_provider"],
+            provider=ep,
             provider_options=data.get("provider_options", {}),
             enable_ep_context=data.get("enable_ep_context", True),
             embed_context=data.get("embed_context", False),
