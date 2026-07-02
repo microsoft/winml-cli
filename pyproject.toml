@@ -104,6 +104,15 @@ optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
   "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
 ]
+# Extra deps pulled in by the baidu/Unlimited-OCR trust_remote_code modeling
+# code (DeepSeek-OCR family). Not required by winml itself; install with
+# `pip install winml-modelkit[unlimited-ocr]` before building that model.
+optional-dependencies.unlimited-ocr = [
+  "addict>=2.4",
+  "einops>=0.8",
+  "easydict>=1.13",
+  "matplotlib>=3.10",
+]
 urls."Bug Tracker" = "https://github.com/microsoft/winml-cli/issues"
 urls.Documentation = "https://github.com/microsoft/winml-cli/blob/main/README.md"
 urls.Homepage = "https://github.com/microsoft/winml-cli"
