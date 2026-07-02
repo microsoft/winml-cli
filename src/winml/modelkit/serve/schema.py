@@ -14,7 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..utils.constants import EPAlias, EPNameOrAlias
+from ..utils.constants import EPNameOrAlias
 
 
 # ---------------------------------------------------------------------------
@@ -25,7 +25,9 @@ from ..utils.constants import EPAlias, EPNameOrAlias
 class EpSwitchRequest(BaseModel):
     """POST /v1/ep — switch execution provider."""
 
-    ep: EPAlias = Field(..., description="EP short name: cpu, dml, qnn, openvino")
+    ep: EPNameOrAlias = Field(
+        ..., description="EP name or short alias (e.g. cpu, dml, qnn, QNNExecutionProvider)"
+    )
 
 
 class PredictJsonRequest(BaseModel):

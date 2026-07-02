@@ -91,6 +91,7 @@ def build_hf_model(
     cache_key: str | None = None,
     ep: EPNameOrAlias | None = None,
     device: str | None = None,
+    model_type: str | None = None,
     **kwargs: Any,
 ) -> BuildResult:
     """Build an ONNX model from a HuggingFace model architecture.
@@ -211,6 +212,7 @@ def build_hf_model(
             model_id,
             trust_remote_code,
             random_init=random_init,
+            model_type=model_type,
         )
 
     # =========================================================================
@@ -315,6 +317,14 @@ def build_hf_model(
         else:
             logger.info("Quantizing model...")
             t0 = time.monotonic()
+            # A model-type-specific quant policy (e.g. the qwen3_transformer_only
+            # w8a16 finalizer) is resolved and applied inside ``quantize_onnx``
+            # from ``config.quant.model_type``. Ensure it carries the resolved
+            # variant so hand-built configs (that skipped assemble_build_config)
+            # still trigger the right policy; ``quantize_onnx`` no-ops for
+            # model types without a registered finalizer.
+            if config.quant.model_type is None:
+                config.quant.model_type = config.loader.model_type
             quant_result = quantize_onnx(
                 model_path=current_path,
                 output_path=quantized_path,
@@ -443,6 +453,7 @@ def _load_model(
     trust_remote_code: bool,
     random_init: bool = False,
     hf_config: Any | None = None,
+    model_type: str | None = None,
 ) -> Any:
     """Load PyTorch model — pretrained or random weights.
 
@@ -516,8 +527,10 @@ def _load_model(
         pytorch_model, _, _ = load_hf_model(
             model_name_or_path=model_id,
             task=task,
+            model_class=config.loader.model_class,
             trust_remote_code=effective_trust,
             hf_config=hf_config,
+            model_type=model_type,
         )
         return pytorch_model
 

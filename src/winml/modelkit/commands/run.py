@@ -519,6 +519,18 @@ def run(
     Uses embedded inference by default. Pass ``--connect`` to route
     through a running ``winml serve`` instance instead.
 
+    Exit Codes:
+
+        0: Success
+
+        1: General error
+
+        2: Usage error — invalid input or arguments
+
+        3: Model load failure
+
+        4: Inference failure
+
     Examples:
     \b
         # Image classification (shortcut)
@@ -547,8 +559,7 @@ def run(
     pipeline_kwargs: dict[str, Any] = {}
     for p in params:
         if "=" not in p:
-            click.echo(f"Error: invalid --param format: '{p}'. Use KEY=VALUE.", err=True)
-            ctx.exit(2)
+            raise click.UsageError(f"invalid --param format: '{p}'. Use KEY=VALUE.")
         k, v = p.split("=", 1)
         pipeline_kwargs[k] = _parse_param_value(v)
 
@@ -556,8 +567,7 @@ def run(
     raw_inputs: dict[str, str] = {}
     for inp in input_args:
         if "=" not in inp:
-            click.echo(f"Error: invalid --input format: '{inp}'. Use NAME=VALUE.", err=True)
-            ctx.exit(2)
+            raise click.UsageError(f"invalid --input format: '{inp}'. Use NAME=VALUE.")
         k, v = inp.split("=", 1)
         raw_inputs[k] = v
 
@@ -566,17 +576,14 @@ def run(
     for fp in files:
         file_path = Path(fp)
         if not file_path.exists() or not file_path.is_file():
-            click.echo(f"Error: file not found: {fp}", err=True)
-            ctx.exit(2)
+            raise click.UsageError(f"file not found: {fp}")
         file_bytes_list.append(file_path.read_bytes())
 
     if len(file_bytes_list) > 1:
-        click.echo(
-            f"Error: --file accepts only one file (got {len(file_bytes_list)}). "
-            "Use --input for multiple file inputs (e.g. -I image_0=@a.jpg -I image_1=@b.jpg).",
-            err=True,
+        raise click.UsageError(
+            f"--file accepts only one file (got {len(file_bytes_list)}). "
+            "Use --input for multiple file inputs (e.g. -I image_0=@a.jpg -I image_1=@b.jpg)."
         )
-        ctx.exit(2)
 
     # Check if any input was provided
     has_inputs = bool(file_bytes_list) or text is not None or bool(raw_inputs)
@@ -619,8 +626,7 @@ def run(
         try:
             engine.load_schema_only(model, task=task, device=device, ep=ep)
         except (OSError, ValueError, RuntimeError) as exc:
-            click.echo(f"Error loading model: {exc}", err=True)
-            ctx.exit(3)
+            raise cli_utils.ModelLoadError(f"Error loading model: {exc}") from exc
         _print_schema(engine, output_format=output_format, output_path=output)
         return
 
@@ -638,8 +644,7 @@ def run(
                 allow_unsupported_nodes=allow_unsupported_nodes,
             )
     except (OSError, ValueError, RuntimeError) as exc:
-        click.echo(f"Error loading model: {exc}", err=True)
-        ctx.exit(3)
+        raise cli_utils.ModelLoadError(f"Error loading model: {exc}") from exc
 
     # No inputs: print hint and exit
     if not has_inputs:
@@ -651,33 +656,28 @@ def run(
     try:
         coerced_inputs = _coerce_inputs(raw_inputs, schema)
     except click.ClickException as exc:
-        click.echo(f"Error: {exc.format_message()}", err=True)
-        ctx.exit(2)
+        raise click.UsageError(exc.format_message()) from exc
 
     # Merge --file/--text shortcuts with --input
     try:
         inputs = _resolve_shortcuts(file_bytes_list, text, coerced_inputs, schema)
     except click.ClickException as exc:
-        click.echo(f"Error: {exc.format_message()}", err=True)
-        ctx.exit(2)
+        raise click.UsageError(exc.format_message()) from exc
 
     # Check input / -P collision (after shortcuts are resolved so that
     # --file and --text shortcut keys are included in the check)
     collision = set(inputs.keys()) & set(pipeline_kwargs.keys())
     if collision:
         key = sorted(collision)[0]
-        click.echo(
-            f"Error: '{key}' specified as both input and -P. "
-            f"Use --input for model inputs and -P for pipeline parameters.",
-            err=True,
+        raise click.UsageError(
+            f"'{key}' specified as both input and -P. "
+            "Use --input for model inputs and -P for pipeline parameters."
         )
-        ctx.exit(2)
 
     try:
         prediction = engine.predict(inputs=inputs, **pipeline_kwargs)
     except (ValueError, TypeError, RuntimeError, OSError) as exc:
-        click.echo(f"Error during inference: {exc}", err=True)
-        ctx.exit(4)
+        raise cli_utils.InferenceError(f"Error during inference: {exc}") from exc
 
     _print_result(prediction.model_dump(), output_format=output_format, output_path=output)
 

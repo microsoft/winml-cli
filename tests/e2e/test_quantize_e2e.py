@@ -668,7 +668,7 @@ class TestOutputBehavior:
         local = target_dir / "tiny.onnx"
         local.write_bytes(tiny_onnx.read_bytes())
         r = _invoke(runner, ["-m", str(local), "--samples", "4"])
-        expected = target_dir / "tiny_qdq.onnx"
+        expected = target_dir / "tiny_quantized.onnx"
         assert expected.exists()
         _assert_quantized_output(input_onnx=local, output_onnx=expected, stdout=r.output)
 
@@ -933,3 +933,98 @@ class TestVerbose:
             f"verbose did not increase output\n--- quiet ---\n{r_quiet.output}\n"
             f"--- verbose ---\n{r_verbose.output}"
         )
+
+
+# ===========================================================================
+# Multi-precision pipeline
+# ===========================================================================
+
+
+def _build_rtn_onnx(path: Path) -> None:
+    """Build an ONNX with MatMul weights large enough for RTN int4 (K >= block_size=128)."""
+    rng = np.random.default_rng(77)
+    x = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 256])
+    y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 64])
+    w1 = onnx.numpy_helper.from_array(rng.standard_normal((256, 128)).astype(np.float32), "W1")
+    b1 = onnx.numpy_helper.from_array(rng.standard_normal((128,)).astype(np.float32), "B1")
+    w2 = onnx.numpy_helper.from_array(rng.standard_normal((128, 64)).astype(np.float32), "W2")
+    b2 = onnx.numpy_helper.from_array(rng.standard_normal((64,)).astype(np.float32), "B2")
+    nodes = [
+        onnx.helper.make_node("MatMul", ["input", "W1"], ["mm1"]),
+        onnx.helper.make_node("Add", ["mm1", "B1"], ["add1"]),
+        onnx.helper.make_node("MatMul", ["add1", "W2"], ["mm2"]),
+        onnx.helper.make_node("Add", ["mm2", "B2"], ["output"]),
+    ]
+    graph = onnx.helper.make_graph(nodes, "rtn_quantizable", [x], [y], [w1, b1, w2, b2])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+    model.ir_version = 8
+    onnx.checker.check_model(model)
+    onnx.save(model, str(path))
+
+
+@pytest.fixture(scope="session")
+def rtn_onnx(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """ONNX with large enough MatMul weights to be quantized by RTN int4."""
+    d = tmp_path_factory.mktemp("rtn_quant")
+    p = d / "rtn.onnx"
+    _build_rtn_onnx(p)
+    return p
+
+
+class TestMultiPrecision:
+    def test_int4_then_fp16_pipeline(self, runner: CliRunner, rtn_onnx: Path, tmp_path: Path):
+        """--precision int4 --precision fp16: RTN pass then FP16 conversion.
+
+        Verifies that:
+        - The pipeline completes successfully
+        - RTN pass applied: model contains MatMulNBits nodes
+        - FP16 pass applied: bias initializers converted to FLOAT16
+        """
+        out = tmp_path / "multi_int4_fp16.onnx"
+        r = _invoke(
+            runner,
+            [
+                "-m",
+                str(rtn_onnx),
+                "-o",
+                str(out),
+                "--precision",
+                "int4",
+                "--precision",
+                "fp16",
+            ],
+        )
+        assert r.exit_code == 0, f"pipeline exited {r.exit_code}\n{r.output}"
+        assert out.exists()
+
+        model = onnx.load(str(out))
+
+        # RTN pass: MatMul nodes replaced by MatMulNBits
+        op_types = {n.op_type for n in model.graph.node}
+        assert "MatMulNBits" in op_types, (
+            f"expected MatMulNBits after RTN pass, got ops: {op_types}"
+        )
+
+        # FP16 pass: bias initializers converted from FLOAT to FLOAT16
+        float16_inits = [
+            i for i in model.graph.initializer if i.data_type == onnx.TensorProto.FLOAT16
+        ]
+        assert float16_inits, (
+            "expected at least one FLOAT16 initializer after FP16 pass; "
+            f"dtypes: {[i.data_type for i in model.graph.initializer]}"
+        )
+
+        # Pipeline label appears in stdout
+        assert "int4" in r.output.lower()
+        assert "fp16" in r.output.lower()
+
+    def test_pipeline_default_output_path(self, runner: CliRunner, rtn_onnx: Path, tmp_path: Path):
+        """Multi-precision without -o should produce {stem}_int4_fp16.onnx next to input."""
+        local = tmp_path / "model.onnx"
+        local.write_bytes(rtn_onnx.read_bytes())
+        r = _invoke(
+            runner,
+            ["-m", str(local), "--precision", "int4", "--precision", "fp16"],
+        )
+        assert r.exit_code == 0, r.output
+        assert (tmp_path / "model_int4_fp16.onnx").exists()

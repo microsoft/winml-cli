@@ -11,6 +11,7 @@ models, error paths, and edge cases.
 
 from __future__ import annotations
 
+import errno
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -21,6 +22,7 @@ from onnx.external_data_helper import _get_all_tensors, uses_external_data
 
 from winml.modelkit.onnx import EXTERNAL_DATA_THRESHOLD
 from winml.modelkit.onnx.persistence import (
+    ONNXSaveError,
     cleanup_onnx,
     load_onnx,
     save_onnx,
@@ -622,3 +624,83 @@ class TestConstants:
 
     def test_threshold_is_100mib(self) -> None:
         assert EXTERNAL_DATA_THRESHOLD == 100 * 1024 * 1024
+
+
+# ---------------------------------------------------------------------------
+# Disk-full / failed-write handling (issue #259)
+# ---------------------------------------------------------------------------
+
+
+def _make_failing_save_model(errno_code: int):
+    """Build a fake ``onnx.save_model`` that simulates a failed disk write.
+
+    Mirrors the OS behaviour: ``open(path, "wb")`` truncates/creates the target
+    first, then the write fails — leaving a partial artifact behind that the
+    real code must clean up.
+    """
+
+    def _fake_save_model(_proto: object, f: str, **kwargs: object) -> None:
+        from pathlib import Path as _Path
+
+        _Path(f).write_bytes(b"")  # 0-byte partial file, like a truncated write
+        location = kwargs.get("location")
+        if isinstance(location, str):
+            _Path(location).write_bytes(b"")
+        raise OSError(errno_code, "simulated write failure")
+
+    return _fake_save_model
+
+
+class TestSaveOnnxDiskFull:
+    """save_onnx surfaces a clear error and removes partial files on failure."""
+
+    def test_inline_disk_full_raises_clear_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _make_tiny_model()
+        model_path = tmp_path / "out.onnx"
+        monkeypatch.setattr(onnx, "save_model", _make_failing_save_model(errno.ENOSPC))
+
+        with pytest.raises(ONNXSaveError) as exc_info:
+            save_onnx(model, model_path, use_external_data=False)
+
+        err = exc_info.value
+        assert err.disk_full is True
+        assert isinstance(err, OSError)  # backward-compatible with except OSError
+        assert err.errno == errno.ENOSPC  # preserved for callers inspecting e.errno
+        assert "disk space" in str(err).lower()
+        # The truncated 0-byte file must not be left behind for a later stage.
+        assert not model_path.exists()
+
+    def test_external_disk_full_raises_and_cleans_sidecar(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _make_model_with_initializer()
+        model_path = tmp_path / "out.onnx"
+        sidecar = tmp_path / "out.onnx.data"
+        monkeypatch.setattr(onnx, "save_model", _make_failing_save_model(errno.ENOSPC))
+
+        with pytest.raises(ONNXSaveError) as exc_info:
+            save_onnx(model, model_path, threshold_size=0)  # force external data
+
+        assert exc_info.value.disk_full is True
+        assert exc_info.value.errno == errno.ENOSPC
+        assert "disk space" in str(exc_info.value).lower()
+        assert not model_path.exists()
+        assert not sidecar.exists()
+
+    def test_non_enospc_oserror_raises_generic_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _make_tiny_model()
+        model_path = tmp_path / "out.onnx"
+        monkeypatch.setattr(onnx, "save_model", _make_failing_save_model(errno.EACCES))
+
+        with pytest.raises(ONNXSaveError) as exc_info:
+            save_onnx(model, model_path, use_external_data=False)
+
+        err = exc_info.value
+        assert err.disk_full is False
+        assert err.errno == errno.EACCES  # non-disk-full errno is preserved too
+        assert "Failed to write ONNX model" in str(err)
+        assert not model_path.exists()

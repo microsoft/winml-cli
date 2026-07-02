@@ -117,19 +117,24 @@ class InformationEngine:
         self._device = device
 
         # Load predefined information rules
+        from ..models.ihv_type import IHVType
         from ..utils import infer_ihv_from_ep_name
         from ..utils.rule_loader import RuleLoader
 
         self._rule_loader = RuleLoader(rules_dir=rules_dir)
 
-        # Infer IHV from EP name for per-IHV rule loading
+        # Infer IHV from EP name for per-IHV rule loading. An unrecognized EP
+        # resolves to IHVType.UNKNOWN, which we treat as "no IHV filter" so the
+        # loader falls back to loading all rules.
         infer_ihv_start = time.perf_counter()
-        try:
-            ihv_type = infer_ihv_from_ep_name(self._ep)
-            logger.info("Inferred IHV type %s from EP %s", ihv_type.value, self._ep)
-        except ValueError as e:
-            logger.warning("Could not infer IHV from EP %s: %s. Loading all rules.", self._ep, e)
+        inferred_ihv = infer_ihv_from_ep_name(self._ep)
+        ihv_type: IHVType | None
+        if inferred_ihv is IHVType.UNKNOWN:
+            logger.warning("Could not infer IHV from EP %s. Loading all rules.", self._ep)
             ihv_type = None
+        else:
+            logger.info("Inferred IHV type %s from EP %s", inferred_ihv.value, self._ep)
+            ihv_type = inferred_ihv
         infer_ihv_ms = int((time.perf_counter() - infer_ihv_start) * 1000)
 
         load_predefined_start = time.perf_counter()

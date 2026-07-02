@@ -387,6 +387,16 @@ class PerfBenchmark:
         self._resolved_ep = resolved_ep
 
     @property
+    def resolved_device(self) -> str | None:
+        """Concrete device driving the build/inference (``None`` until resolved)."""
+        return self._resolved_device
+
+    @property
+    def resolved_ep(self) -> EPNameOrAlias | None:
+        """Concrete EP driving the build/inference (``None`` until resolved)."""
+        return self._resolved_ep
+
+    @property
     def _is_composite(self) -> bool:
         """Composite models orchestrate multiple sub-sessions (e.g. CLIP/SigLIP).
 
@@ -831,6 +841,8 @@ def _perf_modules(
     ep_options: dict[str, str] | None = None,
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
+    rebuild: bool = False,
+    ignore_cache: bool = False,
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
 
@@ -863,13 +875,21 @@ def _perf_modules(
         precision: Precision mode passed through to the build stage.
         allow_unsupported_nodes: If True, warn instead of failing the build when
             the analyzer reports unsupported nodes that persist.
+        rebuild: If True, overwrite cached per-module artifacts and re-run the
+            build (mirrors the single-model ``--rebuild``).
+        ignore_cache: If True, build each module in a throwaway temp dir and
+            always rebuild, discarding artifacts afterward (mirrors the
+            single-model ``--ignore-cache``).
     """
+    import contextlib
     import difflib
     import json as json_mod
     import tempfile
 
     from ..build import build_hf_model
+    from ..cache import get_cache_dir, get_cache_key, get_model_dir
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
+    from ..loader.task import get_task_abbrev
     from ..sysinfo import resolve_device, resolve_eps
     from .build import _instantiate_parent_model
 
@@ -932,6 +952,27 @@ def _perf_modules(
     parent_loader_cfg, _, _, _resolution = resolve_loader_config(model_id=hf_model, task=task)
     parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
+    # Cache control mirrors auto.py / the single-model path:
+    #   --ignore-cache -> build each module in a throwaway temp dir, always
+    #                     rebuild, discard afterward
+    #   --rebuild      -> reuse the persistent model dir but overwrite artifacts
+    # Each module's cache_key folds in loader.module_path (and its I/O shapes),
+    # so sibling instances of the same class get distinct keys and coexist in
+    # the shared model dir without colliding.
+    use_cache = not ignore_cache
+    force_rebuild = rebuild or ignore_cache
+    task_abbrev = get_task_abbrev(parent_loader_cfg.task) if parent_loader_cfg.task else "module"
+    cache_model_dir = get_model_dir(hf_model, cache_dir=get_cache_dir()) if use_cache else None
+
+    # Optimize/analyze toggles aren't part of ``cfg``; fold them into the cache
+    # key so e.g. a later ``--no-optimize`` run doesn't silently reuse a cached
+    # optimized artifact (mirrors the single-model path in auto.py).
+    build_control_kwargs = cli_utils.build_pipeline_extra_kwargs(
+        optimize=not no_optimize,
+        analyze=not no_analyze,
+        max_optim_iterations=max_optim_iterations,
+    )
+
     all_results: list[dict[str, Any]] = []
     for i, cfg in enumerate(module_configs):
         module_path = cfg.loader.module_path
@@ -960,20 +1001,31 @@ def _perf_modules(
         if no_compile:
             cfg.compile = None
 
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        # Compute the cache key AFTER the quant/compile mutations above so it
+        # reflects what is actually built. Build controls (optimize/analyze
+        # toggles) are folded in too since they aren't part of ``cfg``.
+        cache_key = get_cache_key(task_abbrev, cfg.generate_cache_key(), build_control_kwargs)
+
+        # Persistent model dir (reused across runs) when caching, else a
+        # throwaway temp dir that is removed when the with-block exits.
+        build_dir_ctx: Any = (
+            contextlib.nullcontext(cache_model_dir)
+            if use_cache
+            else tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        )
+        with build_dir_ctx as build_dir_raw:
+            build_dir = Path(build_dir_raw)
             try:
                 build_result = build_hf_model(
                     config=cfg,
-                    output_dir=Path(tmpdir),
+                    output_dir=build_dir,
                     pytorch_model=submodule,
+                    rebuild=force_rebuild,
+                    cache_key=cache_key,
                     ep=ep,
                     device=resolved_device,
                     allow_unsupported_nodes=allow_unsupported_nodes,
-                    **cli_utils.build_pipeline_extra_kwargs(
-                        optimize=not no_optimize,
-                        analyze=not no_analyze,
-                        max_optim_iterations=max_optim_iterations,
-                    ),
+                    **build_control_kwargs,
                 )
 
                 # Benchmark using WinMLSession
@@ -1544,6 +1596,7 @@ def _run_simple_loop(
 @cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def perf(
     ctx: click.Context,
@@ -1680,6 +1733,8 @@ def perf(
             ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
+            rebuild=rebuild,
+            ignore_cache=ignore_cache,
         )
         return
 
@@ -1809,12 +1864,17 @@ def perf(
         # Op-tracing (additive to existing benchmark)
         # =================================================================
         if op_tracing:
-            from ..optracing import is_qnn_profiling_available
+            from ..optracing import is_profiling_available
 
-            if not is_qnn_profiling_available():
-                console.print("[red]Error:[/red] Op-tracing requires onnxruntime-qnn")
-                console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
-                raise SystemExit(1)
+            if not is_profiling_available(
+                benchmark.resolved_ep, benchmark.resolved_device, op_tracing
+            ):
+                raise click.ClickException(
+                    "Op-tracing is only supported for the QNN EP "
+                    "on NPU at the 'basic' level "
+                    f"(resolved EP={benchmark.resolved_ep}, "
+                    f"device={benchmark.resolved_device}, level={op_tracing})."
+                )
 
             from ..optracing import (
                 display_op_trace_report,
@@ -1831,20 +1891,18 @@ def perf(
                 if onnx_for_trace is None:
                     raise AttributeError("benchmark._model not initialized")
             except AttributeError:
-                console.print(
-                    "[red]Error:[/red] Could not determine ONNX model path for op-tracing"
-                )
-                raise SystemExit(1) from None
+                raise click.ClickException(
+                    "Could not determine ONNX model path for op-tracing"
+                ) from None
 
             output_dir = output.parent if output else Path()
 
             # Look up tracer via registry (EP-agnostic).
             tracer_cls = get_tracer("QNNExecutionProvider", op_tracing)
             if tracer_cls is None:
-                console.print(
-                    f"[red]Error:[/red] No tracer registered for QNN EP at level '{op_tracing}'"
+                raise click.ClickException(
+                    f"No tracer registered for QNN EP at level '{op_tracing}'"
                 )
-                raise SystemExit(1)
 
             profiler = tracer_cls(
                 onnx_for_trace,
@@ -1859,10 +1917,9 @@ def perf(
             # Display and save
             display_op_trace_report(trace_result, console)
 
-            model_slug = hf_model.replace("/", "_").replace("\\", "_")
-            if is_onnx:
-                model_slug = model_path.stem
-            trace_output = output_dir / f"{model_slug}_op_trace.json"
+            # Mirror the benchmark report path so the two files sit side by side:
+            # a/b.json -> a/b_op_trace.json.
+            trace_output = output.with_name(f"{output.stem}_op_trace{output.suffix}")
             write_op_trace_json(trace_result, trace_output)
             console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
@@ -1871,6 +1928,10 @@ def perf(
         # the convention used by Click for argument problems.
         raise click.UsageError(f"Model not found: {e}") from e
 
+    except click.ClickException:
+        # Click exceptions are already intentional control flow; re-raise so
+        # the catch-all below doesn't relabel them as "Benchmark failed".
+        raise
     except Exception as e:
         if verbose:
             logger.exception("Benchmark failed")

@@ -1,0 +1,573 @@
+{
+  "metadata": {
+    "model": "resnet-50",
+    "device": "npu",
+    "ep": "",
+    "tracing_level": "basic",
+    "tracing_backend": "",
+    "timestamp": "",
+    "num_samples": 5
+  },
+  "summary": {
+    "hvx_threads": 4,
+    "accel_execute_cycles": 3455548,
+    "accel_execute_us": 1041
+  },
+  "operators": [
+    {
+      "name": "/resnet/embedder/embedder/convolution/Conv",
+      "op_path": "/resnet/embedder/embedder/convolution/Conv",
+      "op_id": 24,
+      "duration_us": 197.87246478452283,
+      "percent_of_total": 19.10347271565341
+    },
+    {
+      "name": "Transpose",
+      "op_path": "Transpose",
+      "op_id": 18,
+      "duration_us": 73.19466283403723,
+      "percent_of_total": 6.998941887957573
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.0/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.0/layer/layer.1/convolution/Conv",
+      "op_id": 128,
+      "duration_us": 46.10237119126056,
+      "percent_of_total": 4.457262479914476
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.0/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.0/layer/layer.1/convolution/Conv",
+      "op_id": 394,
+      "duration_us": 31.058012793824286,
+      "percent_of_total": 2.907405153173719
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.0/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.0/layer/layer.1/convolution/Conv",
+      "op_id": 236,
+      "duration_us": 30.65123868173662,
+      "percent_of_total": 2.962225510694881
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.2/Add_3",
+      "op_path": "/resnet/encoder/stages.0/layers.2/Add_3",
+      "op_id": 114,
+      "duration_us": 30.440866176834344,
+      "percent_of_total": 2.9312860705196546
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.0/Add_3",
+      "op_path": "/resnet/encoder/stages.0/layers.0/Add_3",
+      "op_id": 64,
+      "duration_us": 29.548920834054616,
+      "percent_of_total": 2.8544456148553943
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.1/Add_3",
+      "op_path": "/resnet/encoder/stages.0/layers.1/Add_3",
+      "op_id": 89,
+      "duration_us": 29.265413670871375,
+      "percent_of_total": 2.8261883414243387
+    },
+    {
+      "name": "/resnet/embedder/pooler/MaxPool",
+      "op_path": "/resnet/embedder/pooler/MaxPool",
+      "op_id": 30,
+      "duration_us": 29.195149180575743,
+      "percent_of_total": 2.8184790172221037
+    },
+    {
+      "name": "/resnet/pooler/GlobalAveragePool",
+      "op_path": "/resnet/pooler/GlobalAveragePool",
+      "op_id": 467,
+      "duration_us": 27.237714522681312,
+      "percent_of_total": 2.540853249884492
+    },
+    {
+      "name": "pixel_values_QuantizeLinear_3",
+      "op_path": "pixel_values_QuantizeLinear_3",
+      "op_id": 16,
+      "duration_us": 21.747111533394264,
+      "percent_of_total": 2.100304420509825
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.2/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.2/layer/layer.1/convolution/Conv",
+      "op_id": 452,
+      "duration_us": 21.60046791274286,
+      "percent_of_total": 2.0017083069469765
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.0/shortcut/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.0/shortcut/convolution/Conv",
+      "op_id": 144,
+      "duration_us": 21.306912762518333,
+      "percent_of_total": 2.0485773679897754
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.1/Add_3",
+      "op_path": "/resnet/encoder/stages.1/layers.1/Add_3",
+      "op_id": 172,
+      "duration_us": 20.838009200618526,
+      "percent_of_total": 2.0141942615027686
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.2/Add_3",
+      "op_path": "/resnet/encoder/stages.1/layers.2/Add_3",
+      "op_id": 197,
+      "duration_us": 20.39773395992692,
+      "percent_of_total": 1.9723010557000613
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.3/Add_3",
+      "op_path": "/resnet/encoder/stages.1/layers.3/Add_3",
+      "op_id": 222,
+      "duration_us": 20.1535252980997,
+      "percent_of_total": 1.9550192571157254
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.0/Add_3",
+      "op_path": "/resnet/encoder/stages.1/layers.0/Add_3",
+      "op_id": 147,
+      "duration_us": 19.42867614529926,
+      "percent_of_total": 1.8827994326557693
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.0/shortcut/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.0/shortcut/convolution/Conv",
+      "op_id": 252,
+      "duration_us": 15.217373226922973,
+      "percent_of_total": 1.4284918322904068
+    },
+    {
+      "name": "/classifier/classifier.1/Gemm_3",
+      "op_path": "/classifier/classifier.1/Gemm_3",
+      "op_id": 475,
+      "duration_us": 14.521111436495826,
+      "percent_of_total": 1.3878067385948083
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.1/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.1/layer/layer.1/convolution/Conv",
+      "op_id": 427,
+      "duration_us": 14.268587468933124,
+      "percent_of_total": 1.2963922809298931
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.4/Add_3",
+      "op_path": "/resnet/encoder/stages.2/layers.4/Add_3",
+      "op_id": 355,
+      "duration_us": 12.251838989906956,
+      "percent_of_total": 1.1847048394748012
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.5/Add_3",
+      "op_path": "/resnet/encoder/stages.2/layers.5/Add_3",
+      "op_id": 380,
+      "duration_us": 12.2215084974497,
+      "percent_of_total": 1.1804032258309962
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.3/Add_3",
+      "op_path": "/resnet/encoder/stages.2/layers.3/Add_3",
+      "op_id": 330,
+      "duration_us": 12.2214420871878,
+      "percent_of_total": 1.1811211134069852
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.2/Add_3",
+      "op_path": "/resnet/encoder/stages.2/layers.2/Add_3",
+      "op_id": 305,
+      "duration_us": 12.194539733509043,
+      "percent_of_total": 1.1790319850803495
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.1/Add_3",
+      "op_path": "/resnet/encoder/stages.2/layers.1/Add_3",
+      "op_id": 280,
+      "duration_us": 12.019878394576065,
+      "percent_of_total": 1.1618127565817753
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.0/shortcut/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.0/shortcut/convolution/Conv",
+      "op_id": 410,
+      "duration_us": 11.766383999516531,
+      "percent_of_total": 1.12692739468823
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.0/Add_3",
+      "op_path": "/resnet/encoder/stages.2/layers.0/Add_3",
+      "op_id": 255,
+      "duration_us": 11.569498330700938,
+      "percent_of_total": 1.1186390687705312
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.2/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.2/layer/layer.0/convolution/Conv",
+      "op_id": 444,
+      "duration_us": 9.242882354929687,
+      "percent_of_total": 0.8782059665388087
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.1/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.1/layer/layer.1/convolution/Conv",
+      "op_id": 269,
+      "duration_us": 7.142223111561625,
+      "percent_of_total": 0.6878954513595683
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.1/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.1/layer/layer.2/convolution/Conv",
+      "op_id": 435,
+      "duration_us": 6.962569955509719,
+      "percent_of_total": 0.6552987326945149
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.0/Add_3",
+      "op_path": "/resnet/encoder/stages.3/layers.0/Add_3",
+      "op_id": 413,
+      "duration_us": 6.651855872823707,
+      "percent_of_total": 0.6429320284774851
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.2/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.2/layer/layer.1/convolution/Conv",
+      "op_id": 294,
+      "duration_us": 6.590697370189571,
+      "percent_of_total": 0.6370870891192918
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.4/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.4/layer/layer.1/convolution/Conv",
+      "op_id": 344,
+      "duration_us": 6.542803607819138,
+      "percent_of_total": 0.632515563359822
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.5/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.5/layer/layer.1/convolution/Conv",
+      "op_id": 369,
+      "duration_us": 6.505610726308722,
+      "percent_of_total": 0.6288555110688104
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.3/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.3/layer/layer.1/convolution/Conv",
+      "op_id": 319,
+      "duration_us": 6.486731779100149,
+      "percent_of_total": 0.6270870612074704
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.2/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.2/layer/layer.2/convolution/Conv",
+      "op_id": 460,
+      "duration_us": 6.483149277138303,
+      "percent_of_total": 0.6105042897623703
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.1/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.1/layer/layer.1/convolution/Conv",
+      "op_id": 161,
+      "duration_us": 6.346914063375384,
+      "percent_of_total": 0.6140607457272236
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.0/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.0/layer/layer.1/convolution/Conv",
+      "op_id": 45,
+      "duration_us": 6.226902312915317,
+      "percent_of_total": 0.6010213114181033
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.0/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.0/layer/layer.0/convolution/Conv",
+      "op_id": 386,
+      "duration_us": 6.1930474729659055,
+      "percent_of_total": 0.5990901271443959
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.0/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.0/layer/layer.0/convolution/Conv",
+      "op_id": 120,
+      "duration_us": 6.1312188431864385,
+      "percent_of_total": 0.5937526788339612
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.2/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.2/layer/layer.1/convolution/Conv",
+      "op_id": 186,
+      "duration_us": 6.006812193410633,
+      "percent_of_total": 0.5815091396206968
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.3/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.3/layer/layer.1/convolution/Conv",
+      "op_id": 211,
+      "duration_us": 5.967575839729966,
+      "percent_of_total": 0.5776749851481549
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.2/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.2/layer/layer.1/convolution/Conv",
+      "op_id": 103,
+      "duration_us": 5.927781443224344,
+      "percent_of_total": 0.5745074317200402
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.0/shortcut/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.0/shortcut/convolution/Conv",
+      "op_id": 61,
+      "duration_us": 5.876382017722966,
+      "percent_of_total": 0.5687812421315531
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.0/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.0/layer/layer.0/convolution/Conv",
+      "op_id": 228,
+      "duration_us": 5.803414477285924,
+      "percent_of_total": 0.5617570218005301
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.2/Add_3",
+      "op_path": "/resnet/encoder/stages.3/layers.2/Add_3",
+      "op_id": 463,
+      "duration_us": 5.729995552020262,
+      "percent_of_total": 0.5554556898558076
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.2/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.2/layer/layer.2/convolution/Conv",
+      "op_id": 111,
+      "duration_us": 5.704461260955877,
+      "percent_of_total": 0.5519906636996887
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.1/Add_3",
+      "op_path": "/resnet/encoder/stages.3/layers.1/Add_3",
+      "op_id": 438,
+      "duration_us": 5.691924936505158,
+      "percent_of_total": 0.5512875174448564
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.1/layer/layer.1/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.1/layer/layer.1/convolution/Conv",
+      "op_id": 78,
+      "duration_us": 5.62348984814917,
+      "percent_of_total": 0.5449112060933031
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.0/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.0/layer/layer.2/convolution/Conv",
+      "op_id": 53,
+      "duration_us": 5.583787059257368,
+      "percent_of_total": 0.539831537759931
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.1/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.1/layer/layer.2/convolution/Conv",
+      "op_id": 86,
+      "duration_us": 5.368215746463642,
+      "percent_of_total": 0.5200303073528931
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.1/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.1/layer/layer.2/convolution/Conv",
+      "op_id": 169,
+      "duration_us": 4.977880755961327,
+      "percent_of_total": 0.4739194486793705
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.0/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.0/layer/layer.2/convolution/Conv",
+      "op_id": 136,
+      "duration_us": 4.883670539448156,
+      "percent_of_total": 0.47407620644818627
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.3/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.3/layer/layer.2/convolution/Conv",
+      "op_id": 219,
+      "duration_us": 4.831734274785914,
+      "percent_of_total": 0.4608914425754058
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.2/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.2/layer/layer.2/convolution/Conv",
+      "op_id": 194,
+      "duration_us": 4.747427664725864,
+      "percent_of_total": 0.46014565747879477
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.0/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.0/layer/layer.2/convolution/Conv",
+      "op_id": 244,
+      "duration_us": 4.431440609836907,
+      "percent_of_total": 0.4284328340691938
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.2/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.2/layer/layer.2/convolution/Conv",
+      "op_id": 302,
+      "duration_us": 4.364718237736733,
+      "percent_of_total": 0.42200531631855986
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.1/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.1/layer/layer.2/convolution/Conv",
+      "op_id": 277,
+      "duration_us": 4.291274689479434,
+      "percent_of_total": 0.4148917592389642
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.5/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.5/layer/layer.2/convolution/Conv",
+      "op_id": 377,
+      "duration_us": 4.181956362182358,
+      "percent_of_total": 0.4043225440465427
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.4/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.4/layer/layer.2/convolution/Conv",
+      "op_id": 352,
+      "duration_us": 4.157854527975575,
+      "percent_of_total": 0.4019647471226128
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.3/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.3/layer/layer.2/convolution/Conv",
+      "op_id": 327,
+      "duration_us": 4.153939852281513,
+      "percent_of_total": 0.40158167759977903
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.0/layer/layer.2/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.0/layer/layer.2/convolution/Conv",
+      "op_id": 402,
+      "duration_us": 4.152870682788911,
+      "percent_of_total": 0.4006234492442706
+    },
+    {
+      "name": "/resnet/encoder/stages.3/layers.1/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.3/layers.1/layer/layer.0/convolution/Conv",
+      "op_id": 419,
+      "duration_us": 3.736920689204999,
+      "percent_of_total": 0.3434677632174699
+    },
+    {
+      "name": "Input",
+      "op_path": "Input",
+      "op_id": 2,
+      "duration_us": 3.4886417789136837,
+      "percent_of_total": 0.3293112131922725
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.2/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.2/layer/layer.0/convolution/Conv",
+      "op_id": 95,
+      "duration_us": 3.2843521858090776,
+      "percent_of_total": 0.31843331489020626
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.3/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.3/layer/layer.0/convolution/Conv",
+      "op_id": 203,
+      "duration_us": 3.2315715644945398,
+      "percent_of_total": 0.31366716798217453
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.1/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.1/layer/layer.0/convolution/Conv",
+      "op_id": 70,
+      "duration_us": 3.137483097980128,
+      "percent_of_total": 0.3039727569375319
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.2/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.2/layer/layer.0/convolution/Conv",
+      "op_id": 178,
+      "duration_us": 3.1293837114400818,
+      "percent_of_total": 0.30282627231889686
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.3/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.3/layer/layer.0/convolution/Conv",
+      "op_id": 311,
+      "duration_us": 3.0421869180545174,
+      "percent_of_total": 0.29411871445520227
+    },
+    {
+      "name": "/resnet/encoder/stages.1/layers.1/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.1/layers.1/layer/layer.0/convolution/Conv",
+      "op_id": 153,
+      "duration_us": 3.0420068446330135,
+      "percent_of_total": 0.29494639979963033
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.2/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.2/layer/layer.0/convolution/Conv",
+      "op_id": 286,
+      "duration_us": 3.0300923760956104,
+      "percent_of_total": 0.29291212656153426
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.4/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.4/layer/layer.0/convolution/Conv",
+      "op_id": 336,
+      "duration_us": 3.010174556517658,
+      "percent_of_total": 0.2910935666887473
+    },
+    {
+      "name": "/resnet/encoder/stages.0/layers.0/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.0/layers.0/layer/layer.0/convolution/Conv",
+      "op_id": 37,
+      "duration_us": 2.961577678517372,
+      "percent_of_total": 0.28621977120273234
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.5/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.5/layer/layer.0/convolution/Conv",
+      "op_id": 361,
+      "duration_us": 2.9558194669219966,
+      "percent_of_total": 0.28589910197100743
+    },
+    {
+      "name": "/resnet/encoder/stages.2/layers.1/layer/layer.0/convolution/Conv",
+      "op_path": "/resnet/encoder/stages.2/layers.1/layer/layer.0/convolution/Conv",
+      "op_id": 261,
+      "duration_us": 2.929113427064801,
+      "percent_of_total": 0.28317914475743733
+    },
+    {
+      "name": "Output",
+      "op_path": "Output",
+      "op_id": 3,
+      "duration_us": 1.342811228824536,
+      "percent_of_total": 0.12247875293134429
+    },
+    {
+      "name": "/classifier/classifier.0/Flatten_3",
+      "op_path": "/classifier/classifier.0/Flatten_3",
+      "op_id": 472,
+      "duration_us": 0.42123550757852735,
+      "percent_of_total": 0.03778017156313185
+    },
+    {
+      "name": "Transpose",
+      "op_path": "Transpose",
+      "op_id": 471,
+      "duration_us": 0.0,
+      "percent_of_total": 0.0
+    },
+    {
+      "name": "logits_DequantizeLinear_3",
+      "op_path": "logits_DequantizeLinear_3",
+      "op_id": 477,
+      "duration_us": 0.0,
+      "percent_of_total": 0.0
+    }
+  ],
+  "statistics": {},
+  "artifacts": {}
+}
