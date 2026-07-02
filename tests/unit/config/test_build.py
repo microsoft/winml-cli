@@ -587,11 +587,12 @@ class TestBuildSubmoduleConfig:
     @pytest.fixture
     def parent_config(self) -> WinMLBuildConfig:
         """Create a parent config with non-default optim/compile for inheritance tests."""
+        from winml.modelkit.compiler import WinMLCompileConfig
         from winml.modelkit.optim import WinMLOptimizationConfig
 
         return WinMLBuildConfig(
             optim=WinMLOptimizationConfig(gelu_fusion=True, matmul_add_fusion=True),
-            compile=None,
+            compile=WinMLCompileConfig.for_qnn(),
         )
 
     def test_single_input_single_output(self, parent_config: WinMLBuildConfig) -> None:
@@ -689,9 +690,8 @@ class TestBuildSubmoduleConfig:
         # But must be a deep copy, not the same object
         assert result.optim is not parent_config.optim
 
-        # compile should also be inherited and deep-copied (when set)
-        if parent_config.compile is not None:
-            assert result.compile is not parent_config.compile
+        # compile should also be inherited and deep-copied
+        assert result.compile is not parent_config.compile
 
     def test_submodule_omits_task(self, parent_config: WinMLBuildConfig) -> None:
         """Submodule config omits task (submodules don't have tasks), keeps model_type."""
