@@ -464,3 +464,37 @@ class TestCommandWithModel:
     def test_command_import_budget(self, cmd_args: list[str], allowed: tuple[str, ...]) -> None:
         """Verify each command's import budget with --model."""
         assert_cli_no_heavy_imports(cmd_args, allowed=allowed)
+
+
+# ===========================================================================
+# (D) Wall-clock guardrail — catches cumulative slowdown sys.modules misses
+# ===========================================================================
+
+
+class TestWallClock:
+    """A large batch of lightweight imports can degrade startup without any
+    single heavy module triggering a budget failure. This guardrail catches
+    that."""
+
+    def test_winml_help_under_8s(self) -> None:
+        """``winml --help`` in a fresh subprocess must complete in < 8s.
+
+        The ceiling includes Python cold-start (300-800 ms on Windows +
+        AV scanning on GitHub Actions shared runners), so 3s would be
+        flaky. 8s still catches the ~10s transformers regression this
+        test was written to guard against, with ~2s headroom.
+        """
+        import time
+
+        script = (
+            "from winml.modelkit.cli import main\n"
+            "try:\n"
+            "    main(['--help'], standalone_mode=False)\n"
+            "except SystemExit:\n"
+            "    pass\n"
+        )
+        t0 = time.perf_counter()
+        result = _run_in_subprocess(script)
+        elapsed = time.perf_counter() - t0
+        assert result.returncode == 0, f"exit {result.returncode}: {result.stderr}"
+        assert elapsed < 8.0, f"winml --help took {elapsed:.2f}s (limit 8.0s)"

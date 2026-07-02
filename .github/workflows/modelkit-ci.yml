@@ -40,6 +40,8 @@ jobs:
               tests/unit/core tests/unit/onnx tests/unit/cache
               tests/unit/utils tests/unit/sysinfo tests/unit/inspect
               tests/regression
+          - group: cli
+            paths: tests/unit/cli
 
     name: test (${{ matrix.group }})
 

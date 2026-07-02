@@ -34,10 +34,14 @@ from importlib.metadata import PackageNotFoundError, version
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-# Order matters: _warnings configures filters before any subpackage imports;
-# _transformers_compat re-injects transformers 4.x symbols for optimum-onnx 0.1.0.
+# _warnings configures filters before any subpackage imports.
+# transformers_compat arms a sys.meta_path hook — the shim fires lazily
+# the first time anything imports optimum.*; lightweight commands
+# (``winml sys``, ``winml --help``) never pay the transformers cost.
 from . import _warnings  # noqa: I001
-from . import _transformers_compat
+from . import transformers_compat  # noqa: I001
+
+transformers_compat.arm()
 
 
 try:

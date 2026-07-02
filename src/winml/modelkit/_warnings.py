@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import warnings
 
 
@@ -79,18 +80,31 @@ def _configure() -> None:
         warnings.filterwarnings("ignore", category=_cat, module=r"torch\..*")
 
     # TracerWarning (from torch.jit, inherits Warning not UserWarning)
-    # fires during ONNX export tracing — safe to suppress in both torch and transformers
-    try:
-        from torch.jit import TracerWarning
-
-        warnings.filterwarnings("ignore", category=TracerWarning)
-    except ImportError:
-        pass  # torch not installed
+    # fires during ONNX export tracing — safe to suppress in both torch and
+    # transformers. Only register the filter if torch has ALREADY been
+    # imported; otherwise loading torch here would add ~2s to every
+    # lightweight command (``winml sys`` etc.) that never touches ONNX
+    # export. The export path re-triggers this by calling
+    # :func:`install_torch_tracer_filter` after loading torch.
+    if "torch" in sys.modules:
+        install_torch_tracer_filter()
 
     # Diffusers
     warnings.filterwarnings(
         "ignore", message=r".*CUDA.*", category=UserWarning, module=r"diffusers.*"
     )
+
+
+def install_torch_tracer_filter() -> None:
+    """Register the ``TracerWarning`` filter — call after ``import torch``.
+
+    Idempotent — ``warnings.filterwarnings`` de-duplicates identical entries.
+    """
+    try:
+        from torch.jit import TracerWarning
+    except ImportError:
+        return  # torch not installed
+    warnings.filterwarnings("ignore", category=TracerWarning)
 
 
 # Auto-configure on import
