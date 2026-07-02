@@ -795,3 +795,227 @@ class TestExportDebugMode:
         # verbose should be True due to debug mode
         call_kwargs = mock_export_onnx.call_args.kwargs
         assert call_kwargs["verbose"] is True
+
+
+# =============================================================================
+# Composite model export tests
+# =============================================================================
+
+
+class TestExportCompositeDetection:
+    """Test _resolve_composite_model_components for export."""
+
+    def test_non_composite_returns_none(self) -> None:
+        """Non-composite model (e.g. resnet) returns None."""
+        from winml.modelkit.commands.export import _resolve_composite_model_components
+
+        with patch("transformers.AutoConfig.from_pretrained") as mock_cfg:
+            mock_cfg.return_value = MagicMock(model_type="resnet")
+            with patch("winml.modelkit.loader.resolution.resolve_composite", return_value=None):
+                result = _resolve_composite_model_components(
+                    "microsoft/resnet-50", "image-classification"
+                )
+                assert result is None
+
+    def test_composite_with_explicit_task(self) -> None:
+        """Composite model with explicit task returns component dict."""
+        from winml.modelkit.commands.export import _resolve_composite_model_components
+
+        components = {"encoder": "feature-extraction", "decoder": "text2text-generation"}
+        with patch("transformers.AutoConfig.from_pretrained") as mock_cfg:
+            mock_cfg.return_value = MagicMock(model_type="t5")
+            with patch(
+                "winml.modelkit.loader.resolution.resolve_composite",
+                return_value=components,
+            ):
+                result = _resolve_composite_model_components("google-t5/t5-small", "translation")
+                assert result == components
+
+    def test_composite_auto_detect_no_task(self) -> None:
+        """Composite model without --task auto-detects via resolve_task."""
+        from winml.modelkit.commands.export import _resolve_composite_model_components
+
+        components = {"encoder": "feature-extraction", "decoder": "text2text-generation"}
+        mock_resolution = MagicMock(composite=components)
+        with patch("transformers.AutoConfig.from_pretrained") as mock_cfg:
+            mock_cfg.return_value = MagicMock(model_type="t5")
+            with patch(
+                "winml.modelkit.loader.resolution.resolve_task",
+                return_value=mock_resolution,
+            ):
+                result = _resolve_composite_model_components("google-t5/t5-small", None)
+                assert result == components
+
+    def test_invalid_model_returns_none(self) -> None:
+        """Unresolvable model (AutoConfig fails) returns None gracefully."""
+        from winml.modelkit.commands.export import _resolve_composite_model_components
+
+        with patch(
+            "transformers.AutoConfig.from_pretrained",
+            side_effect=Exception("model not found"),
+        ):
+            result = _resolve_composite_model_components("nonexistent/model", None)
+            assert result is None
+
+
+class TestExportSubmodelCLI:
+    """Test --submodel CLI option for composite model export."""
+
+    def test_submodel_option_in_help(self, runner: CliRunner) -> None:
+        """--submodel appears in help output."""
+        from winml.modelkit.commands.export import export
+
+        result = runner.invoke(export, ["--help"])
+        assert result.exit_code == 0
+        assert "--submodel" in result.output
+
+    def test_submodel_on_non_composite_fails(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--submodel on a non-composite model raises ClickException."""
+        from winml.modelkit.commands.export import export
+
+        with patch(
+            "winml.modelkit.commands.export._resolve_composite_model_components",
+            return_value=None,
+        ):
+            output_path = tmp_path / "model.onnx"
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "microsoft/resnet-50",
+                    "--output",
+                    str(output_path),
+                    "--submodel",
+                    "encoder",
+                ],
+                obj={"debug": False},
+            )
+            assert result.exit_code != 0
+            assert "not a composite model" in result.output
+
+    def test_submodel_unknown_name_fails(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--submodel with an unknown component name raises ClickException."""
+        from winml.modelkit.commands.export import export
+
+        components = {"encoder": "feature-extraction", "decoder": "text2text-generation"}
+        with patch(
+            "winml.modelkit.commands.export._resolve_composite_model_components",
+            return_value=components,
+        ):
+            output_path = tmp_path / "model.onnx"
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "google-t5/t5-small",
+                    "--output",
+                    str(output_path),
+                    "--submodel",
+                    "nonexistent",
+                ],
+                obj={"debug": False},
+            )
+            assert result.exit_code != 0
+            assert "Unknown sub-model" in result.output
+            assert "encoder" in result.output
+            assert "decoder" in result.output
+
+    def test_submodel_exports_single_component(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--submodel encoder exports only encoder with suffixed output name."""
+        from winml.modelkit.commands.export import export
+
+        components = {"encoder": "feature-extraction", "decoder": "text2text-generation"}
+        with (
+            patch(
+                "winml.modelkit.commands.export._resolve_composite_model_components",
+                return_value=components,
+            ),
+            patch("winml.modelkit.commands.export._export_single_model") as mock_single,
+        ):
+            output_path = tmp_path / "t5.onnx"
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "google-t5/t5-small",
+                    "--task",
+                    "translation",
+                    "--output",
+                    str(output_path),
+                    "--submodel",
+                    "encoder",
+                ],
+                obj={"debug": False},
+            )
+            assert result.exit_code == 0, f"Failed: {result.output}"
+            # Should export only the encoder
+            assert mock_single.call_count == 1
+            call_kwargs = mock_single.call_args.kwargs
+            assert call_kwargs["task"] == "feature-extraction"
+            expected_output = tmp_path / "t5_encoder.onnx"
+            assert call_kwargs["output_path"] == expected_output
+
+    def test_composite_auto_exports_all_submodels(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Composite model without --submodel exports all sub-models."""
+        from winml.modelkit.commands.export import export
+
+        components = {"encoder": "feature-extraction", "decoder": "text2text-generation"}
+        with (
+            patch(
+                "winml.modelkit.commands.export._resolve_composite_model_components",
+                return_value=components,
+            ),
+            patch("winml.modelkit.commands.export._export_single_model") as mock_single,
+        ):
+            output_path = tmp_path / "t5.onnx"
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "google-t5/t5-small",
+                    "--task",
+                    "translation",
+                    "--output",
+                    str(output_path),
+                ],
+                obj={"debug": False},
+            )
+            assert result.exit_code == 0, f"Failed: {result.output}"
+            # Should export both sub-models
+            assert mock_single.call_count == 2
+            # Gather the tasks that were exported
+            tasks = {c.kwargs["task"] for c in mock_single.call_args_list}
+            assert tasks == {"feature-extraction", "text2text-generation"}
+            # Gather the output paths
+            paths = {c.kwargs["output_path"] for c in mock_single.call_args_list}
+            assert paths == {
+                tmp_path / "t5_encoder.onnx",
+                tmp_path / "t5_decoder.onnx",
+            }
+
+    def test_non_composite_takes_single_path(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Non-composite model still uses the single-model export path."""
+        from winml.modelkit.commands.export import export
+
+        with (
+            patch(
+                "winml.modelkit.commands.export._resolve_composite_model_components",
+                return_value=None,
+            ),
+            patch("winml.modelkit.commands.export._export_single_model") as mock_single,
+        ):
+            output_path = tmp_path / "model.onnx"
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "microsoft/resnet-50",
+                    "--output",
+                    str(output_path),
+                ],
+                obj={"debug": False},
+            )
+            assert result.exit_code == 0, f"Failed: {result.output}"
+            assert mock_single.call_count == 1
+            call_kwargs = mock_single.call_args.kwargs
+            assert call_kwargs["output_path"] == output_path
