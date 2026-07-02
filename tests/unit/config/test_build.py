@@ -689,8 +689,9 @@ class TestBuildSubmoduleConfig:
         # But must be a deep copy, not the same object
         assert result.optim is not parent_config.optim
 
-        # compile should also be inherited and deep-copied
-        assert result.compile is not parent_config.compile
+        # compile should also be inherited and deep-copied (when set)
+        if parent_config.compile is not None:
+            assert result.compile is not parent_config.compile
 
     def test_submodule_omits_task(self, parent_config: WinMLBuildConfig) -> None:
         """Submodule config omits task (submodules don't have tasks), keeps model_type."""
