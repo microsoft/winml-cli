@@ -347,7 +347,8 @@ class TestRunGenaiPerf:
         import click
 
         class _Boom:
-            def __init__(self, _cfg: object) -> None: ...
+            def __init__(self, _cfg: object) -> None:
+                pass
 
             def run(self) -> None:
                 raise GenaiNotInstalledError("onnxruntime-genai missing")

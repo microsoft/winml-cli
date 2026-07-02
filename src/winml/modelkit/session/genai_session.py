@@ -51,7 +51,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .ep_registry import WinMLEPRegistry
 
@@ -101,7 +101,9 @@ def _compile_stage_worker(src: str, dst: str, ep_alias: str, provider_options: d
     """
     from ..compiler import WinMLCompileConfig, compile_onnx
 
-    config = WinMLCompileConfig.for_provider(ep_alias)
+    # for_provider normalizes arbitrary EP aliases and returns None for ones it
+    # does not recognize; ep_alias is a runtime str from genai_config.json.
+    config = WinMLCompileConfig.for_provider(ep_alias)  # type: ignore[arg-type]
     if config is None:
         raise RuntimeError(f"EP {ep_alias!r} does not support EPContext pre-compilation")
     config.ep_config.provider_options.update(provider_options)
@@ -298,8 +300,8 @@ class GenaiSession:
         self._context_length: int | None = None
 
         # og.* handles — None until load() is called.
-        self._model: object | None = None
-        self._tokenizer: object | None = None
+        self._model: Any = None
+        self._tokenizer: Any = None
 
         if not self._bundle_dir.exists():
             raise FileNotFoundError(f"Bundle directory not found: {self._bundle_dir}")
@@ -435,22 +437,15 @@ class GenaiSession:
         generator = self._new_generator(cfg)
         generator.append_tokens(tokens)
 
-        stream = self._tokenizer.create_stream()  # type: ignore[union-attr]
+        stream = self._tokenizer.create_stream()
         n = 0
-        try:
-            while not generator.is_done():
-                generator.generate_next_token()
-                new_token = generator.get_next_tokens()[0]
-                yield stream.decode(new_token)
-                n += 1
-                if n >= cfg.max_new_tokens:
-                    break
-        finally:
-            # Explicit deletion releases the KV cache buffer held by the generator.
-            # This runs whether the caller exhausts the iterator normally, breaks
-            # out early, or the generator is garbage-collected — preventing the
-            # device memory from being held until a later GC cycle.
-            del generator
+        while not generator.is_done():
+            generator.generate_next_token()
+            new_token = generator.get_next_tokens()[0]
+            yield stream.decode(new_token)
+            n += 1
+            if n >= cfg.max_new_tokens:
+                break
 
     def generate_timed(
         self,
@@ -497,19 +492,15 @@ class GenaiSession:
         # marks[2+k]= after the (k+1)-th generated token
         marks: list[float] = []
         generated = 0
-        try:
+        marks.append(clock())
+        generator.append_tokens(tokens)
+        marks.append(clock())
+        while not generator.is_done():
+            generator.generate_next_token()
             marks.append(clock())
-            generator.append_tokens(tokens)
-            marks.append(clock())
-            while not generator.is_done():
-                generator.generate_next_token()
-                marks.append(clock())
-                generated += 1
-                if generated >= cfg.max_new_tokens:
-                    break
-        finally:
-            # See generate_streaming: release the KV cache buffer eagerly.
-            del generator
+            generated += 1
+            if generated >= cfg.max_new_tokens:
+                break
 
         if generated == 0:
             raise GenaiSessionError("genai: generation produced no tokens (empty bundle output?)")
@@ -566,12 +557,12 @@ class GenaiSession:
     def encode(self, text: str) -> list[int]:
         """Encode *text* to a list of token IDs using the bundle tokenizer."""
         self._ensure_loaded()
-        return self._tokenizer.encode(text).tolist()  # type: ignore[union-attr]
+        return list(self._tokenizer.encode(text).tolist())
 
     def decode(self, tokens: list[int]) -> str:
         """Decode a list of token IDs to a string."""
         self._ensure_loaded()
-        return self._tokenizer.decode(tokens)  # type: ignore[union-attr]
+        return str(self._tokenizer.decode(tokens))
 
     # ------------------------------------------------------------------
     # Properties
@@ -608,10 +599,10 @@ class GenaiSession:
     def _encode_prompt(self, prompt: str | list[int]) -> list[int]:
         """Return prompt token IDs, encoding via the bundle tokenizer if needed."""
         if isinstance(prompt, str):
-            return self._tokenizer.encode(prompt).tolist()  # type: ignore[union-attr]
+            return list(self._tokenizer.encode(prompt).tolist())
         return prompt
 
-    def _new_generator(self, cfg: GenerationConfig) -> object:
+    def _new_generator(self, cfg: GenerationConfig) -> Any:
         """Build an ``og.Generator`` with search options from *cfg*.
 
         The prompt is **not** appended — callers decide whether to time
@@ -789,7 +780,7 @@ class GenaiSession:
             recorded = json.loads(marker.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return False
-        return recorded.get("provider_options") == ep_opts
+        return bool(recorded.get("provider_options") == ep_opts)
 
     @staticmethod
     def _patch_stage_filename(cfg: dict, stage_key: str, abs_path: str) -> None:
@@ -905,7 +896,7 @@ class GenaiSession:
                     shutil.copy2(src, dst)
 
     @staticmethod
-    def _import_og() -> object:
+    def _import_og() -> Any:
         """Import and return the ``onnxruntime_genai`` module.
 
         Raises:

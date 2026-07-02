@@ -501,6 +501,9 @@ module = [
   # Third-party ML libraries (no stubs)
   "torchvision.*",
   "onnxruntime.*",
+  # onnxruntime-genai-winml ships no py.typed marker or stubs; treat as untyped.
+  "onnxruntime_genai",
+  "onnxruntime_genai.*",
   "datasets.*",
   "optimum.*",
   "snakemd",
