@@ -113,15 +113,16 @@ def _compile_stage_worker(src: str, dst: str, ep_alias: str, provider_options: d
 
 
 # ---------------------------------------------------------------------------
-# Valid EP short names.
+# Valid EP short names accepted by the ``ep`` argument.
 # "mixed" = use genai_config.json as-is (embeddings/lm_head on CPU,
 #           ctx/iter on the target accelerator).
 # EP routing is driven entirely by per-stage session_options in the bundle's
-# genai_config.json — GenaiSession never calls clear_providers/append_provider.
+# genai_config.json — GenaiSession never calls clear_providers/append_provider,
+# and it decides whether to register WinML EPs / pre-compile stages by reading
+# that config (see GenaiSession._bundle_uses_hardware_ep), not from ``ep``.
+# Using ``ep``/``device`` to override the config is tracked in #1025.
 # ---------------------------------------------------------------------------
 _VALID_EPS: frozenset[str] = frozenset({"cpu", "mixed", "qnn", "dml"})
-# EPs that require WinML EP discovery + registration before og.Model() init.
-_NEEDS_WINML_EPS: frozenset[str] = frozenset({"mixed", "qnn", "dml"})
 
 
 # ---------------------------------------------------------------------------
@@ -258,8 +259,12 @@ class GenaiSession:
     Args:
         bundle_dir: Path to the genai bundle directory.  Must contain
             ``genai_config.json`` and the ONNX files it references.
-        ep: Execution provider short name (``"cpu"``, ``"qnn"``, ``"dml"``).
-            Non-CPU EPs trigger WinML EP discovery and registration.
+        ep: Execution provider short name (``"cpu"``, ``"qnn"``, ``"dml"``),
+            recorded for reporting.  Whether WinML EPs are registered and
+            whether stages are pre-compiled is decided from the bundle's
+            ``genai_config.json`` (per-stage ``session_options``), not from this
+            argument.  Overriding the config via ``ep``/``device`` is tracked
+            in #1025.
         context_length: Override for the static KV cache length.  When
             ``None`` (default), read from ``genai_config.json``.
             Must match the ``--max-cache-len`` used during the winml-cli build.
@@ -267,10 +272,10 @@ class GenaiSession:
         compile: Pre-compile EPContext-capable pipeline stages (e.g. QNN) to
             EPContext ONNX on first run (inside ``bundle_dir/_compiled/``).
             Subsequent calls reuse the cached EPContext files, eliminating
-            per-run JIT overhead.  Only stages whose EP supports EPContext and
-            that can be compiled without hanging are attempted; stages that fail
-            compilation fall back to the original ONNX.  Has no effect when
-            ``ep="cpu"``.
+            per-run JIT overhead.  Only stages that ``genai_config.json`` routes
+            to an EPContext-capable EP and that can be compiled without hanging
+            are attempted; stages that fail compilation fall back to the
+            original ONNX.  A CPU-only bundle is a no-op.
         compile_timeout: Maximum seconds to wait for each stage to compile
             before killing the subprocess and falling back to the original
             ONNX.  Defaults to 300 seconds (5 minutes).
@@ -335,16 +340,21 @@ class GenaiSession:
 
         og = self._import_og()
 
-        # Register WinML EPs to ORT GenAI when the bundle may use a hardware EP.
-        if self._ep in _NEEDS_WINML_EPS:
-            self._register_eps(og)
+        cfg = self._read_genai_config()
+
+        # Register WinML EPs only when the bundle routes at least one stage to a
+        # hardware EP.  This decision comes from genai_config.json, not the
+        # ``ep`` argument (see #1025 for the planned override path).
+        if self._bundle_uses_hardware_ep(cfg):
+            self._register_eps()
 
         if self._verbose:
             og.set_log_options(enabled=True, model_input_values=True, model_output_shapes=True)
 
-        # Determine which bundle directory og.Config should load from.
+        # Pre-compile EPContext-capable stages when requested.  The bundle config
+        # decides which stages are compilable; a bundle with none is a no-op.
         load_dir = self._bundle_dir
-        if self._compile and self._ep in _NEEDS_WINML_EPS:
+        if self._compile:
             load_dir = self._prepare_compiled_bundle()
 
         try:
@@ -639,9 +649,10 @@ class GenaiSession:
             Path to the compiled bundle directory (may equal ``bundle_dir``
             if no compilable stages were found, or if all compilations failed).
         """
+        from ..onnx import is_compiled_onnx
+
         compiled_dir = self._bundle_dir / self._COMPILED_SUBDIR
-        config_src = self._bundle_dir / "genai_config.json"
-        cfg = json.loads(config_src.read_text(encoding="utf-8"))
+        cfg = self._read_genai_config()
 
         # Collect pipeline stages whose EP supports EPContext pre-compilation.
         # genai_config pipeline entries: [{"context": {...}}, {"iterator": {...}}, ...]
@@ -668,7 +679,7 @@ class GenaiSession:
             return self._bundle_dir
 
         compiled_dir.mkdir(exist_ok=True)
-        modified_cfg = json.loads(config_src.read_text(encoding="utf-8"))
+        modified_cfg = self._read_genai_config()
         any_compiled = False
 
         for stage_key, onnx_filename, ep_alias, ep_opts in compilable_stages:
@@ -682,6 +693,26 @@ class GenaiSession:
                 # so ort-genai resolves filenames relative to compiled_dir.
                 self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
                 any_compiled = True
+                continue
+
+            # A stage whose source ONNX is already an EPContext (pre-compiled)
+            # model needs no recompilation; point ort-genai at the original file
+            # (absolute path, since compiled stages are not mirrored into
+            # compiled_dir). A parse failure is treated as "not compiled" so a
+            # malformed source falls through to the normal compile path, which
+            # has its own error handling.
+            already_compiled = False
+            if src_onnx.exists():
+                try:
+                    already_compiled = is_compiled_onnx(src_onnx)
+                except (ValueError, OSError):
+                    already_compiled = False
+            if already_compiled:
+                logger.info(
+                    "Stage %r: source is already an EPContext model; using as-is",
+                    stage_key,
+                )
+                self._patch_stage_filename(modified_cfg, stage_key, str(src_onnx.resolve()))
                 continue
 
             # Attempt compilation.
@@ -912,7 +943,7 @@ class GenaiSession:
                 "Install it with: pip install onnxruntime-genai-winml"
             ) from exc
 
-    def _register_eps(self, og: object) -> None:
+    def _register_eps(self) -> None:
         """Register WinML EPs with ORT GenAI (idempotent, best-effort)."""
         try:
             registry = WinMLEPRegistry.get_instance()
@@ -923,10 +954,45 @@ class GenaiSession:
         except Exception as exc:
             logger.warning("WinML EP registration skipped: %s", exc)
 
+    def _read_genai_config(self) -> dict[str, Any]:
+        """Parse and return the bundle's ``genai_config.json``."""
+        config_src = self._bundle_dir / "genai_config.json"
+        cfg: dict[str, Any] = json.loads(config_src.read_text(encoding="utf-8"))
+        return cfg
+
+    @staticmethod
+    def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> bool:
+        """Return True if any pipeline stage routes to a non-CPU execution provider.
+
+        WinML EP discovery/registration is only required when the bundle's
+        ``genai_config.json`` assigns at least one pipeline stage to a hardware
+        execution provider (QNN, DML, OpenVINO, …); a CPU-only bundle needs
+        none.  The decision is read from the bundle config itself — the only
+        provider name referenced is the universal ``"cpu"`` fallback alias, so
+        no hardware EP short name is hardcoded.
+        """
+        pipeline_list = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
+        if not isinstance(pipeline_list, list):
+            return False
+        for stage_entry in pipeline_list:
+            if not isinstance(stage_entry, dict):
+                continue
+            for stage_cfg in stage_entry.values():
+                if not isinstance(stage_cfg, dict):
+                    continue
+                so = stage_cfg.get("session_options", {})
+                if not isinstance(so, dict):
+                    continue
+                for entry in so.get("provider_options", []):
+                    if isinstance(entry, dict) and any(
+                        str(name).lower() != "cpu" for name in entry
+                    ):
+                        return True
+        return False
+
     def _read_context_length(self) -> int:
         """Read ``model.context_length`` from ``genai_config.json``."""
-        cfg = json.loads((self._bundle_dir / "genai_config.json").read_text(encoding="utf-8"))
-        return int(cfg["model"]["context_length"])
+        return int(self._read_genai_config()["model"]["context_length"])
 
 
 __all__ = [

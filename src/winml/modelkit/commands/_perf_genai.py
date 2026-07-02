@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""GenAI generation benchmarking for ``winml perf --runtime-type winml-genai``.
+"""GenAI generation benchmarking for ``winml perf --runtime winml-genai``.
 
 Benchmarks a prebuilt ``onnxruntime-genai`` bundle folder through
 :class:`GenaiSession`.  Unlike the single-shot WinML path (which times each
@@ -191,7 +191,7 @@ class GenaiBenchmarkResult:
         """Convert to a JSON-serializable dictionary."""
         return {
             "benchmark_info": {
-                "runtime_type": RUNTIME_TYPE,
+                "runtime": RUNTIME_TYPE,
                 "bundle_dir": str(self.config.bundle_dir),
                 "ep": self.config.ep,
                 "device": self.config.device,

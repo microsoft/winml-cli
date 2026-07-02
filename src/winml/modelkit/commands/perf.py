@@ -1523,7 +1523,7 @@ def _warn_ignored_genai_flags(ctx: click.Context, console: Console) -> None:
     if ignored:
         console.print(
             "[yellow]Warning:[/yellow] the following options are ignored with "
-            f"--runtime-type winml-genai: {', '.join(sorted(ignored))}"
+            f"--runtime winml-genai: {', '.join(sorted(ignored))}"
         )
 
 
@@ -1546,12 +1546,12 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
 
     # --module walks a live nn.Module graph; meaningless for a prebuilt bundle.
     if p.get("module_class"):
-        raise click.UsageError("--module is not supported with --runtime-type winml-genai.")
+        raise click.UsageError("--module is not supported with --runtime winml-genai.")
 
     bundle_dir = Path(model)
     if bundle_dir.suffix.lower() == ".onnx" or not bundle_dir.is_dir():
         raise click.UsageError(
-            f"--runtime-type winml-genai requires a genai bundle *directory*, got '{model}'."
+            f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
         )
     if not (bundle_dir / "genai_config.json").exists():
         raise click.UsageError(
@@ -1588,7 +1588,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
 @click.command("perf")
 @cli_utils.model_option(required=False)
 @click.option(
-    "--runtime-type",
+    "--runtime",
     type=click.Choice(["winml", "winml-genai"]),
     default="winml",
     show_default=True,
@@ -1726,7 +1726,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
 def perf(
     ctx: click.Context,
     model: str | None,
-    runtime_type: str,
+    runtime: str,
     prompt: str | None,
     max_new_tokens: int,
     compile_timeout: int,
@@ -1822,7 +1822,7 @@ def perf(
     # =========================================================================
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
     # =========================================================================
-    if runtime_type == "winml-genai":
+    if runtime == "winml-genai":
         _run_genai_runtime(ctx, console=console, json_mode=json_mode)
         return
 

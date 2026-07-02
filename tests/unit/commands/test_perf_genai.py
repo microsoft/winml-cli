@@ -245,7 +245,7 @@ class TestResultToDict:
             "raw",
         }
         info = d["benchmark_info"]
-        assert info["runtime_type"] == "winml-genai"
+        assert info["runtime"] == "winml-genai"
         assert info["ep"] == "qnn"
         assert info["device"] == "npu"
         assert info["max_new_tokens"] == 4
@@ -293,7 +293,7 @@ class TestReporting:
 
         assert out.exists()
         data = json.loads(out.read_text(encoding="utf-8"))
-        assert data["benchmark_info"]["runtime_type"] == "winml-genai"
+        assert data["benchmark_info"]["runtime"] == "winml-genai"
 
     def test_display_genai_report_does_not_crash(self) -> None:
         display_genai_report(self._result(), Console())
@@ -341,7 +341,7 @@ class TestRunGenaiPerf:
         run_genai_perf(cfg, console=Console(stderr=True), json_mode=True)
 
         out = capsys.readouterr().out
-        assert json.loads(out)["benchmark_info"]["runtime_type"] == "winml-genai"
+        assert json.loads(out)["benchmark_info"]["runtime"] == "winml-genai"
 
     def test_not_installed_becomes_click_error(self, monkeypatch) -> None:
         import click
@@ -363,7 +363,7 @@ class TestRunGenaiPerf:
 
 
 # ---------------------------------------------------------------------------
-# CLI dispatch (winml perf --runtime-type winml-genai)
+# CLI dispatch (winml perf --runtime winml-genai)
 # ---------------------------------------------------------------------------
 
 
@@ -390,7 +390,7 @@ class TestCliDispatch:
     ) -> None:
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
-            perf, ["-m", str(bundle), "--runtime-type", "winml-genai", "--device", "npu"]
+            perf, ["-m", str(bundle), "--runtime", "winml-genai", "--device", "npu"]
         )
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
@@ -402,7 +402,7 @@ class TestCliDispatch:
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
         bundle = _make_bundle(tmp_path)
-        runner.invoke(perf, ["-m", str(bundle), "--runtime-type", "winml-genai"])
+        runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
         cfg = capture_run["config"]
         assert cfg.iterations == 10
         assert cfg.warmup == 2
@@ -421,7 +421,7 @@ class TestCliDispatch:
             [
                 "-m",
                 str(bundle),
-                "--runtime-type",
+                "--runtime",
                 "winml-genai",
                 "--iterations",
                 "50",
@@ -442,7 +442,7 @@ class TestCliDispatch:
             [
                 "-m",
                 str(bundle),
-                "--runtime-type",
+                "--runtime",
                 "winml-genai",
                 "--prompt",
                 "hello there",
@@ -458,7 +458,7 @@ class TestCliDispatch:
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
         bundle = _make_bundle(tmp_path)
-        runner.invoke(perf, ["-m", str(bundle), "--runtime-type", "winml-genai"])
+        runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
         assert capture_run["config"].prompt == default_genai_prompt()
 
     def test_compile_flag_forwarded(
@@ -470,7 +470,7 @@ class TestCliDispatch:
             [
                 "-m",
                 str(bundle),
-                "--runtime-type",
+                "--runtime",
                 "winml-genai",
                 "--compile",
                 "--compile-timeout",
@@ -487,7 +487,7 @@ class TestCliDispatch:
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf,
-            ["-m", str(bundle), "--runtime-type", "winml-genai", "--batch-size", "4"],
+            ["-m", str(bundle), "--runtime", "winml-genai", "--batch-size", "4"],
         )
         assert result.exit_code == 0, result.output
         assert "ignored" in result.output.lower()
@@ -499,7 +499,7 @@ class TestCliDispatch:
         bundle = _make_bundle(tmp_path)
         result = runner.invoke(
             perf,
-            ["-m", str(bundle), "--runtime-type", "winml-genai", "--module", "Foo"],
+            ["-m", str(bundle), "--runtime", "winml-genai", "--module", "Foo"],
         )
         assert result.exit_code != 0
         assert "--module" in result.output
@@ -508,7 +508,7 @@ class TestCliDispatch:
     def test_onnx_file_rejected(self, runner: CliRunner, tmp_path: Path, capture_run: dict) -> None:
         onnx = tmp_path / "model.onnx"
         onnx.write_bytes(b"fake")
-        result = runner.invoke(perf, ["-m", str(onnx), "--runtime-type", "winml-genai"])
+        result = runner.invoke(perf, ["-m", str(onnx), "--runtime", "winml-genai"])
         assert result.exit_code != 0
         assert "directory" in result.output.lower()
         assert "config" not in capture_run
@@ -516,9 +516,7 @@ class TestCliDispatch:
     def test_missing_directory_rejected(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
-        result = runner.invoke(
-            perf, ["-m", str(tmp_path / "nope"), "--runtime-type", "winml-genai"]
-        )
+        result = runner.invoke(perf, ["-m", str(tmp_path / "nope"), "--runtime", "winml-genai"])
         assert result.exit_code != 0
         assert "config" not in capture_run
 
@@ -527,7 +525,7 @@ class TestCliDispatch:
     ) -> None:
         empty = tmp_path / "empty"
         empty.mkdir()
-        result = runner.invoke(perf, ["-m", str(empty), "--runtime-type", "winml-genai"])
+        result = runner.invoke(perf, ["-m", str(empty), "--runtime", "winml-genai"])
         assert result.exit_code != 0
         assert "genai_config.json" in result.output
         assert "config" not in capture_run

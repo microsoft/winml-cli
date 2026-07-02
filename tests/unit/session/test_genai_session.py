@@ -272,7 +272,9 @@ class TestEPRegistration:
             session.load()
         mock_reg_cls.assert_not_called()
 
-    def test_non_cpu_registers_winml_eps(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+    def test_hardware_ep_bundle_registers_winml_eps(
+        self, bundle_dir_with_pipeline: Path, mock_og: MagicMock
+    ) -> None:
         mock_registry = MagicMock()
         mock_registry.winml_available = True
         mock_registry.register_execution_providers.return_value = {
@@ -283,24 +285,24 @@ class TestEPRegistration:
             patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
         ):
             mock_reg_cls.get_instance.return_value = mock_registry
-            session = GenaiSession(bundle_dir, ep="qnn")
+            # ep defaults to "cpu"; registration is driven by the bundle config,
+            # which routes the ctx/iter stages to QNN.
+            session = GenaiSession(bundle_dir_with_pipeline)
             session.load()
         mock_registry.register_execution_providers.assert_called_once_with(ort_genai=True)
 
-    def test_mixed_registers_winml_eps(self, bundle_dir: Path, mock_og: MagicMock) -> None:
-        mock_registry = MagicMock()
-        mock_registry.winml_available = True
-        mock_registry.register_execution_providers.return_value = {
-            "onnxruntime_genai": ["QNNExecutionProvider"]
-        }
+    def test_registration_follows_config_not_ep_arg(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        # A CPU-only bundle must NOT register even when ep="qnn" is requested;
+        # EP routing is read from genai_config.json (override tracked in #1025).
         with (
             _patch_og(mock_og),
             patch("winml.modelkit.session.genai_session.WinMLEPRegistry") as mock_reg_cls,
         ):
-            mock_reg_cls.get_instance.return_value = mock_registry
-            session = GenaiSession(bundle_dir, ep="mixed")
+            session = GenaiSession(bundle_dir, ep="qnn")
             session.load()
-        mock_registry.register_execution_providers.assert_called_once_with(ort_genai=True)
+        mock_reg_cls.assert_not_called()
 
     def test_config_not_modified_at_load(self, bundle_dir: Path, mock_og: MagicMock) -> None:
         # EP routing is driven by genai_config.json — we must NOT touch the config.
@@ -309,6 +311,61 @@ class TestEPRegistration:
             session.load()
         mock_og.Config.return_value.clear_providers.assert_not_called()
         mock_og.Config.return_value.append_provider.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests: _bundle_uses_hardware_ep (config-driven EP detection)
+# ---------------------------------------------------------------------------
+
+
+class TestBundleUsesHardwareEp:
+    @staticmethod
+    def _pipeline(*stages: dict) -> dict:
+        return {"model": {"decoder": {"pipeline": list(stages)}}}
+
+    def test_empty_config_returns_false(self) -> None:
+        assert GenaiSession._bundle_uses_hardware_ep({}) is False
+
+    def test_no_pipeline_returns_false(self) -> None:
+        assert GenaiSession._bundle_uses_hardware_ep({"model": {"decoder": {}}}) is False
+
+    def test_cpu_only_stages_return_false(self) -> None:
+        cfg = self._pipeline(
+            {"embeddings": {"filename": "embeddings.onnx", "session_options": {}}},
+            {"lm_head": {"filename": "lm_head.onnx"}},
+        )
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+
+    def test_explicit_cpu_provider_returns_false(self) -> None:
+        cfg = self._pipeline({"context": {"session_options": {"provider_options": [{"cpu": {}}]}}})
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+
+    def test_qnn_stage_returns_true(self) -> None:
+        cfg = self._pipeline(
+            {
+                "context": {
+                    "session_options": {
+                        "provider_options": [{"qnn": {"backend_path": "QnnHtp.dll"}}]
+                    }
+                }
+            }
+        )
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is True
+
+    def test_mixed_cpu_and_hardware_returns_true(self) -> None:
+        cfg = self._pipeline(
+            {"embeddings": {"session_options": {}}},
+            {"context": {"session_options": {"provider_options": [{"dml": {}}]}}},
+        )
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is True
+
+    def test_malformed_entries_return_false(self) -> None:
+        cfg = {"model": {"decoder": {"pipeline": ["not-a-dict", {"x": "not-a-dict"}, {}]}}}
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+
+    def test_provider_options_not_a_list_returns_false(self) -> None:
+        cfg = self._pipeline({"context": {"session_options": {"provider_options": {}}}})
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
 
 
 # ---------------------------------------------------------------------------
