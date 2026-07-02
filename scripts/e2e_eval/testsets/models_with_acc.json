@@ -1918,6 +1918,7 @@
       "build_script": "scripts/build_coco_keypoints.py",
       "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
       "split": "validation",
+      "samples": 500,
       "metric": "map",
       "winml_metric_key": "map",
       "columns_mapping": {
@@ -1940,6 +1941,7 @@
       "build_script": "scripts/build_coco_keypoints.py",
       "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
       "split": "validation",
+      "samples": 500,
       "metric": "map",
       "winml_metric_key": "map",
       "columns_mapping": {
@@ -1962,6 +1964,7 @@
       "build_script": "scripts/build_coco_keypoints.py",
       "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
       "split": "validation",
+      "samples": 500,
       "metric": "map",
       "winml_metric_key": "map",
       "columns_mapping": {
@@ -1984,6 +1987,7 @@
       "build_script": "scripts/build_coco_keypoints.py",
       "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
       "split": "validation",
+      "samples": 500,
       "metric": "map",
       "winml_metric_key": "map",
       "columns_mapping": {
@@ -2006,6 +2010,7 @@
       "build_script": "scripts/build_coco_keypoints.py",
       "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
       "split": "validation",
+      "samples": 500,
       "metric": "map",
       "winml_metric_key": "map",
       "columns_mapping": {

@@ -1998,5 +1998,55 @@
     },
     "elapsed": 668.0,
     "command": "python.exe run_pytorch_baseline.py --model depth-anything-base-hf --task depth-estimation --device cpu --num-samples 200 --dataset nyu_depth_v2 --split validation --dataset-revision parquet --columns-mapping {\"input_column\": \"image\", \"depth_column\": \"depth_map\", \"depth_kind\": \"disparity\"} --winml-metric-key abs_rel"
+  },
+  "usyd-community/vitpose-base-simple|keypoint-detection|~/.cache/winml/datasets/coco_keypoints_val2017||validation|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.758371,
+      "num_samples": 500
+    },
+    "elapsed": 370.5,
+    "command": "python.exe run_pytorch_baseline.py --model vitpose-base-simple --task keypoint-detection --device cpu --num-samples 500 --dataset coco_keypoints_val2017 --split validation --columns-mapping {\"input_column\": \"image\", \"annotation_column\": \"objects\", \"keypoints_key\": \"keypoints\", \"bbox_key\": \"bbox\", \"area_key\": \"area\", \"box_format\": \"xywh\"} --winml-metric-key map"
+  },
+  "usyd-community/vitpose-plus-small|keypoint-detection|~/.cache/winml/datasets/coco_keypoints_val2017||validation|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.774118,
+      "num_samples": 500
+    },
+    "elapsed": 212.0,
+    "command": "python.exe run_pytorch_baseline.py --model vitpose-plus-small --task keypoint-detection --device cpu --num-samples 500 --dataset coco_keypoints_val2017 --split validation --columns-mapping {\"input_column\": \"image\", \"annotation_column\": \"objects\", \"keypoints_key\": \"keypoints\", \"bbox_key\": \"bbox\", \"area_key\": \"area\", \"box_format\": \"xywh\"} --winml-metric-key map"
+  },
+  "usyd-community/vitpose-plus-base|keypoint-detection|~/.cache/winml/datasets/coco_keypoints_val2017||validation|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.784706,
+      "num_samples": 500
+    },
+    "elapsed": 471.4,
+    "command": "python.exe run_pytorch_baseline.py --model vitpose-plus-base --task keypoint-detection --device cpu --num-samples 500 --dataset coco_keypoints_val2017 --split validation --columns-mapping {\"input_column\": \"image\", \"annotation_column\": \"objects\", \"keypoints_key\": \"keypoints\", \"bbox_key\": \"bbox\", \"area_key\": \"area\", \"box_format\": \"xywh\"} --winml-metric-key map"
+  },
+  "usyd-community/vitpose-plus-large|keypoint-detection|~/.cache/winml/datasets/coco_keypoints_val2017||validation|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.809302,
+      "num_samples": 500
+    },
+    "elapsed": 1400.1,
+    "command": "python.exe run_pytorch_baseline.py --model vitpose-plus-large --task keypoint-detection --device cpu --num-samples 500 --dataset coco_keypoints_val2017 --split validation --columns-mapping {\"input_column\": \"image\", \"annotation_column\": \"objects\", \"keypoints_key\": \"keypoints\", \"bbox_key\": \"bbox\", \"area_key\": \"area\", \"box_format\": \"xywh\"} --winml-metric-key map"
+  },
+  "usyd-community/vitpose-plus-huge|keypoint-detection|~/.cache/winml/datasets/coco_keypoints_val2017||validation|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.816515,
+      "num_samples": 500
+    },
+    "elapsed": 2532.9,
+    "command": "python.exe run_pytorch_baseline.py --model vitpose-plus-huge --task keypoint-detection --device cpu --num-samples 500 --dataset coco_keypoints_val2017 --split validation --columns-mapping {\"input_column\": \"image\", \"annotation_column\": \"objects\", \"keypoints_key\": \"keypoints\", \"bbox_key\": \"bbox\", \"area_key\": \"area\", \"box_format\": \"xywh\"} --winml-metric-key map"
   }
 }
