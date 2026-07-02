@@ -189,7 +189,8 @@ class QNNProfiler(OpTracer):
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        csv_path = self.output_dir / "profiling_output.csv"
+        csv_path = (self.output_dir / "profiling_output.csv").resolve()
+        csv_path.unlink(missing_ok=True)
         options = self._build_session_options(ort)
         provider_options = self._build_provider_options(csv_path)
         if not add_ep_for_device(
@@ -250,7 +251,7 @@ class QNNProfiler(OpTracer):
             "htp_graph_finalization_optimization_mode": "3",
             "enable_htp_fp16_precision": "1",
             "profiling_level": profiling_level,
-            "profiling_file_path": str(csv_path.resolve()),
+            "profiling_file_path": str(csv_path),
         }
 
     # ------------------------------------------------------------------
