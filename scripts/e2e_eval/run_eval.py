@@ -1403,14 +1403,14 @@ def _copy_op_trace(proc: dict, model_dir: Path, label: str = "") -> None:
     """Copy the op-trace JSON produced by winml perf into ``model_dir``.
 
     The source path is parsed from the perf stdout/stderr. The destination is
-    ``op_tracing.json`` (suffixed with the sub-model label for composite models).
+    ``op_trace.json`` (suffixed with the sub-model label for composite models).
     A missing line is ignored — op-tracing may be unsupported for a given
     EP/device/level and winml perf then emits nothing.
     """
     src = _extract_op_trace_path(proc.get("stdout", "") + "\n" + proc.get("stderr", ""))
     if src is None or not src.exists():
         return
-    dest_name = f"op_tracing_{label}.json" if label else "op_tracing.json"
+    dest_name = f"op_trace_{label}.json" if label else "op_trace.json"
     dest = model_dir / dest_name
     try:
         shutil.copyfile(src, dest)
@@ -1436,7 +1436,7 @@ def run_model(
 
     When op_tracing is set, ``--op-tracing <level>`` is passed to winml perf. The
     op-trace path is parsed from perf's output and the file is copied into
-    ``model_dir`` as ``op_tracing.json`` (suffixed with the sub-model label for
+    ``model_dir`` as ``op_trace.json`` (suffixed with the sub-model label for
     composite models).
     """
     trace = bool(op_tracing) and model_dir is not None
@@ -1991,7 +1991,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Enable operator-level profiling in winml perf (requires onnxruntime-qnn). "
-            "The resulting op_tracing.json is copied into each model's output folder."
+            "The resulting op_trace.json is copied into each model's output folder."
         ),
     )
     parser.add_argument(
