@@ -146,10 +146,6 @@ class TestGenaiSessionInit:
         with pytest.raises(FileNotFoundError, match="winml-cli export"):
             GenaiSession(tmp_path)
 
-    def test_unknown_ep_raises(self, bundle_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Unknown EP"):
-            GenaiSession(bundle_dir, ep="tensorrt")
-
     def test_default_ep_is_cpu(self, bundle_dir: Path) -> None:
         session = GenaiSession(bundle_dir)
         assert session.ep == "cpu"

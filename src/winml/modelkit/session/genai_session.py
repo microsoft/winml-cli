@@ -113,19 +113,6 @@ def _compile_stage_worker(src: str, dst: str, ep_alias: str, provider_options: d
 
 
 # ---------------------------------------------------------------------------
-# Valid EP short names accepted by the ``ep`` argument.
-# "mixed" = use genai_config.json as-is (embeddings/lm_head on CPU,
-#           ctx/iter on the target accelerator).
-# EP routing is driven entirely by per-stage session_options in the bundle's
-# genai_config.json — GenaiSession never calls clear_providers/append_provider,
-# and it decides whether to register WinML EPs / pre-compile stages by reading
-# that config (see GenaiSession._bundle_uses_hardware_ep), not from ``ep``.
-# Using ``ep``/``device`` to override the config is tracked in #1025.
-# ---------------------------------------------------------------------------
-_VALID_EPS: frozenset[str] = frozenset({"cpu", "mixed", "qnn", "dml"})
-
-
-# ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
 
@@ -235,7 +222,11 @@ class GenaiSessionError(Exception):
 
 
 class GenaiNotInstalledError(GenaiSessionError):
-    """``onnxruntime-genai`` (or ``onnxruntime-genai-winml``) is not installed."""
+    """``onnxruntime_genai`` could not be imported.
+
+    Raised when the package is not installed, or when it is installed but its
+    native extension fails to load (e.g. missing runtime dependencies).
+    """
 
 
 class GenaiLoadError(GenaiSessionError):
@@ -259,12 +250,12 @@ class GenaiSession:
     Args:
         bundle_dir: Path to the genai bundle directory.  Must contain
             ``genai_config.json`` and the ONNX files it references.
-        ep: Execution provider short name (``"cpu"``, ``"qnn"``, ``"dml"``),
-            recorded for reporting.  Whether WinML EPs are registered and
-            whether stages are pre-compiled is decided from the bundle's
-            ``genai_config.json`` (per-stage ``session_options``), not from this
-            argument.  Overriding the config via ``ep``/``device`` is tracked
-            in #1025.
+        ep: Execution provider short name (e.g. ``"cpu"``, ``"qnn"``, ``"dml"``,
+            ``"mixed"``), recorded for reporting.  Whether WinML EPs are
+            registered and whether stages are pre-compiled is decided from the
+            bundle's ``genai_config.json`` (per-stage ``session_options``), not
+            from this argument.  Overriding the config via ``ep``/``device`` is
+            tracked in #1025.
         context_length: Override for the static KV cache length.  When
             ``None`` (default), read from ``genai_config.json``.
             Must match the ``--max-cache-len`` used during the winml-cli build.
@@ -316,8 +307,6 @@ class GenaiSession:
                 f"genai_config.json not found in {self._bundle_dir}. "
                 "Ensure the bundle was created with a winml-cli export command."
             )
-        if self._ep not in _VALID_EPS:
-            raise ValueError(f"Unknown EP {ep!r}. Supported: {sorted(_VALID_EPS)}")
 
         logger.info("GenaiSession initialized: bundle=%s ep=%s", self._bundle_dir, self._ep)
 
@@ -931,7 +920,10 @@ class GenaiSession:
         """Import and return the ``onnxruntime_genai`` module.
 
         Raises:
-            GenaiNotInstalledError: Package not found.
+            GenaiNotInstalledError: the module could not be imported — either
+                it is not installed, or it is installed but its native
+                extension failed to load (e.g. missing runtime dependencies or
+                a platform-incompatible build).
         """
         try:
             import onnxruntime_genai as og
@@ -939,8 +931,10 @@ class GenaiSession:
             return og
         except ImportError as exc:
             raise GenaiNotInstalledError(
-                "onnxruntime_genai is not installed. "
-                "Install it with: pip install onnxruntime-genai-winml"
+                f"Could not import onnxruntime_genai: {exc}. It may not be "
+                "installed, or it is installed but its native module failed "
+                "to load (e.g. missing runtime dependencies or a "
+                "platform-incompatible build)."
             ) from exc
 
     def _register_eps(self) -> None:

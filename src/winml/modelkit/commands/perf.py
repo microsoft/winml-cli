@@ -20,7 +20,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 import click
 import numpy as np
@@ -47,6 +47,13 @@ logger = logging.getLogger(__name__)
 
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
+
+# Inference runtimes selectable via ``--runtime`` (closed set; mirrors the
+# ``--compiler`` / ``COMPILER_NAMES`` convention in utils.constants):
+#   "winml"       -> single-shot ONNX inference (default)
+#   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
+RuntimeName = Literal["winml", "winml-genai"]
+RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 # =============================================================================
 # Constants for Data Generation
@@ -1535,7 +1542,6 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     """
     from ._perf_genai import (
         GenaiPerfConfig,
-        default_genai_prompt,
         device_to_genai_ep,
         genai_output_path,
         run_genai_perf,
@@ -1574,7 +1580,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
         bundle_dir=bundle_dir,
         ep=device_to_genai_ep(device),
         device=device,
-        prompt=p.get("prompt") or default_genai_prompt(),
+        prompt=p["prompt"],
         max_new_tokens=p["max_new_tokens"],
         iterations=iterations,
         warmup=warmup,
@@ -1589,7 +1595,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
 @cli_utils.model_option(required=False)
 @click.option(
     "--runtime",
-    type=click.Choice(["winml", "winml-genai"]),
+    type=click.Choice(list(RUNTIME_NAMES)),
     default="winml",
     show_default=True,
     help="Inference runtime. 'winml' benchmarks single-shot ONNX inference; "
@@ -1599,8 +1605,9 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
 @click.option(
     "--prompt",
     type=str,
-    default=None,
-    help="[winml-genai] Prompt text to generate from. Uses a built-in prompt when omitted.",
+    default="Explain the theory of relativity in simple terms.",
+    show_default=True,
+    help="[winml-genai] Prompt text to generate from.",
 )
 @click.option(
     "--max-new-tokens",
@@ -1726,8 +1733,8 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
 def perf(
     ctx: click.Context,
     model: str | None,
-    runtime: str,
-    prompt: str | None,
+    runtime: RuntimeName,
+    prompt: str,
     max_new_tokens: int,
     compile_timeout: int,
     task: str | None,

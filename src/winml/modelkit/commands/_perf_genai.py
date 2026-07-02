@@ -54,7 +54,8 @@ logger = logging.getLogger(__name__)
 
 RUNTIME_TYPE = "winml-genai"
 
-# Built-in benchmark prompt used when the user does not pass --prompt.
+# Built-in benchmark prompt.  Mirrored by the ``--prompt`` CLI default and the
+# ``GenaiPerfConfig.prompt`` field default (a test asserts the two stay in sync).
 _DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
 
 # --device -> GenaiSession EP short name.  The default ("auto") resolves to
@@ -77,17 +78,17 @@ def device_to_genai_ep(device: str) -> str:
     return _DEVICE_TO_GENAI_EP.get(device.lower(), "mixed")
 
 
-def default_genai_prompt() -> str:
-    """Return the built-in benchmark prompt."""
-    return _DEFAULT_PROMPT
-
-
 def genai_output_path(bundle_dir: str | Path) -> Path:
-    """Default JSON report path: ``~/.cache/winml/perf/<bundle>/<ts>.json``."""
-    slug = Path(bundle_dir).name or "genai"
-    out_dir = Path.home() / ".cache" / "winml" / "perf" / slug
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return out_dir / f"{timestamp}.json"
+    """Default JSON report path for a genai bundle.
+
+    Delegates to :func:`perf.generate_output_path` so both perf runtimes share
+    one report-path convention (``~/.cache/winml/perf/<slug>/<ts>.json``).  The
+    import is function-local to avoid a module-level cycle with ``perf`` (which
+    imports this module lazily inside its command body).
+    """
+    from .perf import generate_output_path
+
+    return generate_output_path(Path(bundle_dir).name or "genai")
 
 
 # =============================================================================

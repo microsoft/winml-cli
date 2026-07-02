@@ -25,7 +25,6 @@ from winml.modelkit.commands._perf_genai import (
     GenaiBenchmarkResult,
     GenaiPerfBenchmark,
     GenaiPerfConfig,
-    default_genai_prompt,
     device_to_genai_ep,
     display_genai_report,
     genai_output_path,
@@ -459,7 +458,9 @@ class TestCliDispatch:
     ) -> None:
         bundle = _make_bundle(tmp_path)
         runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
-        assert capture_run["config"].prompt == default_genai_prompt()
+        # The CLI --prompt default must match the GenaiPerfConfig field default.
+        assert capture_run["config"].prompt == perf_genai._DEFAULT_PROMPT
+        assert capture_run["config"].prompt == GenaiPerfConfig(bundle_dir=Path("x")).prompt
 
     def test_compile_flag_forwarded(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
