@@ -1379,19 +1379,68 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
 # ---------------------------------------------------------------------------
 
 
+def _extract_op_trace_path(text: str) -> Path | None:
+    """Parse the ``Op-trace saved to: <path>`` line from winml perf output.
+
+    winml perf prints this via a Rich console, which hard-wraps the long path
+    across lines (inserting line breaks but no extra spaces) when stdout isn't a
+    TTY. Rejoin the wrapped fragments by dropping line breaks, then cut at the
+    ``.json`` terminator. Returns None when the line is absent.
+    """
+    marker = "Op-trace saved to:"
+    idx = text.find(marker)
+    if idx == -1:
+        return None
+    tail = text[idx + len(marker) :].lstrip()
+    joined = tail.replace("\r", "").replace("\n", "")
+    end = joined.find(".json")
+    if end == -1:
+        return None
+    return Path(joined[: end + len(".json")])
+
+
+def _copy_op_trace(proc: dict, model_dir: Path, label: str = "") -> None:
+    """Copy the op-trace JSON produced by winml perf into ``model_dir``.
+
+    The source path is parsed from the perf stdout/stderr. The destination is
+    ``op_tracing.json`` (suffixed with the sub-model label for composite models).
+    A missing line is ignored — op-tracing may be unsupported for a given
+    EP/device/level and winml perf then emits nothing.
+    """
+    src = _extract_op_trace_path(proc.get("stdout", "") + "\n" + proc.get("stderr", ""))
+    if src is None or not src.exists():
+        return
+    dest_name = f"op_tracing_{label}.json" if label else "op_tracing.json"
+    dest = model_dir / dest_name
+    try:
+        shutil.copyfile(src, dest)
+        safe_print(f"    op-tracing: {dest}")
+    except OSError as e:
+        safe_print(f"    op-tracing: failed to copy {src} -> {dest}: {e}")
+
+
 def run_model(
     entry: ModelEntry,
     device: str,
     timeout: int,
     onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
+    op_tracing: str | None = None,
+    model_dir: Path | None = None,
 ) -> dict:
     """Execute winml perf for one or more ONNX models. Returns merged result dict.
 
     When onnx_paths is provided, benchmarks each pre-built ONNX directly.
     Single model is the {"": path} case. Results are merged (worst exit
     code, concatenated stdout/stderr, summed elapsed).
+
+    When op_tracing is set, ``--op-tracing <level>`` is passed to winml perf. The
+    op-trace path is parsed from perf's output and the file is copied into
+    ``model_dir`` as ``op_tracing.json`` (suffixed with the sub-model label for
+    composite models).
     """
+    trace = bool(op_tracing) and model_dir is not None
+
     if not onnx_paths:
         # No pre-built paths: fall back to HF model ID (single model only).
         # winml perf builds internally; the same --no-quant gating used by
@@ -1414,9 +1463,13 @@ def run_model(
         if _should_skip_winml_quant(ep):
             args += ["--no-quant"]
         args += ["--iterations", "10", "--warmup", "2"]
+        if trace:
+            args += ["--op-tracing", op_tracing]
         args += entry.perf_args
 
         proc = _run_subprocess(args, timeout)
+        if trace:
+            _copy_op_trace(proc, model_dir)
         proc["device"] = device
         proc["timestamp"] = _utc_now()
         proc["error_summary"] = (
@@ -1444,9 +1497,13 @@ def run_model(
         if ep:
             args += ["--ep", ep]
         args += ["--iterations", "10", "--warmup", "2"]
+        if trace:
+            args += ["--op-tracing", op_tracing]
         args += entry.perf_args
 
         proc = _run_subprocess(args, timeout)
+        if trace:
+            _copy_op_trace(proc, model_dir, label)
         if label:
             all_stdout.append(f"=== {label} ===\n{proc['stdout']}")
             all_stderr.append(f"=== {label} ===\n{proc['stderr']}")
@@ -1928,6 +1985,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="auto", help="Target device (default: auto)")
     parser.add_argument("--ep", default=None, help="Execution provider (e.g. qnn, dml, ov)")
     parser.add_argument(
+        "--op-tracing",
+        dest="op_tracing",
+        choices=["basic", "detail"],
+        default=None,
+        help=(
+            "Enable operator-level profiling in winml perf (requires onnxruntime-qnn). "
+            "The resulting op_tracing.json is copied into each model's output folder."
+        ),
+    )
+    parser.add_argument(
         "--build-only",
         dest="build_only",
         action="store_true",
@@ -2321,10 +2388,26 @@ def main() -> None:
                     ep=args.ep,
                 )
             elif args.eval_type == "perf":
-                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                perf_proc = run_model(
+                    entry,
+                    args.device,
+                    args.timeout,
+                    onnx_paths,
+                    ep=args.ep,
+                    op_tracing=args.op_tracing,
+                    model_dir=model_dir,
+                )
             else:
                 # "both": perf → eval
-                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                perf_proc = run_model(
+                    entry,
+                    args.device,
+                    args.timeout,
+                    onnx_paths,
+                    ep=args.ep,
+                    op_tracing=args.op_tracing,
+                    model_dir=model_dir,
+                )
                 if perf_proc["exit_code"] != 0:
                     accuracy_result = {"skipped": True, "skip_reason": "perf_failed"}
                 else:

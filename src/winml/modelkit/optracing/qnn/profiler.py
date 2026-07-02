@@ -190,7 +190,7 @@ class QNNProfiler(OpTracer):
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         csv_path = self.output_dir / "profiling_output.csv"
-        options = self._build_session_options(ort)
+        options = self._build_session_options(ort, self.level)
         provider_options = self._build_provider_options(csv_path)
         if not add_ep_for_device(
             options, "QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU, provider_options
@@ -224,12 +224,13 @@ class QNNProfiler(OpTracer):
     # ORT configuration builders
     # ------------------------------------------------------------------
 
-    def _build_session_options(self, ort_module: Any) -> Any:
+    def _build_session_options(self, ort_module: Any, level: str) -> Any:
         """Create ``ort.SessionOptions`` with profiling config entries."""
         options = ort_module.SessionOptions()
         options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
-        options.add_session_config_entry("ep.context_enable", "1")
-        options.add_session_config_entry("ep.context_embed_mode", "0")
+        if level == "detail":
+            options.add_session_config_entry("ep.context_enable", "1")
+            options.add_session_config_entry("ep.context_embed_mode", "0")
         return options
 
     def _build_provider_options(self, csv_path: Path) -> dict[str, str]:
@@ -245,7 +246,7 @@ class QNNProfiler(OpTracer):
             "htp_graph_finalization_optimization_mode": "3",
             "enable_htp_fp16_precision": "1",
             "profiling_level": profiling_level,
-            "profiling_file_path": str(csv_path),
+            "profiling_file_path": str(csv_path.resolve()),
         }
 
     # ------------------------------------------------------------------
