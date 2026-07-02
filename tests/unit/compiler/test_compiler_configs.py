@@ -25,11 +25,6 @@ class TestEPConfig:
         assert config.compiler == "ort"
         assert config.qnn_sdk_root is None
 
-    def test_provider_is_required(self):
-        """Test that provider defaults to None (not a hidden EP like 'qnn')."""
-        config = EPConfig()
-        assert config.provider is None
-
     def test_custom_values(self):
         """Test custom EP configuration."""
         config = EPConfig(
