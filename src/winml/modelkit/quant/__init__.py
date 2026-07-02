@@ -27,6 +27,7 @@ Usage:
 
 from typing import TYPE_CHECKING, Any
 
+from .calibration import get_quant_finalizer
 from .config import QuantizeResult, WinMLQuantizationConfig
 from .passes import BaseQuantPass, FP16Pass, RTNPass, StaticPass
 
@@ -49,10 +50,11 @@ __all__ = [
 ]
 
 
-# Names below are loaded lazily via ``__getattr__`` to avoid pulling in
-# onnxruntime.quantization/torch at import time. The TYPE_CHECKING re-imports
-# give static analyzers (mypy, CodeQL) visibility into what ``__all__`` exports
-# without triggering the heavy imports at runtime.
+# ``quantize_onnx`` is loaded lazily via ``__getattr__`` to avoid pulling in
+# onnxruntime.quantization at import time. The TYPE_CHECKING re-import gives
+# static analyzers (mypy, CodeQL) visibility into what ``__all__`` exports.
+# ``get_quant_finalizer`` is imported directly above — its module chain
+# (calibration/__init__ -> registry) is lightweight and safe at import time.
 if TYPE_CHECKING:
     from .calibration import get_quant_finalizer
     from .quantizer import Quantizer, expand_precision, quantize_onnx
@@ -62,7 +64,6 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "quantize_onnx": (".quantizer", "quantize_onnx"),
     "Quantizer": (".quantizer", "Quantizer"),
     "expand_precision": (".quantizer", "expand_precision"),
-    "get_quant_finalizer": (".calibration", "get_quant_finalizer"),
 }
 
 

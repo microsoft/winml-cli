@@ -16,8 +16,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import onnx
 import torch
+from onnx import TensorProto, helper
+from onnx import save as onnx_save
 
 from winml.modelkit.quant.calibration.qwen3_transformer_only import (
     Qwen3DecodeTrajectoryCalibReader,
@@ -47,27 +48,27 @@ def _fake_config() -> SimpleNamespace:
 def _build_tiny_onnx(path, *, seq_len: int, max_cache_len: int) -> None:
     """Write a minimal graph carrying the inputs the readers introspect."""
     inputs = [
-        onnx.helper.make_tensor_value_info(
-            "input_hidden_states", onnx.TensorProto.FLOAT, [1, seq_len, HIDDEN]
+        helper.make_tensor_value_info(
+            "input_hidden_states", TensorProto.FLOAT, [1, seq_len, HIDDEN]
         ),
-        onnx.helper.make_tensor_value_info(
-            "past_keys_0", onnx.TensorProto.FLOAT16, [1, NUM_KV_HEADS, max_cache_len, HEAD_DIM]
+        helper.make_tensor_value_info(
+            "past_keys_0", TensorProto.FLOAT16, [1, NUM_KV_HEADS, max_cache_len, HEAD_DIM]
         ),
     ]
-    out = onnx.helper.make_tensor_value_info(
-        "output_hidden_states", onnx.TensorProto.FLOAT, [1, seq_len, HIDDEN]
+    out = helper.make_tensor_value_info(
+        "output_hidden_states", TensorProto.FLOAT, [1, seq_len, HIDDEN]
     )
-    gqa = onnx.helper.make_node(
+    gqa = helper.make_node(
         "GroupQueryAttention",
         ["input_hidden_states"],
         ["attn_out"],
         name="gqa_layer_0",
         domain="com.microsoft",
     )
-    identity = onnx.helper.make_node("Identity", ["attn_out"], ["output_hidden_states"])
-    graph = onnx.helper.make_graph([gqa, identity], "tiny", inputs, [out])
-    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 18)])
-    onnx.save(model, str(path))
+    identity = helper.make_node("Identity", ["attn_out"], ["output_hidden_states"])
+    graph = helper.make_graph([gqa, identity], "tiny", inputs, [out])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+    onnx_save(model, str(path))
 
 
 def test_graph_shapes_and_gqa_nodes(tmp_path):
