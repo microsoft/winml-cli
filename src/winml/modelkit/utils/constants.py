@@ -64,6 +64,15 @@ ORT_SESSION_COMPILER: CompilerName = "ort_session"
 COMPILER_NAMES: tuple[CompilerName, ...] = get_args(CompilerName)
 
 
+# Inference runtime backends selectable via ``--runtime`` (see commands/perf.py):
+#   "ort"      -> ONNX Runtime (ort.InferenceSession via WinMLSession, default)
+#   "openvino" -> OpenVINO Runtime on the raw ONNX (ORT-vs-OV comparison)
+RuntimeName = Literal["ort", "openvino"]
+
+# Runtime-iterable form of ``RuntimeName`` (e.g. for the CLI choice list).
+RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
+
+
 # Supported execution providers — derived from the ``EPName`` Literal above so
 # that ``utils.constants`` stays leaf-level (no import dependency on sysinfo).
 # Membership parity with ``sysinfo.device._EP_DEVICE_MAP`` is enforced by
