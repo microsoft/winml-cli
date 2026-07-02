@@ -141,7 +141,7 @@ def main() -> int:
     parser.add_argument(
         "--num-images",
         type=int,
-        default=100,
+        default=500,
         help="Number of images to include (0 = all images with keypoints).",
     )
     parser.add_argument(

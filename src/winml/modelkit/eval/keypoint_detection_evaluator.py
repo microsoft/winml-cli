@@ -17,6 +17,7 @@ which is the standard COCO top-down evaluation protocol.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -59,6 +60,10 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         self._bbox_key: str = bbox_key
         self._area_key: str = area_key
         self._box_format: str = box_format
+
+        # Models like ViTPose+ take a ``dataset_index`` input selecting which
+        # expert to route through; it comes from the dataset config (defaults to 0).
+        self._dataset_index: int = int(mapping.get("dataset_index", 0))
 
         # Optional non-COCO keypoint layout: a model with a different keypoint
         # set (e.g. SynthPose's 52 anatomical markers) can be scored by this
@@ -149,6 +154,21 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
             predictions=predictions, references=references, **metric_kwargs
         )
 
+    def _declares_dataset_index(self) -> bool:
+        """True if the model accepts a ``dataset_index`` input.
+
+        ONNX/WinML models expose it via ``io_config["input_names"]``; native
+        PyTorch modules expose it in their ``forward`` signature.
+        """
+        io_config = getattr(self.model, "io_config", None) or {}
+        if "dataset_index" in (io_config.get("input_names") or []):
+            return True
+        forward = getattr(self.model, "forward", None)
+        try:
+            return forward is not None and "dataset_index" in inspect.signature(forward).parameters
+        except (TypeError, ValueError):
+            return False
+
     def _predict_poses(
         self,
         processor: Any,
@@ -166,10 +186,16 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         inputs = processor.preprocess(images=image, boxes=[boxes], return_tensors="pt")
         pixel_values = inputs["pixel_values"]
 
+        # Pass ``dataset_index`` only when the model declares it (e.g. ViTPose+).
+        extra_inputs: dict[str, Any] = {}
+        if self._declares_dataset_index():
+            extra_inputs["dataset_index"] = torch.tensor([self._dataset_index], dtype=torch.long)
+
         heatmaps = []
-        for i in range(pixel_values.shape[0]):
-            outputs = self.model(pixel_values=pixel_values[i : i + 1])
-            heatmaps.append(self._extract_heatmaps(outputs))
+        with torch.no_grad():
+            for i in range(pixel_values.shape[0]):
+                outputs = self.model(pixel_values=pixel_values[i : i + 1], **extra_inputs)
+                heatmaps.append(self._extract_heatmaps(outputs))
 
         wrapped = SimpleNamespace(heatmaps=torch.cat(heatmaps, dim=0))
         # post_process returns one list per image; we pass a single image.
