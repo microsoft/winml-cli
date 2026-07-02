@@ -94,7 +94,7 @@ def _make_progress_bar() -> Any:
             leave=True,
             file=sys.stderr,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("Failed to initialize tqdm progress bar; falling back to no-op: %s", e)
         return _NoopBar()
 
