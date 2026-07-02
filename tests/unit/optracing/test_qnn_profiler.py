@@ -31,7 +31,7 @@ from winml.modelkit.optracing.qnn.viewer import (
 
 
 def test_qnn_profiler_creates_session_options():
-    """Verify session options are configured correctly."""
+    """Basic level sets fallback only; EPContext entries are detail-only."""
     profiler = QNNProfiler(Path("model.onnx"), output_dir=Path("out"), level="basic")
     mock_ort = MagicMock()
     mock_options = MagicMock()
@@ -40,6 +40,22 @@ def test_qnn_profiler_creates_session_options():
     options = profiler._build_session_options(mock_ort)
 
     assert options is mock_options
+    calls = mock_options.add_session_config_entry.call_args_list
+    entries = {c.args[0]: c.args[1] for c in calls}
+    assert entries["session.disable_cpu_ep_fallback"] == "1"
+    assert "ep.context_enable" not in entries
+    assert "ep.context_embed_mode" not in entries
+
+
+def test_qnn_profiler_session_options_detail_enables_epcontext():
+    """Detail level additionally enables the EPContext session entries."""
+    profiler = QNNProfiler(Path("model.onnx"), output_dir=Path("out"), level="detail")
+    mock_ort = MagicMock()
+    mock_options = MagicMock()
+    mock_ort.SessionOptions.return_value = mock_options
+
+    profiler._build_session_options(mock_ort)
+
     calls = mock_options.add_session_config_entry.call_args_list
     entries = {c.args[0]: c.args[1] for c in calls}
     assert entries["session.disable_cpu_ep_fallback"] == "1"
