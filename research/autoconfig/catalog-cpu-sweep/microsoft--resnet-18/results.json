@@ -1,0 +1,339 @@
+{
+  "model_id": "microsoft/resnet-18",
+  "task": "image-classification",
+  "model_type": "resnet",
+  "timestamp": "2026-06-18T11:14:10",
+  "ep": "cpu",
+  "device": "cpu",
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "label": "baseline (opset 17, autoconf defaults)",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 231.091,
+      "screen_cv": 0.634823511084378,
+      "full_p50s_ms": [
+        237.472,
+        230.213,
+        238.44
+      ],
+      "median_p50_ms": 237.472,
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "OK",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 236.135,
+      "screen_cv": 0.6215427615558896,
+      "full_p50s_ms": [
+        221.852,
+        252.225,
+        244.959
+      ],
+      "median_p50_ms": 244.959,
+      "gain_vs_baseline_pct": -3.15,
+      "verdict": "DISCARD"
+    },
+    "h2": {
+      "status": "OK",
+      "label": "opset 19 (cpu-001 risk — transformer test)",
+      "opset": 19,
+      "extra_optim": null,
+      "screen_p50_ms": 228.935,
+      "screen_cv": 0.6700941315220477,
+      "full_p50s_ms": [
+        209.29,
+        231.693,
+        238.073
+      ],
+      "median_p50_ms": 231.693,
+      "gain_vs_baseline_pct": 2.43,
+      "verdict": "MARGINAL"
+    },
+    "h3": {
+      "status": "OK",
+      "label": "opset 21 (cpu-001 risk — transformer test)",
+      "opset": 21,
+      "extra_optim": null,
+      "screen_p50_ms": 222.347,
+      "screen_cv": 0.6050137847598573,
+      "full_p50s_ms": [
+        218.891,
+        226.688,
+        230.417
+      ],
+      "median_p50_ms": 226.688,
+      "gain_vs_baseline_pct": 4.54,
+      "verdict": "MARGINAL"
+    },
+    "h4": {
+      "status": "OK",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 229.793,
+      "screen_cv": 0.6810172633631137,
+      "full_p50s_ms": [
+        209.431,
+        231.069,
+        235.402
+      ],
+      "median_p50_ms": 231.069,
+      "gain_vs_baseline_pct": 2.7,
+      "verdict": "MARGINAL"
+    },
+    "h5": {
+      "status": "OK",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "skip_layer_norm_fusion": true
+      },
+      "screen_p50_ms": 188.605,
+      "screen_cv": 0.8141088518331964,
+      "full_p50s_ms": [
+        207.967,
+        226.586,
+        227.739
+      ],
+      "median_p50_ms": 226.586,
+      "gain_vs_baseline_pct": 4.58,
+      "verdict": "MARGINAL"
+    },
+    "h6": {
+      "status": "OK",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 206.291,
+      "screen_cv": 0.6984017722537581,
+      "full_p50s_ms": [
+        200.308,
+        212.704,
+        215.094
+      ],
+      "median_p50_ms": 212.704,
+      "gain_vs_baseline_pct": 10.43,
+      "verdict": "KEEP_CONFIRMED",
+      "confirm_p50s_ms": [
+        40.366,
+        24.962
+      ],
+      "all_p50s_ms": [
+        200.308,
+        212.704,
+        215.094,
+        40.366,
+        24.962
+      ],
+      "overall_median_p50_ms": 200.308,
+      "overall_gain_pct": 15.65,
+      "sessions_above_threshold": 5,
+      "total_sessions": 5
+    },
+    "h7": {
+      "status": "OK",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "bias_softmax_fusion": true
+      },
+      "screen_p50_ms": 176.804,
+      "screen_cv": 0.8944367774484739,
+      "full_p50s_ms": [
+        222.575,
+        245.29,
+        227.782
+      ],
+      "median_p50_ms": 227.782,
+      "gain_vs_baseline_pct": 4.08,
+      "verdict": "MARGINAL"
+    },
+    "h8": {
+      "status": "SKIPPED_CPU002",
+      "label": "opset 17 + matmul_add_fusion (cpu-002 guarded)",
+      "opset": 17,
+      "reason": "cpu-002: model already has Gemm — matmul_add_fusion skipped"
+    },
+    "h9": {
+      "status": "OK",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "matmul_transpose_fusion": true
+      },
+      "screen_p50_ms": 15.5,
+      "screen_cv": 0.6570967741935484,
+      "full_p50s_ms": [
+        24.223,
+        11.524,
+        17.797
+      ],
+      "median_p50_ms": 17.797,
+      "gain_vs_baseline_pct": 92.51,
+      "verdict": "KEEP_CONFIRMED",
+      "confirm_p50s_ms": [
+        186.462,
+        197.357
+      ],
+      "all_p50s_ms": [
+        24.223,
+        11.524,
+        17.797,
+        186.462,
+        197.357
+      ],
+      "overall_median_p50_ms": 24.223,
+      "overall_gain_pct": 89.8,
+      "sessions_above_threshold": 5,
+      "total_sessions": 5
+    },
+    "h10": {
+      "status": "OK",
+      "label": "opset 17 + attention + skip_layer_norm + layer_norm",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 24.828,
+      "screen_cv": 0.5822458514580312,
+      "full_p50s_ms": [
+        20.086,
+        14.909,
+        43.266
+      ],
+      "median_p50_ms": 20.086,
+      "gain_vs_baseline_pct": 91.54,
+      "verdict": "KEEP_CONFIRMED",
+      "confirm_p50s_ms": [
+        18.859,
+        39.401
+      ],
+      "all_p50s_ms": [
+        20.086,
+        14.909,
+        43.266,
+        18.859,
+        39.401
+      ],
+      "overall_median_p50_ms": 20.086,
+      "overall_gain_pct": 91.54,
+      "sessions_above_threshold": 5,
+      "total_sessions": 5
+    },
+    "h11": {
+      "status": "OK",
+      "label": "opset 17 + nchwc_transformer (Conv-heavy models)",
+      "opset": 17,
+      "extra_optim": {
+        "nchwc_transformer": true
+      },
+      "screen_p50_ms": 14.073,
+      "screen_cv": 0.8100618205073545,
+      "full_p50s_ms": [
+        30.776,
+        40.872,
+        230.911
+      ],
+      "median_p50_ms": 40.872,
+      "gain_vs_baseline_pct": 82.79,
+      "verdict": "MARGINAL_UNCONFIRMED",
+      "confirm_p50s_ms": [
+        36.88,
+        27.171
+      ],
+      "all_p50s_ms": [
+        30.776,
+        40.872,
+        230.911,
+        36.88,
+        27.171
+      ],
+      "overall_median_p50_ms": 36.88,
+      "overall_gain_pct": 84.47,
+      "sessions_above_threshold": 4,
+      "total_sessions": 5
+    },
+    "h12": {
+      "status": "OK",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "extra_optim": {
+        "transpose_optimizer": true
+      },
+      "screen_p50_ms": 10.858,
+      "screen_cv": 0.7146804199668446,
+      "full_p50s_ms": [
+        36.911,
+        21.651,
+        40.879
+      ],
+      "median_p50_ms": 36.911,
+      "gain_vs_baseline_pct": 84.46,
+      "verdict": "KEEP_CONFIRMED",
+      "confirm_p50s_ms": [
+        26.592,
+        38.939
+      ],
+      "all_p50s_ms": [
+        36.911,
+        21.651,
+        40.879,
+        26.592,
+        38.939
+      ],
+      "overall_median_p50_ms": 36.911,
+      "overall_gain_pct": 84.46,
+      "sessions_above_threshold": 5,
+      "total_sessions": 5
+    },
+    "h13": {
+      "status": "OK",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "extra_optim": {
+        "gelu_fusion": true
+      },
+      "screen_p50_ms": 183.865,
+      "screen_cv": 0.9105920104424441,
+      "full_p50s_ms": [
+        219.217,
+        26.395,
+        20.936
+      ],
+      "median_p50_ms": 26.395,
+      "gain_vs_baseline_pct": 88.89,
+      "verdict": "KEEP_CONFIRMED",
+      "confirm_p50s_ms": [
+        18.747,
+        215.344
+      ],
+      "all_p50s_ms": [
+        219.217,
+        26.395,
+        20.936,
+        18.747,
+        215.344
+      ],
+      "overall_median_p50_ms": 26.395,
+      "overall_gain_pct": 88.89,
+      "sessions_above_threshold": 5,
+      "total_sessions": 5
+    }
+  },
+  "baseline_p50_ms": 237.472,
+  "best_p50_ms": 17.797,
+  "best_hypothesis": "h9",
+  "best_gain_pct": 92.51,
+  "errors": [],
+  "baseline_opset": 17
+}

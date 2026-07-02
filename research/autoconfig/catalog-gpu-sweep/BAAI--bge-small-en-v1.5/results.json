@@ -1,0 +1,187 @@
+{
+  "model_id": "BAAI/bge-small-en-v1.5",
+  "task": "sentence-similarity",
+  "model_type": "bert",
+  "timestamp": "2026-06-18T00:17:47",
+  "ep": "qnn",
+  "device": "gpu",
+  "baseline_opset": 17,
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 54.32,
+      "screen_cv": 0.7272091310751105,
+      "full_p50s_ms": [
+        57.207,
+        52.628,
+        51.964
+      ],
+      "median_p50_ms": 52.628,
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "OK",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 54.548,
+      "screen_cv": 0.2691757717973161,
+      "full_p50s_ms": [
+        53.686,
+        52.321,
+        53.336
+      ],
+      "median_p50_ms": 53.336,
+      "gain_vs_baseline_pct": -1.35,
+      "verdict": "DISCARD"
+    },
+    "h2": {
+      "status": "OK",
+      "label": "opset 19",
+      "opset": 19,
+      "extra_optim": null,
+      "screen_p50_ms": 53.712,
+      "screen_cv": 0.11630548108430146,
+      "full_p50s_ms": [
+        52.844,
+        53.359,
+        53.4
+      ],
+      "median_p50_ms": 53.359,
+      "gain_vs_baseline_pct": -1.39,
+      "verdict": "DISCARD"
+    },
+    "h3": {
+      "status": "OK",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "extra_optim": null,
+      "screen_p50_ms": 53.406,
+      "screen_cv": 0.1399842714301764,
+      "full_p50s_ms": [
+        52.192,
+        53.582,
+        52.542
+      ],
+      "median_p50_ms": 52.542,
+      "gain_vs_baseline_pct": 0.16,
+      "verdict": "MARGINAL"
+    },
+    "h4": {
+      "status": "OK",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "matmul_transpose_fusion": true
+      },
+      "screen_p50_ms": 52.792,
+      "screen_cv": 0.18718745264434003,
+      "full_p50s_ms": [
+        52.812,
+        53.63,
+        52.173
+      ],
+      "median_p50_ms": 52.812,
+      "gain_vs_baseline_pct": -0.35,
+      "verdict": "DISCARD"
+    },
+    "h5": {
+      "status": "OK",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 52.42,
+      "screen_cv": 0.1541205646699733,
+      "full_p50s_ms": [
+        52.991,
+        52.271,
+        52.571
+      ],
+      "median_p50_ms": 52.571,
+      "gain_vs_baseline_pct": 0.11,
+      "verdict": "MARGINAL"
+    },
+    "h6": {
+      "status": "OK",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "bias_softmax_fusion": true
+      },
+      "screen_p50_ms": 52.712,
+      "screen_cv": 0.15228031567764452,
+      "full_p50s_ms": [
+        51.826,
+        53.412,
+        52.698
+      ],
+      "median_p50_ms": 52.698,
+      "gain_vs_baseline_pct": -0.13,
+      "verdict": "DISCARD"
+    },
+    "h7": {
+      "status": "OK",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 58.252,
+      "screen_cv": 0.19027672869601042,
+      "full_p50s_ms": [
+        54.301,
+        52.525,
+        52.622
+      ],
+      "median_p50_ms": 52.622,
+      "gain_vs_baseline_pct": 0.01,
+      "verdict": "MARGINAL"
+    },
+    "h8": {
+      "status": "BENCH_FAIL",
+      "label": "opset 17 + skip_layer_norm_fusion"
+    },
+    "h9": {
+      "status": "BUILD_FAIL",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "build_error": "AI--bge-small-en-v1.5\\h9\\export.onnx\n(127.5 MB)\n[06/18/26 00:59:02] ERROR    ✗ ort_graph failed: [Errno 28] No space left on   \n                             device                                            \n⏳ Optimize  Optimizing ONNX graph...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h10": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose",
+      "opset": 17,
+      "build_error": "   Supported tasks are: feature-extraction,          \n                             fill-mask, multiple-choice, question-answering,   \n                             text-classification, token-classification.        \n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h11": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "build_error": "   Supported tasks are: feature-extraction,          \n                             fill-mask, multiple-choice, question-answering,   \n                             text-classification, token-classification.        \n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h12": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "build_error": "   Supported tasks are: feature-extraction,          \n                             fill-mask, multiple-choice, question-answering,   \n                             text-classification, token-classification.        \n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    }
+  },
+  "best_hypothesis": null,
+  "baseline_p50_ms": 52.628,
+  "best_p50_ms": null,
+  "best_gain_pct": null,
+  "opset21_gain_pct": 0.16,
+  "feature_gaps": [],
+  "errors": [
+    "h8: screen bench failed",
+    "h9: BUILD_FAIL",
+    "h10: BUILD_FAIL",
+    "h11: BUILD_FAIL",
+    "h12: BUILD_FAIL"
+  ]
+}
