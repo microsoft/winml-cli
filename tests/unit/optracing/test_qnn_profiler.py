@@ -81,7 +81,7 @@ def test_qnn_profiler_provider_options_basic():
     assert po["htp_graph_finalization_optimization_mode"] == "3"
     assert po["enable_htp_fp16_precision"] == "1"
     assert po["profiling_level"] == "detailed"
-    assert po["profiling_file_path"] == str(Path("out/profiling.csv").resolve())
+    assert po["profiling_file_path"] == str(Path("out/profiling.csv"))
 
 
 def test_qnn_profiler_provider_options_detail():
