@@ -1286,7 +1286,8 @@ def _run_compile_stage(
     with StageLive("compile", console) as sl:
         _cp = ""
         if hasattr(config.compile, "ep_config") and config.compile.ep_config:
-            _cp = f" for {config.compile.ep_config.provider.upper()}"
+            ep = config.compile.ep_config.provider
+            _cp = f" for {ep.upper()}" if ep else ""
         sl.set_status(f"Compiling{_cp}...")
         t0 = time.monotonic()
         compile_result = compile_onnx(
