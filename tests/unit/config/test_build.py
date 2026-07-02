@@ -587,12 +587,11 @@ class TestBuildSubmoduleConfig:
     @pytest.fixture
     def parent_config(self) -> WinMLBuildConfig:
         """Create a parent config with non-default optim/compile for inheritance tests."""
-        from winml.modelkit.compiler import WinMLCompileConfig
         from winml.modelkit.optim import WinMLOptimizationConfig
 
         return WinMLBuildConfig(
             optim=WinMLOptimizationConfig(gelu_fusion=True, matmul_add_fusion=True),
-            compile=WinMLCompileConfig(),
+            compile=None,
         )
 
     def test_single_input_single_output(self, parent_config: WinMLBuildConfig) -> None:
@@ -1782,7 +1781,7 @@ class TestValidate:
             export=None,  # ONNX build
             optim=WinMLOptimizationConfig(),
             quant=WinMLQuantizationConfig(task=None, model_id=None),
-            compile=WinMLCompileConfig(),
+            compile=None,
         )
         config.validate()  # Should not raise
 
