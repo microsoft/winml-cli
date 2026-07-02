@@ -38,6 +38,7 @@ from ..session import (
     GenaiLoadError,
     GenaiNotInstalledError,
     GenaiSession,
+    GenaiSessionError,
     GenerationConfig,
 )
 
@@ -275,15 +276,34 @@ class GenaiPerfBenchmark:
             compile_timeout=self._config.compile_timeout,
         )
 
+    def _prompt_text(self, session: GenaiSession) -> str:
+        """Return the prompt to benchmark, chat-templated when possible.
+
+        Wraps the configured prompt in the bundle's own chat template (via
+        :meth:`GenaiSession.apply_chat_template`) so the measured prefill
+        matches how the model is actually prompted.  Bundles that ship no chat
+        template benchmark the raw prompt unchanged.
+        """
+        try:
+            templated = session.apply_chat_template(self._config.prompt)
+        except GenaiSessionError as exc:
+            logger.info("genai perf: no chat template applied (%s); benchmarking raw prompt", exc)
+            return self._config.prompt
+        logger.info("genai perf: applied the bundle's chat template to the prompt")
+        return templated
+
     def run(self) -> GenaiBenchmarkResult:
         """Execute the benchmark and return aggregated metrics."""
         if self._session is None:
             self._session = self._build_session()
         session = self._session
 
-        # Loads the model and tokenizer, then encodes the prompt once. Both
-        # are outside the timed loop so they don't inflate TTFT.
-        self._prompt_token_ids = session.encode(self._config.prompt)
+        # Loads the model and tokenizer, then encodes the prompt once.  Both
+        # are outside the timed loop so they don't inflate TTFT.  The prompt is
+        # wrapped in the bundle's own chat template so the measured prefill
+        # reflects realistic chat usage (falls back to the raw prompt when the
+        # bundle ships no template).
+        self._prompt_token_ids = session.encode(self._prompt_text(session))
 
         gen_config = GenerationConfig(
             max_new_tokens=self._config.max_new_tokens,

@@ -275,6 +275,11 @@ class GenaiSession:
     # Sub-directory within the bundle that holds pre-compiled EPContext ONNX files.
     _COMPILED_SUBDIR: str = "_compiled"
 
+    # Standalone chat-template sidecar written next to genai_config.json (the
+    # conventional onnxruntime-genai / Hugging Face filename).  Read to format
+    # prompts with the model's own template; absent for bundles that ship none.
+    _CHAT_TEMPLATE_FILE: str = "chat_template.jinja"
+
     def __init__(
         self,
         bundle_dir: str | Path,
@@ -516,38 +521,70 @@ class GenaiSession:
     # Chat-template helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def apply_chatml_template(
+    def apply_chat_template(
+        self,
         prompt: str,
+        *,
         system: str | None = None,
+        add_generation_prompt: bool = True,
     ) -> str:
-        r"""Wrap *prompt* in the ChatML format used by Qwen2/3, Yi, Mistral, etc.
+        """Format *prompt* with the bundle's own chat template.
 
-        Produces::
+        Model-driven: the wrapping comes from the chat template shipped inside
+        the bundle (rendered via ``og.Tokenizer.apply_chat_template``), so it
+        matches whatever format the model was trained with — ChatML, Llama
+        ``[INST]``, Phi ``<|user|>`` etc.  No chat format is hardcoded here.
 
-            <|im_start|>system
-            {system}<|im_end|>
-            <|im_start|>user
-            {prompt}<|im_end|>
-            <|im_start|>assistant
-
-        The trailing ``<|im_start|>assistant\\n`` primes the model to respond
-        as the assistant role with no leading newline in its output.
+        The template text is read from the standalone ``chat_template.jinja``
+        sidecar when present; otherwise onnxruntime-genai falls back to any
+        template embedded in the tokenizer config.
 
         Args:
-            prompt: The user turn text.
-            system: Optional system prompt.  When ``None`` no system turn is
-                prepended.
+            prompt: The user-turn text.
+            system: Optional system-turn text prepended before the user turn.
+            add_generation_prompt: Append the model's assistant generation
+                prefix so it continues in the assistant role (matches the
+                Hugging Face ``add_generation_prompt`` semantics).
 
         Returns:
-            Formatted string ready to pass to :meth:`generate` /
-            :meth:`generate_streaming`.
+            The templated prompt string, ready to pass to :meth:`generate` /
+            :meth:`generate_streaming` / :meth:`generate_timed`.
+
+        Raises:
+            GenaiSessionError: The bundle ships no usable chat template, or the
+                template could not be rendered.
         """
-        parts: list[str] = []
+        self._ensure_loaded()
+        messages: list[dict[str, str]] = []
         if system is not None:
-            parts.append(f"<|im_start|>system\n{system}<|im_end|>\n")
-        parts.append(f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n")
-        return "".join(parts)
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        kwargs: dict[str, Any] = {"add_generation_prompt": add_generation_prompt}
+        template_str = self._read_bundle_chat_template()
+        if template_str is not None:
+            kwargs["template_str"] = template_str
+
+        try:
+            rendered = self._tokenizer.apply_chat_template(json.dumps(messages), **kwargs)
+        except Exception as exc:
+            raise GenaiSessionError(
+                f"Could not apply a chat template for bundle {self._bundle_dir}: {exc}. "
+                "The bundle may ship no chat template; pass a pre-formatted prompt instead."
+            ) from exc
+        return str(rendered)
+
+    def _read_bundle_chat_template(self) -> str | None:
+        """Return the bundle's standalone chat-template text, or ``None``.
+
+        Reads the conventional ``chat_template.jinja`` sidecar next to
+        ``genai_config.json``.  Returns ``None`` when absent so callers can let
+        onnxruntime-genai fall back to a template embedded in the tokenizer.
+        """
+        path = self._bundle_dir / self._CHAT_TEMPLATE_FILE
+        if not path.is_file():
+            return None
+        return path.read_text(encoding="utf-8")
 
     # ------------------------------------------------------------------
     # Tokenizer helpers

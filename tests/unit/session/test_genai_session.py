@@ -579,27 +579,68 @@ class TestGenerateTimed:
 
 
 # ---------------------------------------------------------------------------
-# Tests: apply_chatml_template
+# Tests: apply_chat_template
 # ---------------------------------------------------------------------------
 
 
-class TestApplyChatmlTemplate:
-    def test_user_only(self) -> None:
-        result = GenaiSession.apply_chatml_template("Hello")
-        assert result == "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n"
+class TestApplyChatTemplate:
+    def test_delegates_to_tokenizer(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        mock_og.Tokenizer.return_value.apply_chat_template.return_value = "TEMPLATED"
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            result = session.apply_chat_template("Hello")
+        assert result == "TEMPLATED"
 
-    def test_with_system(self) -> None:
-        result = GenaiSession.apply_chatml_template("Hello", system="You are helpful.")
-        assert result.startswith("<|im_start|>system\nYou are helpful.<|im_end|>\n")
-        assert "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n" in result
+    def test_builds_user_message(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        tok = mock_og.Tokenizer.return_value
+        tok.apply_chat_template.return_value = "x"
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            session.apply_chat_template("Hello")
+        messages = json.loads(tok.apply_chat_template.call_args.args[0])
+        assert messages == [{"role": "user", "content": "Hello"}]
 
-    def test_no_system_no_system_turn(self) -> None:
-        result = GenaiSession.apply_chatml_template("Hi")
-        assert "<|im_start|>system" not in result
+    def test_prepends_system_message(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        tok = mock_og.Tokenizer.return_value
+        tok.apply_chat_template.return_value = "x"
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            session.apply_chat_template("Hi", system="You are helpful.")
+        messages = json.loads(tok.apply_chat_template.call_args.args[0])
+        assert messages == [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hi"},
+        ]
 
-    def test_ends_with_assistant_priming(self) -> None:
-        result = GenaiSession.apply_chatml_template("Hi")
-        assert result.endswith("<|im_start|>assistant\n")
+    def test_forwards_add_generation_prompt(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        tok = mock_og.Tokenizer.return_value
+        tok.apply_chat_template.return_value = "x"
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            session.apply_chat_template("Hi", add_generation_prompt=False)
+        assert tok.apply_chat_template.call_args.kwargs["add_generation_prompt"] is False
+
+    def test_passes_sidecar_template_str(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        (bundle_dir / "chat_template.jinja").write_text("TMPL-BODY", encoding="utf-8")
+        tok = mock_og.Tokenizer.return_value
+        tok.apply_chat_template.return_value = "x"
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            session.apply_chat_template("Hi")
+        assert tok.apply_chat_template.call_args.kwargs["template_str"] == "TMPL-BODY"
+
+    def test_no_sidecar_omits_template_str(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        tok = mock_og.Tokenizer.return_value
+        tok.apply_chat_template.return_value = "x"
+        with _patch_og(mock_og), GenaiSession(bundle_dir) as session:
+            session.apply_chat_template("Hi")
+        assert "template_str" not in tok.apply_chat_template.call_args.kwargs
+
+    def test_raises_when_template_unavailable(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        mock_og.Tokenizer.return_value.apply_chat_template.side_effect = RuntimeError(
+            "no chat template"
+        )
+        with (
+            _patch_og(mock_og),
+            GenaiSession(bundle_dir) as session,
+            pytest.raises(GenaiSessionError, match="chat template"),
+        ):
+            session.apply_chat_template("Hi")
 
 
 # ---------------------------------------------------------------------------

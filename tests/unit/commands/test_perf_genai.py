@@ -75,14 +75,23 @@ class _FakeSession:
         *,
         prompt_ids: list[int] | None = None,
         context_length: int = 256,
+        chat_template: bool = True,
     ) -> None:
         self._timings = list(timings)
         self._i = 0
         self._prompt_ids = prompt_ids if prompt_ids is not None else [1, 2, 3]
         self.context_length = context_length
+        self._chat_template = chat_template
+        self.encoded_text: str | None = None
 
     def encode(self, text: str) -> list[int]:
+        self.encoded_text = text
         return list(self._prompt_ids)
+
+    def apply_chat_template(self, prompt: str, **_kwargs: object) -> str:
+        if not self._chat_template:
+            raise GenaiSessionError("bundle ships no chat template")
+        return f"<chat>{prompt}</chat>"
 
     def generate_timed(self, prompt: object, config: object = None) -> GenerationTiming:
         if self._i >= len(self._timings):
@@ -214,6 +223,32 @@ class TestMetricMath:
 # ---------------------------------------------------------------------------
 # GenaiBenchmarkResult.to_dict
 # ---------------------------------------------------------------------------
+
+
+class TestChatTemplate:
+    def test_applies_bundle_chat_template(self) -> None:
+        """The prompt is wrapped in the bundle's chat template before encoding."""
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("x"), warmup=0, iterations=1, max_new_tokens=2, prompt="Hi"
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4])], chat_template=True)
+        bench = GenaiPerfBenchmark(cfg, session=session)
+
+        bench.run()
+
+        assert session.encoded_text == "<chat>Hi</chat>"
+
+    def test_falls_back_to_raw_prompt_without_template(self) -> None:
+        """Bundles without a chat template benchmark the raw prompt unchanged."""
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("x"), warmup=0, iterations=1, max_new_tokens=2, prompt="Hi"
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4])], chat_template=False)
+        bench = GenaiPerfBenchmark(cfg, session=session)
+
+        bench.run()
+
+        assert session.encoded_text == "Hi"
 
 
 class TestResultToDict:
