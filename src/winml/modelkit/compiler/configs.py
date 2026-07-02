@@ -43,7 +43,7 @@ class EPConfig:
         device: Target device ("npu", "gpu", "cpu", "auto")
     """
 
-    provider: EPAlias = "qnn"
+    provider: EPAlias
     provider_options: dict[str, str] = field(default_factory=dict)
     enable_ep_context: bool = True
     embed_context: bool = False
@@ -83,7 +83,7 @@ class WinMLCompileConfig:
     """
 
     # Target EP settings
-    ep_config: EPConfig = field(default_factory=EPConfig)
+    ep_config: EPConfig
 
     # Behavior
     validate: bool = True
@@ -253,7 +253,7 @@ class WinMLCompileConfig:
     def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
         """Create from dictionary. Unknown keys are ignored."""
         ep_config = EPConfig(
-            provider=data.get("execution_provider", "qnn"),
+            provider=data["execution_provider"],
             provider_options=data.get("provider_options", {}),
             enable_ep_context=data.get("enable_ep_context", True),
             embed_context=data.get("embed_context", False),

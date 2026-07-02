@@ -16,14 +16,19 @@ class TestEPConfig:
     """Test EPConfig dataclass."""
 
     def test_default_values(self):
-        """Test default EP configuration."""
-        config = EPConfig()
+        """Test default EP configuration (non-provider fields)."""
+        config = EPConfig(provider="qnn")
         assert config.provider == "qnn"
         assert config.provider_options == {}
         assert config.enable_ep_context is True
         assert config.embed_context is False
         assert config.compiler == "ort"
         assert config.qnn_sdk_root is None
+
+    def test_provider_is_required(self):
+        """Test that provider must be explicitly set."""
+        with pytest.raises(TypeError):
+            EPConfig()
 
     def test_custom_values(self):
         """Test custom EP configuration."""
@@ -44,12 +49,17 @@ class TestCompileConfig:
 
     def test_default_values(self):
         """Test default config has only EP settings, no quant fields."""
-        config = WinMLCompileConfig()
+        config = WinMLCompileConfig(ep_config=EPConfig(provider="qnn"))
         assert config.ep_config.provider == "qnn"
         assert config.validate is True
         assert config.verbose is False
         assert not hasattr(config, "qdq_config")
         assert not hasattr(config, "calibration_config")
+
+    def test_ep_config_is_required(self):
+        """Test that ep_config must be explicitly set."""
+        with pytest.raises(TypeError):
+            WinMLCompileConfig()
 
     def test_device_property(self):
         """Test device property returns provider name."""

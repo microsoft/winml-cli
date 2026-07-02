@@ -273,7 +273,7 @@ class TestQairtSessionPaths:
         monkeypatch.setenv("QNN_SDK_ROOT", str(mock_qairt_sdk_root.parent / "wrong_sdk"))
 
         # Provide SDK root via ep_config
-        ep_config = EPConfig(qnn_sdk_root=mock_qairt_sdk_root)
+        ep_config = EPConfig(provider="qnn", qnn_sdk_root=mock_qairt_sdk_root)
 
         session = WinMLQairtSession(onnx_path=simple_matmul_onnx, ep_config=ep_config)
 
