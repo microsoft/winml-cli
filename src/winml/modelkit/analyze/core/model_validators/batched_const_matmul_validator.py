@@ -53,12 +53,9 @@ class BatchedConstMatMulValidator(ModelValidator):
         ep = self.ep
         if not ep:
             return False
-        try:
-            from ...models.ihv_type import IHVType
+        from ...models.ihv_type import IHVType
 
-            return infer_ihv_from_ep_name(ep) == IHVType.INTEL
-        except Exception:  # pragma: no cover - defensive
-            return False
+        return infer_ihv_from_ep_name(ep) == IHVType.INTEL
 
     def validate(self) -> Information | None:
         """Detect batched MatMul with a single constant rank>=3 operand."""
