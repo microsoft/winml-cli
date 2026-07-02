@@ -23,16 +23,18 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import platform
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from pathlib import Path
+    from collections.abc import Callable, Iterator
 
 import click
 from rich.console import Console
@@ -48,7 +50,7 @@ from ..ep_path import (
     PyPISource,
     WinMLCatalogSource,
 )
-from ..session import WinMLEP, WinMLEPRegistry
+from ..session import WinMLEPRegistry
 from ..sysinfo import OS
 
 
@@ -388,8 +390,20 @@ def _output_compact(info: dict[str, Any]) -> None:
 # --- Device listing ---
 
 
-def _gather_device_info() -> list[dict[str, Any]]:
+def _gather_device_info(
+    ep_info: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Gather available device information in priority order.
+
+    Args:
+        ep_info: Optional output of :func:`_gather_ep_info`. When passed,
+            each device is enriched with per-source ``device_facts``
+            (Architecture + Driver) that survived the subprocess boundary
+            through :meth:`WinMLEP.to_dict`. Without this the enrichment
+            is a no-op because filesystem-backed EPs are registered only
+            in isolated child processes, so the parent's
+            ``WinMLEPRegistry._registered`` never holds their live
+            ``WinMLDevice`` handles.
 
     Returns:
         List of device dicts with type, priority, and details.
@@ -448,56 +462,63 @@ def _gather_device_info() -> list[dict[str, Any]]:
             result.append(entry)
             priority += 1
 
-    # Enrich each device entry with WinMLDevice.device_facts() from any
-    # registered EP whose .devices saw this hardware. First successful
-    # match per (device_type, hardware_name) pair wins; later EPs binding
-    # the same device can't override architecture/driver because those
-    # facts are device-intrinsic per docs/design/session/4_winml_device.md
+    # Enrich each device entry with device_facts (Architecture + Driver)
+    # captured from any registered EP whose .devices saw this hardware.
+    # First successful match per (device_type, hardware_name) pair wins;
+    # later EPs binding the same device can't override those facts because
+    # they're device-intrinsic per docs/design/session/4_winml_device.md
     # §4.1. ``setdefault`` ensures sysinfo-provided values aren't
     # clobbered when both sources have the same key (e.g. ``driver``).
     #
-    # TODO(session-public-surface): reaches into ``registry._registered``,
-    # which is registry-internal. Consider exposing a small public
-    # accessor like ``registered_eps()`` — consistent with the existing
-    # ``_discovered``-reach smell in this module.
-    try:
-        from ..session import WinMLEPRegistry
-
-        registry = WinMLEPRegistry.instance()
-        for entry in result:
-            match_type = entry["type"]
-            sysinfo_name = entry["name"]
-            for winml_ep in registry._registered.values():
-                # Match by device_type AND a fuzzy name relation —
-                # exact match fails when OpenVINO appends suffixes like
-                # "(iGPU)" to FULL_DEVICE_NAME that sysinfo's WMI query
-                # doesn't include. Substring-in-either-direction covers
-                # both bias cases.
-                matched = next(
-                    (
-                        d for d in winml_ep.devices
-                        if d.device_type == match_type
-                        and (
-                            d.hardware_name == sysinfo_name
-                            or sysinfo_name in d.hardware_name
-                            or d.hardware_name in sysinfo_name
-                        )
-                    ),
-                    None,
+    # Data source: ``ep_info`` (already gathered by :func:`_gather_ep_info`).
+    # Reading it here — instead of ``WinMLEPRegistry._registered`` — is
+    # what makes this work now that filesystem-backed EPs live only in
+    # isolated child processes; ``WinMLEP.to_dict`` serializes
+    # ``device_facts`` into the returned dict so the fact survives the
+    # subprocess boundary.
+    if ep_info:
+        try:
+            for entry in result:
+                match_type = entry["type"]
+                sysinfo_name = entry["name"]
+                matched_dev = _find_matching_device(
+                    ep_info, match_type, sysinfo_name,
                 )
-                if matched is not None:
-                    # device_facts() yields ``"Label: Value"`` strings;
-                    # split on the first colon so the renderer can merge
-                    # by lowercased key alongside sysinfo's details.
-                    for fact in matched.device_facts():
-                        label, _, value = fact.partition(": ")
-                        if label and value:
-                            entry["details"].setdefault(label.lower(), value)
-                    break
-    except Exception as e:
-        logger.warning("device_facts enrichment failed: %s", e)
+                if matched_dev is None:
+                    continue
+                # ``device_facts`` values are ``"Label: Value"`` strings;
+                # split on the first colon so we can merge by lowercased
+                # key alongside sysinfo's details.
+                for fact in matched_dev.get("device_facts") or []:
+                    label, _, value = fact.partition(": ")
+                    if label and value:
+                        entry["details"].setdefault(label.lower(), value)
+        except Exception as e:  # noqa: BLE001 — enrichment is best-effort
+            logger.warning("device_facts enrichment failed: %s", e)
 
     return result
+
+
+def _find_matching_device(
+    ep_info: dict[str, dict[str, Any]],
+    match_type: str,
+    sysinfo_name: str,
+) -> dict[str, Any] | None:
+    """Return the first device dict in ``ep_info`` matching type + fuzzy name.
+
+    Fuzzy relation: substring-in-either-direction covers both bias cases
+    (OpenVINO appends "(iGPU)" to FULL_DEVICE_NAME that sysinfo's WMI
+    query doesn't include; sysinfo may report a wordier form ORT trims).
+    """
+    for record in ep_info.values():
+        for source_desc in record.get("entries", ()):
+            for dev in source_desc.get("devices") or ():
+                if dev.get("device_type") != match_type:
+                    continue
+                hw = dev.get("hardware_name", "") or ""
+                if hw == sysinfo_name or sysinfo_name in hw or hw in sysinfo_name:
+                    return dev
+    return None
 
 
 def _output_device_text(devices: list[dict[str, Any]]) -> None:
@@ -578,6 +599,96 @@ def _describe_source(entry: EPEntry) -> dict[str, Any]:
     return desc
 
 
+@contextlib.contextmanager
+def isolated_ep_register(
+    ep_name: str,
+    dll_path: Path,
+    *,
+    timeout: float = 30.0,
+) -> Iterator[dict[str, Any]]:
+    """Register ``dll_path`` in a fresh subprocess; yield the ``to_dict()``.
+
+    Windows' loaded-modules table is process-wide and base-name keyed, so
+    registering multiple installs of the same EP in one process leaks the
+    first-loaded ``plugin_impl.dll``'s metadata into every later call. A
+    fresh subprocess per call keeps the child's table empty. Raises
+    :class:`WinMLEPRegistrationFailed` on any failure so callers handle
+    both isolated and in-process paths identically.
+    """
+    import inspect
+    import subprocess
+    import textwrap
+
+    from ..session import WinMLEPRegistrationFailed
+
+    def _worker() -> None:
+        """Runs in the subprocess. Source shipped via ``inspect.getsource``."""
+        import json as _json
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        from winml.modelkit.session import (
+            DirectorySource,
+            EPEntry,
+            WinMLEPRegistry,
+        )
+
+        ep, dll_str = _sys.argv[1], _sys.argv[2]
+        dll = _Path(dll_str)
+        source = DirectorySource(
+            root=dll.parent, dll_patterns={ep: dll.name},
+        )
+        entry = EPEntry(ep_name=ep, dll_path=dll, source=source)
+        winml_ep = WinMLEPRegistry.instance().register_ep(entry)
+        _sys.stdout.write(_json.dumps(winml_ep.to_dict()))
+
+    # Ship the nested function's source verbatim to a fresh Python via
+    # ``-c``. ``dedent`` strips the indent introduced by the def being
+    # inside another function; appending ``_worker()`` invokes it in the
+    # child's top-level namespace.
+    worker_script = textwrap.dedent(inspect.getsource(_worker)) + "\n_worker()\n"
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", worker_script, ep_name, str(dll_path)],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # ``subprocess.run(timeout=…)`` drains stdout/stderr into the
+        # ``TimeoutExpired`` before killing the child, so ``exc.stderr``
+        # carries whatever ORT / the plugin's C++ init printed in the
+        # up-to-``timeout`` seconds before the hang was declared.
+        # Preserve the tail so a real driver-hang investigation isn't
+        # left with just ``"timed out after 30s"`` and nothing else.
+        stderr_tail = (
+            exc.stderr.strip()[-500:] if isinstance(exc.stderr, str)
+            else (exc.stderr or b"").decode(errors="replace").strip()[-500:]
+        )
+        raise WinMLEPRegistrationFailed(
+            f"isolated register of {dll_path} timed out after {timeout}s"
+            + (f"; stderr={stderr_tail!r}" if stderr_tail else ""),
+            dll_path=dll_path,
+        ) from exc
+
+    if proc.returncode != 0:
+        raise WinMLEPRegistrationFailed(
+            f"isolated register of {dll_path} exited {proc.returncode}: "
+            f"{proc.stderr.strip()[-500:]}",
+            dll_path=dll_path,
+        )
+    try:
+        yield json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise WinMLEPRegistrationFailed(
+            f"isolated register of {dll_path} produced invalid JSON: {exc}; "
+            f"stdout tail={proc.stdout[-200:]!r}",
+            dll_path=dll_path,
+        ) from exc
+
+
 def _gather_ep_info() -> dict[str, dict[str, Any]]:
     """Gather comprehensive EP inventory across every source.
 
@@ -612,33 +723,50 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
     from ..ep_path import EP_CATALOG
     from ..session import WinMLEPRegistrationFailed
 
-    # --- Tier 2: register every discovered entry, resolve its L2 vendor
-    # verdict, and bucket it under its ep_name — one pass. Failures
-    # (whether from register_ep or from EP_CATALOG.is_compatible's
-    # underlying WMI call) carry ``compatible=None`` because the L2
-    # check was never evaluated; a lie like ``False`` would falsely tag
-    # the row as L2-incompatible when the truth is L1-failed. The build
-    # loop short-circuits on ``err is not None`` before reading
-    # ``compatible``, so ``None`` is never observed where it would
-    # matter. Rows land in discovery order (PyPI / NuGet / Catalog /
-    # Directory / MSIX) — successes and failures interleaved — which
-    # the renderer surfaces as-is.
+    # Failed rows carry ``compatible=None`` because the L2 check was
+    # never evaluated; ``False`` would misclassify as L2-incompatible.
+    # The build loop short-circuits on ``err is not None`` first.
     registry = WinMLEPRegistry.instance()
+    all_entries = list(registry.all_discovered())
+    fs_entries = [e for e in all_entries if not e.is_built_in()]
+
+    def _process(entry: EPEntry) -> tuple[
+        EPEntry, dict[str, Any] | None, Exception | None, bool | None
+    ]:
+        try:
+            if entry.is_built_in():
+                winml_ep = registry.register_ep(entry)
+                compatible = EP_CATALOG.is_compatible(entry.ep_name)
+                return (entry, winml_ep.to_dict(), None, compatible)
+            with isolated_ep_register(entry.ep_name, entry.dll_path) as ep_dict:
+                compatible = EP_CATALOG.is_compatible(entry.ep_name)
+            return (entry, ep_dict, None, compatible)
+        except WinMLEPRegistrationFailed as e:
+            return (entry, {"plugin_version": e.fallback_version}, e, None)
+        except Exception as e:  # noqa: BLE001 — per-EP failure is not fatal
+            logger.warning("Failed to process EP %s: %s", entry.ep_name, e)
+            # Prefix the original type name so --format json's ``error``
+            # field still surfaces the root cause instead of masking every
+            # unexpected failure as ``WinMLEPRegistrationFailed: ...``.
+            wrapped = WinMLEPRegistrationFailed(
+                f"{type(e).__name__}: {e}", dll_path=entry.dll_path,
+            )
+            return (entry, {"plugin_version": wrapped.fallback_version}, wrapped, None)
+
+    # Cap at 4 workers: each child is a cold Python + ORT init
+    # (~200 MB RAM, ~2 s CPU); wider trades wall-clock for memory.
+    if fs_entries:
+        with ThreadPoolExecutor(max_workers=min(len(fs_entries), 4)) as pool:
+            fs_iter = iter(list(pool.map(_process, fs_entries)))
+    else:
+        fs_iter = iter(())
+
     ep_records: dict[
         str,
-        list[tuple[EPEntry, WinMLEP | None, Exception | None, bool | None]],
+        list[tuple[EPEntry, dict[str, Any] | None, Exception | None, bool | None]],
     ] = {}
-    for entry in registry.all_discovered():
-        row: tuple[EPEntry, WinMLEP | None, Exception | None, bool | None]
-        try:
-            winml_ep = registry.register_ep(entry)
-            compatible = EP_CATALOG.is_compatible(entry.ep_name)
-            row = (entry, winml_ep, None, compatible)
-        except WinMLEPRegistrationFailed as e:
-            row = (entry, None, e, None)
-        except Exception as e:
-            logger.warning("Failed to process EP %s: %s", entry.ep_name, e)
-            row = (entry, None, e, None)
+    for entry in all_entries:
+        row = next(fs_iter) if not entry.is_built_in() else _process(entry)
         ep_records.setdefault(entry.ep_name, []).append(row)
 
     # --- Tag DLL paths that came via WinMLCatalogSource (for the
@@ -661,68 +789,39 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
         # ``primary_seen`` is per-ep_name (matches §7.1.2 spec literally
         # — first successful, vendor-compatible row wins ``primary``).
         primary_seen = False
-        for entry, winml_ep, err, compatible in rows:
+        for entry, ep_dict, err, compatible in rows:
             desc = _describe_source(entry)
-            # Status derivation per 2_coreloop.md §7.1.1 — three rules
-            # in strict precedence:
-            #   L1: register_ep raised       -> "failed"  (carries error)
-            #   L2: EP-level vendor rule     -> "incompatible"
-            #       (EP_CATALOG.is_compatible returned False)
-            #   §7.1.2 precedence: first ok  -> "primary", later -> "shadowed"
             if err is not None:
                 desc["status"] = "failed"
+                # Full ORT message for --format json; compact code+reason
+                # (already parsed by err.__init__) for the text render.
                 desc["error"] = f"{type(err).__name__}: {err}"
+                desc["error_code"] = err.code
+                desc["error_reason"] = err.reason
             elif not compatible:
                 desc["status"] = "incompatible"
             else:
                 desc["status"] = "primary" if not primary_seen else "shadowed"
                 primary_seen = True
 
-            # BuiltinSource entries carry the sentinel ``Path()`` and have
-            # no on-disk DLL — emit ``None`` so the text renderer's
-            # ``if entry.get("dll_path"):`` guard suppresses the path line
-            # (``str(Path())`` is ``"."``, which would otherwise render as
-            # a stray ``Path: .`` row under every bundled EP).
-            desc["dll_path"] = (
-                str(entry.dll_path) if entry.is_filesystem_backed() else None
-            )
+            # Built-ins carry Path() sentinel; None suppresses the Path: row.
+            desc["dll_path"] = None if entry.is_built_in() else str(entry.dll_path)
             if entry.dll_path in catalog_default_paths:
                 desc["is_catalog_default"] = True
 
-            # Devices populated only for usable rows (primary / shadowed).
-            # An incompatible row registered with a CPU fallback — showing
-            # its device line would mislead readers into thinking the EP
-            # is running on real hardware. Failed rows have winml_ep=None
-            # so the first guard handles them.
-            if winml_ep is not None and compatible:
-                desc["devices"] = [
-                    {
-                        "device_type": d.device_type,
-                        "hardware_name": d.hardware_name,
-                        "vendor": d.vendor,
-                        # Per docs/design/session/4_winml_device.md §4.1:
-                        # the per-source EP rows surface only Memory +
-                        # Capabilities (EP-mediated). Architecture +
-                        # Driver are device-intrinsic and rendered once
-                        # per physical device in the Devices section
-                        # via ``_gather_device_info`` enrichment below.
-                        "facts": list(d.ep_facts()),
-                    }
-                    for d in winml_ep.devices
-                ]
+            if ep_dict is not None:
+                if (pv := ep_dict.get("plugin_version")) is not None:
+                    desc["plugin_version"] = pv
+            # Devices only for usable rows: an incompatible row registers
+            # with a CPU fallback whose device line would mislead readers.
+            if ep_dict is not None and compatible:
+                desc["devices"] = ep_dict.get("devices") or []
             entries_out.append(desc)
 
         # EP-level "compatible" is derived at render time from
-        # entry["status"] (any primary/shadowed row -> compatible);
-        # carrying a duplicate field on the record would just be
-        # another place the same fact has to be kept consistent.
-        record_by_ep[ep_name] = {
-            "entries": entries_out,
-        }
+        # entry["status"] (any primary/shadowed row -> compatible).
+        record_by_ep[ep_name] = {"entries": entries_out}
 
-    # Built-in EPs (CPU/Dml/Azure) flow through the main loop above —
-    # they're synthesized into registry.all_discovered() at init via
-    # BuiltinSource. No separate handling needed.
     return record_by_ep
 
 
@@ -737,24 +836,35 @@ _SOURCE_KIND_LABEL = {
 
 
 def _format_devices_from_handles(devices: list[dict[str, Any]]) -> list[str]:
-    """Render device-level lines from the WinMLDevice metadata in an entry.
+    """Render the per-source ``Devices:`` block per ``console_mockup.py``.
 
-    Each device dict carries ``device_type``, ``hardware_name``, and a
-    ``facts`` list joined by ``"  |  "``. Returns one rich-markup line
-    per device, ready for ``console.print``. The ``vendor`` field is
-    kept on the dict for JSON consumers but is no longer surfaced in
-    text — ORT reports it inconsistently ("Intel" vs "Intel Corporation"
-    for the same vendor_id 0x8086) so appending it added noise.
+    Layout (matches ``docs/design/session/console_mockup.py::_render_facts_block``)::
+
+        Devices:
+          NPU:  Memory: 16.0 GB   |  Capabilities: FP16, INT8
+          GPU:  Memory: 16.3 GB   |  Capabilities: FP32, FP16, INT8, BIN
+          CPU:                        Capabilities: BF16, FP32, FP16, INT8, BIN
+
+    Hardware names are intentionally NOT repeated here — they're already
+    rendered once per physical device in the "Available Devices" section
+    above. This keeps the EP inventory compact and focused on
+    EP-mediated facts (``Memory`` / ``Capabilities``, per
+    ``4_winml_device.md §4.1``).
+
+    The ``vendor`` field is kept on the incoming dict for JSON consumers
+    but is not surfaced in text — ORT reports it inconsistently
+    ("Intel" vs "Intel Corporation" for the same ``vendor_id 0x8086``).
     """
-    lines: list[str] = []
+    if not devices:
+        return []
+    lines: list[str] = [f"{_INDENT_L3}[dim]Devices:[/dim]"]
     for d in devices:
         dev_type = d.get("device_type", "?")
-        hw_name = d.get("hardware_name", "<unknown>")
-        head = f"[cyan]{dev_type}[/cyan] {hw_name}"
-        lines.append(f"{_INDENT_L3}[dim]Device:[/dim] {head}")
         facts = d.get("facts") or []
-        if facts:
-            lines.append(f"{_INDENT_L4}{'  |  '.join(facts)}")
+        body = "  |  ".join(facts) if facts else "[dim](no metadata published)[/dim]"
+        # Fixed 4-char abbrev column so "NPU:" / "GPU:" / "CPU:" align.
+        type_label = f"[bold cyan]{dev_type:3s}[/bold cyan]:"
+        lines.append(f"{_INDENT_L4}{type_label} {body}")
     return lines
 
 
@@ -824,10 +934,19 @@ def _output_ep_text(eps: dict[str, dict[str, Any]]) -> None:
             short_kind = _SOURCE_KIND_LABEL.get(kind, kind)
             extras_str = "  ".join(extras) if extras else ""
             console.print(f"{_INDENT_L2}{tag} [bold]{short_kind:9}[/bold] {extras_str}")
+            # Runtime plugin version from ORT's ``ep_metadata['version']`` —
+            # rendered on its own ``Version:`` row (semantically distinct
+            # from the source-package version inside ``extras_str``).
+            if plugin_ver := entry.get("plugin_version"):
+                console.print(f"{_INDENT_L3}[dim]Version:[/dim] {plugin_ver}")
             if entry.get("dll_path"):
-                console.print(f"{_INDENT_L3}[dim]Path:[/dim] {entry['dll_path']}")
+                console.print(f"{_INDENT_L3}[dim]Path:[/dim]    {entry['dll_path']}")
             if entry.get("error"):
-                console.print(f"{_INDENT_L3}[red]Error:[/red] {entry['error']}")
+                # Prefer the compact ``error_reason`` on the human render;
+                # the raw ``error`` text is still emitted through
+                # ``--format json`` for callers that want the ORT payload.
+                short_err = entry.get("error_reason") or entry["error"]
+                console.print(f"{_INDENT_L3}[red]Error:[/red] {short_err}")
             for line in _format_devices_from_handles(entry.get("devices") or []):
                 console.print(line)
 
@@ -842,13 +961,19 @@ def _gather(
 ) -> dict[str, Any]:
     """Build a sysinfo dict containing the requested sections.
 
-    EPs run before devices so :data:`WinMLEPRegistry._registered`
-    populates first — :func:`_gather_device_info`'s ``device_facts``
-    enrichment loop then reads Architecture/Driver off any registered
-    :class:`WinMLDevice`. When ``tolerant=True``, a per-section failure
-    is logged at WARNING and the section is filled with an empty
-    container so downstream renderers still see consistent keys;
-    otherwise the failure is converted to ``click.ClickException``.
+    EPs run before devices so :func:`_gather_ep_info` populates the
+    per-source device inventory first — :func:`_gather_device_info`
+    then reads ``device_facts`` (Architecture + Driver) out of the
+    already-serialized inventory to enrich each top-level device row.
+    Reading from the inventory rather than
+    :attr:`WinMLEPRegistry._registered` is what keeps enrichment
+    working now that filesystem-backed EPs are registered only in
+    isolated subprocesses (their live handles never exist in the parent).
+
+    When ``tolerant=True``, a per-section failure is logged at WARNING
+    and the section is filled with an empty container so downstream
+    renderers still see consistent keys; otherwise the failure is
+    converted to ``click.ClickException``.
     """
     info: dict[str, Any] = {}
     if system:
@@ -866,7 +991,7 @@ def _gather(
             info["executionProviders"] = {}
     if devices:
         try:
-            info["devices"] = _gather_device_info()
+            info["devices"] = _gather_device_info(info.get("executionProviders"))
         except Exception as e:
             if not tolerant:
                 logger.exception("Failed to detect devices")

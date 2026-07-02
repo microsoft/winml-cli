@@ -11,10 +11,12 @@ discovery layer and registers them with ONNX Runtime via
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import onnxruntime as ort
 
@@ -31,6 +33,50 @@ from .ep_device import (
 
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def _suppress_dll_load_dialogs():
+    """Suppress Windows Error Reporting popups triggered by failed DLL loads.
+
+    ORT's :func:`register_execution_provider_library` calls
+    ``LoadLibraryExW`` under the hood. When a plugin's cascade of
+    dependency DLLs is broken (e.g. an MSIX build whose ``plugin_impl.dll``
+    can't resolve symbols against a resident older impl), Windows can pop
+    up a system-modal dialog for the user before returning the failure to
+    ORT. That's fine on a dev workstation but wrong for CLI diagnostic
+    commands like ``winml sys --list-ep`` — the user just wants the error
+    text on stderr, not a click-through.
+
+    Wraps :func:`SetThreadErrorMode` (per-thread, so it does not affect
+    concurrent code in other threads) with
+    ``SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX``. No-op on
+    non-Windows platforms.
+    """
+    if sys.platform != "win32":
+        yield
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    SEM_FAILCRITICALERRORS = 0x0001
+    SEM_NOOPENFILEERRORBOX = 0x8000
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    set_thread_error_mode = kernel32.SetThreadErrorMode
+    set_thread_error_mode.argtypes = [wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    set_thread_error_mode.restype = wintypes.BOOL
+
+    old = wintypes.DWORD(0)
+    ok = set_thread_error_mode(
+        SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX,
+        ctypes.byref(old),
+    )
+    try:
+        yield
+    finally:
+        if ok:
+            set_thread_error_mode(old.value, None)
 
 
 def _dedup_ort_devices(devices: list[ort.OrtEpDevice]) -> list[ort.OrtEpDevice]:
@@ -68,7 +114,8 @@ def _ort_get_ep_devices_or_fail(entry: EPEntry) -> list[ort.OrtEpDevice]:
         return ort.get_ep_devices()
     except Exception as exc:
         raise WinMLEPRegistrationFailed(
-            f"ort.get_ep_devices() failed while resolving {entry.ep_name!r}: {exc}"
+            f"ort.get_ep_devices() failed while resolving {entry.ep_name!r}: {exc}",
+            dll_path=entry.dll_path,
         ) from exc
 
 
@@ -118,11 +165,19 @@ class WinMLEP:
     DLL was loaded) with the WinMLDevices that ORT exposed after the
     register_execution_provider_library call.
 
+    ``arg0`` is the identifier that was handed to
+    ``ort.register_execution_provider_library`` — kept here so
+    :meth:`WinMLEPRegistry.unregister_ep` can hand it back to ORT's
+    ``unregister_execution_provider_library`` later. For BuiltinSource
+    fast-paths (nothing was actually passed to ORT), ``arg0`` equals
+    ``source.ep_name`` as a semantic placeholder.
+
     See docs/design/session/3_design_classes.md section 3.5.
     """
 
     source: EPEntry
     devices: tuple[WinMLDevice, ...]
+    arg0: str
 
     def __post_init__(self) -> None:
         if len(self.devices) == 0:
@@ -137,6 +192,27 @@ class WinMLEP:
         Each returned WinMLEPDevice has .ep == self and .device == self.devices[i].
         """
         return tuple(WinMLEPDevice(ep=self, device=d) for d in self.devices)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Plain-data snapshot — safe to hold after ``unregister_ep``.
+
+        Includes both fact families (``facts`` = ep_facts,
+        ``device_facts``) so the serialized form survives subprocess
+        isolation, whose parent never sees the live handles.
+        """
+        return {
+            "plugin_version": self.devices[0]._ort.ep_metadata.get("version") or None,
+            "devices": [
+                {
+                    "device_type": d.device_type,
+                    "hardware_name": d.hardware_name,
+                    "vendor": d.vendor,
+                    "facts": list(d.ep_facts()),
+                    "device_facts": list(d.device_facts()),
+                }
+                for d in self.devices
+            ],
+        }
 
 
 @dataclass(frozen=True)
@@ -288,13 +364,8 @@ class WinMLEPRegistry:
             WinMLEPRegistrationFailed: DLL load failed, or ORT exposed
                 zero matching devices.
         """
-        # Built-in EPs (BuiltinSource entries) are already loaded by ORT
-        # at process init — no DLL to register, no library_path to filter
-        # by. Wrap the matching ORT handles directly and return. Built-ins
-        # can't share ``self._registered`` (all BuiltinSource entries have
-        # Path("") as dll_path so they'd collide), so they live in their
-        # own ``_builtin_registered`` cache keyed by ep_name to preserve
-        # object identity across repeat calls (F-08).
+        # BuiltinSource uses _builtin_registered (not _registered) —
+        # Path("") collision avoidance (F-08).
         if isinstance(entry.source, BuiltinSource):
             cached = self._builtin_registered.get(entry.ep_name)
             if cached is not None:
@@ -308,7 +379,9 @@ class WinMLEPRegistry:
                     f"ort.get_ep_devices()."
                 )
             devices = tuple(WinMLDevice(h) for h in deduped)
-            winml_ep = WinMLEP(source=entry, devices=devices)
+            # arg0 is a semantic placeholder for built-ins; unregister_ep
+            # short-circuits on BuiltinSource.
+            winml_ep = WinMLEP(source=entry, devices=devices, arg0=entry.ep_name)
             self._builtin_registered[entry.ep_name] = winml_ep
             return winml_ep
 
@@ -318,17 +391,21 @@ class WinMLEPRegistry:
         if entry.dll_path in self._registered:
             return self._registered[entry.dll_path]
 
-        # First registration of this ep_name uses the canonical name;
-        # subsequent get a ``_<n>`` suffix to keep ORT's arg0 unique.
         n = self._registration_count.get(entry.ep_name, 0)
         arg0 = entry.ep_name if n == 0 else f"{entry.ep_name}_{n}"
 
         try:
-            ort.register_execution_provider_library(arg0, str(entry.dll_path))
+            # Suppress WER "This app requires ..." dialogs that Windows'
+            # loader raises when a plugin's dependency DLL cascade fails
+            # to resolve — the error surfaces via the ORT exception below,
+            # which the caller renders to the console.
+            with _suppress_dll_load_dialogs():
+                ort.register_execution_provider_library(arg0, str(entry.dll_path))
         except Exception as exc:
             raise WinMLEPRegistrationFailed(
                 f"ort.register_execution_provider_library({arg0!r}, "
-                f"{str(entry.dll_path)!r}) failed: {exc}"
+                f"{str(entry.dll_path)!r}) failed: {exc}",
+                dll_path=entry.dll_path,
             ) from exc
         self._registration_count[entry.ep_name] = n + 1
 
@@ -346,13 +423,30 @@ class WinMLEPRegistry:
         if not deduped:
             raise WinMLEPRegistrationFailed(
                 f"Registered {arg0!r} from {entry.dll_path} but no "
-                f"OrtEpDevices visible in ort.get_ep_devices()."
+                f"OrtEpDevices visible in ort.get_ep_devices().",
+                dll_path=entry.dll_path,
             )
 
         devices = tuple(WinMLDevice(h) for h in deduped)
-        winml_ep = WinMLEP(source=entry, devices=devices)
+        winml_ep = WinMLEP(source=entry, devices=devices, arg0=arg0)
         self._registered[entry.dll_path] = winml_ep
         return winml_ep
+
+    def unregister_ep(self, winml_ep: WinMLEP) -> None:
+        """Undo :meth:`register_ep` — evicts from ORT + our cache.
+
+        Callers that only need to snapshot metadata (e.g. ``--list-ep``)
+        should ``register_ep`` -> :meth:`WinMLEP.to_dict` -> ``unregister_ep``
+        in one pass. The :class:`WinMLDevice` handles held inside
+        ``winml_ep`` become invalid after this call.
+
+        BuiltinSource EPs are wrapped in-process — ORT owns their
+        lifecycle, so this method skips them.
+        """
+        if isinstance(winml_ep.source.source, BuiltinSource):
+            return
+        ort.unregister_execution_provider_library(winml_ep.arg0)
+        self._registered.pop(winml_ep.source.dll_path, None)
 
     def auto_device(self, target: EPDeviceTarget) -> WinMLEPDevice:
         """Find the first source satisfying ``target`` (ep + device + optional source).

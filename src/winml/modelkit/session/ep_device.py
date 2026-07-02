@@ -29,9 +29,12 @@ time and never stored on EPDeviceTarget itself.
 from __future__ import annotations
 
 import logging
+import re
+import sys
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Any, Final
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 import onnxruntime as ort
 
@@ -73,8 +76,77 @@ class WinMLEPNotDiscovered(Exception):  # noqa: N818
     """EP plugin is not in the catalog or WINMLCLI_EP_PATH."""
 
 
+class _LoadFailure(NamedTuple):
+    code: int | None
+    reason: str
+
+
+# ORT emits three shapes for LoadLibrary failures — all carry a Win32 code:
+#   "... with error code: 127"          (OpenVINO/VitisAI shim path)
+#   '(Error 193: "...")'                (arch mismatch, missing dep)
+#   '(Error 1114: init failed)'         (DllMain failure)
+_ORT_ERROR_CODE_RE = re.compile(r"(?:error code:?\s*|\(Error\s+)(\d+)", re.IGNORECASE)
+
+
+_LOAD_FAILURE_REASONS: dict[int, str] = {
+    2: "file not found (Win32 2)",
+    5: "access denied (Win32 5)",
+    126: "dependency DLL not found on disk (Win32 126)",
+    127: "symbol not resolved in a dependency DLL (Win32 127)",
+    193: "wrong architecture — ARM64 DLL in an x64 process (Win32 193)",
+    1114: "DllMain returned failure (Win32 1114)",
+}
+
+
+def _parse_ort_load_failure(text: str) -> _LoadFailure:
+    """Extract ``(code, reason)`` from an ORT DLL-load error message."""
+    if not text:
+        return _LoadFailure(code=None, reason="(no error message)")
+    m = _ORT_ERROR_CODE_RE.search(text)
+    if m is None:
+        first_line = text.splitlines()[0] if "\n" in text else text
+        return _LoadFailure(code=None, reason=first_line[:200])
+    code = int(m.group(1))
+    return _LoadFailure(
+        code=code,
+        reason=_LOAD_FAILURE_REASONS.get(code, f"DLL load failed (Win32 {code})"),
+    )
+
+
+def _read_pe_file_version(dll_path: Path | str) -> str | None:
+    """DLL's PE ``FileVersion`` — reads VS_VERSIONINFO off disk, no LoadLibrary."""
+    if sys.platform != "win32":
+        return None
+    path = Path(dll_path)
+    if not path.is_file():
+        return None
+    try:
+        from win32api import GetFileVersionInfo, HIWORD, LOWORD
+
+        info = GetFileVersionInfo(str(path), "\\")
+        ms, ls = info["FileVersionMS"], info["FileVersionLS"]
+        return f"{HIWORD(ms)}.{LOWORD(ms)}.{HIWORD(ls)}.{LOWORD(ls)}"
+    except Exception:  # noqa: BLE001 — fallback is best-effort
+        return None
+
+
 class WinMLEPRegistrationFailed(Exception):  # noqa: N818
-    """ort.register_execution_provider_library raised."""
+    """``ort.register_execution_provider_library`` raised.
+
+    Carries structured attribution (``code``, ``reason``, ``dll_path``,
+    ``fallback_version``) parsed at construction so callers render
+    ``[failed]`` rows without re-parsing the ORT message.
+    """
+
+    def __init__(self, message: str, *, dll_path: Path | None = None) -> None:
+        super().__init__(message)
+        lf = _parse_ort_load_failure(message)
+        self.code: int | None = lf.code
+        self.reason: str = lf.reason
+        self.dll_path: Path | None = dll_path
+        self.fallback_version: str | None = (
+            _read_pe_file_version(dll_path) if dll_path is not None else None
+        )
 
 
 class DeviceNotFound(Exception):  # noqa: N818

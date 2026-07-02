@@ -288,17 +288,16 @@ class EPEntry:
     status: str = "primary"  # "primary" | "shadowed"
     version: str | None = None
 
-    def is_filesystem_backed(self) -> bool:
-        """True iff ``dll_path`` is expected to point at a real file on disk.
+    def is_built_in(self) -> bool:
+        """True iff this entry was synthesized for a :class:`BuiltinSource`.
 
-        False only for :class:`BuiltinSource` entries: those carry the
-        sentinel ``dll_path=Path("")`` because the EP is pre-loaded by
-        ORT itself (no DLL to discover, register, or stat). Callers that
-        gate on ``Path.is_file()`` (e.g. :func:`discover_all_eps`) must
-        skip the check when this returns ``False`` — otherwise the
-        sentinel would be silently dropped on disk-existence grounds.
+        Built-in EPs (CPU, DML, Azure) are pre-loaded by ORT itself — no
+        DLL to discover, register, or stat. Their :attr:`dll_path` is the
+        sentinel ``Path("")``; callers that ``Path.is_file()``-check
+        (:func:`discover_all_eps`) or spawn a subprocess to load the DLL
+        (``winml sys --list-ep`` isolation) must branch on this.
         """
-        return not isinstance(self.source, BuiltinSource)
+        return isinstance(self.source, BuiltinSource)
 
 
 # ---------------------------------------------------------------------------
@@ -1447,11 +1446,10 @@ def discover_all_eps(
 
         try:
             for entry in it:
-                # Only stat filesystem-backed entries. BuiltinSource
-                # carries Path("") (sentinel — pre-loaded by ORT, no DLL
-                # to discover); the is_file() check would silently drop
-                # it.
-                if entry.is_filesystem_backed() and not entry.dll_path.is_file():
+                # Skip the disk check for BuiltinSource entries: they
+                # carry Path("") (sentinel — pre-loaded by ORT, no DLL
+                # to discover), and is_file() would silently drop them.
+                if not entry.is_built_in() and not entry.dll_path.is_file():
                     logger.warning(
                         "EP %s: source %r produced %s which is not a file",
                         entry.ep_name,

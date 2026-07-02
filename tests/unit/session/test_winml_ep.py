@@ -65,7 +65,7 @@ class TestWinMLEPConstruction:
     def test_single_device_succeeds(self) -> None:
         entry = _make_entry()
         device = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
-        ep = WinMLEP(source=entry, devices=(device,))
+        ep = WinMLEP(source=entry, devices=(device,), arg0=entry.ep_name)
         assert ep.source is entry
         assert ep.devices == (device,)
 
@@ -73,7 +73,7 @@ class TestWinMLEPConstruction:
         entry = _make_entry()
         d_npu = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
         d_gpu = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "GPU"))
-        ep = WinMLEP(source=entry, devices=(d_npu, d_gpu))
+        ep = WinMLEP(source=entry, devices=(d_npu, d_gpu), arg0=entry.ep_name)
         assert len(ep.devices) == 2
         assert ep.devices[0] is d_npu
         assert ep.devices[1] is d_gpu
@@ -82,7 +82,7 @@ class TestWinMLEPConstruction:
         """__post_init__ enforces the invariant: ``len(devices) >= 1``."""
         entry = _make_entry()
         with pytest.raises(ValueError, match="invariant violated"):
-            WinMLEP(source=entry, devices=())
+            WinMLEP(source=entry, devices=(), arg0=entry.ep_name)
 
 
 class TestWinMLEPDevicesFlatten:
@@ -91,7 +91,7 @@ class TestWinMLEPDevicesFlatten:
     def test_single_device_yields_one_pair(self) -> None:
         entry = _make_entry()
         device = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
-        ep = WinMLEP(source=entry, devices=(device,))
+        ep = WinMLEP(source=entry, devices=(device,), arg0=entry.ep_name)
         pairs = ep.ep_devices()
         assert len(pairs) == 1
         assert isinstance(pairs[0], WinMLEPDevice)
@@ -102,7 +102,7 @@ class TestWinMLEPDevicesFlatten:
             WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", t))
             for t in ("NPU", "GPU", "CPU")
         )
-        ep = WinMLEP(source=entry, devices=devices)
+        ep = WinMLEP(source=entry, devices=devices, arg0=entry.ep_name)
         pairs = ep.ep_devices()
         assert len(pairs) == 3
 
@@ -113,7 +113,7 @@ class TestWinMLEPDevicesFlatten:
             WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", t))
             for t in ("NPU", "GPU")
         )
-        ep = WinMLEP(source=entry, devices=devices)
+        ep = WinMLEP(source=entry, devices=devices, arg0=entry.ep_name)
         pairs = ep.ep_devices()
         for pair in pairs:
             assert pair.ep is ep
@@ -127,7 +127,7 @@ class TestWinMLEPDevicesFlatten:
         entry = _make_entry()
         d_npu = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
         d_gpu = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "GPU"))
-        ep = WinMLEP(source=entry, devices=(d_npu, d_gpu))
+        ep = WinMLEP(source=entry, devices=(d_npu, d_gpu), arg0=entry.ep_name)
         pairs = ep.ep_devices()
         device_ids = {id(d) for d in ep.devices}
         for pair in pairs:
@@ -146,7 +146,7 @@ class TestWinMLEPDeviceInvariant:
         entry = _make_entry()
         d_npu = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
         d_gpu = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "GPU"))
-        ep = WinMLEP(source=entry, devices=(d_npu, d_gpu))
+        ep = WinMLEP(source=entry, devices=(d_npu, d_gpu), arg0=entry.ep_name)
         # Should not raise.
         pairs = ep.ep_devices()
         assert len(pairs) == 2
@@ -155,7 +155,7 @@ class TestWinMLEPDeviceInvariant:
         """Direct construction with an actual ep.devices member succeeds."""
         entry = _make_entry()
         device = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
-        ep = WinMLEP(source=entry, devices=(device,))
+        ep = WinMLEP(source=entry, devices=(device,), arg0=entry.ep_name)
         pair = WinMLEPDevice(ep=ep, device=ep.devices[0])
         assert pair.ep is ep
         assert pair.device is ep.devices[0]
@@ -174,7 +174,7 @@ class TestWinMLEPDeviceInvariant:
         foreign_device = WinMLDevice(
             _make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU")
         )
-        ep = WinMLEP(source=entry, devices=(member_device,))
+        ep = WinMLEP(source=entry, devices=(member_device,), arg0=entry.ep_name)
         with pytest.raises(ValueError, match="invariant violated"):
             WinMLEPDevice(ep=ep, device=foreign_device)
 
@@ -185,14 +185,14 @@ class TestWinMLEPFrozenness:
     def test_cannot_reassign_source(self) -> None:
         entry = _make_entry()
         device = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
-        ep = WinMLEP(source=entry, devices=(device,))
+        ep = WinMLEP(source=entry, devices=(device,), arg0=entry.ep_name)
         with pytest.raises(FrozenInstanceError):
             ep.source = _make_entry("QNNExecutionProvider")  # type: ignore[misc]
 
     def test_cannot_reassign_devices(self) -> None:
         entry = _make_entry()
         device = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
-        ep = WinMLEP(source=entry, devices=(device,))
+        ep = WinMLEP(source=entry, devices=(device,), arg0=entry.ep_name)
         with pytest.raises(FrozenInstanceError):
             ep.devices = ()  # type: ignore[misc]
 
@@ -200,7 +200,7 @@ class TestWinMLEPFrozenness:
         """WinMLEPDevice is frozen too — neither .ep nor .device can be rebound."""
         entry = _make_entry()
         device = WinMLDevice(_make_fake_ort_ep_device("OpenVINOExecutionProvider", "NPU"))
-        ep = WinMLEP(source=entry, devices=(device,))
+        ep = WinMLEP(source=entry, devices=(device,), arg0=entry.ep_name)
         pair = WinMLEPDevice(ep=ep, device=device)
         with pytest.raises(FrozenInstanceError):
             pair.ep = ep  # type: ignore[misc]

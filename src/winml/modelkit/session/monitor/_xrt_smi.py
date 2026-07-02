@@ -26,8 +26,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Default xrt-smi location (installed with AMD NPU driver).
-_XRT_SMI_PATH = Path(r"C:\Windows\System32\AMD\xrt-smi.exe")
+# Installed by the AMD NPU driver; override via XrtSmiClient(exe_path=...).
+_XRT_SMI_PATH = (
+    Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "AMD" / "xrt-smi.exe"
+)
 
 
 @dataclass(frozen=True)

@@ -83,7 +83,7 @@ def _msix_workload_entry(ep_name: str, dll: str = "C:/fake/qnn.dll") -> EPEntry:
 def _winml_ep_with_device(entry: EPEntry, device_type: str) -> WinMLEP:
     """Build a WinMLEP wrapping one device of the requested type."""
     device = WinMLDevice(_fake_ort_device(entry.ep_name, device_type))
-    return WinMLEP(source=entry, devices=(device,))
+    return WinMLEP(source=entry, devices=(device,), arg0=entry.ep_name)
 
 
 # fresh_registry fixture lives in tests/unit/session/conftest.py — shared

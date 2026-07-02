@@ -64,7 +64,7 @@ def make_stub_winml_ep_device(ort_device: object, ep_name: str) -> WinMLEPDevice
     """
     winml_device = WinMLDevice(ort_device)  # type: ignore[arg-type]
     entry = _stub_ep_entry(ep_name)
-    winml_ep = WinMLEP(source=entry, devices=(winml_device,))
+    winml_ep = WinMLEP(source=entry, devices=(winml_device,), arg0=ep_name)
     return WinMLEPDevice(ep=winml_ep, device=winml_device)
 
 

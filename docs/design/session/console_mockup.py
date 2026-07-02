@@ -11,11 +11,12 @@ The v3 layout has two top-level sections:
        block lists every discovered source (PyPI, MSIX, Catalog,
        Directory, NuGet, built-in) underneath with a status tag
        (``[primary]`` / ``[shadowed]`` / ``[incompatible]``). Under every
-       source we nest a ``Device:`` block whose children are
-       ``NPU:`` / ``GPU:`` / ``CPU:`` lines carrying the per-device-type
-       facts (memory, capabilities) that the EP itself published.
+       source we render three rows: ``Version:`` (runtime plugin version
+       from ORT ``ep_metadata['version']``), ``Path:`` (loaded DLL), and
+       ``Devices:`` (nested ``NPU:`` / ``GPU:`` / ``CPU:`` per-device-type
+       facts the EP published).
 
-The nested ``Device:`` → ``NPU:`` / ``GPU:`` / ``CPU:`` shape is
+The nested ``Devices:`` → ``NPU:`` / ``GPU:`` / ``CPU:`` shape is
 deliberate: the top section answers "what hardware is on this box?", and
 the per-source block under each EP answers "what does this particular
 EP source see and expose for each device type?". These are different
@@ -36,13 +37,20 @@ not from raw tuples. Specifically:
     success-only (``len(.devices) >= 1``) and failures live as
     ``(EPEntry, Exception)`` pairs alongside.
   - ``PerDeviceFacts`` is produced by aggregating
-    ``WinMLDevice.facts()`` (the runtime adapter for each
-    ``WinMLDevice`` in ``WinMLEP.devices``) by type tag; see
-    `4_winml_device.md` for the ABC.
+    ``WinMLDevice.device_facts()`` (device-intrinsic: Architecture,
+    Driver) and ``WinMLDevice.ep_facts()`` (EP-mediated: Memory,
+    Capabilities) for each ``WinMLDevice`` in ``WinMLEP.devices``,
+    by type tag. See `4_winml_device.md` §4.1 for the attribution
+    table.
   - ``SourceRow.version``, ``kind_label``, ``source_label``, ``path``
     come from ``WinMLEP.source`` (the per-source ``EPEntry`` attribution
     record produced by ``discover_all_eps()``). Incompatible entries
     pull the same fields from the raw ``EPEntry`` in the failures list.
+  - ``SourceRow.plugin_version`` comes from
+    ``WinMLEP.devices[0]._ort.ep_metadata['version']`` — the runtime
+    version of the loaded DLL. Distinct from ``SourceRow.version``,
+    which is the packaging version and is ``None`` for
+    ``DirectorySource`` / built-in EPs.
   - ``DeviceListing`` rows are produced from the host hardware probe
     (independent of any EP), so the top section renders identically
     regardless of which EPs are installed.
@@ -117,7 +125,8 @@ class SourceRow:
     status: Status
     kind_label: str             # "PyPI" / "NuGet" / "MSIX" / "Catalog" / "Directory" / "bundled"
     source_label: str | None    # distribution / family name; None for bundled
-    version: str | None         # package / distribution version; None for bundled
+    version: str | None         # packaging version (PyPI/MSIX/NuGet); None for Directory/bundled
+    plugin_version: str | None  # ORT runtime ep_metadata['version']; None when unpublished
     catalog_default: bool       # true → render "(catalog default)" annotation
     path: str | None            # None for bundled
     devices: tuple[PerDeviceFacts, ...]   # empty tuple → collapse / none
@@ -226,6 +235,7 @@ MOCK_LISTING: Final[MockListing] = MockListing(
                     kind_label="PyPI",
                     source_label="onnxruntime-ep-openvino",
                     version="1.4.1",
+                    plugin_version="1.5.2+c6549bd",
                     catalog_default=False,
                     path=_PYPI_OPENVINO_PATH,
                     devices=_OPENVINO_FACTS,
@@ -235,6 +245,7 @@ MOCK_LISTING: Final[MockListing] = MockListing(
                     kind_label="Catalog",
                     source_label=None,
                     version=None,
+                    plugin_version="1.5.2+c6549bd",
                     catalog_default=True,
                     path=_CATALOG_OPENVINO_PATH,
                     devices=_COLLAPSE_TO_PRIMARY,
@@ -244,6 +255,7 @@ MOCK_LISTING: Final[MockListing] = MockListing(
                     kind_label="MSIX",
                     source_label="WindowsWorkload.EP.Intel.OpenVINO.1.8",
                     version="1.8.61.0",
+                    plugin_version="1.5.2+c6549bd",
                     catalog_default=False,
                     path=_MSIX_WORKLOAD_OPENVINO_PATH,
                     devices=_OPENVINO_FACTS,
@@ -259,6 +271,7 @@ MOCK_LISTING: Final[MockListing] = MockListing(
                     kind_label="PyPI",
                     source_label="onnxruntime-qnn",
                     version="2.1.1",
+                    plugin_version=None,
                     catalog_default=False,
                     path=_QNN_PYPI_PATH,
                     devices=(),
@@ -275,6 +288,7 @@ MOCK_LISTING: Final[MockListing] = MockListing(
                     kind_label="bundled",
                     source_label=None,
                     version=None,
+                    plugin_version=None,
                     catalog_default=False,
                     path=None,
                     devices=(
@@ -296,6 +310,7 @@ MOCK_LISTING: Final[MockListing] = MockListing(
                     kind_label="bundled",
                     source_label=None,
                     version=None,
+                    plugin_version=None,
                     catalog_default=False,
                     path=None,
                     devices=(
@@ -390,8 +405,8 @@ def _render_source_header(source: SourceRow) -> str:
 
 
 def _render_facts_block(devices: tuple[PerDeviceFacts, ...]) -> None:
-    """Render the ``Device:`` → per-type-tag facts block under a source."""
-    console.print("              [dim]Device:[/dim]")
+    """Render the ``Devices:`` → per-type-tag facts block under a source."""
+    console.print("              [dim]Devices:[/dim]")
     for facts in devices:
         type_label = _pad_visible(
             f"[bold cyan]{facts.type_tag}:[/bold cyan]", 5
@@ -413,15 +428,21 @@ def _render_facts_block(devices: tuple[PerDeviceFacts, ...]) -> None:
 def _render_source(source: SourceRow) -> None:
     console.print(_render_source_header(source))
 
+    # Runtime plugin version from ORT ``ep_metadata['version']`` — rendered
+    # on its own row (semantically distinct from ``source.version`` which
+    # is the packaging version already inside the header).
+    if source.plugin_version is not None:
+        console.print(f"              [dim]Version:[/dim] {source.plugin_version}")
+
     if source.path is not None:
         # Compact the path with an ellipsis so the rendered cell stays in one
         # screen width; the path "rule" in the mockup uses a leading "…\\".
         displayed = _shorten_path(source.path)
-        console.print(f"              [dim]Path:[/dim] {displayed}")
+        console.print(f"              [dim]Path:[/dim]    {displayed}")
 
     if source.devices is _COLLAPSE_TO_PRIMARY:
         console.print(
-            "              [dim]Device: (identical facts — "
+            "              [dim]Devices: (identical facts — "
             "same DLL bytes as primary)[/dim]"
         )
         return
@@ -431,7 +452,7 @@ def _render_source(source: SourceRow) -> None:
         # marker carrying the reason if we have one, else a bare "(none)".
         reason = source.error or "no devices reported"
         console.print(
-            f"              [dim]Device: (none — {reason})[/dim]"
+            f"              [dim]Devices: (none — {reason})[/dim]"
         )
         return
 
