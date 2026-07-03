@@ -19,7 +19,10 @@
     "downloads": 1258716,
     "last_update_time": "2024-12-03T14:14:31+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 5,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "Alexei1/imdb",
@@ -77,7 +80,10 @@
     "tags": [
       "acc"
     ],
-    "order": 8
+    "order": 8,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "BAAI/bge-base-en-v1.5",
@@ -91,7 +97,10 @@
     "tags": [
       "acc"
     ],
-    "order": 7
+    "order": 7,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "BAAI/bge-large-en-v1.5",
@@ -1685,7 +1694,10 @@
     "downloads": 629050,
     "last_update_time": "2023-11-18T20:58:42+00:00",
     "optimum_supported": true,
-    "order": 8
+    "order": 8,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "apple/DepthPro-hf",
@@ -1713,7 +1725,10 @@
     "tags": [
       "acc"
     ],
-    "order": 4
+    "order": 4,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "athrael-soju/colqwen3.5-4.5B-v3",
@@ -1870,7 +1885,10 @@
     "downloads": 2220115,
     "last_update_time": "2025-08-29T14:36:22+00:00",
     "optimum_supported": true,
-    "order": 9
+    "order": 9,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L4-v2",
@@ -1881,7 +1899,10 @@
     "downloads": 2220115,
     "last_update_time": "2025-08-29T14:36:22+00:00",
     "optimum_supported": true,
-    "order": 2
+    "order": 2,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
@@ -2003,7 +2024,10 @@
     "tags": [
       "acc"
     ],
-    "order": 2
+    "order": 2,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "deepset/roberta-large-squad2",
@@ -2028,7 +2052,10 @@
     "tags": [
       "acc"
     ],
-    "order": 9
+    "order": 9,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "dell-research-harvard/lt-un-data-fine-fine-es",
@@ -2292,7 +2319,10 @@
     "tags": [
       "acc"
     ],
-    "order": 12
+    "order": 12,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "facebook/detr-resnet-50",
@@ -2345,7 +2375,10 @@
     "tags": [
       "acc"
     ],
-    "order": 9
+    "order": 9,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "facebook/dinov2-base",
@@ -3783,7 +3816,10 @@
     "tags": [
       "acc"
     ],
-    "order": 11
+    "order": 11,
+    "op_tracing_targets": [
+      "QNNExecutionProvider_npu"
+    ]
   },
   {
     "hf_id": "microsoft/speecht5_tts",

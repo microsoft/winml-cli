@@ -29,6 +29,7 @@ class ModelEntry:
     downloads: int = 0
     last_update_time: str | None = None
     optimum_supported: bool = False
+    op_tracing_targets: list[str] = field(default_factory=list)
 
 
 _REQUIRED_FIELDS = {"hf_id", "task", "model_type", "group", "priority"}
@@ -75,6 +76,7 @@ def load_registry(path: Path) -> list[ModelEntry]:
                 downloads=item.get("downloads", 0) or 0,
                 last_update_time=item.get("last_update_time"),
                 optimum_supported=item.get("optimum_supported", False),
+                op_tracing_targets=item.get("op_tracing_targets", []) or [],
             )
         )
 
