@@ -57,7 +57,13 @@ from utils.accuracy import (
     format_delta,
 )
 from utils.dataset_config import get_dataset_config, register_from_registry
-from utils.registry import ModelEntry, filter_registry, load_registry, make_adhoc_entry
+from utils.registry import (
+    ModelEntry,
+    filter_registry,
+    load_registry,
+    make_adhoc_entry,
+    op_tracing_target_key,
+)
 from utils.reporter import (
     build_eval_result,
     classify_result,
@@ -1379,6 +1385,30 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
 # ---------------------------------------------------------------------------
 
 
+def _resolve_op_tracing(
+    cli_op_tracing: str | None, entry: ModelEntry, ep: str | None, device: str
+) -> str | None:
+    """Resolve the effective op-tracing level for one model run.
+
+    - ``disabled`` (explicit): never trace, even if the model opts in.
+    - ``basic``/``detail`` (explicit): use as-is.
+    - unset (None): default to ``basic`` when the model's ``op_tracing_targets``
+      includes the current ``<EP>_<device>`` target, otherwise no tracing.
+
+    Auto-enable requires both a concrete ``--ep`` and ``--device`` to be set: the
+    default ``--device auto`` is not resolved here and will not match a
+    device-specific target such as ``QNNExecutionProvider_npu``.
+    """
+    if cli_op_tracing == "disabled":
+        return None
+    if cli_op_tracing in ("basic", "detail"):
+        return cli_op_tracing
+    key = op_tracing_target_key(ep, device)
+    if key and key in entry.op_tracing_targets:
+        return "basic"
+    return None
+
+
 def _extract_op_trace_path(text: str) -> Path | None:
     """Parse the ``Op-trace saved to: <path>`` line from winml perf output.
 
@@ -1987,11 +2017,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--op-tracing",
         dest="op_tracing",
-        choices=["basic", "detail"],
+        choices=["basic", "detail", "disabled"],
         default=None,
         help=(
-            "Enable operator-level profiling in winml perf (requires onnxruntime-qnn). "
-            "The resulting op_trace.json is copied into each model's output folder."
+            "Operator-level profiling in winml perf (requires onnxruntime-qnn). "
+            "'basic'/'detail' force the tracing level; 'disabled' turns it off even "
+            "for models that opt in via 'op_tracing_targets'. When omitted, tracing "
+            "defaults to 'basic' for a model whose 'op_tracing_targets' includes the "
+            "current <EP>_<device> target (e.g. QNNExecutionProvider_npu) — this "
+            "auto-enable requires both --ep and --device to be set explicitly "
+            "(the default --device auto does not match). The "
+            "resulting op_trace.json is copied into each model's output folder."
         ),
     )
     parser.add_argument(
@@ -2353,6 +2389,7 @@ def main() -> None:
         try:
             perf_proc: dict | None = None
             accuracy_result: dict | None = None
+            op_tracing = _resolve_op_tracing(args.op_tracing, entry, args.ep, args.device)
 
             # Build phase: winml config + winml build → list of ONNX paths
             # Build is shared by perf and eval, avoiding redundant builds.
@@ -2394,7 +2431,7 @@ def main() -> None:
                     args.timeout,
                     onnx_paths,
                     ep=args.ep,
-                    op_tracing=args.op_tracing,
+                    op_tracing=op_tracing,
                     model_dir=model_dir,
                 )
             else:
@@ -2405,7 +2442,7 @@ def main() -> None:
                     args.timeout,
                     onnx_paths,
                     ep=args.ep,
-                    op_tracing=args.op_tracing,
+                    op_tracing=op_tracing,
                     model_dir=model_dir,
                 )
                 if perf_proc["exit_code"] != 0:
