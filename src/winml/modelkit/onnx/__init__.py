@@ -22,7 +22,7 @@ from .io import InputTensorSpec, OutputTensorSpec, generate_inputs_from_onnx, ge
 from .metadata import capture_metadata, restore_metadata
 from .persistence import ONNXSaveError, cleanup_onnx, load_onnx, save_onnx
 from .shape import infer_onnx_shapes, infer_shapes
-from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size
+from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size, strip_node_attrs
 
 
 __all__ = [
@@ -48,6 +48,7 @@ __all__ = [
     "remove_optional_from_type_annotation",
     "restore_metadata",
     "save_onnx",
+    "strip_node_attrs",
 ]
 
 
