@@ -1031,16 +1031,6 @@ def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
     return WinMLBuildConfig.from_dict(data), data
 
 
-def is_onnx_file_path(model_input: str) -> bool:
-    """Check if input is a path to an existing ``.onnx`` file.
-
-    Shared helper for CLI commands that accept either a HuggingFace model ID
-    or a local ``.onnx`` file path for the ``-m/--model`` option.
-    """
-    path = Path(model_input)
-    return path.suffix == ".onnx" and path.exists()
-
-
 # ---------------------------------------------------------------------------
 # ``-m/--model`` input classification
 # ---------------------------------------------------------------------------
