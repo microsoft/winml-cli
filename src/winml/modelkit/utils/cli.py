@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
@@ -1036,6 +1039,118 @@ def is_onnx_file_path(model_input: str) -> bool:
     """
     path = Path(model_input)
     return path.suffix == ".onnx" and path.exists()
+
+
+# ---------------------------------------------------------------------------
+# ``-m/--model`` input classification
+# ---------------------------------------------------------------------------
+
+# Local model-file extensions used only to give a "path does not exist" error
+# (instead of "not a valid HF id") when a path-shaped, non-existent value is
+# passed.  ``.onnx`` is handled separately so it gets its own message.
+_LOCAL_MODEL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin", ".gguf"})
+
+# HuggingFace repo id: an optional ``org/`` prefix plus a repo name, each
+# segment built from ``[A-Za-z0-9]`` plus ``._-`` (must start alphanumeric).
+_HF_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?$")
+
+
+class ModelInputKind(Enum):
+    """What a ``-m/--model`` value resolves to.
+
+    - ``HF_ID``: not present on disk; a HuggingFace hub reference (``org/name``).
+    - ``ONNX_FILE``: an existing local ``.onnx`` file.
+    - ``FOLDER``: an existing local directory. The ``is_*``/``folder_has_onnx``
+      flags on :class:`ModelInput` describe what the folder contains so each
+      command can apply its own policy (build-family treats it as a transformers
+      source; run/serve load the ONNX the engine discovers inside it).
+    """
+
+    HF_ID = "hf_id"
+    ONNX_FILE = "onnx_file"
+    FOLDER = "folder"
+
+
+@dataclass(frozen=True)
+class ModelInput:
+    """Classification result for a ``-m/--model`` value.
+
+    The folder flags are only meaningful when ``kind is FOLDER`` (all ``False``
+    otherwise). ``is_winml_cli_folder`` implies ``folder_has_onnx``.
+    """
+
+    kind: ModelInputKind
+    raw: str
+    is_hf_folder: bool = False
+    folder_has_onnx: bool = False
+    is_winml_cli_folder: bool = False
+
+
+def _looks_like_path(raw: str) -> bool:
+    """Return True when *raw* is clearly a filesystem path (not an HF id).
+
+    Used only for a non-existent value to choose between a "path does not
+    exist" error and a "not a valid HF id" error. HF ids carry at most one
+    ``/`` and none of these path indicators.
+    """
+    if "\\" in raw:
+        return True
+    if raw.startswith(("./", "../", "~/", ".\\", "..\\", "~\\")):
+        return True
+    p = Path(raw)
+    if p.is_absolute():
+        return True
+    # Windows drive-letter prefix, e.g. ``C:models``.
+    if len(raw) >= 2 and raw[1] == ":":
+        return True
+    if raw.count("/") > 1:
+        return True
+    return p.suffix.lower() in _LOCAL_MODEL_FILE_EXTS
+
+
+def classify_model_input(raw: str) -> ModelInput:
+    """Classify a ``-m/--model`` value into a :class:`ModelInput`.
+
+    Existence-first: a value present on disk is a local file or directory; a
+    value absent from disk is a HuggingFace hub id (or an error). The engine
+    remains responsible for locating the actual ``*.onnx`` inside a folder.
+
+    Raises:
+        click.UsageError: for a non-existent ``.onnx`` path, a non-existent
+            path-shaped value, a syntactically invalid HF id, or an existing
+            non-``.onnx`` file.
+    """
+    path = Path(raw)
+
+    if not path.exists():
+        if path.suffix.lower() == ".onnx":
+            raise click.UsageError(f"ONNX file not found: {raw}")
+        if _looks_like_path(raw):
+            raise click.UsageError(f"Model path does not exist: {raw}")
+        if _HF_ID_RE.match(raw):
+            return ModelInput(kind=ModelInputKind.HF_ID, raw=raw)
+        raise click.UsageError(
+            f"'{raw}' is not a valid HuggingFace model id, an existing .onnx "
+            "file, or an existing directory."
+        )
+
+    if path.is_file():
+        if path.suffix.lower() == ".onnx":
+            return ModelInput(kind=ModelInputKind.ONNX_FILE, raw=raw)
+        raise click.UsageError(
+            f"Unsupported model file: {raw} (expected a .onnx file or a directory)."
+        )
+
+    # Existing directory: report what it contains; callers apply policy.
+    folder_has_onnx = any(path.glob("*.onnx"))
+    is_winml_cli_folder = folder_has_onnx and any(path.glob("*build_manifest.json"))
+    return ModelInput(
+        kind=ModelInputKind.FOLDER,
+        raw=raw,
+        is_hf_folder=(path / "config.json").is_file(),
+        folder_has_onnx=folder_has_onnx,
+        is_winml_cli_folder=is_winml_cli_folder,
+    )
 
 
 def is_cli_provided(ctx: click.Context, param_name: str) -> bool:
