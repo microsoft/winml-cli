@@ -88,6 +88,31 @@ class TestGetCacheKey:
         result = get_cache_key("txtcls", "deadbeef12345678")
         assert result == "txtcls_deadbeef12345678"
 
+    def test_empty_build_controls_unchanged(self) -> None:
+        # Default builds (no non-default toggles) keep the legacy key so
+        # existing caches remain valid.
+        base = get_cache_key("imgcls", "a1b2c3d4e5f67890")
+        assert get_cache_key("imgcls", "a1b2c3d4e5f67890", {}) == base
+        assert get_cache_key("imgcls", "a1b2c3d4e5f67890", None) == base
+
+    def test_unrecognized_build_controls_ignored(self) -> None:
+        base = get_cache_key("imgcls", "a1b2c3d4e5f67890")
+        assert get_cache_key("imgcls", "a1b2c3d4e5f67890", {"ep": "cpu"}) == base
+
+    def test_build_controls_change_key(self) -> None:
+        base = get_cache_key("imgcls", "a1b2c3d4e5f67890")
+        skip_opt = get_cache_key("imgcls", "a1b2c3d4e5f67890", {"skip_optimize": True})
+        no_analyze = get_cache_key("imgcls", "a1b2c3d4e5f67890", {"hack_max_optim_iterations": 0})
+        assert skip_opt != base
+        assert skip_opt.startswith(f"{base}_")
+        assert no_analyze != base
+        assert skip_opt != no_analyze
+
+    def test_build_controls_deterministic(self) -> None:
+        a = get_cache_key("imgcls", "a1b2c3d4e5f67890", {"skip_optimize": True})
+        b = get_cache_key("imgcls", "a1b2c3d4e5f67890", {"skip_optimize": True})
+        assert a == b
+
 
 # =============================================================================
 # get_artifact_path

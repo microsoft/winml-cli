@@ -45,6 +45,7 @@ dependencies = [
   "numpy>=2.2,<2.3",
   "onnx==1.18",
   "onnx-ir>=0.1",
+  "onnxruntime-genai-winml==0.14.1",
   "onnxruntime-windowsml==1.24.5.202604171637",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
@@ -93,7 +94,7 @@ optional-dependencies.dev = [
   "pytest>=8.4",
   "pytest-cov>=7",
   "pytest-timeout>=2.3",
-  "ruff>=0.14",
+  "ruff>=0.15",
   "seaborn>=0.13",
   "timm>=1.0.20",
   "types-colorama>=0.4.15.20250801",
@@ -500,6 +501,9 @@ module = [
   # Third-party ML libraries (no stubs)
   "torchvision.*",
   "onnxruntime.*",
+  # onnxruntime-genai-winml ships no py.typed marker or stubs; treat as untyped.
+  "onnxruntime_genai",
+  "onnxruntime_genai.*",
   "datasets.*",
   "optimum.*",
   "snakemd",

@@ -28,7 +28,8 @@ class QFormatConvertStage(BaseStage):
     @classmethod
     def should_run(cls, context: CompileContext) -> bool:
         """Run when model's quant format is incompatible with target EP."""
-        return needs_format_conversion(context.model_path, context.execution_provider)
+        ep = context.execution_provider
+        return ep is not None and needs_format_conversion(context.model_path, ep)
 
     def process(self, context: CompileContext) -> CompileContext:
         """Convert quant format. FIXME: Not yet implemented."""

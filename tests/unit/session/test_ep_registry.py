@@ -446,6 +446,35 @@ def test_ensure_provider_ready_works_without_tqdm(
     op.close.assert_called_once_with()
 
 
+def test_ensure_provider_ready_works_when_stderr_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If stderr is unavailable, progress rendering should silently degrade
+    to _NoopBar and EP readiness flow should still succeed."""
+    from winml.modelkit.session import ep_registry
+
+    ns = _install_fake_windowsml(monkeypatch)
+    _install_fake_tqdm(monkeypatch)
+    monkeypatch.setattr(sys, "stderr", None)
+
+    op = MagicMock()
+
+    def fake_ensure_async(on_complete=None, on_progress=None):
+        on_progress(0.5)
+        on_complete()
+        return op
+
+    provider = MagicMock()
+    provider.name = "FakeEP"
+    provider.ready_state = ns.EpReadyState.NotPresent
+    provider.ensure_ready_async.side_effect = fake_ensure_async
+
+    ep_registry._ensure_provider_ready(provider)
+
+    op.get_status.assert_called_once_with()
+    op.close.assert_called_once_with()
+
+
 class TestParseEpMetadataFromPath:
     """`_parse_ep_metadata_from_path` recovers (version, PFN) from install paths."""
 
