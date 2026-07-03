@@ -1499,10 +1499,11 @@ def _run_simple_loop(
 
 # perf() param names for WinML-only options that a prebuilt genai bundle
 # ignores. Mapped to the user-facing flag for the warning message.
+# NB: ``--ep`` is intentionally absent — it is honored for winml-genai as an EP
+# override (explicit --ep > concrete --device > respect config).
 _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "task": "--task",
     "precision": "--precision",
-    "ep": "--ep",
     "ep_options": "--ep-options",
     "shape_config_path": "--shape-config",
     "quant": "--quant/--no-quantize",
@@ -1576,9 +1577,16 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     output = p.get("output") or genai_output_path(bundle_dir)
     cli_utils.guard_output(output, p["overwrite"])
 
+    # EP override precedence: an explicit ``--ep`` wins over the ``--device``
+    # mapping, which in turn wins over the default (``None`` = respect the
+    # bundle's genai_config.json routing).  GenaiSession validates the value.
+    ep: EPNameOrAlias | None = (
+        p["ep"] if cli_utils.is_cli_provided(ctx, "ep") else device_to_genai_ep(device)
+    )
+
     config = GenaiPerfConfig(
         bundle_dir=bundle_dir,
-        ep=device_to_genai_ep(device),
+        ep=ep,
         device=device,
         prompt=p["prompt"],
         max_new_tokens=p["max_new_tokens"],

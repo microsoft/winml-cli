@@ -41,6 +41,7 @@ from ..session import (
     GenaiSessionError,
     GenerationConfig,
 )
+from ..utils.constants import EPNameOrAlias
 
 
 if TYPE_CHECKING:
@@ -59,24 +60,30 @@ RUNTIME_TYPE = "winml-genai"
 # ``GenaiPerfConfig.prompt`` field default (a test asserts the two stay in sync).
 _DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
 
-# --device -> GenaiSession EP short name.  The default ("auto") resolves to
-# "mixed": genai bundles route each stage via its own session_options in
-# genai_config.json (e.g. ctx/iter on the NPU/QNN, embeddings/lm_head on CPU).
-# "mixed" registers the WinML EPs those stages need while honoring that
-# per-stage routing, so it is the correct default for real decoder bundles.
-# "cpu" skips WinML EP registration (CPU-only bundles); "qnn"/"dml" register
-# the WinML EPs like "mixed" but name the intended accelerator explicitly.
-_DEVICE_TO_GENAI_EP: dict[str, str] = {
+# --device -> GenaiSession EP override.  The default ("auto") resolves to
+# ``None`` = *respect the bundle config*: genai bundles route each stage via its
+# own session_options in genai_config.json (e.g. ctx/iter on the NPU/QNN,
+# embeddings/lm_head on CPU), and ``None`` honors that per-stage routing while
+# still registering the WinML EPs those stages need.  A concrete device forces
+# the whole decoder pipeline onto one EP override: "cpu" strips the hardware
+# providers (CPU fallback, no WinML EP registration), "qnn"/"dml" route every
+# stage to that accelerator.  An unknown device also falls back to ``None``.
+_DEVICE_TO_GENAI_EP: dict[str, EPNameOrAlias | None] = {
     "cpu": "cpu",
     "npu": "qnn",
     "gpu": "dml",
-    "auto": "mixed",
+    "auto": None,
 }
 
 
-def device_to_genai_ep(device: str) -> str:
-    """Map a ``--device`` value to a :class:`GenaiSession` EP short name."""
-    return _DEVICE_TO_GENAI_EP.get(device.lower(), "mixed")
+def device_to_genai_ep(device: str) -> EPNameOrAlias | None:
+    """Map a ``--device`` value to a :class:`GenaiSession` EP override.
+
+    Returns ``None`` for ``auto`` (and any unrecognized device), meaning the
+    bundle's ``genai_config.json`` routing is respected; otherwise a concrete
+    EP short name that forces the whole decoder pipeline onto that provider.
+    """
+    return _DEVICE_TO_GENAI_EP.get(device.lower())
 
 
 def genai_output_path(bundle_dir: str | Path) -> Path:
@@ -125,7 +132,7 @@ class GenaiPerfConfig:
     """Resolved request for a genai generation benchmark."""
 
     bundle_dir: Path
-    ep: str = "mixed"
+    ep: EPNameOrAlias | None = None
     device: str = "auto"
     prompt: str = _DEFAULT_PROMPT
     max_new_tokens: int = 128
@@ -195,7 +202,7 @@ class GenaiBenchmarkResult:
             "benchmark_info": {
                 "runtime": RUNTIME_TYPE,
                 "bundle_dir": str(self.config.bundle_dir),
-                "ep": self.config.ep,
+                "ep": self.config.ep or "config",
                 "device": self.config.device,
                 "compile": self.config.compile,
                 "compile_timeout": self.config.compile_timeout,
@@ -391,7 +398,8 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
     cfg = result.config
     console.print()
     console.print(f"[dim]Runtime:[/dim]   {RUNTIME_TYPE}")
-    device_str = cfg.device if cfg.device == cfg.ep else f"{cfg.device} ({cfg.ep})"
+    ep_label = cfg.ep or "config"
+    device_str = cfg.device if cfg.device == ep_label else f"{cfg.device} ({ep_label})"
     console.print(f"[dim]Device:[/dim]    {device_str}")
     console.print(f"[dim]Bundle:[/dim]    {cfg.bundle_dir}")
     console.print(

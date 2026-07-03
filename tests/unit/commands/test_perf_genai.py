@@ -121,12 +121,14 @@ class TestDeviceToGenaiEp:
             ("cpu", "cpu"),
             ("npu", "qnn"),
             ("gpu", "dml"),
-            ("auto", "mixed"),
+            # "auto" (and any unrecognized device) resolves to None = respect
+            # the bundle's genai_config.json routing rather than forcing an EP.
+            ("auto", None),
             ("NPU", "qnn"),
-            ("unknown-device", "mixed"),
+            ("unknown-device", None),
         ],
     )
-    def test_mapping(self, device: str, expected: str) -> None:
+    def test_mapping(self, device: str, expected: str | None) -> None:
         assert device_to_genai_ep(device) == expected
 
 
@@ -302,6 +304,17 @@ class TestResultToDict:
         # Round-trips without error.
         json.dumps(self._result().to_dict())
 
+    def test_to_dict_ep_none_reports_config(self) -> None:
+        # ep=None (respect the bundle config) is reported as the label "config"
+        # so the JSON never carries a null EP.
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"), ep=None, device="auto", iterations=1, warmup=0
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4])])
+        info = GenaiPerfBenchmark(cfg, session=session).run().to_dict()["benchmark_info"]
+        assert info["ep"] == "config"
+        assert info["device"] == "auto"
+
 
 # ---------------------------------------------------------------------------
 # Reporting helpers
@@ -331,6 +344,15 @@ class TestReporting:
 
     def test_display_genai_report_does_not_crash(self) -> None:
         display_genai_report(self._result(), Console())
+
+    def test_display_genai_report_ep_none_does_not_crash(self) -> None:
+        # ep=None renders as "<device> (config)" without error.
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"), ep=None, device="auto", iterations=1, warmup=0
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])])
+        result = GenaiPerfBenchmark(cfg, session=session).run()
+        display_genai_report(result, Console())
 
     def test_genai_output_path_uses_bundle_name(self) -> None:
         path = genai_output_path(Path("/some/dir/my-bundle"))
@@ -432,6 +454,43 @@ class TestCliDispatch:
         assert cfg.device == "npu"
         assert cfg.bundle_dir == bundle
 
+    def test_explicit_ep_overrides_device(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # Explicit --ep wins over the --device mapping (precedence:
+        # --ep > concrete --device > respect config).
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(
+            perf,
+            ["-m", str(bundle), "--runtime", "winml-genai", "--device", "npu", "--ep", "cpu"],
+        )
+        assert result.exit_code == 0, result.output
+        cfg = capture_run["config"]
+        assert cfg.ep == "cpu"
+        assert cfg.device == "npu"
+
+    def test_explicit_ep_without_device(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # --ep alone forces that EP even though --device stays at its "auto"
+        # default (which on its own would mean "respect config").
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", "--ep", "dml"])
+        assert result.exit_code == 0, result.output
+        cfg = capture_run["config"]
+        assert cfg.ep == "dml"
+        assert cfg.device == "auto"
+
+    def test_ep_flag_not_warned_as_ignored(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # --ep is honored for winml-genai, so it must not appear in the
+        # "options are ignored" warning.
+        bundle = _make_bundle(tmp_path)
+        result = runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai", "--ep", "qnn"])
+        assert result.exit_code == 0, result.output
+        assert "--ep" not in result.output
+
     def test_genai_iteration_defaults(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
@@ -440,11 +499,11 @@ class TestCliDispatch:
         cfg = capture_run["config"]
         assert cfg.iterations == 10
         assert cfg.warmup == 2
-        # Default device ("auto") must resolve to mixed execution so the
-        # bundle's per-stage EP routing (ctx/iter on QNN, embeddings/lm_head
-        # on CPU) is honored.
+        # Default device ("auto") resolves to None: no EP override, so the
+        # bundle's own per-stage routing in genai_config.json is respected
+        # (ctx/iter on QNN, embeddings/lm_head on CPU).
         assert cfg.device == "auto"
-        assert cfg.ep == "mixed"
+        assert cfg.ep is None
 
     def test_explicit_iterations_honored(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
