@@ -308,6 +308,28 @@ class TestBuildGenaiConfig:
         )
         assert result["model"]["pad_token_id"] == 0  # falls back to bos_token_id
 
+    def test_pad_token_id_zero_is_preserved(self) -> None:
+        """A valid pad_token_id of 0 must not be overwritten by bos_token_id.
+
+        0 is a common, valid pad id; a truthiness check would silently swap it
+        for bos_token_id and corrupt batched-padding generation.
+        """
+        cfg = SimpleNamespace(
+            num_hidden_layers=2,
+            hidden_size=512,
+            num_attention_heads=8,
+            num_key_value_heads=4,
+            head_dim=64,
+            bos_token_id=5,
+            eos_token_id=1,
+            pad_token_id=0,
+            vocab_size=32000,
+        )
+        result = build_genai_config(
+            cfg, max_cache_len=128, prefill_seq_len=32, pipeline=_make_pipeline(2)
+        )
+        assert result["model"]["pad_token_id"] == 0
+
     def test_different_layer_count(self) -> None:
         cfg = _mock_config(num_hidden_layers=4)
         result = build_genai_config(

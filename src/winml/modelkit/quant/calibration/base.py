@@ -38,4 +38,3 @@ class QuantConfigFinalizer(Protocol):
         model_id: str | None = None,
     ) -> WinMLQuantizationConfig:
         """Return ``quant`` populated with the graph-derived quant settings."""
-        ...

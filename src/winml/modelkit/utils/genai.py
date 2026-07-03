@@ -76,7 +76,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    import onnx
+    from onnx import ModelProto
 
 
 logger = logging.getLogger(__name__)
@@ -235,7 +235,9 @@ def build_genai_config(
     # silently discard secondary EOS tokens (e.g. Qwen3 uses [151645, 151643])
     # and cause generation to run until max_length instead of stopping early.
 
-    pad_token_id = getattr(hf_config, "pad_token_id", None) or hf_config.bos_token_id
+    pad_token_id = getattr(hf_config, "pad_token_id", None)
+    if pad_token_id is None:
+        pad_token_id = hf_config.bos_token_id
 
     decoder_section: dict = {
         "hidden_size": hf_config.hidden_size,
@@ -539,7 +541,7 @@ def write_genai_bundle(
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
     context_session_options: dict | None = None,
     iterator_session_options: dict | None = None,
-    transformer_onnx_passes: Sequence[Callable[[onnx.ModelProto], onnx.ModelProto]] | None = None,
+    transformer_onnx_passes: Sequence[Callable[[ModelProto], ModelProto]] | None = None,
 ) -> Path:
     """Assemble a complete ``onnxruntime-genai`` bundle in *output_dir*.
 

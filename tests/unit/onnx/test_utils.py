@@ -6,8 +6,7 @@
 
 from __future__ import annotations
 
-import onnx
-from onnx import TensorProto, helper
+from onnx import ModelProto, NodeProto, TensorProto, helper
 
 from winml.modelkit.onnx import strip_node_attrs
 
@@ -17,7 +16,7 @@ from winml.modelkit.onnx import strip_node_attrs
 # ---------------------------------------------------------------------------
 
 
-def _make_gqa_model(attr_dict: dict[str, int]) -> onnx.ModelProto:
+def _make_gqa_model(attr_dict: dict[str, int]) -> ModelProto:
     """Build a minimal model with a single com.microsoft::GroupQueryAttention node.
 
     Uses explicit ``make_attribute`` calls so attr names match what PyTorch's
@@ -25,7 +24,7 @@ def _make_gqa_model(attr_dict: dict[str, int]) -> onnx.ModelProto:
     """
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 64, 512])
     y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 64, 512])
-    node = onnx.NodeProto()
+    node = NodeProto()
     node.op_type = "GroupQueryAttention"
     node.domain = "com.microsoft"
     node.input.append("x")
@@ -37,7 +36,7 @@ def _make_gqa_model(attr_dict: dict[str, int]) -> onnx.ModelProto:
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("com.microsoft", 1)])
 
 
-def _attr_names(model: onnx.ModelProto) -> set[str]:
+def _attr_names(model: ModelProto) -> set[str]:
     return {a.name for n in model.graph.node for a in n.attribute}
 
 
@@ -125,8 +124,8 @@ def test_strip_multiple_gqa_nodes():
     y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 64, 512])
     z = helper.make_tensor_value_info("z", TensorProto.FLOAT, [1, 64, 512])
 
-    def _gqa_node(name: str, inp: str, out: str) -> onnx.NodeProto:
-        node = onnx.NodeProto()
+    def _gqa_node(name: str, inp: str, out: str) -> NodeProto:
+        node = NodeProto()
         node.op_type = "GroupQueryAttention"
         node.domain = "com.microsoft"
         node.name = name
