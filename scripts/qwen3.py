@@ -2,40 +2,27 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-r"""Unified Qwen3 genai pipeline: full model export and inference.
+r"""Qwen3 genai bundle export.
 
-Sub-commands
-------------
-export
-    Build (or reuse) all four components of the Qwen3 genai bundle and
-    assemble them into an onnxruntime-genai directory:
+Builds (or reuses) all four components of the Qwen3 genai bundle and assembles
+them into an onnxruntime-genai directory:
 
-      - ``ctx.onnx``        — transformer prefill graph (QNN-quantized)
-      - ``iter.onnx``       — transformer decode graph  (QNN-quantized)
-      - ``embeddings.onnx`` — token embedding table     (fp32)
-      - ``lm_head.onnx``    — vocab projection          (w4a32 MatMulNBits)
-      - ``genai_config.json`` + HF tokenizer files
+  - ``ctx.onnx``        — transformer prefill graph (QNN-quantized)
+  - ``iter.onnx``       — transformer decode graph  (QNN-quantized)
+  - ``embeddings.onnx`` — token embedding table     (fp32)
+  - ``lm_head.onnx``    — vocab projection          (w4a32 MatMulNBits)
+  - ``genai_config.json`` + HF tokenizer files
 
-infer
-    Load a bundle produced by ``export`` and run streamed text generation
-    using :class:`~winml.modelkit.session.GenaiSession`.
+Inference over the assembled bundle is provided separately (see the genai
+inference session), so this script only covers bundle generation.
 
 Usage::
 
     # Full export to out/bundle (default context_length=2048):
     uv run python scripts/qwen3.py export --device npu --output out/bundle
 
-    # Export with EPContext pre-compilation:
-    uv run python scripts/qwen3.py export --device npu --output out/bundle --compile
-
     # Force rebuild from scratch:
     uv run python scripts/qwen3.py export --device npu --output out/bundle --force-rebuild
-
-    # Inference with the compiled bundle:
-    uv run python scripts/qwen3.py infer --bundle out/bundle --prompt "Hello" --chat
-
-    # Pre-compile QNN stages on first inference run (reuses cache on subsequent runs):
-    uv run python scripts/qwen3.py infer --bundle out/bundle --prompt "Hi" --compile
 """
 
 from __future__ import annotations
@@ -52,7 +39,6 @@ from winml.modelkit.models.auto import WinMLAutoModel
 from winml.modelkit.models.hf.qwen3.qwen_transformer_only import (
     WinMLQwen3TransformerOnlyModel,
 )
-from winml.modelkit.session import GenaiSession, GenerationConfig
 
 
 _DEVICE_TO_EP = {
@@ -69,8 +55,6 @@ _COMPANION_COMPONENTS: dict[str, dict[str, str]] = {
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_BUNDLE = _REPO_ROOT / "out" / "bundle"
-
-_SUPPORTED_EPS = ["cpu", "mixed", "qnn", "dml"]
 
 
 # ---------------------------------------------------------------------------
@@ -158,15 +142,6 @@ def _add_export_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore
         help="Override path to a pre-built lm_head ONNX (skips auto-build).",
     )
     p.add_argument("--force-rebuild", action="store_true", help="Rebuild even if cached.")
-    p.add_argument(
-        "--compile",
-        action="store_true",
-        help=(
-            "Pre-compile QNN transformer stages to EPContext ONNX after export. "
-            "Compiled artifacts are cached in output/_compiled/ and reused on "
-            "subsequent runs."
-        ),
-    )
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -248,106 +223,8 @@ def _cmd_export(args: argparse.Namespace) -> int:
     )
     print(f"  genai_config.json -> {config_path}")
 
-    # --- Optional EPContext pre-compilation ---
-    if args.compile:
-        print(f"\n=== compiling QNN stages -> {args.output}/_compiled/ ===")
-        # Loading with compile=True triggers _prepare_compiled_bundle() and
-        # caches the EPContext ONNX files; we don't need to run generation.
-        with GenaiSession(args.output, ep="mixed", compile=True):
-            pass
-        print(f"  compiled bundle -> {args.output / '_compiled'}")
-
     elapsed = time.monotonic() - t0
     print(f"\n=== export complete in {elapsed:.1f}s ===")
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# infer sub-command
-# ---------------------------------------------------------------------------
-
-
-def _add_infer_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    p = sub.add_parser(
-        "infer",
-        help="Run streamed inference on a Qwen3 genai bundle.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=(
-            "Loads a genai bundle produced by 'qwen3.py export' and generates text "
-            "using onnxruntime-genai with the configured execution providers."
-        ),
-    )
-    p.add_argument(
-        "--prompt",
-        default="Give me a short introduction to large language models.",
-        help="Input prompt (default: %(default)s).",
-    )
-    p.add_argument(
-        "--bundle",
-        type=Path,
-        default=_DEFAULT_BUNDLE,
-        metavar="DIR",
-        help=f"Path to the genai bundle directory. Default: {_DEFAULT_BUNDLE}.",
-    )
-    p.add_argument(
-        "--ep",
-        choices=_SUPPORTED_EPS,
-        default="mixed",
-        help=(
-            "Execution provider. 'mixed' uses genai_config.json as-is "
-            "(QNN for transformer, CPU for embeddings/lm_head). Default: mixed."
-        ),
-    )
-    p.add_argument(
-        "--max-new",
-        type=int,
-        default=128,
-        help="Maximum number of new tokens to generate. Default: 128.",
-    )
-    p.add_argument(
-        "--chat",
-        action="store_true",
-        help="Wrap --prompt in the ChatML template (<|im_start|>user/assistant).",
-    )
-    p.add_argument(
-        "--compile",
-        action="store_true",
-        help=(
-            "Pre-compile QNN pipeline stages to EPContext ONNX before loading. "
-            "Compiled artifacts are cached in bundle/_compiled/ and reused on "
-            "subsequent runs."
-        ),
-    )
-    p.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable onnxruntime-genai native model I/O logging.",
-    )
-
-
-def _cmd_infer(args: argparse.Namespace) -> int:
-    """Load the bundle and run generation."""
-    text = GenaiSession.apply_chatml_template(args.prompt) if args.chat else args.prompt
-    gen_cfg = GenerationConfig(max_new_tokens=args.max_new, do_sample=False)
-
-    try:
-        session = GenaiSession(args.bundle, ep=args.ep, verbose=args.verbose, compile=args.compile)
-    except FileNotFoundError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
-
-    print(f"[load] ep={args.ep}  bundle={args.bundle}")
-    with session:
-        print(f"[ctx]  context_length={session.context_length}")
-        print("[gen] ", end="", flush=True)
-        t0 = time.monotonic()
-        n = 0
-        for token_str in session.generate_streaming(text, gen_cfg):
-            print(token_str, end="", flush=True)
-            n += 1
-
-    dt = time.monotonic() - t0
-    print(f"\n\n[done] {n} tokens in {dt:.1f}s  ({n / max(dt, 1e-9):.1f} tok/s)")
     return 0
 
 
@@ -367,12 +244,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.required = True
 
     _add_export_parser(sub)
-    _add_infer_parser(sub)
 
     args = p.parse_args(argv)
-    if args.command == "export":
-        return _cmd_export(args)
-    return _cmd_infer(args)
+    return _cmd_export(args)
 
 
 if __name__ == "__main__":
