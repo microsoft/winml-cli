@@ -36,7 +36,10 @@ from ....utils.genai import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
     from pathlib import Path
+
+    import onnx
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +164,7 @@ def write_genai_bundle(
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
     ep: str = "cpu",
     soc_model: str = "60",
+    transformer_onnx_passes: Sequence[Callable[[onnx.ModelProto], onnx.ModelProto]] | None = None,
 ) -> Path:
     """Assemble a Qwen3 genai bundle, routing ctx/iter to QNN when ``ep="qnn"``.
 
@@ -174,6 +178,9 @@ def write_genai_bundle(
             HTP (NPU) backend; ``"cpu"`` (default) keeps every stage on CPU.
         soc_model: Snapdragon SoC model passed to the QNN backend when
             ``ep="qnn"``.  Default ``"60"`` = Snapdragon 8 Gen 3 / X Elite.
+        transformer_onnx_passes: Optional ONNX graph transforms applied to the
+            copied context/iterator models before ``genai_config.json`` is
+            written.  Forwarded verbatim to the generic assembler.
 
     Returns:
         Path to the written ``genai_config.json``.
@@ -194,6 +201,7 @@ def write_genai_bundle(
         lm_head_filename=lm_head_filename,
         context_session_options=ctx_opts,
         iterator_session_options=iter_opts,
+        transformer_onnx_passes=transformer_onnx_passes,
     )
 
 

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import patch
 
 from winml.modelkit.models.hf.qwen3 import (
@@ -14,6 +15,7 @@ from winml.modelkit.models.hf.qwen3 import (
     PipelineStage,
     build_genai_config,
     build_qwen3_transformer_only_stages,
+    write_genai_bundle,
 )
 from winml.modelkit.models.hf.qwen3.genai import (
     DEFAULT_CONTEXT_FILENAME,
@@ -517,3 +519,61 @@ class TestBuildQwen3TransformerOnlyStages:
             )
         ctx = next(s for s in stages if s.name == "context")
         assert ctx.session_options["provider_options"][0]["qnn"]["soc_model"] == "73"
+
+
+# ---------------------------------------------------------------------------
+# Tests: write_genai_bundle wrapper (ep routing + transformer_onnx_passes)
+# ---------------------------------------------------------------------------
+
+
+class TestWriteGenaiBundleWrapper:
+    """The Qwen3 ``write_genai_bundle`` wrapper injects the QNN ``session_options``
+    and forwards the generic keyword arguments — notably ``transformer_onnx_passes``
+    — to :func:`winml.modelkit.utils.genai.write_genai_bundle`.  The generic
+    assembler is mocked so no ONNX/tokenizer files are needed.
+    """
+
+    _COMMON: ClassVar[dict] = {
+        "context_onnx": "ctx.onnx",
+        "iterator_onnx": "iter.onnx",
+        "model_id": "Qwen/Qwen3-0.6B",
+        "max_cache_len": 2048,
+        "prefill_seq_len": 64,
+    }
+
+    @staticmethod
+    def _patch_generic():
+        return patch("winml.modelkit.models.hf.qwen3.genai._write_genai_bundle")
+
+    def test_forwards_transformer_onnx_passes(self) -> None:
+        """A supplied transformer_onnx_passes list reaches the generic assembler."""
+
+        def _identity_pass(model):
+            return model
+
+        with self._patch_generic() as mock_write:
+            write_genai_bundle("out", transformer_onnx_passes=[_identity_pass], **self._COMMON)
+        assert mock_write.call_count == 1
+        assert mock_write.call_args.kwargs["transformer_onnx_passes"] == [_identity_pass]
+
+    def test_transformer_onnx_passes_defaults_to_none(self) -> None:
+        """Omitting transformer_onnx_passes forwards None (no passes)."""
+        with self._patch_generic() as mock_write:
+            write_genai_bundle("out", **self._COMMON)
+        assert mock_write.call_args.kwargs["transformer_onnx_passes"] is None
+
+    def test_qnn_ep_forwards_session_options(self) -> None:
+        """ep='qnn' forwards QNN session_options for the context and iterator stages."""
+        with self._patch_generic() as mock_write:
+            write_genai_bundle("out", ep="qnn", **self._COMMON)
+        kwargs = mock_write.call_args.kwargs
+        assert kwargs["context_session_options"]["log_id"] == "onnxruntime-genai.context"
+        assert kwargs["iterator_session_options"]["log_id"] == "onnxruntime-genai.iterator"
+
+    def test_cpu_ep_forwards_no_session_options(self) -> None:
+        """ep='cpu' (default) forwards None session_options for both stages."""
+        with self._patch_generic() as mock_write:
+            write_genai_bundle("out", **self._COMMON)
+        kwargs = mock_write.call_args.kwargs
+        assert kwargs["context_session_options"] is None
+        assert kwargs["iterator_session_options"] is None
