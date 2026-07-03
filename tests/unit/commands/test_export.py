@@ -795,3 +795,86 @@ class TestExportDebugMode:
         # verbose should be True due to debug mode
         call_kwargs = mock_export_onnx.call_args.kwargs
         assert call_kwargs["verbose"] is True
+
+
+class TestExportComposite:
+    """Test export fans a composite model out into <output>/<name>/model.onnx."""
+
+    def test_composite_exports_one_onnx_per_component(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """A composite model writes each sub-model under its own component folder."""
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+        output_dir = tmp_path / "qwen3"
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch("winml.modelkit.loader.load_hf_model") as mock_load,
+            patch(
+                "winml.modelkit.export.resolve_export_config",
+                return_value=(WinMLExportConfig(), WinMLLoaderConfig(task="text-generation")),
+            ),
+        ):
+            mock_load.return_value = (MagicMock(), None, "text2text-generation")
+            result = runner.invoke(
+                export,
+                ["--model", "Qwen/Qwen3-0.6B", "--output", str(output_dir)],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        # One export per component, each targeting <output>/<name>/model.onnx.
+        assert mock_export_onnx.call_count == len(components)
+        exported_paths = {
+            Path(call.kwargs["output_path"]) for call in mock_export_onnx.call_args_list
+        }
+        assert exported_paths == {output_dir / name / "model.onnx" for name in components}
+        # Each per-component parent directory is created.
+        for name in components:
+            assert (output_dir / name).exists()
+
+    def test_composite_rejects_input_specs(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--input-specs is ambiguous for a composite and must be a usage error."""
+        from winml.modelkit.commands.export import export
+
+        specs_file = tmp_path / "inputs.json"
+        specs_file.write_text(json.dumps({"input_ids": {"dtype": "int64", "shape": [1, 8]}}))
+
+        with patch(
+            "winml.modelkit.loader.resolution.resolve_composite_components",
+            return_value={"decoder_prefill": "feature-extraction"},
+        ):
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "Qwen/Qwen3-0.6B",
+                    "--output",
+                    str(tmp_path / "qwen3"),
+                    "--input-specs",
+                    str(specs_file),
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "composite" in result.output.lower()
+        mock_export_onnx.assert_not_called()

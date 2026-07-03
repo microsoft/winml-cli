@@ -482,27 +482,14 @@ def _resolve_composite_model_components(
     No --task: ``resolve_task`` detects + tags the composite (its ``.composite``
     field carries the seq2seq bridge), so no-task routing matches --task routing.
     """
-    from transformers import AutoConfig
+    from ..loader.resolution import resolve_composite_components
 
-    from ..loader.resolution import resolve_composite, resolve_task
-
-    if task is not None:
-        resolved_type = model_type
-        if resolved_type is None and hf_model is not None:
-            resolved_type = AutoConfig.from_pretrained(
-                hf_model, trust_remote_code=trust_remote_code
-            ).model_type
-        if resolved_type is None:
-            return None
-        return resolve_composite(resolved_type, task)
-
-    if hf_model is not None:
-        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
-    elif model_type is not None:
-        config = AutoConfig.for_model(model_type)
-    else:
-        return None
-    return resolve_task(config).composite
+    return resolve_composite_components(
+        hf_model,
+        task=task,
+        model_type=model_type,
+        trust_remote_code=trust_remote_code,
+    )
 
 
 def _generate_pipeline_configs(
