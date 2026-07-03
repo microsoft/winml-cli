@@ -100,6 +100,16 @@ def _configure() -> None:
         "ignore", message=r".*CUDA.*", category=UserWarning, module=r"diffusers.*"
     )
 
+    # scikit-learn: HF `evaluate` metrics call `type_of_target`, which warns when
+    # the number of unique classes exceeds 50% of the samples ("could represent a
+    # regression problem"). Expected for small eval sample counts and purely
+    # cosmetic — match by message since it fires from several sklearn modules.
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*number of unique classes is greater than 50% of the number of samples.*",
+        category=UserWarning,
+    )
+
     # =========================================================================
     # huggingface_hub: suppress the Windows "symlinks not supported" notice
     # =========================================================================

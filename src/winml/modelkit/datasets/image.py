@@ -74,7 +74,7 @@ class ImageDataset(BaseTaskDataset):
         # iterate the full remote stream into memory, which is worse than a
         # bulk download.
         streaming = self._config.get("streaming", False) and self._max_samples is not None
-        logger.info(f"Loading dataset: {self._dataset_name} with split: {self._data_split}")
+        logger.warning(f"Loading dataset: {self._dataset_name} with split: {self._data_split}")
         try:
             dataset = load_dataset(
                 self._dataset_name,

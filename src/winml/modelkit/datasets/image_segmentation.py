@@ -93,7 +93,7 @@ class ImageSegmentationDataset(BaseTaskDataset):
             self._dataset_name = self.DEFAULT_DATASET
 
         # 2. Load dataset
-        logger.info(f"Loading dataset: {self._dataset_name} with split: {self._data_split}")
+        logger.warning(f"Loading dataset: {self._dataset_name} with split: {self._data_split}")
         try:
             dataset = load_dataset(self._dataset_name, split=self._data_split)
         except Exception as e:

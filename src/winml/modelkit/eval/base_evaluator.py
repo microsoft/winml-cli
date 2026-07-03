@@ -82,7 +82,7 @@ class WinMLEvaluator:
         from datasets import Dataset, load_dataset, load_from_disk
 
         ds = self.config.dataset
-        logger.info(
+        logger.warning(
             "Loading dataset: %s (name=%s, split=%s, samples=%s)",
             ds.path,
             ds.name,

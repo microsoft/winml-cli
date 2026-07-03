@@ -127,7 +127,7 @@ class TextDataset(BaseTaskDataset):
         if subset:
             load_args.append(subset)
 
-        logger.info("Loading: %s (subset=%s, split=%s)",
+        logger.warning("Loading: %s (subset=%s, split=%s)",
                     self._dataset_name, subset, self._data_split)
 
         try:

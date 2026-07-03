@@ -69,6 +69,9 @@ def _load_gsm8k_prompts(num_samples: int) -> list[str]:
     """GSM8K train split, shuffled seed=42 for reproducible calibration."""
     from datasets import load_dataset
 
+    logger.warning(
+        "Loading calibration dataset: %s (%s)", DEFAULT_CALIB_DATASET, DEFAULT_CALIB_DATASET_CONFIG
+    )
     ds = load_dataset(DEFAULT_CALIB_DATASET, DEFAULT_CALIB_DATASET_CONFIG)
     split = ds[DEFAULT_CALIB_SPLIT].shuffle(seed=DEFAULT_CALIB_SEED)
     return [row["question"] for row in split.select(range(num_samples))]
