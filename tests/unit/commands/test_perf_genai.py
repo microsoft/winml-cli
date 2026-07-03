@@ -83,12 +83,14 @@ class _FakeSession:
         self.context_length = context_length
         self._chat_template = chat_template
         self.encoded_text: str | None = None
+        self.template_applied = False
 
     def encode(self, text: str) -> list[int]:
         self.encoded_text = text
         return list(self._prompt_ids)
 
     def apply_chat_template(self, prompt: str, **_kwargs: object) -> str:
+        self.template_applied = True
         if not self._chat_template:
             raise GenaiSessionError("bundle ships no chat template")
         return f"<chat>{prompt}</chat>"
@@ -250,6 +252,26 @@ class TestChatTemplate:
 
         assert session.encoded_text == "Hi"
 
+    def test_no_apply_template_benchmarks_prompt_verbatim(self) -> None:
+        """--no-apply-template benchmarks the prompt as-is, even if a template exists."""
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("x"),
+            warmup=0,
+            iterations=1,
+            max_new_tokens=2,
+            prompt="Hi",
+            apply_template=False,
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4])], chat_template=True)
+        bench = GenaiPerfBenchmark(cfg, session=session)
+
+        bench.run()
+
+        # The bundle ships a chat template, but apply_template=False bypasses it
+        # so a caller can benchmark a prompt they have already templated.
+        assert session.encoded_text == "Hi"
+        assert session.template_applied is False
+
 
 class TestResultToDict:
     def _result(self) -> GenaiBenchmarkResult:
@@ -287,6 +309,7 @@ class TestResultToDict:
         assert info["generated_tokens"] == 4
         assert info["compile"] is True
         assert info["compile_timeout"] == 120
+        assert info["apply_template"] is True
         assert set(d["ttft_ms"]) == {"mean", "min", "max", "p50", "p90", "p95", "p99"}
         assert set(d["prefill_ms"]) == {"mean"}
         assert set(d["decode"]) == {"tokens_per_sec", "avg_token_latency_ms", "tpot_ms"}
@@ -496,6 +519,23 @@ class TestCliDispatch:
         # The CLI --prompt default must match the GenaiPerfConfig field default.
         assert capture_run["config"].prompt == perf_genai._DEFAULT_PROMPT
         assert capture_run["config"].prompt == GenaiPerfConfig(bundle_dir=Path("x")).prompt
+
+    def test_apply_template_defaults_true(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        runner.invoke(perf, ["-m", str(bundle), "--runtime", "winml-genai"])
+        assert capture_run["config"].apply_template is True
+
+    def test_no_apply_template_forwarded(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        bundle = _make_bundle(tmp_path)
+        runner.invoke(
+            perf,
+            ["-m", str(bundle), "--runtime", "winml-genai", "--no-apply-template"],
+        )
+        assert capture_run["config"].apply_template is False
 
     def test_compile_flag_forwarded(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict

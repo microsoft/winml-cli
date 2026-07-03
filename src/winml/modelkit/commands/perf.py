@@ -1581,6 +1581,7 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
         ep=device_to_genai_ep(device),
         device=device,
         prompt=p["prompt"],
+        apply_template=p["apply_template"],
         max_new_tokens=p["max_new_tokens"],
         iterations=iterations,
         warmup=warmup,
@@ -1607,7 +1608,15 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     type=str,
     default="Explain the theory of relativity in simple terms.",
     show_default=True,
-    help="[winml-genai] Prompt text to generate from.",
+    help="[winml-genai] Prompt text to generate from. By default it is wrapped in "
+    "the bundle's chat template; pass --no-apply-template to benchmark it verbatim.",
+)
+@click.option(
+    "--apply-template/--no-apply-template",
+    default=True,
+    show_default=True,
+    help="[winml-genai] Wrap --prompt in the bundle's chat template before timing. "
+    "Use --no-apply-template to benchmark a prompt that is already formatted.",
 )
 @click.option(
     "--max-new-tokens",
@@ -1735,6 +1744,7 @@ def perf(
     model: str | None,
     runtime: RuntimeName,
     prompt: str,
+    apply_template: bool,
     max_new_tokens: int,
     compile_timeout: int,
     task: str | None,
