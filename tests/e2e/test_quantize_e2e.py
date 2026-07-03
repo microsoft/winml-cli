@@ -186,6 +186,7 @@ def onnx_dinov2() -> Path:
 
 
 _QDQ_OPS = {"QuantizeLinear", "DequantizeLinear"}
+_DYNAMIC_QUANT_OPS = {"DynamicQuantizeLinear", "MatMulInteger", "ConvInteger"}
 
 
 def _dtype_of_init(model: onnx.ModelProto, name: str) -> int:
@@ -299,6 +300,46 @@ def _assert_quantized_output(
     return model
 
 
+def _assert_dynamic_quantized_output(
+    *,
+    input_onnx: Path,
+    output_onnx: Path,
+) -> onnx.ModelProto:
+    """Structural assertions for a dynamically quantized model.
+
+    Dynamic quantization emits QOperator-format ops (DynamicQuantizeLinear +
+    MatMulInteger/ConvInteger) rather than QDQ nodes, so it needs its own
+    assertions instead of ``_assert_quantized_output``.
+    """
+    model = onnx.load(str(output_onnx))
+
+    dyn_count = sum(1 for n in model.graph.node if n.op_type in _DYNAMIC_QUANT_OPS)
+    assert dyn_count >= 1, f"no dynamic-quant nodes: {[n.op_type for n in model.graph.node]}"
+    # Dynamic quantization must not emit static QDQ nodes.
+    assert not any(n.op_type in _QDQ_OPS for n in model.graph.node)
+
+    onnx.checker.check_model(model, full_check=True)
+
+    input_model = onnx.load(str(input_onnx))
+    assert [i.name for i in model.graph.input] == [i.name for i in input_model.graph.input]
+    assert [o.name for o in model.graph.output] == [o.name for o in input_model.graph.output]
+
+    # ORT-CPU runs and produces finite outputs.
+    sess = ort.InferenceSession(str(output_onnx), providers=["CPUExecutionProvider"])
+    rng = np.random.default_rng(11)
+    feed = {
+        inp.name: rng.standard_normal(
+            [d if isinstance(d, int) and d > 0 else 1 for d in inp.shape]
+        ).astype(np.float32)
+        for inp in sess.get_inputs()
+    }
+    for arr in sess.run(None, feed):
+        if np.issubdtype(arr.dtype, np.floating):
+            assert np.isfinite(arr).all()
+
+    return model
+
+
 def _invoke(runner: CliRunner, args: list[str], *, expect_success: bool = True):
     result = runner.invoke(quantize_cmd, args, obj={}, catch_exceptions=True)
     if expect_success and result.exit_code != 0:
@@ -396,10 +437,18 @@ class TestPrecision:
         assert r.exit_code == 0
         assert out.exists()
 
-
-# ===========================================================================
-# Calibration method
-# ===========================================================================
+    def test_dynamic_precision_accepted(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
+        """`--precision dynamic` runs dynamic quantization (no calibration data)."""
+        out = tmp_path / "a7.onnx"
+        r = _invoke(
+            runner,
+            ["-m", str(tiny_onnx), "-o", str(out), "--precision", "dynamic"],
+        )
+        assert r.exit_code == 0
+        assert out.exists()
+        model = _assert_dynamic_quantized_output(input_onnx=tiny_onnx, output_onnx=out)
+        # Weights are quantized statically -> MatMul becomes MatMulInteger.
+        assert any(n.op_type == "MatMulInteger" for n in model.graph.node)
 
 
 class TestCalibrationMethod:

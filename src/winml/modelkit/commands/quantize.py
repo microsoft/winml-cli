@@ -46,9 +46,10 @@ console = Console()
 @cli_utils.precision_option(
     default=(),
     multiple=True,
-    help_text="Quantization precision: fp16, int4, int8, int16, or w{x}a{y} where "
+    help_text="Quantization precision: fp16, int4, int8, int16, dynamic, or w{x}a{y} where "
     "x in {4,8,16}, y in {8,16} (e.g., w8a8, w8a16). "
     "int4 uses RTN weight-only quantization; "
+    "dynamic uses dynamic quantization (no calibration data); "
     "fp16 converts all FP32 tensors to FP16 (no QDQ). "
     "Repeat to chain passes in order (e.g. -p int4 -p fp16)",
     optional_message="Overridden by explicit --weight-type/--activation-type",
@@ -125,7 +126,8 @@ def quantize(
 
     This command applies quantization to an ONNX model. The algorithm is
     auto-selected from the precision: int4 → RTN weight-only,
-    int8/int16/w8a8 → static QDQ, fp16 → FP16 conversion.
+    int8/int16/w8a8 → static QDQ, dynamic → dynamic quantization,
+    fp16 → FP16 conversion.
 
     Repeat --precision to chain passes in order:
     ``-p int4 -p fp16`` runs RTN int4 quantization then FP16 conversion.
@@ -140,6 +142,9 @@ def quantize(
 
         # RTN 4-bit weight-only quantization (no calibration data needed)
         winml quantize -m model.onnx --precision int4
+
+        # Dynamic quantization (no calibration data needed)
+        winml quantize -m model.onnx --precision dynamic
 
         # RTN int4 followed by FP16 conversion (two-pass pipeline)
         winml quantize -m model.onnx --precision int4 --precision fp16
@@ -232,6 +237,23 @@ def quantize(
         config = WinMLQuantizationConfig(mode="rtn", rtn_bits=rtn_bits)
         label = f"RTN {rtn_bits}-bit quantization"
 
+    elif precision_lower == "dynamic":
+        # Dynamic quantization: weights quantized statically, activation
+        # quantization parameters computed at runtime (no calibration data).
+        _warn_ignored_dynamic_options(ctx, console)
+        if output is None:
+            output = model.parent / f"{model.stem}_dynamic.onnx"
+        resolved_weight = weight_type or "uint8"
+        config = WinMLQuantizationConfig(
+            mode="dynamic",
+            weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
+            per_channel=per_channel,
+            symmetric=symmetric,
+        )
+        label = "Dynamic quantization"
+        console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
+        console.print("[bold blue]Activations:[/bold blue] dynamic (computed at runtime)")
+
     else:
         # QDQ calibrated quantization
         resolved_weight, resolved_activation = _resolve_quant_types(
@@ -302,9 +324,33 @@ def _cli_precision_to_mode(precision: str) -> str:
     p = precision.lower()
     if p == "fp16":
         return "fp16"
+    if p == "dynamic":
+        return "dynamic"
     if is_weight_only_precision(p):
         return "rtn"
     return "static"
+
+
+def _warn_ignored_dynamic_options(ctx: click.Context, console: Console) -> None:
+    """Warn about calibration/activation options that dynamic quantization ignores.
+
+    Dynamic quantization honours ``--weight-type``, ``--per-channel`` and
+    ``--symmetric`` but derives activation quantization at runtime, so it never
+    uses calibration samples/method/task or an explicit activation type.
+    """
+    checks = [
+        ("samples", "--samples"),
+        ("method", "--method"),
+        ("activation_type", "--activation-type"),
+        ("task", "--task"),
+        ("model_id", "--model-id"),
+    ]
+    ignored = [flag for param, flag in checks if cli_utils.is_cli_provided(ctx, param)]
+    if ignored:
+        console.print(
+            f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — "
+            "dynamic quantization does not use calibration data."
+        )
 
 
 def _run_multi_precision(
