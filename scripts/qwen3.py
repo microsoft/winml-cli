@@ -155,6 +155,7 @@ def _add_export_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore
         help="Override path to a pre-built lm_head ONNX (skips auto-build).",
     )
     p.add_argument("--force-rebuild", action="store_true", help="Rebuild even if cached.")
+    p.set_defaults(func=_cmd_export)
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -260,7 +261,9 @@ def main(argv: list[str] | None = None) -> int:
     _add_export_parser(sub)
 
     args = p.parse_args(argv)
-    return _cmd_export(args)
+    # Each subparser registers its handler via set_defaults(func=...); dispatch
+    # generically so new subcommands route to their own handler (not export).
+    return args.func(args)
 
 
 if __name__ == "__main__":
