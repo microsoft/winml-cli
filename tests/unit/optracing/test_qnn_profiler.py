@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from winml.modelkit.optracing.qnn.profiler import (
     QNNProfiler,
@@ -30,7 +31,7 @@ from winml.modelkit.optracing.qnn.viewer import (
 
 
 def test_qnn_profiler_creates_session_options():
-    """Verify session options are configured correctly."""
+    """Basic level sets fallback only; EPContext entries are detail-only."""
     profiler = QNNProfiler(Path("model.onnx"), output_dir=Path("out"), level="basic")
     mock_ort = MagicMock()
     mock_options = MagicMock()
@@ -39,6 +40,22 @@ def test_qnn_profiler_creates_session_options():
     options = profiler._build_session_options(mock_ort)
 
     assert options is mock_options
+    calls = mock_options.add_session_config_entry.call_args_list
+    entries = {c.args[0]: c.args[1] for c in calls}
+    assert entries["session.disable_cpu_ep_fallback"] == "1"
+    assert "ep.context_enable" not in entries
+    assert "ep.context_embed_mode" not in entries
+
+
+def test_qnn_profiler_session_options_detail_enables_epcontext():
+    """Detail level additionally enables the EPContext session entries."""
+    profiler = QNNProfiler(Path("model.onnx"), output_dir=Path("out"), level="detail")
+    mock_ort = MagicMock()
+    mock_options = MagicMock()
+    mock_ort.SessionOptions.return_value = mock_options
+
+    profiler._build_session_options(mock_ort)
+
     calls = mock_options.add_session_config_entry.call_args_list
     entries = {c.args[0]: c.args[1] for c in calls}
     assert entries["session.disable_cpu_ep_fallback"] == "1"
@@ -183,10 +200,12 @@ def test_qnn_profiler_run_basic(tmp_path):
         po = profiler._build_provider_options(output_dir / "profiling_output.csv")
         assert po["profiling_level"] == "detailed"
 
-        # Now test the CSV parsing path directly.
+        # Now test the CSV parsing path directly. The fixture holds a single
+        # sample, so treat it as one measured iteration with no warmup.
         result = profiler._from_csv(
             output_dir / "profiling_output.csv",
-            iterations=5,
+            iterations=1,
+            warmup=0,
             artifacts={"csv": str(output_dir / "profiling_output.csv")},
         )
         assert result.model == "model.onnx"
@@ -197,10 +216,59 @@ def test_qnn_profiler_run_basic(tmp_path):
         assert result.summary["hvx_threads"] == 4
 
 
+_CSV_HEADER = (
+    "Msg Timestamp,Message,Time,Unit of Measurement,Timing Source,Event Level,Event Identifier\n"
+)
+
+
+def _make_csv_sample(cycles: int, us: int, conv_cycles: int, add_cycles: int) -> str:
+    """Build one inference sample block for a basic-mode profiling CSV."""
+    return (
+        '0,ROOT,4,COUNT,HW,ROOT,"Number of HVX threads used"\n'
+        f'1,ROOT,{cycles},CYCLES,HW,ROOT,"Accelerator (execute) time (cycles)"\n'
+        f'2,NODE,{conv_cycles},CYCLES,HW,SUB-EVENT,"Conv2d:OpId_1 (cycles)"\n'
+        f'3,NODE,{add_cycles},CYCLES,HW,SUB-EVENT,"Add:OpId_2 (cycles)"\n'
+        f'4,ROOT,{us},US,HW,ROOT,"Accelerator (execute) time"\n'
+    )
+
+
+def test_qnn_profiler_from_csv_skips_warmup(tmp_path):
+    """The first ``warmup`` samples are dropped before computing metrics."""
+    # One warmup sample with outlier timing, then two measured samples.
+    csv_content = (
+        _CSV_HEADER
+        + _make_csv_sample(cycles=900000, us=9000, conv_cycles=5000, add_cycles=3000)
+        + _make_csv_sample(cycles=100000, us=1000, conv_cycles=500, add_cycles=300)
+        + _make_csv_sample(cycles=100000, us=1000, conv_cycles=500, add_cycles=300)
+    )
+    csv_path = tmp_path / "profiling_output.csv"
+    csv_path.write_text(csv_content, encoding="utf-8")
+
+    profiler = QNNProfiler(tmp_path / "model.onnx", output_dir=tmp_path, level="basic")
+    result = profiler._from_csv(csv_path, iterations=2, warmup=1, artifacts={})
+
+    # Only the two measured samples survive; the warmup outlier is excluded.
+    assert result.num_samples == 2
+    assert result.summary["accel_execute_cycles"] == 100000
+
+
+def test_qnn_profiler_from_csv_sample_count_mismatch(tmp_path):
+    """A measured-sample count that doesn't match ``iterations`` is an error."""
+    csv_content = _CSV_HEADER + _make_csv_sample(
+        cycles=100000, us=1000, conv_cycles=500, add_cycles=300
+    )
+    csv_path = tmp_path / "profiling_output.csv"
+    csv_path.write_text(csv_content, encoding="utf-8")
+
+    profiler = QNNProfiler(tmp_path / "model.onnx", output_dir=tmp_path, level="basic")
+    with pytest.raises(ValueError):
+        profiler._from_csv(csv_path, iterations=5, warmup=0, artifacts={})
+
+
 def test_qnn_profiler_empty_artifacts(tmp_path):
     """Profiler returns empty result when no artifacts exist."""
     profiler = QNNProfiler(Path("model.onnx"), output_dir=tmp_path, level="basic")
-    result = profiler._collect_results(tmp_path / "nonexistent.csv", iterations=5)
+    result = profiler._collect_results(tmp_path / "nonexistent.csv", iterations=5, warmup=2)
     assert result.model == "model.onnx"
     assert len(result.operators) == 0
     assert result.num_samples == 0

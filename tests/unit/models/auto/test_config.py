@@ -150,8 +150,8 @@ class TestWinMLCompileConfig:
 
         config = WinMLCompileConfig()
 
-        # Default provider is 'qnn', device property reads from ep_config.provider
-        assert config.device == "qnn"
+        # Default provider is None (no hidden EP default)
+        assert config.device == ""
         assert config.validate is True
 
     def test_device_via_ep_config(self):
@@ -189,13 +189,14 @@ class TestWinMLConfig:
 
     def test_nested_access(self):
         """AC-1: Test nested config access."""
+        from winml.modelkit.compiler import EPConfig, WinMLCompileConfig
         from winml.modelkit.config import WinMLBuildConfig
 
-        config = WinMLBuildConfig()
+        config = WinMLBuildConfig(compile=WinMLCompileConfig(ep_config=EPConfig(provider="qnn")))
 
         # Should be able to access nested configs
         assert config.export.opset_version == 17
-        assert config.compile.device == "qnn"  # Default EP is QNN
+        assert config.compile.device == "qnn"
 
     def test_to_dict_nested(self):
         """AC-2: Test nested serialization."""

@@ -15,7 +15,8 @@ def test_operator_metrics_to_dict():
     assert d["name"] == "Conv2d"
     assert d["op_path"] == "/layer1/conv/Conv"
     assert d["duration_us"] == 45.2
-    assert d["dram_read_bytes"] is None
+    # Unset detail-only fields are omitted rather than serialized as null.
+    assert "dram_read_bytes" not in d
 
 
 def test_operator_metrics_with_detail_fields():

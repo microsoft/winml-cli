@@ -490,7 +490,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
     # ------------------------------------------------------------------
     @app.post("/v1/ep", tags=["management"], summary="Switch execution provider")
     async def switch_ep(request: EpSwitchRequest) -> dict[str, Any]:
-        # Pydantic already validates ep against the EPAlias Literal (rejects
+        # Pydantic already validates ep against the EPNameOrAlias Literal (rejects
         # unknown values with a 422 at parse time), so no extra check needed.
         ep = request.ep
         mgr = _get_mgr()
