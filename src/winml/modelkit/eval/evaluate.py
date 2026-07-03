@@ -326,7 +326,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
 
     cls = get_evaluator_class(config)
     try:
-        console.print("[bold]Loading dataset and evaluating...[/bold]")
+        console.print("[bold]Evaluating...[/bold]")
         task_evaluator = cls(config, model)
         metrics = task_evaluator.compute()
     except DatasetValidationError as error:

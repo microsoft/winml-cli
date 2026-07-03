@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -355,8 +356,11 @@ class StageLive:
         self._lines: list[RenderableType] = []
         self._live: _SafeLive | None = None
         self._status_idx: int = 0
+        self._t0: float = 0.0
+        self._done: bool = False
 
     def __enter__(self) -> StageLive:
+        self._t0 = time.monotonic()
         self._lines = [self._make_running_line()]
         self._status_idx = 0
         self._live = _SafeLive(
@@ -369,6 +373,8 @@ class StageLive:
         return self
 
     def __exit__(self, *_: object) -> None:
+        if not self._done:
+            self.set_done(time.monotonic() - self._t0)
         if self._live:
             self._live.update(self._render())
             self._live.stop()
@@ -383,13 +389,22 @@ class StageLive:
 
     # ── Status line management ────────────────────────────────────
 
-    def _make_running_line(self, detail: str = "") -> Text:
-        line = Text()
-        line.append(f"{ICON_RUNNING} ")
-        line.append(self._name.capitalize(), style="bold yellow")
-        if detail:
-            line.append(f"  {detail}", style="dim")
-        return line
+    def _make_running_line(self, detail: str = "") -> RenderableType:
+        # A self-rendering line so the elapsed counter ticks on Live's refresh
+        # thread (15fps) even while the main thread blocks in native code.
+        stage = self
+
+        class _RunningLine:
+            def __rich__(self) -> Text:
+                line = Text()
+                line.append(f"{ICON_RUNNING} ")
+                line.append(stage._name.capitalize(), style="bold yellow")
+                if detail:
+                    line.append(f"  {detail}", style="dim")
+                line.append(f"  {int(time.monotonic() - stage._t0)}s", style="dim")
+                return line
+
+        return _RunningLine()
 
     def set_status(self, detail: str) -> None:
         """Update the running status text."""
@@ -403,6 +418,7 @@ class StageLive:
         line.append(f"{self._name.capitalize():<48}", style="green")
         line.append(f"{elapsed:.1f}s", style="green")
         self._lines[self._status_idx] = line
+        self._done = True
         self._update()
 
     def set_error(self, error: str = "") -> None:
@@ -413,6 +429,7 @@ class StageLive:
         if error:
             line.append(f"  {error}", style="red")
         self._lines[self._status_idx] = line
+        self._done = True
         self._update()
 
     # ── Detail lines (indented under stage) ───────────────────────
