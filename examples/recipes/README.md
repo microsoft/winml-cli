@@ -14,7 +14,7 @@ Each *(model, task)* includes:
 
 ## Models
 
-Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) buckets.
+Total: **89** (model, task) tuples that pass fp16 eval on all 10 (EP, device) buckets.
 
 | Model | Task |
 |---|---|
@@ -31,7 +31,12 @@ Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) bu
 | FacebookAI/xlm-roberta-base | fill-mask |
 | Intel/bert-base-uncased-mrpc | feature-extraction |
 | Intel/bert-base-uncased-mrpc | text-classification |
+| Intel/dpt-hybrid-midas | depth-estimation |
+| Intel/dpt-large | depth-estimation |
 | Isotonic/distilbert_finetuned_ai4privacy_v2 | token-classification |
+| LiheYoung/depth-anything-base-hf | depth-estimation |
+| LiheYoung/depth-anything-large-hf | depth-estimation |
+| LiheYoung/depth-anything-small-hf | depth-estimation |
 | ProsusAI/finbert | text-classification |
 | Salesforce/blip-image-captioning-base | image-to-text |
 | StanfordAIMI/dinov2-base-xray-224 | image-feature-extraction |
@@ -42,6 +47,9 @@ Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) bu
 | deepset/bert-large-uncased-whole-word-masking-squad2 | question-answering |
 | deepset/roberta-base-squad2 | question-answering |
 | deepset/tinyroberta-squad2 | question-answering |
+| depth-anything/Depth-Anything-V2-Base-hf | depth-estimation |
+| depth-anything/Depth-Anything-V2-Large-hf | depth-estimation |
+| depth-anything/Depth-Anything-V2-Small-hf | depth-estimation |
 | dima806/fairface_age_image_detection | image-classification |
 | distilbert/distilbert-base-cased-distilled-squad | question-answering |
 | distilbert/distilbert-base-uncased | fill-mask |
@@ -92,4 +100,10 @@ Total: **75** (model, task) tuples that pass fp16 eval on all 10 (EP, device) bu
 | sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 | feature-extraction |
 | sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 | sentence-similarity |
 | sentence-transformers/paraphrase-multilingual-mpnet-base-v2 | sentence-similarity |
+| usyd-community/vitpose-base-simple | keypoint-detection |
+| usyd-community/vitpose-plus-base | keypoint-detection |
+| usyd-community/vitpose-plus-huge | keypoint-detection |
+| usyd-community/vitpose-plus-large | keypoint-detection |
+| usyd-community/vitpose-plus-small | keypoint-detection |
 | w11wo/indonesian-roberta-base-posp-tagger | token-classification |
+| xingyang1/Distill-Any-Depth-Large-hf | depth-estimation |

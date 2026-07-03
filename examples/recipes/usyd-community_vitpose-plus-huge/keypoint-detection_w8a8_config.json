@@ -1,0 +1,81 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "pixel_values",
+        "dtype": "float32",
+        "shape": [
+          1,
+          3,
+          256,
+          192
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "heatmaps"
+      }
+    ]
+  },
+  "optim": {},
+  "quant": {
+    "mode": "static",
+    "samples": 10,
+    "calibration_method": "minmax",
+    "weight_type": "uint8",
+    "activation_type": "uint8",
+    "per_channel": false,
+    "symmetric": false,
+    "weight_symmetric": null,
+    "activation_symmetric": null,
+    "save_calibration": false,
+    "distribution": "uniform",
+    "seed": null,
+    "calibration_load_path": null,
+    "calibration_save_path": null,
+    "op_types_to_quantize": null,
+    "nodes_to_exclude": null,
+    "task": "keypoint-detection",
+    "model_id": "usyd-community/vitpose-plus-huge",
+    "model_type": "vitpose"
+  },
+  "compile": null,
+  "loader": {
+    "task": "keypoint-detection",
+    "model_class": "VitPoseForPoseEstimation",
+    "model_type": "vitpose"
+  },
+  "eval": {
+    "task": "keypoint-detection",
+    "dataset": {
+      "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
+      "build_script": "scripts/build_coco_keypoints.py",
+      "split": "validation",
+      "samples": 500,
+      "shuffle": true,
+      "seed": 42,
+      "columns_mapping": {
+        "input_column": "image",
+        "annotation_column": "objects",
+        "keypoints_key": "keypoints",
+        "bbox_key": "bbox",
+        "area_key": "area",
+        "box_format": "xywh"
+      }
+    }
+  }
+}
