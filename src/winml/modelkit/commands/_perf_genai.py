@@ -266,6 +266,7 @@ class GenaiPerfBenchmark:
         self._config = config
         self._session = session
         self._prompt_token_ids: list[int] = []
+        self._generation_count = 0
 
     def _build_session(self) -> GenaiSession:
         return GenaiSession(
@@ -334,6 +335,15 @@ class GenaiPerfBenchmark:
         overhead.
         """
         timing = session.generate_timed(self._prompt_token_ids, gen_config)
+        self._generation_count += 1
+        if self._generation_count == 1:
+            logger.info("Model response (iteration 1): %s", timing.response_text)
+        else:
+            logger.debug(
+                "Model response (iteration %d): %s",
+                self._generation_count,
+                timing.response_text,
+            )
         return _RunSample(
             ttft_ms=timing.ttft_s * 1000.0,
             prefill_ms=timing.prefill_s * 1000.0,

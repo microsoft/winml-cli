@@ -319,24 +319,24 @@ class TestBundleUsesHardwareEp:
     def _pipeline(*stages: dict) -> dict:
         return {"model": {"decoder": {"pipeline": list(stages)}}}
 
-    def test_empty_config_returns_false(self) -> None:
-        assert GenaiSession._bundle_uses_hardware_ep({}) is False
+    def test_empty_config_returns_none(self) -> None:
+        assert GenaiSession._bundle_uses_hardware_ep({}) is None
 
-    def test_no_pipeline_returns_false(self) -> None:
-        assert GenaiSession._bundle_uses_hardware_ep({"model": {"decoder": {}}}) is False
+    def test_no_pipeline_returns_none(self) -> None:
+        assert GenaiSession._bundle_uses_hardware_ep({"model": {"decoder": {}}}) is None
 
-    def test_cpu_only_stages_return_false(self) -> None:
+    def test_cpu_only_stages_return_none(self) -> None:
         cfg = self._pipeline(
             {"embeddings": {"filename": "embeddings.onnx", "session_options": {}}},
             {"lm_head": {"filename": "lm_head.onnx"}},
         )
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
-    def test_explicit_cpu_provider_returns_false(self) -> None:
+    def test_explicit_cpu_provider_returns_none(self) -> None:
         cfg = self._pipeline({"context": {"session_options": {"provider_options": [{"cpu": {}}]}}})
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
-    def test_qnn_stage_returns_true(self) -> None:
+    def test_qnn_stage_returns_ep_name(self) -> None:
         cfg = self._pipeline(
             {
                 "context": {
@@ -346,22 +346,42 @@ class TestBundleUsesHardwareEp:
                 }
             }
         )
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is True
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) == "qnn"
 
-    def test_mixed_cpu_and_hardware_returns_true(self) -> None:
+    def test_dml_only_returns_none(self) -> None:
         cfg = self._pipeline(
             {"embeddings": {"session_options": {}}},
             {"context": {"session_options": {"provider_options": [{"dml": {}}]}}},
         )
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is True
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
-    def test_malformed_entries_return_false(self) -> None:
+    def test_malformed_entries_return_none(self) -> None:
         cfg = {"model": {"decoder": {"pipeline": ["not-a-dict", {"x": "not-a-dict"}, {}]}}}
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
-    def test_provider_options_not_a_list_returns_false(self) -> None:
+    def test_provider_options_not_a_list_returns_none(self) -> None:
         cfg = self._pipeline({"context": {"session_options": {"provider_options": {}}}})
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
+
+    # Flat-decoder layout (no pipeline wrapper) ----------------------------
+
+    def test_flat_decoder_openvino_returns_ep_name(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {"provider_options": [{"OpenVINO": {"device_type": "NPU"}}]}
+                }
+            }
+        }
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) == "OpenVINO"
+
+    def test_flat_decoder_cpu_only_returns_none(self) -> None:
+        cfg = {"model": {"decoder": {"session_options": {"provider_options": [{"cpu": {}}]}}}}
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
+
+    def test_flat_decoder_no_provider_options_returns_none(self) -> None:
+        cfg = {"model": {"decoder": {"session_options": {"log_id": "test"}}}}
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
 
 # ---------------------------------------------------------------------------
