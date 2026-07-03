@@ -431,15 +431,27 @@ def export(
                 console.print(f"  JSON: {json_metadata}")
 
     # Detect a composite pipeline (registry-driven). A composite fans out into one
-    # ONNX per sub-component written to <output>/<component>/model.onnx; a plain
-    # model exports to the single output path as before. Detection is best-effort:
-    # if the HF config can't be resolved we fall through to the single-model path.
+    # ONNX per sub-component, each written next to <output> with a _<component>
+    # stem suffix; a plain model exports to the single output path as before.
+    # Detection is best-effort for unresolvable HF configs (we fall through to the
+    # single-model path), but intentional loud guards (empty registry / model-task
+    # incompatibility) are re-raised below rather than masked.
     components = None
     try:
         from ..loader.resolution import resolve_composite_components
 
         components = resolve_composite_components(model, task=task)
     except click.ClickException:
+        raise
+    except ValueError as e:
+        # A genuine (model, task) incompatibility, or an ambiguous composite that
+        # needs an explicit --task, is surfaced as a usage error (mirroring
+        # `winml config`) instead of being silently downgraded to a single export.
+        raise click.UsageError(str(e)) from e
+    except RuntimeError:
+        # The empty-COMPOSITE_MODEL_REGISTRY guard is meant to fail loudly (a
+        # registrations moved/renamed refactor mistake); never mask it as
+        # "not composite".
         raise
     except Exception as e:
         logger.debug("Composite detection unavailable, treating as single model: %s", e)
@@ -455,10 +467,18 @@ def export(
                     "you need custom input specs."
                 )
             console.print(
-                f"[dim]Composite model: {len(components)} sub-models -> {output_path}/[/dim]"
+                f"[dim]Composite model: {len(components)} sub-models "
+                f"(fanned out from {output_path.name} with a _<component> suffix)[/dim]"
             )
+            # Fan out flat, suffixing the output stem per component to match the
+            # sibling `winml config` layout and the runtime's `*_model.onnx`
+            # discovery: e.g. `model.onnx` -> `model_decoder_prefill.onnx`.
+            # Each component is loaded and exported independently because a
+            # composite's sub-tasks map to distinct model classes/heads (e.g.
+            # decoder-prefill vs. decoder-with-past), so the full model is
+            # reloaded per component — this N-load cost is intentional.
             for name, component_task in components.items():
-                sub_out = output_path / name / "model.onnx"
+                sub_out = output_path.with_stem(f"{output_path.stem}_{name}")
                 cli_utils.guard_output(sub_out, overwrite)
                 console.print(f"\n[bold blue]Sub-model:[/bold blue] {name} (task={component_task})")
                 _run_component_export(component_task, sub_out)

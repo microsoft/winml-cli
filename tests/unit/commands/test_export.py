@@ -798,7 +798,7 @@ class TestExportDebugMode:
 
 
 class TestExportComposite:
-    """Test export fans a composite model out into <output>/<name>/model.onnx."""
+    """Test export fans a composite model out into <output-stem>_<name>.onnx files."""
 
     def test_composite_exports_one_onnx_per_component(
         self,
@@ -806,7 +806,7 @@ class TestExportComposite:
         mock_export_onnx: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """A composite model writes each sub-model under its own component folder."""
+        """A composite model writes each sub-model to a stem-suffixed flat path."""
         from winml.modelkit.commands.export import export
         from winml.modelkit.export import WinMLExportConfig
         from winml.modelkit.loader import WinMLLoaderConfig
@@ -815,7 +815,7 @@ class TestExportComposite:
             "decoder_prefill": "feature-extraction",
             "decoder_gen": "text2text-generation",
         }
-        output_dir = tmp_path / "qwen3"
+        output_path = tmp_path / "qwen3.onnx"
 
         with (
             patch(
@@ -831,20 +831,19 @@ class TestExportComposite:
             mock_load.return_value = (MagicMock(), None, "text2text-generation")
             result = runner.invoke(
                 export,
-                ["--model", "Qwen/Qwen3-0.6B", "--output", str(output_dir)],
+                ["--model", "Qwen/Qwen3-0.6B", "--output", str(output_path)],
                 obj={"debug": False},
             )
 
         assert result.exit_code == 0, result.output
-        # One export per component, each targeting <output>/<name>/model.onnx.
+        # One export per component, each to <output-stem>_<name>.onnx (flat layout).
         assert mock_export_onnx.call_count == len(components)
         exported_paths = {
             Path(call.kwargs["output_path"]) for call in mock_export_onnx.call_args_list
         }
-        assert exported_paths == {output_dir / name / "model.onnx" for name in components}
-        # Each per-component parent directory is created.
-        for name in components:
-            assert (output_dir / name).exists()
+        assert exported_paths == {
+            output_path.with_stem(f"{output_path.stem}_{name}") for name in components
+        }
 
     def test_composite_rejects_input_specs(
         self,
@@ -877,4 +876,28 @@ class TestExportComposite:
 
         assert result.exit_code != 0
         assert "composite" in result.output.lower()
+        mock_export_onnx.assert_not_called()
+
+    def test_composite_resolution_valueerror_surfaces_as_usage_error(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """A ValueError during composite resolution is surfaced, not swallowed."""
+        from winml.modelkit.commands.export import export
+
+        with patch(
+            "winml.modelkit.loader.resolution.resolve_composite_components",
+            side_effect=ValueError("qwen3 has multiple composite exports; pass --task explicitly"),
+        ):
+            result = runner.invoke(
+                export,
+                ["--model", "Qwen/Qwen3-0.6B", "--output", str(tmp_path / "qwen3.onnx")],
+                obj={"debug": False},
+            )
+
+        # Must not silently fall back to a single-model export.
+        assert result.exit_code != 0
+        assert "multiple composite exports" in result.output
         mock_export_onnx.assert_not_called()
