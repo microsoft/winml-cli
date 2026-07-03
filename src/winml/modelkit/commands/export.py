@@ -190,6 +190,21 @@ def export(
         # Custom ONNX export configuration
         winml export -m bert-base-uncased -o bert.onnx --export-config config.json
     """
+    # Classify the -m value once (existence-first). Export only works with
+    # HuggingFace model IDs — reject ONNX files and folders early.
+    if model:
+        model_input = cli_utils.classify_model_input(model)
+        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
+            raise click.UsageError(
+                "export requires a HuggingFace model ID, not an ONNX file. "
+                "Use 'winml inspect -m model.onnx' to inspect an existing ONNX model."
+            )
+        if model_input.kind is cli_utils.ModelInputKind.FOLDER:
+            raise click.UsageError(
+                "export requires a HuggingFace model ID, not a directory. "
+                "Provide a HuggingFace model ID (e.g., prajjwal1/bert-tiny)."
+            )
+
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
 
