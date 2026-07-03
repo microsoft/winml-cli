@@ -7,8 +7,8 @@ r"""Qwen3 genai bundle export.
 Builds (or reuses) all four components of the Qwen3 genai bundle and assembles
 them into an onnxruntime-genai directory:
 
-  - ``ctx.onnx``        — transformer prefill graph (QNN-quantized)
-  - ``iter.onnx``       — transformer decode graph  (QNN-quantized)
+  - ``ctx.onnx``        — transformer prefill graph (QDQ-quantized)
+  - ``iter.onnx``       — transformer decode graph  (QDQ-quantized)
   - ``embeddings.onnx`` — token embedding table     (fp32)
   - ``lm_head.onnx``    — vocab projection          (w4a32 MatMulNBits)
   - ``genai_config.json`` + HF tokenizer files
@@ -40,7 +40,6 @@ from winml.modelkit.models.hf.qwen3.qwen_transformer_only import (
     WinMLQwen3TransformerOnlyModel,
 )
 from winml.modelkit.onnx import strip_node_attrs
-from winml.modelkit.session import GenaiSession, GenerationConfig
 
 
 _DEVICE_TO_EP = {
@@ -58,8 +57,6 @@ _COMPANION_COMPONENTS: dict[str, dict[str, str]] = {
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_BUNDLE = _REPO_ROOT / "out" / "bundle"
 
-_SUPPORTED_EPS = ["cpu", "mixed", "qnn", "dml"]
-
 # Attributes that com.microsoft::GroupQueryAttention requires for Qwen3.
 # Any other attributes (e.g. k_quant_type, local_window_size, qk_output,
 # smooth_softmax, v_quant_type) are default-valued extras injected by the
@@ -71,6 +68,7 @@ _GQA_KEEP_ATTRS = frozenset({"do_rotary", "kv_num_heads", "num_heads"})
 def _strip_gqa_default_attrs(model: onnx.ModelProto) -> onnx.ModelProto:
     """Remove exporter-injected default attributes from GQA nodes."""
     return strip_node_attrs(model, "GroupQueryAttention", _GQA_KEEP_ATTRS, domain="com.microsoft")
+
 
 # ---------------------------------------------------------------------------
 # Helpers shared between sub-commands
