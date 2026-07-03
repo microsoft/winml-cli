@@ -21,7 +21,7 @@
     "optimum_supported": true,
     "order": 5,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -82,7 +82,7 @@
     ],
     "order": 8,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -99,7 +99,7 @@
     ],
     "order": 7,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -1696,7 +1696,7 @@
     "optimum_supported": true,
     "order": 8,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -1727,7 +1727,7 @@
     ],
     "order": 4,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -1887,7 +1887,7 @@
     "optimum_supported": true,
     "order": 9,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -1901,7 +1901,7 @@
     "optimum_supported": true,
     "order": 2,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -2026,7 +2026,7 @@
     ],
     "order": 2,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -2054,7 +2054,7 @@
     ],
     "order": 9,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -2321,7 +2321,7 @@
     ],
     "order": 12,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -2377,7 +2377,7 @@
     ],
     "order": 9,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {
@@ -3818,7 +3818,7 @@
     ],
     "order": 11,
     "op_tracing_targets": [
-      "QNNExecutionProvider_npu"
+      "qnn_npu"
     ]
   },
   {

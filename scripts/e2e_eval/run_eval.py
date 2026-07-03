@@ -57,7 +57,13 @@ from utils.accuracy import (
     format_delta,
 )
 from utils.dataset_config import get_dataset_config, register_from_registry
-from utils.registry import ModelEntry, filter_registry, load_registry, make_adhoc_entry
+from utils.registry import (
+    ModelEntry,
+    filter_registry,
+    load_registry,
+    make_adhoc_entry,
+    op_tracing_target_key,
+)
 from utils.reporter import (
     build_eval_result,
     classify_result,
@@ -1379,19 +1385,6 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
 # ---------------------------------------------------------------------------
 
 
-def _op_tracing_target_key(ep: str | None, device: str) -> str | None:
-    """Return the ``<EP>_<device>`` key used to match ``op_tracing_targets``.
-
-    Example: ep=``qnn``, device=``npu`` -> ``QNNExecutionProvider_npu``. Returns
-    None when no EP is set (the target list only makes sense per EP/device).
-    """
-    if not ep:
-        return None
-    from winml.modelkit.utils.constants import normalize_ep_name
-
-    return f"{normalize_ep_name(ep)}_{device.lower()}"
-
-
 def _resolve_op_tracing(
     cli_op_tracing: str | None, entry: ModelEntry, ep: str | None, device: str
 ) -> str | None:
@@ -1401,12 +1394,16 @@ def _resolve_op_tracing(
     - ``basic``/``detail`` (explicit): use as-is.
     - unset (None): default to ``basic`` when the model's ``op_tracing_targets``
       includes the current ``<EP>_<device>`` target, otherwise no tracing.
+
+    Auto-enable requires both a concrete ``--ep`` and ``--device`` to be set: the
+    default ``--device auto`` is not resolved here and will not match a
+    device-specific target such as ``QNNExecutionProvider_npu``.
     """
     if cli_op_tracing == "disabled":
         return None
     if cli_op_tracing in ("basic", "detail"):
         return cli_op_tracing
-    key = _op_tracing_target_key(ep, device)
+    key = op_tracing_target_key(ep, device)
     if key and key in entry.op_tracing_targets:
         return "basic"
     return None
@@ -2027,7 +2024,9 @@ def parse_args() -> argparse.Namespace:
             "'basic'/'detail' force the tracing level; 'disabled' turns it off even "
             "for models that opt in via 'op_tracing_targets'. When omitted, tracing "
             "defaults to 'basic' for a model whose 'op_tracing_targets' includes the "
-            "current <EP>_<device> target (e.g. QNNExecutionProvider_npu). The "
+            "current <EP>_<device> target (e.g. QNNExecutionProvider_npu) — this "
+            "auto-enable requires both --ep and --device to be set explicitly "
+            "(the default --device auto does not match). The "
             "resulting op_trace.json is copied into each model's output folder."
         ),
     )

@@ -36,6 +36,43 @@ _REQUIRED_FIELDS = {"hf_id", "task", "model_type", "group", "priority"}
 _VALID_PRIORITIES = {"P0", "P1", "P2", "P3"}
 
 
+def _canonical_ep_device_key(ep: str, device: str) -> str:
+    """Build the canonical ``<NormalizedEP>_<device>`` key.
+
+    The EP is normalized to its full name (``qnn`` -> ``QNNExecutionProvider``)
+    and the device is lowercased, e.g. ``QNNExecutionProvider_npu``.
+    """
+    from winml.modelkit.utils.constants import normalize_ep_name
+
+    return f"{normalize_ep_name(ep.strip())}_{device.strip().lower()}"
+
+
+def op_tracing_target_key(ep: str | None, device: str) -> str | None:
+    """Build the op-tracing target key for an EP/device pair.
+
+    Returns None when no EP is set (the target list is meaningless without an
+    explicit EP). Callers should pass a concrete device — ``auto`` is kept
+    verbatim and will not match a device-specific target such as
+    ``QNNExecutionProvider_npu``.
+    """
+    if not ep:
+        return None
+    return _canonical_ep_device_key(ep, device)
+
+
+def normalize_op_tracing_target(target: str) -> str:
+    """Normalize a raw ``op_tracing_targets`` entry to the canonical key form.
+
+    Accepts either the short EP alias (``qnn_npu``) or the full normalized name
+    (``QNNExecutionProvider_npu``); both map to ``QNNExecutionProvider_npu``.
+    Splits on the last underscore so multi-word EP aliases stay intact.
+    """
+    ep, sep, device = target.rpartition("_")
+    if not sep:
+        return target.strip().lower()
+    return _canonical_ep_device_key(ep, device)
+
+
 def load_registry(path: Path) -> list[ModelEntry]:
     """Load models.json, validate required fields, return entries."""
     with path.open(encoding="utf-8") as f:
@@ -76,7 +113,10 @@ def load_registry(path: Path) -> list[ModelEntry]:
                 downloads=item.get("downloads", 0) or 0,
                 last_update_time=item.get("last_update_time"),
                 optimum_supported=item.get("optimum_supported", False),
-                op_tracing_targets=item.get("op_tracing_targets", []) or [],
+                op_tracing_targets=[
+                    normalize_op_tracing_target(t)
+                    for t in (item.get("op_tracing_targets", []) or [])
+                ],
             )
         )
 
