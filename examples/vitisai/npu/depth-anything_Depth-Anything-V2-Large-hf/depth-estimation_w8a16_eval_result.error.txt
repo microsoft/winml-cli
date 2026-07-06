@@ -1,0 +1,53 @@
+[WinML] Installing Execution Provider: MIGraphXExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+MIGraphXExecutionProvider EP installed successfully.
+- Version: 1.8.56.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.GPU.EP.1.8_8wekyb3d8bbwe
+[WinML] Installing Execution Provider: VitisAIExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+VitisAIExecutionProvider EP installed successfully.
+- Version: 1.8.62.0
+- Package Family Name: MicrosoftCorporationII.WinML.AMD.NPU.EP.1.8_8wekyb3d8bbwe
+
+Evaluating depth:   0%|          | 0/200 [00:00<?, ?it/s]F20260705 20:27:00.848871  6816 runner_requests_queue.cpp:178] -- Error: Failed to create runner: No space for instruction buffer: invalid argument
+
+Evaluating depth:   0%|          | 0/200 [10:16<?, ?it/s]
+Error: Evaluation failed: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_11868367288010756647_52 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_11868367288010756647_52_52' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+morphizen_main
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+_PyArg_CheckPositional
+PyObject_Vectorcall
+_PyEval_EvalFrameDefault
+_PyFunction_Vectorcall
+_PyFunction_Vectorcall
+PyObject_CallObject
+
