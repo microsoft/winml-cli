@@ -1,0 +1,29 @@
+{
+  "model_id": "LiheYoung/depth-anything-large-hf",
+  "model_path": "C:\\Users\\zhenni\\repos\\ModelKit\\temp\\example_builds\\openvino\\cpu\\LiheYoung_depth-anything-large-hf\\depth-estimation_fp16\\model.onnx",
+  "task": "depth-estimation",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "sayakpaul/nyu_depth_v2",
+    "columns_mapping": {
+      "input_column": "image",
+      "depth_column": "depth_map",
+      "depth_kind": "disparity"
+    },
+    "revision": "refs/convert/parquet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\ModelKit\\examples\\openvino\\cpu\\LiheYoung_depth-anything-large-hf\\depth-estimation_fp16_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "abs_rel": 0.05854176696135705,
+    "rmse": 0.3640542138503717,
+    "delta1": 0.9576633273435825,
+    "num_images": 100,
+    "num_valid_pixels": 30634552
+  }
+}
