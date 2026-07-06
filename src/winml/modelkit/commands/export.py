@@ -24,7 +24,6 @@ Examples:
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 from pathlib import Path
@@ -59,19 +58,31 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
         logger.debug("Could not parse external data from %s", onnx_path, exc_info=True)
 
     if onnx_path.exists():
-        with contextlib.suppress(OSError):
-            onnx_path.unlink()
+        onnx_path.unlink()
 
 
-def _cleanup_partial_composite(written: list[Path]) -> None:
-    """Remove sub-model ONNX outputs written by a composite export that failed mid-run.
+def _warn_partial_composite(completed: list[Path]) -> None:
+    """Warn that a composite export failed mid-run, listing what was written.
 
-    Best-effort: a failed run should not leave a half-exported composite on disk.
-    Each path is deleted together with its external-data sidecars.
+    We deliberately do NOT delete anything: the targets may be pre-existing files
+    the user chose to ``--overwrite``, and a component can fail before touching its
+    file, so auto-deleting could destroy artifacts this run never actually wrote.
+    Instead we surface the completed sub-models and let the user decide whether to
+    keep or remove the partial composite.
     """
-    for onnx_path in written:
-        _delete_onnx_with_external_data(onnx_path)
-        logger.debug("Cleaned up partial composite sub-model: %s", onnx_path)
+    if not completed:
+        return
+    console.print(
+        "\n[yellow]Warning:[/yellow] composite export did not finish; "
+        f"{len(completed)} sub-model(s) were written/updated by this run:"
+    )
+    for onnx_path in completed:
+        console.print(f"  • {onnx_path}")
+    console.print(
+        "[yellow]The export did not complete for every sub-model.[/yellow] "
+        "Review these files and remove them if you don't want to keep the "
+        "partial export."
+    )
 
 
 @click.command()
@@ -507,20 +518,22 @@ def export(
             for sub_out in sub_outputs.values():
                 cli_utils.guard_output(sub_out, overwrite)
 
-            # If a component fails, remove the sub-models this invocation already
-            # wrote (plus the partial output of the failing one) so we don't leave
-            # a half-exported composite behind.
-            written: list[Path] = []
+            # Track sub-models this invocation actually completes. On a mid-run
+            # failure we do NOT delete anything (the targets may be pre-existing
+            # files the user chose to --overwrite, and a component can fail before
+            # touching its file). Instead we warn and list what was written so the
+            # user decides whether to keep or remove the partial composite.
+            completed: list[Path] = []
             try:
                 for name, component_task in components.items():
                     sub_out = sub_outputs[name]
                     console.print(
                         f"\n[bold blue]Sub-model:[/bold blue] {name} (task={component_task})"
                     )
-                    written.append(sub_out)
                     _run_component_export(component_task, sub_out)
+                    completed.append(sub_out)
             except BaseException:
-                _cleanup_partial_composite(written)
+                _warn_partial_composite(completed)
                 raise
         else:
             cli_utils.guard_output(output_path, overwrite)
