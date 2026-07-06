@@ -37,11 +37,6 @@ logger = logging.getLogger(__name__)
 console = Console()
 _stderr_console = Console(stderr=True, highlight=False)
 
-# File extensions that unambiguously indicate a local file path.
-# HF model IDs routinely contain dots in version numbers (Phi-3.5, Qwen2.5, …)
-# so matching on any suffix would cause false-positives; restrict to known extensions.
-_LOCAL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin"})
-
 
 def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
     """Click-time validation for --task against the hand-coded KNOWN_TASKS set.
@@ -59,24 +54,6 @@ def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None
     raise click.UsageError(
         f"Invalid task '{value}'. Valid: {examples}, ... ({len(KNOWN_TASKS)} total). "
         f"See 'winml inspect --list-tasks' for the full list."
-    )
-
-
-def _looks_like_local_path(model_id: str) -> bool:
-    """Return True when model_id is explicitly a local path.
-
-    Conservative heuristic — only returns True for unambiguous local indicators:
-    path separators, absolute paths, dot/tilde prefixes, or known model file extensions.
-    """
-    from pathlib import Path
-
-    _p = Path(model_id).expanduser()
-    return (
-        _p.exists()
-        or _p.is_absolute()
-        or "\\" in model_id
-        or model_id.startswith(("./", "../", "~/"))
-        or _p.suffix.lower() in _LOCAL_FILE_EXTS
     )
 
 
@@ -176,20 +153,19 @@ def inspect(
             "Use --list-tasks to see available tasks."
         )
 
-    # Classify the input before hitting HF Hub: local paths must exist.
-    # _looks_like_local_path uses a conservative allowlist to avoid misclassifying
-    # HF IDs with version dots (Phi-3.5, Qwen2.5, …) as local paths.
-    if model and _looks_like_local_path(model):
-        from pathlib import Path
-
-        _p = Path(model).expanduser()
-        if _p.suffix == ".onnx" and _p.is_file():
+    # Classify the -m value once (existence-first). Rejects a missing path or
+    # invalid id up front, and keeps dotted HF IDs (Phi-3.5, Qwen2.5, …) on the
+    # Hub path instead of misclassifying them as local files.
+    if model:
+        try:
+            model_input = cli_utils.classify_model_input(model)
+        except click.UsageError as e:
+            raise click.ClickException(str(e)) from e
+        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
             raise click.ClickException(
                 "ONNX file inspection is not yet supported. "
                 "Use 'winml config -m model.onnx' for ONNX build config."
             )
-        if not _p.exists():
-            raise click.ClickException(f"Local path '{model}' does not exist.")
 
     # Merge top-level -v/-q with subcommand-level flags so either position
     # works, once and up front. The banner decision below needs the merged
