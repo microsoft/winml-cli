@@ -32,6 +32,10 @@ from ..utils import cli as cli_utils
 from ..utils.constants import EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
 from ._live_chart import LiveMonitorDisplay
+from ._perf_generation import (
+    GenerationBenchmarkResult,
+    display_generation_report,
+)
 
 
 if TYPE_CHECKING:
@@ -222,89 +226,6 @@ class BenchmarkResult:
         if self.memory_profile:
             result["memory"] = self.memory_profile
         return result
-
-
-@dataclass
-class GenerationBenchmarkResult:
-    """Results from a generation benchmark (decoder-only composite models).
-
-    Reports LLM-style metrics comparable to ``GenaiBenchmarkResult`` in
-    ``_perf_genai.py``: TTFT, decode throughput, TPOT, and total generation
-    time.  Produced by ``PerfBenchmark._run_generation()`` when the model is
-    a ``WinMLDecoderOnlyModel`` (e.g. Qwen).
-    """
-
-    config: BenchmarkConfig
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-
-    # Generation shape
-    prompt_tokens: int = 0
-    generated_tokens: int = 0
-
-    # Time to first token (prefill), milliseconds
-    ttft_mean_ms: float = 0.0
-    ttft_min_ms: float = 0.0
-    ttft_max_ms: float = 0.0
-    ttft_p50_ms: float = 0.0
-    ttft_p90_ms: float = 0.0
-    ttft_p95_ms: float = 0.0
-    ttft_p99_ms: float = 0.0
-
-    # Decode phase
-    decode_tokens_per_sec: float = 0.0
-    tpot_mean_ms: float = 0.0
-
-    # Whole generation (prefill + all decode), milliseconds
-    total_generation_mean_ms: float = 0.0
-
-    # Actual values (resolved after build + compile)
-    actual_device: str = ""
-    actual_ep: EPName | None = None
-
-    # Per-iteration raw samples (warmup excluded)
-    raw_ttft_ms: list[float] = field(default_factory=list)
-    raw_decode_tokens_per_sec: list[float] = field(default_factory=list)
-    raw_tpot_ms: list[float] = field(default_factory=list)
-    raw_total_ms: list[float] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to a JSON-serializable dictionary."""
-        return {
-            "benchmark_info": {
-                "runtime": "winml-generate",
-                "model_id": self.config.model_id,
-                "task": self.config.task,
-                "device": self.config.device,
-                "ep": self.actual_ep,
-                "prompt": self.config.prompt,
-                "prompt_tokens": self.prompt_tokens,
-                "generated_tokens": self.generated_tokens,
-                "max_new_tokens": self.config.max_new_tokens,
-                "iterations": self.config.iterations,
-                "warmup": self.config.warmup,
-                "timestamp": self.timestamp,
-            },
-            "ttft_ms": {
-                "mean": round(self.ttft_mean_ms, 3),
-                "min": round(self.ttft_min_ms, 3),
-                "max": round(self.ttft_max_ms, 3),
-                "p50": round(self.ttft_p50_ms, 3),
-                "p90": round(self.ttft_p90_ms, 3),
-                "p95": round(self.ttft_p95_ms, 3),
-                "p99": round(self.ttft_p99_ms, 3),
-            },
-            "decode": {
-                "tokens_per_sec": round(self.decode_tokens_per_sec, 2),
-                "tpot_ms": round(self.tpot_mean_ms, 3),
-            },
-            "total_generation_ms": {"mean": round(self.total_generation_mean_ms, 3)},
-            "raw": {
-                "ttft_ms": [round(v, 3) for v in self.raw_ttft_ms],
-                "decode_tokens_per_sec": [round(v, 2) for v in self.raw_decode_tokens_per_sec],
-                "tpot_ms": [round(v, 3) for v in self.raw_tpot_ms],
-                "total_ms": [round(v, 3) for v in self.raw_total_ms],
-            },
-        }
 
 
 # =============================================================================
@@ -694,8 +615,8 @@ class PerfBenchmark:
             return xs[idx]
 
         # Resolve actual device/EP from first sub-model
-        actual_device = ""
-        actual_ep: EPName | None = None
+        actual_device = self.config.device
+        actual_ep: str | None = None
         from ..models.winml.composite_model import WinMLCompositeModel
 
         if isinstance(model, WinMLCompositeModel) and model.sub_models:
@@ -704,7 +625,14 @@ class PerfBenchmark:
             actual_ep = getattr(first_sub, "ep_name", None)
 
         return GenerationBenchmarkResult(
-            config=self.config,
+            runtime="winml-generate",
+            model_label=self.config.model_id,
+            device=actual_device,
+            ep=actual_ep,
+            prompt=prompt_text,
+            max_new_tokens=self.config.max_new_tokens,
+            warmup=self.config.warmup,
+            iterations=self.config.iterations,
             prompt_tokens=prompt_tokens,
             generated_tokens=int(avg_tokens),
             ttft_mean_ms=sum(raw_ttft) / len(raw_ttft),
@@ -717,12 +645,13 @@ class PerfBenchmark:
             decode_tokens_per_sec=sum(raw_decode_tps) / len(raw_decode_tps),
             tpot_mean_ms=sum(raw_tpot) / len(raw_tpot),
             total_generation_mean_ms=sum(raw_total) / len(raw_total),
-            actual_device=actual_device,
-            actual_ep=actual_ep,
             raw_ttft_ms=raw_ttft,
             raw_decode_tokens_per_sec=raw_decode_tps,
             raw_tpot_ms=raw_tpot,
             raw_total_ms=raw_total,
+            extra_info={
+                "task": self.config.task,
+            },
         )
 
     def _run_single(self) -> BenchmarkResult:
@@ -1563,56 +1492,6 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
                 f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
             )
 
-    console.print()
-
-
-def display_generation_report(result: GenerationBenchmarkResult, console: Console) -> None:
-    """Display generation benchmark results — same layout as ``display_genai_report``."""
-    console.print()
-    console.print("[dim]Runtime:[/dim]   winml-generate")
-    console.print(f"[dim]Model:[/dim]     {result.config.model_id}")
-    if result.actual_device:
-        device_str = (
-            result.actual_device
-            if not result.actual_ep
-            else f"{result.actual_device} ({result.actual_ep})"
-        )
-        console.print(f"[dim]Device:[/dim]    {device_str}")
-    console.print(
-        f"[dim]Prompt:[/dim]    {result.prompt_tokens} tokens   "
-        f"[dim]Generated:[/dim] {result.generated_tokens} tokens "
-        f"(max_new_tokens={result.config.max_new_tokens})"
-    )
-
-    console.print()
-    console.print("[bold]Time to first token (ms)[/bold]")
-    table = Table(show_header=True, header_style="bold cyan")
-    for col in ["Avg", "P50", "P90", "P95", "P99", "Min", "Max"]:
-        table.add_column(col, justify="right")
-    table.add_row(
-        f"{result.ttft_mean_ms:.2f}",
-        f"{result.ttft_p50_ms:.2f}",
-        f"{result.ttft_p90_ms:.2f}",
-        f"{result.ttft_p95_ms:.2f}",
-        f"{result.ttft_p99_ms:.2f}",
-        f"{result.ttft_min_ms:.2f}",
-        f"{result.ttft_max_ms:.2f}",
-    )
-    console.print(table)
-
-    console.print()
-    console.print(
-        f"[bold]Decode:[/bold]    {result.decode_tokens_per_sec:.2f} tokens/sec  |  "
-        f"{result.tpot_mean_ms:.2f} ms/token (TPOT)"
-    )
-    console.print(
-        f"[bold]Total:[/bold]     {result.total_generation_mean_ms:.2f} ms avg per generation"
-    )
-    if result.config.warmup > 0:
-        console.print(
-            f"  [dim]Excluded first {result.config.warmup} warmup "
-            f"generation(s) from statistics[/dim]"
-        )
     console.print()
 
 
