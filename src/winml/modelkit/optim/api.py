@@ -165,6 +165,7 @@ def optimize_onnx(
     output: str | Path | None = None,
     *,
     config: str | Path | dict[str, Any] | None = None,
+    passes: int = 1,
     **capabilities: Any,
 ) -> onnx.ModelProto:
     """Optimize an ONNX model with capability-based control.
@@ -179,6 +180,9 @@ def optimize_onnx(
         config: Configuration source - JSON file path or capabilities dict.
             Values from config are overridden by **capabilities kwargs.
             JSON keys use kebab-case (e.g., "gelu-fusion").
+        passes: Number of optimization passes to run. Each pass runs the full
+            pipeline (shape inference + optimization pipes). A second pass can
+            stabilize the graph after initial rewrites. Defaults to 1.
         **capabilities: Individual capability overrides using snake_case names.
             e.g., gelu_fusion=True, layer_norm_fusion=True.
             These have the highest precedence over config values.
@@ -256,6 +260,9 @@ def optimize_onnx(
     logger.info("Starting optimization pipeline...")
     optimizer = Optimizer()
     optimized_model = optimizer.optimize(loaded_model, **optimizer_kwargs)
+    for pass_num in range(1, passes):
+        logger.info("Running stabilization pass %d/%d...", pass_num + 1, passes)
+        optimized_model = optimizer.optimize(optimized_model, **optimizer_kwargs)
 
     # Step 10: Save if output path provided
     if output is not None:

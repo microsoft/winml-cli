@@ -284,6 +284,13 @@ class TestOptimizeOnnxInput:
         with pytest.raises(FileNotFoundError):
             optimize_onnx("nonexistent.onnx")
 
+    def test_passes_parameter_controls_optimize_calls(self, model_file: Path) -> None:
+        """The passes parameter controls how many times optimizer.optimize is called."""
+        with patch("winml.modelkit.optim.api.Optimizer") as mock_opt:
+            mock_opt.return_value.optimize.return_value = onnx.ModelProto()
+            optimize_onnx(model_file, passes=2)
+            assert mock_opt.return_value.optimize.call_count == 2
+
 
 class TestOptimizeOnnxOutput:
     """Tests for optimize_onnx output handling.
