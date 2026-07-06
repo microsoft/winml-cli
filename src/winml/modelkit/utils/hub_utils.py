@@ -119,8 +119,15 @@ def is_hub_model(model_name_or_path: str) -> tuple[bool, dict]:
                 metadata["language"] = card.data.language
             if hasattr(card.data, "task_categories"):
                 metadata["task_categories"] = card.data.task_categories
-        except Exception:
-            pass
+        except Exception as e:
+            # Model card metadata is optional; keep Hub detection working even
+            # when the card cannot be loaded, but leave a breadcrumb for debug logs.
+            logger.debug(
+                "Unable to load model card metadata for '%s': %s",
+                full_model_id,
+                e,
+                exc_info=True,
+            )
 
         return True, metadata
 
@@ -231,8 +238,13 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
             processor = AutoProcessor.from_pretrained(model_name_or_path)
             processor.save_pretrained(output_dir)
             components_saved.append("processor")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "AutoProcessor not saved for '%s'; falling back to other component types: %s",
+                model_name_or_path,
+                e,
+                exc_info=True,
+            )
 
         # Try AutoTokenizer (for text models) - only if processor wasn't saved
         if "processor" not in components_saved:
@@ -242,8 +254,13 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
                 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
                 tokenizer.save_pretrained(output_dir)
                 components_saved.append("tokenizer")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    "AutoTokenizer not saved for '%s'; falling back to other component types: %s",
+                    model_name_or_path,
+                    e,
+                    exc_info=True,
+                )
 
         # Try AutoImageProcessor (for vision)
         try:
@@ -252,8 +269,13 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
             image_processor = AutoImageProcessor.from_pretrained(model_name_or_path)
             image_processor.save_pretrained(output_dir)
             components_saved.append("image_processor")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "AutoImageProcessor not saved for '%s'; falling back to other component types: %s",
+                model_name_or_path,
+                e,
+                exc_info=True,
+            )
 
         # Try AutoFeatureExtractor (for audio)
         try:
@@ -262,8 +284,14 @@ def save_local_model_configs(model_name_or_path: str, output_dir: Path, metadata
             feature_extractor = AutoFeatureExtractor.from_pretrained(model_name_or_path)
             feature_extractor.save_pretrained(output_dir)
             components_saved.append("feature_extractor")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "AutoFeatureExtractor not saved for '%s'; "
+                "falling back to other component types: %s",
+                model_name_or_path,
+                e,
+                exc_info=True,
+            )
 
         if components_saved:
             logger.info(f"Saved preprocessing components: {', '.join(components_saved)}")
