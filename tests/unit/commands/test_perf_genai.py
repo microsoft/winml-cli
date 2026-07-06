@@ -279,6 +279,7 @@ class TestResultToDict:
             bundle_dir=Path("bundle"),
             ep="qnn",
             device="npu",
+            prompt="Benchmark this exact prompt",
             max_new_tokens=4,
             iterations=1,
             warmup=0,
@@ -310,6 +311,7 @@ class TestResultToDict:
         assert info["compile"] is True
         assert info["compile_timeout"] == 120
         assert info["apply_template"] is True
+        assert info["prompt"] == "Benchmark this exact prompt"
         assert set(d["ttft_ms"]) == {"mean", "min", "max", "p50", "p90", "p95", "p99"}
         assert set(d["prefill_ms"]) == {"mean"}
         assert set(d["decode"]) == {"tokens_per_sec", "avg_token_latency_ms", "tpot_ms"}
