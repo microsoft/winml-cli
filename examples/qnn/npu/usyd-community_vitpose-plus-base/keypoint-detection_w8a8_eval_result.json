@@ -1,0 +1,38 @@
+{
+  "model_id": "usyd-community/vitpose-plus-base",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\temp\\example_builds\\qnn\\npu\\usyd-community_vitpose-plus-base\\keypoint-detection_w8a8\\model.onnx",
+  "task": "keypoint-detection",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 500,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/datasets/coco_keypoints_val2017",
+    "columns_mapping": {
+      "input_column": "image",
+      "annotation_column": "objects",
+      "keypoints_key": "keypoints",
+      "bbox_key": "bbox",
+      "area_key": "area",
+      "box_format": "xywh"
+    },
+    "build_script": "scripts/build_coco_keypoints.py"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\usyd-community_vitpose-plus-base\\keypoint-detection_w8a8_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "map": 0.7576616522974475,
+    "map_50": 0.9332148745932752,
+    "map_75": 0.8451300111376018,
+    "map_medium": 0.7245805674460276,
+    "map_large": 0.805373281277365,
+    "mar": 0.7967075038284839,
+    "mar_50": 0.9464012251148545,
+    "mar_75": 0.8713629402756509,
+    "num_predictions": 1306,
+    "num_ground_truths": 1306,
+    "num_images": 500
+  }
+}

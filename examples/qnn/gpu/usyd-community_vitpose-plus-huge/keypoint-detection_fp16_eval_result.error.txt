@@ -1,0 +1,15 @@
+WARNING: trust_remote_code is enabled - custom Python from the model repository
+will be downloaded and executed. Proceed only if you trust the publisher.
+Building dataset via build_coco_keypoints.py...
+[WinML] Installing Execution Provider: QNNExecutionProvider
+
+Downloading... ░░░░░░░░░░   0%
+Downloading... ██████████ 100%
+Downloading... ██████████ 100%
+QNNExecutionProvider EP installed successfully.
+- Version: 2.2450.47.0
+- Package Family Name: MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.2_8wekyb3d8bbwe
+
+Evaluating keypoints:   0%|          | 0/100 [00:00<?, ?it/s]
+Evaluating keypoints:   0%|          | 0/100 [01:14<?, ?it/s]
+Error: Evaluation failed: Failed to compile for gpu | Context: device=gpu, onnx_path=C:\Users\zhenni\repos\wmk\temp\example_builds\qnn\gpu\usyd-community_vitpose-plus-huge\keypoint-detection_fp16\model.onnx, error=[ONNXRuntimeError] : 11 : EP_FAIL : Failed to finalize QNN graph. | Suggestion: Verify GPU drivers and ONNX Runtime GPU package are installed
