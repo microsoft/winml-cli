@@ -1833,6 +1833,12 @@ def perf(
         _run_genai_runtime(ctx, console=console, json_mode=json_mode)
         return
 
+    # Classify the -m value once (existence-first) so module mode and the
+    # single-model path share one source of truth. Raises cleanly on a missing
+    # .onnx or an invalid id instead of a confusing downstream config error.
+    model_input = cli_utils.classify_model_input(hf_model)
+    is_onnx = model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+
     # =========================================================================
     # MODULE MODE: per-module build + benchmark
     # =========================================================================
@@ -1842,7 +1848,7 @@ def perf(
         # not carry. Without this guard, the user sees a misleading
         # "not a valid JSON file" error from AutoConfig.from_pretrained
         # trying to load the .onnx as an HF config dir (issue #553).
-        if Path(hf_model).suffix.lower() == ".onnx":
+        if is_onnx:
             raise click.UsageError(
                 f"--module is not supported for ONNX files. "
                 f"Submodule benchmarking requires a HuggingFace model ID "
@@ -1938,14 +1944,9 @@ def perf(
 
     try:
         model_path = Path(hf_model)
-        is_onnx = model_path.suffix.lower() == ".onnx"
 
         if is_onnx:
-            # Validate file existence up front; otherwise WinMLAutoModel would
-            # fall through to HF loading and surface a confusing
-            # "not a valid JSON file" error from AutoConfig.
-            if not model_path.exists():
-                raise FileNotFoundError(f"ONNX file not found: {model_path}")
+            # Existence already validated by classify_model_input above.
             if shape_config:
                 console.print(
                     "[yellow]Warning:[/yellow] --shape-config is ignored for "
