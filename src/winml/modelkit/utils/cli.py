@@ -1190,3 +1190,89 @@ def collect_cli_overrides(ctx: click.Context, cls: type) -> dict[str, Any]:
         if field_name in valid_fields and is_cli_provided(ctx, cli_name):
             overrides[field_name] = value
     return overrides
+
+
+def resolve_model_path(
+    *,
+    model: tuple[str, ...],
+    model_id: str | None,
+) -> tuple[str | dict[str, str] | None, str | None]:
+    """Turn repeated ``-m`` values + ``--model-id`` into ``(model_path, model_id)``.
+
+    Shared by ``eval`` and ``perf`` commands for consistent composite-model CLI
+    syntax.  ``-m role=path`` pairs require ``--model-id`` for preprocessor and
+    config resolution.
+
+    Returns:
+        A 2-tuple ``(model_path, hf_model_id)`` where *model_path* is
+        ``None`` (HF id only), a single ONNX path string, or a
+        ``{role: path}`` dict for composite models.
+    """
+    if not model:
+        if model_id is not None:
+            return None, model_id
+        raise click.UsageError(
+            "A model is required. Provide -m with a HuggingFace model ID, "
+            "a path to an .onnx file, or role=path pairs for composite models."
+        )
+
+    role_assigned = [v for v in model if "=" in v]
+    plain = [v for v in model if "=" not in v]
+
+    if role_assigned and plain:
+        raise click.UsageError(
+            "Cannot mix plain `-m <value>` and `-m role=path` forms. "
+            "Use `role=path` consistently for composite models."
+        )
+
+    if role_assigned:
+        if model_id is None:
+            raise click.UsageError(
+                "--model-id is required when using composite `-m role=path` options."
+            )
+        sub_model_paths: dict[str, str] = {}
+        for v in role_assigned:
+            role, _, path = v.partition("=")
+            role, path = role.strip(), path.strip()
+            if not role or not path:
+                raise click.BadParameter(
+                    f"Invalid role=path: {v!r}. Both role and path are required.",
+                    param_hint="-m/--model",
+                )
+            if role in sub_model_paths:
+                raise click.BadParameter(
+                    f"Duplicate role {role!r} in -m options.",
+                    param_hint="-m/--model",
+                )
+            if not Path(path).exists():
+                raise click.BadParameter(
+                    f"ONNX file not found: {path}",
+                    param_hint="-m/--model",
+                )
+            sub_model_paths[role] = path
+        return sub_model_paths, model_id
+
+    if len(plain) > 1:
+        raise click.UsageError(
+            "Multiple -m values require `role=path` syntax for composite models."
+        )
+
+    value = plain[0]
+    try:
+        _mi = classify_model_input(value)
+    except click.UsageError as e:
+        # Preserve param-scoped BadParameter contract (tests + hint).
+        raise click.BadParameter(str(e), param_hint="-m/--model") from e
+    if _mi.kind is ModelInputKind.ONNX_FILE:
+        if model_id is None:
+            raise click.UsageError(
+                "When using an ONNX file, --model-id is required "
+                "for preprocessor and config resolution."
+            )
+        return value, model_id
+    if model_id is not None and model_id != value:
+        raise click.UsageError(
+            "Cannot pass both `-m <hf_id>` and `--model-id`. "
+            "Use `--model-id` only together with an ONNX file path in `-m`."
+        )
+    return None, model_id or value

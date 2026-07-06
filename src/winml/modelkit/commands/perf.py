@@ -68,6 +68,9 @@ DYNAMIC_DIM_DEFAULTS = {
     3: 224,  # Width
 }
 
+# Default prompt for generation benchmarks (shared with click option default).
+_DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
+
 
 # =============================================================================
 # Data Classes
@@ -107,8 +110,9 @@ class BenchmarkConfig:
     hf_model_id: str | None = None
 
     # Generation benchmark (decoder-only composite models)
-    prompt: str = "Explain the theory of relativity in simple terms."
+    prompt: str | None = None
     max_new_tokens: int = 128
+    apply_template: bool = True
 
 
 @dataclass
@@ -515,14 +519,13 @@ class PerfBenchmark:
 
     @property
     def _is_generative_composite(self) -> bool:
-        """True when the loaded model is a decoder-only composite (e.g. Qwen).
+        """True when the loaded model is a generative composite (e.g. Qwen).
 
-        These models support ``model.generate()`` via ``GenerationMixin`` and
-        should be benchmarked with text prompts rather than random inputs.
+        Checks for the ``generate`` capability (provided by
+        ``GenerationMixin``) rather than a specific class, so any composite
+        model that supports generation gets the text-prompt benchmark path.
         """
-        from ..models.winml.decoder_only import WinMLDecoderOnlyModel
-
-        return isinstance(self._model, WinMLDecoderOnlyModel)
+        return self._is_composite and hasattr(self._model, "generate")
 
     @property
     def _sub_models(self) -> dict[str, WinMLPreTrainedModel]:
@@ -605,12 +608,25 @@ class PerfBenchmark:
 
         hf_model_id = self.config.hf_model_id or self.config.model_id
         tokenizer = AutoTokenizer.from_pretrained(hf_model_id)
-        inputs = tokenizer(self.config.prompt, return_tensors="pt")
+
+        prompt_text = self.config.prompt or _DEFAULT_PROMPT
+        if self.config.apply_template and hasattr(tokenizer, "apply_chat_template"):
+            try:
+                prompt_text = tokenizer.apply_chat_template(
+                    [{"role": "user", "content": prompt_text}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            except Exception:
+                # Tokenizer has no chat template; benchmark the raw prompt.
+                pass
+
+        inputs = tokenizer(prompt_text, return_tensors="pt")
         input_ids = inputs["input_ids"]
         prompt_tokens = input_ids.shape[1]
 
         console = Console(stderr=True)
-        console.print(f"\n[dim]Prompt:[/dim]           {self.config.prompt!r}")
+        console.print(f"\n[dim]Prompt:[/dim]           {prompt_text!r}")
         console.print(f"[dim]Prompt tokens:[/dim]    {prompt_tokens}")
         console.print(f"[dim]Max new tokens:[/dim]   {self.config.max_new_tokens}")
 
@@ -1551,32 +1567,52 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
 
 def display_generation_report(result: GenerationBenchmarkResult, console: Console) -> None:
-    """Display generation benchmark results in formatted console output."""
+    """Display generation benchmark results — same layout as ``display_genai_report``."""
     console.print()
-    console.print(f"[dim]Model:[/dim]       {result.config.model_id}")
-    console.print(f"[dim]Device:[/dim]      {result.actual_device}")
-    if result.actual_ep:
-        console.print(f"[dim]EP:[/dim]          {result.actual_ep}")
-    console.print(f"[dim]Prompt:[/dim]      {result.config.prompt!r}")
-    console.print(f"[dim]Prompt tokens:[/dim] {result.prompt_tokens}")
-    console.print(f"[dim]Generated:[/dim]   {result.generated_tokens} tokens")
+    console.print("[dim]Runtime:[/dim]   winml-generate")
+    console.print(f"[dim]Model:[/dim]     {result.config.model_id}")
+    if result.actual_device:
+        device_str = (
+            result.actual_device
+            if not result.actual_ep
+            else f"{result.actual_device} ({result.actual_ep})"
+        )
+        console.print(f"[dim]Device:[/dim]    {device_str}")
+    console.print(
+        f"[dim]Prompt:[/dim]    {result.prompt_tokens} tokens   "
+        f"[dim]Generated:[/dim] {result.generated_tokens} tokens "
+        f"(max_new_tokens={result.config.max_new_tokens})"
+    )
 
     console.print()
-    console.print("[bold]Generation Performance[/bold]")
-
+    console.print("[bold]Time to first token (ms)[/bold]")
     table = Table(show_header=True, header_style="bold cyan")
-    for col in ["Metric", "Value"]:
-        table.add_column(col, justify="right" if col == "Value" else "left")
-
-    table.add_row("TTFT (mean)", f"{result.ttft_mean_ms:.2f} ms")
-    table.add_row("TTFT (p50)", f"{result.ttft_p50_ms:.2f} ms")
-    table.add_row("TTFT (p90)", f"{result.ttft_p90_ms:.2f} ms")
-    table.add_row("TTFT (p99)", f"{result.ttft_p99_ms:.2f} ms")
-    table.add_row("Decode throughput", f"{result.decode_tokens_per_sec:.2f} tokens/sec")
-    table.add_row("TPOT (mean)", f"{result.tpot_mean_ms:.2f} ms")
-    table.add_row("Total generation", f"{result.total_generation_mean_ms:.2f} ms")
-
+    for col in ["Avg", "P50", "P90", "P95", "P99", "Min", "Max"]:
+        table.add_column(col, justify="right")
+    table.add_row(
+        f"{result.ttft_mean_ms:.2f}",
+        f"{result.ttft_p50_ms:.2f}",
+        f"{result.ttft_p90_ms:.2f}",
+        f"{result.ttft_p95_ms:.2f}",
+        f"{result.ttft_p99_ms:.2f}",
+        f"{result.ttft_min_ms:.2f}",
+        f"{result.ttft_max_ms:.2f}",
+    )
     console.print(table)
+
+    console.print()
+    console.print(
+        f"[bold]Decode:[/bold]    {result.decode_tokens_per_sec:.2f} tokens/sec  |  "
+        f"{result.tpot_mean_ms:.2f} ms/token (TPOT)"
+    )
+    console.print(
+        f"[bold]Total:[/bold]     {result.total_generation_mean_ms:.2f} ms avg per generation"
+    )
+    if result.config.warmup > 0:
+        console.print(
+            f"  [dim]Excluded first {result.config.warmup} warmup "
+            f"generation(s) from statistics[/dim]"
+        )
     console.print()
 
 
@@ -1919,74 +1955,8 @@ def _resolve_model_path(
     model: tuple[str, ...],
     model_id: str | None,
 ) -> tuple[str | dict[str, str] | None, str | None]:
-    """Turn repeated -m values + --model-id into (model_path, hf_model_id).
-
-    Mirrors ``eval.py``'s ``_resolve_model_path`` for consistent composite
-    model CLI syntax: ``-m role=path`` pairs require ``--model-id`` for
-    preprocessor/config resolution.
-    """
-    if not model:
-        if model_id is not None:
-            return None, model_id
-        raise click.UsageError(
-            "A model is required. Provide -m with a HuggingFace model ID, "
-            "a path to an .onnx file, or role=path pairs for composite models."
-        )
-
-    role_assigned = [v for v in model if "=" in v]
-    plain = [v for v in model if "=" not in v]
-
-    if role_assigned and plain:
-        raise click.UsageError(
-            "Cannot mix plain `-m <value>` and `-m role=path` forms. "
-            "Use `role=path` consistently for composite models."
-        )
-
-    if role_assigned:
-        if model_id is None:
-            raise click.UsageError(
-                "--model-id is required when using composite `-m role=path` options."
-            )
-        sub_model_paths: dict[str, str] = {}
-        for v in role_assigned:
-            role, _, path = v.partition("=")
-            role, path = role.strip(), path.strip()
-            if not role or not path:
-                raise click.BadParameter(
-                    f"Invalid role=path: {v!r}. Both role and path are required.",
-                    param_hint="-m/--model",
-                )
-            if role in sub_model_paths:
-                raise click.BadParameter(
-                    f"Duplicate role {role!r} in -m options.",
-                    param_hint="-m/--model",
-                )
-            if not Path(path).exists():
-                raise click.BadParameter(
-                    f"ONNX file not found: {path}",
-                    param_hint="-m/--model",
-                )
-            sub_model_paths[role] = path
-        return sub_model_paths, model_id
-
-    if len(plain) > 1:
-        raise click.UsageError(
-            "Multiple -m values require `role=path` syntax for composite models."
-        )
-
-    value = plain[0]
-    try:
-        _mi = cli_utils.classify_model_input(value)
-    except click.UsageError as e:
-        raise click.BadParameter(str(e), param_hint="-m/--model") from e
-    if _mi.kind is cli_utils.ModelInputKind.ONNX_FILE:
-        return value, model_id
-    if model_id is not None and model_id != value:
-        raise click.UsageError(
-            "Cannot pass both `-m <hf_id>` and `--model-id`. "
-            "Use `--model-id` only together with an ONNX file path in `-m`."
-        )
-    return None, model_id or value
+    """Delegate to shared ``cli_utils.resolve_model_path``."""
+    return cli_utils.resolve_model_path(model=model, model_id=model_id)
 
 
 @click.command("perf")
@@ -2016,7 +1986,7 @@ def _resolve_model_path(
 @click.option(
     "--prompt",
     type=str,
-    default="Explain the theory of relativity in simple terms.",
+    default=_DEFAULT_PROMPT,
     show_default=True,
     help="Prompt text for generation benchmarking. Used with composite decoder-only "
     "models (e.g. Qwen) and --runtime winml-genai. For winml-genai bundles, the "
@@ -2026,7 +1996,9 @@ def _resolve_model_path(
     "--apply-template/--no-apply-template",
     default=True,
     show_default=True,
-    help="[winml-genai] Wrap --prompt in the bundle's chat template before timing. "
+    help="Wrap --prompt in the model's chat template before timing. "
+    "Applies to both composite decoder-only models (via tokenizer) and "
+    "winml-genai bundles. "
     "Use --no-apply-template to benchmark a prompt that is already formatted.",
 )
 @click.option(
@@ -2277,6 +2249,8 @@ def perf(
             _mi = cli_utils.classify_model_input(hf_model)
             is_onnx = _mi.kind is cli_utils.ModelInputKind.ONNX_FILE
         except click.UsageError:
+            # hf_model is not a recognized model input (e.g. display label);
+            # default to non-ONNX path — the engine will resolve it.
             pass
 
     # =========================================================================
@@ -2374,6 +2348,7 @@ def perf(
         hf_model_id=hf_model_id,
         prompt=prompt,
         max_new_tokens=max_new_tokens,
+        apply_template=apply_template,
     )
 
     try:
