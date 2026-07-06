@@ -41,7 +41,7 @@ from ..session import (
     GenaiSessionError,
     GenerationConfig,
 )
-from ..utils.constants import EPNameOrAlias
+from ..utils.constants import EP_NAME_TO_ALIAS, EPNameOrAlias
 
 
 if TYPE_CHECKING:
@@ -60,30 +60,43 @@ RUNTIME_TYPE = "winml-genai"
 # ``GenaiPerfConfig.prompt`` field default (a test asserts the two stay in sync).
 _DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
 
-# --device -> GenaiSession EP override.  The default ("auto") resolves to
-# ``None`` = *respect the bundle config*: genai bundles route each stage via its
-# own session_options in genai_config.json (e.g. ctx/iter on the NPU/QNN,
-# embeddings/lm_head on CPU), and ``None`` honors that per-stage routing while
-# still registering the WinML EPs those stages need.  A concrete device forces
-# the whole decoder pipeline onto one EP override: "cpu" strips the hardware
-# providers (CPU fallback, no WinML EP registration), "qnn"/"dml" route every
-# stage to that accelerator.  An unknown device also falls back to ``None``.
-_DEVICE_TO_GENAI_EP: dict[str, EPNameOrAlias | None] = {
-    "cpu": "cpu",
-    "npu": "qnn",
-    "gpu": "dml",
-    "auto": None,
-}
+# Sentinel ``--device`` value meaning "respect the bundle's genai_config.json
+# routing" (no EP override).  It is the winml-genai default: a genai bundle is
+# mixed by design (e.g. ctx/iter on the NPU, embeddings/lm_head on CPU) and its
+# config already encodes that per-stage routing, so the common case leaves it
+# untouched.  A concrete ``--device`` (or ``--ep``) is an explicit override that
+# forces the *whole* decoder pipeline onto one EP.
+GENAI_CONFIG_DEVICE = "config"
 
 
-def device_to_genai_ep(device: str) -> EPNameOrAlias | None:
-    """Map a ``--device`` value to a :class:`GenaiSession` EP override.
+def resolve_genai_ep(device: str) -> EPNameOrAlias | None:
+    """Resolve a ``--device`` value to a :class:`GenaiSession` EP override.
 
-    Returns ``None`` for ``auto`` (and any unrecognized device), meaning the
-    bundle's ``genai_config.json`` routing is respected; otherwise a concrete
-    EP short name that forces the whole decoder pipeline onto that provider.
+    ``config`` -> ``None`` (respect ``genai_config.json`` as-is).  Any concrete
+    device (``auto``/``npu``/``gpu``/``cpu``) goes through the same
+    :func:`resolve_device` / :func:`resolve_eps` path the WinML ONNX runtime
+    uses, so it forces the whole pipeline onto the *best EP actually available
+    for that device on this machine* (e.g. an NPU that is VitisAI/OpenVINO
+    rather than QNN) instead of a static short-name guess.  Returns the EP's
+    canonical short alias, or ``None`` when the device resolves to no EP.
+
+    Raises:
+        ValueError: propagated from :func:`resolve_device` when the requested
+            device has no compatible EP available -- fail fast, like the ONNX
+            path, rather than silently falling back to CPU.
     """
-    return _DEVICE_TO_GENAI_EP.get(device.lower())
+    if device == GENAI_CONFIG_DEVICE:
+        return None
+
+    # Function-local import mirrors the ONNX path (perf.py) and avoids a
+    # module-level cycle: ``sysinfo`` pulls in heavier device-probing deps.
+    from ..sysinfo import resolve_device, resolve_eps
+
+    resolved_device, _ = resolve_device(device=device, ep=None)
+    eps = resolve_eps(resolved_device)
+    if not eps:
+        return None
+    return EP_NAME_TO_ALIAS[eps[0]]
 
 
 def genai_output_path(bundle_dir: str | Path) -> Path:
