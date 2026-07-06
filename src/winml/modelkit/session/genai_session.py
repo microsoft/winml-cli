@@ -669,6 +669,7 @@ class GenaiSession:
         ``append_tokens`` separately (see :meth:`generate_timed`).
         """
         og = self._import_og()
+        assert self._context_length is not None, "_new_generator called before load()"
         max_length = min(prompt_len + cfg.max_new_tokens, self._context_length)
         params = og.GeneratorParams(self._model)
         params.set_search_options(
