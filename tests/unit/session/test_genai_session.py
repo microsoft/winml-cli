@@ -1063,7 +1063,7 @@ class TestPrepareCompiledBundle:
         written = json.loads(config_out.read_text(encoding="utf-8"))
         assert "model" in written
         # A cache marker is written next to each compiled stage.
-        assert (compiled_dir / "context_ctx.onnx.meta.json").exists()
+        assert (compiled_dir / "context_qnn_ctx.onnx.meta.json").exists()
 
     def test_override_only_writes_derived_bundle_without_compile(
         self, bundle_dir_with_pipeline: Path
@@ -1094,7 +1094,7 @@ class TestPrepareCompiledBundle:
         compiled_dir = bundle_dir / "_compiled"
         compiled_dir.mkdir()
         for stage, src_name in (("context", "ctx.onnx"), ("iterator", "iter.onnx")):
-            ctx = compiled_dir / f"{stage}_ctx.onnx"
+            ctx = compiled_dir / f"{stage}_qnn_ctx.onnx"
             ctx.write_bytes(b"ep_ctx")
             GenaiSession._write_compile_marker(ctx, "qnn", marker_opts)
             src_mtime = (bundle_dir / src_name).stat().st_mtime
@@ -1138,7 +1138,7 @@ class TestPrepareCompiledBundle:
         compiled_dir = self._prime_cache(bundle_dir_with_pipeline, {"backend_path": "QnnHtp.dll"})
 
         # ctx.onnx.data is newer than the compiled context stage -> stale.
-        ctx_stage = compiled_dir / "context_ctx.onnx"
+        ctx_stage = compiled_dir / "context_qnn_ctx.onnx"
         data_sidecar = bundle_dir_with_pipeline / "ctx.onnx.data"
         data_sidecar.write_bytes(b"weights")
         ctx_mtime = ctx_stage.stat().st_mtime
@@ -1151,6 +1151,68 @@ class TestPrepareCompiledBundle:
         # Only the context stage (whose .data changed) is recompiled.
         assert spy.call_count == 1
         assert spy.call_args.args[2] == "context"
+
+    def test_compiled_artifact_path_is_keyed_by_ep(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Different EPContext-capable EPs compile to distinct cache artifacts.
+
+        Regression: the derived-bundle cache key must encode the execution
+        provider.  Forcing a bundle onto EP-A and later onto EP-B (both leaving
+        empty provider options, as happens when a non-native EP is forced) must
+        not let EP-A's compiled binary be reused for EP-B, which would load a
+        graph built for the wrong accelerator.
+        """
+
+        def _context_ctx_path_for(ep: str) -> Path:
+            session = GenaiSession(bundle_dir_with_pipeline, ep=ep, compile=True)
+            effective, overridden = session._apply_ep_override(session._read_genai_config())
+            captured: list[Path] = []
+
+            def _fake_compile(src, ctx, stage_key, ep_alias, ep_opts):
+                captured.append(ctx)
+                return True
+
+            monkeypatch.setattr(session, "_compile_stage", _fake_compile)
+            session._prepare_compiled_bundle(effective, overridden=overridden)
+            return next(p for p in captured if p.name.startswith("context"))
+
+        ov_ctx = _context_ctx_path_for("openvino")
+        vitis_ctx = _context_ctx_path_for("vitisai")
+
+        assert ov_ctx.name == "context_openvino_ctx.onnx"
+        assert vitis_ctx.name == "context_vitisai_ctx.onnx"
+        assert ov_ctx != vitis_ctx
+
+    def test_different_ep_does_not_reuse_cached_epcontext(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fresh cache built for one EP is not reused when a different EP is forced.
+
+        Regression companion to :meth:`test_compiled_artifact_path_is_keyed_by_ep`:
+        prime a genuinely-fresh OpenVINO cache (matching mtimes + marker with
+        empty options), then force VitisAI with identically-empty options and
+        assert both stages are recompiled rather than served from the OpenVINO
+        artifacts.
+        """
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+        for stage, src_name in (("context", "ctx.onnx"), ("iterator", "iter.onnx")):
+            ov_ctx = compiled_dir / f"{stage}_openvino_ctx.onnx"
+            ov_ctx.write_bytes(b"ep_ctx")
+            GenaiSession._write_compile_marker(ov_ctx, "openvino", {})
+            src_mtime = (bundle_dir_with_pipeline / src_name).stat().st_mtime
+            os.utime(ov_ctx, (src_mtime + 100, src_mtime + 100))
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="vitisai", compile=True)
+        effective, overridden = session._apply_ep_override(session._read_genai_config())
+        spy = MagicMock(return_value=True)
+        monkeypatch.setattr(session, "_compile_stage", spy)
+        session._prepare_compiled_bundle(effective, overridden=overridden)
+
+        # Both stages recompiled for VitisAI; the OpenVINO cache is untouched.
+        assert spy.call_count == 2
+        assert (compiled_dir / "context_openvino_ctx.onnx").exists()
 
 
 # ---------------------------------------------------------------------------

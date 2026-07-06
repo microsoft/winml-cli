@@ -834,10 +834,13 @@ class GenaiSession:
         compiler.  Stages on EPs that do not emit EPContext (CPU, DML, …) are
         left untouched and load via JIT.
 
-        The derived bundle is stored under ``bundle_dir/_compiled/``.  A cached
-        EPContext file is reused only when it is newer than the source graph and
-        its external-weights sidecar *and* was built with the same provider
-        options (see :meth:`_epcontext_is_fresh`); otherwise it is recompiled.
+        The derived bundle is stored under ``bundle_dir/_compiled/``.  Each
+        compiled artifact is named ``{stage}_{ep}_ctx.onnx`` so stages compiled
+        for different execution providers never collide.  A cached EPContext
+        file is reused only when it is newer than the source graph and its
+        external-weights sidecar *and* was built with the same execution
+        provider and provider options (see :meth:`_epcontext_is_fresh`);
+        otherwise it is recompiled.
 
         Args:
             effective_cfg: The config to compile/load from (post ``ep`` override).
@@ -893,10 +896,13 @@ class GenaiSession:
 
         for stage_key, onnx_filename, ep_alias, ep_opts in compilable_stages:
             src_onnx = self._bundle_dir / onnx_filename
-            ctx_onnx = compiled_dir / f"{stage_key}_ctx.onnx"
+            # The EP is part of the cache key: an ``ep`` override can route the
+            # same stage onto different EPContext providers across runs, so each
+            # EP gets its own artifact and EP-A's binary is never reused for EP-B.
+            ctx_onnx = compiled_dir / f"{stage_key}_{ep_alias}_ctx.onnx"
 
             # Skip recompilation only when the cache is genuinely up-to-date.
-            if self._epcontext_is_fresh(src_onnx, ctx_onnx, ep_opts):
+            if self._epcontext_is_fresh(src_onnx, ctx_onnx, ep_alias, ep_opts):
                 logger.info("Stage %r: reusing cached EPContext %s", stage_key, ctx_onnx.name)
                 # Use just the filename — genai_config.json lives in compiled_dir,
                 # so ort-genai resolves filenames relative to compiled_dir.
@@ -994,7 +1000,9 @@ class GenaiSession:
         )
 
     @classmethod
-    def _epcontext_is_fresh(cls, src_onnx: Path, ctx_onnx: Path, ep_opts: dict) -> bool:
+    def _epcontext_is_fresh(
+        cls, src_onnx: Path, ctx_onnx: Path, ep_alias: str, ep_opts: dict
+    ) -> bool:
         """Return ``True`` when a cached EPContext file may be reused as-is.
 
         The cache is stale (forcing a recompile) when any of these hold:
@@ -1004,6 +1012,9 @@ class GenaiSession:
         * the source external-weights ``.data`` sidecar is newer (decoder graphs
           often keep all weights there, so the ``.onnx`` mtime alone is not a
           sufficient cache key);
+        * the execution provider recorded at compile time differs from
+          *ep_alias* (a stage forced onto a different EPContext provider must not
+          reuse a binary built for another one, even if their options match);
         * the provider options recorded at compile time differ from *ep_opts*
           (so changing a knob like ``soc_model`` re-compiles even when the
           ``.onnx`` mtime is unchanged).
@@ -1022,7 +1033,7 @@ class GenaiSession:
             recorded = json.loads(marker.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return False
-        return bool(recorded.get("provider_options") == ep_opts)
+        return bool(recorded.get("ep") == ep_alias and recorded.get("provider_options") == ep_opts)
 
     @staticmethod
     def _patch_stage_filename(cfg: dict, stage_key: str, abs_path: str) -> None:
