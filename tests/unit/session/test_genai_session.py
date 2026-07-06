@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,10 +26,6 @@ from winml.modelkit.session import (
     GenerationConfig,
     GenerationTiming,
 )
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -923,6 +919,90 @@ class TestPrepareCompiledBundle:
         # Only the context stage (whose .data changed) is recompiled.
         assert spy.call_count == 1
         assert spy.call_args.args[2] == "context"
+
+    def test_failed_compile_falls_back_to_relative_mirrored_onnx(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stage whose compilation fails falls back to the original ONNX by a
+        *bundle-relative* filename that is mirrored into compiled_dir.
+
+        Regression test: ort-genai resolves each pipeline stage ``filename``
+        relative to the directory it loads ``genai_config.json`` from
+        (compiled_dir). Patching an absolute path made it join compiled_dir onto
+        the absolute path (``_compiled/C:/.../ctx.onnx``), so the model could not
+        be found. The fallback must instead reference the relative filename and
+        physically place the source ONNX (and its weights sidecar) in
+        compiled_dir.
+        """
+        # Give the context stage an external-weights sidecar so we can assert it
+        # is mirrored alongside the graph (decoder graphs keep weights there).
+        (bundle_dir_with_pipeline / "ctx.onnx.data").write_bytes(b"weights")
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+
+        # context fails compilation (-> fallback); iterator succeeds so a
+        # compiled_dir is produced (any_compiled is True).
+        def fake_compile(src_onnx, ctx_out, stage_key, ep_alias, ep_opts=None):
+            if stage_key == "iterator":
+                ctx_out.write_bytes(b"ep_ctx")
+                return True
+            return False
+
+        monkeypatch.setattr(session, "_compile_stage", fake_compile)
+
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        result = session._prepare_compiled_bundle()
+        assert result == compiled_dir
+
+        written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))
+        pipeline = written["model"]["decoder"]["pipeline"]
+        ctx_filename = next(s["context"]["filename"] for s in pipeline if "context" in s)
+
+        # Referenced by relative filename (not an absolute path).
+        assert ctx_filename == "ctx.onnx"
+        assert not Path(ctx_filename).is_absolute()
+        # Physically present in compiled_dir so ort-genai can load it.
+        assert (compiled_dir / "ctx.onnx").exists()
+        assert (compiled_dir / "ctx.onnx.data").exists()
+
+    def test_already_compiled_stage_referenced_by_relative_mirrored_onnx(
+        self, bundle_dir_with_pipeline: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stage whose source ONNX is already an EPContext model is referenced
+        by a *bundle-relative* filename that is mirrored into compiled_dir.
+
+        Same root cause as the compile-fallback case: an absolute path would be
+        wrongly joined onto compiled_dir by ort-genai.
+        """
+        (bundle_dir_with_pipeline / "ctx.onnx.data").write_bytes(b"weights")
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+
+        # context is already an EPContext model; iterator compiles fresh so a
+        # compiled_dir is produced.
+        monkeypatch.setattr(
+            "winml.modelkit.onnx.is_compiled_onnx",
+            lambda p: Path(p).name == "ctx.onnx",
+        )
+
+        def fake_compile(src_onnx, ctx_out, stage_key, ep_alias, ep_opts=None):
+            ctx_out.write_bytes(b"ep_ctx")
+            return True
+
+        monkeypatch.setattr(session, "_compile_stage", fake_compile)
+
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        result = session._prepare_compiled_bundle()
+        assert result == compiled_dir
+
+        written = json.loads((compiled_dir / "genai_config.json").read_text(encoding="utf-8"))
+        pipeline = written["model"]["decoder"]["pipeline"]
+        ctx_filename = next(s["context"]["filename"] for s in pipeline if "context" in s)
+
+        assert ctx_filename == "ctx.onnx"
+        assert not Path(ctx_filename).is_absolute()
+        assert (compiled_dir / "ctx.onnx").exists()
+        assert (compiled_dir / "ctx.onnx.data").exists()
 
 
 # ---------------------------------------------------------------------------
