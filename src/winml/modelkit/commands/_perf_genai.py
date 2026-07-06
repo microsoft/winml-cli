@@ -59,12 +59,6 @@ RUNTIME_TYPE = "winml-genai"
 # ``GenaiPerfConfig.prompt`` field default (a test asserts the two stay in sync).
 _DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
 
-# Unique placeholder used to recover a bundle's chat-template wrapper text (the
-# markers it adds around the user content) by rendering the template around it.
-# Distinctive enough that a real prompt never contains it, so partitioning the
-# rendered output on it reliably isolates the leading/trailing wrapper.
-_PROMPT_SENTINEL = "\ue000__winml_prompt_sentinel__\ue000"
-
 # --device -> GenaiSession EP short name.  The default ("auto") resolves to
 # "mixed": genai bundles route each stage via its own session_options in
 # genai_config.json (e.g. ctx/iter on the NPU/QNN, embeddings/lm_head on CPU).
@@ -305,50 +299,8 @@ class GenaiPerfBenchmark:
         except GenaiSessionError as exc:
             logger.info("genai perf: no chat template applied (%s); benchmarking raw prompt", exc)
             return self._config.prompt
-        if self._looks_pretemplated(session):
-            logger.warning(
-                "genai perf: --prompt already appears to contain this bundle's chat-template "
-                "markers, but --apply-template is on, so it will be wrapped again "
-                "(double-templating). Pass --no-apply-template to benchmark it verbatim."
-            )
         logger.info("genai perf: applied the bundle's chat template to the prompt")
         return templated
-
-    def _looks_pretemplated(self, session: GenaiSession) -> bool:
-        """Heuristic: does ``--prompt`` already contain this bundle's own chat markers?
-
-        Applying the chat template to a prompt that is already templated
-        double-wraps it, which usually is not what the caller intended.  This
-        flags that case so the benchmark can warn.
-
-        The markers are derived from the *bundle's own* template — the template
-        is rendered around a unique sentinel and the wrapper text it adds around
-        the content is recovered by partitioning on that sentinel.  Nothing
-        model-specific is hardcoded, so this works for any format the bundle
-        ships (ChatML, Llama ``[INST]``, Phi ``<|user|>`` …).
-        """
-        try:
-            rendered = session.apply_chat_template(_PROMPT_SENTINEL)
-        except GenaiSessionError:
-            return False
-        if _PROMPT_SENTINEL not in rendered:
-            return False
-        head, _, tail = rendered.partition(_PROMPT_SENTINEL)
-
-        # Collect candidate markers from the wrapper: the whole leading/trailing
-        # wrapper plus each whitespace-separated token within it.  Keep only
-        # non-trivial tokens that carry punctuation, since control/special
-        # tokens do (``<|user|>``, ``[/INST]``) while ordinary words ("user")
-        # do not — this avoids matching plain prose in the prompt.
-        candidates: set[str] = set()
-        for wrapper in (head, tail):
-            stripped = wrapper.strip()
-            if stripped:
-                candidates.add(stripped)
-            candidates.update(wrapper.split())
-        markers = [c for c in candidates if len(c) >= 2 and any(not ch.isalnum() for ch in c)]
-        prompt = self._config.prompt
-        return any(marker in prompt for marker in markers)
 
     def run(self) -> GenaiBenchmarkResult:
         """Execute the benchmark and return aggregated metrics."""

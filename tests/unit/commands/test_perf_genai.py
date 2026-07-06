@@ -13,7 +13,6 @@ itself is unit-tested in ``tests/unit/session/test_genai_session.py``.)
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -272,71 +271,6 @@ class TestChatTemplate:
         # so a caller can benchmark a prompt they have already templated.
         assert session.encoded_text == "Hi"
         assert session.template_applied is False
-
-    def test_warns_when_prompt_looks_pretemplated(self, caplog) -> None:
-        """Templating an already-templated prompt logs a double-templating warning."""
-        cfg = GenaiPerfConfig(
-            bundle_dir=Path("x"),
-            warmup=0,
-            iterations=1,
-            max_new_tokens=2,
-            prompt="<chat>already formatted</chat>",
-        )
-        session = _FakeSession([_timing(0.4, 0.6, [0.4])], chat_template=True)
-        bench = GenaiPerfBenchmark(cfg, session=session)
-
-        with caplog.at_level(logging.WARNING):
-            bench.run()
-
-        assert "double-templating" in caplog.text
-
-    def test_no_warning_for_plain_prompt(self, caplog) -> None:
-        """A prompt without the bundle's markers does not trigger the warning."""
-        cfg = GenaiPerfConfig(
-            bundle_dir=Path("x"), warmup=0, iterations=1, max_new_tokens=2, prompt="Hello there"
-        )
-        session = _FakeSession([_timing(0.4, 0.6, [0.4])], chat_template=True)
-        bench = GenaiPerfBenchmark(cfg, session=session)
-
-        with caplog.at_level(logging.WARNING):
-            bench.run()
-
-        assert "double-templating" not in caplog.text
-
-    def test_no_warning_when_apply_template_disabled(self, caplog) -> None:
-        """--no-apply-template never warns, even on an already-templated prompt."""
-        cfg = GenaiPerfConfig(
-            bundle_dir=Path("x"),
-            warmup=0,
-            iterations=1,
-            max_new_tokens=2,
-            prompt="<chat>already formatted</chat>",
-            apply_template=False,
-        )
-        session = _FakeSession([_timing(0.4, 0.6, [0.4])], chat_template=True)
-        bench = GenaiPerfBenchmark(cfg, session=session)
-
-        with caplog.at_level(logging.WARNING):
-            bench.run()
-
-        assert "double-templating" not in caplog.text
-
-    def test_no_warning_when_bundle_ships_no_template(self, caplog) -> None:
-        """Bundles without a chat template can't double-template, so no warning."""
-        cfg = GenaiPerfConfig(
-            bundle_dir=Path("x"),
-            warmup=0,
-            iterations=1,
-            max_new_tokens=2,
-            prompt="<chat>already formatted</chat>",
-        )
-        session = _FakeSession([_timing(0.4, 0.6, [0.4])], chat_template=False)
-        bench = GenaiPerfBenchmark(cfg, session=session)
-
-        with caplog.at_level(logging.WARNING):
-            bench.run()
-
-        assert "double-templating" not in caplog.text
 
 
 class TestResultToDict:
