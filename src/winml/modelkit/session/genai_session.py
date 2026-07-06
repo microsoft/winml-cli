@@ -122,9 +122,8 @@ class GenerationConfig:
     """Search / sampling parameters for a single generation call.
 
     All parameters are forwarded to ``og.GeneratorParams.set_search_options``.
-    ``max_length`` is **not** configurable here — it is set to the bundle's
-    ``context_length`` (read from ``genai_config.json``) because the static KV
-    cache size is baked into the ONNX graphs at export time.
+    ``max_length`` is computed as ``len(prompt) + max_new_tokens``, capped at
+    the bundle's ``context_length``, so only the needed KV cache is allocated.
 
     Attributes:
         max_new_tokens: Soft cap on the number of new tokens to generate.
@@ -175,6 +174,8 @@ class GenerationTiming:
         first_token_s: Time to produce the first token, in seconds.
         decode_s: Per-token times for the steady-state decode phase (tokens
             after the first), in seconds.
+        response_text: Decoded model output text (empty string when not
+            captured).
     """
 
     input_tokens: int = 0
@@ -182,6 +183,7 @@ class GenerationTiming:
     prefill_s: float = 0.0
     first_token_s: float = 0.0
     decode_s: list[float] = field(default_factory=list)
+    response_text: str = ""
 
     @property
     def ttft_s(self) -> float:
@@ -339,7 +341,9 @@ class GenaiSession:
         # Register WinML EPs only when the bundle routes at least one stage to a
         # hardware EP.  This decision comes from genai_config.json, not the
         # ``ep`` argument (see #1025 for the planned override path).
-        if self._bundle_uses_hardware_ep(cfg):
+        hw_ep = self._bundle_uses_hardware_ep(cfg)
+        logger.info("Hardware EP detected in genai_config.json: %s", hw_ep)
+        if hw_ep is not None:
             self._register_eps()
 
         if self._verbose:
@@ -438,7 +442,7 @@ class GenaiSession:
         self._ensure_loaded()
         cfg = config or GenerationConfig()
         tokens = self._encode_prompt(prompt)
-        generator = self._new_generator(cfg)
+        generator = self._new_generator(cfg, len(tokens))
         generator.append_tokens(tokens)
 
         stream = self._tokenizer.create_stream()
@@ -489,7 +493,7 @@ class GenaiSession:
         self._ensure_loaded()
         cfg = config or GenerationConfig()
         tokens = self._encode_prompt(prompt)
-        generator = self._new_generator(cfg)
+        generator = self._new_generator(cfg, len(tokens))
 
         # marks[0]  = before prefill
         # marks[1]  = after prefill (append_tokens)
@@ -509,13 +513,32 @@ class GenaiSession:
         if generated == 0:
             raise GenaiSessionError("genai: generation produced no tokens (empty bundle output?)")
 
-        return GenerationTiming(
+        # Fetch all output tokens *after* the timing loop so that
+        # get_sequence() (which may trigger host/device copies on hardware EPs)
+        # does not pollute per-token decode measurements.
+        full_sequence = generator.get_sequence(0)
+        output_token_ids = list(full_sequence[len(tokens) :])
+
+        timing = GenerationTiming(
             input_tokens=len(tokens),
             generated_tokens=generated,
             prefill_s=marks[1] - marks[0],
             first_token_s=marks[2] - marks[1],
             decode_s=[marks[i + 1] - marks[i] for i in range(2, 1 + generated)],
+            response_text=str(self._tokenizer.decode(output_token_ids)),
         )
+        logger.info(
+            "generate_timed: input_tokens=%d generated_tokens=%d "
+            "prefill=%.3fs ttft=%.3fs tpot=%.3fs decode=%.1f tok/s total=%.3fs",
+            timing.input_tokens,
+            timing.generated_tokens,
+            timing.prefill_s,
+            timing.ttft_s,
+            timing.tpot_s,
+            timing.decode_tokens_per_sec,
+            timing.total_s,
+        )
+        return timing
 
     # ------------------------------------------------------------------
     # Chat-template helpers
@@ -638,16 +661,23 @@ class GenaiSession:
             return list(self._tokenizer.encode(prompt).tolist())
         return prompt
 
-    def _new_generator(self, cfg: GenerationConfig) -> Any:
+    def _new_generator(self, cfg: GenerationConfig, prompt_len: int) -> Any:
         """Build an ``og.Generator`` with search options from *cfg*.
+
+        ``max_length`` is set to ``prompt_len + cfg.max_new_tokens``, capped at
+        the bundle's ``context_length``.  This avoids pre-allocating KV cache
+        for the full context window (which can be 128K+ for DML bundles) when
+        only a small generation is requested.
 
         The prompt is **not** appended — callers decide whether to time
         ``append_tokens`` separately (see :meth:`generate_timed`).
         """
         og = self._import_og()
+        assert self._context_length is not None, "_new_generator called before load()"
+        max_length = min(prompt_len + cfg.max_new_tokens, self._context_length)
         params = og.GeneratorParams(self._model)
         params.set_search_options(
-            max_length=self._context_length,
+            max_length=max_length,
             do_sample=cfg.do_sample,
             temperature=cfg.temperature,
             top_p=cfg.top_p,
@@ -992,34 +1022,57 @@ class GenaiSession:
         return cfg
 
     @staticmethod
-    def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> bool:
-        """Return True if any pipeline stage routes to a non-CPU execution provider.
+    def _bundle_uses_hardware_ep(cfg: dict[str, Any]) -> str | None:
+        """Return the first non-CPU/DML EP name found, or ``None``.
 
         WinML EP discovery/registration is only required when the bundle's
         ``genai_config.json`` assigns at least one pipeline stage to a hardware
-        execution provider (QNN, DML, OpenVINO, …); a CPU-only bundle needs
-        none.  The decision is read from the bundle config itself — the only
-        provider name referenced is the universal ``"cpu"`` fallback alias, so
-        no hardware EP short name is hardcoded.
+        execution provider that needs WinML registration (QNN, OpenVINO, ...);
+        CPU and DML bundles need none.  The decision is read from the bundle
+        config itself.
+
+        Two config layouts are supported:
+
+        1. **Pipeline list** - ``model.decoder.pipeline[*].<stage>.session_options``
+        2. **Flat decoder** - ``model.decoder.session_options`` (no ``pipeline``
+           wrapper, used by e.g. OpenVINO exports).
         """
-        pipeline_list = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
+        skip_eps = frozenset({"cpu", "dml"})
+
+        def _first_hw_ep(so: object) -> str | None:
+            if not isinstance(so, dict):
+                return None
+            for entry in so.get("provider_options", []):
+                if not isinstance(entry, dict):
+                    continue
+                for name in entry:
+                    if str(name).lower() not in skip_eps:
+                        return str(name)
+            return None
+
+        decoder = cfg.get("model", {}).get("decoder", {})
+        if not isinstance(decoder, dict):
+            return None
+
+        # Layout 2: flat session_options directly on the decoder.
+        ep = _first_hw_ep(decoder.get("session_options"))
+        if ep is not None:
+            return ep
+
+        # Layout 1: pipeline list with per-stage session_options.
+        pipeline_list = decoder.get("pipeline", [])
         if not isinstance(pipeline_list, list):
-            return False
+            return None
         for stage_entry in pipeline_list:
             if not isinstance(stage_entry, dict):
                 continue
             for stage_cfg in stage_entry.values():
                 if not isinstance(stage_cfg, dict):
                     continue
-                so = stage_cfg.get("session_options", {})
-                if not isinstance(so, dict):
-                    continue
-                for entry in so.get("provider_options", []):
-                    if isinstance(entry, dict) and any(
-                        str(name).lower() != "cpu" for name in entry
-                    ):
-                        return True
-        return False
+                ep = _first_hw_ep(stage_cfg.get("session_options"))
+                if ep is not None:
+                    return ep
+        return None
 
     def _read_context_length(self) -> int:
         """Read ``model.context_length`` from ``genai_config.json``."""

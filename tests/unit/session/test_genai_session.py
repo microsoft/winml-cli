@@ -106,6 +106,10 @@ def mock_og() -> MagicMock:
         MagicMock(__getitem__=lambda s, i: 10),
         MagicMock(__getitem__=lambda s, i: 20),
     ]
+    # get_sequence returns the full sequence (prompt + generated tokens).
+    # Default prompt is "hi" which encodes to a single-element list, so the
+    # full sequence is [<prompt_token>, 10, 20].
+    gen.get_sequence.return_value = [0, 10, 20]
     og.Generator.return_value = gen
 
     # TokenizerStream decodes tokens to text
@@ -319,24 +323,24 @@ class TestBundleUsesHardwareEp:
     def _pipeline(*stages: dict) -> dict:
         return {"model": {"decoder": {"pipeline": list(stages)}}}
 
-    def test_empty_config_returns_false(self) -> None:
-        assert GenaiSession._bundle_uses_hardware_ep({}) is False
+    def test_empty_config_returns_none(self) -> None:
+        assert GenaiSession._bundle_uses_hardware_ep({}) is None
 
-    def test_no_pipeline_returns_false(self) -> None:
-        assert GenaiSession._bundle_uses_hardware_ep({"model": {"decoder": {}}}) is False
+    def test_no_pipeline_returns_none(self) -> None:
+        assert GenaiSession._bundle_uses_hardware_ep({"model": {"decoder": {}}}) is None
 
-    def test_cpu_only_stages_return_false(self) -> None:
+    def test_cpu_only_stages_return_none(self) -> None:
         cfg = self._pipeline(
             {"embeddings": {"filename": "embeddings.onnx", "session_options": {}}},
             {"lm_head": {"filename": "lm_head.onnx"}},
         )
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
-    def test_explicit_cpu_provider_returns_false(self) -> None:
+    def test_explicit_cpu_provider_returns_none(self) -> None:
         cfg = self._pipeline({"context": {"session_options": {"provider_options": [{"cpu": {}}]}}})
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
-    def test_qnn_stage_returns_true(self) -> None:
+    def test_qnn_stage_returns_ep_name(self) -> None:
         cfg = self._pipeline(
             {
                 "context": {
@@ -346,22 +350,42 @@ class TestBundleUsesHardwareEp:
                 }
             }
         )
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is True
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) == "qnn"
 
-    def test_mixed_cpu_and_hardware_returns_true(self) -> None:
+    def test_dml_only_returns_none(self) -> None:
         cfg = self._pipeline(
             {"embeddings": {"session_options": {}}},
             {"context": {"session_options": {"provider_options": [{"dml": {}}]}}},
         )
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is True
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
-    def test_malformed_entries_return_false(self) -> None:
+    def test_malformed_entries_return_none(self) -> None:
         cfg = {"model": {"decoder": {"pipeline": ["not-a-dict", {"x": "not-a-dict"}, {}]}}}
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
-    def test_provider_options_not_a_list_returns_false(self) -> None:
+    def test_provider_options_not_a_list_returns_none(self) -> None:
         cfg = self._pipeline({"context": {"session_options": {"provider_options": {}}}})
-        assert GenaiSession._bundle_uses_hardware_ep(cfg) is False
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
+
+    # Flat-decoder layout (no pipeline wrapper) ----------------------------
+
+    def test_flat_decoder_openvino_returns_ep_name(self) -> None:
+        cfg = {
+            "model": {
+                "decoder": {
+                    "session_options": {"provider_options": [{"OpenVINO": {"device_type": "NPU"}}]}
+                }
+            }
+        }
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) == "OpenVINO"
+
+    def test_flat_decoder_cpu_only_returns_none(self) -> None:
+        cfg = {"model": {"decoder": {"session_options": {"provider_options": [{"cpu": {}}]}}}}
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
+
+    def test_flat_decoder_no_provider_options_returns_none(self) -> None:
+        cfg = {"model": {"decoder": {"session_options": {"log_id": "test"}}}}
+        assert GenaiSession._bundle_uses_hardware_ep(cfg) is None
 
 
 # ---------------------------------------------------------------------------
@@ -570,12 +594,27 @@ class TestGenerateTimed:
             assert session.is_loaded
 
     def test_uses_context_length_as_max_length(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        """max_length = min(prompt_len + max_new_tokens, context_length)."""
         clock = _clock_from([0.0, 1.0, 2.5, 3.0])
         with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=128) as session:
             session.generate_timed([1, 2, 3], clock=clock)
 
         params = mock_og.GeneratorParams.return_value
+        # prompt_len=3 + max_new_tokens=128 = 131, capped at context_length=128
         assert params.set_search_options.call_args.kwargs["max_length"] == 128
+
+    def test_max_length_is_prompt_plus_max_new_tokens(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        """When context_length is large, max_length = prompt_len + max_new_tokens."""
+        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        cfg = GenerationConfig(max_new_tokens=64)
+        with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=131072) as session:
+            session.generate_timed([1, 2, 3, 4, 5], cfg, clock=clock)
+
+        params = mock_og.GeneratorParams.return_value
+        # prompt_len=5 + max_new_tokens=64 = 69, well under context_length
+        assert params.set_search_options.call_args.kwargs["max_length"] == 69
 
 
 # ---------------------------------------------------------------------------
