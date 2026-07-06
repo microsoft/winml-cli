@@ -1,0 +1,29 @@
+{
+  "model_id": "Intel/dpt-hybrid-midas",
+  "model_path": "C:\\Users\\zhenni\\repos\\winml-cli\\temp\\example_builds\\migraphx\\gpu\\Intel_dpt-hybrid-midas\\depth-estimation_fp16\\model.onnx",
+  "task": "depth-estimation",
+  "device": "gpu",
+  "ep": "migraphx",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "sayakpaul/nyu_depth_v2",
+    "columns_mapping": {
+      "input_column": "image",
+      "depth_column": "depth_map",
+      "depth_kind": "disparity"
+    },
+    "revision": "refs/convert/parquet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\winml-cli\\examples\\migraphx\\gpu\\Intel_dpt-hybrid-midas\\depth-estimation_fp16_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "abs_rel": 0.11856487519295442,
+    "rmse": 0.6073621730570986,
+    "delta1": 0.8607297216657986,
+    "num_images": 100,
+    "num_valid_pixels": 30714012
+  }
+}

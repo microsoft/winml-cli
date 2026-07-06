@@ -1,0 +1,29 @@
+{
+  "model_id": "depth-anything/Depth-Anything-V2-Base-hf",
+  "model_path": "C:\\Users\\zhenni\\repos\\winml-cli\\temp\\example_builds\\migraphx\\gpu\\depth-anything_Depth-Anything-V2-Base-hf\\depth-estimation_fp16\\model.onnx",
+  "task": "depth-estimation",
+  "device": "gpu",
+  "ep": "migraphx",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "sayakpaul/nyu_depth_v2",
+    "columns_mapping": {
+      "input_column": "image",
+      "depth_column": "depth_map",
+      "depth_kind": "disparity"
+    },
+    "revision": "refs/convert/parquet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\winml-cli\\examples\\migraphx\\gpu\\depth-anything_Depth-Anything-V2-Base-hf\\depth-estimation_fp16_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "abs_rel": 0.08125744435267256,
+    "rmse": 0.4472789513457803,
+    "delta1": 0.9323197470964353,
+    "num_images": 100,
+    "num_valid_pixels": 30669714
+  }
+}
