@@ -91,6 +91,13 @@ console = Console()
     help="Use symmetric quantization",
 )
 @click.option(
+    "--reduce-range/--no-reduce-range",
+    default=False,
+    show_default=True,
+    help="Quantize weights with 7 bits to reduce int8 saturation on pre-VNNI "
+    "CPUs (dynamic quantization only; ignored by other precisions).",
+)
+@click.option(
     "--task",
     type=str,
     default=None,
@@ -116,6 +123,7 @@ def quantize(
     activation_type: str | None,
     per_channel: bool,
     symmetric: bool,
+    reduce_range: bool,
     task: str | None,
     model_id: str | None,
     verbose: int,
@@ -145,6 +153,9 @@ def quantize(
 
         # Dynamic quantization (no calibration data needed)
         winml quantize -m model.onnx --precision dynamic
+
+        # Dynamic quantization with int8 weights + reduced range (pre-VNNI CPUs)
+        winml quantize -m model.onnx --precision dynamic --weight-type int8 --reduce-range
 
         # RTN int4 followed by FP16 conversion (two-pass pipeline)
         winml quantize -m model.onnx --precision int4 --precision fp16
@@ -182,6 +193,8 @@ def quantize(
             per_channel = qc["per_channel"]
         if not cli_utils.is_cli_provided(ctx, "symmetric") and "symmetric" in qc:
             symmetric = qc["symmetric"]
+        if not cli_utils.is_cli_provided(ctx, "reduce_range") and "reduce_range" in qc:
+            reduce_range = qc["reduce_range"]
         if not cli_utils.is_cli_provided(ctx, "task") and "task" in qc:
             task = qc["task"]
         if not cli_utils.is_cli_provided(ctx, "model_id") and "model_id" in qc:
@@ -204,6 +217,7 @@ def quantize(
             activation_type=activation_type,
             per_channel=per_channel,
             symmetric=symmetric,
+            reduce_range=reduce_range,
             task=task,
             model_id=model_id,
             console=console,
@@ -249,6 +263,7 @@ def quantize(
             weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
             per_channel=per_channel,
             symmetric=symmetric,
+            reduce_range=reduce_range,
         )
         label = "Dynamic quantization"
         console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
@@ -366,6 +381,7 @@ def _run_multi_precision(
     activation_type: str | None,
     per_channel: bool,
     symmetric: bool,
+    reduce_range: bool,
     task: str | None,
     model_id: str | None,
     console: Console,
@@ -407,6 +423,7 @@ def _run_multi_precision(
         activation_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_activation),
         per_channel=per_channel,
         symmetric=symmetric,
+        reduce_range=reduce_range,
         task=task,
         model_id=model_id,
     )

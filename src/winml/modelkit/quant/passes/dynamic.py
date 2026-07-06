@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 #   - DequantizeLinear: restores a statically-quantized weight/embedding back to
 #     float when it is consumed by a non-integer op (e.g. an embedding Gather
 #     feeding an Add). This is empirically confirmed on embedding models.
+# Including DequantizeLinear makes the count a heuristic: a DQL node could in
+# principle originate from something other than a quantized-weight restore, so
+# ``nodes_quantized`` may slightly over-count. That is acceptable because it is a
+# reporting metric only (not correctness-critical), analogous to — if fuzzier
+# than — the static pass's QDQ-op count.
 # QuantizeLinear is intentionally excluded: quantize_dynamic emits
 # DynamicQuantizeLinear (not QuantizeLinear) for activations and stores weights
 # as pre-quantized initializers, so a static QuantizeLinear never appears in its
