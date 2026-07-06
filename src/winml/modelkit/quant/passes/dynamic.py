@@ -24,15 +24,23 @@ logger = logging.getLogger(__name__)
 
 # ONNX operator types introduced by dynamic quantization (QOperator format).
 # Counting these gives a universal, architecture-agnostic measure of how many
-# nodes were quantized — analogous to how the static pass counts QDQ ops. The
-# integer-op / DynamicQuantizeLinear markers are standard ai.onnx operators, so
-# this stays model-agnostic (no architecture-specific names).
+# nodes were quantized — analogous to how the static pass counts QDQ ops. These
+# are all standard ai.onnx operators, so this stays model-agnostic (no
+# architecture-specific names):
+#   - DynamicQuantizeLinear: runtime activation quantization.
+#   - MatMulInteger / ConvInteger: integer compute over quantized operands.
+#   - DequantizeLinear: restores a statically-quantized weight/embedding back to
+#     float when it is consumed by a non-integer op (e.g. an embedding Gather
+#     feeding an Add). This is empirically confirmed on embedding models.
+# QuantizeLinear is intentionally excluded: quantize_dynamic emits
+# DynamicQuantizeLinear (not QuantizeLinear) for activations and stores weights
+# as pre-quantized initializers, so a static QuantizeLinear never appears in its
+# output.
 _DYNAMIC_QUANT_OP_TYPES: frozenset[str] = frozenset(
     {
         "DynamicQuantizeLinear",
         "MatMulInteger",
         "ConvInteger",
-        "QuantizeLinear",
         "DequantizeLinear",
     }
 )

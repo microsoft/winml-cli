@@ -547,6 +547,41 @@ class TestDynamicPassConfig:
         assert init_kwargs["weight_type"] == QuantType.QInt8
         assert any("8-bit" in w for w in result.warnings)
 
+    def test_dequantizelinear_counted_but_quantizelinear_not(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DequantizeLinear (weight/embedding restore) is counted as a quantized
+        node; a stray static QuantizeLinear is not.
+
+        Embedding models emit DequantizeLinear when a statically-quantized
+        embedding feeds a non-integer op (e.g. Gather -> Add), so it must count
+        toward ``nodes_quantized``. QuantizeLinear never appears in
+        ``quantize_dynamic`` output and must be ignored.
+        """
+        config = WinMLQuantizationConfig(mode="dynamic")
+        model_path = tmp_path / "model.onnx"
+        model_path.write_text("x")
+
+        init_kwargs: dict = {}
+        _patch_quantize_dynamic(monkeypatch, init_kwargs)
+        fake_model = SimpleNamespace(
+            graph=SimpleNamespace(
+                node=[
+                    SimpleNamespace(op_type="DynamicQuantizeLinear"),
+                    SimpleNamespace(op_type="MatMulInteger"),
+                    SimpleNamespace(op_type="DequantizeLinear"),
+                    SimpleNamespace(op_type="QuantizeLinear"),  # must NOT count
+                    SimpleNamespace(op_type="Add"),
+                ]
+            )
+        )
+        _install_fake_onnx_for_dynamic(monkeypatch, fake_model)
+
+        result = DynamicPass(config).run(model_path, tmp_path / "out.onnx")
+        # DynamicQuantizeLinear + MatMulInteger + DequantizeLinear = 3.
+        # QuantizeLinear and Add are excluded.
+        assert result.nodes_quantized == 3
+
 
 # ---------------------------------------------------------------------------
 # WinMLQuantizationConfig — dynamic serialization
