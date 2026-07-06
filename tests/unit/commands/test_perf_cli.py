@@ -864,6 +864,8 @@ class TestFormatInputShape:
             "input_names": ["pixel_values"],
             "input_shapes": [[None, 3, 64, 64]],
             "input_types": ["float32"],
+            "output_names": ["logits"],
+            "output_shapes": [[None, 1000]],
         }
         buf = _io.StringIO()
         with contextlib.redirect_stderr(buf):
@@ -871,7 +873,10 @@ class TestFormatInputShape:
                 io_config,
                 actual_shapes={"pixel_values": (10, 3, 64, 64)},
             )
-        assert "[dynamic(10), 3, 64, 64]" in buf.getvalue()
+        out = buf.getvalue()
+        assert "[dynamic(10), 3, 64, 64]" in out
+        # Outputs have no generated data, so dynamic dims render bare.
+        assert "[dynamic, 1000]" in out
 
 
 class TestPerfFormatJson:

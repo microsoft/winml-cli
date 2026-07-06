@@ -1468,7 +1468,8 @@ def _print_model_info(
         pad = "             "
         for i, name in enumerate(out_names):
             shape = out_shapes[i] if i < len(out_shapes) else []
-            console.print(f"{label if i == 0 else pad}{name:<20s} {shape!s}")
+            shape_str = escape(_format_input_shape(shape, None))
+            console.print(f"{label if i == 0 else pad}{name:<20s} {shape_str}")
 
     console.print()
 
