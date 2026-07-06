@@ -24,6 +24,7 @@ Examples:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -58,7 +59,19 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
         logger.debug("Could not parse external data from %s", onnx_path, exc_info=True)
 
     if onnx_path.exists():
-        onnx_path.unlink()
+        with contextlib.suppress(OSError):
+            onnx_path.unlink()
+
+
+def _cleanup_partial_composite(written: list[Path]) -> None:
+    """Remove sub-model ONNX outputs written by a composite export that failed mid-run.
+
+    Best-effort: a failed run should not leave a half-exported composite on disk.
+    Each path is deleted together with its external-data sidecars.
+    """
+    for onnx_path in written:
+        _delete_onnx_with_external_data(onnx_path)
+        logger.debug("Cleaned up partial composite sub-model: %s", onnx_path)
 
 
 @click.command()
@@ -433,9 +446,10 @@ def export(
     # Detect a composite pipeline (registry-driven). A composite fans out into one
     # ONNX per sub-component, each written next to <output> with a _<component>
     # stem suffix; a plain model exports to the single output path as before.
-    # Detection is best-effort for unresolvable HF configs (we fall through to the
-    # single-model path), but intentional loud guards (empty registry / model-task
-    # incompatibility) are re-raised below rather than masked.
+    # Detection suppresses only the expected "not a resolvable HF config" case
+    # (OSError — e.g. the model reference isn't a hub id / has no local config);
+    # intentional loud guards (empty registry, model-task incompatibility) and any
+    # unexpected failure are surfaced rather than masked as "not composite".
     components = None
     try:
         from ..loader.resolution import resolve_composite_components
@@ -453,8 +467,16 @@ def export(
         # registrations moved/renamed refactor mistake); never mask it as
         # "not composite".
         raise
+    except OSError as e:
+        # Expected "unavailable" case: the model reference can't be loaded as a HF
+        # config (not a hub id / no local config.json). Fall through to the
+        # single-model export path, which surfaces its own load error if the
+        # reference is truly invalid.
+        logger.debug("Composite detection unavailable (config not resolvable): %s", e)
     except Exception as e:
-        logger.debug("Composite detection unavailable, treating as single model: %s", e)
+        # Anything else is unexpected: surface it loudly rather than silently
+        # producing a single-model artifact for a possibly-composite model.
+        raise click.ClickException(f"Composite model detection failed unexpectedly: {e}") from e
 
     try:
         console.print("\n[bold]Starting HTP export...[/bold]")
@@ -477,11 +499,29 @@ def export(
             # composite's sub-tasks map to distinct model classes/heads (e.g.
             # decoder-prefill vs. decoder-with-past), so the full model is
             # reloaded per component — this N-load cost is intentional.
-            for name, component_task in components.items():
-                sub_out = output_path.with_stem(f"{output_path.stem}_{name}")
+            sub_outputs = {
+                name: output_path.with_stem(f"{output_path.stem}_{name}") for name in components
+            }
+            # Guard every target up front so an overwrite collision on a later
+            # component can't leave an earlier one already written.
+            for sub_out in sub_outputs.values():
                 cli_utils.guard_output(sub_out, overwrite)
-                console.print(f"\n[bold blue]Sub-model:[/bold blue] {name} (task={component_task})")
-                _run_component_export(component_task, sub_out)
+
+            # If a component fails, remove the sub-models this invocation already
+            # wrote (plus the partial output of the failing one) so we don't leave
+            # a half-exported composite behind.
+            written: list[Path] = []
+            try:
+                for name, component_task in components.items():
+                    sub_out = sub_outputs[name]
+                    console.print(
+                        f"\n[bold blue]Sub-model:[/bold blue] {name} (task={component_task})"
+                    )
+                    written.append(sub_out)
+                    _run_component_export(component_task, sub_out)
+            except BaseException:
+                _cleanup_partial_composite(written)
+                raise
         else:
             cli_utils.guard_output(output_path, overwrite)
             _run_component_export(task, output_path)

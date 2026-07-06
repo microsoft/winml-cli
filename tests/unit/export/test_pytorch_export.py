@@ -10,6 +10,7 @@ HTPExporter correctly uses WinMLExportConfig for I/O specs.
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import onnx
@@ -428,3 +429,69 @@ class TestStaleExternalDataCleanup:
         HTPExporter._cleanup_stale_external_data(str(model_path), [])
 
         assert {p.name for p in tmp_path.iterdir()} == before
+
+    def test_export_path_leaves_only_referenced_sidecars(self, tmp_path) -> None:
+        """End-to-end: HTPExporter.export() must prune raw per-tensor sidecars.
+
+        Drives the real export pipeline but makes the raw ONNX step emit per-tensor
+        external-data sidecars (as the TorchScript exporter does). After Step 7's
+        re-save, the output directory must contain no orphaned per-tensor sidecars —
+        every remaining external-data file must still be referenced by the final
+        model. This proves the pre-consolidation capture and post-consolidation
+        cleanup stay wired into ``export()``, not just the private helper.
+        """
+        from onnx.external_data_helper import convert_model_to_external_data
+
+        from winml.modelkit.export.htp.exporter import HTPExporter
+        from winml.modelkit.onnx import get_external_data_files
+
+        class BigLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(256, 256)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        real_convert = HTPExporter._convert_model_to_onnx
+        raw_sidecars: list[str] = []
+
+        def convert_with_per_tensor_sidecars(
+            self, model, output_path, inputs, export_config, task=None
+        ):
+            # Produce a valid graph via the real converter, then rewrite every
+            # initializer as its own external sidecar to mimic the raw exporter.
+            real_convert(self, model, output_path, inputs, export_config, task=task)
+            out = Path(output_path).resolve()
+            loaded = onnx.load(str(out))
+            convert_model_to_external_data(loaded, all_tensors_to_one_file=False, size_threshold=0)
+            onnx.save(loaded, str(out))
+            raw_sidecars.extend(get_external_data_files(out))
+
+        model_path = tmp_path / "model.onnx"
+        config = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 256))],
+        )
+
+        with patch.object(
+            HTPExporter,
+            "_convert_model_to_onnx",
+            new=convert_with_per_tensor_sidecars,
+        ):
+            export_pytorch(BigLinear(), model_path, config)
+
+        # Sanity: the raw step really did emit multiple per-tensor sidecars.
+        assert len(raw_sidecars) >= 2, "expected the raw export to emit per-tensor sidecars"
+
+        referenced = set(get_external_data_files(model_path))
+        # Every external-data file left in the directory must still be referenced;
+        # the raw per-tensor sidecars that consolidation orphaned are gone.
+        remaining_sidecars = {
+            p.name
+            for p in tmp_path.iterdir()
+            if p.name != model_path.name and p.suffix not in {".json", ".onnx"}
+        }
+        assert remaining_sidecars == referenced
+        for name in raw_sidecars:
+            if name not in referenced:
+                assert not (tmp_path / name).exists(), f"orphan {name} must be pruned"
