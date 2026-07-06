@@ -370,6 +370,8 @@ def finalize_transformer_only_quant_config(
     # quantizer dispatch on ``config.mode`` (fp16/rtn/static), so a build whose
     # precision policy resolved to "fp16"/"rtn" would otherwise bypass QDQ and
     # silently ignore the calibration reader + GQA exclusion set below.
+    # uint16 activations give higher precision than uint8; the trade-off is that
+    # ORT requires opset >= 21 for 16-bit QDQ, so ctx/iter will export at opset 21.
     quant.mode = "static"
     quant.weight_type = "int8"
     quant.activation_type = "uint16"

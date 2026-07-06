@@ -61,6 +61,30 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
         onnx_path.unlink()
 
 
+def _warn_partial_composite(completed: list[Path]) -> None:
+    """Warn that a composite export failed mid-run, listing what was written.
+
+    We deliberately do NOT delete anything: the targets may be pre-existing files
+    the user chose to ``--overwrite``, and a component can fail before touching its
+    file, so auto-deleting could destroy artifacts this run never actually wrote.
+    Instead we surface the completed sub-models and let the user decide whether to
+    keep or remove the partial composite.
+    """
+    if not completed:
+        return
+    console.print(
+        "\n[yellow]Warning:[/yellow] composite export did not finish; "
+        f"{len(completed)} sub-model(s) were written/updated by this run:"
+    )
+    for onnx_path in completed:
+        console.print(f"  • {onnx_path}")
+    console.print(
+        "[yellow]The export did not complete for every sub-model.[/yellow] "
+        "Review these files and remove them if you don't want to keep the "
+        "partial export."
+    )
+
+
 @click.command()
 @cli_utils.model_option(
     required=True,
@@ -127,16 +151,6 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     default=None,
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
-@click.option(
-    "--submodel",
-    type=str,
-    default=None,
-    help=(
-        "Export a specific sub-model from a composite model "
-        "(e.g., 'encoder', 'decoder'). "
-        "Omit to export all sub-models automatically."
-    ),
-)
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
@@ -157,7 +171,6 @@ def export(
     input_specs: Path | None,
     export_config: Path | None,
     shape_config: Path | None,
-    submodel: str | None,
     config_file: Path | None,
 ) -> None:
     r"""Export HuggingFace model to ONNX format with HTP.
@@ -200,13 +213,22 @@ def export(
 
         # Custom ONNX export configuration
         winml export -m bert-base-uncased -o bert.onnx --export-config config.json
-
-        # Export all sub-models of a composite model (auto-detected)
-        winml export -m google-t5/t5-small --task translation -o t5.onnx
-
-        # Export only the encoder sub-model
-        winml export -m google-t5/t5-small --task translation -o t5.onnx --submodel encoder
     """
+    # Classify the -m value once (existence-first). Export only works with
+    # HuggingFace model IDs — reject ONNX files and folders early.
+    if model:
+        model_input = cli_utils.classify_model_input(model)
+        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
+            raise click.UsageError(
+                "export requires a HuggingFace model ID, not an ONNX file. "
+                "Use 'winml inspect -m model.onnx' to inspect an existing ONNX model."
+            )
+        if model_input.kind is cli_utils.ModelInputKind.FOLDER:
+            raise click.UsageError(
+                "export requires a HuggingFace model ID, not a directory. "
+                "Provide a HuggingFace model ID (e.g., prajjwal1/bert-tiny)."
+            )
+
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
 
@@ -229,6 +251,7 @@ def export(
         if not cli_utils.is_cli_provided(ctx, "dynamo") and "dynamo" in ec:
             dynamo = ec["dynamo"]
 
+    from ..export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
     from ..export import export_pytorch as export_onnx
     from ..loader import load_hf_model
 
@@ -255,10 +278,7 @@ def export(
 
     output_path = Path(output)
 
-    # Create output directory if needed
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load export configuration from JSON file if provided, or create default
+    # Load export configuration from JSON file if provided (task-independent).
     export_config_dict: dict = {}
     if export_config:
         try:
@@ -269,7 +289,7 @@ def export(
             console.print(f"[bold red]Failed to load export config:[/bold red] {e}")
             raise click.ClickException(f"Failed to load export config: {e}") from e
 
-    # Load shape overrides from JSON
+    # Load shape overrides from JSON (task-independent).
     shape_overrides = None
     if shape_config:
         try:
@@ -286,7 +306,7 @@ def export(
             ) from e
         console.print(f"[dim]Shape overrides: {shape_overrides}[/dim]")
 
-    # Parse torch-module option
+    # One-time warnings (apply to every sub-model in a composite export).
     if torch_module:
         console.print(
             "[yellow]Warning:[/yellow] --torch-module is not yet supported in export_onnx(). "
@@ -297,8 +317,6 @@ def export(
             "TODO: Add torch_module support to export_onnx() and WinMLExportConfig.",
             torch_module,
         )
-
-    # Handle --dynamo flag
     if dynamo:
         console.print(
             "[yellow]Warning:[/yellow] --dynamo is not yet supported in export_onnx(). "
@@ -309,263 +327,235 @@ def export(
             "TODO: Add dynamo support to WinMLExportConfig if needed."
         )
 
-    # ── Composite model detection ──────────────────────────────────────
-    # Resolve whether this is a composite (multi-component) model.
-    # When --submodel is given, validate it against the composite's
-    # components and export only that one.  When omitted and the model
-    # is composite, export every sub-model automatically.
-    composite_components = _resolve_composite_model_components(model, task)
+    def _run_component_export(component_task: str | None, out_path: Path) -> None:
+        """Resolve I/O, build config, load, and export one (model, task) to ``out_path``."""
+        from ..export import ONNXConfigNotFoundError
 
-    if submodel is not None:
-        if composite_components is None:
-            raise click.ClickException(
-                f"--submodel '{submodel}' was specified, but '{model}' "
-                f"is not a composite model (no sub-models detected)."
-            )
-        if submodel not in composite_components:
-            raise click.ClickException(
-                f"Unknown sub-model '{submodel}'. "
-                f"Available: {', '.join(composite_components.keys())}"
-            )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if composite_components is not None:
-        # Determine which components to export
-        if submodel is not None:
-            targets = {submodel: composite_components[submodel]}
-        else:
-            targets = composite_components
+        # Load input/output specifications.
+        #
+        # We ALWAYS run Optimum auto-resolution because it provides authoritative
+        # output_tensors (names that match the actual ONNX graph). --input-specs
+        # then overrides input_tensors only; output_tensors stays from Optimum so
+        # tasks like feature-extraction don't trip torch.onnx.export with extra
+        # dataclass field names that aren't in the traced graph.
+        input_tensors: list[InputTensorSpec] | None = None
+        output_tensors: list[OutputTensorSpec] | None = None
 
-        console.print(f"[bold blue]Composite model:[/bold blue] {', '.join(targets.keys())}")
+        try:
+            from ..export import resolve_export_config as resolve_cfg
 
-        exported_paths: list[Path] = []
-        for component_name, component_task in targets.items():
-            component_output = output_path.with_stem(f"{output_path.stem}_{component_name}")
-            cli_utils.guard_output(component_output, overwrite)
-            console.print(
-                f"\n[bold]Exporting sub-model '{component_name}' (task={component_task})...[/bold]"
-            )
-            _export_single_model(
-                ctx=ctx,
+            auto_export_cfg, _ = resolve_cfg(
                 model_id=model,
                 task=component_task,
-                output_path=component_output,
-                overwrite=overwrite,
-                verbose=verbose,
-                with_report=with_report,
-                hierarchy=hierarchy,
-                dynamo=dynamo,
-                input_specs=input_specs,
-                export_config_dict=export_config_dict,
-                shape_overrides=shape_overrides,
-                build_export_dict=_build_export_dict,
-                export_onnx_fn=export_onnx,
-                load_hf_model_fn=load_hf_model,
+                shape_config=shape_overrides,
             )
-            exported_paths.append(component_output)
-
-        console.print("\n[bold green]All sub-models exported![/bold green]")
-        for p in exported_paths:
-            console.print(f"  {p}")
-        return
-
-    # ── Single (non-composite) model export ────────────────────────────
-    cli_utils.guard_output(output_path, overwrite)
-    _export_single_model(
-        ctx=ctx,
-        model_id=model,
-        task=task,
-        output_path=output_path,
-        overwrite=overwrite,
-        verbose=verbose,
-        with_report=with_report,
-        hierarchy=hierarchy,
-        dynamo=dynamo,
-        input_specs=input_specs,
-        export_config_dict=export_config_dict,
-        shape_overrides=shape_overrides,
-        build_export_dict=_build_export_dict,
-        export_onnx_fn=export_onnx,
-        load_hf_model_fn=load_hf_model,
-    )
-    console.print(f"\n[bold green]Success![/bold green] Model exported to: {output_path}")
-
-    if with_report:
-        base_name = output_path.stem
-        report_dir = output_path.parent
-        console.print("\n[bold]Generated reports:[/bold]")
-        md_report = report_dir / f"{base_name}_htp_export_report.md"
-        json_metadata = report_dir / f"{base_name}_htp_metadata.json"
-        if md_report.exists():
-            console.print(f"  Markdown: {md_report}")
-        if json_metadata.exists():
-            console.print(f"  JSON: {json_metadata}")
-
-
-def _resolve_composite_model_components(
-    hf_model: str,
-    task: str | None,
-) -> dict[str, str] | None:
-    """Resolve the composite ``_SUB_MODEL_CONFIG`` for a model, else ``None``.
-
-    Two detection paths:
-    - Explicit ``--task``: direct registry lookup via ``resolve_composite``.
-    - No ``--task``: ``resolve_task`` auto-detects the task and returns
-      the composite bridge (its ``.composite`` field), if any.
-    """
-    from transformers import AutoConfig
-
-    from ..loader.resolution import resolve_composite, resolve_task
-
-    try:
-        hf_config = AutoConfig.from_pretrained(hf_model)
-    except Exception:
-        return None
-
-    if task is not None:
-        return resolve_composite(hf_config.model_type, task)
-
-    return resolve_task(hf_config).composite
-
-
-def _export_single_model(
-    *,
-    ctx: click.Context,
-    model_id: str,
-    task: str | None,
-    output_path: Path,
-    overwrite: bool,
-    verbose: int,
-    with_report: bool,
-    hierarchy: bool,
-    dynamo: bool,
-    input_specs: Path | None,
-    export_config_dict: dict,
-    shape_overrides: dict | None,
-    build_export_dict: dict,
-    export_onnx_fn: object,
-    load_hf_model_fn: object,
-) -> None:
-    """Export a single (non-composite) model to ONNX.
-
-    Shared by both the single-model path and the per-component loop
-    for composite models.
-    """
-    from ..export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
-
-    # ── I/O tensor auto-resolution ─────────────────────────────────────
-    input_tensors: list[InputTensorSpec] | None = None
-    output_tensors: list[OutputTensorSpec] | None = None
-
-    from ..export import ONNXConfigNotFoundError
-
-    try:
-        from ..export import resolve_export_config as resolve_cfg
-
-        auto_export_cfg, _ = resolve_cfg(
-            model_id=model_id,
-            task=task,
-            shape_config=shape_overrides,
-        )
-        if auto_export_cfg.input_tensors:
-            input_tensors = auto_export_cfg.input_tensors
-            console.print(
-                f"[dim]Auto-resolved input specs: {[t.name for t in input_tensors]}[/dim]"
-            )
-        if auto_export_cfg.output_tensors:
-            output_tensors = auto_export_cfg.output_tensors
-            console.print(
-                f"[dim]Auto-resolved output specs: {[t.name for t in output_tensors]}[/dim]"
-            )
-    except ONNXConfigNotFoundError as e:
-        logger.debug("I/O tensor auto-resolution unavailable: %s", e)
-    except ValueError as e:
-        raise click.UsageError(str(e)) from e
-    except Exception as e:
-        logger.debug("I/O tensor auto-resolution failed: %s", e)
-
-    # --input-specs overrides individual fields on the auto-resolved input_tensors.
-    if input_specs:
-        try:
-            with input_specs.open() as f:
-                input_specs_dict = json.load(f)
-        except Exception as e:
-            console.print(f"[bold red]Failed to load input specs:[/bold red] {e}")
-            raise click.ClickException(f"Failed to load input specs: {e}") from e
-
-        if input_tensors is None:
-            input_tensors = []
-        by_name = {t.name: t for t in input_tensors}
-        for name, spec in input_specs_dict.items():
-            shape = tuple(spec["shape"]) if spec.get("shape") else None
-            dtype = spec.get("dtype")
-            if name in by_name:
-                existing = by_name[name]
-                if dtype is not None:
-                    existing.dtype = dtype
-                if shape is not None:
-                    existing.shape = shape
-            else:
-                input_tensors.append(
-                    InputTensorSpec(name=name, dtype=dtype or "float32", shape=shape)
+            if auto_export_cfg.input_tensors:
+                input_tensors = auto_export_cfg.input_tensors
+                console.print(
+                    f"[dim]Auto-resolved input specs: {[t.name for t in input_tensors]}[/dim]"
                 )
-        console.print(f"[dim]Applied input-spec overrides: {list(input_specs_dict.keys())}[/dim]")
+            if auto_export_cfg.output_tensors:
+                output_tensors = auto_export_cfg.output_tensors
+                console.print(
+                    f"[dim]Auto-resolved output specs: {[t.name for t in output_tensors]}[/dim]"
+                )
+        except ONNXConfigNotFoundError as e:
+            # model_type is not registered in Optimum's TasksManager (e.g. CLIP/SigLIP
+            # sub-encoder variants like clip-text-model / clip-vision-model that only
+            # live in MODEL_BUILD_CONFIGS, or a model_type from a newer transformers
+            # release we don't know yet). Fall through: downstream MODEL_BUILD_CONFIGS
+            # lookup or user-supplied --input-specs takes over.
+            logger.debug("I/O tensor auto-resolution unavailable: %s", e)
+        except ValueError as e:
+            # Mirrors `winml config`: surface (model, task) incompatibility raised by
+            # Optimum's TasksManager as a clean usage error instead of letting it fall
+            # through to a misleading "Unrecognized configuration class" traceback
+            # later in load_hf_model.
+            raise click.UsageError(str(e)) from e
+        except Exception as e:
+            logger.debug("I/O tensor auto-resolution failed: %s", e)
 
-    # ── Build WinMLExportConfig ────────────────────────────────────────
-    config_kwargs: dict = {}
-    config_kwargs.update(build_export_dict)
-    config_kwargs.update(export_config_dict)
-    if cli_utils.is_cli_provided(ctx, "hierarchy") or cli_utils.is_cli_provided(ctx, "clean_onnx"):
-        config_kwargs["enable_hierarchy_tags"] = hierarchy
-    if cli_utils.is_cli_provided(ctx, "verbose"):
-        config_kwargs["verbose"] = bool(verbose)
-    if cli_utils.is_cli_provided(ctx, "dynamo"):
-        config_kwargs["dynamo"] = dynamo
+        # --input-specs overrides individual fields on the auto-resolved input_tensors.
+        # Names matched against auto-resolve get their dtype/shape patched; unknown
+        # names are appended. output_tensors are left untouched.
+        if input_specs:
+            try:
+                with input_specs.open() as f:
+                    input_specs_dict = json.load(f)
+            except Exception as e:
+                console.print(f"[bold red]Failed to load input specs:[/bold red] {e}")
+                raise click.ClickException(f"Failed to load input specs: {e}") from e
 
-    if input_tensors:
-        config_kwargs["input_tensors"] = input_tensors
-    if output_tensors:
-        config_kwargs["output_tensors"] = output_tensors
+            if input_tensors is None:
+                input_tensors = []
+            by_name = {t.name: t for t in input_tensors}
+            for name, spec in input_specs_dict.items():
+                shape = tuple(spec["shape"]) if spec.get("shape") else None
+                dtype = spec.get("dtype")
+                if name in by_name:
+                    existing = by_name[name]
+                    if dtype is not None:
+                        existing.dtype = dtype
+                    if shape is not None:
+                        existing.shape = shape
+                else:
+                    input_tensors.append(
+                        InputTensorSpec(name=name, dtype=dtype or "float32", shape=shape)
+                    )
+            console.print(
+                f"[dim]Applied input-spec overrides: {list(input_specs_dict.keys())}[/dim]"
+            )
 
-    try:
-        cfg = WinMLExportConfig.from_dict(config_kwargs)
-    except Exception as e:
-        console.print(f"[bold red]Configuration error:[/bold red] {e}")
-        logger.exception("Failed to create export config")
-        raise click.ClickException(f"Configuration error: {e}") from e
+        # Build WinMLExportConfig from loaded settings
+        config_kwargs: dict = {}
+        # Layer 1: build config defaults (lowest precedence)
+        config_kwargs.update(_build_export_dict)
+        # Layer 2: --export-config file overrides
+        config_kwargs.update(export_config_dict)
+        # Layer 3: explicit CLI options (highest precedence)
+        if cli_utils.is_cli_provided(ctx, "hierarchy") or cli_utils.is_cli_provided(
+            ctx, "clean_onnx"
+        ):
+            config_kwargs["enable_hierarchy_tags"] = hierarchy
+        if cli_utils.is_cli_provided(ctx, "verbose"):
+            config_kwargs["verbose"] = bool(verbose)
+        if cli_utils.is_cli_provided(ctx, "dynamo"):
+            config_kwargs["dynamo"] = dynamo
 
-    # ── Execute export ─────────────────────────────────────────────────
-    try:
-        console.print("[bold]Starting HTP export...[/bold]")
+        # Add input/output tensors if we resolved them
+        if input_tensors:
+            config_kwargs["input_tensors"] = input_tensors
+        if output_tensors:
+            config_kwargs["output_tensors"] = output_tensors
 
-        pytorch_model, _, detected_task = load_hf_model_fn(model_id, task=task)
-        if task:
+        try:
+            cfg = WinMLExportConfig.from_dict(config_kwargs)
+        except Exception as e:
+            console.print(f"[bold red]Configuration error:[/bold red] {e}")
+            logger.exception("Failed to create export config")
+            raise click.ClickException(f"Configuration error: {e}") from e
+
+        # Load model with task detection (CLI is the orchestration layer)
+        pytorch_model, _, detected_task = load_hf_model(model, task=component_task)
+        if component_task:
             console.print(f"[dim]Task (override): {detected_task}[/dim]")
         else:
             console.print(f"[dim]Detected task: {detected_task}[/dim]")
 
-        export_stats = export_onnx_fn(
+        export_stats = export_onnx(
             model=pytorch_model,
-            output_path=output_path,
+            output_path=out_path,
             export_config=cfg,
-            model_id=model_id,
+            model_id=model,
             task=detected_task,
             verbose=bool(verbose),
             enable_reporting=with_report,
         )
         logger.debug("Export stats: %s", export_stats)
 
-        console.print(f"[bold green]Exported:[/bold green] {output_path}")
+        console.print(f"\n[bold green]Success![/bold green] Model exported to: {out_path}")
 
+        # Show report file locations if enabled
         if with_report:
-            base_name = output_path.stem
-            report_dir = output_path.parent
+            base_name = out_path.stem
+            report_dir = out_path.parent
+            console.print("\n[bold]Generated reports:[/bold]")
             md_report = report_dir / f"{base_name}_htp_export_report.md"
             json_metadata = report_dir / f"{base_name}_htp_metadata.json"
             if md_report.exists():
-                console.print(f"  Report: {md_report}")
+                console.print(f"  Markdown: {md_report}")
             if json_metadata.exists():
-                console.print(f"  Metadata: {json_metadata}")
+                console.print(f"  JSON: {json_metadata}")
 
+    # Detect a composite pipeline (registry-driven). A composite fans out into one
+    # ONNX per sub-component, each written next to <output> with a _<component>
+    # stem suffix; a plain model exports to the single output path as before.
+    # Detection suppresses only the expected "not a resolvable HF config" case
+    # (OSError — e.g. the model reference isn't a hub id / has no local config);
+    # intentional loud guards (empty registry, model-task incompatibility) and any
+    # unexpected failure are surfaced rather than masked as "not composite".
+    components = None
+    try:
+        from ..loader.resolution import resolve_composite_components
+
+        components = resolve_composite_components(model, task=task)
+    except click.ClickException:
+        raise
+    except ValueError as e:
+        # A genuine (model, task) incompatibility, or an ambiguous composite that
+        # needs an explicit --task, is surfaced as a usage error (mirroring
+        # `winml config`) instead of being silently downgraded to a single export.
+        raise click.UsageError(str(e)) from e
+    except RuntimeError:
+        # The empty-COMPOSITE_MODEL_REGISTRY guard is meant to fail loudly (a
+        # registrations moved/renamed refactor mistake); never mask it as
+        # "not composite".
+        raise
+    except OSError as e:
+        # Expected "unavailable" case: the model reference can't be loaded as a HF
+        # config (not a hub id / no local config.json). Fall through to the
+        # single-model export path, which surfaces its own load error if the
+        # reference is truly invalid.
+        logger.debug("Composite detection unavailable (config not resolvable): %s", e)
+    except Exception as e:
+        # Anything else is unexpected: surface it loudly rather than silently
+        # producing a single-model artifact for a possibly-composite model.
+        raise click.ClickException(f"Composite model detection failed unexpectedly: {e}") from e
+
+    try:
+        console.print("\n[bold]Starting HTP export...[/bold]")
+
+        if components:
+            if input_specs:
+                raise click.UsageError(
+                    "--input-specs is not supported for composite models; each sub-model "
+                    "resolves its own I/O. Export a sub-model individually with --task if "
+                    "you need custom input specs."
+                )
+            console.print(
+                f"[dim]Composite model: {len(components)} sub-models "
+                f"(fanned out from {output_path.name} with a _<component> suffix)[/dim]"
+            )
+            # Fan out flat, suffixing the output stem per component to match the
+            # sibling `winml config` layout and the runtime's `*_model.onnx`
+            # discovery: e.g. `model.onnx` -> `model_decoder_prefill.onnx`.
+            # Each component is loaded and exported independently because a
+            # composite's sub-tasks map to distinct model classes/heads (e.g.
+            # decoder-prefill vs. decoder-with-past), so the full model is
+            # reloaded per component — this N-load cost is intentional.
+            sub_outputs = {
+                name: output_path.with_stem(f"{output_path.stem}_{name}") for name in components
+            }
+            # Guard every target up front so an overwrite collision on a later
+            # component can't leave an earlier one already written.
+            for sub_out in sub_outputs.values():
+                cli_utils.guard_output(sub_out, overwrite)
+
+            # Track sub-models this invocation actually completes. On a mid-run
+            # failure we do NOT delete anything (the targets may be pre-existing
+            # files the user chose to --overwrite, and a component can fail before
+            # touching its file). Instead we warn and list what was written so the
+            # user decides whether to keep or remove the partial composite.
+            completed: list[Path] = []
+            try:
+                for name, component_task in components.items():
+                    sub_out = sub_outputs[name]
+                    console.print(
+                        f"\n[bold blue]Sub-model:[/bold blue] {name} (task={component_task})"
+                    )
+                    _run_component_export(component_task, sub_out)
+                    completed.append(sub_out)
+            except BaseException:
+                _warn_partial_composite(completed)
+                raise
+        else:
+            cli_utils.guard_output(output_path, overwrite)
+            _run_component_export(task, output_path)
+
+    except (click.UsageError, click.ClickException):
+        raise
     except Exception as e:
         console.print(f"\n[bold red]Export failed:[/bold red] {e}")
         debug_mode = bool((ctx.obj or {}).get("debug"))

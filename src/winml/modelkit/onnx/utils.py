@@ -13,6 +13,41 @@ from onnx.external_data_helper import _get_all_tensors
 EXTERNAL_DATA_THRESHOLD = 100 * 1024 * 1024  # 100 MiB
 
 
+def strip_node_attrs(
+    model: onnx.ModelProto,
+    op_type: str,
+    keep_attrs: frozenset[str] | set[str],
+    domain: str = "",
+) -> onnx.ModelProto:
+    """Remove all attributes from matching nodes except those in *keep_attrs*.
+
+    Useful for stripping default-valued optional attributes that an exporter
+    fills in automatically but that are not needed at inference time.
+
+    Modifies *model* **in-place** and also returns it for convenient chaining.
+
+    Args:
+        model: ONNX model proto to modify.
+        op_type: Operator type string (e.g. ``"GroupQueryAttention"``).
+        keep_attrs: Attribute names to retain; every other attribute is removed.
+        domain: Operator domain to match (e.g. ``"com.microsoft"``).  The
+            empty string matches the default ONNX domain.
+
+    Returns:
+        The same *model* object (mutated in-place).
+    """
+    for node in model.graph.node:
+        if node.op_type != op_type or node.domain != domain:
+            continue
+        to_remove = [a.name for a in node.attribute if a.name not in keep_attrs]
+        for name in to_remove:
+            for i, a in enumerate(node.attribute):
+                if a.name == name:
+                    del node.attribute[i]
+                    break
+    return model
+
+
 def get_model_size(model: onnx.ModelProto) -> int:
     """Calculate the total size of an ONNX model in bytes.
 

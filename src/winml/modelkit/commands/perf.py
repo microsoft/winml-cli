@@ -20,11 +20,12 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 import click
 import numpy as np
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from ..utils import cli as cli_utils
@@ -47,6 +48,13 @@ logger = logging.getLogger(__name__)
 
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
+
+# Inference runtimes selectable via ``--runtime`` (closed set; mirrors the
+# ``--compiler`` / ``COMPILER_NAMES`` convention in utils.constants):
+#   "winml"       -> single-shot ONNX inference (default)
+#   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
+RuntimeName = Literal["winml", "winml-genai"]
+RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 # =============================================================================
 # Constants for Data Generation
@@ -521,6 +529,11 @@ class PerfBenchmark:
             req_device=self.config.device,
             act_device=self._single.device,
             ep_name=self._single.ep_name,
+            actual_shapes=(
+                {name: tuple(arr.shape) for name, arr in self._inputs.items()}
+                if self._inputs
+                else None
+            ),
         )
 
         # [3] Run benchmark
@@ -1391,6 +1404,26 @@ def generate_output_path(model_id: str, *, module_class: str | None = None) -> P
 # =============================================================================
 
 
+def _format_input_shape(shape: list, actual: tuple | None) -> str:
+    """Render a declared input shape, marking dynamic dims as ``dynamic``.
+
+    A dynamic dimension (declared as ``None``) is shown as ``dynamic(<n>)``
+    where ``<n>`` is the concrete size the generated input data actually used
+    for that axis, so the real batch/sequence sizes stay visible alongside the
+    fact that the model left them free.
+    """
+    dims: list[str] = []
+    for i, dim in enumerate(shape):
+        if dim is None:
+            if actual is not None and i < len(actual):
+                dims.append(f"dynamic({actual[i]})")
+            else:
+                dims.append("dynamic")
+        else:
+            dims.append(str(dim))
+    return f"[{', '.join(dims)}]"
+
+
 def _print_model_info(
     io_config: dict,
     *,
@@ -1398,6 +1431,7 @@ def _print_model_info(
     req_device: str = "auto",
     act_device: str = "auto",
     ep_name: EPName | None = None,
+    actual_shapes: dict[str, tuple] | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
     console = Console(stderr=True)
@@ -1420,8 +1454,11 @@ def _print_model_info(
         for i, name in enumerate(names):
             shape = shapes[i] if i < len(shapes) else []
             dtype = str(types[i]) if i < len(types) else ""
-            shape_str = f"{shape!s}"
-            line = f"{name:<20s} {shape_str:<22s} {dtype}"
+            actual = actual_shapes.get(name) if actual_shapes else None
+            shape_str = _format_input_shape(shape, actual)
+            # ``shape_str`` can start with a lowercase ``dynamic(...)`` which Rich
+            # would otherwise parse as a markup tag and swallow -- escape it.
+            line = f"{name:<20s} {escape(shape_str):<22s} {dtype}"
             console.print(f"{label if i == 0 else pad}{line}")
 
     out_names = io_config.get("output_names", [])
@@ -1431,7 +1468,8 @@ def _print_model_info(
         pad = "             "
         for i, name in enumerate(out_names):
             shape = out_shapes[i] if i < len(out_shapes) else []
-            console.print(f"{label if i == 0 else pad}{name:<20s} {shape!s}")
+            shape_str = escape(_format_input_shape(shape, None))
+            console.print(f"{label if i == 0 else pad}{name:<20s} {shape_str}")
 
     console.print()
 
@@ -1490,8 +1528,142 @@ def _run_simple_loop(
 # =============================================================================
 
 
+# perf() param names for WinML-only options that a prebuilt genai bundle
+# ignores. Mapped to the user-facing flag for the warning message.
+_GENAI_IGNORED_FLAGS: dict[str, str] = {
+    "task": "--task",
+    "precision": "--precision",
+    "ep": "--ep",
+    "ep_options": "--ep-options",
+    "shape_config_path": "--shape-config",
+    "quant": "--quant/--no-quantize",
+    "optimize": "--optimize/--no-optimize",
+    "analyze": "--analyze/--no-analyze",
+    "max_optim_iterations": "--max-optim-iterations",
+    "rebuild": "--rebuild",
+    "ignore_cache": "--ignore-cache",
+    "skip_build": "--skip-build",
+    "allow_unsupported_nodes": "--allow-unsupported-nodes",
+    "monitor": "--monitor",
+    "memory": "--memory",
+    "op_tracing": "--op-tracing",
+    "batch_size": "--batch-size",
+}
+
+
+def _warn_ignored_genai_flags(ctx: click.Context, console: Console) -> None:
+    """Warn about WinML-only flags the user passed that genai ignores."""
+    ignored = [
+        flag
+        for param, flag in _GENAI_IGNORED_FLAGS.items()
+        if cli_utils.is_cli_provided(ctx, param)
+    ]
+    if ignored:
+        console.print(
+            "[yellow]Warning:[/yellow] the following options are ignored with "
+            f"--runtime winml-genai: {', '.join(sorted(ignored))}"
+        )
+
+
+def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
+    """Validate folder input and dispatch to the winml-genai benchmark path.
+
+    The genai imports are function-local so ``winml perf --help`` does not pay
+    their import cost (see tests/cli/test_import_time.py).
+    """
+    from ._perf_genai import (
+        GenaiPerfConfig,
+        device_to_genai_ep,
+        genai_output_path,
+        run_genai_perf,
+    )
+
+    p = ctx.params
+    model: str = p["model"]
+
+    # --module walks a live nn.Module graph; meaningless for a prebuilt bundle.
+    if p.get("module_class"):
+        raise click.UsageError("--module is not supported with --runtime winml-genai.")
+
+    bundle_dir = Path(model)
+    if bundle_dir.suffix.lower() == ".onnx" or not bundle_dir.is_dir():
+        raise click.UsageError(
+            f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
+        )
+    if not (bundle_dir / "genai_config.json").exists():
+        raise click.UsageError(
+            f"No genai_config.json found in '{model}'. Point --model at a bundle "
+            "folder produced by a winml-cli export."
+        )
+
+    _warn_ignored_genai_flags(ctx, console)
+
+    # A full generation is far costlier than one session.run(): default to
+    # fewer iterations/warmup unless the user set them explicitly.
+    iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
+    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
+
+    device = p["device"].lower()
+    output = p.get("output") or genai_output_path(bundle_dir)
+    cli_utils.guard_output(output, p["overwrite"])
+
+    config = GenaiPerfConfig(
+        bundle_dir=bundle_dir,
+        ep=device_to_genai_ep(device),
+        device=device,
+        prompt=p["prompt"],
+        apply_template=p["apply_template"],
+        max_new_tokens=p["max_new_tokens"],
+        iterations=iterations,
+        warmup=warmup,
+        compile=not p["no_compile"],
+        compile_timeout=p["compile_timeout"],
+        output_path=output,
+    )
+    run_genai_perf(config, console=console, json_mode=json_mode)
+
+
 @click.command("perf")
 @cli_utils.model_option(required=False)
+@click.option(
+    "--runtime",
+    type=click.Choice(list(RUNTIME_NAMES)),
+    default="winml",
+    show_default=True,
+    help="Inference runtime. 'winml' benchmarks single-shot ONNX inference; "
+    "'winml-genai' benchmarks an onnxruntime-genai bundle folder "
+    "(LLM generation: TTFT + decode tokens/sec).",
+)
+@click.option(
+    "--prompt",
+    type=str,
+    default="Explain the theory of relativity in simple terms.",
+    show_default=True,
+    help="[winml-genai] Prompt text to generate from. By default it is wrapped in "
+    "the bundle's chat template; pass --no-apply-template to benchmark it verbatim.",
+)
+@click.option(
+    "--apply-template/--no-apply-template",
+    default=True,
+    show_default=True,
+    help="[winml-genai] Wrap --prompt in the bundle's chat template before timing. "
+    "Use --no-apply-template to benchmark a prompt that is already formatted.",
+)
+@click.option(
+    "--max-new-tokens",
+    type=click.IntRange(min=1),
+    default=128,
+    show_default=True,
+    help="[winml-genai] Number of new tokens to generate per iteration.",
+)
+@click.option(
+    "--compile-timeout",
+    type=int,
+    default=300,
+    show_default=True,
+    help="[winml-genai] Max seconds to compile each EPContext stage before falling back "
+    "to the original ONNX (requires --compile).",
+)
 @click.option(
     "--task",
     type=str,
@@ -1601,6 +1773,11 @@ def _run_simple_loop(
 def perf(
     ctx: click.Context,
     model: str | None,
+    runtime: RuntimeName,
+    prompt: str,
+    apply_template: bool,
+    max_new_tokens: int,
+    compile_timeout: int,
     task: str | None,
     iterations: int,
     warmup: int,
@@ -1691,6 +1868,19 @@ def perf(
     console = Console(stderr=True) if json_mode else Console()
 
     # =========================================================================
+    # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
+    # =========================================================================
+    if runtime == "winml-genai":
+        _run_genai_runtime(ctx, console=console, json_mode=json_mode)
+        return
+
+    # Classify the -m value once (existence-first) so module mode and the
+    # single-model path share one source of truth. Raises cleanly on a missing
+    # .onnx or an invalid id instead of a confusing downstream config error.
+    model_input = cli_utils.classify_model_input(hf_model)
+    is_onnx = model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+
+    # =========================================================================
     # MODULE MODE: per-module build + benchmark
     # =========================================================================
     if module_class:
@@ -1699,7 +1889,7 @@ def perf(
         # not carry. Without this guard, the user sees a misleading
         # "not a valid JSON file" error from AutoConfig.from_pretrained
         # trying to load the .onnx as an HF config dir (issue #553).
-        if Path(hf_model).suffix.lower() == ".onnx":
+        if is_onnx:
             raise click.UsageError(
                 f"--module is not supported for ONNX files. "
                 f"Submodule benchmarking requires a HuggingFace model ID "
@@ -1795,14 +1985,9 @@ def perf(
 
     try:
         model_path = Path(hf_model)
-        is_onnx = model_path.suffix.lower() == ".onnx"
 
         if is_onnx:
-            # Validate file existence up front; otherwise WinMLAutoModel would
-            # fall through to HF loading and surface a confusing
-            # "not a valid JSON file" error from AutoConfig.
-            if not model_path.exists():
-                raise FileNotFoundError(f"ONNX file not found: {model_path}")
+            # Existence already validated by classify_model_input above.
             if shape_config:
                 console.print(
                     "[yellow]Warning:[/yellow] --shape-config is ignored for "

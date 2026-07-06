@@ -347,7 +347,7 @@ class WinMLEPRegistry:
 
             modules.append(onnxruntime)
         if ort_genai:
-            import onnxruntime_genai  # type: ignore[import-not-found]
+            import onnxruntime_genai
 
             modules.append(onnxruntime_genai)
         for name, path in self._ep_paths.items():

@@ -5,6 +5,14 @@
 """WinMLSession - ONNX Runtime session manager with WinML EP integration."""
 
 from .ep_registry import WinMLEPRegistry
+from .genai_session import (
+    GenaiLoadError,
+    GenaiNotInstalledError,
+    GenaiSession,
+    GenaiSessionError,
+    GenerationConfig,
+    GenerationTiming,
+)
 from .monitor.ep_monitor import EPMonitor, NullEPMonitor
 from .monitor.hw_monitor import HWMonitor
 from .monitor.openvino_monitor import OpenVinoMonitor
@@ -17,6 +25,12 @@ from .stats import PerfStats
 
 __all__ = [
     "EPMonitor",
+    "GenaiLoadError",
+    "GenaiNotInstalledError",
+    "GenaiSession",
+    "GenaiSessionError",
+    "GenerationConfig",
+    "GenerationTiming",
     "HWMonitor",
     "InferenceError",
     "NullEPMonitor",
