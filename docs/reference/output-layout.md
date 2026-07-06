@@ -16,7 +16,7 @@ output/
 ├── model.onnx.data             ← External weights (if model ≥ 100 MiB)
 ├── winml_build_config.json     ← Persisted build config
 ├── analyze_result.json         ← Static analysis (EP compatibility)
-├── build_manifest.json         ← Build provenance (Python API only)
+├── winml_manifest.json         ← Build provenance (Python API only)
 ├── export_htp_metadata.json    ← HTP export metadata (hierarchy info)
 ├── export.onnx                 ← Intermediate: raw ONNX export
 ├── export.onnx.data
@@ -40,7 +40,7 @@ output/
 | `model.onnx.data` | External weight data (only if model ≥ 100 MiB). Must stay alongside `model.onnx`. |
 | `winml_build_config.json` | The complete pipeline config used for this build (includes auto-discovered optimization flags). This file is a **reproducible pipeline specification** — check it into version control or feed it directly to `winml build -c` in a CI/CD pipeline to guarantee identical model processing across machines and runs (set `"auto": false` for fully deterministic builds). |
 | `analyze_result.json` | Static analysis output: EP compatibility, operator classification, detected patterns. |
-| `build_manifest.json` | Build provenance with stage timings. Only generated via the Python API (`build_hf_model`/`build_onnx_model`). |
+| `winml_manifest.json` | Build provenance with stage timings. Only generated via the Python API (`build_hf_model`/`build_onnx_model`). |
 | `export_htp_metadata.json` | HTP export metadata: module hierarchy, tracing info, tagging coverage. |
 
 ### Intermediate Files (Can Delete After Build)
@@ -171,7 +171,7 @@ Key fields:
 
 ## Build Manifest
 
-`build_manifest.json` records provenance for every build:
+`winml_manifest.json` records provenance for every build:
 
 ```json
 {

@@ -174,7 +174,7 @@ def build_hf_model(
     compiled_path = output_dir / _name("compiled.onnx")
     final_path = output_dir / _name("model.onnx")
     config_path = output_dir / _name("winml_build_config.json")
-    manifest_path = output_dir / _name("build_manifest.json")
+    manifest_path = output_dir / _name("winml_manifest.json")
     analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Check for existing artifact (skip build if present and not rebuilding)

@@ -534,12 +534,12 @@ class TestCacheKey:
 
 
 class TestBuildManifest:
-    """Test build_manifest.json writing."""
+    """Test winml_manifest.json writing."""
 
     def test_build_manifest_written(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         """Manifest file is created after a successful build."""
         result = build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
-        manifest_path = tmp_path / "build_manifest.json"
+        manifest_path = tmp_path / "winml_manifest.json"
         assert manifest_path.exists()
         assert result.manifest_path == manifest_path
 
@@ -552,7 +552,7 @@ class TestBuildManifest:
         result = build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
         assert result.reused is True
         assert result.manifest_path is None
-        assert not (tmp_path / "build_manifest.json").exists()
+        assert not (tmp_path / "winml_manifest.json").exists()
 
     def test_build_manifest_content(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         """Manifest contains correct stages, model_id, task, etc."""
@@ -593,7 +593,7 @@ class TestBuildManifest:
             model_id="test",
             cache_key="imgcls_abc123",
         )
-        expected = tmp_path / "imgcls_abc123_build_manifest.json"
+        expected = tmp_path / "imgcls_abc123_winml_manifest.json"
         assert expected.exists()
         assert result.manifest_path == expected
 

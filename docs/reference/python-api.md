@@ -165,7 +165,7 @@ class BuildResult:
     stage_timings: dict[str, float]  # Per-stage seconds
     elapsed: float             # Total build time (seconds)
     reused: bool               # True if cache hit, no build ran
-    manifest_path: Path | None # Path to build_manifest.json
+    manifest_path: Path | None # Path to winml_manifest.json
 ```
 
 ---

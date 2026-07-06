@@ -481,7 +481,7 @@ class TestBuildOnnxReuse:
 
 
 class TestBuildOnnxManifest:
-    """Test build_manifest.json for ONNX builds."""
+    """Test winml_manifest.json for ONNX builds."""
 
     def test_manifest_written(
         self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
@@ -553,7 +553,7 @@ class TestBuildOnnxManifest:
         )
         assert result.reused is True
         assert result.manifest_path is None
-        assert not (output_dir / "build_manifest.json").exists()
+        assert not (output_dir / "winml_manifest.json").exists()
 
 
 # =============================================================================
