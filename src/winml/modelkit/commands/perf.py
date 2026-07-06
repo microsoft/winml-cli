@@ -581,6 +581,20 @@ class PerfBenchmark:
             total_ms = (t_end - t_start) * 1000.0
             n_generated = output_ids.shape[1] - prompt_tokens
 
+            # Decode and log model response (like genai: first at INFO, rest at DEBUG)
+            response_text = tokenizer.decode(
+                output_ids[0, prompt_tokens:], skip_special_tokens=True
+            )
+            generation_count = i + 1
+            if generation_count == 1:
+                logger.info("Model response (iteration 1): %s", response_text)
+            else:
+                logger.debug(
+                    "Model response (iteration %d): %s",
+                    generation_count,
+                    response_text,
+                )
+
             # TTFT approximation: total_ms * (1 token / total tokens generated)
             # is a rough proxy. A better split requires hooking into forward(),
             # but this gives directionally correct numbers for comparison.
@@ -2204,13 +2218,23 @@ def perf(
     # Refuse to clobber an existing report unless the user opted in.
     cli_utils.guard_output(output, overwrite)
 
+    # Composite generation is far costlier than one session.run(): default to
+    # fewer iterations/warmup (like genai) unless the user set them explicitly.
+    effective_iterations = iterations
+    effective_warmup = warmup
+    if is_composite:
+        if not cli_utils.is_cli_provided(ctx, "iterations"):
+            effective_iterations = 10
+        if not cli_utils.is_cli_provided(ctx, "warmup"):
+            effective_warmup = 2
+
     config = BenchmarkConfig(
         model_id=hf_model,
         task=task,
         device=device.lower(),
         precision=precision.lower(),
-        iterations=iterations,
-        warmup=warmup,
+        iterations=effective_iterations,
+        warmup=effective_warmup,
         batch_size=batch_size,
         output_path=output,
         no_quantize=not quant,
