@@ -58,6 +58,30 @@ console = get_console()
 # =============================================================================
 
 
+def _warn_partial_composite_build(completed: list[Path]) -> None:
+    """Warn that a composite build failed mid-run, listing completed components.
+
+    We deliberately do NOT delete anything: the targets may be pre-existing
+    directories the user chose to ``--rebuild``, and a component can fail before
+    writing anything, so auto-deleting could destroy artifacts this run never
+    actually wrote. Instead we surface the completed sub-models and let the user
+    decide whether to keep or remove the partial build.
+    """
+    if not completed:
+        return
+    console.print(
+        "\n[yellow]Warning:[/yellow] composite build did not finish; "
+        f"{len(completed)} sub-model(s) were built by this run:"
+    )
+    for component_dir in completed:
+        console.print(f"  • {component_dir}")
+    console.print(
+        "[yellow]The build did not complete for every sub-model.[/yellow] "
+        "Review these directories and remove them if you don't want to keep the "
+        "partial build."
+    )
+
+
 def _load_config(
     config_file: str,
     *,
@@ -792,19 +816,106 @@ def build(
                     raise click.UsageError("--output-dir is required when --use-cache is not set.")
                 resolved_dir = Path(output_dir)
 
-            _run_single_build(
-                config=config,
-                config_file=config_file,
-                model_id=model,
-                is_onnx=model_is_onnx,
-                resolved_dir=resolved_dir,
-                rebuild=rebuild,
-                cache_key=cache_key,
-                ep=ep,
-                device=device,
-                extra_kwargs=extra_kwargs,
-                preloaded_hf_config=preloaded_hf_config,
-            )
+            # Detect composite pipeline (registry-driven, same pattern as
+            # export command). A composite fans out into one build per
+            # sub-component; a plain model builds to the single output dir.
+            components = None
+            if model and not model_is_onnx:
+                try:
+                    from ..loader.resolution import resolve_composite_components
+
+                    task_hint = config.loader.task if config.loader else None
+                    components = resolve_composite_components(
+                        model, task=task_hint, trust_remote_code=trust_remote_code
+                    )
+                except click.ClickException:
+                    raise
+                except ValueError as e:
+                    raise click.UsageError(str(e)) from e
+                except RuntimeError:
+                    raise
+                except OSError as e:
+                    logger.debug(
+                        "Composite detection unavailable (config not resolvable): %s", e
+                    )
+                except Exception as e:
+                    raise click.ClickException(
+                        f"Composite model detection failed unexpectedly: {e}"
+                    ) from e
+
+            if components:
+                if use_cache:
+                    raise click.UsageError(
+                        "--use-cache is not supported for composite models. "
+                        "Use --output-dir instead."
+                    )
+                console.print(
+                    f"\n[dim]Composite model: {len(components)} sub-models "
+                    f"({', '.join(components)})[/dim]"
+                )
+
+                completed: list[Path] = []
+                try:
+                    for name, component_task in components.items():
+                        console.print(
+                            f"\n[bold blue]Sub-model:[/bold blue] {name} "
+                            f"(task={component_task})"
+                        )
+                        component_dir = resolved_dir / name
+
+                        from ..config import generate_build_config as gen_cfg
+
+                        component_config = gen_cfg(
+                            model,
+                            task=component_task,
+                            trust_remote_code=trust_remote_code,
+                            device=device,
+                            precision=precision,
+                            ep=ep,
+                        )
+                        # Carry over quant/compile from the outer config (already
+                        # patched by CLI overrides like --no-quant / --no-compile).
+                        component_config.quant = config.quant
+                        component_config.compile = config.compile
+
+                        try:
+                            component_config.validate()
+                        except ValueError as e:
+                            raise click.UsageError(
+                                f"Config validation failed for sub-model '{name}': {e}"
+                            ) from e
+
+                        _run_single_build(
+                            config=component_config,
+                            config_file=None,
+                            model_id=model,
+                            is_onnx=False,
+                            resolved_dir=component_dir,
+                            rebuild=rebuild,
+                            cache_key=None,
+                            ep=ep,
+                            device=device,
+                            extra_kwargs=dict(extra_kwargs),
+                            preloaded_hf_config=preloaded_hf_config,
+                        )
+                        completed.append(component_dir)
+                except BaseException:
+                    _warn_partial_composite_build(completed)
+                    raise
+            else:
+                _run_single_build(
+                    config=config,
+                    config_file=config_file,
+                    model_id=model,
+                    is_onnx=model_is_onnx,
+                    resolved_dir=resolved_dir,
+                    rebuild=rebuild,
+                    cache_key=cache_key,
+                    ep=ep,
+                    device=device,
+                    extra_kwargs=extra_kwargs,
+                    preloaded_hf_config=preloaded_hf_config,
+                )
 
     except click.UsageError:
         raise  # Let click handle its own errors
