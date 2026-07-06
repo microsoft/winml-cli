@@ -18,21 +18,15 @@ from .model_input import (
     classify_model_input,
     resolve_model_input,
 )
-from .optimum_loader import (
-    OptimumONNXModel,
-    load_optimum_model,
-)
 
 
 __all__ = [
     "ModelInput",
     "ModelInputKind",
-    "OptimumONNXModel",
     "classify_model_input",
     "inject_hub_metadata",
     "is_hub_model",
     "load_hf_components_from_onnx",
-    "load_optimum_model",
     "merge_config",
     "normalize_ep_name",
     "resolve_model_input",

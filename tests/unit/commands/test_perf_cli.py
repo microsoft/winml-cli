@@ -325,14 +325,14 @@ class TestPerfUnifiedPipeline:
         assert result.exit_code == 0, result.output
         mock_run.assert_called_once()
 
-    def test_cli_onnx_clears_shape_config_with_warning(
+    def test_cli_onnx_preserves_shape_config(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        """ONNX input with --shape-config: warn + clear shape_config before PerfBenchmark.
+        """ONNX input with --shape-config keeps the override for dummy inputs.
 
-        Shapes are baked into a pre-exported ONNX, so --shape-config is silently
-        ignored; we want to be sure the CLI both surfaces the warning to the
-        user and actually drops the override before constructing PerfBenchmark.
+        Regression: perf previously warned that shape config was ignored for
+        ONNX inputs and force-cleared the override. The ONNX path now honors
+        user-provided shapes during random input generation.
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
@@ -370,9 +370,9 @@ class TestPerfUnifiedPipeline:
             )
 
         assert result.exit_code == 0, result.output
-        assert "shape-config is ignored" in result.output
+        assert "shape-config is ignored" not in result.output
         assert "Benchmarking ONNX" in result.output
-        assert captured["config"].shape_config is None
+        assert captured["config"].shape_config == {"input_ids": [1, 128]}
 
     def test_cli_onnx_warns_ignored_build_flags(self, runner: CliRunner, tmp_path: Path) -> None:
         """Build-pipeline flags are no-ops for a pre-built ONNX with skip_build,

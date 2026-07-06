@@ -2043,12 +2043,6 @@ def perf(
 
         if is_onnx:
             # Existence already validated by classify_model_input above.
-            if shape_config:
-                console.print(
-                    "[yellow]Warning:[/yellow] --shape-config is ignored for "
-                    "pre-exported ONNX files (shapes are baked into the model)."
-                )
-                config.shape_config = None
             # Build-pipeline flags are forwarded to from_onnx but no-op when the
             # build is skipped (the default). Warn so the silent no-op is visible
             # — shared detection with eval via utils/cli.py.

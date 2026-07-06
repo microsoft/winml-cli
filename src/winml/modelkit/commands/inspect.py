@@ -174,7 +174,7 @@ def inspect(
     # the unified classifier so we don't trigger an unwanted download.
     from ..utils.model_input import classify_model_input
 
-    if model_id and classify_model_input(model_id).kind == "hub_onnx":
+    if model and classify_model_input(model).kind == "hub_onnx":
         raise click.ClickException(
             "ONNX file inspection is not yet supported. "
             "Use 'winml config -m model.onnx' for ONNX build config."

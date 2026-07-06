@@ -733,8 +733,8 @@ def generate_hf_build_config(
         # CPU/GPU: precision is float (fp32) — no quantization
         parent_config.quant = None
 
-    # Store resolved precision for multi-pass expansion
-    parent_config.precision = policy.precision
+    # Store resolved precision for multi-pass expansion.
+    parent_config.precision = policy.precision  # type: ignore[attr-defined]
 
     # Compile config
     parent_config.compile = WinMLCompileConfig.for_provider(

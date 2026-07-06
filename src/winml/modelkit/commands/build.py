@@ -577,8 +577,8 @@ def build(
     try:
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
-        if model_id is not None:
-            model_id = cli_utils.normalize_model_arg(model_id)
+        if model is not None:
+            model = cli_utils.normalize_model_arg(model)
 
         # Load or auto-generate config
         if config_file is not None:
@@ -592,29 +592,26 @@ def build(
                 raise click.UsageError("-m/--model is required when -c is not provided.")
             from ..config import generate_build_config
 
-            # When ``model_id`` resolves to an .onnx file (either a local path or
+            # When ``model`` resolves to an .onnx file (either a local path or
             # a Hub-hosted ONNX ref that was just downloaded by
             # ``normalize_model_arg``), route to the ONNX config generator instead
             # of treating the path as a HuggingFace repo id (which would try to
             # load the .onnx file as a JSON config and crash).
-            if cli_utils.is_onnx_file_path(model_id):
+            if cli_utils.is_onnx_file_path(model):
                 config_or_configs = generate_build_config(
-                    onnx_path=model_id,
+                    onnx_path=model,
                     device=device,
+                    precision=precision,
+                    ep=ep,
                 )
             else:
                 config_or_configs = generate_build_config(
-                    model_id,
+                    model,
                     trust_remote_code=trust_remote_code,
                     device=device,
+                    precision=precision,
+                    ep=ep,
                 )
-            config_or_configs = generate_build_config(
-                model,
-                trust_remote_code=trust_remote_code,
-                device=device,
-                precision=precision,
-                ep=ep,
-            )
             if not quant:
                 config_or_configs.quant = None
             # Auto-generated configs: compile disabled by default unless
@@ -658,7 +655,7 @@ def build(
                         cfg.quant.rtn_accuracy_level = resolved_quant.rtn_accuracy_level
                 # Store the original precision string for stage display
                 if precision:
-                    cfg.precision = precision.lower()
+                    cfg.precision = precision.lower()  # type: ignore[attr-defined]
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -1525,6 +1522,7 @@ def _build_onnx_pipeline(
     Returns list of (stage_name, elapsed_seconds | None) for summary,
     or None if build was reused.
     """
+    from ..build.common import ensure_pre_quantized_stamped
     from ..onnx import copy_onnx_model
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
@@ -1565,6 +1563,12 @@ def _build_onnx_pipeline(
     current_path = output_dir / onnx_path.name
     if current_path.resolve() != onnx_path.resolve():
         copy_onnx_model(onnx_path, current_path)
+
+    # Keep the CLI ONNX path aligned with the library build paths: if a user
+    # supplies a pre-quantized model via ``-c config.json`` we must stamp the
+    # config before any stage reads it, otherwise the optimize stage will still
+    # run on integer ops and the quantize stage may try to re-quantize.
+    ensure_pre_quantized_stamped(config, current_path)
 
     # Pre-quantized models (QDQ or QOperator format) cannot pass through
     # ORT-based graph optimization on hosts that lack kernels for ops like

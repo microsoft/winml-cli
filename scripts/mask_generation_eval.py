@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Generic mIoU/Dice smoke test for promptable mask-generation ONNX models.
+r"""Generic mIoU/Dice smoke test for promptable mask-generation ONNX models.
 
 Works with any SAM-family encoder + prompt-decoder ONNX pair that follows
 the standard naming convention:
@@ -52,6 +52,13 @@ Run:
         --decoder onnx-community/<repo>/onnx/prompt_encoder_mask_decoder_int8.onnx \\
         --target-size 1024 --mean 0.485,0.456,0.406 --std 0.229,0.224,0.225 \\
         --dataset coco --num-samples 20 --prompt-type bbox
+
+Notes:
+* The bundled ``sam3`` preset is validated on ``--ep cpu``.
+* ``--ep dml`` is experimental for SAM 3 and can silently produce incorrect
+    masks with the bundled int8 ONNX weights.
+* If you want to experiment with DML, pass your own fp32 encoder/decoder pair
+    instead of the bundled preset.
 """
 
 from __future__ import annotations
@@ -62,7 +69,6 @@ import json
 import os
 import sys
 import time
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -121,6 +127,32 @@ PROFILES: dict[str, MaskGenProfile] = {
 PROMPT_TYPES = ("point", "bbox", "point+box")
 
 
+def _profile_ep_notice(profile: MaskGenProfile, ep: str) -> str | None:
+    """Return a compatibility notice for risky profile/EP combinations."""
+    if profile.name != "sam3" or ep != "dml":
+        return None
+
+    encoder_kind = "fp16" if "fp16" in profile.encoder_ref else "int8"
+    decoder_kind = "fp16" if "fp16" in profile.decoder_ref else "int8"
+    return (
+        "WARNING: the bundled SAM 3 preset is not validated on DML and can "
+        "silently produce incorrect masks.\n"
+        f"  encoder: {profile.encoder_ref} ({encoder_kind})\n"
+        f"  decoder: {profile.decoder_ref} ({decoder_kind})\n"
+        "  DML currently shows two failure modes on this model family: int8 "
+        "weights can produce wrong results, and fp16 weights can still decode "
+        "to empty masks after sigmoid/thresholding.\n"
+        "  Recommended: use --ep cpu for the published preset, or pass custom "
+        "fp32 ONNX refs if you want to experiment with DML."
+    )
+
+
+def _emit_profile_ep_notice(profile: MaskGenProfile, ep: str) -> None:
+    notice = _profile_ep_notice(profile, ep)
+    if notice:
+        print(notice)
+
+
 # --------------------------------------------------------------------------- #
 # Eval-sample container.
 # --------------------------------------------------------------------------- #
@@ -159,8 +191,8 @@ def preprocess_image(
     img = img.convert("RGB")
     orig_w, orig_h = img.size
     scale = profile.target_size / max(orig_h, orig_w)
-    new_h = int(round(orig_h * scale))
-    new_w = int(round(orig_w * scale))
+    new_h = round(orig_h * scale)
+    new_w = round(orig_w * scale)
     resized = img.resize((new_w, new_h), Image.BILINEAR)
 
     arr = np.asarray(resized, dtype=np.float32) / 255.0
@@ -195,8 +227,8 @@ def sample_point_in_mask(mask: np.ndarray) -> tuple[int, int] | None:
     ys, xs = np.nonzero(mask)
     if ys.size == 0:
         return None
-    cy = int(round(ys.mean()))
-    cx = int(round(xs.mean()))
+    cy = round(float(ys.mean()))
+    cx = round(float(xs.mean()))
     if 0 <= cy < mask.shape[0] and 0 <= cx < mask.shape[1] and mask[cy, cx]:
         return cx, cy
     d2 = (ys - cy) ** 2 + (xs - cx) ** 2
@@ -253,6 +285,8 @@ def dice(pred: np.ndarray, gt: np.ndarray) -> float:
 
 @dataclass(frozen=True)
 class EncoderState:
+    """Cached encoder outputs and resize metadata for one source image."""
+
     embeddings: dict[str, np.ndarray]
     scale: float
     new_h: int
@@ -265,6 +299,7 @@ def encode_image(
     profile: MaskGenProfile,
     img: Image.Image,
 ) -> EncoderState:
+    """Encode one image and cache the resulting embeddings plus timing."""
     pixel_values, scale, new_h, new_w = preprocess_image(img, profile)
     t0 = time.monotonic()
     enc_out = enc_sess.run(None, {"pixel_values": pixel_values})
@@ -436,7 +471,7 @@ def _load_coco(n: int, min_area: float = 1024.0, seed: int = 0) -> list[EvalSamp
         filename=_COCO_ANNOTATIONS_FILE,
         repo_type="dataset",
     )
-    with open(ann_path, encoding="utf-8") as f:
+    with Path(ann_path).open(encoding="utf-8") as f:
         coco = json.load(f)
     images_by_id = {im["id"]: im for im in coco["images"]}
     cats_by_id = {c["id"]: c["name"] for c in coco["categories"]}
@@ -479,7 +514,7 @@ def _load_coco(n: int, min_area: float = 1024.0, seed: int = 0) -> list[EvalSamp
                 fetched_images[image_id] = _download_coco_image(
                     img_meta["file_name"], image_cache_dir,
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"    SKIP image {image_id}: download failed ({exc})")
                 continue
         img = fetched_images[image_id]
@@ -499,6 +534,7 @@ def _load_coco(n: int, min_area: float = 1024.0, seed: int = 0) -> list[EvalSamp
 
 
 def load_eval_samples(dataset: str, n: int) -> list[EvalSample]:
+    """Load eval samples from the configured dataset."""
     if dataset == "human_parsing":
         return _load_human_parsing(n)
     if dataset == "coco":
@@ -535,15 +571,13 @@ def _build_providers(ep: str) -> tuple[list[str], list[dict]]:
 
     provider_options: list[dict] = [{} for _ in providers]
     if providers[0] == "VitisAIExecutionProvider":
-        install_dir = os.environ.get("RYZEN_AI_INSTALLATION_PATH", "")
-        xclbin = os.path.join(
-            install_dir, "voe-4.0-win_amd64", "xclbins", "phoenix", "4x4.xclbin",
-        )
-        if install_dir and os.path.exists(xclbin):
+        install_dir = Path(os.environ.get("RYZEN_AI_INSTALLATION_PATH", ""))
+        xclbin = install_dir / "voe-4.0-win_amd64" / "xclbins" / "phoenix" / "4x4.xclbin"
+        if install_dir and xclbin.exists():
             provider_options[0] = {
                 "target": "X1",
                 "xlnx_enable_py3_round": 0,
-                "xclbin": xclbin,
+                "xclbin": str(xclbin),
             }
             print(f"  VitisAI PHX config: target=X1, xclbin={xclbin}")
         else:
@@ -572,6 +606,7 @@ def _resolve_local(ref: str) -> Path:
 
 
 def main() -> int:
+    """Run the mask-generation benchmark from the command line."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -637,6 +672,8 @@ def main() -> int:
             std=tuple(float(x) for x in args.std.split(",")),  # type: ignore[arg-type]
         )
 
+    _emit_profile_ep_notice(profile, args.ep)
+
     prompt_types = list(PROMPT_TYPES) if args.prompt_type == "all" else [args.prompt_type]
 
     out_dir = args.out_dir / profile.name / args.dataset
@@ -683,7 +720,7 @@ def main() -> int:
             try:
                 cache[sample.image_id] = encode_image(enc_sess, profile, sample.image)
                 encode_count += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"  [{i + 1:3d}/{len(samples)}] {sample.name} ENCODE FAILED: {exc}")
                 continue
         state = cache[sample.image_id]
@@ -696,7 +733,7 @@ def main() -> int:
                 pred, iou_pred, dec_sec = decode_with_prompt(
                     dec_sess, profile, state, prompts, orig_h, orig_w,
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"  [{i + 1:3d}/{len(samples)}] {sample.name} {pt} FAILED: {exc}")
                 continue
             score_iou = iou(pred, sample.gt_mask)
@@ -758,9 +795,18 @@ def main() -> int:
             f"{enc_s.mean():>10.2f} {dec_ms.mean():>7.1f}",
         )
     if enc_times:
-        unique_enc = list({s.image_id: cache[s.image_id].encode_time for s in samples if s.image_id in cache}.values())
+        unique_enc = list(
+            {
+                s.image_id: cache[s.image_id].encode_time
+                for s in samples
+                if s.image_id in cache
+            }.values(),
+        )
         if unique_enc:
-            print(f"\nEncoder: {len(unique_enc)} unique runs, mean {np.mean(unique_enc):.2f}s/image")
+            print(
+                f"\nEncoder: {len(unique_enc)} unique runs, "
+                f"mean {np.mean(unique_enc):.2f}s/image",
+            )
     print(f"Visualizations: {out_dir}/  (red=GT, green=prediction)")
     print("=" * 80)
     return 0

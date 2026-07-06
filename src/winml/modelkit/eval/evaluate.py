@@ -63,8 +63,6 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
     "depth-estimation":
         "winml.modelkit.eval.depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
-    "keypoint-detection":
-        "winml.modelkit.eval.keypoint_detection_evaluator:WinMLKeypointDetectionEvaluator",
     "compare-tensor":
         "winml.modelkit.eval.tensor_similarity_evaluator:TensorSimilarityEvaluator",
     "mask-generation":
@@ -202,7 +200,7 @@ class EvalResult:
         }
 
 
-def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | None:
+def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | WinMLCompositeModel | None:
     """Load model from ONNX path or HF model ID.
 
     For evaluators that handle their own ORT session construction from a
@@ -215,6 +213,19 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | None:
     """
     from ..models import WinMLAutoModel
     from ..utils import cli as cli_utils
+
+    quant_override: Any = None
+    if not config.quant:
+        from ..config import WinMLBuildConfig
+
+        quant_override = WinMLBuildConfig()
+        quant_override.quant = None
+
+    pipeline_kwargs = cli_utils.build_pipeline_extra_kwargs(
+        optimize=config.optimize,
+        analyze=config.analyze,
+        max_optim_iterations=config.max_optim_iterations,
+    )
 
     if config.model_id is None:
         raise ValueError("model_id is required.")

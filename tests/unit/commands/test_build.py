@@ -1861,3 +1861,92 @@ class TestBuildEpResolution:
             )
         assert result.exit_code == 0, result.output
         assert mock_gen.call_args.kwargs["ep"] == "openvino"
+
+    def test_auto_config_onnx_model_uses_single_generate_call(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """Auto-config ONNX input must call generate_build_config exactly once.
+
+        Regression: build used to assign branch-specific configs and then
+        unconditionally overwrite them with a second generate_build_config call.
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake-onnx-data")
+
+        fake_cfg = MagicMock()
+        fake_cfg.compile = None
+        fake_cfg.validate.return_value = None
+        fake_cfg.loader = MagicMock()
+        fake_cfg.loader.task = None
+
+        with (
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg) as mock_gen,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = _invoke(["-m", str(onnx_file), "-o", str(tmp_path / "out")])
+
+        assert result.exit_code == 0, result.output
+        assert mock_gen.call_count == 1
+        assert mock_gen.call_args.kwargs["onnx_path"] == str(onnx_file)
+
+
+class TestBuildOnnxPipelineRegressions:
+    """Regressions for CLI ONNX pipeline behavior in _build_onnx_pipeline."""
+
+    def test_pre_quantized_stamp_runs_before_optimize(self, tmp_path: Path) -> None:
+        """_build_onnx_pipeline must stamp config before optimize/quantize stages.
+
+        This ensures pre-quantized ONNX inputs can set skip_optimize and clear
+        quant before stage dispatch, preventing optimize/quantize double-work.
+        """
+        from winml.modelkit.commands.build import _build_onnx_pipeline
+
+        onnx_file = tmp_path / "input.onnx"
+        onnx_file.write_bytes(b"fake-onnx-data")
+        output_dir = tmp_path / "out"
+
+        config = MagicMock()
+        config.skip_optimize = False
+        config.quant = MagicMock(name="quant_config")
+        config.validate.return_value = None
+        config.to_dict.return_value = {}
+
+        def _stamp(cfg: MagicMock, _path: Path) -> None:
+            cfg.skip_optimize = True
+            cfg.quant = None
+
+        with (
+            patch(
+                "winml.modelkit.build.common.ensure_pre_quantized_stamped",
+                side_effect=_stamp,
+            ) as mock_stamp,
+            patch(
+                "winml.modelkit.commands.build._run_optimize_stage",
+                return_value=(output_dir / onnx_file.name, None),
+            ) as mock_opt,
+            patch(
+                "winml.modelkit.commands.build._run_quantize_stage",
+                side_effect=lambda **kwargs: kwargs["current_path"],
+            ) as mock_quant,
+            patch(
+                "winml.modelkit.commands.build._run_compile_stage",
+                side_effect=lambda **kwargs: kwargs["current_path"],
+            ),
+        ):
+            result = _build_onnx_pipeline(
+                config=config,
+                onnx_path=onnx_file,
+                output_dir=output_dir,
+                rebuild=True,
+                ep="cpu",
+                device="cpu",
+                extra_kwargs={},
+            )
+
+        assert result is not None
+        mock_stamp.assert_called_once()
+        assert mock_opt.call_args.kwargs["skip_optimize"] is True
+        assert mock_quant.call_args.kwargs["config"].quant is None

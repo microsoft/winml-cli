@@ -82,7 +82,7 @@ __all__ = [
 ]
 
 
-def needs_format_conversion(model_path: Path, ep: EPAlias) -> bool:
+def needs_format_conversion(model_path: Path, ep: EPNameOrAlias) -> bool:
     """Check if model's quant format is compatible with target EP.
 
     Minimal detection: checks for QLinear ops targeting QDQ-only EPs.
