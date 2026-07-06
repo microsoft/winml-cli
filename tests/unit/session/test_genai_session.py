@@ -590,12 +590,27 @@ class TestGenerateTimed:
             assert session.is_loaded
 
     def test_uses_context_length_as_max_length(self, bundle_dir: Path, mock_og: MagicMock) -> None:
+        """max_length = min(prompt_len + max_new_tokens, context_length)."""
         clock = _clock_from([0.0, 1.0, 2.5, 3.0])
         with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=128) as session:
             session.generate_timed([1, 2, 3], clock=clock)
 
         params = mock_og.GeneratorParams.return_value
+        # prompt_len=3 + max_new_tokens=128 = 131, capped at context_length=128
         assert params.set_search_options.call_args.kwargs["max_length"] == 128
+
+    def test_max_length_is_prompt_plus_max_new_tokens(
+        self, bundle_dir: Path, mock_og: MagicMock
+    ) -> None:
+        """When context_length is large, max_length = prompt_len + max_new_tokens."""
+        clock = _clock_from([0.0, 1.0, 2.5, 3.0])
+        cfg = GenerationConfig(max_new_tokens=64)
+        with _patch_og(mock_og), GenaiSession(bundle_dir, context_length=131072) as session:
+            session.generate_timed([1, 2, 3, 4, 5], cfg, clock=clock)
+
+        params = mock_og.GeneratorParams.return_value
+        # prompt_len=5 + max_new_tokens=64 = 69, well under context_length
+        assert params.set_search_options.call_args.kwargs["max_length"] == 69
 
 
 # ---------------------------------------------------------------------------

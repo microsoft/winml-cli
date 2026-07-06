@@ -122,9 +122,8 @@ class GenerationConfig:
     """Search / sampling parameters for a single generation call.
 
     All parameters are forwarded to ``og.GeneratorParams.set_search_options``.
-    ``max_length`` is **not** configurable here — it is set to the bundle's
-    ``context_length`` (read from ``genai_config.json``) because the static KV
-    cache size is baked into the ONNX graphs at export time.
+    ``max_length`` is computed as ``len(prompt) + max_new_tokens``, capped at
+    the bundle's ``context_length``, so only the needed KV cache is allocated.
 
     Attributes:
         max_new_tokens: Soft cap on the number of new tokens to generate.
@@ -443,7 +442,7 @@ class GenaiSession:
         self._ensure_loaded()
         cfg = config or GenerationConfig()
         tokens = self._encode_prompt(prompt)
-        generator = self._new_generator(cfg)
+        generator = self._new_generator(cfg, len(tokens))
         generator.append_tokens(tokens)
 
         stream = self._tokenizer.create_stream()
@@ -494,7 +493,7 @@ class GenaiSession:
         self._ensure_loaded()
         cfg = config or GenerationConfig()
         tokens = self._encode_prompt(prompt)
-        generator = self._new_generator(cfg)
+        generator = self._new_generator(cfg, len(tokens))
 
         # marks[0]  = before prefill
         # marks[1]  = after prefill (append_tokens)
@@ -658,21 +657,27 @@ class GenaiSession:
             return list(self._tokenizer.encode(prompt).tolist())
         return prompt
 
-    def _new_generator(self, cfg: GenerationConfig) -> Any:
+    def _new_generator(self, cfg: GenerationConfig, prompt_len: int) -> Any:
         """Build an ``og.Generator`` with search options from *cfg*.
+
+        ``max_length`` is set to ``prompt_len + cfg.max_new_tokens``, capped at
+        the bundle's ``context_length``.  This avoids pre-allocating KV cache
+        for the full context window (which can be 128K+ for DML bundles) when
+        only a small generation is requested.
 
         The prompt is **not** appended — callers decide whether to time
         ``append_tokens`` separately (see :meth:`generate_timed`).
         """
         og = self._import_og()
+        max_length = min(prompt_len + cfg.max_new_tokens, self._context_length)
         params = og.GeneratorParams(self._model)
         params.set_search_options(
-            max_length=self._context_length,
-            # do_sample=cfg.do_sample,
-            # temperature=cfg.temperature,
-            # top_p=cfg.top_p,
-            # top_k=cfg.top_k,
-            # repetition_penalty=cfg.repetition_penalty,
+            max_length=max_length,
+            do_sample=cfg.do_sample,
+            temperature=cfg.temperature,
+            top_p=cfg.top_p,
+            top_k=cfg.top_k,
+            repetition_penalty=cfg.repetition_penalty,
         )
         return og.Generator(self._model, params)
 
