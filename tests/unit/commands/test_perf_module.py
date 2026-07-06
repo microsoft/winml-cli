@@ -72,7 +72,15 @@ class TestPerfModuleFlag:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["perf", "-m", str(onnx_file), "--module", "NoSuchClass"],
+            [
+                "perf",
+                "-m",
+                str(onnx_file),
+                "--model-id",
+                "test/model",
+                "--module",
+                "NoSuchClass",
+            ],
         )
         assert result.exit_code == 2, result.output
         assert "--module is not supported for ONNX files" in result.output

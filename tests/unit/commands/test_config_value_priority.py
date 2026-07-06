@@ -299,7 +299,7 @@ def _run_perf(
         captured["instance"] = instance
         return instance
 
-    args = ["-m", str(model), *cli_args]
+    args = ["-m", str(model), "--model-id", "test/model", *cli_args]
     if config_path is not None:
         args.extend(["--config", str(config_path)])
 

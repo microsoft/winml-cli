@@ -568,7 +568,9 @@ class PerfBenchmark:
         samples: list[_GenSample] = []
         for i in range(total_runs):
             t_start = time.perf_counter()
-            output_ids = model.generate(
+            # _is_generative_composite guards this path; the model has generate()
+            # via GenerationMixin but mypy can't see through hasattr checks.
+            output_ids = model.generate(  # type: ignore[union-attr]
                 input_ids,
                 attention_mask=inputs.get("attention_mask"),
                 max_new_tokens=self.config.max_new_tokens,
@@ -2121,7 +2123,7 @@ def perf(
     is_composite = isinstance(model_path, dict)
     is_onnx = False
     if not is_composite and model_path is not None:
-        _mi = cli_utils.classify_model_input(model_path)
+        _mi = cli_utils.classify_model_input(cast("str", model_path))
         is_onnx = _mi.kind is cli_utils.ModelInputKind.ONNX_FILE
     elif not is_composite and hf_model_id is not None and model_path is None:
         try:
@@ -2341,7 +2343,7 @@ def perf(
                 )
 
             profiler = tracer_cls(
-                onnx_for_trace,
+                Path(onnx_for_trace),
                 output_dir=output_dir,
                 level=op_tracing,
             )
