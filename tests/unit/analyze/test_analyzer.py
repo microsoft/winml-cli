@@ -23,7 +23,6 @@ from winml.modelkit.analyze import (
     ModelStats,
     ONNXStaticAnalyzer,
     SupportLevel,
-    infer_ihv_from_ep_name,
 )
 from winml.modelkit.analyze.analyzer import _build_runtime_debug_details_summary
 from winml.modelkit.analyze.models.runtime_checks import PatternRuntime, RuntimeTestResult
@@ -863,34 +862,6 @@ class TestONNXStaticAnalyzer:
         analyzer = ONNXStaticAnalyzer(config=config)
         assert analyzer.config.enable_information is True
         assert analyzer.config.max_memory_mb == 4096
-
-    def test_map_ep_to_ihv_qnn(self) -> None:
-        """Test EP to IHV mapping for QNN."""
-        assert infer_ihv_from_ep_name("QNNExecutionProvider") == IHVType.QC
-        assert infer_ihv_from_ep_name("qnnexecutionprovider") == IHVType.QC
-        assert infer_ihv_from_ep_name("QualcommProvider") == IHVType.QC
-
-    def test_map_ep_to_ihv_openvino(self) -> None:
-        """Test EP to IHV mapping for OpenVINO."""
-        assert infer_ihv_from_ep_name("OpenVINOExecutionProvider") == IHVType.INTEL
-        assert infer_ihv_from_ep_name("openvino") == IHVType.INTEL
-        assert infer_ihv_from_ep_name("IntelProvider") == IHVType.INTEL
-
-    def test_map_ep_to_ihv_vitisai(self) -> None:
-        """Test EP to IHV mapping for VitisAI."""
-        assert infer_ihv_from_ep_name("VitisAIExecutionProvider") == IHVType.AMD
-        assert infer_ihv_from_ep_name("vitis") == IHVType.AMD
-        assert infer_ihv_from_ep_name("AMDProvider") == IHVType.AMD
-
-    def test_map_ep_to_ihv_nvidia(self) -> None:
-        """Test EP to IHV mapping for NvTensorRTRTX."""
-        assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
-        assert infer_ihv_from_ep_name("nvtensorrtx") == IHVType.NVIDIA
-        assert infer_ihv_from_ep_name("TensorRTProvider") == IHVType.NVIDIA
-
-    def test_map_ep_to_ihv_invalid(self) -> None:
-        """Test EP to IHV mapping with unrecognized EP resolves to MICROSOFT."""
-        assert infer_ihv_from_ep_name("InvalidEP") == IHVType.MICROSOFT
 
     def test_analyze_file_not_found(self) -> None:
         """Test analyze with non-existent file."""

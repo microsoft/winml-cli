@@ -25,8 +25,10 @@ if TYPE_CHECKING:
     from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
     from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
     from .image_to_text_evaluator import WinMLImageToTextEvaluator
+    from .keypoint_detection_evaluator import WinMLKeypointDetectionEvaluator
     from .metrics.classification import ClassificationMetric
     from .metrics.depth import DepthMetric
+    from .metrics.keypoint import KeypointAPMetric
     from .metrics.knn_accuracy import KNNAccuracyMetric
     from .metrics.mean_average_precision import MAPMetric
     from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
@@ -56,6 +58,8 @@ _LAZY_ATTRS: dict[str, str] = {
         ".image_segmentation_evaluator:WinMLImageSegmentationEvaluator",
     "WinMLImageToTextEvaluator":
         ".image_to_text_evaluator:WinMLImageToTextEvaluator",
+    "WinMLKeypointDetectionEvaluator":
+        ".keypoint_detection_evaluator:WinMLKeypointDetectionEvaluator",
     "WinMLObjectDetectionEvaluator":
         ".object_detection_evaluator:WinMLObjectDetectionEvaluator",
     "WinMLQuestionAnsweringEvaluator":
@@ -75,6 +79,8 @@ _LAZY_ATTRS: dict[str, str] = {
         ".metrics.classification:ClassificationMetric",
     "DepthMetric":
         ".metrics.depth:DepthMetric",
+    "KeypointAPMetric":
+        ".metrics.keypoint:KeypointAPMetric",
     "IGNORE_INDEX":
         ".metrics.mean_iou:IGNORE_INDEX",
     "KNNAccuracyMetric":
@@ -116,6 +122,7 @@ __all__ = [
     "DepthMetric",
     "EvalResult",
     "KNNAccuracyMetric",
+    "KeypointAPMetric",
     "MAPMetric",
     "MeanIoUMetric",
     "PseudoPerplexityMetric",
@@ -130,6 +137,7 @@ __all__ = [
     "WinMLImageFeatureExtractionEvaluator",
     "WinMLImageSegmentationEvaluator",
     "WinMLImageToTextEvaluator",
+    "WinMLKeypointDetectionEvaluator",
     "WinMLObjectDetectionEvaluator",
     "WinMLQuestionAnsweringEvaluator",
     "WinMLTextClassificationEvaluator",

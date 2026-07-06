@@ -33,7 +33,11 @@ from .build import (
 )
 from .precision import (
     PrecisionPolicy,
+    expand_precision,
+    extract_activation_bits,
+    extract_weight_bits,
     is_quantized_precision,
+    is_weight_only_precision,
     resolve_precision,
     resolve_quant_types,
 )
@@ -43,10 +47,14 @@ __all__ = [
     "PrecisionPolicy",
     "SubmoduleClassNotFoundError",
     "WinMLBuildConfig",
+    "expand_precision",
+    "extract_activation_bits",
+    "extract_weight_bits",
     "generate_build_config",
     "generate_hf_build_config",
     "generate_onnx_build_config",
     "is_quantized_precision",
+    "is_weight_only_precision",
     "merge_config",
     "resolve_precision",
     "resolve_quant_compile_config",

@@ -384,6 +384,7 @@ def _save_json(data: Any, path: Path) -> None:
     optional_message="If not specified, shows all devices",
 )
 @cli_utils.output_option("Save results to a JSON file.")
+@cli_utils.overwrite_option()
 @cli_utils.format_option()
 def catalog(
     model_type: str | None,
@@ -391,6 +392,7 @@ def catalog(
     ep: EPNameOrAlias | None,
     device: str | None,
     output: Path | None,
+    overwrite: bool,
     output_format: cli_utils.OutputFormat,
 ) -> None:
     r"""Browse WinML CLI's curated built-in model catalog.
@@ -435,4 +437,5 @@ def catalog(
         _output_list(models, ep_col_header=ep_col_header, ep_col_fn=ep_col_fn)
 
     if output is not None:
+        cli_utils.guard_output(output, overwrite)
         _save_json(models, output)

@@ -40,7 +40,7 @@ def sample_config():
                 "mode": "qdq",
                 "samples": 10,
                 "task": "image-classification",
-                "model_name": "test-model",
+                "model_id": "test-model",
             },
             "compile": {
                 "execution_provider": "qnn",
@@ -321,6 +321,23 @@ class TestBuildHfModel:
         mock_pipeline["load"].assert_called_once()
         call_args = mock_pipeline["load"].call_args
         assert call_args[0][1] == "bert-base"  # model_id
+
+    def test_pretrained_load_threads_model_class(self, sample_config) -> None:
+        """Pretrained load path forwards ``loader.model_class`` to load_hf_model.
+
+        Regression (#836): the pretrained branch dropped the explicit
+        ``model_class``, so e.g. CLIP feature-extraction resolved to the full
+        CLIPModel (which requires ``pixel_values``) instead of the configured
+        CLIPTextModelWithProjection, failing export with text-only inputs.
+        """
+        from winml.modelkit.build.hf import _load_model
+
+        with patch("winml.modelkit.loader.load_hf_model") as m_load:
+            m_load.return_value = (MagicMock(), MagicMock(), "image-classification")
+            _load_model(sample_config, "test-model", trust_remote_code=False)
+
+        m_load.assert_called_once()
+        assert m_load.call_args.kwargs["model_class"] == "AutoModelForImageClassification"
 
     def test_pre_loaded_model_skips_load(
         self, tmp_path: Path, sample_config, mock_pipeline

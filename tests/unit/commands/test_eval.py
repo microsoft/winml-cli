@@ -828,6 +828,90 @@ class TestPerTaskDefaultDataset:
 
 
 # ---------------------------------------------------------------------------
+# Build-pipeline flags ignored for pre-built ONNX inputs
+# ---------------------------------------------------------------------------
+
+
+class TestPrebuiltOnnxIgnoredBuildFlags:
+    """A pre-built ONNX path with skip_build (the default) makes the build
+    flags (--no-quant/--no-optimize/--no-analyze/--max-optim-iterations)
+    no-ops, so the command warns they were ignored."""
+
+    @staticmethod
+    def _run(runner: CliRunner, args: list[str]):
+        """Invoke eval with ``evaluate`` stubbed so only the CLI front-half
+        (config resolution + warnings) runs. Returns the CliRunner result.
+
+        ``commands.eval`` imports ``evaluate`` lazily via ``from ..eval import
+        evaluate``, so the stub is installed on the ``winml.modelkit.eval``
+        package where that import resolves it."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        with (
+            patch("winml.modelkit.eval.evaluate", return_value=object()),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            return runner.invoke(eval_cmd, args, obj={"debug": False})
+
+    def test_no_quant_warns_for_prebuilt_onnx(
+        self,
+        runner: CliRunner,
+        onnx_file,
+        caplog,
+    ):
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--model-id",
+                    "some/model",
+                    "--task",
+                    "image-classification",
+                    "--no-quant",
+                    "--max-optim-iterations",
+                    "5",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        msgs = [r.getMessage() for r in caplog.records]
+        assert any(
+            "--no-quant" in m and "--max-optim-iterations" in m and "pre-built ONNX" in m
+            for m in msgs
+        ), f"expected ignored-build-flags warning not found in {msgs!r}"
+
+    def test_no_warning_when_flags_left_default(
+        self,
+        runner: CliRunner,
+        onnx_file,
+        caplog,
+    ):
+        """Default build flags emit no ignored-flags warning."""
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
+            result = self._run(
+                runner,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--model-id",
+                    "some/model",
+                    "--task",
+                    "image-classification",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        msgs = [r.getMessage() for r in caplog.records]
+        assert not any("ignored for pre-built ONNX inputs (no build runs" in m for m in msgs), (
+            f"unexpected ignored-build-flags warning in {msgs!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # --format json
 # ---------------------------------------------------------------------------
 

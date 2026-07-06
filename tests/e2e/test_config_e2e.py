@@ -499,3 +499,43 @@ class TestConfigFlagVariations:
         for cfg in data:
             assert "loader" in cfg
             assert "export" in cfg
+
+    # --- auto-precision behaviour (PR #998 regression guard) -------------
+    def test_cpu_auto_precision_no_quant(self) -> None:
+        """device=cpu + precision=auto must NOT trigger FP16 conversion.
+
+        Before the fix, _AUTO_PRECISION mapped cpu→fp16 which silently
+        converted every model on CPU when no --precision flag was passed.
+        After the fix, cpu auto-precision resolves to fp32 (no-op).
+        """
+        data = _run_config("-m", self.MODEL, "-t", self.TASK, "-d", "cpu")
+        _assert_hf_config_structure(data)
+        assert data.get("quant") is None, (
+            f"cpu + auto precision should resolve to fp32 (no quant). Got: {data.get('quant')}"
+        )
+
+    def test_gpu_auto_precision_no_quant(self) -> None:
+        """device=gpu + precision=auto must NOT trigger FP16 conversion.
+
+        Before the fix, _AUTO_PRECISION mapped gpu→fp16, which broke AMD
+        (MIGraphX) eval tests because MIGraphX received an FP16 model it
+        wasn't expecting. After the fix, gpu auto-precision resolves to
+        fp32 (no-op).
+        """
+        data = _run_config("-m", self.MODEL, "-t", self.TASK, "-d", "gpu")
+        _assert_hf_config_structure(data)
+        assert data.get("quant") is None, (
+            f"gpu + auto precision should resolve to fp32 (no quant). Got: {data.get('quant')}"
+        )
+
+    def test_explicit_fp16_still_triggers_quant(self) -> None:
+        """--precision fp16 (explicit) must still produce an fp16 quant config.
+
+        The fix must not regress explicit FP16 requests — only auto-precision
+        should default to fp32.
+        """
+        data = _run_config("-m", self.MODEL, "-t", self.TASK, "-d", "cpu", "-p", "fp16")
+        _assert_hf_config_structure(data)
+        quant = data.get("quant")
+        assert quant is not None, "Explicit --precision fp16 should produce a quant config"
+        assert quant.get("mode") == "fp16"

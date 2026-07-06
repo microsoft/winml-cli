@@ -42,6 +42,7 @@ from .types import Prediction, PredictionResult
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..models.winml.composite_model import WinMLCompositeModel
     from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
@@ -269,7 +270,7 @@ class InferenceEngine:
     """
 
     def __init__(self) -> None:
-        self._model: WinMLPreTrainedModel | None = None
+        self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._pipeline: Any | None = None  # transformers.Pipeline
         self._model_id: str | None = None
         self._task: str | None = None

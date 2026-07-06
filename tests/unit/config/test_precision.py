@@ -17,7 +17,11 @@ import logging
 import pytest
 
 from winml.modelkit.config.precision import (
+    expand_precision,
+    extract_activation_bits,
+    extract_weight_bits,
     is_quantized_precision,
+    is_weight_only_precision,
     resolve_precision,
     resolve_quant_types,
 )
@@ -47,13 +51,13 @@ class TestResolvePrecision:
             ("npu", "w8a16", "npu", "w8a16", "uint8", "uint16", "QNNExecutionProvider"),
             ("npu", "w8a8", "npu", "w8a8", "uint8", "uint8", "QNNExecutionProvider"),
             ("npu", "w16a16", "npu", "w16a16", "int16", "uint16", "QNNExecutionProvider"),
-            ("gpu", "auto", "gpu", "fp16", None, None, "DmlExecutionProvider"),
+            ("gpu", "auto", "gpu", "fp32", None, None, "DmlExecutionProvider"),
             ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "DmlExecutionProvider"),
             ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "DmlExecutionProvider"),
             ("gpu", "int16", "gpu", "int16", "int16", "uint16", "DmlExecutionProvider"),
             ("gpu", "fp16", "gpu", "fp16", None, None, "DmlExecutionProvider"),
             ("gpu", "fp32", "gpu", "fp32", None, None, "DmlExecutionProvider"),
-            ("cpu", "auto", "cpu", "fp16", None, None, None),
+            ("cpu", "auto", "cpu", "fp32", None, None, None),
             ("cpu", "int8", "cpu", "int8", "uint8", "uint8", None),
             ("cpu", "int16", "cpu", "int16", "int16", "uint16", None),
             ("cpu", "fp16", "cpu", "fp16", None, None, None),
@@ -140,7 +144,7 @@ class TestGpuLlmWarning:
             policy = resolve_precision(device="gpu", task="text-generation")
 
         assert policy.device == "gpu"
-        assert policy.precision == "fp16"
+        assert policy.precision == "fp32"
         assert any("w4a16" in record.message for record in caplog.records)
 
     def test_gpu_non_llm_no_warning(self, caplog) -> None:
@@ -148,7 +152,7 @@ class TestGpuLlmWarning:
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.config.precision"):
             policy = resolve_precision(device="gpu", task="image-classification")
 
-        assert policy.precision == "fp16"
+        assert policy.precision == "fp32"
         assert not any("w4a16" in record.message for record in caplog.records)
 
     def test_gpu_text2text_warning(self, caplog) -> None:
@@ -312,19 +316,24 @@ class TestResolveQuantTypes:
         with pytest.raises(ValueError, match="Unknown precision"):
             resolve_quant_types("auto")
 
-    # ---- Unsupported bit widths ----
-    def test_unsupported_weight_bits_raises(self) -> None:
-        """w4a16 has unsupported weight bit-width 4 -- must raise ValueError."""
-        with pytest.raises(ValueError, match="Unsupported weight bit-width 4"):
+    # ---- Weight-only precision raises (should use RTN, not QDQ) ----
+    def test_weight_only_precision_raises(self) -> None:
+        """w4a16 is weight-only (RTN) — resolve_quant_types must raise."""
+        with pytest.raises(ValueError, match=r"weight-only.*RTN"):
             resolve_quant_types("w4a16")
+
+    def test_int4_raises(self) -> None:
+        """int4 is weight-only (RTN) — resolve_quant_types must raise."""
+        with pytest.raises(ValueError, match=r"weight-only.*RTN"):
+            resolve_quant_types("int4")
 
     def test_unsupported_activation_bits_raises(self) -> None:
         """w8a4 has unsupported activation bit-width 4 -- must raise ValueError."""
         with pytest.raises(ValueError, match="Unsupported activation bit-width 4"):
             resolve_quant_types("w8a4")
 
-    def test_both_bits_unsupported_raises_weight_first(self) -> None:
-        """w4a4 should raise on weight bits first (checked before activation)."""
+    def test_both_bits_unsupported_raises(self) -> None:
+        """w4a4 has unsupported bit-widths — must raise ValueError."""
         with pytest.raises(ValueError, match="Unsupported weight bit-width 4"):
             resolve_quant_types("w4a4")
 
@@ -400,10 +409,16 @@ class TestIsQuantizedPrecision:
         assert is_quantized_precision(precision) is False
 
     # ---- False cases: unsupported bit widths ----
-    @pytest.mark.parametrize("precision", ["w4a16", "w8a4", "w4a4", "w2a8", "w8a2"])
+    @pytest.mark.parametrize("precision", ["w8a4", "w4a4", "w2a8", "w8a2"])
     def test_unsupported_bits_return_false(self, precision: str) -> None:
         """Unsupported w{x}a{y} bit widths must return False, not True."""
         assert is_quantized_precision(precision) is False
+
+    # ---- True cases: weight-only ----
+    @pytest.mark.parametrize("precision", ["int4", "w4a16", "w4a8"])
+    def test_weight_only_return_true(self, precision: str) -> None:
+        """Weight-only precisions (int4, w4a16) are quantized."""
+        assert is_quantized_precision(precision) is True
 
     # ---- False cases: completely invalid ----
     @pytest.mark.parametrize("precision", ["garbage", "wXaY", "", "bfloat16", "w0a0"])
@@ -483,12 +498,20 @@ class TestMixedPrecisionInvalidInputs:
 
     @pytest.mark.parametrize(
         "precision",
-        ["w4a16", "w4a4", "w2a8"],
+        ["w4a4", "w2a8"],
     )
     def test_unsupported_mixed_bits_rejected(self, precision: str) -> None:
         """Unsupported w{x}a{y} bit widths should raise ValueError."""
         with pytest.raises(ValueError, match="Unknown precision"):
             resolve_precision(device="npu", precision=precision)
+
+    def test_w4a16_is_valid_weight_only(self) -> None:
+        """w4a16 is now a valid weight-only precision (RTN)."""
+        policy = resolve_precision(device="npu", precision="w4a16")
+        assert policy.precision == "w4a16"
+        # Weight-only: no traditional weight_type/activation_type
+        assert policy.weight_type is None
+        assert policy.activation_type is None
 
     def test_w0a0_rejected(self) -> None:
         """w0a0 is not a valid precision."""
@@ -580,10 +603,15 @@ class TestQuantizeCliResolveQuant:
 
     # ---- Unsupported precision is rejected ----
     def test_unsupported_precision_rejected(self) -> None:
-        """Unsupported precision (w4a16) must raise BadParameter, not silently fall back."""
+        """Unsupported precision (w2a8) must raise BadParameter."""
         import click
 
         with pytest.raises(click.BadParameter, match="not a supported quantization precision"):
+            self._resolve(precision="w2a8")
+
+    def test_weight_only_precision_rejected(self) -> None:
+        """Weight-only precision (w4a16) raises ValueError from resolve_quant_types."""
+        with pytest.raises(ValueError, match="weight-only"):
             self._resolve(precision="w4a16")
 
     # ---- Explicit flags override precision ----
@@ -611,3 +639,145 @@ class TestQuantizeCliResolveQuant:
         w, a = self._resolve(precision="W8A16")
         assert w == "uint8"
         assert a == "uint16"
+
+
+# =============================================================================
+# TestIsWeightOnlyPrecision - RTN detection
+# =============================================================================
+
+
+class TestIsWeightOnlyPrecision:
+    """Test is_weight_only_precision() function."""
+
+    @pytest.mark.parametrize("precision", ["int4", "w4a16", "w4a8", "w4a32"])
+    def test_weight_only_true(self, precision: str) -> None:
+        """Weight-only precisions should return True."""
+        assert is_weight_only_precision(precision) is True
+
+    @pytest.mark.parametrize("precision", ["int8", "int16", "w8a16", "w8a8", "w16a16"])
+    def test_qdq_precisions_false(self, precision: str) -> None:
+        """QDQ precisions should return False."""
+        assert is_weight_only_precision(precision) is False
+
+    @pytest.mark.parametrize("precision", ["w8a32", "w16a32"])
+    def test_a32_with_qdq_weight_false(self, precision: str) -> None:
+        """a32 (keep FP32) is only valid with weight-only (4-bit), not QDQ weights."""
+        assert is_weight_only_precision(precision) is False
+
+    @pytest.mark.parametrize("precision", ["fp16", "fp32", "auto"])
+    def test_float_precisions_false(self, precision: str) -> None:
+        """Float precisions should return False."""
+        assert is_weight_only_precision(precision) is False
+
+    @pytest.mark.parametrize("precision", ["garbage", "", "bfloat16"])
+    def test_invalid_returns_false(self, precision: str) -> None:
+        """Invalid precision strings should return False."""
+        assert is_weight_only_precision(precision) is False
+
+
+# =============================================================================
+# TestExtractWeightBits - bit extraction
+# =============================================================================
+
+
+class TestExtractWeightBits:
+    """Test extract_weight_bits() function."""
+
+    @pytest.mark.parametrize(
+        ("precision", "expected"),
+        [
+            ("int4", 4),
+            ("int8", 8),
+            ("int16", 16),
+            ("w4a16", 4),
+            ("w4a8", 4),
+            ("w4a32", 4),
+            ("w8a8", 8),
+            ("w8a16", 8),
+            ("w16a16", 16),
+        ],
+    )
+    def test_extract_bits(self, precision: str, expected: int) -> None:
+        """Should extract correct weight bit-width."""
+        assert extract_weight_bits(precision) == expected
+
+    @pytest.mark.parametrize("precision", ["fp16", "fp32", "auto", "garbage"])
+    def test_invalid_raises(self, precision: str) -> None:
+        """Non-quantized precisions should raise ValueError."""
+        with pytest.raises(ValueError, match=r"Cannot extract weight bits"):
+            extract_weight_bits(precision)
+
+    @pytest.mark.parametrize("precision", ["w4a4", "w3a8", "w32a8"])
+    def test_unsupported_bits_raises(self, precision: str) -> None:
+        """Precisions with unsupported bit-widths should raise ValueError."""
+        with pytest.raises(ValueError, match=r"unsupported bit-widths"):
+            extract_weight_bits(precision)
+
+
+# =============================================================================
+# TestExtractActivationBits - activation bit extraction
+# =============================================================================
+
+
+class TestExtractActivationBits:
+    """Test extract_activation_bits() function."""
+
+    @pytest.mark.parametrize(
+        ("precision", "expected"),
+        [
+            ("int4", 32),  # int4 preset = w4a32 (activation stays FP32)
+            ("w4a32", 32),
+            ("w4a16", 16),
+            ("w4a8", 8),
+            ("w8a8", 8),
+            ("w8a16", 16),
+        ],
+    )
+    def test_extract_activation_bits(self, precision: str, expected: int) -> None:
+        """Should extract correct activation bit-width."""
+        assert extract_activation_bits(precision) == expected
+
+    @pytest.mark.parametrize("precision", ["fp16", "fp32", "auto", "garbage"])
+    def test_invalid_raises(self, precision: str) -> None:
+        """Non-mixed precisions should raise ValueError."""
+        with pytest.raises(ValueError, match=r"Cannot extract activation bits"):
+            extract_activation_bits(precision)
+
+    def test_unsupported_activation_raises(self) -> None:
+        """Unsupported activation bit-width should raise ValueError."""
+        with pytest.raises(ValueError, match=r"unsupported activation bit-width"):
+            extract_activation_bits("w4a4")
+
+
+# =============================================================================
+# TestExpandPrecision - Multi-pass precision expansion
+# =============================================================================
+
+
+class TestExpandPrecision:
+    """Test expand_precision() function."""
+
+    @pytest.mark.parametrize(
+        ("precision", "expected"),
+        [
+            ("w4a16", ["int4", "fp16"]),
+            ("W4A16", ["int4", "fp16"]),
+            ("int4", ["int4"]),
+            ("w4a32", ["w4a32"]),
+            ("fp16", ["fp16"]),
+            ("int8", ["int8"]),
+            ("w8a16", ["w8a16"]),
+            ("w8a8", ["w8a8"]),
+            ("int16", ["int16"]),
+        ],
+    )
+    def test_expand_precision(self, precision: str, expected: list[str]) -> None:
+        """Verify precision expansion produces correct pass sequences."""
+        assert expand_precision(precision) == expected
+
+    def test_w4a16_is_only_multi_pass(self) -> None:
+        """Only w4a16 should produce more than one pass."""
+        single_pass_cases = ["int4", "int8", "int16", "fp16", "w4a32", "w8a16", "w8a8"]
+        for prec in single_pass_cases:
+            result = expand_precision(prec)
+            assert len(result) == 1, f"{prec} should be single-pass but got {result}"

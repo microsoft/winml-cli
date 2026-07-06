@@ -62,7 +62,9 @@ from ..utils.model_utils import (
     shape_and_dtype_from_valueinfo,
 )
 from ..utils.node_key_utils import build_node_key_by_node_id, resolve_stable_node_key
-from ..utils.rule_loader import resolve_rule_parquet_path
+from ..utils.rule_loader import (
+    resolve_rule_parquet_path,
+)
 from ..utils.timing_utils import make_timing_logger
 from .node_checkers.base import NodeChecker
 from .node_checkers.registry import NodeCheckerRegistry
@@ -834,7 +836,7 @@ def get_query_conditions_for_node(
                 type_vars[type_annotation] = dtype
         else:
             vi = valueinfo.get(inp_name)
-            shape_seq: list | tuple[int, ...] | None = None
+            shape_seq: tuple[int | str | None, ...] | None = None
             dtype = None
             if vi is not None:
                 shape_seq, dtype = shape_and_dtype_from_valueinfo(vi)
@@ -1935,13 +1937,13 @@ class RuntimeCheckerQuery:
         op_since_version: int,
         is_qdq: bool,
         for_debug: bool = False,
-    ) -> tuple[pd.DataFrame | None, Path | None, _ParquetConditionTree | None]:
+    ) -> tuple[Path, pd.DataFrame | None, _ParquetConditionTree | None]:
         """Load per-op parquet rule table with cache.
 
         Returns:
-            tuple[pd.DataFrame | None, Path | None, _ParquetConditionTree | None]:
-                Loaded dataframe when available, otherwise None,
-                the resolved parquet path used for lookup when found,
+            tuple[Path, pd.DataFrame | None, _ParquetConditionTree | None]:
+                The resolved or expected parquet path for lookup,
+                loaded dataframe when available, otherwise None,
                 and optional pre-built condition tree.
         """
         parquet_name = (
@@ -1950,26 +1952,30 @@ class RuntimeCheckerQuery:
         )
         parquet_path = resolve_rule_parquet_path(parquet_name, for_debug=for_debug)
 
+        # This per-instance cache assumes a stable rules location for the query's
+        # lifetime: the rule-dir env vars must not change between calls. The path
+        # is recomputed each call (so reporting reflects the current location),
+        # but a cached None is reused without re-probing the filesystem.
         cache_key = (op_name, op_domain.value, op_since_version, is_qdq)
         if cache_key in self._parquet_rule_table_cache:
-            if parquet_path is not None:
+            if self._parquet_rule_table_cache[cache_key] is not None:
                 _log_parquet_cache_hit(parquet_path, scope="instance")
             return (
-                self._parquet_rule_table_cache[cache_key],
                 parquet_path,
+                self._parquet_rule_table_cache[cache_key],
                 self._parquet_condition_tree_cache.get(cache_key),
             )
 
-        if parquet_path is None:
+        if not parquet_path.exists():
             self._parquet_rule_table_cache[cache_key] = None
             self._parquet_condition_tree_cache[cache_key] = None
-            return None, None, None
+            return parquet_path, None, None
 
         table_df = _get_or_load_parquet_table_global(parquet_path)
         condition_tree = _build_condition_tree(table_df)
         self._parquet_rule_table_cache[cache_key] = table_df
         self._parquet_condition_tree_cache[cache_key] = condition_tree
-        return table_df, parquet_path, condition_tree
+        return parquet_path, table_df, condition_tree
 
     def _run_for_node_with_parquet_rules(
         self,
@@ -2023,7 +2029,7 @@ class RuntimeCheckerQuery:
         since_version_ms = _elapsed_ms(since_version_start)
 
         load_table_start = time.perf_counter()
-        table_df, parquet_path, condition_tree = self._load_parquet_rule_table(
+        parquet_path, table_df, condition_tree = self._load_parquet_rule_table(
             node.op_type,
             op_domain,
             op_since_version,
@@ -2031,10 +2037,8 @@ class RuntimeCheckerQuery:
             for_debug=for_debug,
         )
         load_table_ms = _elapsed_ms(load_table_start)
-        parquet_file = parquet_path.name if parquet_path is not None else None
-        parquet_path_norm = (
-            _normalize_table_path(parquet_path) if parquet_path is not None else None
-        )
+        parquet_file = parquet_path.name
+        parquet_path_norm = _normalize_table_path(parquet_path)
 
         if table_df is None:
             if run_unknown_op:

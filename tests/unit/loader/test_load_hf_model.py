@@ -116,7 +116,7 @@ class TestModelArchitectureOverrideFast:
         # Track calls to resolve_task
         resolve_calls = []
 
-        def mock_resolve(config, *, task=None, model_class=None):
+        def mock_resolve(config, *, task=None, model_class=None, model_type_override=None):
             resolve_calls.append({"task": task, "model_class": model_class})
             mock_class = MagicMock()
             mock_class.__name__ = "MockModel"
@@ -158,7 +158,7 @@ class TestModelArchitectureOverrideFast:
         # Track calls to resolve_task
         resolve_calls = []
 
-        def mock_resolve(config, *, task=None, model_class=None):
+        def mock_resolve(config, *, task=None, model_class=None, model_type_override=None):
             resolve_calls.append({"task": task, "model_class": model_class})
             mock_class = MagicMock()
             mock_class.__name__ = "AutoDetectedModel"
@@ -195,7 +195,7 @@ class TestModelArchitectureOverrideFast:
 
         resolve_calls = []
 
-        def mock_resolve(config, *, task=None, model_class=None):
+        def mock_resolve(config, *, task=None, model_class=None, model_type_override=None):
             resolved_task = task or "feature-extraction"
             resolve_calls.append({"task": resolved_task, "model_class": model_class})
             mock_class = MagicMock()

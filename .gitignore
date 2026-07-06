@@ -253,6 +253,10 @@ nul
 export_config.json
 *_perf.json
 shape_config.json
+/out/
+
+# ONNX external data files at repo root (e.g. EPContext .data blobs)
+/*.data
 
 # UV / pip
 uv.lock

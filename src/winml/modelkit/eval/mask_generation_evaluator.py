@@ -160,6 +160,11 @@ class WinMLMaskGenerationEvaluator(WinMLEvaluator):
         self.config = config
         mapping = config.dataset.columns_mapping or {}
         self._prompt_mode: str = mapping.get("prompt_mode", "bbox")
+        if self._prompt_mode not in {"bbox", "point"}:
+            raise ValueError(
+                f"Unsupported prompt_mode={self._prompt_mode!r} for mask-generation evaluation. "
+                "Use prompt_mode='bbox' or 'point'."
+            )
         self._enc_sess, self._dec_sess = self._load_sessions()
         # Pick the per-family preprocessing profile from the encoder's
         # static input shape (falling back to a model_id heuristic, then
@@ -538,6 +543,13 @@ def _build_decoder_inputs(
             f"Unsupported prompt_mode={prompt_mode!r} (expected 'bbox' or 'point'). "
             "Text-prompt mode is not yet supported for SAM 3 ONNX -- the cached "
             "decoder export has no text input port; tracked as a follow-up.",
+        )
+
+    required_embeds = ("image_embeddings.0", "image_embeddings.1", "image_embeddings.2")
+    missing_embeds = [key for key in required_embeds if key not in emb]
+    if missing_embeds:
+        raise ValueError(
+            f"Encoder output missing required keys {missing_embeds}. Got: {list(emb.keys())}"
         )
 
     return {

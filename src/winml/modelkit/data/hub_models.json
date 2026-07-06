@@ -2050,17 +2050,27 @@
       "size_mb": 157.2
     },
     {
-      "model_id": "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx",
+      "model_id": "onnx-community/sam3-tracker-ONNX",
+      "onnx_path": "onnx/vision_encoder_int8.onnx",
       "task": "image-feature-extraction",
       "model_type": "sam3_tracker",
-      "supported_eps": {},
+      "supported_eps": {
+        "cpu": [
+          "CPU"
+        ]
+      },
       "size_mb": 504.2
     },
     {
-      "model_id": "onnx-community/sam3-tracker-ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx",
+      "model_id": "onnx-community/sam3-tracker-ONNX",
+      "onnx_path": "onnx/prompt_encoder_mask_decoder_int8.onnx",
       "task": "mask-generation",
       "model_type": "sam3_tracker",
-      "supported_eps": {},
+      "supported_eps": {
+        "cpu": [
+          "CPU"
+        ]
+      },
       "size_mb": 9.6
     }
   ]

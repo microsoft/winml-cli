@@ -24,6 +24,7 @@ Design Principles
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,13 +36,12 @@ from .winml import get_supported_tasks, get_winml_class
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from transformers import PretrainedConfig
 
     from ..config import WinMLBuildConfig
     from ..utils.constants import EPNameOrAlias
     from .winml.base import WinMLPreTrainedModel
+    from .winml.composite_model import WinMLCompositeModel
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ class WinMLAutoModel:
         session_options: Any | None = None,
         hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
-    ) -> WinMLPreTrainedModel | WinMLCompositeModel:  # noqa: F821
+    ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Build from a pre-exported ONNX file.
 
         Runs optimize -> [quantize] -> [compile] via ``build_onnx_model()``.
@@ -149,7 +149,7 @@ class WinMLAutoModel:
         Returns:
             WinMLPreTrainedModel inference wrapper.
         """
-        if isinstance(onnx_path, dict):
+        if isinstance(onnx_path, Mapping):
             from .winml.composite_model import WinMLCompositeModel
 
             return WinMLCompositeModel.from_onnx(
@@ -196,7 +196,7 @@ class WinMLAutoModel:
         # Skip build for compiled models or explicit skip.
         # Check is_compiled_onnx directly — don't rely on config shape alone
         # because auto+auto also produces quant=None, compile=None for raw models.
-        from ..onnx import is_compiled_onnx
+        from ..onnx import get_onnx_model_hash, is_compiled_onnx
 
         if skip_build or is_compiled_onnx(onnx_path):
             logger.info("Skipping build (compiled model or explicit skip). Using original ONNX.")
@@ -211,10 +211,15 @@ class WinMLAutoModel:
                 provider_options=provider_options,
             )
 
-        # Resolve output directory
+        # Resolve output directory and cache key
+        task_abbrev = get_task_abbrev(resolved_task) if resolved_task else "onnx"
+        cache_key = get_cache_key(task_abbrev, config.generate_cache_key(), kwargs)
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
-            output_dir = get_model_dir(onnx_path.stem, cache_dir=cache_dir_path)
+            output_dir = get_model_dir(
+                f"onnx-{get_onnx_model_hash(onnx_path)}",
+                cache_dir=cache_dir_path,
+            )
         else:
             import tempfile
 
@@ -233,6 +238,7 @@ class WinMLAutoModel:
             rebuild=force_rebuild,
             ep=ep,
             device=device,
+            cache_key=cache_key,
             allow_unsupported_nodes=allow_unsupported_nodes,
             **kwargs,
         )
@@ -266,9 +272,10 @@ class WinMLAutoModel:
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
         no_compile: bool = False,
+        model_type: str | None = None,
         allow_unsupported_nodes: bool = False,
         **kwargs: Any,
-    ) -> WinMLPreTrainedModel:
+    ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Load appropriate WinML model based on task detection.
 
         Supports two input modes:
@@ -300,6 +307,10 @@ class WinMLAutoModel:
             shape_config: Shape overrides passed to generate_build_config().
                 Valid keys -- text: sequence_length; vision: height, width;
                 audio: feature_size, nb_max_frames, audio_sequence_length.
+            model_type: Explicit model_type override. When provided alongside a
+                HF model_id, selects a registered build variant (e.g.
+                ``"qwen3_transformer_only"``) instead of the architecture's
+                native model_type. Leave ``None`` for normal auto-detection.
             allow_unsupported_nodes: If True, warn instead of raising when the
                 analyzer reports unsupported nodes that persist; the build
                 proceeds and the EP may fall back to another device for them.
@@ -358,14 +369,22 @@ class WinMLAutoModel:
         if task is not None:
             from .winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-            _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
-            if task in _known_composite_tasks:
-                from transformers import AutoConfig
-
-                _hf_cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
-                _model_type = getattr(_hf_cfg, "model_type", None)
+            # Explicit override wins so a variant composite (e.g.
+            # "qwen3_transformer_only") can be selected over the native type.
+            _model_type: str | None
+            if model_type is not None:
+                _model_type = model_type
             else:
-                _model_type = None
+                _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
+                if task in _known_composite_tasks:
+                    from transformers import AutoConfig
+
+                    _hf_cfg = AutoConfig.from_pretrained(
+                        model_id, trust_remote_code=trust_remote_code
+                    )
+                    _model_type = getattr(_hf_cfg, "model_type", None)
+                else:
+                    _model_type = None
 
             if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
                 from .winml.composite_model import WinMLCompositeModel
@@ -404,10 +423,13 @@ class WinMLAutoModel:
             trust_remote_code=trust_remote_code,
             ep=kwargs.get("ep"),
             no_compile=no_compile,
+            model_type=model_type,
         )
 
         resolved_task = build_config.loader.task
         logger.debug("Generated config with task: %s", resolved_task)
+        if resolved_task is None:
+            raise ValueError(f"Could not resolve a task for model {model_id!r}.")
 
         config = build_config
         task = resolved_task
@@ -425,7 +447,7 @@ class WinMLAutoModel:
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 
-        cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key())
+        cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key(), kwargs)
         output_dir = get_model_dir(model_id, cache_dir=cache_dir_path)
 
         # =====================================================================
@@ -438,7 +460,9 @@ class WinMLAutoModel:
         from transformers import AutoConfig
 
         hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=effective_trust)
-        model_type = getattr(hf_config, "model_type", "unknown")
+        # Honor an explicit model_type override; otherwise probe from the config.
+        if model_type is None:
+            model_type = getattr(hf_config, "model_type", "unknown")
         logger.debug("Model type: %s, task: %s", model_type, resolved_task)
 
         # =====================================================================
@@ -457,6 +481,15 @@ class WinMLAutoModel:
             if user_ep is not None
             else (config.compile.ep_config.provider if config.compile is not None else None)
         )
+        # Forward build-pipeline controls (skip_optimize / hack_max_optim_iterations)
+        # supplied by callers like winml perf and winml eval. Only the recognized
+        # build-control keys are forwarded so unrelated kwargs (e.g. ``ep``, read
+        # above) do not leak into build_hf_model's signature.
+        build_control_kwargs = {
+            key: kwargs[key]
+            for key in ("skip_optimize", "hack_max_optim_iterations")
+            if key in kwargs
+        }
         result = build_hf_model(
             config=config,
             output_dir=output_dir,
@@ -467,7 +500,9 @@ class WinMLAutoModel:
             cache_key=cache_key,
             ep=resolved_ep,
             device=device,
+            model_type=model_type,
             allow_unsupported_nodes=allow_unsupported_nodes,
+            **build_control_kwargs,
         )
         onnx_path = result.final_onnx_path
 

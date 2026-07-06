@@ -95,7 +95,7 @@ class TestLoadConfigModuleMode:
                         },
                         "export": {},
                         "optim": {},
-                        "quant": {"task": "fill-mask", "model_name": "X", "samples": 1},
+                        "quant": {"task": "fill-mask", "model_id": "X", "samples": 1},
                     },
                 ]
             )

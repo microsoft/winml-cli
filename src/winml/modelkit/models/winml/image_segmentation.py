@@ -19,11 +19,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from transformers.modeling_outputs import SemanticSegmenterOutput
-from transformers.utils import ModelOutput
+from transformers.utils.generic import ModelOutput
 
 from .base import WinMLPreTrainedModel
 
@@ -48,10 +48,10 @@ class ImageSegmentationOutput(ModelOutput):
         outputs.pred_boxes  — [B, num_queries, 4]
     """
 
-    loss: torch.FloatTensor | None = None
-    logits: torch.FloatTensor | None = None
-    pred_boxes: torch.FloatTensor | None = None
-    pred_masks: torch.FloatTensor | None = None
+    loss: torch.Tensor | None = None
+    logits: torch.Tensor | None = None
+    pred_boxes: torch.Tensor | None = None
+    pred_masks: torch.Tensor | None = None
 
 
 class WinMLModelForImageSegmentation(WinMLPreTrainedModel):
@@ -65,7 +65,7 @@ class WinMLModelForImageSegmentation(WinMLPreTrainedModel):
     Pipeline execution is done by WinMLAutoModel factory.
     """
 
-    def forward(
+    def forward(  # type: ignore[override]  # HF-pipeline base uses generic **kwargs; task-specific signature
         self,
         pixel_values: torch.Tensor | np.ndarray,
         pixel_mask: torch.Tensor | np.ndarray | None = None,
@@ -131,7 +131,7 @@ class WinMLModelForSemanticSegmentation(WinMLPreTrainedModel):
     Pipeline execution is done by WinMLAutoModel factory.
     """
 
-    def forward(
+    def forward(  # type: ignore[override]  # HF-pipeline base uses generic **kwargs; task-specific signature
         self,
         pixel_values: torch.Tensor | np.ndarray,
         **kwargs: Any,
@@ -152,7 +152,9 @@ class WinMLModelForSemanticSegmentation(WinMLPreTrainedModel):
         # Get logits (by name or first output)
         logits = outputs.get("logits", next(iter(outputs.values())))
 
-        return SemanticSegmenterOutput(logits=logits)
+        # transformers' Output fields are annotated FloatTensor (legacy, over-narrow);
+        # the ONNX session returns a real float Tensor.
+        return SemanticSegmenterOutput(logits=cast("torch.FloatTensor", logits))
 
     @property
     def num_labels(self) -> int:

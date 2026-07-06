@@ -56,7 +56,7 @@ Copy all runtime rule parquet files from:
 
 ### Option 4: Use external rules directories via environment variable
 
-Set `WINMLCLI_RULES_DIR` to one or more directories containing parquet rule artifacts.
+Set `WINMLCLI_RULES_DIR` to a single directory containing parquet rule artifacts.
 
 Important: relative paths are resolved from `src/winml/modelkit/analyze/utils/` (the
 directory of `rule_loader.py`), not from the current terminal working directory.
@@ -64,17 +64,18 @@ directory of `rule_loader.py`), not from the current terminal working directory.
 - Windows (PowerShell, user-level absolute path): `[Environment]::SetEnvironmentVariable("WINMLCLI_RULES_DIR", "C:\*path*\rules", "User")`
 - Windows (PowerShell, user-level repo-relative path): `[Environment]::SetEnvironmentVariable("WINMLCLI_RULES_DIR", "..\..\..\..\..\..\ModelKitArtifacts\rules", "User")`
 
-Multiple directories are supported using `os.pathsep` (`;` on Windows, `:` on Unix-like systems).
+Only one directory is supported. The value is not split on `os.pathsep`; it is treated
+as a single literal directory path.
 
 ## Rule lookup order
 
-The analyzer searches directories in this order:
+`WINMLCLI_RULES_DIR` overrides — it does not augment — the embedded default:
 
-1. Directories listed in `WINMLCLI_RULES_DIR` (left to right)
-2. Embedded default directory: `src/winml/modelkit/analyze/rules/runtime_check_rules/`
-
-`WINMLCLI_RULES_DIR` takes precedence over the embedded default when the same parquet file
-exists in multiple locations.
+- If `WINMLCLI_RULES_DIR` is set, only that single directory is searched. The embedded
+  default directory is **not** consulted, so that directory must contain every parquet
+  rule you need.
+- If `WINMLCLI_RULES_DIR` is unset or empty, only the embedded default directory is searched:
+  `src/winml/modelkit/analyze/rules/runtime_check_rules/`.
 
 ## What happens if parquet rules are missing
 

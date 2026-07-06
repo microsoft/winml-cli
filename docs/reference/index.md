@@ -98,7 +98,7 @@ Set to `null` to skip quantization.
 | `per_channel` | `bool` | `false` | Per-channel quantization. |
 | `symmetric` | `bool` | `false` | Symmetric quantization. |
 | `task` | `str \| null` | `null` | Task for dataset-aware calibration. |
-| `model_name` | `str \| null` | `null` | Model ID for calibration dataset resolution. |
+| `model_id` | `str \| null` | `null` | Model ID for calibration dataset resolution. |
 | `dataset_name` | `str \| null` | `null` | Override calibration dataset. |
 | `distribution` | `str` | `"uniform"` | Random distribution for dummy data. |
 | `seed` | `int \| null` | `null` | Random seed for reproducibility. |

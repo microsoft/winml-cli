@@ -42,6 +42,7 @@ def build_onnx_model(
     rebuild: bool = False,
     ep: EPNameOrAlias | None = None,
     device: str | None = None,
+    cache_key: str | None = None,
     **kwargs: Any,
 ) -> BuildResult:
     """Build from a pre-exported ONNX model.
@@ -58,6 +59,9 @@ def build_onnx_model(
         rebuild: Force rebuild even if output exists.
         ep: Target execution provider for the analyzer (e.g., ``"qnn"``).
         device: Target device for the analyzer (e.g., ``"NPU"``).
+        cache_key: Optional prefix for artifact filenames, enabling multiple
+            task/config variants to coexist in one directory. When set, all
+            artifact files are prefixed (e.g., ``"{cache_key}_model.onnx"``).
         **kwargs: Additional options:
             - ``hack_max_optim_iterations`` (int, default 3): Max analyzer
               iterations. 0 disables analyzer.
@@ -101,15 +105,19 @@ def build_onnx_model(
     start_time = time.monotonic()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Artifact naming — optionally prefixed when cache_key is set so that
+    # multiple task/config variants can coexist in one directory.
+    def _name(base: str) -> str:
+        return f"{cache_key}_{base}" if cache_key else base
+
     # Define output paths
-    stem = onnx_path.stem
-    optimized_path = output_dir / f"{stem}_optimized.onnx"
-    quantized_path = output_dir / f"{stem}_quantized.onnx"
-    compiled_path = output_dir / f"{stem}_compiled.onnx"
-    final_path = output_dir / "model.onnx"
-    config_path = output_dir / "winml_build_config.json"
-    manifest_path = output_dir / "build_manifest.json"
-    analyze_result_path = output_dir / "analyze_result.json"
+    optimized_path = output_dir / _name("optimized.onnx")
+    quantized_path = output_dir / _name("quantized.onnx")
+    compiled_path = output_dir / _name("compiled.onnx")
+    final_path = output_dir / _name("model.onnx")
+    config_path = output_dir / _name("winml_build_config.json")
+    manifest_path = output_dir / _name("build_manifest.json")
+    analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Check for existing artifact (skip build if present and not rebuilding)
     if final_path.exists() and not rebuild:
@@ -124,10 +132,12 @@ def build_onnx_model(
 
     # Rebuild: clean old ONNX artifacts to prevent stale files
     if rebuild:
-        for old in output_dir.glob("*.onnx"):
+        pattern = f"{cache_key}_*.onnx" if cache_key else "*.onnx"
+        for old in output_dir.glob(pattern):
             old.unlink()
             logger.debug("Removed old artifact: %s", old.name)
-        for old in output_dir.glob("*.onnx.data"):
+        data_pattern = f"{cache_key}_*.onnx.data" if cache_key else "*.onnx.data"
+        for old in output_dir.glob(data_pattern):
             old.unlink()
             logger.debug("Removed old external data sidecar: %s", old.name)
 

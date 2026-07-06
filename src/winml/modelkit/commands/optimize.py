@@ -165,14 +165,13 @@ def capability_options(func: F) -> F:
     default=False,
     help="List available pattern rewrite families and exit",
 )
-@click.option(
-    "--model",
-    "-m",
-    required=False,  # Not required when --list-capabilities/--list-rewrites is used
-    type=click.Path(exists=True, path_type=Path),
-    help="Input ONNX model file",
+@cli_utils.model_path_option(
+    # Not required when --list-capabilities/--list-rewrites is used
+    required=False,
+    help_text="Input ONNX model file",
 )
 @cli_utils.output_option("Output path (default: {input}_opt.onnx)")
+@cli_utils.overwrite_option()
 @click.option(
     "--config",
     "-c",
@@ -181,6 +180,7 @@ def capability_options(func: F) -> F:
     help="Configuration file (YAML/JSON)",
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @capability_options
 @click.pass_context  # type: ignore[arg-type]  # capability_options widens the signature; click stubs want positional-only ctx but we keep it keyword-callable for back-compat
 def optimize(
@@ -189,6 +189,7 @@ def optimize(
     list_rewrites: bool,
     model: Path | None,
     output: Path | None,
+    overwrite: bool,
     config: Path | None,
     verbose: int,
     quiet: bool,
@@ -323,7 +324,7 @@ def optimize(
             else:
                 console.print(f"      source:  {group.sources[0]}")
             console.print(f"      target:  {group.target_class}")
-            console.print(f"      rule:    modelkit/pattern/rules/{rule_file}")
+            console.print(f"      rule:    winml/modelkit/pattern/rules/{rule_file}")
             if is_multi:
                 for src in group.sources:
                     src_flag = f"--enable-{source_flag_name(src, group.target_class)}"
@@ -345,6 +346,9 @@ def optimize(
     # Determine output path
     if output is None:
         output = model.parent / f"{model.stem}_opt.onnx"
+
+    # Refuse to clobber an existing output unless the user opted in.
+    cli_utils.guard_output(output, overwrite)
 
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")

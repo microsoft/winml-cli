@@ -358,6 +358,7 @@ def _validate_task_supported_for_model(
 def _validate_loader_tasks_for_model(
     *,
     model_id: str | None,
+    is_onnx: bool,
     configs: list[WinMLBuildConfig],
     trust_remote_code: bool,
 ) -> Any | None:
@@ -383,7 +384,7 @@ def _validate_loader_tasks_for_model(
     if model_id is None:
         return None
 
-    if cli_utils.is_onnx_file_path(model_id):
+    if is_onnx:
         return None
 
     tasks = {
@@ -419,12 +420,9 @@ def _validate_loader_tasks_for_model(
     default=None,
     help="WinMLBuildConfig JSON file. If omitted, config is auto-generated from -m.",
 )
-@click.option(
-    "-m",
-    "--model",
-    "model_id",
-    default=None,
-    help="HuggingFace model ID or path to .onnx file. Omit for random-weight build.",
+@cli_utils.model_option(
+    required=False,
+    help_text="HuggingFace model ID or path to .onnx file. Omit for random-weight build.",
 )
 @click.option(
     "-o",
@@ -446,13 +444,7 @@ def _validate_loader_tasks_for_model(
     show_default=True,
     help="Overwrite existing artifacts and rebuild",
 )
-@click.option(
-    "--quant/--no-quant",
-    "quant",
-    default=True,
-    show_default=True,
-    help="Enable quantization (use --no-quant to skip, overrides config)",
-)
+@cli_utils.quant_option()
 @cli_utils.compile_option(
     default=None,
     help_text="Override compilation. --compile forces enable (config must have a compile section). "
@@ -472,37 +464,20 @@ def _validate_loader_tasks_for_model(
 @cli_utils.precision_option(
     optional_message="With -c, applied only when --device or --precision is passed.",
 )
-@click.option(
-    "--analyze/--no-analyze",
-    "analyze",
-    default=True,
-    show_default=True,
-    help="Run analyzer loop during build (use --no-analyze to skip)",
-)
-@click.option(
-    "--optimize/--no-optimize",
-    "optimize",
-    default=True,
-    show_default=True,
-    help="Run optimization (use --no-optimize to skip for pre-quantized ONNX models)",
-)
-@click.option(
-    "--max-optim-iterations",
-    "max_optim_iterations",
-    type=int,
-    default=None,
-    help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
-)
+@cli_utils.analyze_option()
+@cli_utils.optimize_option()
+@cli_utils.max_optim_iterations_option()
 @cli_utils.allow_unsupported_nodes_option()
 @cli_utils.trust_remote_code_option(
     optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def build(
     ctx: click.Context,
     config_file: str | None,
-    model_id: str | None,
+    model: str | None,
     output_dir: str | None,
     use_cache: bool,
     rebuild: bool,
@@ -552,6 +527,12 @@ def build(
 
         # Force rebuild
         winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild
+
+        # Build with INT8 quantization
+        winml build -m microsoft/resnet-50 -o output/ --precision int8
+
+        # Build with mixed precision (INT8 weights, INT8 activations)
+        winml build -m microsoft/resnet-50 -o output/ --precision w8a8
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -563,25 +544,34 @@ def build(
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
 
+    # Validate precision value early for better error messages.
+    if precision is not None:
+        from ..config.precision import _is_valid_precision
+
+        if not _is_valid_precision(precision.lower()):
+            raise click.UsageError(
+                f"Invalid precision '{precision}'. "
+                "Expected: auto, fp32, fp16, int8, int16, or w{{x}}a{{y}} (e.g., w8a8, w8a16)."
+            )
+
     # If ep unspecified, resolve the target device and pick the highest-priority
     # EP compatible with it. Avoids selecting an EP that does not match the host
     # hardware -- analyzing for the wrong EP leaves black nodes that block a
     # later build targeting the actual device (#663).
     #
-    # resolve_device() either returns a device with >=1 available EP (auto-mode
-    # walks the priority list, falls back to cpu which is always valid), or
-    # raises ValueError for an explicit device with no compatible EP. So the
-    # following resolve_eps()[0] is safe whenever resolve_device returns.
+    # resolve_check_device_ep() either returns a device with >=1 available EP
+    # (auto-mode walks the priority list, falls back to cpu which is always
+    # valid), or raises ValueError for an explicit device with no compatible EP.
+    # So the following available_eps[0] is safe whenever it returns.
     if ep is None:
-        from ..sysinfo import resolve_device as _resolve_device
-        from ..sysinfo import resolve_eps as _resolve_eps
+        from ..sysinfo import resolve_check_device_ep
 
         try:
-            resolved_device, _ = _resolve_device(device=device)
+            resolved_device, _, available_eps = resolve_check_device_ep(device=device, ep=ep)
         except ValueError as e:
             raise click.UsageError(str(e)) from e
         device = resolved_device
-        ep = _resolve_eps(resolved_device)[0]
+        ep = available_eps[0]
         logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
@@ -598,7 +588,7 @@ def build(
                 no_compile=no_compile,
             )
         else:
-            if not model_id:
+            if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
             from ..config import generate_build_config
 
@@ -619,10 +609,11 @@ def build(
                     device=device,
                 )
             config_or_configs = generate_build_config(
-                model_id,
+                model,
                 trust_remote_code=trust_remote_code,
                 device=device,
                 precision=precision,
+                ep=ep,
             )
             if not quant:
                 config_or_configs.quant = None
@@ -651,14 +642,23 @@ def build(
                     # so the resulting config passes HF-build validation.
                     if cfg.loader is not None and cfg.loader.task:
                         resolved_quant.task = cfg.loader.task
-                    if model_id:
-                        resolved_quant.model_name = model_id
+                    if model:
+                        resolved_quant.model_id = model
                     cfg.quant = resolved_quant
                 else:
-                    # Only update precision fields; preserve task/model_name
+                    # Only update precision fields; preserve task/model_id
                     # and other calibration settings from the existing config.
                     cfg.quant.weight_type = resolved_quant.weight_type
                     cfg.quant.activation_type = resolved_quant.activation_type
+                    cfg.quant.mode = resolved_quant.mode
+                    if resolved_quant.mode == "rtn":
+                        cfg.quant.rtn_bits = resolved_quant.rtn_bits
+                        cfg.quant.rtn_block_size = resolved_quant.rtn_block_size
+                        cfg.quant.rtn_symmetric = resolved_quant.rtn_symmetric
+                        cfg.quant.rtn_accuracy_level = resolved_quant.rtn_accuracy_level
+                # Store the original precision string for stage display
+                if precision:
+                    cfg.precision = precision.lower()
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -685,20 +685,25 @@ def build(
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
 
+        model_input = cli_utils.classify_model_input(model) if model else None
+        model_is_onnx = (
+            model_input is not None and model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+        )
+
         preloaded_hf_config = _validate_loader_tasks_for_model(
-            model_id=model_id,
+            model_id=model,
+            is_onnx=model_is_onnx,
             configs=_configs_to_validate,
             trust_remote_code=trust_remote_code,
         )
 
-        # Build extra kwargs for pipeline control
-        extra_kwargs: dict[str, Any] = {}
-        if not optimize:
-            extra_kwargs["skip_optimize"] = True
-        if not analyze:
-            extra_kwargs["hack_max_optim_iterations"] = 0
-        elif max_optim_iterations is not None:
-            extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
+        # Build extra kwargs for pipeline control. The optimize/analyze/max-optim
+        # mapping is shared with perf and eval via build_pipeline_extra_kwargs.
+        extra_kwargs: dict[str, Any] = cli_utils.build_pipeline_extra_kwargs(
+            optimize=optimize,
+            analyze=analyze,
+            max_optim_iterations=max_optim_iterations,
+        )
         if trust_remote_code:
             extra_kwargs["trust_remote_code"] = True
         # Always set (even when False) so downstream pipeline functions can rely
@@ -724,7 +729,7 @@ def build(
 
             print_setup(
                 console,
-                model=model_id or "random-init",
+                model=model or "random-init",
                 config=Path(config_file).name if config_file else "(auto)",
                 output=str(resolved_dir),
                 source="HuggingFace",
@@ -768,7 +773,7 @@ def build(
 
             write_module_summary(
                 output_path=resolved_dir / "module_summary.json",
-                model_id=model_id or "random-init",
+                model_id=model or "random-init",
                 module_class=configs[0].loader.model_class or "unknown",
                 instances=summary_instances,
             )
@@ -788,7 +793,7 @@ def build(
 
                 task = config.loader.task if config.loader else None
                 resolved_dir = get_model_dir(
-                    model_id or "random-init",
+                    model or "random-init",
                     cache_dir=get_cache_dir(),
                 )
                 if not task:
@@ -799,6 +804,7 @@ def build(
                 cache_key = get_cache_key(
                     get_task_abbrev(task),
                     config.generate_cache_key(),
+                    extra_kwargs,
                 )
             else:
                 # Guarded earlier (line ~381: `if not output_dir and not use_cache`).
@@ -809,7 +815,8 @@ def build(
             _run_single_build(
                 config=config,
                 config_file=config_file,
-                model_id=model_id,
+                model_id=model,
+                is_onnx=model_is_onnx,
                 resolved_dir=resolved_dir,
                 rebuild=rebuild,
                 cache_key=cache_key,
@@ -829,8 +836,14 @@ def build(
 
         # Map common errors to actionable hints
         err_str = str(e)
+        err_lower = err_str.lower()
         hint = None
-        if "Quantization failed" in err_str:
+        if "disk space" in err_lower or "no space left" in err_lower:
+            hint = (
+                "Free up disk space (e.g. clear the HuggingFace cache or "
+                "~/.cache/winml) and rebuild."
+            )
+        elif "Quantization failed" in err_str:
             hint = "Try: --no-quant to skip quantization"
         elif "Compilation failed" in err_str:
             hint = "Try: --no-compile to skip compilation"
@@ -857,6 +870,7 @@ def _run_single_build(
     config: WinMLBuildConfig,
     config_file: str | None,
     model_id: str | None,
+    is_onnx: bool,
     resolved_dir: Path,
     rebuild: bool,
     cache_key: str | None,
@@ -866,7 +880,7 @@ def _run_single_build(
     preloaded_hf_config: Any | None = None,
 ) -> None:
     """Run single-model build with Rich Live progress per stage."""
-    _is_onnx = model_id is not None and cli_utils.is_onnx_file_path(model_id)
+    _is_onnx = is_onnx
     # Derive source from _is_onnx to guarantee header label matches pipeline
     source = "ONNX" if _is_onnx else detect_model_source(model_id)
 
@@ -1061,11 +1075,15 @@ def _run_optimize_stage(
             _header_shown[0] = False
 
         # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
-        # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        # doesn't search for non-existent "*_AUTO_*.parquet" files. Use
+        # resolve_check_device_ep so an explicit device+ep is validated
+        # statically (no availability cross-check): a --no-compile build may
+        # target a device absent on this machine (cross-compile), and this call
+        # only needs a concrete device name for the rule-data lookup.
         from ..analyze.utils.ep_utils import has_rule_data_for_ep
-        from ..sysinfo import resolve_device as _resolve_device
+        from ..sysinfo import resolve_check_device_ep
 
-        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+        _resolved_device, _, _ = resolve_check_device_ep(device=device or "auto", ep=ep)
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep
@@ -1162,10 +1180,10 @@ def _run_quantize_stage(
     quantized_path: Path,
     stage_timings: list[tuple[str, float | None]],
 ) -> Path:
-    """Run the quantize stage inside a StageLive context (if quant is configured).
+    """Run the quantize stage (if quant is configured).
 
-    Handles QDQ skip detection, shows dataset/calibration/precision details,
-    and appends timing to stage_timings.
+    Delegates quantization to ``quantize_onnx(config=...)``.
+    The cmd layer only handles UI display and the QDQ skip check.
 
     Args:
         config: Build configuration.
@@ -1186,30 +1204,40 @@ def _run_quantize_stage(
         # "auto-detected pre-quantized" cases.
         return current_path
 
-    with StageLive("quantize", console) as sl:
-        wt = config.quant.weight_type
-        sl.set_status(f"Quantizing ({wt})...")
-        # Calibration info before blocking call
-        ds = config.quant.dataset_name or "default"
-        sl.kv(
-            "Dataset:",
-            f"[cyan]{ds}[/cyan]  [dim]({config.quant.task or 'unknown'})[/dim]",
-        )
-        sl.kv(
-            "Calibration:",
-            f"[cyan]{config.quant.samples}[/cyan] samples"
-            f"  [dim]({config.quant.calibration_method})[/dim]",
-        )
-        # Suppress tqdm/datasets progress bars during quantize
-        # to keep Live display clean
-        _datasets_available = False
-        try:
-            import datasets
+    # Determine stage label from quant mode
+    is_fp16_only = config.quant.mode == "fp16"
+    stage_label = "fp16" if is_fp16_only else "quantize"
+    stage_name = "FP16" if is_fp16_only else "Quantize"
 
-            datasets.disable_progress_bars()
-            _datasets_available = True
-        except ImportError:
-            pass  # datasets package not installed; progress bar suppression not needed
+    with StageLive(stage_label, console) as sl:
+        # Show status based on what we're about to do
+        if is_fp16_only:
+            sl.set_status("Converting to FP16...")
+        elif config.quant.mode == "rtn":
+            sl.set_status(f"Quantizing (RTN {config.quant.rtn_bits}-bit)...")
+        else:
+            sl.set_status(f"Quantizing ({config.quant.weight_type})...")
+            ds = config.quant.dataset_name or "default"
+            sl.kv(
+                "Dataset:",
+                f"[cyan]{ds}[/cyan]  [dim]({config.quant.task or 'unknown'})[/dim]",
+            )
+            sl.kv(
+                "Calibration:",
+                f"[cyan]{config.quant.samples}[/cyan] samples"
+                f"  [dim]({config.quant.calibration_method})[/dim]",
+            )
+
+        # Suppress tqdm/datasets progress bars for QDQ calibration
+        _datasets_available = False
+        if config.quant.mode in ("static", "dynamic"):
+            try:
+                import datasets
+
+                datasets.disable_progress_bars()
+                _datasets_available = True
+            except ImportError:
+                pass  # datasets package is optional; calibration falls back to random data
 
         t0 = time.monotonic()
         try:
@@ -1221,27 +1249,42 @@ def _run_quantize_stage(
             )
         finally:
             if _datasets_available:
+                import datasets
+
                 datasets.enable_progress_bars()
+
         if not quant_result.success:
             errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
             sl.set_error(errors)
-            raise RuntimeError(f"Quantization failed: {errors}")
-        current_path = quantized_path
-        _quant_elapsed = time.monotonic() - t0
-        sl.set_done(_quant_elapsed)
-        sl.kv(
-            "Precision:",
-            f"[cyan]{config.quant.weight_type}/"
-            f"{config.quant.activation_type}[/cyan]"
-            f"  [dim](weight/activation)[/dim]",
-        )
-        sl.artifact(
-            str(quantized_path),
-            _safe_size(quantized_path),
-        )
+            raise RuntimeError(f"{stage_name} failed: {errors}")
+
+        elapsed = time.monotonic() - t0
+        sl.set_done(elapsed)
+
+        # Show algorithm-specific result details
+        if is_fp16_only:
+            sl.detail("[dim]I/O types preserved as FP32[/dim]")
+        elif config.quant.mode == "rtn":
+            sl.kv(
+                "Algorithm:",
+                f"[cyan]RTN[/cyan]  [dim](weight-only {config.quant.rtn_bits}-bit)[/dim]",
+            )
+            sl.kv(
+                "Config:",
+                f"block_size={config.quant.rtn_block_size}, symmetric={config.quant.rtn_symmetric}",
+            )
+        else:
+            sl.kv(
+                "Precision:",
+                f"[cyan]{config.quant.weight_type}/{config.quant.activation_type}[/cyan]"
+                f"  [dim](weight/activation)[/dim]",
+            )
+
+        sl.artifact(str(quantized_path), _safe_size(quantized_path))
         sl.blank()
-    stage_timings.append(("Quantize", _quant_elapsed))
-    return current_path
+
+    stage_timings.append((stage_name, elapsed))
+    return quantized_path
 
 
 def _run_compile_stage(
@@ -1274,7 +1317,8 @@ def _run_compile_stage(
     with StageLive("compile", console) as sl:
         _cp = ""
         if hasattr(config.compile, "ep_config") and config.compile.ep_config:
-            _cp = f" for {config.compile.ep_config.provider.upper()}"
+            ep = config.compile.ep_config.provider
+            _cp = f" for {ep.upper()}" if ep else ""
         sl.set_status(f"Compiling{_cp}...")
         t0 = time.monotonic()
         compile_result = compile_onnx(
@@ -1387,7 +1431,11 @@ def _build_hf_pipeline(
 
         # Load + export (blocking)
         pytorch_model = _load_model(
-            config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
+            config,
+            model_id,
+            trust_remote_code=False,
+            hf_config=preloaded_hf_config,
+            model_type=config.loader.model_type,
         )
         t0 = time.monotonic()
         # config.export is None only for the ONNX build path; this is the HF path.
@@ -1432,6 +1480,14 @@ def _build_hf_pipeline(
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
     # ── Quantize stage ───────────────────────────────────────────
+    # A model-type-specific quant policy (e.g. the qwen3_transformer_only w8a16
+    # finalizer) is resolved and applied inside ``quantize_onnx`` from
+    # ``config.quant.model_type``; no per-call-site dispatch needed here. Carry
+    # the resolved variant onto the quant config so configs that were hand-built
+    # or loaded from JSON (skipping assemble_build_config) still trigger it.
+    if config.quant is not None and config.quant.model_type is None:
+        config.quant.model_type = config.loader.model_type
+
     current_path = _run_quantize_stage(
         config=config,
         current_path=current_path,
@@ -1535,7 +1591,7 @@ def _build_onnx_pipeline(
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
 
-    # ── Quantize stage ───────────────────────────────────────────
+    # ── Quantize stage ──────
     current_path = _run_quantize_stage(
         config=config,
         current_path=current_path,

@@ -169,7 +169,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import onnx
@@ -599,7 +599,10 @@ class Pattern(ABC):
                 if type_str:
                     # Use InputShapeConstraint to create dummy value
                     type_annotation = SupportedONNXType.from_onnx_type(type_str).annotation
-                    inputs[name] = InputShapeConstraint(info.shape).get_value(type_annotation)
+                    # Matched-tensor shapes are concrete here (dynamic dims resolved).
+                    inputs[name] = InputShapeConstraint(
+                        cast("tuple[int, ...]", info.shape)
+                    ).get_value(type_annotation)
 
         # Build is_constant_map from input_infos
         is_constant_map = {name: info.is_constant for name, info in input_infos.items()}
@@ -649,7 +652,7 @@ class Pattern(ABC):
                 node_domain = skeleton.node_domains[node_idx]
                 op_type = skeleton.node_op_types[node_idx]
                 opset_versions = ONNXDomain.get_model_domain_opset_versions(
-                    skeleton_match_result.model
+                    skeleton_match_result.matcher.model
                 )
                 opset_version = opset_versions[node_domain]
                 op_schema = node_domain.get_op_schema(op_type, opset_version)
@@ -845,7 +848,7 @@ class Pattern(ABC):
 
         # Create nodes
         nodes = []
-        node_output_names = {}  # node_idx -> output_name
+        node_output_names: dict[int, str] = {}  # node_idx -> output_name
 
         for node_idx in range(skeleton.n_nodes):
             op_type = skeleton.node_op_types[node_idx]
@@ -1037,7 +1040,7 @@ class Pattern(ABC):
 class PatternInputGenerator(OpInputGenerator):
     """Input generator that wraps a Pattern for runtime checking."""
 
-    pattern: Pattern = None
+    pattern: Pattern | None = None  # subclasses set a real Pattern (asserted in __init__)
     registration_name: str
 
     def __init__(
@@ -1056,7 +1059,9 @@ class PatternInputGenerator(OpInputGenerator):
         self.domain_versions = domain_versions
         schema = self.pattern.get_schema()
         self.op_name = schema.name  # compatibility with OpInputGenerator
-        super().__init__(schema, onnx_types_to_check)
+        # OpInputGenerator duck-types the schema (OpSchema or PatternSchema); it
+        # guards OpSchema-specific access with isinstance internally.
+        super().__init__(cast("OpSchema", schema), onnx_types_to_check)
 
     def _create_model(
         self,
@@ -1086,8 +1091,8 @@ class PatternInputGenerator(OpInputGenerator):
             SupportedONNXType.from_annotation(dtype).onnx_type for dtype in output_dtypes
         ]
 
-        # Use the pattern's get_onnx_model method
-        return self.pattern.get_onnx_model(
+        # Use the pattern's get_onnx_model method (pattern is set by the subclass).
+        return cast("Pattern", self.pattern).get_onnx_model(
             inputs=input_kwargs,
             attributes=attr_kwargs,
             is_constant_map=is_constant_map,
@@ -1538,7 +1543,7 @@ class PatternMatcher:
 
     def _check_constant_constraints(
         self,
-        matched_nodes: list[str],
+        matched_nodes: list[onnx.NodeProto],
         constant_constraints: list[tuple[int, int, np.ndarray]],
     ) -> bool:
         """Check constant value constraints for a skeleton match.
@@ -1649,7 +1654,9 @@ class PatternMatcher:
         # Validate each result using pattern's check_skeleton_result
         validated_results = []
         for result in skeleton_results:
-            pattern_match_result = result.pattern.check_skeleton_result(result)
+            # match_skeleton() yields results whose .pattern is a registered ABC
+            # Pattern (the pydantic PatternModel is only used for serialization).
+            pattern_match_result = cast("Pattern", result.pattern).check_skeleton_result(result)
             if pattern_match_result is not None:
                 validated_results.append(pattern_match_result)
 
@@ -1773,7 +1780,7 @@ class PatternMatcher:
                 # check 3: the mappings must be compatible
                 valid_merged_mappings = []
                 for mapping_combination in it.product(*dst_slot_partial_mappings):
-                    merged_mapping = _merge_mappings(mapping_combination)
+                    merged_mapping = _merge_mappings(list(mapping_combination))
                     if merged_mapping is not None:
                         # valid mapping
                         merged_mapping[subgraph_node] = node_name
@@ -1955,7 +1962,7 @@ class PatternRewriter:
             nonlocal generated_node_key_counter
 
             if node.name and node.name not in used_graph_node_keys:
-                key = node.name
+                key: str = node.name
             elif node.name:
                 suffix = 1
                 key = f"{node.name}__{suffix}"
@@ -2018,7 +2025,8 @@ class PatternRewriter:
 
                 # Create the new pattern instance
                 new_pattern = new_pattern_class()
-                assert skeleton_match.pattern.get_schema() == new_pattern.get_schema(), (
+                matched_pattern = cast("Pattern", skeleton_match.pattern)
+                assert matched_pattern.get_schema() == new_pattern.get_schema(), (
                     f"New pattern {new_pattern_class.__name__} schema does not match "
                     f"the matched pattern {skeleton_match.pattern.__class__.__name__} schema."
                 )

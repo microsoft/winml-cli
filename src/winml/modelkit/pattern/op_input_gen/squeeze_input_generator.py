@@ -9,7 +9,6 @@ from typing import Any, ClassVar
 import numpy as np
 
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
@@ -74,9 +73,9 @@ class SqueezeInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint]]:
+    ) -> list[dict[str, object]]:
         """Returns comprehensive input combinations for Squeeze operator."""
-        combinations = []
+        combinations: list[dict[str, object]] = []
 
         # ===== Systematic generation for 0D through 6D =====
         # Test 1: 0D tensor
@@ -166,7 +165,7 @@ class SqueezeInputGenerator(OpInputGenerator):
         """Returns names of infinite properties for Squeeze operator."""
         return ["data_shape", "data_value", "axes_value"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Squeeze operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),

@@ -167,6 +167,37 @@ class TestRuntimeCheckerQueryParquet:
         assert result_parquet.result.run is False
         assert result_parquet.result.debug_details is None
 
+    def test_rules_not_found_reports_expected_table_path_and_file(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        patched_query_conditions,
+    ):
+        """Missing parquet should still report the expected lookup path and file name."""
+        del patched_query_conditions
+
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", str(tmp_path))
+
+        model = _build_add_model()
+        node = model.graph.node[0]
+
+        query_parquet = RuntimeCheckerQuery(model, "QNNExecutionProvider", "NPU")
+        query_parquet.node_checkers = []
+        result = query_parquet.run_for_node(node, for_debug=True, run_unknown_op=False)
+
+        assert result.result.no_data is True
+        assert result.result.reason == "rules_not_found"
+
+        debug_details = result.result.debug_details
+        assert isinstance(debug_details, dict)
+
+        expected_file = "Add_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet"
+        expected_suffix = f"QNNExecutionProvider_NPU/{expected_file}"
+
+        assert debug_details.get("table_file") == expected_file
+        table_path = str(debug_details.get("table_path", "")).replace("\\", "/")
+        assert table_path.endswith(expected_suffix)
+
     def test_parquet_lookup_prefers_debug_dir_when_for_debug(
         self,
         tmp_path: Path,

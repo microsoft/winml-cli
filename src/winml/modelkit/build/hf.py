@@ -91,6 +91,7 @@ def build_hf_model(
     cache_key: str | None = None,
     ep: EPNameOrAlias | None = None,
     device: str | None = None,
+    model_type: str | None = None,
     **kwargs: Any,
 ) -> BuildResult:
     """Build an ONNX model from a HuggingFace model architecture.
@@ -211,6 +212,7 @@ def build_hf_model(
             model_id,
             trust_remote_code,
             random_init=random_init,
+            model_type=model_type,
         )
 
     # =========================================================================
@@ -441,6 +443,7 @@ def _load_model(
     trust_remote_code: bool,
     random_init: bool = False,
     hf_config: Any | None = None,
+    model_type: str | None = None,
 ) -> Any:
     """Load PyTorch model — pretrained or random weights.
 
@@ -514,8 +517,10 @@ def _load_model(
         pytorch_model, _, _ = load_hf_model(
             model_name_or_path=model_id,
             task=task,
+            model_class=config.loader.model_class,
             trust_remote_code=effective_trust,
             hf_config=hf_config,
+            model_type=model_type,
         )
         return pytorch_model
 

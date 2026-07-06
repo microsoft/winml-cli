@@ -4,8 +4,9 @@
 # --------------------------------------------------------------------------
 """Input generator for Flatten operator."""
 
+from typing import Any
+
 from .op_input_gen import (
-    InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
     QDQParameterConfig,
@@ -46,7 +47,7 @@ class FlattenInputGenerator(OpInputGenerator):
 
     def get_input_and_infinite_attribute_combinations(
         self,
-    ) -> list[dict[str, InputConstraint | int]]:
+    ) -> list[dict[str, object]]:
         """Returns comprehensive input combinations for Flatten operator.
 
         Coverage strategy:
@@ -76,7 +77,7 @@ class FlattenInputGenerator(OpInputGenerator):
 
         return combinations  # noqa: RET504
 
-    def derive_properties(self, properties: dict[str, any]) -> dict[str, any]:
+    def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
         """Derive additional properties for Flatten operator testing.
 
         Args:
@@ -100,7 +101,7 @@ class FlattenInputGenerator(OpInputGenerator):
         """Returns names of infinite properties for Flatten operator."""
         return ["input_shape", "input_value", "attr_axis"]
 
-    def get_qdq_config(self):
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Return QDQ configuration for Flatten operator inputs."""
         return {
             "input": QDQParameterConfig(support_activation=True),

@@ -155,7 +155,7 @@ def _format_available_onnx_files(
         logger.debug("Could not list files for %s: %s", repo_id, list_err)
         return (
             f"Could not list available .onnx files in '{repo_id}' "
-            f"(see https://huggingface.co/{repo_id}/tree/main)."
+            f"(see https://huggingface.co/{repo_id}/tree/{revision or 'main'})."
         )
 
     onnx_files = sorted(f for f in files if f.lower().endswith(".onnx"))
@@ -163,7 +163,7 @@ def _format_available_onnx_files(
         return (
             f"No .onnx files were found in '{repo_id}'. "
             f"This repo may not host pre-exported ONNX weights; "
-            f"see https://huggingface.co/{repo_id}/tree/main."
+            f"see https://huggingface.co/{repo_id}/tree/{revision or 'main'}."
         )
 
     listing = "\n".join(f"  - {repo_id}/{f}" for f in onnx_files)

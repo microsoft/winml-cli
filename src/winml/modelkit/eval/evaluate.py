@@ -20,6 +20,7 @@ from .config import WinMLEvaluationConfig
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..models.winml.composite_model import WinMLCompositeModel
     from .base_evaluator import WinMLEvaluator
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
     "depth-estimation":
         "winml.modelkit.eval.depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
+    "keypoint-detection":
+        "winml.modelkit.eval.keypoint_detection_evaluator:WinMLKeypointDetectionEvaluator",
     "compare-tensor":
         "winml.modelkit.eval.tensor_similarity_evaluator:TensorSimilarityEvaluator",
     "mask-generation":
@@ -211,6 +214,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | None:
     ONNX exports be evaluated today.
     """
     from ..models import WinMLAutoModel
+    from ..utils import cli as cli_utils
 
     if config.model_id is None:
         raise ValueError("model_id is required.")
@@ -231,7 +235,9 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | None:
             device=config.device,
             ep=config.ep,
             skip_build=config.skip_build,
+            config=quant_override,
             hf_config=hf_config,
+            **pipeline_kwargs,
         )
         model.config = hf_config
         return model
@@ -243,6 +249,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel | None:
         precision=config.precision,
         ep=config.ep,
         allow_unsupported_nodes=config.allow_unsupported_nodes,
+        config=quant_override,
+        **pipeline_kwargs,
     )
 
 

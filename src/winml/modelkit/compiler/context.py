@@ -37,6 +37,7 @@ class CompileContext:
 
     # Input
     model_path: Path
+    # From WinMLCompileConfig.to_dict()
     config: dict[str, Any]
     model: onnx.ModelProto | None = None
 
@@ -99,9 +100,10 @@ class CompileContext:
         return self.config.get(key, default)
 
     @property
-    def execution_provider(self) -> EPAlias:
+    def execution_provider(self) -> EPAlias | None:
         """Get target execution provider."""
-        return cast("EPAlias", self.config.get("execution_provider", "qnn"))
+        ep = self.config.get("execution_provider")
+        return cast("EPAlias", ep) if ep is not None else None
 
     @property
     def use_inference_session(self) -> bool:

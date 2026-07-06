@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import numpy as np
 import torch
-from transformers.utils import ModelOutput
+from transformers.utils.generic import ModelOutput
 
 from .composite_model import WinMLCompositeModel, register_composite_model
 
@@ -101,7 +101,12 @@ class WinMLModelForZeroShotImageClassification(WinMLCompositeModel):
 
     def _preprocess_vision(self, pixel_values: torch.Tensor | None) -> dict[str, np.ndarray]:
         """Torch→numpy via the sub-model's formatter."""
-        return self.sub_models["image-encoder"]._format_inputs(pixel_values=pixel_values)
+        # sub_models values are Any (heterogeneous WinML models); _format_inputs
+        # returns a {name: ndarray} feed dict.
+        return cast(
+            "dict[str, np.ndarray]",
+            self.sub_models["image-encoder"]._format_inputs(pixel_values=pixel_values),
+        )
 
     def _run_vision(self, inputs: dict[str, np.ndarray]) -> torch.Tensor:
         """Run vision encoder over ``M`` images, batching per the ONNX's fixed batch dim."""

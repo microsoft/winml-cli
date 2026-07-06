@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import re
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -38,7 +37,6 @@ from rich.text import Text
 
 from ..utils import cli as cli_utils
 from ..utils.constants import (
-    ALL_EP_NAMES,
     DEVICE_TYPE_TO_DEVICE,
     EP_SUPPORTED_DEVICES,
     SUPPORTED_DEVICES,
@@ -716,34 +714,31 @@ def _build_runtime_debug_output_path(model_path: Path, ep_name: str, device_name
 
 @click.command(name="analyze")
 @cli_utils.model_path_option(required=True)
-@click.option(
-    "--ep",
-    "--execution-provider",
+@cli_utils.ep_option(
     required=False,
     default="auto",
-    show_default=True,
-    type=click.Choice([*ALL_EP_NAMES, "all", "auto"], case_sensitive=False),
-    help=(
-        "Target execution provider. Supports canonical names, aliases, and all/auto. "
+    include_auto=True,
+    include_all=True,
+    optional_message=(
         "all = evaluate all rule-data-backed EPs; "
         "auto = infer a single best target from local availability"
     ),
 )
-@click.option(
-    "--device",
+@cli_utils.device_option(
     required=False,
     default="auto",
-    show_default=True,
-    type=click.Choice([*SUPPORTED_DEVICES, "all", "auto"], case_sensitive=False),
-    help=(
-        "Target device type. Supports CPU/GPU/NPU and all/auto. "
+    include_auto=True,
+    include_all=True,
+    optional_message=(
         "all = all rule-data-backed devices; "
         "auto = infer a single best target from local availability"
     ),
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @cli_utils.build_config_option()
 @cli_utils.output_option("Save JSON output to file")
+@cli_utils.overwrite_option(optional_message="Applies to both --output and --optim-config.")
 @click.option(
     "--information/--no-information",
     default=True,
@@ -790,6 +785,7 @@ def analyze(
     ep: EPNameOrAlias | Literal["all", "auto"] | None,
     device: str | None,
     output: Path | None,
+    overwrite: bool,
     information: bool,
     output_format: cli_utils.OutputFormat,
     verbose: int,
@@ -833,13 +829,17 @@ def analyze(
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
+    # Refuse to clobber existing outputs unless the user opted in — fail fast
+    # before analysis runs. Guards both result JSON and the optim-config dump.
+    cli_utils.guard_output(output, overwrite)
+    cli_utils.guard_output(optim_config, overwrite, label="Optimization config")
+
     try:
         from ..analyze import ONNXStaticAnalyzer
 
         # Validate model
         if not model.exists():
-            logger.error("ONNX model file not found: %s", model)
-            sys.exit(2)
+            raise click.UsageError(f"ONNX model file not found: {model}")
 
         from ..analyze.utils.ep_utils import (
             has_any_rule_data,
@@ -889,15 +889,14 @@ def analyze(
                             "Resolved absolute path(s) from %s: (none)",
                             WINMLCLI_RULES_DIR_FOR_DEBUG_ENV,
                         )
-                sys.exit(2)
+                raise click.UsageError("--debug rules directory not configured.")
 
         search_dirs = get_runtime_rules_search_dirs()
         if not has_any_rule_data():
             searched = ", ".join(str(p) for p in search_dirs) if search_dirs else "(none)"
-            logger.error("No runtime rule parquet files were found.")
             logger.error("Please reinstall winml-cli, or manually download rule parquet files.")
             logger.error("Searched directories: %s", searched)
-            sys.exit(2)
+            raise click.UsageError("No runtime rule parquet files were found.")
 
         # Resolve the EP/device selection. `all` keeps the full rule-data-backed
         # set (fan-out, unchanged). `auto` resolves to a single best target from
@@ -919,8 +918,7 @@ def analyze(
             try:
                 resolved_device, _ = resolve_device(device="auto", ep=ep_hint)
             except (ValueError, RuntimeError) as e:
-                logger.error("Could not auto-select a device: %s", e)
-                sys.exit(2)
+                raise click.UsageError(f"Could not auto-select a device: {e}") from e
             devices = [resolved_device]
         elif device is not None:
             devices = [device]
@@ -928,45 +926,58 @@ def analyze(
             devices = []
         devices = sorted(d.upper() for d in devices)
 
-        eps: list[EPName | None]
-        if ep == "all":
-            eps = list(SUPPORTED_EPS)
-        elif ep == "auto":
-            # Single highest-priority EP available on the target device. With
-            # device == "all" there is no single device context, so fall back to
-            # the best available device purely for EP selection.
-            if device == "all":
-                try:
-                    ref_device, _ = resolve_device(device="auto")
-                except (ValueError, RuntimeError) as e:
-                    logger.error("Could not auto-select an execution provider: %s", e)
-                    sys.exit(2)
-            else:
-                ref_device = devices[0]
-            compatible_eps = resolve_eps(ref_device)
-            if not compatible_eps:
-                logger.error("No execution provider is available for device '%s'.", ref_device)
-                sys.exit(2)
-            eps = [compatible_eps[0]]
-        else:
-            # ep is a specific EP or alias
-            eps = [normalize_ep_name(ep)]
-
-        # Build with a for-loop rather than a single nested comprehension so
-        # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
-        # narrowing carries through to the appended tuple's type (EPName,
-        # not str). The inner generator stays a comprehension to satisfy
-        # ruff PERF401.
-        execution_pairs: list[tuple[EPName, str]] = []
-        for candidate_ep in eps:
-            if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
-                continue
-            execution_pairs.extend(
-                (candidate_ep, candidate_device)
-                for candidate_device in devices
-                if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+        execution_pairs: list[tuple[EPName, str]]
+        if ep == "auto" and device == "all":
+            # auto + all: resolve the best available EP per device rather than
+            # picking a single EP from one ref device and fanning it across
+            # unrelated devices. resolve_eps() already returns only EPs that are
+            # valid and locally available for the given device, so the resulting
+            # pairs need no further EP_SUPPORTED_DEVICES filtering.
+            execution_pairs = _sort_ep_device_pairs(
+                [
+                    (device_eps[0], target_device)
+                    for target_device in devices
+                    if (device_eps := resolve_eps(target_device))
+                ]
             )
-        execution_pairs = _sort_ep_device_pairs(execution_pairs)
+        else:
+            eps: list[EPName | None]
+            if ep == "all":
+                eps = list(SUPPORTED_EPS)
+            elif ep == "auto":
+                # Single highest-priority EP available on the target device.
+                # device == "all" is handled above, so a concrete device context
+                # exists here -- but guard against an empty device list (e.g. a
+                # programmatic ``device=None`` call) so we exit cleanly instead
+                # of raising an unguarded IndexError on ``devices[0]``.
+                ref_device = devices[0] if devices else None
+                if not ref_device:
+                    raise click.UsageError("No device context available for EP auto-resolution.")
+                compatible_eps = resolve_eps(ref_device)
+                if not compatible_eps:
+                    raise click.UsageError(
+                        f"No execution provider is available for device '{ref_device}'."
+                    )
+                eps = [compatible_eps[0]]
+            else:
+                # ep is a specific EP or alias
+                eps = [normalize_ep_name(ep)]
+
+            # Build with a for-loop rather than a single nested comprehension so
+            # the `candidate_ep is not None and ... in EP_SUPPORTED_DEVICES`
+            # narrowing carries through to the appended tuple's type (EPName,
+            # not str). The inner generator stays a comprehension to satisfy
+            # ruff PERF401.
+            execution_pairs = []
+            for candidate_ep in eps:
+                if candidate_ep is None or candidate_ep not in EP_SUPPORTED_DEVICES:
+                    continue
+                execution_pairs.extend(
+                    (candidate_ep, candidate_device)
+                    for candidate_device in devices
+                    if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+                )
+            execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
         # Local pairs are still needed to gate --run-unknown-op probing
         # (_resolve_run_unknown_op). Single-target `auto` selection is already
@@ -974,8 +985,7 @@ def analyze(
         local_pairs = set(_get_local_ep_device_pairs())
 
         if not execution_pairs:
-            logger.error("No EP/device combination matched the current selection.")
-            sys.exit(2)
+            raise click.UsageError("No EP/device combination matched the current selection.")
 
         logger.info("Analyzing model: %s", model)
         logger.info(
@@ -1426,16 +1436,19 @@ def analyze(
 
         # Exit code: 0 = fully supported, 1 = partial support
         overall_supported = all(run_result.is_fully_supported() for run_result in analysis_results)
-        sys.exit(0 if overall_supported else 1)
+        if not overall_supported:
+            raise cli_utils.PartialSupportError
 
     except FileNotFoundError as e:
-        logger.error("File not found: %s", e)
-        sys.exit(2)
+        raise click.UsageError(f"File not found: {e}") from e
+    except (click.exceptions.Exit, click.ClickException):
+        # Exit/click exceptions are intentional control flow; re-raise so the
+        # catch-all below doesn't relabel them as "Analysis failed".
+        raise
     except Exception as e:
-        logger.error("Analysis failed: %s", e)
         if verbose:
             logger.exception("Full traceback:")
-        sys.exit(2)
+        raise click.UsageError(f"Analysis failed: {e}") from e
 
 
 __all__ = ["analyze"]

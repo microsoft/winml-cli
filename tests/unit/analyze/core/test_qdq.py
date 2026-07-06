@@ -1178,8 +1178,8 @@ class TestIterQDQCombinations:
             ),  # shape 3 * finite attributes 2 * 2 * 2 * optional combinations 2 * 2 * 2 * 4
             (
                 "Pad",
-                1152,
-            ),  # shape 9 * mode 4 * QDQ 4 * is_constant pads 2 * constant_value present/absent 2
+                1280,
+            ),  # shape 10 * mode 4 * QDQ 4 * is_constant pads 2 * constant_value present/absent 2
             # * Tind 2 (axes not used)
             # All Reduce* use this and it is enough
             (

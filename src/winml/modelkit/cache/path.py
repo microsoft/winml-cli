@@ -12,8 +12,19 @@ Dependencies: stdlib only (os, pathlib). ZERO internal imports.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
+from typing import Any
+
+
+# Build-control kwargs that change the produced artifact but are NOT part of
+# WinMLBuildConfig (they are forwarded to build_hf_model / build_onnx_model as
+# kwargs). Folding them into the cache key prevents --no-optimize / --no-analyze
+# / --max-optim-iterations from silently reusing an artifact built with
+# different settings. Keep in sync with utils.cli.build_pipeline_extra_kwargs.
+_CACHE_KEY_BUILD_CONTROLS = ("skip_optimize", "hack_max_optim_iterations")
 
 
 __all__ = [
@@ -63,7 +74,11 @@ def get_artifacts_dir(cache_dir: Path | None = None) -> Path:
     return cache_dir / "artifacts"
 
 
-def get_cache_key(task_abbrev: str, config_hash: str) -> str:
+def get_cache_key(
+    task_abbrev: str,
+    config_hash: str,
+    build_controls: dict[str, Any] | None = None,
+) -> str:
     """Assemble the cache key prefix from task abbreviation and config hash.
 
     Args:
@@ -71,11 +86,26 @@ def get_cache_key(task_abbrev: str, config_hash: str) -> str:
             Obtained from ``modelkit.loader.task.get_task_abbrev()``.
         config_hash: Deterministic config hash (e.g., ``"a1b2c3d4e5f67890"``).
             Obtained from ``WinMLBuildConfig.generate_cache_key()``.
+        build_controls: Optional mapping of build-pipeline kwargs (as produced
+            by ``utils.cli.build_pipeline_extra_kwargs``). Recognized
+            artifact-affecting keys (``skip_optimize``,
+            ``hack_max_optim_iterations``) are folded into the key so that
+            ``--no-optimize`` / ``--no-analyze`` / ``--max-optim-iterations``
+            do not silently reuse an artifact built with different settings.
+            Unrecognized keys are ignored, and a default (empty) mapping leaves
+            the key unchanged for backward compatibility.
 
     Returns:
-        Cache key string: ``"{task_abbrev}_{config_hash}"``
+        Cache key string: ``"{task_abbrev}_{config_hash}"``, optionally suffixed
+        with ``"_{controls_hash}"`` when non-default build controls are present.
     """
-    return f"{task_abbrev}_{config_hash}"
+    key = f"{task_abbrev}_{config_hash}"
+    if build_controls:
+        overrides = {k: build_controls[k] for k in _CACHE_KEY_BUILD_CONTROLS if k in build_controls}
+        if overrides:
+            blob = json.dumps(overrides, sort_keys=True)
+            key = f"{key}_{hashlib.sha256(blob.encode()).hexdigest()[:8]}"
+    return key
 
 
 def get_artifact_path(

@@ -20,11 +20,12 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 import click
 import numpy as np
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from ..utils import cli as cli_utils
@@ -47,6 +48,13 @@ logger = logging.getLogger(__name__)
 
 # Hardware monitor polling interval (milliseconds)
 _HW_POLL_INTERVAL_MS = 200
+
+# Inference runtimes selectable via ``--runtime`` (closed set; mirrors the
+# ``--compiler`` / ``COMPILER_NAMES`` convention in utils.constants):
+#   "winml"       -> single-shot ONNX inference (default)
+#   "winml-genai" -> onnxruntime-genai decoder-pipeline generation
+RuntimeName = Literal["winml", "winml-genai"]
+RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 # =============================================================================
 # Constants for Data Generation
@@ -79,6 +87,9 @@ class BenchmarkConfig:
     batch_size: int = 1
     output_path: Path | None = None
     no_quantize: bool = False
+    no_optimize: bool = False
+    no_analyze: bool = False
+    max_optim_iterations: int | None = None
     no_compile: bool = True
     rebuild: bool = False
     ignore_cache: bool = False
@@ -130,6 +141,12 @@ class BenchmarkResult:
     samples_per_sec: float = 0.0
     batches_per_sec: float = 0.0
 
+    # Batch dimension the session actually ran. Equals config.batch_size when
+    # the model's leading input dim is dynamic; falls back to the model's
+    # static batch (often 1) otherwise. samples_per_sec is scaled by this, not
+    # by the requested config.batch_size.
+    effective_batch_size: int = 1
+
     # Actual values used (after auto-detection)
     actual_device: str = ""
     actual_task: str = ""
@@ -159,6 +176,7 @@ class BenchmarkResult:
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
                 "batch_size": self.config.batch_size,
+                "effective_batch_size": self.effective_batch_size,
                 "timestamp": self.timestamp,
             },
             "model_info": {
@@ -321,6 +339,37 @@ def _resolve_shape(
     return tuple(resolved)
 
 
+def effective_batch_size(
+    inputs: dict[str, np.ndarray],
+    input_names: list[str],
+    requested: int,
+) -> int:
+    """The batch dimension actually present in the generated inputs.
+
+    The requested ``--batch-size`` only lands on inputs whose leading
+    dimension is dynamic; a model with a statically-fixed batch dim ignores
+    it (see :func:`_resolve_shape`). Throughput (samples/sec) must be scaled
+    by what the session actually ran, not by what was asked, or a static-batch
+    model reports ``requested / latency`` while only processing one batch per
+    call -- inflating samples/sec by ``requested``.
+
+    Reads the leading dim back from the first batched (rank >= 1) input,
+    matching the "first dim is batch" convention used throughout this module.
+    Falls back to ``requested`` when no batched input exists (e.g. all-scalar
+    inputs), which preserves the prior behavior for that edge case.
+
+    Single-input assumption: only the first batched input is inspected. For
+    multimodal or encoder-decoder models whose batched inputs disagree on the
+    leading dim (e.g. an image batch of 4 alongside a differently batched
+    tensor), the reported value reflects only the first batched input.
+    """
+    for name in input_names:
+        arr = inputs.get(name)
+        if arr is not None and arr.ndim >= 1:
+            return int(arr.shape[0])
+    return requested
+
+
 # =============================================================================
 # Benchmark Engine
 # =============================================================================
@@ -344,7 +393,58 @@ class PerfBenchmark:
         self.config = config
         self._model: WinMLPreTrainedModel | WinMLCompositeModel | None = None
         self._inputs: dict[str, np.ndarray] | None = None
+        self._effective_batch: int = config.batch_size
         self._memory: dict[str, float] | None = None
+        # Concrete device + EP resolved from the config's request, populated by
+        # _resolve_device_ep() on the first call (before the build). The config
+        # keeps the raw request (e.g. "auto"); these hold what actually drives
+        # the build and inference.
+        self._resolved_device: str | None = None
+        self._resolved_ep: EPNameOrAlias | None = None
+
+    def _resolve_device_ep(self) -> None:
+        """Resolve the concrete target device + EP, failing fast on a bad combo.
+
+        Idempotent: resolves once, then returns cached values. Called at the
+        start of model loading so an unavailable/invalid device+EP raises here —
+        before the export/optimize/quantize/compile pipeline runs — instead of
+        only surfacing at session.compile(). Deriving a concrete EP also lets the
+        build's static analyzer target one EP instead of aggregating across all
+        of them (WinMLAutoModel itself stays permissive: ep=None is a valid
+        library mode).
+
+        Raises:
+            ValueError: If the requested device/EP combination is unavailable
+                or invalid (propagated from ``resolve_device``).
+        """
+        if self._resolved_device is not None:
+            return
+
+        from ..sysinfo import resolve_device, resolve_eps
+
+        # resolve_device() availability-checks even when --ep is explicit, so a
+        # named-but-absent EP is caught here too.
+        resolved_device, _ = resolve_device(device=self.config.device, ep=self.config.ep)
+        if self.config.ep is not None:
+            # Keep the user's EP (alias or canonical) verbatim — downstream
+            # stages normalize it. Only derive one when the user gave none.
+            resolved_ep: EPNameOrAlias | None = self.config.ep
+        else:
+            device_eps = resolve_eps(resolved_device)
+            resolved_ep = device_eps[0] if device_eps else None
+
+        self._resolved_device = resolved_device
+        self._resolved_ep = resolved_ep
+
+    @property
+    def resolved_device(self) -> str | None:
+        """Concrete device driving the build/inference (``None`` until resolved)."""
+        return self._resolved_device
+
+    @property
+    def resolved_ep(self) -> EPNameOrAlias | None:
+        """Concrete EP driving the build/inference (``None`` until resolved)."""
+        return self._resolved_ep
 
     @property
     def _is_composite(self) -> bool:
@@ -471,6 +571,11 @@ class PerfBenchmark:
             req_device=self.config.device,
             act_device=self._single.device,
             ep_name=self._single.ep_name,
+            actual_shapes=(
+                {name: tuple(arr.shape) for name, arr in self._inputs.items()}
+                if self._inputs
+                else None
+            ),
         )
 
         # [3] Run benchmark
@@ -520,6 +625,10 @@ class PerfBenchmark:
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
 
+        # Resolve the concrete device + EP first so a bad combo fails fast,
+        # before from_pretrained/from_onnx kick off the build pipeline.
+        self._resolve_device_ep()
+
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx"
@@ -542,15 +651,22 @@ class PerfBenchmark:
         common_kwargs: dict[str, Any] = {
             "task": self.config.task,
             "config": override,
-            "device": self.config.device,
+            "device": self._resolved_device or self.config.device,
             "precision": self.config.precision,
-            "ep": self.config.ep,
+            "ep": self._resolved_ep,
             "provider_options": self.config.ep_options,
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
             "shape_config": self.config.shape_config,
             "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
             "no_compile": self.config.no_compile,
+            # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
+            # build_hf_model / build_onnx_model. Shared mapping with build/eval.
+            **cli_utils.build_pipeline_extra_kwargs(
+                optimize=not self.config.no_optimize,
+                analyze=not self.config.no_analyze,
+                max_optim_iterations=self.config.max_optim_iterations,
+            ),
         }
 
         if is_onnx:
@@ -567,11 +683,26 @@ class PerfBenchmark:
 
     def _generate_inputs(self) -> None:
         """Generate random inputs based on model io_config."""
+        io_config = self._single.io_config
         self._inputs = generate_random_inputs(
-            io_config=self._single.io_config,
+            io_config=io_config,
             batch_size=self.config.batch_size,
             shape_config=self.config.shape_config,
         )
+        self._effective_batch = effective_batch_size(
+            self._inputs,
+            io_config["input_names"],
+            self.config.batch_size,
+        )
+        if self._effective_batch != self.config.batch_size:
+            logger.warning(
+                "Requested --batch-size %d could not be applied: the model's "
+                "leading input dimension is statically %d. Throughput is scaled "
+                "by the actual batch (%d), not the requested value.",
+                self.config.batch_size,
+                self._effective_batch,
+                self._effective_batch,
+            )
 
     def _resolve_adapter_luid(self) -> str | None:
         """Resolve adapter LUID for VRAM queries."""
@@ -581,7 +712,7 @@ class PerfBenchmark:
             return None
 
         assert self._model is not None
-        device = self._single.device or self.config.device
+        device = self._single.device or self._resolved_device or self.config.device
         if device == "cpu":
             return None
 
@@ -688,9 +819,11 @@ class PerfBenchmark:
         """Collect benchmark results from PerfStats."""
         io_config = self._single.io_config
 
-        # Calculate throughput
+        # Calculate throughput. Scale by the batch the session actually ran
+        # (self._effective_batch), not the requested config.batch_size, which a
+        # static-batch model silently ignores during input generation.
         mean_latency_sec = stats.mean_ms / 1000.0
-        samples_per_sec = self.config.batch_size / mean_latency_sec if mean_latency_sec > 0 else 0
+        samples_per_sec = self._effective_batch / mean_latency_sec if mean_latency_sec > 0 else 0
         batches_per_sec = 1.0 / mean_latency_sec if mean_latency_sec > 0 else 0
 
         # Calculate standard deviation
@@ -724,6 +857,7 @@ class PerfBenchmark:
             # Throughput
             samples_per_sec=samples_per_sec,
             batches_per_sec=batches_per_sec,
+            effective_batch_size=self._effective_batch,
             # Actual values (resolved after build + compile)
             actual_device=self._single.device,
             actual_task=self._single.task or self.config.task or "auto-detected",
@@ -750,6 +884,9 @@ def _perf_modules(
     warmup: int,
     batch_size: int,
     no_quantize: bool,
+    no_optimize: bool,
+    no_analyze: bool,
+    max_optim_iterations: int | None,
     no_compile: bool,
     output: Path | None,
     verbose: bool,
@@ -760,6 +897,8 @@ def _perf_modules(
     ep_options: dict[str, str] | None = None,
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
+    rebuild: bool = False,
+    ignore_cache: bool = False,
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
 
@@ -775,6 +914,9 @@ def _perf_modules(
         warmup: Number of warmup iterations.
         batch_size: Batch size for input generation.
         no_quantize: If True, skip quantization during the per-module build.
+        no_optimize: If True, skip graph optimization during the per-module build.
+        no_analyze: If True, skip the analyzer loop (forces max_optim_iterations=0).
+        max_optim_iterations: Max autoconf re-optimization rounds (None = default 3).
         no_compile: If True, skip the build's compile stage for each module.
         output: Output JSON path, or None for auto-generated path.
         verbose: If True, log exceptions at DEBUG level.
@@ -782,23 +924,39 @@ def _perf_modules(
         monitor: If True, wrap each per-module benchmark with HWMonitor.
         device: Target device policy ("auto", "cpu", "gpu", "npu").
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
-            device-to-provider mapping when set.
+            device-to-provider mapping when set. When ``None``, a concrete EP is
+            derived from the resolved device so the analyzer targets one EP.
         ep_options: Runtime EP provider options (e.g. QNN
             ``htp_performance_mode``) forwarded to each per-module session.
         precision: Precision mode passed through to the build stage.
         allow_unsupported_nodes: If True, warn instead of failing the build when
             the analyzer reports unsupported nodes that persist.
+        rebuild: If True, overwrite cached per-module artifacts and re-run the
+            build (mirrors the single-model ``--rebuild``).
+        ignore_cache: If True, build each module in a throwaway temp dir and
+            always rebuild, discarding artifacts afterward (mirrors the
+            single-model ``--ignore-cache``).
     """
+    import contextlib
     import difflib
     import json as json_mod
     import tempfile
 
     from ..build import build_hf_model
+    from ..cache import get_cache_dir, get_cache_key, get_model_dir
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
-    from ..sysinfo import resolve_device
+    from ..loader.task import get_task_abbrev
+    from ..sysinfo import resolve_device, resolve_eps
     from .build import _instantiate_parent_model
 
     resolved_device, _ = resolve_device(device=device, ep=ep)
+    # Derive a concrete EP when none was given so each per-module build's static
+    # analyzer targets one EP instead of ep=None (which aggregates across all
+    # EPs and warns; see #931). An explicit EP is kept verbatim — downstream
+    # stages normalize it.
+    if ep is None:
+        device_eps = resolve_eps(resolved_device)
+        ep = device_eps[0] if device_eps else None
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -850,6 +1008,27 @@ def _perf_modules(
     parent_loader_cfg, _, _, _resolution = resolve_loader_config(model_id=hf_model, task=task)
     parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
+    # Cache control mirrors auto.py / the single-model path:
+    #   --ignore-cache -> build each module in a throwaway temp dir, always
+    #                     rebuild, discard afterward
+    #   --rebuild      -> reuse the persistent model dir but overwrite artifacts
+    # Each module's cache_key folds in loader.module_path (and its I/O shapes),
+    # so sibling instances of the same class get distinct keys and coexist in
+    # the shared model dir without colliding.
+    use_cache = not ignore_cache
+    force_rebuild = rebuild or ignore_cache
+    task_abbrev = get_task_abbrev(parent_loader_cfg.task) if parent_loader_cfg.task else "module"
+    cache_model_dir = get_model_dir(hf_model, cache_dir=get_cache_dir()) if use_cache else None
+
+    # Optimize/analyze toggles aren't part of ``cfg``; fold them into the cache
+    # key so e.g. a later ``--no-optimize`` run doesn't silently reuse a cached
+    # optimized artifact (mirrors the single-model path in auto.py).
+    build_control_kwargs = cli_utils.build_pipeline_extra_kwargs(
+        optimize=not no_optimize,
+        analyze=not no_analyze,
+        max_optim_iterations=max_optim_iterations,
+    )
+
     all_results: list[dict[str, Any]] = []
     for i, cfg in enumerate(module_configs):
         module_path = cfg.loader.module_path
@@ -878,15 +1057,31 @@ def _perf_modules(
         if no_compile:
             cfg.compile = None
 
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        # Compute the cache key AFTER the quant/compile mutations above so it
+        # reflects what is actually built. Build controls (optimize/analyze
+        # toggles) are folded in too since they aren't part of ``cfg``.
+        cache_key = get_cache_key(task_abbrev, cfg.generate_cache_key(), build_control_kwargs)
+
+        # Persistent model dir (reused across runs) when caching, else a
+        # throwaway temp dir that is removed when the with-block exits.
+        build_dir_ctx: Any = (
+            contextlib.nullcontext(cache_model_dir)
+            if use_cache
+            else tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        )
+        with build_dir_ctx as build_dir_raw:
+            build_dir = Path(build_dir_raw)
             try:
                 build_result = build_hf_model(
                     config=cfg,
-                    output_dir=Path(tmpdir),
+                    output_dir=build_dir,
                     pytorch_model=submodule,
+                    rebuild=force_rebuild,
+                    cache_key=cache_key,
                     ep=ep,
                     device=resolved_device,
                     allow_unsupported_nodes=allow_unsupported_nodes,
+                    **build_control_kwargs,
                 )
 
                 # Benchmark using WinMLSession
@@ -1083,7 +1278,18 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
 
     # Throughput
     console.print()
-    console.print(f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec")
+    throughput_line = f"[bold]Throughput:[/bold] {result.samples_per_sec:.2f} samples/sec"
+    if result.effective_batch_size != 1:
+        throughput_line += f" [dim](batch {result.effective_batch_size})[/dim]"
+    console.print(throughput_line)
+    # Flag when the requested batch couldn't be honored so a static-batch model
+    # doesn't look like it silently ran the requested batch.
+    if result.config.batch_size != result.effective_batch_size:
+        console.print(
+            f"  [yellow]Note:[/yellow] requested batch {result.config.batch_size} "
+            f"could not be applied (model has a static batch of "
+            f"{result.effective_batch_size})."
+        )
 
     # Hardware section (only when monitoring was active)
     if result.hw_monitor:
@@ -1241,6 +1447,26 @@ def generate_output_path(model_id: str, *, module_class: str | None = None) -> P
 # =============================================================================
 
 
+def _format_input_shape(shape: list, actual: tuple | None) -> str:
+    """Render a declared input shape, marking dynamic dims as ``dynamic``.
+
+    A dynamic dimension (declared as ``None``) is shown as ``dynamic(<n>)``
+    where ``<n>`` is the concrete size the generated input data actually used
+    for that axis, so the real batch/sequence sizes stay visible alongside the
+    fact that the model left them free.
+    """
+    dims: list[str] = []
+    for i, dim in enumerate(shape):
+        if dim is None:
+            if actual is not None and i < len(actual):
+                dims.append(f"dynamic({actual[i]})")
+            else:
+                dims.append("dynamic")
+        else:
+            dims.append(str(dim))
+    return f"[{', '.join(dims)}]"
+
+
 def _print_model_info(
     io_config: dict,
     *,
@@ -1248,6 +1474,7 @@ def _print_model_info(
     req_device: str = "auto",
     act_device: str = "auto",
     ep_name: EPName | None = None,
+    actual_shapes: dict[str, tuple] | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
     console = Console(stderr=True)
@@ -1270,8 +1497,11 @@ def _print_model_info(
         for i, name in enumerate(names):
             shape = shapes[i] if i < len(shapes) else []
             dtype = str(types[i]) if i < len(types) else ""
-            shape_str = f"{shape!s}"
-            line = f"{name:<20s} {shape_str:<22s} {dtype}"
+            actual = actual_shapes.get(name) if actual_shapes else None
+            shape_str = _format_input_shape(shape, actual)
+            # ``shape_str`` can start with a lowercase ``dynamic(...)`` which Rich
+            # would otherwise parse as a markup tag and swallow -- escape it.
+            line = f"{name:<20s} {escape(shape_str):<22s} {dtype}"
             console.print(f"{label if i == 0 else pad}{line}")
 
     out_names = io_config.get("output_names", [])
@@ -1281,7 +1511,8 @@ def _print_model_info(
         pad = "             "
         for i, name in enumerate(out_names):
             shape = out_shapes[i] if i < len(out_shapes) else []
-            console.print(f"{label if i == 0 else pad}{name:<20s} {shape!s}")
+            shape_str = escape(_format_input_shape(shape, None))
+            console.print(f"{label if i == 0 else pad}{name:<20s} {shape_str}")
 
     console.print()
 
@@ -1340,8 +1571,142 @@ def _run_simple_loop(
 # =============================================================================
 
 
+# perf() param names for WinML-only options that a prebuilt genai bundle
+# ignores. Mapped to the user-facing flag for the warning message.
+_GENAI_IGNORED_FLAGS: dict[str, str] = {
+    "task": "--task",
+    "precision": "--precision",
+    "ep": "--ep",
+    "ep_options": "--ep-options",
+    "shape_config_path": "--shape-config",
+    "quant": "--quant/--no-quantize",
+    "optimize": "--optimize/--no-optimize",
+    "analyze": "--analyze/--no-analyze",
+    "max_optim_iterations": "--max-optim-iterations",
+    "rebuild": "--rebuild",
+    "ignore_cache": "--ignore-cache",
+    "skip_build": "--skip-build",
+    "allow_unsupported_nodes": "--allow-unsupported-nodes",
+    "monitor": "--monitor",
+    "memory": "--memory",
+    "op_tracing": "--op-tracing",
+    "batch_size": "--batch-size",
+}
+
+
+def _warn_ignored_genai_flags(ctx: click.Context, console: Console) -> None:
+    """Warn about WinML-only flags the user passed that genai ignores."""
+    ignored = [
+        flag
+        for param, flag in _GENAI_IGNORED_FLAGS.items()
+        if cli_utils.is_cli_provided(ctx, param)
+    ]
+    if ignored:
+        console.print(
+            "[yellow]Warning:[/yellow] the following options are ignored with "
+            f"--runtime winml-genai: {', '.join(sorted(ignored))}"
+        )
+
+
+def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
+    """Validate folder input and dispatch to the winml-genai benchmark path.
+
+    The genai imports are function-local so ``winml perf --help`` does not pay
+    their import cost (see tests/cli/test_import_time.py).
+    """
+    from ._perf_genai import (
+        GenaiPerfConfig,
+        device_to_genai_ep,
+        genai_output_path,
+        run_genai_perf,
+    )
+
+    p = ctx.params
+    model: str = p["model"]
+
+    # --module walks a live nn.Module graph; meaningless for a prebuilt bundle.
+    if p.get("module_class"):
+        raise click.UsageError("--module is not supported with --runtime winml-genai.")
+
+    bundle_dir = Path(model)
+    if bundle_dir.suffix.lower() == ".onnx" or not bundle_dir.is_dir():
+        raise click.UsageError(
+            f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
+        )
+    if not (bundle_dir / "genai_config.json").exists():
+        raise click.UsageError(
+            f"No genai_config.json found in '{model}'. Point --model at a bundle "
+            "folder produced by a winml-cli export."
+        )
+
+    _warn_ignored_genai_flags(ctx, console)
+
+    # A full generation is far costlier than one session.run(): default to
+    # fewer iterations/warmup unless the user set them explicitly.
+    iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
+    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
+
+    device = p["device"].lower()
+    output = p.get("output") or genai_output_path(bundle_dir)
+    cli_utils.guard_output(output, p["overwrite"])
+
+    config = GenaiPerfConfig(
+        bundle_dir=bundle_dir,
+        ep=device_to_genai_ep(device),
+        device=device,
+        prompt=p["prompt"],
+        apply_template=p["apply_template"],
+        max_new_tokens=p["max_new_tokens"],
+        iterations=iterations,
+        warmup=warmup,
+        compile=not p["no_compile"],
+        compile_timeout=p["compile_timeout"],
+        output_path=output,
+    )
+    run_genai_perf(config, console=console, json_mode=json_mode)
+
+
 @click.command("perf")
 @cli_utils.model_option(required=False)
+@click.option(
+    "--runtime",
+    type=click.Choice(list(RUNTIME_NAMES)),
+    default="winml",
+    show_default=True,
+    help="Inference runtime. 'winml' benchmarks single-shot ONNX inference; "
+    "'winml-genai' benchmarks an onnxruntime-genai bundle folder "
+    "(LLM generation: TTFT + decode tokens/sec).",
+)
+@click.option(
+    "--prompt",
+    type=str,
+    default="Explain the theory of relativity in simple terms.",
+    show_default=True,
+    help="[winml-genai] Prompt text to generate from. By default it is wrapped in "
+    "the bundle's chat template; pass --no-apply-template to benchmark it verbatim.",
+)
+@click.option(
+    "--apply-template/--no-apply-template",
+    default=True,
+    show_default=True,
+    help="[winml-genai] Wrap --prompt in the bundle's chat template before timing. "
+    "Use --no-apply-template to benchmark a prompt that is already formatted.",
+)
+@click.option(
+    "--max-new-tokens",
+    type=click.IntRange(min=1),
+    default=128,
+    show_default=True,
+    help="[winml-genai] Number of new tokens to generate per iteration.",
+)
+@click.option(
+    "--compile-timeout",
+    type=int,
+    default=300,
+    show_default=True,
+    help="[winml-genai] Max seconds to compile each EPContext stage before falling back "
+    "to the original ONNX (requires --compile).",
+)
 @click.option(
     "--task",
     type=str,
@@ -1375,6 +1740,7 @@ def _run_simple_loop(
     "Output JSON file path. Defaults to "
     "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
 )
+@cli_utils.overwrite_option()
 @click.option(
     "--batch-size",
     type=int,
@@ -1389,13 +1755,10 @@ def _run_simple_loop(
     default=None,
     help='JSON file with shape overrides (e.g., {"height": 480, "width": 480}).',
 )
-@click.option(
-    "--quantize/--no-quantize",
-    "quantize",
-    default=True,
-    show_default=True,
-    help="Include quantization during model build (use --no-quantize to skip)",
-)
+@cli_utils.quant_option(optional_message="Applied during model build.")
+@cli_utils.optimize_option(optional_message="Applied during model build.")
+@cli_utils.analyze_option(optional_message="Applied during model build.")
+@cli_utils.max_optim_iterations_option()
 @click.option(
     "--rebuild/--no-rebuild",
     default=False,
@@ -1448,10 +1811,16 @@ def _run_simple_loop(
 @cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def perf(
     ctx: click.Context,
     model: str | None,
+    runtime: RuntimeName,
+    prompt: str,
+    apply_template: bool,
+    max_new_tokens: int,
+    compile_timeout: int,
     task: str | None,
     iterations: int,
     warmup: int,
@@ -1460,9 +1829,13 @@ def perf(
     ep: EPNameOrAlias | None,
     ep_options: tuple[str, ...],
     output: Path | None,
+    overwrite: bool,
     batch_size: int,
     shape_config_path: Path | None,
-    quantize: bool,
+    quant: bool,
+    optimize: bool,
+    analyze: bool,
+    max_optim_iterations: int | None,
     rebuild: bool,
     ignore_cache: bool,
     skip_build: bool,
@@ -1519,7 +1892,12 @@ def perf(
     # so a Hub ref is not mistaken for a missing local file.
     # ``normalize_model_arg`` returns ``str | None`` per its signature;
     # the ``or model`` keeps the narrowed ``str`` type for downstream use.
-    hf_model: str = cli_utils.normalize_model_arg(model) or model
+    try:
+        hf_model: str = cli_utils.normalize_model_arg(model) or model
+    except Exception as e:
+        raise click.ClickException(
+            f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}"
+        ) from e
     model = hf_model
 
     # Apply build config defaults (CLI explicit options take precedence).
@@ -1545,6 +1923,19 @@ def perf(
     console = Console(stderr=True) if json_mode else Console()
 
     # =========================================================================
+    # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
+    # =========================================================================
+    if runtime == "winml-genai":
+        _run_genai_runtime(ctx, console=console, json_mode=json_mode)
+        return
+
+    # Classify the -m value once (existence-first) so module mode and the
+    # single-model path share one source of truth. Raises cleanly on a missing
+    # .onnx or an invalid id instead of a confusing downstream config error.
+    model_input = cli_utils.classify_model_input(hf_model)
+    is_onnx = model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+
+    # =========================================================================
     # MODULE MODE: per-module build + benchmark
     # =========================================================================
     if module_class:
@@ -1553,7 +1944,7 @@ def perf(
         # not carry. Without this guard, the user sees a misleading
         # "not a valid JSON file" error from AutoConfig.from_pretrained
         # trying to load the .onnx as an HF config dir (issue #553).
-        if Path(hf_model).suffix.lower() == ".onnx":
+        if is_onnx:
             raise click.UsageError(
                 f"--module is not supported for ONNX files. "
                 f"Submodule benchmarking requires a HuggingFace model ID "
@@ -1564,6 +1955,8 @@ def perf(
                 "[yellow]Warning:[/yellow] --shape-config is not supported "
                 "in --module mode and will be ignored."
             )
+        # _perf_modules resolves the device + derives a concrete EP internally
+        # (it will fold into PerfBenchmark — see #939).
         _perf_modules(
             hf_model=hf_model,
             module_class=module_class,
@@ -1571,7 +1964,10 @@ def perf(
             iterations=iterations,
             warmup=warmup,
             batch_size=batch_size,
-            no_quantize=not quantize,
+            no_quantize=not quant,
+            no_optimize=not optimize,
+            no_analyze=not analyze,
+            max_optim_iterations=max_optim_iterations,
             no_compile=no_compile,
             output=output,
             verbose=bool(verbose),
@@ -1582,6 +1978,8 @@ def perf(
             ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
+            rebuild=rebuild,
+            ignore_cache=ignore_cache,
         )
         return
 
@@ -1609,7 +2007,12 @@ def perf(
     if output is None:
         output = generate_output_path(hf_model)
 
-    # Create config
+    # Refuse to clobber an existing report unless the user opted in.
+    cli_utils.guard_output(output, overwrite)
+
+    # Create config. The raw device/EP request is passed through unchanged;
+    # PerfBenchmark resolves the concrete device + EP internally (failing fast
+    # before the build), so the CLI does not pre-resolve here.
     config = BenchmarkConfig(
         model_id=hf_model,
         task=task,
@@ -1619,7 +2022,10 @@ def perf(
         warmup=warmup,
         batch_size=batch_size,
         output_path=output,
-        no_quantize=not quantize,
+        no_quantize=not quant,
+        no_optimize=not optimize,
+        no_analyze=not analyze,
+        max_optim_iterations=max_optim_iterations,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         skip_build=skip_build,
@@ -1634,20 +2040,27 @@ def perf(
 
     try:
         model_path = Path(hf_model)
-        is_onnx = model_path.suffix.lower() == ".onnx"
 
         if is_onnx:
-            # Validate file existence up front; otherwise WinMLAutoModel would
-            # fall through to HF loading and surface a confusing
-            # "not a valid JSON file" error from AutoConfig.
-            if not model_path.exists():
-                raise FileNotFoundError(f"ONNX file not found: {model_path}")
+            # Existence already validated by classify_model_input above.
             if shape_config:
                 console.print(
                     "[yellow]Warning:[/yellow] --shape-config is ignored for "
                     "pre-exported ONNX files (shapes are baked into the model)."
                 )
                 config.shape_config = None
+            # Build-pipeline flags are forwarded to from_onnx but no-op when the
+            # build is skipped (the default). Warn so the silent no-op is visible
+            # — shared detection with eval via utils/cli.py.
+            build_flags_warning = cli_utils.ignored_build_flags_warning(
+                skip_build_onnx=skip_build,
+                quant=quant,
+                optimize=optimize,
+                analyze=analyze,
+                max_optim_iterations=max_optim_iterations,
+            )
+            if build_flags_warning:
+                console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
         else:
             if precision != "auto":
@@ -1691,12 +2104,17 @@ def perf(
         # Op-tracing (additive to existing benchmark)
         # =================================================================
         if op_tracing:
-            from ..optracing import is_qnn_profiling_available
+            from ..optracing import is_profiling_available
 
-            if not is_qnn_profiling_available():
-                console.print("[red]Error:[/red] Op-tracing requires onnxruntime-qnn")
-                console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
-                raise SystemExit(1)
+            if not is_profiling_available(
+                benchmark.resolved_ep, benchmark.resolved_device, op_tracing
+            ):
+                raise click.ClickException(
+                    "Op-tracing is only supported for the QNN EP "
+                    "on NPU at the 'basic' level "
+                    f"(resolved EP={benchmark.resolved_ep}, "
+                    f"device={benchmark.resolved_device}, level={op_tracing})."
+                )
 
             from ..optracing import (
                 display_op_trace_report,
@@ -1713,20 +2131,18 @@ def perf(
                 if onnx_for_trace is None:
                     raise AttributeError("benchmark._model not initialized")
             except AttributeError:
-                console.print(
-                    "[red]Error:[/red] Could not determine ONNX model path for op-tracing"
-                )
-                raise SystemExit(1) from None
+                raise click.ClickException(
+                    "Could not determine ONNX model path for op-tracing"
+                ) from None
 
             output_dir = output.parent if output else Path()
 
             # Look up tracer via registry (EP-agnostic).
             tracer_cls = get_tracer("QNNExecutionProvider", op_tracing)
             if tracer_cls is None:
-                console.print(
-                    f"[red]Error:[/red] No tracer registered for QNN EP at level '{op_tracing}'"
+                raise click.ClickException(
+                    f"No tracer registered for QNN EP at level '{op_tracing}'"
                 )
-                raise SystemExit(1)
 
             profiler = tracer_cls(
                 onnx_for_trace,
@@ -1741,10 +2157,9 @@ def perf(
             # Display and save
             display_op_trace_report(trace_result, console)
 
-            model_slug = hf_model.replace("/", "_").replace("\\", "_")
-            if is_onnx:
-                model_slug = model_path.stem
-            trace_output = output_dir / f"{model_slug}_op_trace.json"
+            # Mirror the benchmark report path so the two files sit side by side:
+            # a/b.json -> a/b_op_trace.json.
+            trace_output = output.with_name(f"{output.stem}_op_trace{output.suffix}")
             write_op_trace_json(trace_result, trace_output)
             console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
@@ -1753,6 +2168,10 @@ def perf(
         # the convention used by Click for argument problems.
         raise click.UsageError(f"Model not found: {e}") from e
 
+    except click.ClickException:
+        # Click exceptions are already intentional control flow; re-raise so
+        # the catch-all below doesn't relabel them as "Benchmark failed".
+        raise
     except Exception as e:
         if verbose:
             logger.exception("Benchmark failed")

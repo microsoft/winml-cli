@@ -557,7 +557,7 @@ class TestQuantizePrecisionValidation:
 
     @pytest.mark.parametrize(
         "bad_precision",
-        ["banana", "w4a16", "int4", "fp64"],
+        ["banana", "fp64", "w4a4", "w2a8"],
     )
     def test_unknown_precision_rejected(self, tmp_path, bad_precision):
         model, _ = TestQuantizeCliConfigPrecedence._setup(tmp_path)
@@ -573,3 +573,172 @@ class TestQuantizePrecisionValidation:
         assert r.exit_code != 0, r.output
         assert "not a supported quantization precision" in r.output
         assert ran["called"] is False
+
+
+class TestQuantizeMultiPrecisionDiskFull:
+    """The multi-precision pipeline drives Quantizer directly (bypassing
+    quantize_onnx), so it must apply the same disk-full/corruption guard:
+    a truncated/empty input must surface a clear error instead of ORT's opaque
+    "Failed to find proper ai.onnx domain" — parity with the single-precision
+    path, which routes through quantize_onnx.
+    """
+
+    @staticmethod
+    def _invoke(args):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.quantize import quantize as quantize_cmd
+
+        return CliRunner().invoke(quantize_cmd, args, obj={}, catch_exceptions=False)
+
+    def test_empty_input_model_surfaces_clear_error(self, tmp_path):
+        model = tmp_path / "truncated.onnx"
+        model.write_bytes(b"")  # zero-byte artifact left by a disk-full write
+
+        # Two precisions -> len(precision) > 1 -> _run_multi_precision path.
+        r = self._invoke(["-m", str(model), "-p", "int4", "-p", "fp16"])
+
+        assert r.exit_code != 0, r.output
+        # Collapse rich console wrapping before substring checks.
+        normalized = " ".join(r.output.split()).lower()
+        assert "disk space" in normalized
+        assert "failed to find proper ai.onnx domain" not in normalized
+
+
+class TestOverwriteGuard:
+    """The shared --overwrite/--no-overwrite guard on quantize (file) and
+    compile (directory) outputs. Cross-checks the wiring of
+    ``cli_utils.guard_output`` into real commands."""
+
+    @staticmethod
+    def _quantize(args, tmp_path, *, expect_called: bool):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.quantize import quantize as quantize_cmd
+
+        called: dict[str, bool] = {"v": False}
+
+        def fake_quantize(model_path, output_path=None, config=None, **kwargs):
+            called["v"] = True
+            result = MagicMock()
+            result.success = True
+            result.output_path = output_path
+            result.nodes_quantized = 0
+            result.total_time_seconds = 0.0
+            result.errors = []
+            return result
+
+        with patch("winml.modelkit.quant.quantize_onnx", side_effect=fake_quantize):
+            r = CliRunner().invoke(quantize_cmd, args, obj={}, catch_exceptions=False)
+        assert called["v"] is expect_called, r.output
+        return r
+
+    def test_quantize_existing_output_blocked(self, tmp_path):
+        model, _ = TestQuantizeCliConfigPrecedence._setup(tmp_path)
+        out = tmp_path / "q.onnx"
+        out.write_text("ORIGINAL")
+        # quantize_onnx must NOT run; the guard fires before any work (and before
+        # the quantizer's destructive stale-sidecar cleanup).
+        r = self._quantize(["-m", str(model), "-o", str(out)], tmp_path, expect_called=False)
+        assert r.exit_code != 0
+        assert "already exists" in r.output
+        assert "--overwrite" in r.output
+        assert out.read_text() == "ORIGINAL"
+
+    def test_quantize_existing_output_allowed_with_overwrite(self, tmp_path):
+        model, _ = TestQuantizeCliConfigPrecedence._setup(tmp_path)
+        out = tmp_path / "q.onnx"
+        out.write_text("ORIGINAL")
+        r = self._quantize(
+            ["-m", str(model), "-o", str(out), "--overwrite"], tmp_path, expect_called=True
+        )
+        assert r.exit_code == 0, r.output
+
+    def test_quantize_default_derived_output_guarded(self, tmp_path):
+        """The guard covers the defaulted ``{stem}_quantized.onnx`` path, not just -o."""
+        model, _ = TestQuantizeCliConfigPrecedence._setup(tmp_path)
+        default_out = model.parent / f"{model.stem}_quantized.onnx"
+        default_out.write_text("ORIGINAL")
+        r = self._quantize(["-m", str(model)], tmp_path, expect_called=False)
+        assert r.exit_code != 0
+        assert "already exists" in r.output
+
+    @staticmethod
+    def _compile(args, tmp_path, *, expect_called: bool):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.compile import compile as compile_cmd
+
+        called: dict[str, bool] = {"v": False}
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = tmp_path / "model_compiled.onnx"
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+
+        def fake_compile(*_args, **_kwargs):
+            called["v"] = True
+            return mock_result
+
+        with (
+            patch(
+                "winml.modelkit.commands.compile.resolve_device",
+                return_value=("npu", ["npu", "gpu", "cpu"]),
+            ),
+            patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.compiler.compile_onnx", side_effect=fake_compile),
+        ):
+            r = CliRunner().invoke(compile_cmd, args, catch_exceptions=False)
+        assert called["v"] is expect_called, r.output
+        return r
+
+    def test_compile_non_empty_output_dir_blocked(self, tmp_path):
+        model = tmp_path / "model.onnx"
+        model.write_bytes(b"fake")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        (out_dir / "stale.onnx").write_bytes(b"old")
+        r = self._compile(
+            ["-m", str(model), "--device", "npu", "--ep", "qnn", "--output-dir", str(out_dir)],
+            tmp_path,
+            expect_called=False,
+        )
+        assert r.exit_code != 0
+        assert "not empty" in r.output
+        assert "--overwrite" in r.output
+
+    def test_compile_empty_output_dir_ok(self, tmp_path):
+        """An existing but empty output dir does not trip the guard."""
+        model = tmp_path / "model.onnx"
+        model.write_bytes(b"fake")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        r = self._compile(
+            ["-m", str(model), "--device", "npu", "--ep", "qnn", "--output-dir", str(out_dir)],
+            tmp_path,
+            expect_called=True,
+        )
+        assert r.exit_code == 0, r.output
+
+    def test_compile_non_empty_output_dir_allowed_with_overwrite(self, tmp_path):
+        model = tmp_path / "model.onnx"
+        model.write_bytes(b"fake")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        (out_dir / "stale.onnx").write_bytes(b"old")
+        r = self._compile(
+            [
+                "-m",
+                str(model),
+                "--device",
+                "npu",
+                "--ep",
+                "qnn",
+                "--output-dir",
+                str(out_dir),
+                "--overwrite",
+            ],
+            tmp_path,
+            expect_called=True,
+        )
+        assert r.exit_code == 0, r.output

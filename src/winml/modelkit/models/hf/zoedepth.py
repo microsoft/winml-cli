@@ -29,7 +29,7 @@ from ...export import register_onnx_overwrite
 
 
 @register_onnx_overwrite("zoedepth", "depth-estimation", library_name="transformers")
-class ZoeDepthIOConfig(OnnxConfig):
+class ZoeDepthIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for ZoeDepth depth estimation.
 
     Model: Intel/zoedepth-nyu-kitti

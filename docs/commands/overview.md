@@ -63,6 +63,10 @@ differ per command (e.g., `-p` is a short form for `--precision` only on
 `config` and `quantize`); check the **Flags** section of each command page
 rather than assuming they transfer.
 
+`--no-color` is accepted by every command and disables colored output for
+that invocation. Color is also auto-disabled when `NO_COLOR=1` or `CI=true`
+is set in the environment.
+
 ## See also
 
 - [How winml-cli Works](../concepts/how-it-works.md) — end-to-end pipeline overview

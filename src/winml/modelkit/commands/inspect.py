@@ -37,11 +37,6 @@ logger = logging.getLogger(__name__)
 console = Console()
 _stderr_console = Console(stderr=True, highlight=False)
 
-# File extensions that unambiguously indicate a local file path.
-# HF model IDs routinely contain dots in version numbers (Phi-3.5, Qwen2.5, …)
-# so matching on any suffix would cause false-positives; restrict to known extensions.
-_LOCAL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin"})
-
 
 def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
     """Click-time validation for --task against the hand-coded KNOWN_TASKS set.
@@ -62,32 +57,10 @@ def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None
     )
 
 
-def _looks_like_local_path(model_id: str) -> bool:
-    """Return True when model_id is explicitly a local path.
-
-    Conservative heuristic — only returns True for unambiguous local indicators:
-    path separators, absolute paths, dot/tilde prefixes, or known model file extensions.
-    """
-    from pathlib import Path
-
-    _p = Path(model_id).expanduser()
-    return (
-        _p.exists()
-        or _p.is_absolute()
-        or "\\" in model_id
-        or model_id.startswith(("./", "../", "~/"))
-        or _p.suffix.lower() in _LOCAL_FILE_EXTS
-    )
-
-
 @click.command("inspect")
-@click.option(
-    "-m",
-    "--model",
-    "model_id",
+@cli_utils.model_option(
     required=False,
-    default=None,
-    help="HuggingFace model ID (e.g., microsoft/resnet-50)",
+    help_text="HuggingFace model ID (e.g., microsoft/resnet-50)",
 )
 @cli_utils.format_option(choices=["table", "json"], default="table")
 @click.option(
@@ -124,10 +97,11 @@ def _looks_like_local_path(model_id: str) -> bool:
     help="Override model class (e.g., BertForMaskedLM) — can be used without --model",
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def inspect(
     ctx: click.Context,
-    model_id: str | None,
+    model: str | None,
     output_format: cli_utils.OutputFormat,
     verbose: int,
     quiet: bool,
@@ -173,26 +147,25 @@ def inspect(
         return
 
     # Validate: need at least one of model_id, model_type, model_class
-    if model_id is None and model_type is None and model_class is None:
+    if model is None and model_type is None and model_class is None:
         raise click.UsageError(
             "At least one of -m/--model, --model-type, or --model-class is required. "
             "Use --list-tasks to see available tasks."
         )
 
-    # Classify the input before hitting HF Hub: local paths must exist.
-    # _looks_like_local_path uses a conservative allowlist to avoid misclassifying
-    # HF IDs with version dots (Phi-3.5, Qwen2.5, …) as local paths.
-    if model_id and _looks_like_local_path(model_id):
-        from pathlib import Path
-
-        _p = Path(model_id).expanduser()
-        if _p.suffix == ".onnx" and _p.is_file():
+    # Classify the -m value once (existence-first). Rejects a missing path or
+    # invalid id up front, and keeps dotted HF IDs (Phi-3.5, Qwen2.5, …) on the
+    # Hub path instead of misclassifying them as local files.
+    if model:
+        try:
+            model_input = cli_utils.classify_model_input(model)
+        except click.UsageError as e:
+            raise click.ClickException(str(e)) from e
+        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
             raise click.ClickException(
                 "ONNX file inspection is not yet supported. "
                 "Use 'winml config -m model.onnx' for ONNX build config."
             )
-        if not _p.exists():
-            raise click.ClickException(f"Local path '{model_id}' does not exist.")
 
     # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
     # is not downloadable for inspect (which targets HF architecture
@@ -220,7 +193,7 @@ def inspect(
     # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
     # and JSON consumers expect clean stdout regardless).
     json_mode = output_format == "json"
-    target = model_id or model_type or model_class
+    target = model or model_type or model_class
     if not quiet and not json_mode:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
 
@@ -232,7 +205,7 @@ def inspect(
     try:
         if quiet or json_mode:
             result = _inspect_model_v2(
-                model_id=model_id,
+                model_id=model,
                 task_override=task,
                 model_type_override=model_type,
                 model_class_override=model_class,
@@ -244,7 +217,7 @@ def inspect(
                 spinner="dots",
             ):
                 result = _inspect_model_v2(
-                    model_id=model_id,
+                    model_id=model,
                     task_override=task,
                     model_type_override=model_type,
                     model_class_override=model_class,
