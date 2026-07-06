@@ -865,9 +865,11 @@ class TestPerfGenai:
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            pytest.skip("onnxruntime-genai model build timed out")
+            proc = None
 
-        if proc.returncode != 0 or not (out / "genai_config.json").exists():
+        if proc is None:
+            pytest.skip("onnxruntime-genai model build timed out")
+        elif proc.returncode != 0 or not (out / "genai_config.json").exists():
             pytest.skip(
                 "onnxruntime-genai model build failed (network / auth / unsupported):\n"
                 f"stdout:\n{proc.stdout[-2000:]}\nstderr:\n{proc.stderr[-2000:]}"
