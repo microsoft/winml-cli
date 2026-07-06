@@ -2343,7 +2343,7 @@ def perf(
                 )
 
             profiler = tracer_cls(
-                Path(onnx_for_trace),
+                Path(cast("str", onnx_for_trace)),
                 output_dir=output_dir,
                 level=op_tracing,
             )
