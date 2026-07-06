@@ -105,6 +105,42 @@ def tiny_onnx_external(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return p
 
 
+@pytest.fixture(scope="session")
+def tiny_embed_onnx(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Embedding model where a Gather feeds a non-integer op (Add).
+
+    Dynamic quantization stores the embedding table as int8 and must insert a
+    ``DequantizeLinear`` to restore it to float before the Add — mirroring how
+    real transformer encoders (word + position embeddings) quantize. This
+    exercises the ``DequantizeLinear`` counting path that plain MatMul-only
+    models never hit.
+    """
+    d = tmp_path_factory.mktemp("tiny_embed")
+    p = d / "tiny_embed.onnx"
+    rng = np.random.default_rng(7)
+    vocab, dim, hidden = 64, 32, 16
+    input_ids = onnx.helper.make_tensor_value_info("input_ids", onnx.TensorProto.INT64, [1, 8])
+    y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 8, hidden])
+    emb = onnx.numpy_helper.from_array(
+        rng.standard_normal((vocab, dim), dtype=np.float32), "embedding_table"
+    )
+    pos = onnx.numpy_helper.from_array(rng.standard_normal((1, 8, dim), dtype=np.float32), "pos")
+    w = onnx.numpy_helper.from_array(rng.standard_normal((dim, hidden), dtype=np.float32), "W")
+    b = onnx.numpy_helper.from_array(rng.standard_normal((hidden,), dtype=np.float32), "B")
+    nodes = [
+        onnx.helper.make_node("Gather", ["embedding_table", "input_ids"], ["emb"]),
+        onnx.helper.make_node("Add", ["emb", "pos"], ["emb_pos"]),
+        onnx.helper.make_node("MatMul", ["emb_pos", "W"], ["mm"]),
+        onnx.helper.make_node("Add", ["mm", "B"], ["output"]),
+    ]
+    graph = onnx.helper.make_graph(nodes, "tiny_embed", [input_ids], [y], [emb, pos, w, b])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+    model.ir_version = 8
+    onnx.checker.check_model(model)
+    onnx.save(model, str(p))
+    return p
+
+
 # ---------------------------------------------------------------------------
 # Real HF-exported ONNX fixtures for per-task calibration dataset coverage
 #
@@ -186,6 +222,7 @@ def onnx_dinov2() -> Path:
 
 
 _QDQ_OPS = {"QuantizeLinear", "DequantizeLinear"}
+_DYNAMIC_QUANT_OPS = {"DynamicQuantizeLinear", "MatMulInteger", "ConvInteger"}
 
 
 def _dtype_of_init(model: onnx.ModelProto, name: str) -> int:
@@ -299,6 +336,46 @@ def _assert_quantized_output(
     return model
 
 
+def _assert_dynamic_quantized_output(
+    *,
+    input_onnx: Path,
+    output_onnx: Path,
+) -> onnx.ModelProto:
+    """Structural assertions for a dynamically quantized model.
+
+    Dynamic quantization emits QOperator-format ops (DynamicQuantizeLinear +
+    MatMulInteger/ConvInteger) rather than QDQ nodes, so it needs its own
+    assertions instead of ``_assert_quantized_output``.
+    """
+    model = onnx.load(str(output_onnx))
+
+    dyn_count = sum(1 for n in model.graph.node if n.op_type in _DYNAMIC_QUANT_OPS)
+    assert dyn_count >= 1, f"no dynamic-quant nodes: {[n.op_type for n in model.graph.node]}"
+    # Dynamic quantization must not emit static QDQ nodes.
+    assert not any(n.op_type in _QDQ_OPS for n in model.graph.node)
+
+    onnx.checker.check_model(model, full_check=True)
+
+    input_model = onnx.load(str(input_onnx))
+    assert [i.name for i in model.graph.input] == [i.name for i in input_model.graph.input]
+    assert [o.name for o in model.graph.output] == [o.name for o in input_model.graph.output]
+
+    # ORT-CPU runs and produces finite outputs.
+    sess = ort.InferenceSession(str(output_onnx), providers=["CPUExecutionProvider"])
+    rng = np.random.default_rng(11)
+    feed = {
+        inp.name: rng.standard_normal(
+            [d if isinstance(d, int) and d > 0 else 1 for d in inp.shape]
+        ).astype(np.float32)
+        for inp in sess.get_inputs()
+    }
+    for arr in sess.run(None, feed):
+        if np.issubdtype(arr.dtype, np.floating):
+            assert np.isfinite(arr).all()
+
+    return model
+
+
 def _invoke(runner: CliRunner, args: list[str], *, expect_success: bool = True):
     result = runner.invoke(quantize_cmd, args, obj={}, catch_exceptions=True)
     if expect_success and result.exit_code != 0:
@@ -396,10 +473,48 @@ class TestPrecision:
         assert r.exit_code == 0
         assert out.exists()
 
+    def test_dynamic_precision_accepted(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
+        """`--precision dynamic` runs dynamic quantization (no calibration data)."""
+        out = tmp_path / "a7.onnx"
+        r = _invoke(
+            runner,
+            ["-m", str(tiny_onnx), "-o", str(out), "--precision", "dynamic"],
+        )
+        assert r.exit_code == 0
+        assert out.exists()
+        model = _assert_dynamic_quantized_output(input_onnx=tiny_onnx, output_onnx=out)
+        # Weights are quantized statically -> MatMul becomes MatMulInteger.
+        assert any(n.op_type == "MatMulInteger" for n in model.graph.node)
 
-# ===========================================================================
-# Calibration method
-# ===========================================================================
+    def test_dynamic_precision_embedding_emits_dequantizelinear(
+        self, runner: CliRunner, tiny_embed_onnx: Path, tmp_path: Path
+    ):
+        """Dynamic quant of an embedding feeding a non-integer op emits a
+        DequantizeLinear (counted as a quantized node) but never a static
+        QuantizeLinear."""
+        out = tmp_path / "a8.onnx"
+        r = _invoke(
+            runner,
+            ["-m", str(tiny_embed_onnx), "-o", str(out), "--precision", "dynamic"],
+        )
+        assert r.exit_code == 0
+        assert out.exists()
+
+        model = onnx.load(str(out))
+        ops = [n.op_type for n in model.graph.node]
+        # Quantized embedding restored to float before the Add.
+        assert "DequantizeLinear" in ops, ops
+        # Dynamic quantization must not emit a static QuantizeLinear.
+        assert "QuantizeLinear" not in ops, ops
+        # Still exercises the integer compute path.
+        assert "MatMulInteger" in ops, ops
+        onnx.checker.check_model(model, full_check=True)
+
+        # Runs under ORT-CPU with valid token indices (< vocab size 64).
+        sess = ort.InferenceSession(str(out), providers=["CPUExecutionProvider"])
+        feed = {"input_ids": np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)}
+        outs = sess.run(None, feed)
+        assert np.isfinite(outs[0]).all()
 
 
 class TestCalibrationMethod:

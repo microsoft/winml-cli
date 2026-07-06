@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import QuantizeResult, WinMLQuantizationConfig
-from .passes import BaseQuantPass, FP16Pass, RTNPass, StaticPass
+from .passes import BaseQuantPass, DynamicPass, FP16Pass, RTNPass, StaticPass
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def expand_precision(
     ``fp16``      ``[FP16Pass(config)]``
     ``rtn``       ``[RTNPass(config)]``
     ``static``    ``[StaticPass(config)]``
-    ``dynamic``   ``[StaticPass(config)]``  (placeholder until DynamicPass is implemented)
+    ``dynamic``   ``[DynamicPass(config)]``
     ============= =======================
 
     Args:
@@ -64,7 +64,7 @@ def expand_precision(
         "fp16": FP16Pass,
         "rtn": RTNPass,
         "static": StaticPass,
-        "dynamic": StaticPass,
+        "dynamic": DynamicPass,
     }
 
     if effective_precision in _pass_types:
@@ -285,7 +285,9 @@ def quantize_onnx(
 
     - ``"fp16"`` — FP16 conversion (no quantization)
     - ``"rtn"`` — RTN weight-only quantization
-    - ``"static"`` / ``"dynamic"`` — QDQ calibrated quantization
+    - ``"static"`` — QDQ calibrated quantization (requires calibration data)
+    - ``"dynamic"`` — dynamic quantization (weights static, activations at
+      runtime; no calibration data)
 
     Args:
         model_path: Path to input ONNX model.

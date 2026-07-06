@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from .calibration import get_quant_finalizer
 from .config import QuantizeResult, WinMLQuantizationConfig
-from .passes import BaseQuantPass, FP16Pass, RTNPass, StaticPass
+from .passes import BaseQuantPass, DynamicPass, FP16Pass, RTNPass, StaticPass
 
 
 if TYPE_CHECKING:
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BaseQuantPass",
+    "DynamicPass",
     "FP16Pass",
     "QuantizeResult",
     "Quantizer",
