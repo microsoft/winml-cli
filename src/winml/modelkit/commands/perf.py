@@ -100,6 +100,15 @@ class BenchmarkConfig:
     ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
 
+    # Composite model support: dict of {role: onnx_path} for from_onnx dispatch
+    model_path: str | dict[str, str] | None = None
+    # HF model ID for composite models loaded from ONNX (needed for hf_config)
+    hf_model_id: str | None = None
+
+    # Generation benchmark (decoder-only composite models)
+    prompt: str = "Explain the theory of relativity in simple terms."
+    max_new_tokens: int = 128
+
 
 @dataclass
 class BenchmarkResult:
@@ -208,6 +217,89 @@ class BenchmarkResult:
         if self.memory_profile:
             result["memory"] = self.memory_profile
         return result
+
+
+@dataclass
+class GenerationBenchmarkResult:
+    """Results from a generation benchmark (decoder-only composite models).
+
+    Reports LLM-style metrics comparable to ``GenaiBenchmarkResult`` in
+    ``_perf_genai.py``: TTFT, decode throughput, TPOT, and total generation
+    time.  Produced by ``PerfBenchmark._run_generation()`` when the model is
+    a ``WinMLDecoderOnlyModel`` (e.g. Qwen).
+    """
+
+    config: BenchmarkConfig
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    # Generation shape
+    prompt_tokens: int = 0
+    generated_tokens: int = 0
+
+    # Time to first token (prefill), milliseconds
+    ttft_mean_ms: float = 0.0
+    ttft_min_ms: float = 0.0
+    ttft_max_ms: float = 0.0
+    ttft_p50_ms: float = 0.0
+    ttft_p90_ms: float = 0.0
+    ttft_p95_ms: float = 0.0
+    ttft_p99_ms: float = 0.0
+
+    # Decode phase
+    decode_tokens_per_sec: float = 0.0
+    tpot_mean_ms: float = 0.0
+
+    # Whole generation (prefill + all decode), milliseconds
+    total_generation_mean_ms: float = 0.0
+
+    # Actual values (resolved after build + compile)
+    actual_device: str = ""
+    actual_ep: EPName | None = None
+
+    # Per-iteration raw samples (warmup excluded)
+    raw_ttft_ms: list[float] = field(default_factory=list)
+    raw_decode_tokens_per_sec: list[float] = field(default_factory=list)
+    raw_tpot_ms: list[float] = field(default_factory=list)
+    raw_total_ms: list[float] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to a JSON-serializable dictionary."""
+        return {
+            "benchmark_info": {
+                "runtime": "winml-generate",
+                "model_id": self.config.model_id,
+                "task": self.config.task,
+                "device": self.config.device,
+                "ep": self.actual_ep,
+                "prompt": self.config.prompt,
+                "prompt_tokens": self.prompt_tokens,
+                "generated_tokens": self.generated_tokens,
+                "max_new_tokens": self.config.max_new_tokens,
+                "iterations": self.config.iterations,
+                "warmup": self.config.warmup,
+                "timestamp": self.timestamp,
+            },
+            "ttft_ms": {
+                "mean": round(self.ttft_mean_ms, 3),
+                "min": round(self.ttft_min_ms, 3),
+                "max": round(self.ttft_max_ms, 3),
+                "p50": round(self.ttft_p50_ms, 3),
+                "p90": round(self.ttft_p90_ms, 3),
+                "p95": round(self.ttft_p95_ms, 3),
+                "p99": round(self.ttft_p99_ms, 3),
+            },
+            "decode": {
+                "tokens_per_sec": round(self.decode_tokens_per_sec, 2),
+                "tpot_ms": round(self.tpot_mean_ms, 3),
+            },
+            "total_generation_ms": {"mean": round(self.total_generation_mean_ms, 3)},
+            "raw": {
+                "ttft_ms": [round(v, 3) for v in self.raw_ttft_ms],
+                "decode_tokens_per_sec": [round(v, 2) for v in self.raw_decode_tokens_per_sec],
+                "tpot_ms": [round(v, 3) for v in self.raw_tpot_ms],
+                "total_ms": [round(v, 3) for v in self.raw_total_ms],
+            },
+        }
 
 
 # =============================================================================
@@ -421,6 +513,17 @@ class PerfBenchmark:
         return isinstance(self._model, WinMLCompositeModel)
 
     @property
+    def _is_generative_composite(self) -> bool:
+        """True when the loaded model is a decoder-only composite (e.g. Qwen).
+
+        These models support ``model.generate()`` via ``GenerationMixin`` and
+        should be benchmarked with text prompts rather than random inputs.
+        """
+        from ..models.winml.decoder_only import WinMLDecoderOnlyModel
+
+        return isinstance(self._model, WinMLDecoderOnlyModel)
+
+    @property
     def _sub_models(self) -> dict[str, WinMLPreTrainedModel]:
         """Sub-models of a composite model (only valid when ``_is_composite``)."""
         from ..models.winml.composite_model import WinMLCompositeModel
@@ -442,21 +545,23 @@ class PerfBenchmark:
         assert self._model is not None
         return cast("WinMLPreTrainedModel", self._model)
 
-    def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
+    def run(self) -> BenchmarkResult | GenerationBenchmarkResult | dict[str, BenchmarkResult]:
         """Execute full benchmark pipeline.
 
         Returns:
-            A single ``BenchmarkResult`` for single-session models, or a
-            ``{sub_model_name: BenchmarkResult}`` mapping for composite models
-            (e.g. CLIP/SigLIP dual-encoders). Composite models have no single
-            ORT session, so each sub-model is benchmarked individually rather
-            than timing the aggregate ``forward()`` pass.
+            A single ``BenchmarkResult`` for single-session models,
+            a ``GenerationBenchmarkResult`` for decoder-only composite models
+            (e.g. Qwen — benchmarked via ``model.generate()`` with a prompt),
+            or a ``{sub_model_name: BenchmarkResult}`` mapping for non-generative
+            composite models (e.g. CLIP/SigLIP dual-encoders).
         """
         # [1] Load model (build pipeline: optimize, cache, etc.)
         logger.info("Loading model: %s", self.config.model_id)
         self._load_model()
         assert self._model is not None
 
+        if self._is_generative_composite:
+            return self._run_generation()
         if self._is_composite:
             return self._run_sub_models()
         return self._run_single()
@@ -481,6 +586,127 @@ class PerfBenchmark:
                 logger.error("Benchmarking sub-model '%s' failed", name)
                 raise RuntimeError(f"Sub-model '{name}' failed: {exc}") from exc
         return results
+
+    def _run_generation(self) -> GenerationBenchmarkResult:
+        """Benchmark a decoder-only composite model via ``model.generate()``.
+
+        Tokenizes the prompt, then runs ``model.generate()`` in a loop
+        (warmup + timed iterations), capturing per-iteration TTFT, decode
+        throughput, TPOT, and total generation time — the same LLM metrics
+        ``_perf_genai.py`` reports for onnxruntime-genai bundles.
+        """
+        import time
+
+        from transformers import AutoTokenizer
+
+        assert self._model is not None
+        model = self._model
+
+        hf_model_id = self.config.hf_model_id or self.config.model_id
+        tokenizer = AutoTokenizer.from_pretrained(hf_model_id)
+        inputs = tokenizer(self.config.prompt, return_tensors="pt")
+        input_ids = inputs["input_ids"]
+        prompt_tokens = input_ids.shape[1]
+
+        console = Console(stderr=True)
+        console.print(f"\n[dim]Prompt:[/dim]           {self.config.prompt!r}")
+        console.print(f"[dim]Prompt tokens:[/dim]    {prompt_tokens}")
+        console.print(f"[dim]Max new tokens:[/dim]   {self.config.max_new_tokens}")
+
+        total_runs = self.config.warmup + self.config.iterations
+        logger.info(
+            "Generation benchmark: %d warmup + %d timed (max_new_tokens=%d)",
+            self.config.warmup,
+            self.config.iterations,
+            self.config.max_new_tokens,
+        )
+
+        @dataclass
+        class _GenSample:
+            ttft_ms: float
+            total_ms: float
+            n_tokens: int
+
+        samples: list[_GenSample] = []
+        for i in range(total_runs):
+            t_start = time.perf_counter()
+            output_ids = model.generate(
+                input_ids,
+                attention_mask=inputs.get("attention_mask"),
+                max_new_tokens=self.config.max_new_tokens,
+                do_sample=False,
+            )
+            t_end = time.perf_counter()
+
+            total_ms = (t_end - t_start) * 1000.0
+            n_generated = output_ids.shape[1] - prompt_tokens
+
+            # TTFT approximation: total_ms * (1 token / total tokens generated)
+            # is a rough proxy. A better split requires hooking into forward(),
+            # but this gives directionally correct numbers for comparison.
+            # For the first generated token, prefill dominates.
+            ttft_ms = total_ms / max(n_generated, 1)
+
+            samples.append(_GenSample(ttft_ms=ttft_ms, total_ms=total_ms, n_tokens=n_generated))
+
+            phase = "warmup" if i < self.config.warmup else "timed"
+            if (i + 1) % max(1, total_runs // 5) == 0 or i == total_runs - 1:
+                console.print(
+                    f"  [{phase}] {i + 1}/{total_runs}: {total_ms:.1f} ms, {n_generated} tokens"
+                )
+
+        # Aggregate (exclude warmup)
+        timed = samples[self.config.warmup :]
+        if not timed:
+            raise RuntimeError("No timed iterations to aggregate")
+
+        raw_ttft = [s.ttft_ms for s in timed]
+        raw_total = [s.total_ms for s in timed]
+        avg_tokens = sum(s.n_tokens for s in timed) / len(timed)
+        raw_tpot = [s.total_ms / max(s.n_tokens, 1) for s in timed]
+        raw_decode_tps = [
+            s.n_tokens / (s.total_ms / 1000.0) if s.total_ms > 0 else 0 for s in timed
+        ]
+
+        sorted_ttft = sorted(raw_ttft)
+
+        def _pct(xs: list[float], p: float) -> float:
+            if not xs:
+                return 0.0
+            idx = min(int(len(xs) * p / 100), len(xs) - 1)
+            return xs[idx]
+
+        # Resolve actual device/EP from first sub-model
+        actual_device = ""
+        actual_ep: EPName | None = None
+        from ..models.winml.composite_model import WinMLCompositeModel
+
+        if isinstance(model, WinMLCompositeModel) and model.sub_models:
+            first_sub = next(iter(model.sub_models.values()))
+            actual_device = getattr(first_sub, "device", self.config.device)
+            actual_ep = getattr(first_sub, "ep_name", None)
+
+        return GenerationBenchmarkResult(
+            config=self.config,
+            prompt_tokens=prompt_tokens,
+            generated_tokens=int(avg_tokens),
+            ttft_mean_ms=sum(raw_ttft) / len(raw_ttft),
+            ttft_min_ms=min(raw_ttft),
+            ttft_max_ms=max(raw_ttft),
+            ttft_p50_ms=_pct(sorted_ttft, 50),
+            ttft_p90_ms=_pct(sorted_ttft, 90),
+            ttft_p95_ms=_pct(sorted_ttft, 95),
+            ttft_p99_ms=_pct(sorted_ttft, 99),
+            decode_tokens_per_sec=sum(raw_decode_tps) / len(raw_decode_tps),
+            tpot_mean_ms=sum(raw_tpot) / len(raw_tpot),
+            total_generation_mean_ms=sum(raw_total) / len(raw_total),
+            actual_device=actual_device,
+            actual_ep=actual_ep,
+            raw_ttft_ms=raw_ttft,
+            raw_decode_tokens_per_sec=raw_decode_tps,
+            raw_tpot_ms=raw_tpot,
+            raw_total_ms=raw_total,
+        )
 
     def _run_single(self) -> BenchmarkResult:
         """Benchmark the loaded single-session model.
@@ -573,6 +799,11 @@ class PerfBenchmark:
         single path so latency numbers stay comparable: HF runs export →
         optimize → [quantize] → [compile], and ONNX runs the same pipeline
         minus export.
+
+        When ``config.model_path`` is a dict (composite ``role=path`` pairs),
+        the model is loaded via ``WinMLAutoModel.from_onnx`` with the dict
+        dispatching to ``WinMLCompositeModel.from_onnx`` (same path as
+        ``eval.py``).
         """
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
@@ -582,14 +813,6 @@ class PerfBenchmark:
         self._resolve_device_ep()
 
         model_id = self.config.model_id
-        model_path = Path(model_id)
-        is_onnx = model_path.suffix.lower() == ".onnx"
-        if is_onnx and not model_path.exists():
-            # Surface a clear error for programmatic callers. The CLI guards
-            # this earlier, but without this check from_pretrained would fall
-            # through to HF loading and produce a confusing "not a valid JSON
-            # file" error from AutoConfig.
-            raise FileNotFoundError(f"ONNX file not found: {model_path}")
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -621,10 +844,39 @@ class PerfBenchmark:
             ),
         }
 
+        # Composite model from ONNX dict (e.g. -m decoder_prefill=p.onnx -m decoder_gen=g.onnx)
+        if isinstance(self.config.model_path, dict):
+            from transformers import AutoConfig
+
+            hf_model_id = self.config.hf_model_id or model_id
+            hf_config = AutoConfig.from_pretrained(hf_model_id)
+            self._model = WinMLAutoModel.from_onnx(
+                onnx_path=self.config.model_path,
+                hf_config=hf_config,
+                skip_build=self.config.skip_build,
+                **common_kwargs,
+            )
+            return
+
+        model_path = Path(model_id)
+        is_onnx = model_path.suffix.lower() == ".onnx"
+        if is_onnx and not model_path.exists():
+            # Surface a clear error for programmatic callers. The CLI guards
+            # this earlier, but without this check from_pretrained would fall
+            # through to HF loading and produce a confusing "not a valid JSON
+            # file" error from AutoConfig.
+            raise FileNotFoundError(f"ONNX file not found: {model_path}")
+
         if is_onnx:
+            hf_config = None
+            if self.config.hf_model_id:
+                from transformers import AutoConfig
+
+                hf_config = AutoConfig.from_pretrained(self.config.hf_model_id)
             self._model = WinMLAutoModel.from_onnx(
                 onnx_path=model_path,
                 skip_build=self.config.skip_build,
+                hf_config=hf_config,
                 **common_kwargs,
             )
         else:
@@ -1292,7 +1544,40 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     console.print()
 
 
-def write_json_report(result: BenchmarkResult, output_path: Path) -> None:
+def display_generation_report(result: GenerationBenchmarkResult, console: Console) -> None:
+    """Display generation benchmark results in formatted console output."""
+    console.print()
+    console.print(f"[dim]Model:[/dim]       {result.config.model_id}")
+    console.print(f"[dim]Device:[/dim]      {result.actual_device}")
+    if result.actual_ep:
+        console.print(f"[dim]EP:[/dim]          {result.actual_ep}")
+    console.print(f"[dim]Prompt:[/dim]      {result.config.prompt!r}")
+    console.print(f"[dim]Prompt tokens:[/dim] {result.prompt_tokens}")
+    console.print(f"[dim]Generated:[/dim]   {result.generated_tokens} tokens")
+
+    console.print()
+    console.print("[bold]Generation Performance[/bold]")
+
+    table = Table(show_header=True, header_style="bold cyan")
+    for col in ["Metric", "Value"]:
+        table.add_column(col, justify="right" if col == "Value" else "left")
+
+    table.add_row("TTFT (mean)", f"{result.ttft_mean_ms:.2f} ms")
+    table.add_row("TTFT (p50)", f"{result.ttft_p50_ms:.2f} ms")
+    table.add_row("TTFT (p90)", f"{result.ttft_p90_ms:.2f} ms")
+    table.add_row("TTFT (p99)", f"{result.ttft_p99_ms:.2f} ms")
+    table.add_row("Decode throughput", f"{result.decode_tokens_per_sec:.2f} tokens/sec")
+    table.add_row("TPOT (mean)", f"{result.tpot_mean_ms:.2f} ms")
+    table.add_row("Total generation", f"{result.total_generation_mean_ms:.2f} ms")
+
+    console.print(table)
+    console.print()
+
+
+def write_json_report(
+    result: BenchmarkResult | GenerationBenchmarkResult,
+    output_path: Path,
+) -> None:
     """Write benchmark results to JSON file."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1548,20 +1833,26 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     )
 
     p = ctx.params
-    model: str = p["model"]
+    model_tuple: tuple[str, ...] = p["model"]
 
     # --module walks a live nn.Module graph; meaningless for a prebuilt bundle.
     if p.get("module_class"):
         raise click.UsageError("--module is not supported with --runtime winml-genai.")
 
-    bundle_dir = Path(model)
+    if not model_tuple or len(model_tuple) != 1:
+        raise click.UsageError(
+            "--runtime winml-genai requires a single -m pointing at a genai bundle directory."
+        )
+    model_val = model_tuple[0]
+
+    bundle_dir = Path(model_val)
     if bundle_dir.suffix.lower() == ".onnx" or not bundle_dir.is_dir():
         raise click.UsageError(
-            f"--runtime winml-genai requires a genai bundle *directory*, got '{model}'."
+            f"--runtime winml-genai requires a genai bundle *directory*, got '{model_val}'."
         )
     if not (bundle_dir / "genai_config.json").exists():
         raise click.UsageError(
-            f"No genai_config.json found in '{model}'. Point --model at a bundle "
+            f"No genai_config.json found in '{model_val}'. Point --model at a bundle "
             "folder produced by a winml-cli export."
         )
 
@@ -1592,8 +1883,96 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     run_genai_perf(config, console=console, json_mode=json_mode)
 
 
+def _resolve_model_path(
+    *,
+    model: tuple[str, ...],
+    model_id: str | None,
+) -> tuple[str | dict[str, str] | None, str | None]:
+    """Turn repeated -m values + --model-id into (model_path, hf_model_id).
+
+    Mirrors ``eval.py``'s ``_resolve_model_path`` for consistent composite
+    model CLI syntax: ``-m role=path`` pairs require ``--model-id`` for
+    preprocessor/config resolution.
+    """
+    if not model:
+        if model_id is not None:
+            return None, model_id
+        raise click.UsageError(
+            "A model is required. Provide -m with a HuggingFace model ID, "
+            "a path to an .onnx file, or role=path pairs for composite models."
+        )
+
+    role_assigned = [v for v in model if "=" in v]
+    plain = [v for v in model if "=" not in v]
+
+    if role_assigned and plain:
+        raise click.UsageError(
+            "Cannot mix plain `-m <value>` and `-m role=path` forms. "
+            "Use `role=path` consistently for composite models."
+        )
+
+    if role_assigned:
+        if model_id is None:
+            raise click.UsageError(
+                "--model-id is required when using composite `-m role=path` options."
+            )
+        sub_model_paths: dict[str, str] = {}
+        for v in role_assigned:
+            role, _, path = v.partition("=")
+            role, path = role.strip(), path.strip()
+            if not role or not path:
+                raise click.BadParameter(
+                    f"Invalid role=path: {v!r}. Both role and path are required.",
+                    param_hint="-m/--model",
+                )
+            if role in sub_model_paths:
+                raise click.BadParameter(
+                    f"Duplicate role {role!r} in -m options.",
+                    param_hint="-m/--model",
+                )
+            if not Path(path).exists():
+                raise click.BadParameter(
+                    f"ONNX file not found: {path}",
+                    param_hint="-m/--model",
+                )
+            sub_model_paths[role] = path
+        return sub_model_paths, model_id
+
+    if len(plain) > 1:
+        raise click.UsageError(
+            "Multiple -m values require `role=path` syntax for composite models."
+        )
+
+    value = plain[0]
+    try:
+        _mi = cli_utils.classify_model_input(value)
+    except click.UsageError as e:
+        raise click.BadParameter(str(e), param_hint="-m/--model") from e
+    if _mi.kind is cli_utils.ModelInputKind.ONNX_FILE:
+        return value, model_id
+    if model_id is not None and model_id != value:
+        raise click.UsageError(
+            "Cannot pass both `-m <hf_id>` and `--model-id`. "
+            "Use `--model-id` only together with an ONNX file path in `-m`."
+        )
+    return None, model_id or value
+
+
 @click.command("perf")
-@cli_utils.model_option(required=False)
+@cli_utils.model_option(
+    required=False,
+    multiple=True,
+    help_text=(
+        "Model to benchmark. Accepts a HuggingFace model ID, an ONNX file path, "
+        "or role=path pairs for composite models "
+        "(e.g. -m decoder_prefill=prefill.onnx -m decoder_gen=gen.onnx)."
+    ),
+)
+@cli_utils.model_id_option(
+    help_text=(
+        "HuggingFace model ID when .onnx model file or composite role=path pairs are provided."
+    ),
+)
 @click.option(
     "--runtime",
     type=click.Choice(list(RUNTIME_NAMES)),
@@ -1608,8 +1987,9 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     type=str,
     default="Explain the theory of relativity in simple terms.",
     show_default=True,
-    help="[winml-genai] Prompt text to generate from. By default it is wrapped in "
-    "the bundle's chat template; pass --no-apply-template to benchmark it verbatim.",
+    help="Prompt text for generation benchmarking. Used with composite decoder-only "
+    "models (e.g. Qwen) and --runtime winml-genai. For winml-genai bundles, the "
+    "prompt is wrapped in the bundle's chat template by default.",
 )
 @click.option(
     "--apply-template/--no-apply-template",
@@ -1623,7 +2003,8 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     type=click.IntRange(min=1),
     default=128,
     show_default=True,
-    help="[winml-genai] Number of new tokens to generate per iteration.",
+    help="Number of new tokens to generate per iteration. "
+    "Used with composite decoder-only models and --runtime winml-genai.",
 )
 @click.option(
     "--compile-timeout",
@@ -1741,7 +2122,8 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
 @click.pass_context
 def perf(
     ctx: click.Context,
-    model: str | None,
+    model: tuple[str, ...],
+    model_id: str | None,
     runtime: RuntimeName,
     prompt: str,
     apply_template: bool,
@@ -1781,9 +2163,9 @@ def perf(
     Measures latency and throughput using random input data generated
     from the model's I/O configuration.
 
-    Accepts both HuggingFace model IDs and local .onnx files. Both flow
-    through the same PerfBenchmark pipeline (optimize → [quantize] → [compile]
-    minus export for ONNX inputs), so latency numbers are directly comparable
+    Accepts HuggingFace model IDs, local .onnx files, and composite
+    role=path pairs. Both single-model and composite flows go through the
+    same PerfBenchmark pipeline, so latency numbers are directly comparable.
     between the two inputs.
 
     \b
@@ -1792,27 +2174,37 @@ def perf(
         winml perf -m microsoft/resnet-50
 
         # Benchmark a pre-exported ONNX file directly
-        winml perf -m model.onnx --device cpu
+        winml perf -m model.onnx --model-id microsoft/resnet-50 --device cpu
 
         # With custom iterations on NPU
         winml perf -m microsoft/resnet-50 --iterations 500 --device npu
+
+        # Composite model generation benchmark (Qwen)
+        winml perf -m decoder_prefill=prefill.onnx -m decoder_gen=gen.onnx \
+            --model-id Qwen/Qwen3-0.6B --task text-generation \
+            --prompt "Hello, how are you?" --max-new-tokens 50
 
         # Text model with explicit task
         winml perf -m bert-base-uncased --task text-classification
 
         # Pass runtime EP provider options (repeatable)
-        winml perf -m model.onnx --device npu --ep-options htp_performance_mode=burst
+        winml perf -m model.onnx --model-id microsoft/resnet-50 \
+            --device npu --ep-options htp_performance_mode=burst
 
         # Per-module benchmarking
         winml perf -m bert-base-uncased --module BertAttention
 
         # Operator-level profiling (QNN NPU)
-        winml perf -m model.onnx --op-tracing basic
+        winml perf -m model.onnx --model-id microsoft/resnet-50 --op-tracing basic
     """
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
-    hf_model = model
+    # Resolve -m values into (model_path, hf_model_id)
+    model_path, hf_model_id = _resolve_model_path(model=model, model_id=model_id)
+
+    # hf_model is the display label — prefer the HF ID when available
+    hf_model = hf_model_id or (model[0] if len(model) == 1 else str(model_path))
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
@@ -1843,34 +2235,34 @@ def perf(
         _run_genai_runtime(ctx, console=console, json_mode=json_mode)
         return
 
-    # Classify the -m value once (existence-first) so module mode and the
-    # single-model path share one source of truth. Raises cleanly on a missing
-    # .onnx or an invalid id instead of a confusing downstream config error.
-    model_input = cli_utils.classify_model_input(hf_model)
-    is_onnx = model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+    # Determine whether we have a composite dict, single ONNX, or HF model ID.
+    is_composite = isinstance(model_path, dict)
+    is_onnx = False
+    if not is_composite and model_path is not None:
+        _mi = cli_utils.classify_model_input(model_path)
+        is_onnx = _mi.kind is cli_utils.ModelInputKind.ONNX_FILE
+    elif not is_composite and hf_model_id is not None and model_path is None:
+        try:
+            _mi = cli_utils.classify_model_input(hf_model)
+            is_onnx = _mi.kind is cli_utils.ModelInputKind.ONNX_FILE
+        except click.UsageError:
+            pass
 
     # =========================================================================
     # MODULE MODE: per-module build + benchmark
     # =========================================================================
     if module_class:
-        # Reject --module on a pre-exported ONNX path. Submodule discovery
-        # walks a live nn.Module graph (torchinfo), which an ONNX file does
-        # not carry. Without this guard, the user sees a misleading
-        # "not a valid JSON file" error from AutoConfig.from_pretrained
-        # trying to load the .onnx as an HF config dir (issue #553).
-        if is_onnx:
+        if is_onnx or is_composite:
             raise click.UsageError(
-                f"--module is not supported for ONNX files. "
-                f"Submodule benchmarking requires a HuggingFace model ID "
-                f"(e.g., 'microsoft/resnet-50'), not '{hf_model}'."
+                "--module is not supported for ONNX files or composite models. "
+                "Submodule benchmarking requires a HuggingFace model ID "
+                "(e.g., 'microsoft/resnet-50')."
             )
         if shape_config_path:
             console.print(
                 "[yellow]Warning:[/yellow] --shape-config is not supported "
                 "in --module mode and will be ignored."
             )
-        # _perf_modules resolves the device + derives a concrete EP internally
-        # (it will fold into PerfBenchmark — see #939).
         _perf_modules(
             hf_model=hf_model,
             module_class=module_class,
@@ -1898,7 +2290,7 @@ def perf(
         return
 
     # =========================================================================
-    # SINGLE MODEL MODE: existing benchmark flow
+    # SINGLE / COMPOSITE MODEL MODE
     # =========================================================================
 
     # Load shape overrides from JSON if provided
@@ -1924,9 +2316,6 @@ def perf(
     # Refuse to clobber an existing report unless the user opted in.
     cli_utils.guard_output(output, overwrite)
 
-    # Create config. The raw device/EP request is passed through unchanged;
-    # PerfBenchmark resolves the concrete device + EP internally (failing fast
-    # before the build), so the CLI does not pre-resolve here.
     config = BenchmarkConfig(
         model_id=hf_model,
         task=task,
@@ -1950,22 +2339,22 @@ def perf(
         ep=ep,
         ep_options=ep_provider_options,
         shape_config=shape_config,
+        model_path=model_path,
+        hf_model_id=hf_model_id,
+        prompt=prompt,
+        max_new_tokens=max_new_tokens,
     )
 
     try:
-        model_path = Path(hf_model)
-
-        if is_onnx:
-            # Existence already validated by classify_model_input above.
+        if is_composite:
+            console.print(f"[dim]Loading composite model:[/dim] {model_path}")
+        elif is_onnx:
             if shape_config:
                 console.print(
                     "[yellow]Warning:[/yellow] --shape-config is ignored for "
                     "pre-exported ONNX files (shapes are baked into the model)."
                 )
                 config.shape_config = None
-            # Build-pipeline flags are forwarded to from_onnx but no-op when the
-            # build is skipped (the default). Warn so the silent no-op is visible
-            # — shared detection with eval via utils/cli.py.
             build_flags_warning = cli_utils.ignored_build_flags_warning(
                 skip_build_onnx=skip_build,
                 quant=quant,
@@ -1975,7 +2364,7 @@ def perf(
             )
             if build_flags_warning:
                 console.print(f"[yellow]Warning:[/yellow] {build_flags_warning}")
-            console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
+            console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path or hf_model}")
         else:
             if precision != "auto":
                 console.print(f"[dim]Precision: {precision} (applied during model build)[/dim]")
@@ -1984,9 +2373,17 @@ def perf(
         benchmark = PerfBenchmark(config)
         result = benchmark.run()
 
-        # Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
-        # session; each sub-model is benchmarked individually and reported as
-        # its own row (like --module), not as one aggregate forward() timing.
+        # Generation benchmark result (decoder-only composite, e.g. Qwen)
+        if isinstance(result, GenerationBenchmarkResult):
+            if json_mode:
+                click.echo(json.dumps(result.to_dict(), indent=2))
+            else:
+                display_generation_report(result, console)
+            write_json_report(result, output)
+            console.print(f"[green]Results saved to:[/green] {output}")
+            return
+
+        # Composite models (e.g. CLIP/SigLIP dual-encoders) — per-sub-model
         if isinstance(result, dict):
             if op_tracing:
                 console.print(
