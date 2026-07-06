@@ -528,6 +528,11 @@ class PerfBenchmark:
             req_device=self.config.device,
             act_device=self._single.device,
             ep_name=self._single.ep_name,
+            actual_shapes=(
+                {name: tuple(arr.shape) for name, arr in self._inputs.items()}
+                if self._inputs
+                else None
+            ),
         )
 
         # [3] Run benchmark
@@ -1398,6 +1403,26 @@ def generate_output_path(model_id: str, *, module_class: str | None = None) -> P
 # =============================================================================
 
 
+def _format_input_shape(shape: list, actual: tuple | None) -> str:
+    """Render a declared input shape, marking dynamic dims as ``dynamic``.
+
+    A dynamic dimension (declared as ``None``) is shown as ``dynamic(<n>)``
+    where ``<n>`` is the concrete size the generated input data actually used
+    for that axis, so the real batch/sequence sizes stay visible alongside the
+    fact that the model left them free.
+    """
+    dims: list[str] = []
+    for i, dim in enumerate(shape):
+        if dim is None:
+            if actual is not None and i < len(actual):
+                dims.append(f"dynamic({actual[i]})")
+            else:
+                dims.append("dynamic")
+        else:
+            dims.append(str(dim))
+    return f"[{', '.join(dims)}]"
+
+
 def _print_model_info(
     io_config: dict,
     *,
@@ -1405,6 +1430,7 @@ def _print_model_info(
     req_device: str = "auto",
     act_device: str = "auto",
     ep_name: EPName | None = None,
+    actual_shapes: dict[str, tuple] | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
     console = Console(stderr=True)
@@ -1427,7 +1453,8 @@ def _print_model_info(
         for i, name in enumerate(names):
             shape = shapes[i] if i < len(shapes) else []
             dtype = str(types[i]) if i < len(types) else ""
-            shape_str = f"{shape!s}"
+            actual = actual_shapes.get(name) if actual_shapes else None
+            shape_str = _format_input_shape(shape, actual)
             line = f"{name:<20s} {shape_str:<22s} {dtype}"
             console.print(f"{label if i == 0 else pad}{line}")
 

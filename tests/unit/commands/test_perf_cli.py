@@ -829,6 +829,30 @@ class TestEffectiveBatchSize:
 # =============================================================================
 
 
+class TestFormatInputShape:
+    """Dynamic dims render as ``dynamic(<actual>)`` with real generated sizes."""
+
+    def test_dynamic_dim_shows_actual_value(self) -> None:
+        from winml.modelkit.commands.perf import _format_input_shape
+
+        assert _format_input_shape([None, 3, 64, 64], (1, 3, 64, 64)) == "[dynamic(1), 3, 64, 64]"
+
+    def test_multiple_dynamic_dims(self) -> None:
+        from winml.modelkit.commands.perf import _format_input_shape
+
+        assert _format_input_shape([None, None], (2, 128)) == "[dynamic(2), dynamic(128)]"
+
+    def test_all_static_dims_unchanged(self) -> None:
+        from winml.modelkit.commands.perf import _format_input_shape
+
+        assert _format_input_shape([1, 3, 224, 224], (1, 3, 224, 224)) == "[1, 3, 224, 224]"
+
+    def test_dynamic_without_actual_falls_back_to_bare_dynamic(self) -> None:
+        from winml.modelkit.commands.perf import _format_input_shape
+
+        assert _format_input_shape([None, 3], None) == "[dynamic, 3]"
+
+
 class TestPerfFormatJson:
     """Test --format json produces structured JSON to stdout."""
 
