@@ -262,14 +262,18 @@ def config(
             _shape_config_file = shape_config_path.name
 
         # ONNX file detection: generate simpler config without loader/export
-        if hf_model and cli_utils.is_onnx_file_path(hf_model) and module:
+        _model_input = cli_utils.classify_model_input(hf_model) if hf_model else None
+        _hf_is_onnx = (
+            _model_input is not None and _model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+        )
+        if hf_model and _hf_is_onnx and module:
             raise click.UsageError(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
             )
         config_obj: WinMLBuildConfig | None = None
         output_data: dict[str, Any] | list[Any]
-        if hf_model and cli_utils.is_onnx_file_path(hf_model):
+        if hf_model and _hf_is_onnx:
             config_obj = generate_onnx_build_config(
                 hf_model,
                 task=task,

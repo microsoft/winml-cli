@@ -1374,14 +1374,14 @@ class TestBuildOnnxAutoDetect:
         call_kwargs = mock_build_api.call_args.kwargs
         assert call_kwargs["model_id"] == "microsoft/resnet-50"
 
-    def test_build_onnx_suffix_but_not_exists_uses_hf(
+    def test_build_onnx_suffix_but_not_exists_raises(
         self,
         runner: CliRunner,
         sample_config_file: Path,
         mock_build_api: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """An .onnx path that doesn't exist falls through to HF path."""
+        """A non-existent .onnx path raises cleanly instead of HF fallthrough (#553)."""
         from winml.modelkit.commands.build import build
 
         output_dir = tmp_path / "out"
@@ -1390,12 +1390,11 @@ class TestBuildOnnxAutoDetect:
             ["-c", str(sample_config_file), "-m", "nonexistent.onnx", "-o", str(output_dir)],
             obj={"debug": False},
         )
-        # is_onnx_file_path checks suffix AND exists(); nonexistent.onnx
-        # falls through to HF path since the file doesn't exist on disk
-        assert result.exit_code == 0, f"Build failed: {result.output}"
-        assert mock_build_api.called
-        call_kwargs = mock_build_api.call_args.kwargs
-        assert call_kwargs["model_id"] == "nonexistent.onnx"
+        # classify_model_input rejects a missing .onnx path up front rather than
+        # handing it to the HF loader (which would give a confusing config error).
+        assert result.exit_code != 0
+        assert "ONNX file not found" in result.output
+        assert not mock_build_api.called
 
 
 # =============================================================================

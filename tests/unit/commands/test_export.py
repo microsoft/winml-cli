@@ -950,16 +950,12 @@ class TestExportComposite:
         assert "unexpectedly" in result.output.lower()
         mock_export_onnx.assert_not_called()
 
-    def test_composite_partial_export_is_cleaned_up(
+    def test_composite_partial_export_warns_and_keeps_files(
         self,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """If a later sub-model fails, earlier sub-model outputs are removed."""
-        from winml.modelkit.commands.export import export
-        from winml.modelkit.export import WinMLExportConfig
-        from winml.modelkit.loader import WinMLLoaderConfig
-
+        """If a later sub-model fails, completed outputs are kept and the user is warned."""
         components = {
             "decoder_prefill": "feature-extraction",
             "decoder_gen": "text2text-generation",
@@ -996,6 +992,9 @@ class TestExportComposite:
             )
 
         assert result.exit_code != 0
-        # The successfully-written first sub-model must not linger after the failure.
-        assert not first_out.exists()
-        assert not second_out.exists()
+        # We must NOT delete artifacts — the completed sub-model is kept so the user
+        # (who may have --overwritten a pre-existing file) decides what to do.
+        assert first_out.exists()
+        # The user is warned that the export did not finish (and how many were written).
+        assert "did not finish" in result.output
+        assert "1 sub-model" in result.output
