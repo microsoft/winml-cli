@@ -25,6 +25,7 @@ Examples:
 from __future__ import annotations
 
 import contextlib
+import datetime
 import json
 import logging
 from pathlib import Path
@@ -303,8 +304,11 @@ def export(
 
     def _run_component_export(component_task: str | None, out_path: Path) -> None:
         """Resolve I/O, build config, load, and export one (model, task) to ``out_path``."""
+        import time
+
         from ..export import ONNXConfigNotFoundError
 
+        start_time = time.monotonic()
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Load input/output specifications.
@@ -428,6 +432,33 @@ def export(
             enable_reporting=with_report,
         )
         logger.debug("Export stats: %s", export_stats)
+
+        # Write winml_manifest.json alongside the exported ONNX.
+        # For composite exports each sub-model gets a prefixed manifest
+        # (e.g. model_decoder_winml_manifest.json); single exports get
+        # a plain winml_manifest.json.
+        from ..utils.manifest import ManifestStage, WinMLManifest
+
+        elapsed = time.monotonic() - start_time
+        manifest = WinMLManifest(
+            source="export",
+            model_id=model,
+            task=detected_task,
+            timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            elapsed_seconds=round(elapsed, 3),
+            final_artifact=out_path.name,
+            stages=[
+                ManifestStage(
+                    name="export",
+                    status="completed",
+                    filename=out_path.name,
+                    elapsed_seconds=round(elapsed, 3),
+                )
+            ],
+            export_stats=export_stats,
+        )
+        prefix = None if out_path.name == output_path.name else out_path.stem
+        manifest.save(WinMLManifest.manifest_path_for(out_path.parent, prefix=prefix))
 
         console.print(f"\n[bold green]Success![/bold green] Model exported to: {out_path}")
 

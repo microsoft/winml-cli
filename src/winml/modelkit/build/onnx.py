@@ -280,19 +280,9 @@ def build_onnx_model(
     # =========================================================================
     # [5] BUILD MANIFEST — Machine-readable build provenance
     # =========================================================================
-    manifest: dict[str, Any] = {
-        "schema_version": 1,
-        "source": "onnx",
-        "input_onnx": str(onnx_path),
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "elapsed_seconds": round(elapsed, 3),
-        "stages": [],
-        "final_artifact": final_path.name,
-        "analyze_iterations": analyze_iters,
-        "analyze_unsupported_node_count": analyze_unsupported,
-        "analyze_details": analyze_details,
-    }
+    from ..utils.manifest import ManifestStage, WinMLManifest
 
+    manifest_stages: list[ManifestStage] = []
     stage_filenames = {
         "optimize": optimized_path.name,
         "quantize": quantized_path.name,
@@ -300,33 +290,36 @@ def build_onnx_model(
     }
     for stage_name in ["optimize", "quantize", "compile"]:
         if stage_name in stages_completed:
-            entry: dict[str, Any] = {
-                "name": stage_name,
-                "status": "completed",
-                "filename": stage_filenames[stage_name],
-                "elapsed_seconds": round(stage_timings.get(stage_name, 0), 3),
-            }
+            stage = ManifestStage(
+                name=stage_name,
+                status="completed",
+                filename=stage_filenames[stage_name],
+                elapsed_seconds=round(stage_timings.get(stage_name, 0), 3),
+            )
             # Thread QuantizeResult metrics into manifest
             if stage_name == "quantize" and quant_result is not None:
-                entry["nodes_quantized"] = quant_result.nodes_quantized
-                entry["nodes_skipped"] = quant_result.nodes_skipped
-                entry["calibration_time_seconds"] = round(quant_result.calibration_time_seconds, 3)
-                entry["qdq_insertion_time_seconds"] = round(
+                stage.nodes_quantized = quant_result.nodes_quantized
+                stage.nodes_skipped = quant_result.nodes_skipped
+                stage.calibration_time_seconds = round(quant_result.calibration_time_seconds, 3)
+                stage.qdq_insertion_time_seconds = round(
                     quant_result.qdq_insertion_time_seconds, 3
                 )
-            manifest["stages"].append(entry)
+            manifest_stages.append(stage)
         elif stage_name in stages_skipped:
-            manifest["stages"].append(
-                {
-                    "name": stage_name,
-                    "status": "skipped",
-                    "filename": None,
-                    "elapsed_seconds": None,
-                }
-            )
+            manifest_stages.append(ManifestStage(name=stage_name, status="skipped"))
 
-    manifest_path.write_text(json.dumps(manifest, indent=2))
-    logger.debug("Build manifest persisted: %s", manifest_path)
+    manifest = WinMLManifest(
+        source="onnx",
+        input_onnx=str(onnx_path),
+        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        elapsed_seconds=round(elapsed, 3),
+        final_artifact=final_path.name,
+        stages=manifest_stages,
+        analyze_iterations=analyze_iters,
+        analyze_unsupported_node_count=analyze_unsupported,
+        analyze_details=analyze_details,
+    )
+    manifest.save(manifest_path)
 
     return BuildResult(
         output_dir=output_dir,
