@@ -852,6 +852,27 @@ class TestFormatInputShape:
 
         assert _format_input_shape([None, 3], None) == "[dynamic, 3]"
 
+    def test_dynamic_shape_survives_rich_rendering(self) -> None:
+        # Regression: a lowercase ``[dynamic(...)]`` is valid Rich markup and
+        # gets swallowed unless escaped, leaving the shape column blank.
+        import contextlib
+        import io as _io
+
+        from winml.modelkit.commands.perf import _print_model_info
+
+        io_config = {
+            "input_names": ["pixel_values"],
+            "input_shapes": [[None, 3, 64, 64]],
+            "input_types": ["float32"],
+        }
+        buf = _io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            _print_model_info(
+                io_config,
+                actual_shapes={"pixel_values": (10, 3, 64, 64)},
+            )
+        assert "[dynamic(10), 3, 64, 64]" in buf.getvalue()
+
 
 class TestPerfFormatJson:
     """Test --format json produces structured JSON to stdout."""

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 import click
 import numpy as np
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from ..utils import cli as cli_utils
@@ -1455,7 +1456,9 @@ def _print_model_info(
             dtype = str(types[i]) if i < len(types) else ""
             actual = actual_shapes.get(name) if actual_shapes else None
             shape_str = _format_input_shape(shape, actual)
-            line = f"{name:<20s} {shape_str:<22s} {dtype}"
+            # ``shape_str`` can start with a lowercase ``dynamic(...)`` which Rich
+            # would otherwise parse as a markup tag and swallow -- escape it.
+            line = f"{name:<20s} {escape(shape_str):<22s} {dtype}"
             console.print(f"{label if i == 0 else pad}{line}")
 
     out_names = io_config.get("output_names", [])
