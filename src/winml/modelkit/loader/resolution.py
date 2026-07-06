@@ -311,6 +311,44 @@ def resolve_composite(model_type: str, task: str) -> CompositeComponents | None:
     return dict(cls._SUB_MODEL_CONFIG) if cls is not None else None
 
 
+def resolve_composite_components(
+    hf_model: str | None,
+    *,
+    task: str | None = None,
+    model_type: str | None = None,
+    trust_remote_code: bool = False,
+) -> CompositeComponents | None:
+    """Resolve a composite model's ``_SUB_MODEL_CONFIG`` (sub-name -> task), else None.
+
+    Shared entry point for the commands that fan a composite request out into one
+    build/export per sub-component (``winml config`` / ``winml export``).
+
+    Explicit ``task``: direct registry lookup via :func:`resolve_composite`.
+    No ``task``: :func:`resolve_task` auto-detects and tags the composite (its
+    ``.composite`` field carries the seq2seq bridge), so the no-task routing
+    matches the explicit-task routing.
+    """
+    from transformers import AutoConfig
+
+    if task is not None:
+        resolved_type = model_type
+        if resolved_type is None and hf_model is not None:
+            resolved_type = AutoConfig.from_pretrained(
+                hf_model, trust_remote_code=trust_remote_code
+            ).model_type
+        if resolved_type is None:
+            return None
+        return resolve_composite(resolved_type, task)
+
+    if hf_model is not None:
+        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
+    elif model_type is not None:
+        config = AutoConfig.for_model(model_type)
+    else:
+        return None
+    return resolve_task(config).composite
+
+
 def composite_pipeline_tasks(model_type: str) -> list[str]:
     """Pipeline (composite) tasks a model_type can serve, sorted; ``[]`` for non-composites.
 
