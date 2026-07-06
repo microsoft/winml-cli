@@ -1,0 +1,29 @@
+{
+  "model_id": "LiheYoung/depth-anything-large-hf",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\temp\\example_builds\\qnn\\gpu\\LiheYoung_depth-anything-large-hf\\depth-estimation_fp16\\model.onnx",
+  "task": "depth-estimation",
+  "device": "gpu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "sayakpaul/nyu_depth_v2",
+    "columns_mapping": {
+      "input_column": "image",
+      "depth_column": "depth_map",
+      "depth_kind": "disparity"
+    },
+    "revision": "refs/convert/parquet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\gpu\\LiheYoung_depth-anything-large-hf\\depth-estimation_fp16_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "abs_rel": 0.29908402179330684,
+    "rmse": 1.1662051743656503,
+    "delta1": 0.4440179036458333,
+    "num_images": 100,
+    "num_valid_pixels": 30720000
+  }
+}

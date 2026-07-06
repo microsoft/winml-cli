@@ -1,0 +1,29 @@
+{
+  "model_id": "Intel/dpt-hybrid-midas",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\temp\\example_builds\\qnn\\npu\\Intel_dpt-hybrid-midas\\depth-estimation_fp16\\model.onnx",
+  "task": "depth-estimation",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "sayakpaul/nyu_depth_v2",
+    "columns_mapping": {
+      "input_column": "image",
+      "depth_column": "depth_map",
+      "depth_kind": "disparity"
+    },
+    "revision": "refs/convert/parquet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\Intel_dpt-hybrid-midas\\depth-estimation_fp16_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "abs_rel": 0.1182416174116177,
+    "rmse": 0.6054882936018512,
+    "delta1": 0.8614126374637671,
+    "num_images": 100,
+    "num_valid_pixels": 30713457
+  }
+}

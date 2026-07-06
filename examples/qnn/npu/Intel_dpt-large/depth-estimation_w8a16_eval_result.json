@@ -1,0 +1,29 @@
+{
+  "model_id": "Intel/dpt-large",
+  "model_path": "C:\\Users\\zhenni\\repos\\wmk\\temp\\example_builds\\qnn\\npu\\Intel_dpt-large\\depth-estimation_w8a16\\model.onnx",
+  "task": "depth-estimation",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 200,
+    "shuffle": true,
+    "seed": 42,
+    "path": "sayakpaul/nyu_depth_v2",
+    "columns_mapping": {
+      "input_column": "image",
+      "depth_column": "depth_map",
+      "depth_kind": "disparity"
+    },
+    "revision": "refs/convert/parquet"
+  },
+  "output_path": "C:\\Users\\zhenni\\repos\\wmk\\examples\\qnn\\npu\\Intel_dpt-large\\depth-estimation_w8a16_eval_result.json",
+  "skip_build": true,
+  "metrics": {
+    "abs_rel": 0.16207618258077497,
+    "rmse": 1928.883279606381,
+    "delta1": 0.8729876617487248,
+    "num_images": 200,
+    "num_valid_pixels": 61418104
+  }
+}
