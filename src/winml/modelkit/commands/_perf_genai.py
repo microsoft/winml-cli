@@ -128,6 +128,7 @@ class GenaiPerfConfig:
     ep: str = "mixed"
     device: str = "auto"
     prompt: str = _DEFAULT_PROMPT
+    apply_template: bool = True
     max_new_tokens: int = 128
     iterations: int = 10
     warmup: int = 2
@@ -202,6 +203,8 @@ class GenaiBenchmarkResult:
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
                 "max_new_tokens": self.config.max_new_tokens,
+                "apply_template": self.config.apply_template,
+                "prompt": self.config.prompt,
                 "prompt_tokens": self.prompt_tokens,
                 "generated_tokens": self.generated_tokens,
                 "context_length": self.context_length,
@@ -277,13 +280,21 @@ class GenaiPerfBenchmark:
         )
 
     def _prompt_text(self, session: GenaiSession) -> str:
-        """Return the prompt to benchmark, chat-templated when possible.
+        """Return the prompt to benchmark, chat-templated when enabled.
 
-        Wraps the configured prompt in the bundle's own chat template (via
+        With ``apply_template`` set (the default) the configured prompt is
+        wrapped in the bundle's own chat template (via
         :meth:`GenaiSession.apply_chat_template`) so the measured prefill
-        matches how the model is actually prompted.  Bundles that ship no chat
+        matches how the model is actually prompted; bundles that ship no chat
         template benchmark the raw prompt unchanged.
+
+        With ``apply_template`` disabled the prompt is benchmarked verbatim, so
+        a caller can supply a prompt they have already wrapped in a template
+        (or a raw completion prompt) and time exactly those tokens.
         """
+        if not self._config.apply_template:
+            logger.info("genai perf: apply_template disabled; benchmarking the prompt verbatim")
+            return self._config.prompt
         try:
             templated = session.apply_chat_template(self._config.prompt)
         except GenaiSessionError as exc:
@@ -299,10 +310,10 @@ class GenaiPerfBenchmark:
         session = self._session
 
         # Loads the model and tokenizer, then encodes the prompt once.  Both
-        # are outside the timed loop so they don't inflate TTFT.  The prompt is
-        # wrapped in the bundle's own chat template so the measured prefill
-        # reflects realistic chat usage (falls back to the raw prompt when the
-        # bundle ships no template).
+        # are outside the timed loop so they don't inflate TTFT.  Unless
+        # apply_template is disabled, the prompt is wrapped in the bundle's own
+        # chat template so the measured prefill reflects realistic chat usage
+        # (falls back to the raw prompt when the bundle ships no template).
         self._prompt_token_ids = session.encode(self._prompt_text(session))
 
         gen_config = GenerationConfig(
