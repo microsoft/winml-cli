@@ -106,6 +106,10 @@ def mock_og() -> MagicMock:
         MagicMock(__getitem__=lambda s, i: 10),
         MagicMock(__getitem__=lambda s, i: 20),
     ]
+    # get_sequence returns the full sequence (prompt + generated tokens).
+    # Default prompt is "hi" which encodes to a single-element list, so the
+    # full sequence is [<prompt_token>, 10, 20].
+    gen.get_sequence.return_value = [0, 10, 20]
     og.Generator.return_value = gen
 
     # TokenizerStream decodes tokens to text

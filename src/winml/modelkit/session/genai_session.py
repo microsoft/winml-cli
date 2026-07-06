@@ -500,20 +500,24 @@ class GenaiSession:
         # marks[2+k]= after the (k+1)-th generated token
         marks: list[float] = []
         generated = 0
-        output_token_ids: list[int] = []
         marks.append(clock())
         generator.append_tokens(tokens)
         marks.append(clock())
         while not generator.is_done():
             generator.generate_next_token()
             marks.append(clock())
-            output_token_ids.append(generator.get_next_tokens()[0])
             generated += 1
             if generated >= cfg.max_new_tokens:
                 break
 
         if generated == 0:
             raise GenaiSessionError("genai: generation produced no tokens (empty bundle output?)")
+
+        # Fetch all output tokens *after* the timing loop so that
+        # get_sequence() (which may trigger host/device copies on hardware EPs)
+        # does not pollute per-token decode measurements.
+        full_sequence = generator.get_sequence(0)
+        output_token_ids = list(full_sequence[len(tokens) :])
 
         timing = GenerationTiming(
             input_tokens=len(tokens),
