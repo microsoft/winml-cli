@@ -17,7 +17,7 @@ from typing import Any
 
 from .domains import ONNXDomain
 from .dtypes import SupportedONNXType, remove_optional_from_type_annotation
-from .external_data import copy_onnx_model, get_onnx_model_hash
+from .external_data import copy_onnx_model, get_external_data_files, get_onnx_model_hash
 from .io import InputTensorSpec, OutputTensorSpec, generate_inputs_from_onnx, get_io_config
 from .metadata import capture_metadata, restore_metadata
 from .persistence import ONNXSaveError, cleanup_onnx, load_onnx, save_onnx
@@ -37,6 +37,7 @@ __all__ = [
     "cleanup_onnx",
     "copy_onnx_model",
     "generate_inputs_from_onnx",
+    "get_external_data_files",
     "get_io_config",
     "get_model_size",
     "get_onnx_model_hash",

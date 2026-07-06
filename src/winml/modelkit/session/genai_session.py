@@ -52,7 +52,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..utils.constants import EP_NAME_TO_ALIAS, EP_NAMES, normalize_ep_name
 from .ep_registry import WinMLEPRegistry
@@ -804,7 +804,11 @@ class GenaiSession:
 
         Mutates *stage_cfg* in place.  Assumes :attr:`_ep_override` is set.
         """
-        if self._ep_override == "CPUExecutionProvider":
+        ep = self._ep_override
+        if ep is None:
+            return
+
+        if ep == "CPUExecutionProvider":
             # Force CPU: drop any hardware provider_options so og falls back to
             # CPU.  Only touch stages that actually carry a hardware provider so
             # an already-CPU stage stays byte-for-byte identical.
@@ -817,12 +821,12 @@ class GenaiSession:
 
         # Force a hardware EP: route the stage to it, carrying over the stage's
         # own options only when it already targeted the same provider.
-        alias = EP_NAME_TO_ALIAS[self._ep_override]
+        alias = EP_NAME_TO_ALIAS[ep]
         so = stage_cfg.get("session_options")
         if not isinstance(so, dict):
             so = {}
             stage_cfg["session_options"] = so
-        opts = self._existing_opts_for_ep(so.get("provider_options"), self._ep_override)
+        opts = self._existing_opts_for_ep(so.get("provider_options"), ep)
         so["provider_options"] = [{alias: opts}]
 
     @staticmethod
@@ -846,7 +850,9 @@ class GenaiSession:
                 if not isinstance(entry, dict):
                     continue
                 for name, opts in entry.items():
-                    if normalize_ep_name(str(name)) == target and isinstance(opts, dict):
+                    if normalize_ep_name(cast("EPNameOrAlias", str(name))) == target and isinstance(
+                        opts, dict
+                    ):
                         return dict(opts)
         return {}
 
@@ -923,6 +929,14 @@ class GenaiSession:
         compiled_dir.mkdir(exist_ok=True)
         modified_cfg = copy.deepcopy(cfg)
         any_compiled = False
+        # Original stage ONNX filenames that were replaced by a compiled
+        # EPContext artifact (``{stage_key}_ctx.onnx``) and so must NOT be
+        # mirrored into compiled_dir.  Stages that fall back to (or already are)
+        # their original ONNX are deliberately left out so that
+        # :meth:`_mirror_non_onnx_files` links them (and their weights sidecars)
+        # in — ort-genai resolves stage filenames relative to compiled_dir, so
+        # the file must physically live there.
+        compiled_stage_filenames: set[str] = set()
 
         for stage_key, onnx_filename, ep_alias, ep_opts in compilable_stages:
             src_onnx = self._bundle_dir / onnx_filename
@@ -937,15 +951,17 @@ class GenaiSession:
                 # Use just the filename — genai_config.json lives in compiled_dir,
                 # so ort-genai resolves filenames relative to compiled_dir.
                 self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
+                compiled_stage_filenames.add(onnx_filename)
                 any_compiled = True
                 continue
 
             # A stage whose source ONNX is already an EPContext (pre-compiled)
-            # model needs no recompilation; point ort-genai at the original file
-            # (absolute path, since compiled stages are not mirrored into
-            # compiled_dir). A parse failure is treated as "not compiled" so a
-            # malformed source falls through to the normal compile path, which
-            # has its own error handling.
+            # model needs no recompilation; reference the original file by its
+            # bundle-relative filename and let :meth:`_mirror_non_onnx_files`
+            # link it (plus any weights sidecar) into compiled_dir.  A parse
+            # failure is treated as "not compiled" so a malformed source falls
+            # through to the normal compile path, which has its own error
+            # handling.
             already_compiled = False
             if src_onnx.exists():
                 try:
@@ -957,7 +973,7 @@ class GenaiSession:
                     "Stage %r: source is already an EPContext model; using as-is",
                     stage_key,
                 )
-                self._patch_stage_filename(modified_cfg, stage_key, str(src_onnx.resolve()))
+                self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
                 continue
 
             # Attempt compilation.
@@ -965,14 +981,18 @@ class GenaiSession:
             if success:
                 self._write_compile_marker(ctx_onnx, ep_alias, ep_opts)
                 self._patch_stage_filename(modified_cfg, stage_key, ctx_onnx.name)
+                compiled_stage_filenames.add(onnx_filename)
                 any_compiled = True
             else:
                 logger.warning(
                     "Stage %r: compilation failed; using original ONNX (JIT fallback)", stage_key
                 )
-                # Patch to the absolute source path so ort-genai can find the
-                # file when loading from compiled_dir (where it doesn't exist).
-                self._patch_stage_filename(modified_cfg, stage_key, str(src_onnx.resolve()))
+                # Fall back to the original ONNX by its bundle-relative filename.
+                # ort-genai resolves stage filenames relative to compiled_dir, so
+                # the source ONNX (+ its weights sidecar) is mirrored in by
+                # :meth:`_mirror_non_onnx_files` below; patching an absolute path
+                # would be wrongly joined onto compiled_dir into a broken path.
+                self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
 
         # A derived bundle is only needed when routing changed: either a stage
         # was (re)compiled or the ``ep`` override rewrote the config.
@@ -986,12 +1006,12 @@ class GenaiSession:
         compiled_config.write_text(
             json.dumps(modified_cfg, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        # Only skip the compiled-stage ONNX files (compiled → new path, or failed
-        # → absolute path patch).  Every other ONNX file (e.g. embeddings,
-        # lm_head, or stages on non-EPContext EPs) must be symlinked into
-        # compiled_dir so ort-genai can find it by filename.
-        compiled_onnx_names = {onnx_filename for _, onnx_filename, _, _ in compilable_stages}
-        self._mirror_non_onnx_files(compiled_dir, skip_filenames=compiled_onnx_names)
+        # Skip only the stages replaced by a compiled EPContext artifact (which
+        # are referenced by their new ``{stage}_ctx.onnx`` path).  Every other
+        # ONNX file (embeddings, lm_head, stages on non-EPContext EPs, and any
+        # fallback / already-compiled stage that kept its original ONNX) must be
+        # symlinked into compiled_dir so ort-genai can find it by filename.
+        self._mirror_non_onnx_files(compiled_dir, skip_filenames=compiled_stage_filenames)
 
         logger.info("Compiled bundle prepared at %s", compiled_dir)
         return compiled_dir
@@ -1066,14 +1086,19 @@ class GenaiSession:
         return bool(recorded.get("ep") == ep_alias and recorded.get("provider_options") == ep_opts)
 
     @staticmethod
-    def _patch_stage_filename(cfg: dict, stage_key: str, abs_path: str) -> None:
-        """Rewrite a pipeline stage's ``filename`` to an absolute path."""
+    def _patch_stage_filename(cfg: dict, stage_key: str, filename: str) -> None:
+        """Rewrite a pipeline stage's ``filename`` to *filename*.
+
+        *filename* is normally a bundle-relative name (resolved by ort-genai
+        against the directory it loads ``genai_config.json`` from), but an
+        absolute path is also accepted.
+        """
         pipeline_list: list = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
         for stage_entry in pipeline_list:
             if isinstance(stage_entry, dict) and stage_key in stage_entry:
                 stage_cfg = stage_entry[stage_key]
                 if isinstance(stage_cfg, dict):
-                    stage_cfg["filename"] = abs_path
+                    stage_cfg["filename"] = filename
                     return
 
     def _compile_stage(
