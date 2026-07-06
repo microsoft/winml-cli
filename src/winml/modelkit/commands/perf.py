@@ -1837,7 +1837,9 @@ def _resolve_model_path(
     model_id: str | None,
 ) -> tuple[str | dict[str, str] | None, str | None]:
     """Delegate to shared ``cli_utils.resolve_model_path``."""
-    return cli_utils.resolve_model_path(model=model, model_id=model_id)
+    return cli_utils.resolve_model_path(
+        model=model, model_id=model_id, require_model_id_for_onnx=False
+    )
 
 
 @click.command("perf")

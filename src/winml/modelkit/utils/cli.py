@@ -1196,12 +1196,18 @@ def resolve_model_path(
     *,
     model: tuple[str, ...],
     model_id: str | None,
+    require_model_id_for_onnx: bool = True,
 ) -> tuple[str | dict[str, str] | None, str | None]:
     """Turn repeated ``-m`` values + ``--model-id`` into ``(model_path, model_id)``.
 
     Shared by ``eval`` and ``perf`` commands for consistent composite-model CLI
     syntax.  ``-m role=path`` pairs require ``--model-id`` for preprocessor and
     config resolution.
+
+    Args:
+        require_model_id_for_onnx: When *True* (default, used by ``eval``),
+            a bare ONNX file requires ``--model-id``.  ``perf`` passes
+            *False* because it can benchmark without HF config.
 
     Returns:
         A 2-tuple ``(model_path, hf_model_id)`` where *model_path* is
@@ -1264,7 +1270,7 @@ def resolve_model_path(
         # Preserve param-scoped BadParameter contract (tests + hint).
         raise click.BadParameter(str(e), param_hint="-m/--model") from e
     if _mi.kind is ModelInputKind.ONNX_FILE:
-        if model_id is None:
+        if require_model_id_for_onnx and model_id is None:
             raise click.UsageError(
                 "When using an ONNX file, --model-id is required "
                 "for preprocessor and config resolution."

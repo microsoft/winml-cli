@@ -584,7 +584,7 @@ class TestPerfUnifiedPipeline:
 
         result = runner.invoke(
             perf,
-            ["-m", str(onnx_file), "--model-id", "test/model", "--ep-options", "no_equals_sign"],
+            ["-m", str(onnx_file), "--ep-options", "no_equals_sign"],
             obj={},
         )
 
