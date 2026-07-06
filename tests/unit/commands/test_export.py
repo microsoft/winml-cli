@@ -74,6 +74,7 @@ class TestExportCLIInterface:
         assert "--torch-module" in result.output
         assert "--input-specs" in result.output
         assert "--export-config" in result.output
+        assert "--submodel" in result.output
 
     def test_export_help_examples_run(self, runner: CliRunner, tmp_path: Path) -> None:
         """Every command example in export help should execute without crashing."""
@@ -1002,3 +1003,122 @@ class TestExportComposite:
         # The user is warned that the export did not finish (and how many were written).
         assert "did not finish" in result.output
         assert "1 sub-model" in result.output
+
+
+class TestExportSubmodel:
+    """Test --submodel filters composite export to a single sub-model."""
+
+    def test_submodel_exports_only_requested_component(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel exports only the named component."""
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+        output_path = tmp_path / "qwen3.onnx"
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch("winml.modelkit.loader.load_hf_model") as mock_load,
+            patch("winml.modelkit.export.resolve_export_config") as mock_resolve_cfg,
+        ):
+            mock_load.side_effect = lambda _model, task=None: (MagicMock(), None, task)
+            mock_resolve_cfg.return_value = (
+                WinMLExportConfig(),
+                WinMLLoaderConfig(task="text-generation"),
+            )
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "Qwen/Qwen3-0.6B",
+                    "--output",
+                    str(output_path),
+                    "--submodel",
+                    "decoder_prefill",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_export_onnx.call_count == 1
+        exported_path = Path(mock_export_onnx.call_args.kwargs["output_path"])
+        assert exported_path == output_path.with_stem(f"{output_path.stem}_decoder_prefill")
+        assert mock_export_onnx.call_args.kwargs["task"] == "feature-extraction"
+
+    def test_submodel_rejects_unknown_name(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel with an invalid name is a clean error."""
+        from winml.modelkit.commands.export import export
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+
+        with patch(
+            "winml.modelkit.loader.resolution.resolve_composite_components",
+            return_value=components,
+        ):
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "Qwen/Qwen3-0.6B",
+                    "--output",
+                    str(tmp_path / "qwen3.onnx"),
+                    "--submodel",
+                    "encoder",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "Unknown sub-model 'encoder'" in result.output
+        assert "decoder_prefill" in result.output
+        mock_export_onnx.assert_not_called()
+
+    def test_submodel_rejects_non_composite(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--submodel on a non-composite model is a clean error."""
+        from winml.modelkit.commands.export import export
+
+        with patch(
+            "winml.modelkit.loader.resolution.resolve_composite_components",
+            return_value=None,
+        ):
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "prajjwal1/bert-tiny",
+                    "--output",
+                    str(tmp_path / "bert.onnx"),
+                    "--submodel",
+                    "encoder",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "not a composite model" in result.output
+        mock_export_onnx.assert_not_called()

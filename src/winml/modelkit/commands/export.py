@@ -151,6 +151,16 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     default=None,
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
+@click.option(
+    "--submodel",
+    type=str,
+    default=None,
+    help=(
+        "Export a specific sub-model from a composite model "
+        "(e.g., 'encoder', 'decoder'). "
+        "Omit to export all sub-models automatically."
+    ),
+)
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
@@ -171,6 +181,7 @@ def export(
     input_specs: Path | None,
     export_config: Path | None,
     shape_config: Path | None,
+    submodel: str | None,
     config_file: Path | None,
 ) -> None:
     r"""Export HuggingFace model to ONNX format with HTP.
@@ -213,6 +224,12 @@ def export(
 
         # Custom ONNX export configuration
         winml export -m bert-base-uncased -o bert.onnx --export-config config.json
+
+        # Export all sub-models of a composite model (auto-detected)
+        winml export -m google-t5/t5-small --task translation -o t5.onnx
+
+        # Export only the encoder sub-model
+        winml export -m google-t5/t5-small --task translation -o t5.onnx --submodel encoder
     """
     # Classify the -m value once (existence-first). Export only works with
     # HuggingFace model IDs — reject ONNX files and folders early.
@@ -503,6 +520,19 @@ def export(
         # Anything else is unexpected: surface it loudly rather than silently
         # producing a single-model artifact for a possibly-composite model.
         raise click.ClickException(f"Composite model detection failed unexpectedly: {e}") from e
+
+    # ── --submodel validation ──────────────────────────────────────────
+    if submodel is not None:
+        if components is None:
+            raise click.ClickException(
+                f"--submodel '{submodel}' was specified, but '{model}' "
+                f"is not a composite model (no sub-models detected)."
+            )
+        if submodel not in components:
+            raise click.ClickException(
+                f"Unknown sub-model '{submodel}'. Available: {', '.join(components.keys())}"
+            )
+        components = {submodel: components[submodel]}
 
     try:
         console.print("\n[bold]Starting HTP export...[/bold]")
