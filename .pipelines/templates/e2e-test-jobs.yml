@@ -17,8 +17,8 @@ parameters:
   - name: agentSuffix
     type: string
   # See catalog in `eval-report-jobs.yml`. Valid names:
-  #   qnn_npu, qnn_gpu, vitisai_npu, dml_gpu,
-  #   mlas_cpu, ov_cpu, ov_gpu, ov_npu
+  #   qnn_npu, qnn_gpu, vitisai_npu, migraphx_gpu, dml_gpu,
+  #   mlas_cpu, ov_cpu, ov_gpu, ov_npu, trtrtx_gpu
   - name: pairNames
     type: object
   # Inline list of models to test. Each entry: { hf_id: <str>, task: <str> }.
@@ -178,14 +178,16 @@ jobs:
               - ${{ each pairName in parameters.pairNames }}:
                   - powershell: |
                       $catalog = @{
-                          'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
-                          'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
-                          'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
-                          'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
-                          'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
-                          'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
-                          'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
-                          'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
+                          'qnn_npu'      = @{ ep = 'qnn';             device = 'npu'; displayName = 'QNN NPU' }
+                          'qnn_gpu'      = @{ ep = 'qnn';             device = 'gpu'; displayName = 'QNN GPU' }
+                          'vitisai_npu'  = @{ ep = 'vitisai';         device = 'npu'; displayName = 'VitisAI NPU' }
+                          'migraphx_gpu' = @{ ep = 'migraphx';        device = 'gpu'; displayName = 'MIGraphX GPU' }
+                          'dml_gpu'      = @{ ep = 'dml';             device = 'gpu'; displayName = 'DML GPU' }
+                          'mlas_cpu'     = @{ ep = 'cpu';             device = 'cpu'; displayName = 'MLAS CPU' }
+                          'ov_cpu'       = @{ ep = 'openvino';        device = 'cpu'; displayName = 'OV CPU' }
+                          'ov_gpu'       = @{ ep = 'openvino';        device = 'gpu'; displayName = 'OV GPU' }
+                          'ov_npu'       = @{ ep = 'openvino';        device = 'npu'; displayName = 'OV NPU' }
+                          'trtrtx_gpu'   = @{ ep = 'nv_tensorrt_rtx'; device = 'gpu'; displayName = 'TensorRT-RTX GPU' }
                       }
                       $name = '${{ pairName }}'
                       if (-not $catalog.ContainsKey($name)) {
