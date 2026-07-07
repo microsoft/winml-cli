@@ -224,39 +224,6 @@ def _clear_disk_caches() -> None:
             safe_print(f"  [cleanup] Removed {cleaned} leaked temp entries from {_TEMP_DIR}")
 
 
-# Result/metadata files that must survive per-job artifact cleanup.
-_JOB_KEEP_SUFFIXES = (".json", ".txt", ".md")
-
-
-def _clean_job_artifacts(model_dir: Path) -> None:
-    """Delete a job's large build outputs, keeping only the JSON/text facts.
-
-    Recipe builds write ``export.onnx``/``optimized.onnx``/``model.onnx`` (plus
-    ``.onnx.data`` / EP context ``.bin``) into the job's result dir via ``-o``;
-    these accumulate across models and fill the disk. Under ``--clean-cache`` we
-    remove them once the job's ``eval_result.json`` is written, so peak disk
-    stays at roughly one job's artifacts. The JSON results the report site reads
-    (``eval_result.json``, ``winml_eval_output.json``, …) are preserved.
-    """
-    if not model_dir.is_dir():
-        return
-    removed = 0
-    for entry in model_dir.rglob("*"):
-        if entry.is_file() and entry.suffix.lower() not in _JOB_KEEP_SUFFIXES:
-            try:
-                entry.unlink()
-                removed += 1
-            except OSError:
-                pass  # Best-effort; ignore locked/already-removed files
-    # Drop any now-empty component subdirectories (composite builds).
-    for entry in sorted(model_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-        if entry.is_dir():
-            with contextlib.suppress(OSError):
-                entry.rmdir()
-    if removed:
-        safe_print(f"  [cleanup] Removed {removed} build artifact(s) from {model_dir.name}")
-
-
 # Stray scratch files that onnxruntime/QNN/EP libraries write into the *process
 # working directory* (the repo root when the harness is launched from there),
 # outside any path the harness controls via ``-o``/``--output``:
@@ -748,20 +715,6 @@ def _needs_trust_remote_code(config_path: Path | None) -> bool:
     return bool(dataset.get("build_script"))
 
 
-def _find_built_onnx(build_dir: Path) -> Path | None:
-    """Locate the ``model.onnx`` written by ``winml build -o <build_dir>``.
-
-    ``winml build`` writes ``model.onnx`` directly for single models and into a
-    ``{class_name}_{index}`` subdir for module-mode configs; in both cases there
-    is exactly one ``model.onnx`` under the build dir.
-    """
-    direct = build_dir / "model.onnx"
-    if direct.exists():
-        return direct
-    candidates = sorted(p for p in build_dir.rglob("model.onnx") if p.is_file())
-    return candidates[0] if len(candidates) == 1 else None
-
-
 def _run_recipe_build(
     entry: ModelEntry,
     variant: RecipeVariant,
@@ -770,14 +723,17 @@ def _run_recipe_build(
     ep: str | None = None,
     rebuild: bool = False,
 ) -> dict:
-    """Build an authored recipe variant with ``winml build -c``.
+    """Build an authored recipe variant with ``winml build -c --use-cache``.
 
     The recipe config is the source of truth for export/optimize/quantize
     (every recipe sets ``compile: null``, so the build is EP-agnostic and the
-    execution provider is applied later by perf/eval).  Each component config is
-    built to ``model_dir`` (single) or ``model_dir/<role>`` (composite), writing
-    ``model.onnx``.  Returns the same shape as :func:`_run_build` plus the
-    ``meta_config`` (the eval/dataset config for ``winml eval -c``).
+    execution provider is applied later by perf/eval).  Each component is built
+    into the global WinML cache (``--use-cache``) — the same destination as the
+    ``winml config`` fallback path — so every job's build artifacts live under
+    ``~/.cache/winml`` regardless of recipe-vs-fallback, and the shared cache
+    cleanup (:func:`_clear_disk_caches`) bounds disk for both.  Returns the same
+    shape as :func:`_run_build` plus the ``meta_config`` (the eval/dataset config
+    for ``winml eval -c``).
 
     For VitisAI ``--no-compile`` is passed for parity with the example harness;
     it is a no-op while recipes keep ``compile: null`` but guards against a
@@ -791,8 +747,6 @@ def _run_recipe_build(
     last_proc: dict | None = None
     for component in variant.components:
         role = component.role
-        build_dir = model_dir if role is None else model_dir / role
-        build_dir.mkdir(parents=True, exist_ok=True)
         if role:
             safe_print(f"    building component: {role}")
 
@@ -803,8 +757,7 @@ def _run_recipe_build(
             str(component.path),
             "-m",
             entry.hf_id,
-            "-o",
-            str(build_dir),
+            "--use-cache",
         ]
         if no_compile:
             build_args += ["--no-compile"]
@@ -823,12 +776,16 @@ def _run_recipe_build(
                 "meta_config": meta_config,
             }
 
-        onnx = _find_built_onnx(build_dir)
+        # Locate the cached artifact from the build output (same mechanism as
+        # the winml-config fallback). The component's own config carries the
+        # task, needed to disambiguate a model's multiple cached tasks.
+        task_hint = _extract_task_from_config(component.path) or entry.task
+        onnx = _extract_onnx_path(proc, entry.hf_id, task_hint)
         if onnx is None:
             proc = dict(proc)
             proc["exit_code"] = proc.get("exit_code") or 1
             proc["stderr"] = (
-                proc.get("stderr", "") + f"\nBuilt ONNX (model.onnx) not found in {build_dir}"
+                proc.get("stderr", "") + "\nBuilt ONNX artifact not found in WinML cache"
             )
             stage = f"build_{role}" if role else "build"
             return {
@@ -2454,10 +2411,9 @@ def parse_args() -> argparse.Namespace:
         dest="clean_cache",
         action="store_true",
         help=(
-            "After each job, delete HF/winml caches, the job's ONNX build "
-            "artifacts, and stray scratch models libraries leak into the cwd "
-            "(UUID-named *.onnx/*.data, QNN EP-context dumps, sym_shape_infer_temp) "
-            "to keep disk bounded."
+            "After each job, delete HF/winml caches and stray scratch models "
+            "libraries leak into the cwd (UUID-named *.onnx/*.data, QNN "
+            "EP-context dumps, sym_shape_infer_temp) to keep disk bounded."
         ),
     )
     parser.add_argument("--list", action="store_true", help="List filtered models and exit")
@@ -2676,7 +2632,7 @@ def main() -> None:
     else:
         safe_print("Recipes: disabled (winml config for all builds)")
     if args.clean_cache:
-        safe_print("Cache cleanup: ON (caches + per-job ONNX + stray cwd models cleaned)")
+        safe_print("Cache cleanup: ON (winml/HF caches + stray cwd models cleaned)")
         # Sweep any stray scratch models left in the cwd by a prior interrupted
         # run so a resumed run does not start from an already-polluted root.
         _clean_stray_cwd_artifacts(Path.cwd())
@@ -2896,7 +2852,6 @@ def main() -> None:
             safe_print(f"  [acc only]{acc_tag}")
 
         if args.clean_cache:
-            _clean_job_artifacts(model_dir)
             _clean_stray_cwd_artifacts(Path.cwd())
             _clear_disk_caches()
 

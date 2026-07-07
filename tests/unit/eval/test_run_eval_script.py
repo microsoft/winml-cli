@@ -608,7 +608,7 @@ class TestBuildJobs:
 
 
 class TestRunRecipeBuild:
-    """``_run_recipe_build`` builds authored configs with ``winml build -c``."""
+    """``_run_recipe_build`` builds authored configs with ``winml build -c --use-cache``."""
 
     def _variant(self, run_eval, tmp_path, *, composite: bool):
         model_dir = tmp_path / "recipes" / "microsoft_resnet-50"
@@ -645,23 +645,25 @@ class TestRunRecipeBuild:
 
         return _fake
 
-    def test_single_build_uses_config_and_output_dir(self, run_eval, tmp_path):
+    def test_single_build_uses_cache(self, run_eval, tmp_path):
         variant = self._variant(run_eval, tmp_path, composite=False)
         out = tmp_path / "out"
         captured: list[list[str]] = []
         with (
             patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
-            patch.object(run_eval, "_find_built_onnx", side_effect=lambda bd: bd / "model.onnx"),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: "m.onnx"),
         ):
             result = run_eval._run_recipe_build(_entry(), variant, 300, out, ep="openvino")
 
         assert result["success"] is True
-        assert list(result["onnx_paths"]) == [""]  # single model uses "" label
+        assert result["onnx_paths"] == {"": "m.onnx"}  # single model uses "" label
         assert result["meta_config"] == variant.components[0].path
         build_call = captured[0]
         assert "build" in build_call
         assert "-c" in build_call and str(variant.components[0].path) in build_call
-        assert "-o" in build_call
+        # Artifacts go to the global WinML cache, not the job dir (-o).
+        assert "--use-cache" in build_call
+        assert "-o" not in build_call
         assert "--no-compile" not in build_call  # openvino is not vitisai
 
     def test_vitisai_adds_no_compile(self, run_eval, tmp_path):
@@ -669,7 +671,7 @@ class TestRunRecipeBuild:
         captured: list[list[str]] = []
         with (
             patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
-            patch.object(run_eval, "_find_built_onnx", side_effect=lambda bd: bd / "model.onnx"),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: "m.onnx"),
         ):
             run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o", ep="vitisai")
         assert "--no-compile" in captured[0]
@@ -680,13 +682,14 @@ class TestRunRecipeBuild:
         captured: list[list[str]] = []
         with (
             patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess(captured)),
-            patch.object(run_eval, "_find_built_onnx", side_effect=lambda bd: bd / "model.onnx"),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: "m.onnx"),
         ):
             result = run_eval._run_recipe_build(_entry(), variant, 300, out, ep="openvino")
 
         assert result["success"] is True
         assert set(result["onnx_paths"]) == {"encoder", "decoder"}
         assert len(captured) == 2  # one winml build per component
+        assert all("--use-cache" in call for call in captured)
 
     def test_build_failure_reported(self, run_eval, tmp_path):
         variant = self._variant(run_eval, tmp_path, composite=False)
@@ -702,6 +705,18 @@ class TestRunRecipeBuild:
             }
 
         with patch.object(run_eval, "_run_subprocess", side_effect=_fail):
+            result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
+        assert result["success"] is False
+        assert result["stage"] == "build"
+
+    def test_missing_cached_artifact_is_failure(self, run_eval, tmp_path):
+        # Build exits 0 but the artifact can't be located in the cache -> the job
+        # is a hard build failure (never silently continues without a model).
+        variant = self._variant(run_eval, tmp_path, composite=False)
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=self._fake_subprocess([])),
+            patch.object(run_eval, "_extract_onnx_path", side_effect=lambda *a: None),
+        ):
             result = run_eval._run_recipe_build(_entry(), variant, 300, tmp_path / "o")
         assert result["success"] is False
         assert result["stage"] == "build"
@@ -766,44 +781,6 @@ class TestRunWinmlEvalRecipePath:
         assert "-c" not in call
         assert "--dataset" in call and "timm/mini-imagenet" in call
         assert res["status"] == "PASS"
-
-
-class TestCleanJobArtifacts:
-    """``_clean_job_artifacts`` removes ONNX build outputs but keeps JSON facts."""
-
-    def test_removes_onnx_keeps_json(self, run_eval, tmp_path):
-        model_dir = tmp_path / "microsoft__resnet-50__image-classification__fp16"
-        model_dir.mkdir()
-        # Build artifacts that should be removed.
-        (model_dir / "export.onnx").write_text("x")
-        (model_dir / "optimized.onnx").write_text("x")
-        (model_dir / "model.onnx").write_text("x")
-        (model_dir / "model.onnx.data").write_text("x")
-        (model_dir / "model_npu_ctx.onnx_VITISAI.bin").write_text("x")
-        # Facts that must survive.
-        (model_dir / "eval_result.json").write_text("{}")
-        (model_dir / "winml_eval_output.json").write_text("{}")
-
-        run_eval._clean_job_artifacts(model_dir)
-
-        survivors = sorted(p.name for p in model_dir.iterdir())
-        assert survivors == ["eval_result.json", "winml_eval_output.json"]
-
-    def test_removes_composite_subdir_artifacts(self, run_eval, tmp_path):
-        model_dir = tmp_path / "m__image-to-text__fp16"
-        (model_dir / "encoder").mkdir(parents=True)
-        (model_dir / "decoder").mkdir(parents=True)
-        (model_dir / "encoder" / "model.onnx").write_text("x")
-        (model_dir / "decoder" / "model.onnx").write_text("x")
-        (model_dir / "eval_result.json").write_text("{}")
-
-        run_eval._clean_job_artifacts(model_dir)
-
-        # ONNX gone, empty component dirs pruned, JSON kept.
-        assert [p.name for p in model_dir.iterdir()] == ["eval_result.json"]
-
-    def test_missing_dir_is_noop(self, run_eval, tmp_path):
-        run_eval._clean_job_artifacts(tmp_path / "nope")  # must not raise
 
 
 class TestCleanStrayCwdArtifacts:
