@@ -27,10 +27,9 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import click
 
@@ -41,6 +40,15 @@ from ..session import (
     GenaiSessionError,
     GenerationConfig,
 )
+from ._perf_generation import (
+    GenerationBenchmarkResult,
+    display_generation_report,
+)
+
+
+# Backward-compatible aliases — existing code and tests import these names.
+GenaiBenchmarkResult = GenerationBenchmarkResult
+display_genai_report = display_generation_report
 
 
 if TYPE_CHECKING:
@@ -148,92 +156,6 @@ class _RunSample:
     decode_tokens_per_sec: float
     tpot_ms: float
     n_tokens: int
-
-
-@dataclass
-class GenaiBenchmarkResult:
-    """Aggregated results from a genai generation benchmark."""
-
-    config: GenaiPerfConfig
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-
-    # Generation shape
-    prompt_tokens: int = 0
-    generated_tokens: int = 0
-    context_length: int | None = None
-
-    # Time to first token (prefill + first decode), milliseconds
-    ttft_mean_ms: float = 0.0
-    ttft_min_ms: float = 0.0
-    ttft_max_ms: float = 0.0
-    ttft_p50_ms: float = 0.0
-    ttft_p90_ms: float = 0.0
-    ttft_p95_ms: float = 0.0
-    ttft_p99_ms: float = 0.0
-
-    # Prefill / prompt-processing phase (og append_tokens), milliseconds
-    prefill_mean_ms: float = 0.0
-
-    # Decode phase
-    decode_tokens_per_sec: float = 0.0
-    avg_token_latency_ms: float = 0.0
-    # Time per output token — steady-state decode (og generate_next_token), ms
-    tpot_mean_ms: float = 0.0
-
-    # Whole generation (prefill + all decode), milliseconds
-    total_generation_mean_ms: float = 0.0
-
-    # Per-iteration samples (warmup excluded)
-    raw_ttft_ms: list[float] = field(default_factory=list)
-    raw_prefill_ms: list[float] = field(default_factory=list)
-    raw_decode_tokens_per_sec: list[float] = field(default_factory=list)
-    raw_tpot_ms: list[float] = field(default_factory=list)
-    raw_total_ms: list[float] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to a JSON-serializable dictionary."""
-        return {
-            "benchmark_info": {
-                "runtime": RUNTIME_TYPE,
-                "bundle_dir": str(self.config.bundle_dir),
-                "ep": self.config.ep,
-                "device": self.config.device,
-                "compile": self.config.compile,
-                "compile_timeout": self.config.compile_timeout,
-                "iterations": self.config.iterations,
-                "warmup": self.config.warmup,
-                "max_new_tokens": self.config.max_new_tokens,
-                "apply_template": self.config.apply_template,
-                "prompt": self.config.prompt,
-                "prompt_tokens": self.prompt_tokens,
-                "generated_tokens": self.generated_tokens,
-                "context_length": self.context_length,
-                "timestamp": self.timestamp,
-            },
-            "ttft_ms": {
-                "mean": round(self.ttft_mean_ms, 3),
-                "min": round(self.ttft_min_ms, 3),
-                "max": round(self.ttft_max_ms, 3),
-                "p50": round(self.ttft_p50_ms, 3),
-                "p90": round(self.ttft_p90_ms, 3),
-                "p95": round(self.ttft_p95_ms, 3),
-                "p99": round(self.ttft_p99_ms, 3),
-            },
-            "prefill_ms": {"mean": round(self.prefill_mean_ms, 3)},
-            "decode": {
-                "tokens_per_sec": round(self.decode_tokens_per_sec, 2),
-                "avg_token_latency_ms": round(self.avg_token_latency_ms, 3),
-                "tpot_ms": round(self.tpot_mean_ms, 3),
-            },
-            "total_generation_ms": {"mean": round(self.total_generation_mean_ms, 3)},
-            "raw": {
-                "ttft_ms": [round(v, 3) for v in self.raw_ttft_ms],
-                "prefill_ms": [round(v, 3) for v in self.raw_prefill_ms],
-                "decode_tokens_per_sec": [round(v, 2) for v in self.raw_decode_tokens_per_sec],
-                "tpot_ms": [round(v, 3) for v in self.raw_tpot_ms],
-                "total_ms": [round(v, 3) for v in self.raw_total_ms],
-            },
-        }
 
 
 # =============================================================================
@@ -375,8 +297,16 @@ class GenaiPerfBenchmark:
         token_latencies = [s.total_ms / s.n_tokens for s in timed if s.n_tokens]
         sorted_ttfts = sorted(ttfts)
 
+        cfg = self._config
         return GenaiBenchmarkResult(
-            config=self._config,
+            runtime=RUNTIME_TYPE,
+            model_label=str(cfg.bundle_dir),
+            device=cfg.device,
+            ep=cfg.ep,
+            prompt=cfg.prompt,
+            max_new_tokens=cfg.max_new_tokens,
+            warmup=cfg.warmup,
+            iterations=cfg.iterations,
             prompt_tokens=len(self._prompt_token_ids),
             generated_tokens=timed[0].n_tokens if timed else 0,
             context_length=self._session.context_length if self._session else None,
@@ -397,62 +327,18 @@ class GenaiPerfBenchmark:
             raw_decode_tokens_per_sec=decode_tps,
             raw_tpot_ms=tpots,
             raw_total_ms=totals,
+            extra_info={
+                "bundle_dir": str(cfg.bundle_dir),
+                "compile": cfg.compile,
+                "compile_timeout": cfg.compile_timeout,
+                "apply_template": cfg.apply_template,
+            },
         )
 
 
 # =============================================================================
 # Reporting
 # =============================================================================
-
-
-def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None:
-    """Render a genai benchmark report to the console."""
-    from rich.table import Table
-
-    cfg = result.config
-    console.print()
-    console.print(f"[dim]Runtime:[/dim]   {RUNTIME_TYPE}")
-    device_str = cfg.device if cfg.device == cfg.ep else f"{cfg.device} ({cfg.ep})"
-    console.print(f"[dim]Device:[/dim]    {device_str}")
-    console.print(f"[dim]Bundle:[/dim]    {cfg.bundle_dir}")
-    console.print(
-        f"[dim]Prompt:[/dim]    {result.prompt_tokens} tokens   "
-        f"[dim]Generated:[/dim] {result.generated_tokens} tokens "
-        f"(max_new_tokens={cfg.max_new_tokens})"
-    )
-
-    console.print()
-    console.print("[bold]Time to first token (ms)[/bold]")
-    table = Table(show_header=True, header_style="bold cyan")
-    for col in ["Avg", "P50", "P90", "P95", "P99", "Min", "Max"]:
-        table.add_column(col, justify="right")
-    table.add_row(
-        f"{result.ttft_mean_ms:.2f}",
-        f"{result.ttft_p50_ms:.2f}",
-        f"{result.ttft_p90_ms:.2f}",
-        f"{result.ttft_p95_ms:.2f}",
-        f"{result.ttft_p99_ms:.2f}",
-        f"{result.ttft_min_ms:.2f}",
-        f"{result.ttft_max_ms:.2f}",
-    )
-    console.print(table)
-
-    console.print()
-    console.print(
-        f"[bold]Prefill:[/bold]   {result.prefill_mean_ms:.2f} ms avg (prompt processing)"
-    )
-    console.print(
-        f"[bold]Decode:[/bold]    {result.decode_tokens_per_sec:.2f} tokens/sec  |  "
-        f"{result.tpot_mean_ms:.2f} ms/token (TPOT)"
-    )
-    console.print(
-        f"[bold]Total:[/bold]     {result.total_generation_mean_ms:.2f} ms avg per generation"
-    )
-    if cfg.warmup > 0:
-        console.print(
-            f"  [dim]Excluded first {cfg.warmup} warmup generation(s) from statistics[/dim]"
-        )
-    console.print()
 
 
 def write_genai_report(result: GenaiBenchmarkResult, output_path: str | Path) -> None:
