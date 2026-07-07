@@ -1865,14 +1865,14 @@ class TestBuildEpResolution:
 
 
 class TestBuildComposite:
-    """Test build fans a composite model out into per-component subdirectories."""
+    """Test build fans a composite model out with flat _<component> naming."""
 
-    def test_composite_builds_one_subdir_per_component(
+    def test_composite_builds_flat_with_cache_key(
         self,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """A composite model runs _run_single_build once per sub-component."""
+        """A composite model runs _run_single_build once per sub-component with cache_key."""
         from winml.modelkit.commands.build import build
 
         components = {
@@ -1912,11 +1912,14 @@ class TestBuildComposite:
         assert result.exit_code == 0, result.output
         # One build per component.
         assert mock_single_build.call_count == len(components)
-        # Each component gets its own subdirectory.
+        # All components share the same resolved_dir (flat layout).
         built_dirs = {
             Path(call.kwargs["resolved_dir"]) for call in mock_single_build.call_args_list
         }
-        assert built_dirs == {output_dir / name for name in components}
+        assert built_dirs == {output_dir}
+        # Each component name is passed as cache_key for flat file naming.
+        built_keys = {call.kwargs["cache_key"] for call in mock_single_build.call_args_list}
+        assert built_keys == set(components)
         # generate_build_config is called once for the outer auto-gen config,
         # then once per component.
         component_tasks = {
@@ -2031,12 +2034,12 @@ class TestBuildComposite:
         assert result.exit_code != 0
         assert "unexpectedly" in result.output.lower()
 
-    def test_composite_partial_build_warns_and_keeps_dirs(
+    def test_composite_partial_build_warns(
         self,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """If a later sub-model fails, completed outputs are kept and warned."""
+        """If a later sub-model fails, completed components are warned about."""
         from winml.modelkit.commands.build import build
 
         components = {
@@ -2056,8 +2059,6 @@ class TestBuildComposite:
             call_count[0] += 1
             if call_count[0] == 2:
                 raise RuntimeError("second sub-model blew up")
-            # First component succeeds: create its output dir.
-            Path(kwargs["resolved_dir"]).mkdir(parents=True, exist_ok=True)
 
         with (
             patch(
@@ -2083,8 +2084,6 @@ class TestBuildComposite:
         assert result.exit_code != 0
         # Warning about partial composite build.
         assert "composite build did not finish" in result.output.lower()
-        # The first component's dir was created and not deleted.
-        assert (output_dir / "decoder_prefill").exists()
 
     def test_composite_carries_quant_compile_from_outer_config(
         self,

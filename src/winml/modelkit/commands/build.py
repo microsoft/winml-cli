@@ -58,11 +58,11 @@ console = get_console()
 # =============================================================================
 
 
-def _warn_partial_composite_build(completed: list[Path]) -> None:
+def _warn_partial_composite_build(completed: list[str], output_dir: Path) -> None:
     """Warn that a composite build failed mid-run, listing completed components.
 
     We deliberately do NOT delete anything: the targets may be pre-existing
-    directories the user chose to ``--rebuild``, and a component can fail before
+    artifacts the user chose to ``--rebuild``, and a component can fail before
     writing anything, so auto-deleting could destroy artifacts this run never
     actually wrote. Instead we surface the completed sub-models and let the user
     decide whether to keep or remove the partial build.
@@ -73,11 +73,11 @@ def _warn_partial_composite_build(completed: list[Path]) -> None:
         "\n[yellow]Warning:[/yellow] composite build did not finish; "
         f"{len(completed)} sub-model(s) were built by this run:"
     )
-    for component_dir in completed:
-        console.print(f"  • {component_dir}")
+    for name in completed:
+        console.print(f"  • {name} ({output_dir / f'{name}_model.onnx'})")
     console.print(
         "[yellow]The build did not complete for every sub-model.[/yellow] "
-        "Review these directories and remove them if you don't want to keep the "
+        "Review these artifacts and remove them if you don't want to keep the "
         "partial build."
     )
 
@@ -835,9 +835,7 @@ def build(
                 except RuntimeError:
                     raise
                 except OSError as e:
-                    logger.debug(
-                        "Composite detection unavailable (config not resolvable): %s", e
-                    )
+                    logger.debug("Composite detection unavailable (config not resolvable): %s", e)
                 except Exception as e:
                     raise click.ClickException(
                         f"Composite model detection failed unexpectedly: {e}"
@@ -854,14 +852,12 @@ def build(
                     f"({', '.join(components)})[/dim]"
                 )
 
-                completed: list[Path] = []
+                completed: list[str] = []
                 try:
                     for name, component_task in components.items():
                         console.print(
-                            f"\n[bold blue]Sub-model:[/bold blue] {name} "
-                            f"(task={component_task})"
+                            f"\n[bold blue]Sub-model:[/bold blue] {name} (task={component_task})"
                         )
-                        component_dir = resolved_dir / name
 
                         from ..config import generate_build_config as gen_cfg
 
@@ -890,17 +886,17 @@ def build(
                             config_file=None,
                             model_id=model,
                             is_onnx=False,
-                            resolved_dir=component_dir,
+                            resolved_dir=resolved_dir,
                             rebuild=rebuild,
-                            cache_key=None,
+                            cache_key=name,
                             ep=ep,
                             device=device,
                             extra_kwargs=dict(extra_kwargs),
                             preloaded_hf_config=preloaded_hf_config,
                         )
-                        completed.append(component_dir)
+                        completed.append(name)
                 except BaseException:
-                    _warn_partial_composite_build(completed)
+                    _warn_partial_composite_build(completed, resolved_dir)
                     raise
             else:
                 _run_single_build(
@@ -1041,7 +1037,8 @@ def _run_single_build(
             )
 
         elapsed = time.monotonic() - start_time
-        final_path = resolved_dir / "model.onnx"
+        final_name = f"{cache_key}_model.onnx" if cache_key else "model.onnx"
+        final_path = resolved_dir / final_name
         if final_path.exists() and stage_timings:
             config_json = resolved_dir / (
                 f"{cache_key}_winml_build_config.json" if cache_key else "winml_build_config.json"
