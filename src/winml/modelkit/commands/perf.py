@@ -825,6 +825,16 @@ class PerfBenchmark:
 
             hf_model_id = self.config.hf_model_id or model_id
             hf_config = AutoConfig.from_pretrained(hf_model_id)
+
+            # Auto-infer task from HF config when not explicitly provided,
+            # so users don't need --task for well-known models (e.g. Qwen).
+            if common_kwargs.get("task") is None:
+                from ..loader.resolution import resolve_task
+
+                inferred = resolve_task(hf_config).task
+                common_kwargs["task"] = inferred
+                logger.info("Inferred task from model config: %s", inferred)
+
             self._model = WinMLAutoModel.from_onnx(
                 onnx_path=self.config.model_path,
                 hf_config=hf_config,
