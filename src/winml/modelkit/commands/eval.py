@@ -421,7 +421,7 @@ def _run_dataset_script(cfg: WinMLEvaluationConfig, trust_remote_code: bool) -> 
         cmd,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=1200,
     )
     if result.returncode != 0:
         raise click.ClickException(

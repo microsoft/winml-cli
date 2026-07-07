@@ -10,11 +10,6 @@
     "reason": "Build hangs >2000s, marian enc-dec export issue"
   },
   {
-    "hf_id": "LiheYoung/depth-anything-base-hf",
-    "task": "depth-estimation",
-    "reason": "Analyzer hangs >17000s, Black nodes ConvTranspose"
-  },
-  {
     "hf_id": "Qwen/Qwen3-8B",
     "task": "text-generation",
     "reason": "Build hangs >3500s, large LLM"
