@@ -28,3 +28,22 @@ Concerns
 
 Report file path
 C:\Users\qiowu\source\repos\copilot-worktrees\winml-cli\dingmaomaobjtu-cuddly-garbanzo\.superpowers\sdd\task-2-report.md
+
+Fix summary
+- Deleted incorrect w8a16 QNN recipe and added the requested fp16/no-quant QNN recipe at examples/recipes/microsoft_swinv2-tiny-patch4-window16-256/qnn/image-classification_fp16_opset21_matmul-transpose_config.json
+- Changes: export.opset_version -> 21; optim.matmul_transpose_fusion -> true; preserved quant=null, compile=null, eval.dataset.samples=100 and loader/input/output fields.
+
+Test command and output summary
+- Command: set PYTHONPATH=src; uv run --no-project --with pytest --with pytest-cov --with pytest-timeout --with onnxruntime --with onnx --with pydantic --with rich pytest temp/test_swinv2_qnn.py -q -o filterwarnings=
+- Result: 1 passed (test validated parsing and required fields)
+
+Files changed
+- Deleted: examples/recipes/microsoft_swinv2-tiny-patch4-window16-256/qnn/image-classification_w8a16_opset21_config.json
+- Added: examples/recipes/microsoft_swinv2-tiny-patch4-window16-256/qnn/image-classification_fp16_opset21_matmul-transpose_config.json
+- Updated: .superpowers/sdd/task-2-report.md (this appended summary)
+
+Self-review
+- The new recipe was created by copying the fp16 schema and changing only the opset and optim fields as requested. Tests validate parsing via WinMLBuildConfig.from_dict and key assertions. No unrelated files modified.
+
+Report file path
+C:\Users\qiowu\source\repos\copilot-worktrees\winml-cli\dingmaomaobjtu-cuddly-garbanzo\.superpowers\sdd\task-2-report.md
