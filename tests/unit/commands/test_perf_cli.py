@@ -829,6 +829,56 @@ class TestEffectiveBatchSize:
 # =============================================================================
 
 
+class TestFormatInputShape:
+    """Dynamic dims render as ``dynamic(<actual>)`` with real generated sizes."""
+
+    def test_dynamic_dim_shows_actual_value(self) -> None:
+        from winml.modelkit.commands.perf import _format_input_shape
+
+        assert _format_input_shape([None, 3, 64, 64], (1, 3, 64, 64)) == "[dynamic(1), 3, 64, 64]"
+
+    def test_multiple_dynamic_dims(self) -> None:
+        from winml.modelkit.commands.perf import _format_input_shape
+
+        assert _format_input_shape([None, None], (2, 128)) == "[dynamic(2), dynamic(128)]"
+
+    def test_all_static_dims_unchanged(self) -> None:
+        from winml.modelkit.commands.perf import _format_input_shape
+
+        assert _format_input_shape([1, 3, 224, 224], (1, 3, 224, 224)) == "[1, 3, 224, 224]"
+
+    def test_dynamic_without_actual_falls_back_to_bare_dynamic(self) -> None:
+        from winml.modelkit.commands.perf import _format_input_shape
+
+        assert _format_input_shape([None, 3], None) == "[dynamic, 3]"
+
+    def test_dynamic_shape_survives_rich_rendering(self) -> None:
+        # Regression: a lowercase ``[dynamic(...)]`` is valid Rich markup and
+        # gets swallowed unless escaped, leaving the shape column blank.
+        import contextlib
+        import io as _io
+
+        from winml.modelkit.commands.perf import _print_model_info
+
+        io_config = {
+            "input_names": ["pixel_values"],
+            "input_shapes": [[None, 3, 64, 64]],
+            "input_types": ["float32"],
+            "output_names": ["logits"],
+            "output_shapes": [[None, 1000]],
+        }
+        buf = _io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            _print_model_info(
+                io_config,
+                actual_shapes={"pixel_values": (10, 3, 64, 64)},
+            )
+        out = buf.getvalue()
+        assert "[dynamic(10), 3, 64, 64]" in out
+        # Outputs have no generated data, so dynamic dims render bare.
+        assert "[dynamic, 1000]" in out
+
+
 class TestPerfFormatJson:
     """Test --format json produces structured JSON to stdout."""
 

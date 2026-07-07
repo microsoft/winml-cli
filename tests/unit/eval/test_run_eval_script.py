@@ -102,6 +102,93 @@ class TestResolvePrecision:
         assert "vitisai" in captured.out
 
 
+class TestResolveOpTracing:
+    """Behaviour of ``_resolve_op_tracing`` and the target-key helpers."""
+
+    @staticmethod
+    def _entry(run_eval, targets):
+        return run_eval.ModelEntry(
+            hf_id="acme/model",
+            task="image-classification",
+            model_type="vit",
+            group="test",
+            priority="P0",
+            op_tracing_targets=list(targets),
+        )
+
+    def test_explicit_disabled_overrides_optin(self, run_eval):
+        # A model that opts in must still be forced off by an explicit 'disabled'.
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        assert run_eval._resolve_op_tracing("disabled", entry, "qnn", "npu") is None
+
+    @pytest.mark.parametrize("level", ["basic", "detail"])
+    def test_explicit_level_used_as_is(self, run_eval, level):
+        # Explicit basic/detail is honoured regardless of opt-in or EP/device.
+        entry = self._entry(run_eval, [])
+        assert run_eval._resolve_op_tracing(level, entry, "qnn", "npu") == level
+        assert run_eval._resolve_op_tracing(level, entry, None, "auto") == level
+
+    def test_unset_auto_enables_on_matching_target(self, run_eval):
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        assert run_eval._resolve_op_tracing(None, entry, "qnn", "npu") == "basic"
+
+    def test_unset_no_match_stays_off(self, run_eval):
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        # Different device (dml/npu) and a model without targets both stay off.
+        assert run_eval._resolve_op_tracing(None, entry, "dml", "npu") is None
+        assert run_eval._resolve_op_tracing(None, self._entry(run_eval, []), "qnn", "npu") is None
+
+    def test_unset_device_auto_does_not_match(self, run_eval):
+        # 'auto' is not resolved to a concrete device here, so it never matches
+        # a device-specific target such as QNNExecutionProvider_npu.
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        assert run_eval._resolve_op_tracing(None, entry, "qnn", "auto") is None
+
+    def test_unset_no_ep_stays_off(self, run_eval):
+        entry = self._entry(run_eval, ["QNNExecutionProvider_npu"])
+        assert run_eval._resolve_op_tracing(None, entry, None, "npu") is None
+
+
+class TestOpTracingTargetKey:
+    """The canonical key builder and the registry target normalizer."""
+
+    def test_target_key_normalizes_ep_and_device(self, run_eval):
+        assert run_eval.op_tracing_target_key("qnn", "NPU") == "QNNExecutionProvider_npu"
+        full = run_eval.op_tracing_target_key("QNNExecutionProvider", "npu")
+        assert full == "QNNExecutionProvider_npu"
+
+    def test_target_key_none_without_ep(self, run_eval):
+        assert run_eval.op_tracing_target_key(None, "npu") is None
+        assert run_eval.op_tracing_target_key("", "npu") is None
+
+    def test_normalize_target_accepts_alias_and_full_name(self, run_eval):
+        from utils.registry import normalize_op_tracing_target
+
+        assert normalize_op_tracing_target("qnn_npu") == "QNNExecutionProvider_npu"
+        assert normalize_op_tracing_target("QNNExecutionProvider_npu") == "QNNExecutionProvider_npu"
+        assert normalize_op_tracing_target("QNN_NPU") == "QNNExecutionProvider_npu"
+
+    def test_registry_normalizes_targets_on_load(self, run_eval, tmp_path):
+        registry = tmp_path / "models.json"
+        registry.write_text(
+            json.dumps(
+                [
+                    {
+                        "hf_id": "acme/model",
+                        "task": "image-classification",
+                        "model_type": "vit",
+                        "group": "test",
+                        "priority": "P0",
+                        "op_tracing_targets": ["qnn_npu"],
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        entries = run_eval.load_registry(registry)
+        assert entries[0].op_tracing_targets == ["QNNExecutionProvider_npu"]
+
+
 class TestRunBuildNoQuantInjection:
     """``_run_build`` must append ``--no-quant`` to both winml config and
     winml build invocations when the EP is in ``_EPS_SKIP_WINML_QUANT``.

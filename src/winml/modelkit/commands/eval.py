@@ -29,13 +29,10 @@ logger = logging.getLogger(__name__)
 
 
 @click.command("eval")
-@click.option(
-    "-m",
-    "--model",
-    type=str,
+@cli_utils.model_option(
+    required=False,
     multiple=True,
-    default=(),
-    help=(
+    help_text=(
         "Model to evaluate. Accepts a HuggingFace model ID, an ONNX file path "
         "(requires --model-id), or split-encoder role=path pairs (see --schema)."
     ),
@@ -167,6 +164,7 @@ logger = logging.getLogger(__name__)
 @cli_utils.format_option()
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def eval(
     ctx: click.Context,
@@ -505,12 +503,12 @@ def _resolve_model_path(
         )
 
     value = plain[0]
-    if Path(value).suffix.lower() == ".onnx":
-        if not Path(value).exists():
-            raise click.BadParameter(
-                f"ONNX file not found: {value}",
-                param_hint="-m/--model",
-            )
+    try:
+        _mi = cli_utils.classify_model_input(value)
+    except click.UsageError as e:
+        # Preserve eval's param-scoped BadParameter contract (tests + hint).
+        raise click.BadParameter(str(e), param_hint="-m/--model") from e
+    if _mi.kind is cli_utils.ModelInputKind.ONNX_FILE:
         if model_id is None:
             raise click.UsageError(
                 "When using an ONNX file, --model-id is required "

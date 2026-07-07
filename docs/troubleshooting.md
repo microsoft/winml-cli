@@ -128,6 +128,14 @@ Remove-Item -Recurse -Force "$env:USERPROFILE\.cache\winml"
 
 The next `winml build` will re-create the cache as needed. Use `--rebuild` to force a full rebuild without relying on cached intermediates.
 
+When a build runs out of disk space mid-write, `winml` now stops with a clear message instead of a misleading downstream error:
+
+```text
+ONNXSaveError: Insufficient disk space — unable to write ONNX model to <path>. Free up disk space and try again.
+```
+
+The partially written file is removed automatically, so a later stage never reads a truncated model. (Previously this surfaced much later as a confusing `ValueError: Failed to find proper ai.onnx domain` during quantization.) Free up space using the command above and re-run the build.
+
 ---
 
 ## General Tips

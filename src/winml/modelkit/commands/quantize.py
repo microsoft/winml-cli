@@ -13,14 +13,13 @@ Usage:
 Examples:
     winml quantize -m model.onnx
     winml quantize -m model.onnx --precision int8
-    winml quantize -m model.onnx -o model_qdq.onnx --samples 100
+    winml quantize -m model.onnx -o model_quantized.onnx --samples 100
     winml quantize -m model.onnx --weight-type int8 --activation-type uint8
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import click
@@ -32,6 +31,7 @@ from ..utils.logging import configure_logging
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from typing import Literal
 
 
@@ -40,21 +40,18 @@ console = Console()
 
 
 @click.command()
-@click.option(
-    "--model",
-    "-m",
-    required=True,
-    type=click.Path(exists=True, path_type=Path),
-    help="Input ONNX model file",
-)
-@cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
+@cli_utils.model_path_option(required=True, help_text="Input ONNX model file")
+@cli_utils.output_option("Output path (default: {input}_quantized.onnx)")
 @cli_utils.overwrite_option()
 @cli_utils.precision_option(
-    default=None,
-    help_text="Quantization precision: auto, fp16, int4, int8, int16, or w{x}a{y} where "
-    "x in {4,8,16}, y in {8,16} (e.g., w4a16, w8a8, w8a16). "
-    "int4/w4a16 uses RTN weight-only quantization; "
-    "fp16 converts all FP32 tensors to FP16 (no QDQ)",
+    default=(),
+    multiple=True,
+    help_text="Quantization precision: fp16, int4, int8, int16, dynamic, or w{x}a{y} where "
+    "x in {4,8,16}, y in {8,16} (e.g., w8a8, w8a16). "
+    "int4 uses RTN weight-only quantization; "
+    "dynamic uses dynamic quantization (no calibration data); "
+    "fp16 converts all FP32 tensors to FP16 (no QDQ). "
+    "Repeat to chain passes in order (e.g. -p int4 -p fp16)",
     optional_message="Overridden by explicit --weight-type/--activation-type",
 )
 @click.option(
@@ -94,6 +91,13 @@ console = Console()
     help="Use symmetric quantization",
 )
 @click.option(
+    "--reduce-range/--no-reduce-range",
+    default=False,
+    show_default=True,
+    help="Quantize weights with 7 bits to reduce int8 saturation on pre-VNNI "
+    "CPUs (dynamic quantization only; ignored by other precisions).",
+)
+@click.option(
     "--task",
     type=str,
     default=None,
@@ -105,19 +109,21 @@ console = Console()
 )
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def quantize(
     ctx: click.Context,
     model: Path,
     output: Path | None,
     overwrite: bool,
-    precision: str | None,
+    precision: tuple[str, ...],
     samples: int,
     method: str,
     weight_type: str | None,
     activation_type: str | None,
     per_channel: bool,
     symmetric: bool,
+    reduce_range: bool,
     task: str | None,
     model_id: str | None,
     verbose: int,
@@ -127,8 +133,12 @@ def quantize(
     r"""Quantize ONNX model by inserting QDQ nodes, RTN weight-only, or convert to FP16.
 
     This command applies quantization to an ONNX model. The algorithm is
-    auto-selected from the precision: int4/w4a16 → RTN weight-only,
-    int8/int16/w8a8 → static QDQ, fp16 → FP16 conversion.
+    auto-selected from the precision: int4 → RTN weight-only,
+    int8/int16/w8a8 → static QDQ, dynamic → dynamic quantization,
+    fp16 → FP16 conversion.
+
+    Repeat --precision to chain passes in order:
+    ``-p int4 -p fp16`` runs RTN int4 quantization then FP16 conversion.
 
     \b
     Examples:
@@ -140,6 +150,15 @@ def quantize(
 
         # RTN 4-bit weight-only quantization (no calibration data needed)
         winml quantize -m model.onnx --precision int4
+
+        # Dynamic quantization (no calibration data needed)
+        winml quantize -m model.onnx --precision dynamic
+
+        # Dynamic quantization with int8 weights + reduced range (pre-VNNI CPUs)
+        winml quantize -m model.onnx --precision dynamic --weight-type int8 --reduce-range
+
+        # RTN int4 followed by FP16 conversion (two-pass pipeline)
+        winml quantize -m model.onnx --precision int4 --precision fp16
 
         # Int16 quantization
         winml quantize -m model.onnx --precision int16
@@ -174,6 +193,8 @@ def quantize(
             per_channel = qc["per_channel"]
         if not cli_utils.is_cli_provided(ctx, "symmetric") and "symmetric" in qc:
             symmetric = qc["symmetric"]
+        if not cli_utils.is_cli_provided(ctx, "reduce_range") and "reduce_range" in qc:
+            reduce_range = qc["reduce_range"]
         if not cli_utils.is_cli_provided(ctx, "task") and "task" in qc:
             task = qc["task"]
         if not cli_utils.is_cli_provided(ctx, "model_id") and "model_id" in qc:
@@ -182,8 +203,30 @@ def quantize(
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
 
-    # ── Build config based on precision ──────────────────────────
-    precision_lower = precision.lower() if precision else None
+    # ── Multi-pass pipeline ───────────────────────────────────────
+    if len(precision) > 1:
+        _run_multi_precision(
+            ctx=ctx,
+            model=model,
+            output=output,
+            overwrite=overwrite,
+            precision=precision,
+            samples=samples,
+            method=method,
+            weight_type=weight_type,
+            activation_type=activation_type,
+            per_channel=per_channel,
+            symmetric=symmetric,
+            reduce_range=reduce_range,
+            task=task,
+            model_id=model_id,
+            console=console,
+        )
+        return
+
+    # ── Single-precision (or default) path ───────────────────────
+    single = precision[0] if precision else None
+    precision_lower = single.lower() if single else None
 
     if precision_lower == "fp16":
         # FP16 conversion
@@ -208,13 +251,31 @@ def quantize(
         config = WinMLQuantizationConfig(mode="rtn", rtn_bits=rtn_bits)
         label = f"RTN {rtn_bits}-bit quantization"
 
+    elif precision_lower == "dynamic":
+        # Dynamic quantization: weights quantized statically, activation
+        # quantization parameters computed at runtime (no calibration data).
+        _warn_ignored_dynamic_options(ctx, console)
+        if output is None:
+            output = model.parent / f"{model.stem}_dynamic.onnx"
+        resolved_weight = weight_type or "uint8"
+        config = WinMLQuantizationConfig(
+            mode="dynamic",
+            weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
+            per_channel=per_channel,
+            symmetric=symmetric,
+            reduce_range=reduce_range,
+        )
+        label = "Dynamic quantization"
+        console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
+        console.print("[bold blue]Activations:[/bold blue] dynamic (computed at runtime)")
+
     else:
         # QDQ calibrated quantization
         resolved_weight, resolved_activation = _resolve_quant_types(
-            precision, weight_type, activation_type
+            single, weight_type, activation_type
         )
         if output is None:
-            output = model.parent / f"{model.stem}_qdq.onnx"
+            output = model.parent / f"{model.stem}_quantized.onnx"
         config = WinMLQuantizationConfig(
             samples=samples,
             calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
@@ -243,13 +304,11 @@ def quantize(
         console.print(f"[bold blue]Dataset:[/bold blue] {_dataset_display}")
 
     # ── Shared execution: print header, run, report ──────────────
-    # Refuse to clobber an existing output unless the user opted in. Runs after
-    # the per-precision default path is resolved, before any mkdir/work.
     cli_utils.guard_output(output, overwrite)
     output.parent.mkdir(parents=True, exist_ok=True)
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Output:[/bold blue] {output}")
-    console.print(f"[bold blue]Precision:[/bold blue] {precision or 'auto'}")
+    console.print(f"[bold blue]Precision:[/bold blue] {single or 'auto'}")
 
     try:
         console.print(f"\n[bold]Running {label.lower()}...[/bold]")
@@ -273,6 +332,148 @@ def quantize(
         console.print(f"\n[bold red]{label} failed:[/bold red] {e}")
         logger.exception("%s failed", label)
         raise click.ClickException(f"{label} failed: {e}") from e
+
+
+def _cli_precision_to_mode(precision: str) -> str:
+    """Map a CLI precision string to a quantizer pass mode."""
+    p = precision.lower()
+    if p == "fp16":
+        return "fp16"
+    if p == "dynamic":
+        return "dynamic"
+    if is_weight_only_precision(p):
+        return "rtn"
+    return "static"
+
+
+def _warn_ignored_dynamic_options(ctx: click.Context, console: Console) -> None:
+    """Warn about calibration/activation options that dynamic quantization ignores.
+
+    Dynamic quantization honours ``--weight-type``, ``--per-channel`` and
+    ``--symmetric`` but derives activation quantization at runtime, so it never
+    uses calibration samples/method/task or an explicit activation type.
+    """
+    checks = [
+        ("samples", "--samples"),
+        ("method", "--method"),
+        ("activation_type", "--activation-type"),
+        ("task", "--task"),
+        ("model_id", "--model-id"),
+    ]
+    ignored = [flag for param, flag in checks if cli_utils.is_cli_provided(ctx, param)]
+    if ignored:
+        console.print(
+            f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — "
+            "dynamic quantization does not use calibration data."
+        )
+
+
+def _run_multi_precision(
+    *,
+    ctx: click.Context,
+    model: Path,
+    output: Path | None,
+    overwrite: bool,
+    precision: tuple[str, ...],
+    samples: int,
+    method: str,
+    weight_type: str | None,
+    activation_type: str | None,
+    per_channel: bool,
+    symmetric: bool,
+    reduce_range: bool,
+    task: str | None,
+    model_id: str | None,
+    console: Console,
+) -> None:
+    """Execute a multi-pass quantization pipeline from ordered precision strings."""
+    from ..config.precision import extract_weight_bits
+    from ..quant import Quantizer, WinMLQuantizationConfig, expand_precision
+    from ..quant.quantizer import _check_input_model_opset
+
+    modes = [_cli_precision_to_mode(p) for p in precision]
+    has_calibration_pass = any(m == "static" for m in modes)
+
+    if not has_calibration_pass:
+        cli_utils.warn_ignored_calibration_options(
+            ctx, "No selected pass uses calibration data.", console=console
+        )
+
+    # Extract rtn_bits from the first weight-only precision in the list.
+    rtn_bits = next(
+        (extract_weight_bits(p.lower()) for p in precision if is_weight_only_precision(p.lower())),
+        4,
+    )
+
+    # Resolve weight/activation types from the first static precision in the list
+    # (same logic as single-pass path) so -p int16 -p fp16 uses int16, not uint8.
+    first_static = next(
+        (p for p in precision if _cli_precision_to_mode(p) == "static"),
+        None,
+    )
+    resolved_weight, resolved_activation = _resolve_quant_types(
+        first_static, weight_type, activation_type
+    )
+
+    config = WinMLQuantizationConfig(
+        rtn_bits=rtn_bits,
+        samples=samples,
+        calibration_method=cast('Literal["minmax", "entropy", "percentile"]', method),
+        weight_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_weight),
+        activation_type=cast('Literal["uint8", "int8", "uint16", "int16"]', resolved_activation),
+        per_channel=per_channel,
+        symmetric=symmetric,
+        reduce_range=reduce_range,
+        task=task,
+        model_id=model_id,
+    )
+
+    passes = []
+    for mode in modes:
+        passes.extend(expand_precision(mode, config))
+
+    label = " → ".join(p.lower() for p in precision)
+    if output is None:
+        suffix = "_".join(p.lower() for p in precision)
+        output = model.parent / f"{model.stem}_{suffix}.onnx"
+
+    cli_utils.guard_output(output, overwrite)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    console.print(f"[bold blue]Input:[/bold blue] {model}")
+    console.print(f"[bold blue]Output:[/bold blue] {output}")
+    console.print(f"[bold blue]Pipeline:[/bold blue] {label}")
+
+    try:
+        console.print(f"\n[bold]Running pipeline: {label}...[/bold]")
+        # Mirror quantize_onnx's input guard: the multi-precision path drives the
+        # Quantizer pipeline directly (bypassing quantize_onnx), so surface a
+        # clear disk-full/corruption error here too instead of ORT's opaque
+        # "Failed to find proper ai.onnx domain" deep inside a pass. A missing
+        # file is left to Quantizer.run(), which reports "Model not found".
+        opset_error = _check_input_model_opset(model) if model.exists() else None
+        if opset_error is not None:
+            console.print("\n[bold red]Pipeline failed:[/bold red]")
+            console.print(f"  {opset_error}")
+            raise click.ClickException("Pipeline failed")
+
+        result = Quantizer(passes).run(model, output)
+
+        if result.success:
+            console.print("\n[bold green]Success![/bold green] Pipeline complete")
+            console.print(f"[dim]Output: {result.output_path}[/dim]")
+            console.print(f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]")
+        else:
+            console.print("\n[bold red]Pipeline failed:[/bold red]")
+            for error in result.errors:
+                console.print(f"  {error}")
+            raise click.ClickException("Pipeline failed")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        console.print(f"\n[bold red]Pipeline failed:[/bold red] {e}")
+        logger.exception("Pipeline failed")
+        raise click.ClickException(f"Pipeline failed: {e}") from e
 
 
 def _resolve_quant_types(

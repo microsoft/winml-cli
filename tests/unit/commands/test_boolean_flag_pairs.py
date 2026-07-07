@@ -102,7 +102,17 @@ from winml.modelkit.commands.serve import serve
                 "--no-allow-unsupported-nodes",
             ],
         ),
-        (quantize, ["--per-channel", "--no-per-channel", "--symmetric", "--no-symmetric"]),
+        (
+            quantize,
+            [
+                "--per-channel",
+                "--no-per-channel",
+                "--symmetric",
+                "--no-symmetric",
+                "--reduce-range",
+                "--no-reduce-range",
+            ],
+        ),
         (serve, ["--multi", "--no-multi"]),
     ],
 )
@@ -147,6 +157,7 @@ class TestDefaultValues:
             (perf, "monitor", False),
             (quantize, "per_channel", False),
             (quantize, "symmetric", False),
+            (quantize, "reduce_range", False),
             (serve, "multi", False),
             (serve, "auto_reload", False),
             # Group C: negative-to-positive flags default True
@@ -203,6 +214,7 @@ class TestFlagValueParsing:
             (perf, "--monitor", "monitor", True),
             (quantize, "--per-channel", "per_channel", True),
             (quantize, "--symmetric", "symmetric", True),
+            (quantize, "--reduce-range", "reduce_range", True),
             (serve, "--multi", "multi", True),
             (serve, "--auto-reload", "auto_reload", True),
             # Negative form sets False
@@ -231,6 +243,7 @@ class TestFlagValueParsing:
             (perf, "--no-monitor", "monitor", False),
             (quantize, "--no-per-channel", "per_channel", False),
             (quantize, "--no-symmetric", "symmetric", False),
+            (quantize, "--no-reduce-range", "reduce_range", False),
             (serve, "--no-multi", "multi", False),
             (serve, "--no-auto-reload", "auto_reload", False),
             # Backward compat: --clean-onnx (deprecated alias for --no-hierarchy)

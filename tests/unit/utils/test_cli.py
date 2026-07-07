@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import click
@@ -13,11 +14,14 @@ import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.utils.cli import (
+    ModelInputKind,
     analyze_option,
     build_pipeline_extra_kwargs,
+    classify_model_input,
     guard_output,
     ignored_build_flags_warning,
     max_optim_iterations_option,
+    no_color_option,
     optimize_option,
     overwrite_option,
     parse_ep_options,
@@ -72,6 +76,44 @@ class TestParseEpOptions:
     def test_empty_key_raises(self) -> None:
         with pytest.raises(click.BadParameter):
             parse_ep_options(("=value",))
+
+
+class TestNoColorOption:
+    """Tests for the shared no_color_option() decorator."""
+
+    @staticmethod
+    def _make_cmd() -> click.Command:
+        @click.command()
+        @no_color_option()
+        def cmd() -> None:
+            click.echo("NO_COLOR" in os.environ)
+
+        return cmd
+
+    def test_no_flag_leaves_env_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without --no-color, NO_COLOR is not set by the callback."""
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        result = CliRunner().invoke(self._make_cmd(), [])
+        assert result.exit_code == 0
+        assert result.output.strip() == "False"
+
+    def test_flag_sets_no_color_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--no-color sets NO_COLOR=1 so Rich disables color for the run."""
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        result = CliRunner().invoke(self._make_cmd(), ["--no-color"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "True"
+
+    def test_flag_not_exposed_as_param(self) -> None:
+        """expose_value=False: the command takes no extra parameter."""
+        result = CliRunner().invoke(self._make_cmd(), ["--no-color"])
+        assert result.exit_code == 0
+
+    def test_help_documents_env_vars(self) -> None:
+        """Help mentions the NO_COLOR / CI environment fallbacks."""
+        result = CliRunner().invoke(self._make_cmd(), ["--help"])
+        assert "--no-color" in result.output
+        assert "NO_COLOR" in result.output
 
 
 class TestPrecisionOption:
@@ -322,6 +364,123 @@ class TestIgnoredBuildFlagsWarning:
         msg = ignored_build_flags_warning(skip_build_onnx=True, max_optim_iterations=0)
         assert msg is not None
         assert "--max-optim-iterations" in msg
+
+
+class TestClassifyModelInput:
+    """Tests for classify_model_input() and ModelInput."""
+
+    # --- not present on disk ------------------------------------------------
+
+    def test_hf_id_bare_name(self) -> None:
+        result = classify_model_input("bert-base-uncased")
+        assert result.kind is ModelInputKind.HF_ID
+        assert result.raw == "bert-base-uncased"
+        assert not result.is_hf_folder
+        assert not result.folder_has_onnx
+        assert not result.is_winml_cli_folder
+
+    def test_hf_id_org_name(self) -> None:
+        result = classify_model_input("microsoft/resnet-50")
+        assert result.kind is ModelInputKind.HF_ID
+
+    def test_hf_id_with_dots_in_name(self) -> None:
+        """Version dots (e.g. Qwen2.5) are valid HF id characters."""
+        result = classify_model_input("Qwen/Qwen2.5-0.5B")
+        assert result.kind is ModelInputKind.HF_ID
+
+    def test_missing_onnx_file_raises(self) -> None:
+        """A non-existent .onnx path is an error, not an HF id (#553)."""
+        with pytest.raises(click.UsageError, match="ONNX file not found"):
+            classify_model_input("does_not_exist.onnx")
+
+    def test_missing_path_shaped_value_raises(self) -> None:
+        with pytest.raises(click.UsageError, match="path does not exist"):
+            classify_model_input("./nope/model_dir")
+
+    def test_missing_nested_path_raises(self) -> None:
+        """More than one slash marks a path, not an org/name HF id."""
+        with pytest.raises(click.UsageError, match="path does not exist"):
+            classify_model_input("a/b/c")
+
+    def test_invalid_hf_id_raises(self) -> None:
+        with pytest.raises(click.UsageError, match="not a valid HuggingFace"):
+            classify_model_input("has spaces")
+
+    # --- existing file ------------------------------------------------------
+
+    def test_existing_onnx_file(self, tmp_path: Path) -> None:
+        onnx = tmp_path / "model.onnx"
+        onnx.write_bytes(b"\x00")
+        result = classify_model_input(str(onnx))
+        assert result.kind is ModelInputKind.ONNX_FILE
+        assert result.raw == str(onnx)
+
+    def test_existing_non_onnx_file_raises(self, tmp_path: Path) -> None:
+        other = tmp_path / "weights.safetensors"
+        other.write_bytes(b"\x00")
+        with pytest.raises(click.UsageError, match="Unsupported model file"):
+            classify_model_input(str(other))
+
+    # --- existing directory -------------------------------------------------
+
+    def test_hf_source_folder(self, tmp_path: Path) -> None:
+        """config.json but no onnx -> HF source folder."""
+        (tmp_path / "config.json").write_text("{}")
+        result = classify_model_input(str(tmp_path))
+        assert result.kind is ModelInputKind.FOLDER
+        assert result.is_hf_folder
+        assert not result.folder_has_onnx
+        assert not result.is_winml_cli_folder
+
+    def test_loose_onnx_folder(self, tmp_path: Path) -> None:
+        """onnx but no manifest -> loadable dir, not a winml build output."""
+        (tmp_path / "model.onnx").write_bytes(b"\x00")
+        result = classify_model_input(str(tmp_path))
+        assert result.kind is ModelInputKind.FOLDER
+        assert result.folder_has_onnx
+        assert not result.is_winml_cli_folder
+        assert not result.is_hf_folder
+
+    def test_winml_build_folder(self, tmp_path: Path) -> None:
+        """onnx + build_manifest.json -> winml cli build output."""
+        (tmp_path / "model.onnx").write_bytes(b"\x00")
+        (tmp_path / "build_manifest.json").write_text("{}")
+        result = classify_model_input(str(tmp_path))
+        assert result.kind is ModelInputKind.FOLDER
+        assert result.folder_has_onnx
+        assert result.is_winml_cli_folder
+
+    def test_winml_build_folder_cache_prefixed(self, tmp_path: Path) -> None:
+        """Cache-key-prefixed artifact names are recognized too."""
+        (tmp_path / "abc123_model.onnx").write_bytes(b"\x00")
+        (tmp_path / "abc123_build_manifest.json").write_text("{}")
+        result = classify_model_input(str(tmp_path))
+        assert result.folder_has_onnx
+        assert result.is_winml_cli_folder
+
+    def test_manifest_without_onnx_is_not_winml_folder(self, tmp_path: Path) -> None:
+        """A manifest with no onnx (partial build) is not a winml build dir."""
+        (tmp_path / "build_manifest.json").write_text("{}")
+        result = classify_model_input(str(tmp_path))
+        assert not result.folder_has_onnx
+        assert not result.is_winml_cli_folder
+
+    def test_winml_folder_can_also_be_hf_folder(self, tmp_path: Path) -> None:
+        """Build dirs often carry a copied config.json; flags are independent."""
+        (tmp_path / "model.onnx").write_bytes(b"\x00")
+        (tmp_path / "build_manifest.json").write_text("{}")
+        (tmp_path / "config.json").write_text("{}")
+        result = classify_model_input(str(tmp_path))
+        assert result.is_winml_cli_folder
+        assert result.is_hf_folder
+
+    def test_existing_dir_wins_over_hf_id_shape(self, tmp_path: Path) -> None:
+        """An on-disk directory is classified as FOLDER even if its name
+        would parse as an HF id."""
+        d = tmp_path / "org"
+        d.mkdir()
+        result = classify_model_input(str(d))
+        assert result.kind is ModelInputKind.FOLDER
 
 
 class TestOverwriteOption:

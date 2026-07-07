@@ -16,7 +16,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-import sys
 from typing import TYPE_CHECKING
 
 import click
@@ -117,12 +116,10 @@ def serve(
     """
     try:
         import uvicorn
-    except ImportError:
-        click.echo(
-            "Error: uvicorn is required. Install with: pip install uvicorn[standard]",
-            err=True,
-        )
-        sys.exit(1)
+    except ImportError as e:
+        raise click.ClickException(
+            "uvicorn is required. Install with: pip install uvicorn[standard]"
+        ) from e
 
     if ctx.obj and ctx.obj.get("debug"):
         logging.getLogger("modelkit").setLevel(logging.DEBUG)
@@ -135,8 +132,7 @@ def serve(
             from ..serve.cli_api import app
             from ..serve.cli_api import print_startup_banner as _banner0
         except ImportError as e:
-            click.echo(f"Error: Failed to load serving module: {e}", err=True)
-            sys.exit(1)
+            raise click.ClickException(f"Failed to load serving module: {e}") from e
         _banner0(host=host, port=port)
         uvicorn.run(app, host=host, port=port, reload=auto_reload, log_level="warning")
         return
@@ -148,8 +144,7 @@ def serve(
         from ..serve.app import create_app
         from ..serve.app import print_startup_banner as _banner1
     except ImportError as e:
-        click.echo(f"Error: Failed to load inference serving module: {e}", err=True)
-        sys.exit(1)
+        raise click.ClickException(f"Failed to load inference serving module: {e}") from e
 
     mode = "multi" if multi else "single"
     inference_app = create_app(

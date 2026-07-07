@@ -56,7 +56,8 @@ class WinMLQuantizationConfig:
     # Quantization mode
     mode: Literal["static", "dynamic", "rtn", "fp16"] = "static"
     # "static"  — Calibrated QDQ quantization (requires calibration data)
-    # "dynamic" — Dynamic quantization (no calibration) [planned, not yet wired]
+    # "dynamic" — Dynamic quantization: weights quantized statically, activations
+    #             at runtime (no calibration data)
     # "rtn"     — Round-To-Nearest weight-only (no calibration, block-wise)
     # "fp16"    — Pure FP16 conversion only (no quantization)
 
@@ -70,6 +71,14 @@ class WinMLQuantizationConfig:
     model_id: str | None = None  # e.g., "microsoft/resnet-50"
     dataset_name: str | None = None  # Optional: override default dataset
 
+    # Model-type-specific quant policy selector. When set to a model_type that
+    # has a registered finalizer (see ``quant.calibration.QUANT_FINALIZERS``),
+    # ``quantize_onnx`` resolves and applies that policy — populating the
+    # calibration reader / nodes-to-exclude / fixed dtypes from the exported
+    # graph — before running the quantization pass. None = no model-specific
+    # policy (use the default task-aware calibration).
+    model_type: str | None = None
+
     # Quantization types (static/dynamic)
     weight_type: Literal["uint8", "int8", "uint16", "int16"] = "uint8"
     activation_type: Literal["uint8", "int8", "uint16", "int16"] = "uint8"
@@ -77,6 +86,11 @@ class WinMLQuantizationConfig:
     # Quantization options (static/dynamic)
     per_channel: bool = False
     symmetric: bool = False
+    # Optional per-target symmetry overrides. When None, fall back to
+    # ``symmetric``. Lets w8a16 use symmetric weights (int8, zp=0) together
+    # with asymmetric activations (uint16).
+    weight_symmetric: bool | None = None
+    activation_symmetric: bool | None = None
 
     # Output settings
     save_calibration: bool = False
@@ -96,6 +110,11 @@ class WinMLQuantizationConfig:
     rtn_block_size: int = 128
     rtn_symmetric: bool = True
     rtn_accuracy_level: int = 0
+
+    # Dynamic-specific settings (only used when mode="dynamic")
+    # Quantize weights with 7 bits instead of 8 to avoid numerical saturation
+    # of the u8*s8 accumulation on CPUs without VNNI instructions.
+    reduce_range: bool = False
 
     # FP16 conversion settings (only used when mode="fp16")
     fp16_keep_io_types: bool = True
@@ -117,6 +136,8 @@ class WinMLQuantizationConfig:
             "activation_type": self.activation_type,
             "per_channel": self.per_channel,
             "symmetric": self.symmetric,
+            "weight_symmetric": self.weight_symmetric,
+            "activation_symmetric": self.activation_symmetric,
             "save_calibration": self.save_calibration,
             "distribution": self.distribution,
             "seed": self.seed,
@@ -135,11 +156,15 @@ class WinMLQuantizationConfig:
             result["model_id"] = self.model_id
         if self.dataset_name is not None:
             result["dataset_name"] = self.dataset_name
+        if self.model_type is not None:
+            result["model_type"] = self.model_type
         if self.mode == "rtn":
             result["rtn_bits"] = self.rtn_bits
             result["rtn_block_size"] = self.rtn_block_size
             result["rtn_symmetric"] = self.rtn_symmetric
             result["rtn_accuracy_level"] = self.rtn_accuracy_level
+        if self.mode == "dynamic":
+            result["reduce_range"] = self.reduce_range
         if self.mode == "fp16":
             result["fp16_keep_io_types"] = self.fp16_keep_io_types
             result["fp16_op_block_list"] = self.fp16_op_block_list
@@ -167,10 +192,13 @@ class WinMLQuantizationConfig:
             task=data.get("task"),
             model_id=data.get("model_id"),
             dataset_name=data.get("dataset_name"),
+            model_type=data.get("model_type"),
             weight_type=data.get("weight_type", "uint8"),
             activation_type=data.get("activation_type", "uint8"),
             per_channel=data.get("per_channel", False),
             symmetric=data.get("symmetric", False),
+            weight_symmetric=data.get("weight_symmetric"),
+            activation_symmetric=data.get("activation_symmetric"),
             save_calibration=data.get("save_calibration", False),
             distribution=data.get("distribution", "uniform"),
             seed=data.get("seed"),
@@ -186,6 +214,7 @@ class WinMLQuantizationConfig:
             rtn_block_size=data.get("rtn_block_size", 128),
             rtn_symmetric=data.get("rtn_symmetric", True),
             rtn_accuracy_level=data.get("rtn_accuracy_level", 0),
+            reduce_range=data.get("reduce_range", False),
             fp16_keep_io_types=data.get("fp16_keep_io_types", True),
             fp16_op_block_list=data.get("fp16_op_block_list"),
         )
