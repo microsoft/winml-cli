@@ -27,6 +27,8 @@ METRIC_COMPARE_STRATEGY: dict[str, tuple[str, float, float, bool]] = {
     "pseudo_perplexity": ("delta_relative", 0.05, 0.10, False),
     # CER (OCR error rate): lower is better.
     "cer": ("delta_relative", 0.05, 0.10, False),
+    # AbsRel (depth-estimation error): lower is better.
+    "abs_rel": ("delta_relative", 0.05, 0.10, False),
     "default": ("delta_relative", 0.05, 0.10, True),  # 5% and 10%
 }
 
