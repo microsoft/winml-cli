@@ -328,6 +328,8 @@ class GenaiPerfBenchmark:
         if device and device not in ("config", "auto"):
             return device
         canonical = normalize_ep_name(ep)
+        if canonical is None:
+            return None
         devices = EP_SUPPORTED_DEVICES.get(canonical)
         return devices[0] if devices else None
 
