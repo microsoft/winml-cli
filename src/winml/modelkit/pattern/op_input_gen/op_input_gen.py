@@ -454,6 +454,22 @@ class OpInputGenerator(ABC):
             self.type_annotations,
         ) = get_op_input_properties(self.schema)
 
+        # Inputs whose schema type is driven by TypeVar (e.g. T/T1/T2). Only these
+        # need dtype alignment with applied type_var combinations when serializing
+        # value constraints for output JSON.
+        type_var_names = tuple(self.type_var_dtypes_to_test.keys())
+        input_names_for_type_check = list(self.op_input_names)
+        if self.op_variadic_input_name is not None:
+            input_names_for_type_check.append(self.op_variadic_input_name)
+        self._type_var_bound_inputs = {
+            input_name
+            for input_name in input_names_for_type_check
+            if any(
+                type_var in self.type_annotations.get(input_name, "")
+                for type_var in type_var_names
+            )
+        }
+
         # Identify optional inputs from schema
         self.optional_input_names = [
             input_param.name
@@ -1458,12 +1474,17 @@ class OpInputGenerator(ABC):
         # TODO: check none of the inputs or attributes are omitted
         invalid_inputs = []
         current_inputs = None
+        current_validation_key = None
         has_succeeded = False
         for kwargs, tags in self.iter():
-            if tags["input_constraints"] != current_inputs:
+            # Use a stable key for grouping so validation remains independent from
+            # type-var-applied dtype serialization in input_constraints.
+            validation_key = tags.get("_validation_input_constraints", tags["input_constraints"])
+            if validation_key != current_validation_key:
                 if current_inputs is not None and not has_succeeded:
                     invalid_inputs.append(current_inputs)
                 current_inputs = tags["input_constraints"]
+                current_validation_key = validation_key
                 has_succeeded = False
                 print("Validating input combination:", current_inputs)
             if has_succeeded:
@@ -1560,6 +1581,9 @@ class OpInputGenerator(ABC):
                 print("Running", kwargs_summary)
 
                 for onnx_model, final_tags in self.iter_const_and_dynamic_models(kwargs, tags):
+                    # Internal grouping key used only by validate_inputs().
+                    final_tags.pop("_validation_input_constraints", None)
+
                     # Check if we should skip this case based on signature (delta/rerun mode).
                     # The skip signature does not depend on model_bytes_b64, so serializing
                     # the model is deferred until we know the case is not discarded.
@@ -1780,11 +1804,6 @@ class OpInputGenerator(ABC):
                                 )
                                 for name, type_annotation in self.type_annotations.items()
                             }
-                            input_constraints = {
-                                k: v.to_dict() if isinstance(v, InputConstraint) else v
-                                for k, v in optional_input_comb.items()
-                                if self._is_input_key(k)
-                            }
                             applied_input_comb = {
                                 k: (
                                     v.get_value(type_annotation=applied_type_annotations[k])
@@ -1793,6 +1812,34 @@ class OpInputGenerator(ABC):
                                 )
                                 for k, v in optional_input_comb.items()
                             }
+
+                            # Stable constraints are used only for validate_inputs() grouping.
+                            # Keep these independent from type_var-applied dtype changes.
+                            validation_input_constraints: dict[str, Any] = {}
+
+                            # Persisted input constraints: align dtype with applied type_vars
+                            # only for inputs whose schema type is type-var bound.
+                            input_constraints: dict[str, Any] = {}
+                            for k, v in optional_input_comb.items():
+                                if not self._is_input_key(k):
+                                    continue
+                                if isinstance(v, InputConstraint):
+                                    validation_input_constraints[k] = v.to_dict()
+                                else:
+                                    validation_input_constraints[k] = v
+
+                                if isinstance(v, InputValueConstraint):
+                                    if k in self._type_var_bound_inputs:
+                                        input_constraints[k] = InputValueConstraint(
+                                            applied_input_comb[k]
+                                        ).to_dict()
+                                    else:
+                                        input_constraints[k] = v.to_dict()
+                                elif isinstance(v, InputConstraint):
+                                    input_constraints[k] = v.to_dict()
+                                else:
+                                    input_constraints[k] = v
+
                             kwargs = {**attr_comb, **applied_input_comb}
                             # Expand variadic inputs to key-value
                             # pairs, and normalize kv order
@@ -1819,6 +1866,9 @@ class OpInputGenerator(ABC):
                             tags = {
                                 self.type_vars_key: type_var_comb,
                                 "input_constraints": self.filter_kwargs_by_opset(input_constraints),
+                                "_validation_input_constraints": self.filter_kwargs_by_opset(
+                                    validation_input_constraints
+                                ),
                                 "attrs": attrs,
                             }
                             yield self.filter_kwargs_by_opset(kwargs), tags
