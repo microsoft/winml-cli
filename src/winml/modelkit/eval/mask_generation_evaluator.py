@@ -40,7 +40,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from transformers.pipelines.base import Pipeline
 
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..utils.constants import EPNameOrAlias
     from .config import WinMLEvaluationConfig
 
 
@@ -682,9 +683,10 @@ def _build_providers(
             )
         primary = compatible[0]
     else:
-        primary = normalize_ep_name(ep)
-        if primary not in EP_SUPPORTED_DEVICES:
+        normalized = normalize_ep_name(cast("EPNameOrAlias", ep))
+        if normalized is None or normalized not in EP_SUPPORTED_DEVICES:
             raise ValueError(f"Unknown EP {ep!r}. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
+        primary = normalized
 
     avail = set(ort.get_available_providers())
     if primary not in avail:
@@ -692,7 +694,7 @@ def _build_providers(
             f"Requested EP {primary!r} is not available. Available providers: {sorted(avail)}"
         )
 
-    providers = [primary]
+    providers: list[str] = [primary]
     if primary != "CPUExecutionProvider" and "CPUExecutionProvider" in avail:
         providers.append("CPUExecutionProvider")
 
