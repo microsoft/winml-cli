@@ -79,6 +79,10 @@ def _fetch_image(file_name: str) -> bytes:
 
 def build(output_dir: Path, num_images: int, cache_dir: Path, seed: int = 42) -> None:
     """Build and save the COCO keypoints dataset to ``output_dir``."""
+    if (output_dir / "dataset_info.json").exists():
+        print(f"Dataset already exists at {output_dir}, skipping build.")
+        return
+
     from datasets import Dataset, Features, Image, Sequence, Value
     from PIL import Image as PILImage
 
@@ -141,7 +145,7 @@ def main() -> int:
     parser.add_argument(
         "--num-images",
         type=int,
-        default=100,
+        default=500,
         help="Number of images to include (0 = all images with keypoints).",
     )
     parser.add_argument(

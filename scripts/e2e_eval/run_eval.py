@@ -3,27 +3,34 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""E2E evaluation runner — unified perf + accuracy.
+"""E2E evaluation runner — unified, recipe-driven perf + accuracy.
 
-Batch-runs winml perf (and optionally winml eval + pytorch baseline) for models
-in a JSON registry, writes unified eval_result.json per model, and generates
-combined reports.
+Batch-builds models and runs winml perf, then (when perf passes) winml eval,
+writing one unified eval_result.json per (model, task, precision). Builds prefer
+an authored recipe under ``examples/recipes/`` (``winml build -c`` for each
+precision variant), falling back to ``winml config`` for models without one.
 
-Strategy B cache sharing: winml perf runs first (build + benchmark, populates
-model cache). winml eval then reuses the cache — no redundant build step.
+The runner records facts only (perf output + the winml-eval metrics/dataset).
+The per-model report HTML — perf latency and the "Model Accuracy Report" delta
+vs the PyTorch baseline — is rendered separately by the ModelKitArtifacts-site
+scripts from these eval_result.json files. Use ``--update-baseline`` to refresh
+the offline baseline cache the site grades against.
 
 Usage:
-    # Perf only (default)
+    # Perf only (default), recipe-driven across precision variants
     python scripts/e2e_eval/run_eval.py --priority P0
 
-    # Both perf and accuracy in one batch
+    # Perf, then accuracy when perf passes
     python scripts/e2e_eval/run_eval.py --eval-type both --priority P0
 
-    # Accuracy only (winml perf is skipped; winml eval will build the model if cache is missing)
+    # Accuracy only (winml perf skipped)
     python scripts/e2e_eval/run_eval.py --eval-type accuracy --hf-model microsoft/resnet-50
 
     # Single model
     python scripts/e2e_eval/run_eval.py --hf-model microsoft/resnet-50 --device cpu
+
+    # Refresh the offline PyTorch baseline cache (no build/perf/eval)
+    python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accuracy --priority P0
 """
 
 from __future__ import annotations
@@ -42,6 +49,7 @@ import sys
 import tempfile
 import threading
 import time
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -49,14 +57,8 @@ from pathlib import Path
 # Ensure utils is importable when invoked directly
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.accuracy import (
-    AccuracyVerdict,
-    compute_delta,
-    derive_verdict,
-    derive_verdicts,
-    format_delta,
-)
 from utils.dataset_config import get_dataset_config, register_from_registry
+from utils.recipes import RecipeVariant, discover_recipe_variants
 from utils.registry import (
     ModelEntry,
     filter_registry,
@@ -65,16 +67,12 @@ from utils.registry import (
     op_tracing_target_key,
 )
 from utils.reporter import (
+    accuracy_status,
     build_eval_result,
     classify_result,
     classify_results,
-    format_text_summary,
-    generate_html_report,
-    generate_summary,
     load_result_json,
     write_result_json,
-    write_summary_json,
-    write_summary_md,
 )
 
 
@@ -230,6 +228,56 @@ def _clear_disk_caches() -> None:
                     pass  # Best-effort cleanup; ignore if file is locked or already removed
         if cleaned:
             safe_print(f"  [cleanup] Removed {cleaned} leaked temp entries from {_TEMP_DIR}")
+
+
+# Stray scratch files that onnxruntime/QNN/EP libraries write into the *process
+# working directory* (the repo root when the harness is launched from there),
+# outside any path the harness controls via ``-o``/``--output``:
+#   * ``<uuid>.onnx`` / ``<uuid>.data`` / ``<uuid>.onnx.data`` — external-data
+#     serializations from shape inference / quant preprocessing.
+#   * ``<uuid>.onnx_<EP>.bin`` / ``<uuid>_ctx.onnx`` — QNN/VitisAI EP context
+#     dumps (can be very large, which is what fills a QNN box's disk).
+#   * ``sym_shape_infer_temp.onnx`` — onnxruntime symbolic shape inference temp.
+#   * ``timing_log.csv`` — engine-compile timing dump written by some EP
+#     runtimes (TensorRT-RTX / MIGraphX / VitisAI) on session creation.
+# Matched conservatively (UUID-prefixed names, the sym-shape prefix, or an exact
+# fixed filename) so real, non-temporary files in the cwd are never touched.
+_UUID_PREFIX_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+_STRAY_CWD_PREFIXES = ("sym_shape_infer_temp",)
+_STRAY_CWD_EXACT = frozenset({"timing_log.csv"})
+
+
+def _clean_stray_cwd_artifacts(directory: Path) -> int:
+    """Remove ORT/QNN/EP scratch files libraries leak into ``directory``.
+
+    These land in the subprocess working directory (inherited from the harness,
+    i.e. the repo root) and are not covered by the per-job or cache cleanups, so
+    across many jobs they fill the disk even with ``--clean-cache``. Only clearly
+    temporary names are removed (see ``_UUID_PREFIX_RE`` / ``_STRAY_CWD_PREFIXES``
+    / ``_STRAY_CWD_EXACT``). Returns the number of files removed.
+    """
+    if not directory.is_dir():
+        return 0
+    removed = 0
+    for entry in directory.iterdir():
+        if not entry.is_file():
+            continue
+        name = entry.name
+        if (
+            _UUID_PREFIX_RE.match(name)
+            or name.startswith(_STRAY_CWD_PREFIXES)
+            or name in _STRAY_CWD_EXACT
+        ):
+            try:
+                entry.unlink()
+                removed += 1
+            except OSError:
+                pass  # Best-effort; ignore locked/already-removed files
+    if removed:
+        safe_print(f"  [cleanup] Removed {removed} stray scratch file(s) from {directory}")
+    return removed
 
 
 def safe_print(text: str) -> None:
@@ -625,6 +673,142 @@ def _run_build(
         "onnx_paths": onnx_paths,
         "stage": "complete",
         "proc": last_proc,
+    }
+
+
+def _is_vitisai_ep(ep: str | None) -> bool:
+    """True when ``ep`` resolves to the VitisAI execution provider."""
+    from winml.modelkit.utils.constants import normalize_ep_name
+
+    return normalize_ep_name(ep) == "VitisAIExecutionProvider"
+
+
+def _config_has_eval_section(config_path: Path) -> bool:
+    """True when a recipe config carries an ``eval`` object."""
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(cfg.get("eval"), dict)
+
+
+def _recipe_meta_config(variant: RecipeVariant) -> Path | None:
+    """Return the variant's config that carries the ``eval`` section.
+
+    For composite recipes the eval/dataset config is the one (of the component
+    files) with an ``eval`` object; ``winml eval -c`` reads the dataset from it.
+    Single-model recipes return their sole config when it has an eval section.
+    """
+    for component in variant.components:
+        if _config_has_eval_section(component.path):
+            return component.path
+    return None
+
+
+def _needs_trust_remote_code(config_path: Path | None) -> bool:
+    """True when the recipe's eval dataset declares a ``build_script``.
+
+    Such datasets run bundled loading code, so ``winml eval`` needs
+    ``--trust-remote-code``.
+    """
+    if config_path is None:
+        return False
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    dataset = (cfg.get("eval") or {}).get("dataset") or {}
+    return bool(dataset.get("build_script"))
+
+
+def _run_recipe_build(
+    entry: ModelEntry,
+    variant: RecipeVariant,
+    timeout: int,
+    model_dir: Path,
+    ep: str | None = None,
+    rebuild: bool = False,
+) -> dict:
+    """Build an authored recipe variant with ``winml build -c --use-cache``.
+
+    The recipe config is the source of truth for export/optimize/quantize
+    (every recipe sets ``compile: null``, so the build is EP-agnostic and the
+    execution provider is applied later by perf/eval).  Each component is built
+    into the global WinML cache (``--use-cache``) — the same destination as the
+    ``winml config`` fallback path — so every job's build artifacts live under
+    ``~/.cache/winml`` regardless of recipe-vs-fallback, and the shared cache
+    cleanup (:func:`_clear_disk_caches`) bounds disk for both.  Returns the same
+    shape as :func:`_run_build` plus the ``meta_config`` (the eval/dataset config
+    for ``winml eval -c``).
+
+    For VitisAI ``--no-compile`` is passed for parity with the example harness;
+    it is a no-op while recipes keep ``compile: null`` but guards against a
+    future recipe that pins a compile EP.
+    """
+    model_dir.mkdir(parents=True, exist_ok=True)
+    meta_config = _recipe_meta_config(variant)
+    no_compile = _is_vitisai_ep(ep)
+
+    onnx_paths: dict[str, str] = {}
+    last_proc: dict | None = None
+    for component in variant.components:
+        role = component.role
+        if role:
+            safe_print(f"    building component: {role}")
+
+        build_args = [
+            *WINML_CLI,
+            "build",
+            "-c",
+            str(component.path),
+            "-m",
+            entry.hf_id,
+            "--use-cache",
+        ]
+        if no_compile:
+            build_args += ["--no-compile"]
+        if rebuild:
+            build_args += ["--rebuild"]
+
+        proc = _run_subprocess(build_args, timeout)
+        last_proc = proc
+        if proc["exit_code"] != 0:
+            stage = f"build_{role}" if role else "build"
+            return {
+                "success": False,
+                "onnx_paths": onnx_paths,
+                "stage": stage,
+                "proc": proc,
+                "meta_config": meta_config,
+            }
+
+        # Locate the cached artifact from the build output (same mechanism as
+        # the winml-config fallback). The component's own config carries the
+        # task, needed to disambiguate a model's multiple cached tasks.
+        task_hint = _extract_task_from_config(component.path) or entry.task
+        onnx = _extract_onnx_path(proc, entry.hf_id, task_hint)
+        if onnx is None:
+            proc = dict(proc)
+            proc["exit_code"] = proc.get("exit_code") or 1
+            proc["stderr"] = (
+                proc.get("stderr", "") + "\nBuilt ONNX artifact not found in WinML cache"
+            )
+            stage = f"build_{role}" if role else "build"
+            return {
+                "success": False,
+                "onnx_paths": onnx_paths,
+                "stage": stage,
+                "proc": proc,
+                "meta_config": meta_config,
+            }
+        onnx_paths[role or ""] = str(onnx)
+
+    return {
+        "success": len(onnx_paths) == len(variant.components),
+        "onnx_paths": onnx_paths,
+        "stage": "complete",
+        "proc": last_proc,
+        "meta_config": meta_config,
     }
 
 
@@ -1586,19 +1770,23 @@ def _parse_metric_from_stdout(stdout: str) -> dict | None:
     return None
 
 
-def _parse_metric_from_winml_output(
-    output_path: Path, metric_name: str, num_samples: int
-) -> dict | None:
-    """Parse winml eval --output JSON file into the canonical metric dict."""
+def _read_eval_output(output_path: Path) -> tuple[dict | None, dict | None]:
+    """Return ``(metrics, dataset)`` dicts from a winml eval --output JSON file.
+
+    ``winml eval`` writes the dataset config (with ``samples``) and the measured
+    ``metrics`` map at the top level; the site grades accuracy from these, so the
+    runner records both verbatim rather than collapsing to a single value.
+    """
     try:
         data = json.loads(output_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
-    metrics = data.get("metrics", {})
-    value = metrics.get(metric_name)
-    if value is None:
-        return None
-    return {"metric": metric_name, "value": float(value), "num_samples": num_samples}
+        return None, None
+    metrics = data.get("metrics")
+    dataset = data.get("dataset")
+    return (
+        metrics if isinstance(metrics, dict) else None,
+        dataset if isinstance(dataset, dict) else None,
+    )
 
 
 def _build_dataset(ds_config: dict, timeout: int) -> None:
@@ -1636,8 +1824,22 @@ def _run_winml_eval(
     model_dir: Path,
     onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
+    recipe_config: Path | None = None,
+    trust_remote_code: bool = False,
 ) -> dict:
-    """Invoke winml eval for one model. Returns process result + parsed metric."""
+    """Invoke winml eval for one model. Returns process result + parsed metrics.
+
+    Two dataset sources:
+
+    * ``recipe_config`` set — pass ``-c <config>`` so winml eval reads the
+      dataset straight from the recipe's ``eval`` section (no explicit dataset
+      flags). This is the recipe-driven path.
+    * otherwise — build explicit ``--dataset``/``--split``/... flags from
+      ``ds_config`` (the registry fallback path).
+
+    The full ``metrics`` and ``dataset`` maps from the eval output are returned
+    so the report site can grade accuracy against its baseline cache.
+    """
     output_path = model_dir / "winml_eval_output.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1668,39 +1870,60 @@ def _run_winml_eval(
         args += ["--task", entry.task]
     if ep:
         args += ["--ep", ep]
-    # When ds_config is provided, pass explicit dataset args;
-    # otherwise winml eval uses its built-in task defaults.
-    if ds_config.get("dataset"):
-        args += ["--dataset", ds_config["dataset"]]
-    if ds_config.get("split"):
-        args += ["--split", ds_config["split"]]
-    num_samples = ds_config.get("num_samples", _DEFAULT_SAMPLES)
-    args += ["--samples", str(num_samples)]
-    if ds_config.get("dataset_config"):
-        args += ["--dataset-name", ds_config["dataset_config"]]
-    if ds_config.get("revision"):
-        args += ["--dataset-revision", ds_config["revision"]]
-    for k, v in ds_config.get("columns_mapping", {}).items():
-        args += ["--column", f"{k}={v}"]
-    if ds_config.get("label_mapping_file"):
-        args += ["--label-mapping", ds_config["label_mapping_file"]]
-    if ds_config.get("streaming"):
-        args += ["--streaming"]
+
+    if recipe_config is not None:
+        # Recipe drives the dataset: winml eval reads the eval/dataset section
+        # from the config. Do not add explicit dataset flags (the recipe wins).
+        args += ["-c", str(recipe_config)]
+        if trust_remote_code:
+            args += ["--trust-remote-code"]
+    else:
+        # When ds_config is provided, pass explicit dataset args;
+        # otherwise winml eval uses its built-in task defaults.
+        if ds_config.get("dataset"):
+            args += ["--dataset", ds_config["dataset"]]
+        if ds_config.get("split"):
+            args += ["--split", ds_config["split"]]
+        args += ["--samples", str(ds_config.get("num_samples", _DEFAULT_SAMPLES))]
+        if ds_config.get("dataset_config"):
+            args += ["--dataset-name", ds_config["dataset_config"]]
+        if ds_config.get("revision"):
+            args += ["--dataset-revision", ds_config["revision"]]
+        for k, v in ds_config.get("columns_mapping", {}).items():
+            args += ["--column", f"{k}={v}"]
+        if ds_config.get("label_mapping_file"):
+            args += ["--label-mapping", ds_config["label_mapping_file"]]
+        if ds_config.get("streaming"):
+            args += ["--streaming"]
     args += ["--output", str(output_path)]
     args += entry.eval_args
 
     proc = _run_subprocess(args, timeout)
 
-    metric = None
+    metrics: dict | None = None
+    dataset: dict | None = None
+    metric: dict | None = None
     if proc["exit_code"] == 0 and output_path.exists():
-        winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric", "accuracy")
-        num_samples = ds_config.get("num_samples", _DEFAULT_SAMPLES)
-        metric = _parse_metric_from_winml_output(output_path, winml_key, num_samples)
-    status = "PASS" if (proc["exit_code"] == 0 and metric is not None) else "FAIL"
+        metrics, dataset = _read_eval_output(output_path)
+        # Best-effort single value for log lines; the site reads the full
+        # metrics map by its own key, so a miss here is non-fatal.
+        winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric")
+        if winml_key and metrics and winml_key in metrics:
+            num_samples = (dataset or {}).get("samples", ds_config.get("num_samples"))
+            metric = {"metric": winml_key, "value": float(metrics[winml_key]), "num_samples": num_samples}
+
+    # PASS requires a non-empty metrics map: a model that exits 0 but emits no
+    # measured metrics ({}) is treated as FAIL, not PASS (an empty dict is
+    # falsy here on purpose). The legacy PyTorch-baseline path parses a single
+    # metric object instead and uses `is not None`; both mean "no metric => not
+    # a pass".
+    status = "PASS" if (proc["exit_code"] == 0 and metrics) else "FAIL"
 
     return {
         "status": status,
         "metric": metric,
+        "metrics": metrics,
+        "dataset": dataset,
         "exit_code": proc["exit_code"],
         "stdout": proc["stdout"],
         "stderr": proc["stderr"],
@@ -1827,6 +2050,44 @@ def _run_pytorch_baseline(entry: ModelEntry, device: str, timeout: int) -> dict:
     }
 
 
+def _run_update_baseline(entries: list[ModelEntry], args: argparse.Namespace) -> None:
+    """Offline ``--update-baseline`` mode: refresh the PyTorch baseline cache.
+
+    Runs the PyTorch baseline for each filtered model and stores the result in
+    ``cache/baseline_cache.json`` (keyed by model/task/dataset/split/samples).
+    The per-run accuracy phase no longer computes baselines inline; this mode is
+    the independent, offline maintainer of the cache the report site grades
+    against. Builds/perf/eval are not run here.
+    """
+    safe_print(f"Update baseline cache: {len(entries)} models -> {BASELINE_CACHE_PATH}")
+    updated = 0
+    failed = 0
+    for i, entry in enumerate(entries, 1):
+        label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
+        ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
+        cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
+        if cached is not None and not args.retry_failed:
+            safe_print(f"[{i}/{len(entries)}] {label}  (cached {cached['metric']})")
+            continue
+
+        safe_print(f"[{i}/{len(entries)}] {label}  running baseline ...")
+        _build_dataset(ds_config, args.timeout)
+        baseline = _run_pytorch_baseline(entry, args.device, args.timeout)
+        if baseline["status"] == "PASS":
+            _store_baseline_cache(entry.hf_id, entry.task, ds_config, baseline)
+            updated += 1
+            safe_print(f"    stored: {baseline['metric']}")
+        else:
+            failed += 1
+            safe_print(f"    FAILED (exit {baseline.get('exit_code')})")
+            if args.verbose:
+                for line in (baseline.get("stderr", "") or "").strip().splitlines()[-10:]:
+                    safe_print(f"      {line}")
+
+    safe_print(f"\nBaseline cache updated: {updated} stored, {failed} failed")
+    sys.exit(0 if failed == 0 else 1)
+
+
 def _run_accuracy_phase(
     entry: ModelEntry,
     device: str,
@@ -1834,45 +2095,49 @@ def _run_accuracy_phase(
     model_dir: Path,
     onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
+    recipe_config: Path | None = None,
+    trust_remote_code: bool = False,
 ) -> dict:
-    """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
+    """Run winml eval for one model and return the accuracy sub-section dict.
+
+    Records measured facts only — the full ``metrics`` and ``dataset`` maps plus
+    the winml-eval status. Grading against a PyTorch baseline (delta/verdict) is
+    the report site's job; the runner no longer runs the baseline inline (use
+    ``--update-baseline`` to refresh the offline baseline cache separately).
+
+    When ``recipe_config`` is given the dataset comes from the recipe's ``eval``
+    section; otherwise the registry's ``dataset_config`` (if any) supplies it.
+    """
     ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
 
-    # Build local dataset if a build_script is configured
-    _build_dataset(ds_config, timeout)
+    # Build local dataset if a build_script is configured (registry path only).
+    if recipe_config is None:
+        _build_dataset(ds_config, timeout)
 
-    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_paths, ep=ep)
-
-    # Check baseline cache before running the expensive PyTorch baseline
-    cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
-    if cached is not None:
-        safe_print(f"    baseline: cached ({cached['metric']})")
-        baseline = cached
-    else:
-        baseline = _run_pytorch_baseline(entry, device, timeout)
-        _store_baseline_cache(entry.hf_id, entry.task, ds_config, baseline)
-
-    delta_abs, delta_rel = compute_delta(winml["metric"], baseline["metric"])
+    winml = _run_winml_eval(
+        entry,
+        device,
+        timeout,
+        ds_config,
+        model_dir,
+        onnx_paths,
+        ep=ep,
+        recipe_config=recipe_config,
+        trust_remote_code=trust_remote_code,
+    )
 
     return {
         "skipped": False,
         "skip_reason": None,
         "winml_eval_status": winml["status"],
         "winml_metric": winml["metric"],
+        "metrics": winml.get("metrics"),
+        "dataset": winml.get("dataset"),
         "winml_eval_exit_code": winml.get("exit_code"),
         "winml_eval_stdout": winml.get("stdout", ""),
         "winml_eval_stderr": winml.get("stderr", ""),
         "elapsed_winml": winml["elapsed"],
-        "pytorch_baseline_status": baseline["status"],
-        "pytorch_baseline_metric": baseline["metric"],
-        "pytorch_baseline_exit_code": baseline.get("exit_code"),
-        "pytorch_baseline_stderr": baseline.get("stderr", ""),
-        "elapsed_pytorch": baseline["elapsed"],
-        "delta_absolute": delta_abs,
-        "delta_relative": delta_rel,
-        "dataset_config": {k: v for k, v in ds_config.items() if k != "hf_token_required"},
         "winml_eval_command": winml["command"],
-        "pytorch_baseline_command": baseline["command"],
     }
 
 
@@ -1938,11 +2203,37 @@ def _get_disk_free_gb() -> float:
     return shutil.disk_usage(anchor).free / (1024**3)
 
 
+def _needs_accuracy_backfill(existing: dict, eval_type: str) -> bool:
+    """True when an existing result is missing accuracy that this run wants.
+
+    A perf-only result (``accuracy is None``) is *incomplete* for an accuracy
+    run, so ``--continue`` should top it up with accuracy instead of skipping —
+    reusing the already-recorded perf rather than re-benchmarking it.
+
+    - ``perf``            : never (accuracy is not wanted).
+    - ``accuracy``        : always, when accuracy has not been recorded yet.
+    - ``both``            : only when the recorded perf passed (a failed-perf
+      job would have accuracy skipped as ``perf_failed``, not backfilled).
+    """
+    if eval_type not in ("both", "accuracy"):
+        return False
+    if existing.get("accuracy") is not None:
+        return False
+    if eval_type == "accuracy":
+        return True
+    return bool((existing.get("perf") or {}).get("passed"))
+
+
 def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_type: str) -> bool:
     """Return True if an existing eval_result should be skipped (not re-run).
 
     Used by both --list-json and the main eval loop to share continue/retry logic.
     """
+    # Accuracy backfill takes priority over a plain skip: a perf-only result is
+    # not "done" for an accuracy run, so we re-process it (accuracy only).
+    if _needs_accuracy_backfill(existing, eval_type):
+        return False
+
     if retry_types is None:
         return True  # --continue without --retry-failed: skip all existing
 
@@ -1955,21 +2246,102 @@ def _should_skip_existing(existing: dict, retry_types: set[str] | None, eval_typ
         if not retry_types or cls in retry_types:
             return False  # Should retry
 
-    # Check accuracy verdict
+    # Check accuracy status (coarse, baseline-free)
     if acc is not None and not acc.get("skipped"):
-        verdict = derive_verdict(acc).value
-        if not retry_types or verdict in retry_types:
+        status = accuracy_status(acc)
+        if not retry_types or status in retry_types:
             return False  # Should retry
 
     return True  # No retry criteria matched — skip
 
 
-def model_result_dir(output_dir: Path, hf_id: str, task: str = "") -> Path:
-    """Convert model ID + task to directory slug."""
+def model_result_dir(
+    output_dir: Path, hf_id: str, task: str = "", precision: str | None = None
+) -> Path:
+    """Convert model ID + task (+ precision) to a results directory slug.
+
+    Recipe runs evaluate multiple precision variants per (model, task), so the
+    precision is part of the slug to keep each variant's eval_result.json
+    separate (e.g. ``microsoft__resnet-50__image-classification__w8a16``).
+    """
     slug = hf_id.replace("/", "__")
     if task:
         slug += f"__{task}"
+    if precision:
+        slug += f"__{precision}"
     return output_dir / "models" / slug
+
+
+@dataclass
+class EvalJob:
+    """One unit of evaluation: a model entry paired with a build source.
+
+    ``variant`` is the authored recipe variant to build (one per precision),
+    or ``None`` for the fallback path that generates the build config with
+    ``winml config``. Each job produces one ``eval_result.json``.
+    """
+
+    entry: ModelEntry
+    variant: RecipeVariant | None
+
+    @property
+    def precision(self) -> str | None:
+        """Recipe precision (e.g. ``fp16``/``w8a16``), or None for the fallback."""
+        return self.variant.precision if self.variant is not None else None
+
+
+def _build_jobs(
+    entries: list[ModelEntry], recipes_dir: Path | None
+) -> list[EvalJob]:
+    """Expand entries into jobs, one per recipe precision variant.
+
+    For each entry, if ``recipes_dir`` is set and the model has recipe variants
+    for its task, emit one job per variant (precision); otherwise emit a single
+    fallback job (``variant=None``) that builds via ``winml config``.
+    """
+    jobs: list[EvalJob] = []
+    for entry in entries:
+        variants = (
+            discover_recipe_variants(recipes_dir, entry.hf_id, entry.task)
+            if recipes_dir is not None
+            else []
+        )
+        if variants:
+            jobs.extend(EvalJob(entry, variant) for variant in variants)
+        else:
+            jobs.append(EvalJob(entry, None))
+    return jobs
+
+
+def _build_for_job(
+    job: EvalJob, args: argparse.Namespace, model_dir: Path
+) -> tuple[dict, Path | None, bool]:
+    """Build a job's model, returning ``(build_result, recipe_meta, trust)``.
+
+    Shared by the normal perf/accuracy path and the accuracy-backfill path: an
+    authored recipe is built with ``winml build -c`` when the job has a variant,
+    otherwise the ``winml config`` fallback is used. ``recipe_meta`` is the
+    eval/dataset config for ``winml eval -c`` (None for the fallback) and
+    ``trust`` is whether the recipe's dataset needs ``--trust-remote-code``.
+    """
+    if job.variant is not None:
+        build_result = _run_recipe_build(
+            job.entry, job.variant, args.timeout, model_dir, ep=args.ep
+        )
+        recipe_meta = build_result.get("meta_config")
+        trust = _needs_trust_remote_code(recipe_meta)
+    else:
+        build_result = _run_build(
+            job.entry,
+            args.device,
+            _resolve_precision(args.device, job.entry.precision, ep=args.ep),
+            args.timeout,
+            model_dir,
+            ep=args.ep,
+        )
+        recipe_meta = None
+        trust = False
+    return build_result, recipe_meta, trust
 
 
 # ---------------------------------------------------------------------------
@@ -1989,13 +2361,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hf-model", help="Single model (overrides registry)")
     parser.add_argument("--output-dir", type=Path, help="Output directory")
     parser.add_argument(
+        "--recipes-dir",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "examples" / "recipes",
+        help=(
+            "Directory of authored recipe configs (default: examples/recipes). "
+            "Each model with a recipe for its task is built per precision variant "
+            "via `winml build -c`; models without one fall back to `winml config`."
+        ),
+    )
+    parser.add_argument(
+        "--no-recipes",
+        action="store_true",
+        help="Ignore examples/recipes and build every model via winml config.",
+    )
+    parser.add_argument(
         "--eval-type",
         choices=["perf", "accuracy", "both"],
         default="perf",
         help=(
             "Evaluation signals to run (default: perf). "
-            "accuracy/both: winml perf runs first to populate cache, "
-            "then winml eval + pytorch baseline."
+            "both: winml perf runs first; winml eval runs only when perf passes. "
+            "Delta/verdict grading (vs the PyTorch baseline) is done by the report site."
         ),
     )
     parser.add_argument("--task", help="Filter by HF task")
@@ -2014,6 +2401,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--group", help="Filter by group")
     parser.add_argument("--device", default="auto", help="Target device (default: auto)")
     parser.add_argument("--ep", default=None, help="Execution provider (e.g. qnn, dml, ov)")
+    parser.add_argument(
+        "--update-baseline",
+        dest="update_baseline",
+        action="store_true",
+        help=(
+            "Offline mode: run the PyTorch baseline for the filtered models and "
+            "store the results in the baseline cache (cache/baseline_cache.json), "
+            "then exit. Does not build/perf/eval. The report site reads this cache "
+            "to grade accuracy deltas; run this when baselines need refreshing."
+        ),
+    )
     parser.add_argument(
         "--op-tracing",
         dest="op_tracing",
@@ -2115,7 +2513,11 @@ def parse_args() -> argparse.Namespace:
         "--clean-cache",
         dest="clean_cache",
         action="store_true",
-        help="Delete caches and leaked temp files after each model evaluation (saves disk space)",
+        help=(
+            "After each job, delete HF/winml caches and stray scratch models "
+            "libraries leak into the cwd (UUID-named *.onnx/*.data, QNN "
+            "EP-context dumps, sym_shape_infer_temp) to keep disk bounded."
+        ),
     )
     parser.add_argument("--list", action="store_true", help="List filtered models and exit")
     parser.add_argument(
@@ -2127,7 +2529,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-report",
         action="store_true",
-        help="Skip report generation (useful when running per-model in a pipeline loop)",
+        help=(
+            "Suppress the final console tally. Per-job eval_result.json files are "
+            "always written; the report HTML is generated by the site scripts."
+        ),
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument(
@@ -2139,17 +2544,25 @@ def parse_args() -> argparse.Namespace:
         "--continue",
         dest="continue_run",
         action="store_true",
-        help="Skip models that already have eval_result.json",
+        help=(
+            "Skip jobs that already have an eval_result.json. Exception: with "
+            "--eval-type accuracy/both, a perf-only result (accuracy not yet run) "
+            "is topped up with accuracy, reusing its cached perf instead of "
+            "re-benchmarking."
+        ),
     )
     parser.add_argument(
         "--retry-failed",
         nargs="*",
         metavar="TYPE",
         help=(
-            "Re-run models matching given failure types or accuracy verdicts "
-            "(e.g. ENVIRONMENT, ACCURACY_REGRESSION). "
-            "Use without args to retry ALL non-PASS models. "
-            "Implies --continue for passing models."
+            "Re-run jobs whose recorded status matches one of the given types. "
+            "Valid values are the perf failure classifications "
+            "(EXPORT_FAIL, ANALYZER_BLOCK, OPT_FAIL, COMPILE_FAIL, RUNTIME_FAIL, "
+            "ENVIRONMENT, TIMEOUT, UNKNOWN) and the accuracy status FAIL "
+            "(e.g. --retry-failed ENVIRONMENT FAIL). "
+            "Use without args to retry ALL non-PASS jobs. "
+            "Implies --continue for passing jobs."
         ),
     )
     return parser.parse_args()
@@ -2271,6 +2684,11 @@ def main() -> None:
         safe_print(f"Wrote {len(model_list)} models to {args.list_json}")
         sys.exit(0)
 
+    # Update-baseline mode: refresh the offline PyTorch baseline cache and exit.
+    if args.update_baseline:
+        _run_update_baseline(entries, args)
+        return
+
     # Build-only mode: generate export+optimize+quantize artifacts only (no EP).
     # Loops the EP matrix unless --ep/--device pinned. Skips perf/accuracy.
     if args.build_only:
@@ -2282,10 +2700,10 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     save_environment_info(output_dir / "environment.json")
 
-    # eval_types_run reflects what actually runs for each model:
+    # eval_types_run reflects what actually runs for each job:
     #   "perf"     → winml perf only
-    #   "accuracy" → winml eval + pytorch baseline only (perf skipped)
-    #   "both"     → Strategy B: winml perf first (populates cache), then winml eval + baseline
+    #   "accuracy" → winml eval only (perf skipped)
+    #   "both"     → winml perf first; winml eval only when perf passes
     eval_types_run = (
         ["accuracy"]
         if args.eval_type == "accuracy"
@@ -2300,21 +2718,34 @@ def main() -> None:
         args.continue_run = True
         retry_types = {t.upper() for t in args.retry_failed} if args.retry_failed else set()
 
-    safe_print(f"E2E Evaluation: {len(entries)} models -> {output_dir}")
+    # Expand entries into per-precision recipe jobs; models without a recipe
+    # for their task fall back to a single winml-config build (variant=None).
+    recipes_dir = None if args.no_recipes else args.recipes_dir
+    jobs = _build_jobs(entries, recipes_dir)
+    total_jobs = len(jobs)
+
+    safe_print(f"E2E Evaluation: {len(entries)} models -> {total_jobs} jobs -> {output_dir}")
     ep_label = args.ep or "auto"
     safe_print(
         f"Device: {args.device} | EP: {ep_label} | Timeout: {args.timeout}s | Eval: {args.eval_type}"
     )
     safe_print(f"Disk free: {_get_disk_free_gb():.1f} GB")
+    if recipes_dir is not None:
+        safe_print(f"Recipes: {recipes_dir}  (winml config fallback when a model has none)")
+    else:
+        safe_print("Recipes: disabled (winml config for all builds)")
     if args.clean_cache:
-        safe_print("Cache cleanup: ON (caches + temp files cleaned after each model)")
+        safe_print("Cache cleanup: ON (winml/HF caches + stray cwd models cleaned)")
+        # Sweep any stray scratch models left in the cwd by a prior interrupted
+        # run so a resumed run does not start from an already-polluted root.
+        _clean_stray_cwd_artifacts(Path.cwd())
     if retry_types is not None:
         if retry_types:
             safe_print(f"Retry mode: {', '.join(sorted(retry_types))}")
         else:
-            safe_print("Retry mode: ALL non-PASS models")
+            safe_print("Retry mode: ALL non-PASS jobs")
     elif args.continue_run:
-        safe_print("Continue mode: skipping models with existing eval_result.json")
+        safe_print("Continue mode: skipping jobs with existing eval_result.json")
 
     # 3. Run evaluation
     results: list[dict] = []
@@ -2325,15 +2756,19 @@ def main() -> None:
     if timeout_skip_set:
         safe_print(f"Timeout skip list: {len(timeout_skip_set)} models will be auto-skipped")
 
-    for i, entry in enumerate(entries, 1):
-        label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
-        model_dir = model_result_dir(output_dir, entry.hf_id, entry.task)
+    for i, job in enumerate(jobs, 1):
+        entry = job.entry
+        precision = job.precision
+        prec_tag = f" [{precision}]" if precision else ""
+        base_label = f"{entry.hf_id} / {entry.task}" if entry.task else entry.hf_id
+        label = f"{base_label}{prec_tag}"
+        model_dir = model_result_dir(output_dir, entry.hf_id, entry.task, precision)
         result_path = model_dir / "eval_result.json"
 
         # Timeout skip list: skip known-timeout models and write a TIMEOUT result
         if (entry.hf_id, entry.task or "") in timeout_skip_set:
             reason = _get_timeout_skip_reason(entry.hf_id, entry.task or "")
-            safe_print(f"\n[{i}/{len(entries)}] {label}  (SKIP - TIMEOUT: {reason})")
+            safe_print(f"\n[{i}/{total_jobs}] {label}  (SKIP - TIMEOUT: {reason})")
             model_dir.mkdir(parents=True, exist_ok=True)
             timeout_result = build_eval_result(
                 entry=entry,
@@ -2346,9 +2781,10 @@ def main() -> None:
                     "command": "skipped",
                 },
                 device=args.device,
-                eval_types_run=[args.eval_type],
+                eval_types_run=eval_types_run,
                 accuracy_result=None,
                 ep=args.ep,
+                precision=precision,
             )
             write_result_json(timeout_result, result_path)
             results.append(timeout_result)
@@ -2356,6 +2792,7 @@ def main() -> None:
             continue
 
         # --continue / --retry-failed: check existing eval_result.json
+        backfill_existing: dict | None = None
         if args.continue_run and result_path.exists():
             try:
                 existing = load_result_json(result_path)
@@ -2367,44 +2804,63 @@ def main() -> None:
                     acc = existing.get("accuracy")
                     perf_cls = classify_result(existing) or "UNKNOWN"
                     perf_tag = "PASS" if perf.get("passed") else f"FAIL/{perf_cls}"
-                    acc_tag = ""
-                    if acc is not None:
-                        acc_tag = f"  acc={derive_verdict(acc).value}"
+                    acc_tag = f"  acc={accuracy_status(acc)}" if acc is not None else ""
                     safe_print(
-                        f"\n[{i}/{len(entries)}] {label}  (SKIP - {perf_tag}{acc_tag}, cached)"
+                        f"\n[{i}/{total_jobs}] {label}  (SKIP - {perf_tag}{acc_tag}, cached)"
                     )
                     continue
 
-                retry_label = classify_result(existing) or (
-                    derive_verdict(existing.get("accuracy")).value
-                    if existing.get("accuracy")
-                    else "?"
-                )
-                safe_print(f"\n[{i}/{len(entries)}] {label}  (RETRY - was {retry_label})")
+                if _needs_accuracy_backfill(existing, args.eval_type):
+                    # Perf already recorded (and passed); only (re)build + run
+                    # accuracy, then merge it into the existing result.
+                    backfill_existing = existing
+                    safe_print(
+                        f"\n[{i}/{total_jobs}] {label}  (BACKFILL accuracy - perf cached)"
+                    )
+                else:
+                    retry_label = classify_result(existing) or (
+                        accuracy_status(existing.get("accuracy"))
+                        if existing.get("accuracy")
+                        else "?"
+                    )
+                    safe_print(f"\n[{i}/{total_jobs}] {label}  (RETRY - was {retry_label})")
             except (json.JSONDecodeError, KeyError):
                 pass  # Corrupted result file — re-run
 
-        safe_print(f"\n[{i}/{len(entries)}] {label}  ({entry.priority}, {entry.group})")
+        if backfill_existing is None:
+            safe_print(f"\n[{i}/{total_jobs}] {label}  ({entry.priority}, {entry.group})")
 
         try:
             perf_proc: dict | None = None
             accuracy_result: dict | None = None
             op_tracing = _resolve_op_tracing(args.op_tracing, entry, args.ep, args.device)
 
-            # Build phase: winml config + winml build → list of ONNX paths
-            # Build is shared by perf and eval, avoiding redundant builds.
-            build_result = _run_build(
-                entry,
-                args.device,
-                _resolve_precision(args.device, entry.precision, ep=args.ep),
-                args.timeout,
-                model_dir,
-                ep=args.ep,
-            )
+            # Build phase: an authored recipe (winml build -c) when one exists
+            # for this precision, else the winml-config fallback. Both return
+            # {success, onnx_paths, stage, proc}; build is shared by perf + eval.
+            build_result, recipe_meta, trust = _build_for_job(job, args, model_dir)
+
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
             onnx_size = _compute_onnx_size(onnx_paths)
 
-            if not build_result["success"]:
+            if backfill_existing is not None:
+                # Accuracy backfill: perf was already recorded (and passed), so
+                # skip run_model and only (re)build + run accuracy. A build that
+                # now fails records a skipped accuracy without touching perf.
+                if not build_result["success"]:
+                    accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
+                else:
+                    accuracy_result = _run_accuracy_phase(
+                        entry,
+                        args.device,
+                        args.timeout,
+                        model_dir,
+                        onnx_paths,
+                        ep=args.ep,
+                        recipe_config=recipe_meta,
+                        trust_remote_code=trust,
+                    )
+            elif not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
                 fail_proc = build_result["proc"]
                 fail_proc["device"] = args.device
@@ -2423,6 +2879,8 @@ def main() -> None:
                     model_dir,
                     onnx_paths,
                     ep=args.ep,
+                    recipe_config=recipe_meta,
+                    trust_remote_code=trust,
                 )
             elif args.eval_type == "perf":
                 perf_proc = run_model(
@@ -2435,7 +2893,7 @@ def main() -> None:
                     model_dir=model_dir,
                 )
             else:
-                # "both": perf → eval
+                # "both": perf runs first; accuracy only when perf passes.
                 perf_proc = run_model(
                     entry,
                     args.device,
@@ -2455,41 +2913,53 @@ def main() -> None:
                         model_dir,
                         onnx_paths,
                         ep=args.ep,
+                        recipe_config=recipe_meta,
+                        trust_remote_code=trust,
                     )
 
         except KeyboardInterrupt:
-            safe_print("\n\n[Ctrl+C] Interrupted — generating reports for completed models...")
+            safe_print("\n\n[Ctrl+C] Interrupted — writing results for completed jobs...")
             interrupted = True
             break
 
-        result = build_eval_result(
-            entry,
-            perf_proc,
-            args.device,
-            eval_types_run,
-            accuracy_result,
-            ep=args.ep,
-            onnx_size_bytes=onnx_size,
-            sanitize_fn=None if args.raw_output else _sanitize_output,
-        )
+        if backfill_existing is not None:
+            # Merge the freshly-run accuracy into the existing result, preserving
+            # its recorded perf verbatim. accuracy_result has the same shape
+            # build_eval_result would store, so it's spliced in directly.
+            result = dict(backfill_existing)
+            result["accuracy"] = accuracy_result
+            etr = result.get("eval_types_run") or []
+            if "accuracy" not in etr:
+                result["eval_types_run"] = [*etr, "accuracy"]
+        else:
+            result = build_eval_result(
+                entry,
+                perf_proc,
+                args.device,
+                eval_types_run,
+                accuracy_result,
+                ep=args.ep,
+                onnx_size_bytes=onnx_size,
+                sanitize_fn=None if args.raw_output else _sanitize_output,
+                precision=precision,
+            )
         results.append(result)
 
         # Write eval_result.json immediately (crash-safe, facts only)
         write_result_json(result, result_path)
 
-        # Print status line
+        # Print status line (coarse accuracy status; the site grades delta/verdict)
         acc_tag = ""
         if accuracy_result is not None:
             if accuracy_result.get("skipped"):
                 acc_tag = f"  acc=SKIP/{accuracy_result['skip_reason']}"
             else:
-                verdict = derive_verdict(accuracy_result).value
-                delta_str = format_delta(accuracy_result)
-                if delta_str:
-                    delta_str = f" {delta_str}"
-                acc_tag = f"  acc={verdict}{delta_str}"
+                acc_tag = f"  acc={accuracy_status(accuracy_result)}"
 
-        if perf_proc is not None:
+        if backfill_existing is not None:
+            # Perf was reused from the cached result; report the backfilled acc.
+            safe_print(f"  [BACKFILL]{acc_tag}")
+        elif perf_proc is not None:
             perf_passed = perf_proc["exit_code"] == 0
             perf_cls = classify_result(result) or "UNKNOWN"
             perf_tag = "PASS" if perf_passed else f"FAIL ({perf_cls})"
@@ -2502,6 +2972,7 @@ def main() -> None:
             safe_print(f"  [acc only]{acc_tag}")
 
         if args.clean_cache:
+            _clean_stray_cwd_artifacts(Path.cwd())
             _clear_disk_caches()
 
     run_duration = time.perf_counter() - run_start
@@ -2510,64 +2981,39 @@ def main() -> None:
         safe_print("\nNo results to report.")
         sys.exit(1)
 
-    # 4. Generate reports
+    # 4. Final tally. Per-job eval_result.json files are already written; the
+    #    perf + accuracy reports are rendered by the ModelKitArtifacts-site
+    #    scripts from those files (delta/verdict graded there against the
+    #    baseline cache). The runner only prints a coarse console summary.
     classify_results(results)
-    if args.eval_type != "perf":
-        derive_verdicts(results)
+
+    perf_results = [r for r in results if r.get("perf") is not None]
+    perf_pass = sum(1 for r in perf_results if (r.get("perf") or {}).get("passed"))
+    acc_results = [
+        r
+        for r in results
+        if r.get("accuracy") is not None and not (r.get("accuracy") or {}).get("skipped")
+    ]
+    acc_pass = sum(1 for r in acc_results if accuracy_status(r.get("accuracy")) == "PASS")
 
     if not args.no_report:
-        summary = generate_summary(results, run_duration)
-        timestamp_slug = time.strftime("%Y%m%d_%H%M%S")
-
-        # JSON report
-        report_json_path = output_dir / f"eval_report_{timestamp_slug}.json"
-        write_summary_json(summary, report_json_path)
-
-        # Text summary (perf-focused)
-        text_report = format_text_summary(results)
-        safe_print(text_report)
-        report_txt_path = output_dir / f"eval_report_{timestamp_slug}.txt"
-        report_txt_path.write_text(text_report, encoding="utf-8")
-
-        # Markdown summary
-        write_summary_md(results, summary, output_dir / "summary.md")
-
-        # HTML report
-        generate_html_report(summary, output_dir / "eval_report.html", args.registry)
-
-        safe_print(f"\nResults saved to: {output_dir}")
-        safe_print(f"  report: {report_json_path.name}")
-        safe_print("  summary: summary.md")
-        safe_print("  html: eval_report.html")
-
-        ps = summary["perf_summary"]
-        total = ps["total"]
-        rate = (ps["passed"] / total * 100) if total else 0
-        safe_print(f"\nPerf pass rate: {ps['passed']}/{total} ({rate:.1f}%)")
-
-        if args.eval_type != "perf":
-            acc_s = summary.get("accuracy_summary", {})
-            evaluated = acc_s.get("evaluated", 0)
-            acc_pass = acc_s.get("accuracy_pass", 0)
-            acc_rate = acc_s.get("pass_rate", 0)
+        safe_print(f"\nResults saved to: {output_dir}  ({run_duration:.1f}s, {len(results)} jobs)")
+        if perf_results:
+            rate = perf_pass / len(perf_results) * 100
+            safe_print(f"Perf pass: {perf_pass}/{len(perf_results)} ({rate:.1f}%)")
+        if acc_results:
+            arate = acc_pass / len(acc_results) * 100
             safe_print(
-                f"Accuracy pass rate: {acc_pass}/{evaluated} ({acc_rate:.1%})  "
-                f"[at-risk={acc_s.get('accuracy_at_risk', 0)} "
-                f"regression={acc_s.get('accuracy_regression', 0)} "
-                f"error={acc_s.get('eval_error', 0)}]"
+                f"Accuracy eval pass: {acc_pass}/{len(acc_results)} ({arate:.1f}%)  "
+                "(metric measured; delta/verdict graded by the report site)"
             )
+        if skipped:
+            safe_print(f"  ({skipped} cached from previous run)")
+        if interrupted:
+            safe_print(f"  (interrupted — {total_jobs - len(results)} jobs not evaluated)")
 
-    if skipped:
-        safe_print(f"  ({skipped} cached from previous run)")
-    if interrupted:
-        safe_print(f"  (interrupted — {len(entries) - len(results)} models not evaluated)")
-
-    all_perf_pass = all((r.get("perf") or {}).get("passed", False) for r in results)
-    all_acc_pass = args.eval_type == "perf" or all(
-        derive_verdict(r.get("accuracy")) == AccuracyVerdict.ACCURACY_PASS
-        for r in results
-        if r.get("accuracy") and not (r.get("accuracy") or {}).get("skipped")
-    )
+    all_perf_pass = all((r.get("perf") or {}).get("passed", False) for r in perf_results)
+    all_acc_pass = all(accuracy_status(r.get("accuracy")) == "PASS" for r in acc_results)
 
     sys.exit(0 if not interrupted and all_perf_pass and all_acc_pass else 1)
 
