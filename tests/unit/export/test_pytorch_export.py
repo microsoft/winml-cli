@@ -10,6 +10,7 @@ HTPExporter correctly uses WinMLExportConfig for I/O specs.
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import onnx
@@ -359,3 +360,138 @@ class TestExportPytorch:
         input_names = {i.name for i in onnx_model.graph.input}
         assert "pixel_values" in input_names
         assert "text_input" in input_names
+
+
+class TestStaleExternalDataCleanup:
+    """`_cleanup_stale_external_data` prunes per-tensor sidecars after consolidation.
+
+    The TorchScript exporter writes one external-data file per initializer; the
+    tag-injection re-save consolidates them into a single ``<model>.onnx.data``.
+    Without cleanup the per-tensor sidecars linger as orphans that roughly double
+    on-disk size, which is what exhausts disk on large / composite exports.
+    """
+
+    def _write_model_with_consolidated_data(self, path) -> None:
+        """Save a model forcing a single consolidated external-data sidecar."""
+        from winml.modelkit.onnx import save_onnx
+
+        # Weights must exceed onnx's per-tensor external threshold (1024 bytes),
+        # so use a linear layer large enough to be externalized (256*256*4 bytes).
+        class BigLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(256, 256)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = BigLinear()
+        config = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 256))],
+        )
+        export_pytorch(model, path, config)
+        # Force external data so the model references exactly one .data sidecar,
+        # independent of the exporter's size heuristics.
+        loaded = onnx.load(str(path))
+        save_onnx(loaded, path, threshold_size=0)
+
+    def test_removes_orphan_sidecars_keeps_referenced(self, tmp_path) -> None:
+        from winml.modelkit.export.htp.exporter import HTPExporter
+        from winml.modelkit.onnx import get_external_data_files
+
+        model_path = tmp_path / "model.onnx"
+        self._write_model_with_consolidated_data(model_path)
+
+        referenced = get_external_data_files(model_path)
+        assert referenced, "expected the consolidated model to reference a .data sidecar"
+
+        # Simulate leftover per-tensor sidecars from the raw TorchScript export.
+        orphans = ["onnx__MatMul_1", "linear.weight", "linear.bias"]
+        for name in orphans:
+            (tmp_path / name).write_bytes(b"stale-weights")
+
+        # The exporter records raw sidecars *plus* whatever the consolidated save
+        # references; only the unreferenced ones must be deleted.
+        HTPExporter._cleanup_stale_external_data(str(model_path), orphans + referenced)
+
+        for name in orphans:
+            assert not (tmp_path / name).exists(), f"orphan {name} should be removed"
+        for name in referenced:
+            assert (tmp_path / name).exists(), f"referenced {name} must be kept"
+
+    def test_noop_when_no_previous_sidecars(self, tmp_path) -> None:
+        from winml.modelkit.export.htp.exporter import HTPExporter
+
+        model_path = tmp_path / "model.onnx"
+        self._write_model_with_consolidated_data(model_path)
+        before = {p.name for p in tmp_path.iterdir()}
+
+        HTPExporter._cleanup_stale_external_data(str(model_path), [])
+
+        assert {p.name for p in tmp_path.iterdir()} == before
+
+    def test_export_path_leaves_only_referenced_sidecars(self, tmp_path) -> None:
+        """End-to-end: HTPExporter.export() must prune raw per-tensor sidecars.
+
+        Drives the real export pipeline but makes the raw ONNX step emit per-tensor
+        external-data sidecars (as the TorchScript exporter does). After Step 7's
+        re-save, the output directory must contain no orphaned per-tensor sidecars —
+        every remaining external-data file must still be referenced by the final
+        model. This proves the pre-consolidation capture and post-consolidation
+        cleanup stay wired into ``export()``, not just the private helper.
+        """
+        from onnx.external_data_helper import convert_model_to_external_data
+
+        from winml.modelkit.export.htp.exporter import HTPExporter
+        from winml.modelkit.onnx import get_external_data_files
+
+        class BigLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(256, 256)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        real_convert = HTPExporter._convert_model_to_onnx
+        raw_sidecars: list[str] = []
+
+        def convert_with_per_tensor_sidecars(
+            self, model, output_path, inputs, export_config, task=None
+        ):
+            # Produce a valid graph via the real converter, then rewrite every
+            # initializer as its own external sidecar to mimic the raw exporter.
+            real_convert(self, model, output_path, inputs, export_config, task=task)
+            out = Path(output_path).resolve()
+            loaded = onnx.load(str(out))
+            convert_model_to_external_data(loaded, all_tensors_to_one_file=False, size_threshold=0)
+            onnx.save(loaded, str(out))
+            raw_sidecars.extend(get_external_data_files(out))
+
+        model_path = tmp_path / "model.onnx"
+        config = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 256))],
+        )
+
+        with patch.object(
+            HTPExporter,
+            "_convert_model_to_onnx",
+            new=convert_with_per_tensor_sidecars,
+        ):
+            export_pytorch(BigLinear(), model_path, config)
+
+        # Sanity: the raw step really did emit multiple per-tensor sidecars.
+        assert len(raw_sidecars) >= 2, "expected the raw export to emit per-tensor sidecars"
+
+        referenced = set(get_external_data_files(model_path))
+        # Every external-data file left in the directory must still be referenced;
+        # the raw per-tensor sidecars that consolidation orphaned are gone.
+        remaining_sidecars = {
+            p.name
+            for p in tmp_path.iterdir()
+            if p.name != model_path.name and p.suffix not in {".json", ".onnx"}
+        }
+        assert remaining_sidecars == referenced
+        for name in raw_sidecars:
+            if name not in referenced:
+                assert not (tmp_path / name).exists(), f"orphan {name} must be pruned"

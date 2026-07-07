@@ -359,6 +359,7 @@ def _validate_task_supported_for_model(
 def _validate_loader_tasks_for_model(
     *,
     model_id: str | None,
+    is_onnx: bool,
     configs: list[WinMLBuildConfig],
     trust_remote_code: bool,
 ) -> Any | None:
@@ -384,7 +385,7 @@ def _validate_loader_tasks_for_model(
     if model_id is None:
         return None
 
-    if cli_utils.is_onnx_file_path(model_id):
+    if is_onnx:
         return None
 
     tasks = {
@@ -664,8 +665,14 @@ def build(
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
 
+        model_input = cli_utils.classify_model_input(model) if model else None
+        model_is_onnx = (
+            model_input is not None and model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+        )
+
         preloaded_hf_config = _validate_loader_tasks_for_model(
             model_id=model,
+            is_onnx=model_is_onnx,
             configs=_configs_to_validate,
             trust_remote_code=trust_remote_code,
         )
@@ -777,6 +784,7 @@ def build(
                 cache_key = get_cache_key(
                     get_task_abbrev(task),
                     config.generate_cache_key(),
+                    extra_kwargs,
                 )
             else:
                 # Guarded earlier (line ~381: `if not output_dir and not use_cache`).
@@ -788,6 +796,7 @@ def build(
                 config=config,
                 config_file=config_file,
                 model_id=model,
+                is_onnx=model_is_onnx,
                 resolved_dir=resolved_dir,
                 rebuild=rebuild,
                 cache_key=cache_key,
@@ -841,6 +850,7 @@ def _run_single_build(
     config: WinMLBuildConfig,
     config_file: str | None,
     model_id: str | None,
+    is_onnx: bool,
     resolved_dir: Path,
     rebuild: bool,
     cache_key: str | None,
@@ -850,7 +860,7 @@ def _run_single_build(
     preloaded_hf_config: Any | None = None,
 ) -> None:
     """Run single-model build with Rich Live progress per stage."""
-    _is_onnx = model_id is not None and cli_utils.is_onnx_file_path(model_id)
+    _is_onnx = is_onnx
     # Derive source from _is_onnx to guarantee header label matches pipeline
     source = "ONNX" if _is_onnx else detect_model_source(model_id)
 
@@ -1285,7 +1295,8 @@ def _run_compile_stage(
     with StageLive("compile", console) as sl:
         _cp = ""
         if hasattr(config.compile, "ep_config") and config.compile.ep_config:
-            _cp = f" for {config.compile.ep_config.provider.upper()}"
+            ep = config.compile.ep_config.provider
+            _cp = f" for {ep.upper()}" if ep else ""
         sl.set_status(f"Compiling{_cp}...")
         t0 = time.monotonic()
         compile_result = compile_onnx(

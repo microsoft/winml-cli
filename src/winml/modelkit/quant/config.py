@@ -56,7 +56,8 @@ class WinMLQuantizationConfig:
     # Quantization mode
     mode: Literal["static", "dynamic", "rtn", "fp16"] = "static"
     # "static"  — Calibrated QDQ quantization (requires calibration data)
-    # "dynamic" — Dynamic quantization (no calibration) [planned, not yet wired]
+    # "dynamic" — Dynamic quantization: weights quantized statically, activations
+    #             at runtime (no calibration data)
     # "rtn"     — Round-To-Nearest weight-only (no calibration, block-wise)
     # "fp16"    — Pure FP16 conversion only (no quantization)
 
@@ -110,6 +111,11 @@ class WinMLQuantizationConfig:
     rtn_symmetric: bool = True
     rtn_accuracy_level: int = 0
 
+    # Dynamic-specific settings (only used when mode="dynamic")
+    # Quantize weights with 7 bits instead of 8 to avoid numerical saturation
+    # of the u8*s8 accumulation on CPUs without VNNI instructions.
+    reduce_range: bool = False
+
     # FP16 conversion settings (only used when mode="fp16")
     fp16_keep_io_types: bool = True
     fp16_op_block_list: list[str] | None = None
@@ -157,6 +163,8 @@ class WinMLQuantizationConfig:
             result["rtn_block_size"] = self.rtn_block_size
             result["rtn_symmetric"] = self.rtn_symmetric
             result["rtn_accuracy_level"] = self.rtn_accuracy_level
+        if self.mode == "dynamic":
+            result["reduce_range"] = self.reduce_range
         if self.mode == "fp16":
             result["fp16_keep_io_types"] = self.fp16_keep_io_types
             result["fp16_op_block_list"] = self.fp16_op_block_list
@@ -206,6 +214,7 @@ class WinMLQuantizationConfig:
             rtn_block_size=data.get("rtn_block_size", 128),
             rtn_symmetric=data.get("rtn_symmetric", True),
             rtn_accuracy_level=data.get("rtn_accuracy_level", 0),
+            reduce_range=data.get("reduce_range", False),
             fp16_keep_io_types=data.get("fp16_keep_io_types", True),
             fp16_op_block_list=data.get("fp16_op_block_list"),
         )

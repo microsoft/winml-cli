@@ -503,12 +503,12 @@ def _resolve_model_path(
         )
 
     value = plain[0]
-    if Path(value).suffix.lower() == ".onnx":
-        if not Path(value).exists():
-            raise click.BadParameter(
-                f"ONNX file not found: {value}",
-                param_hint="-m/--model",
-            )
+    try:
+        _mi = cli_utils.classify_model_input(value)
+    except click.UsageError as e:
+        # Preserve eval's param-scoped BadParameter contract (tests + hint).
+        raise click.BadParameter(str(e), param_hint="-m/--model") from e
+    if _mi.kind is cli_utils.ModelInputKind.ONNX_FILE:
         if model_id is None:
             raise click.UsageError(
                 "When using an ONNX file, --model-id is required "

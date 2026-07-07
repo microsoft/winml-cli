@@ -251,6 +251,18 @@ class HTPExporter:
             # Step 4: ONNX Export
             self._convert_model_to_onnx(model, output_path, inputs, export_config, task=task)
 
+            # The TorchScript ONNX exporter writes one external-data sidecar per
+            # initializer (named by tensor). Record them now: the Step 7 tag-injection
+            # re-save consolidates all weights into a single ``<model>.onnx.data``, so
+            # these per-tensor sidecars must be pruned afterwards or they linger as
+            # orphans that roughly double on-disk size.
+            from ...onnx import get_external_data_files
+
+            try:
+                pre_consolidation_external = get_external_data_files(output_path)
+            except Exception:
+                pre_consolidation_external = []
+
             # Verify ONNX export
             self._verify_onnx_export(output_path)
 
@@ -301,6 +313,10 @@ class HTPExporter:
             # Step 7: Tag Injection + Graph Metadata
             self._embed_graph_metadata(onnx_model, export_config)
             self._embed_tags_in_onnx(output_path, onnx_model, **kwargs)
+
+            # Prune the per-tensor sidecars orphaned by the consolidated re-save
+            # so the export leaves only ``model.onnx`` + ``model.onnx.data``.
+            self._cleanup_stale_external_data(output_path, pre_consolidation_external)
 
             # Update monitor
             monitor.update(ExportStep.TAG_INJECTION)
@@ -621,3 +637,36 @@ class HTPExporter:
         from ...onnx import save_onnx
 
         save_onnx(onnx_model, output_path)
+
+    @staticmethod
+    def _cleanup_stale_external_data(output_path: str, previous_external_files: list[str]) -> None:
+        """Delete per-tensor external-data sidecars orphaned by consolidation.
+
+        ``previous_external_files`` are the sidecars written by the raw exporter
+        (relative filenames). After the consolidated re-save, any of them no longer
+        referenced by the model on disk are pure orphans (their weights now live in
+        the single ``<model>.onnx.data``) and are removed. Files still referenced —
+        e.g. the consolidated sidecar itself — are left untouched.
+        """
+        from ...onnx import get_external_data_files
+
+        out = Path(output_path)
+        try:
+            still_referenced = set(get_external_data_files(output_path))
+        except Exception:
+            # If the final model can't be inspected, keep every sidecar rather than
+            # risk deleting data the model still points at.
+            return
+
+        for name in previous_external_files:
+            if name in still_referenced:
+                continue
+            stale = out.parent / name
+            try:
+                if stale.is_file():
+                    stale.unlink()
+                    logger.debug("Removed orphaned external-data sidecar: %s", stale)
+            except OSError:
+                logger.debug(
+                    "Could not remove orphaned external-data sidecar: %s", stale, exc_info=True
+                )

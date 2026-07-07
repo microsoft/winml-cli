@@ -18,7 +18,7 @@ class TestEPConfig:
     def test_default_values(self):
         """Test default EP configuration."""
         config = EPConfig()
-        assert config.provider == "qnn"
+        assert config.provider is None
         assert config.provider_options == {}
         assert config.enable_ep_context is True
         assert config.embed_context is False
@@ -45,7 +45,7 @@ class TestCompileConfig:
     def test_default_values(self):
         """Test default config has only EP settings, no quant fields."""
         config = WinMLCompileConfig()
-        assert config.ep_config.provider == "qnn"
+        assert config.ep_config.provider is None
         assert config.validate is True
         assert config.verbose is False
         assert not hasattr(config, "qdq_config")

@@ -592,7 +592,7 @@ class TestBuildSubmoduleConfig:
 
         return WinMLBuildConfig(
             optim=WinMLOptimizationConfig(gelu_fusion=True, matmul_add_fusion=True),
-            compile=WinMLCompileConfig(),
+            compile=WinMLCompileConfig.for_qnn(),
         )
 
     def test_single_input_single_output(self, parent_config: WinMLBuildConfig) -> None:
@@ -1782,7 +1782,7 @@ class TestValidate:
             export=None,  # ONNX build
             optim=WinMLOptimizationConfig(),
             quant=WinMLQuantizationConfig(task=None, model_id=None),
-            compile=WinMLCompileConfig(),
+            compile=None,
         )
         config.validate()  # Should not raise
 
@@ -2340,41 +2340,22 @@ class TestConfigOnnxAutoDetect:
         assert output_data["compile"] is not None
         assert output_data["compile"]["execution_provider"] == "qnn"
 
-    def test_config_onnx_suffix_not_exists_uses_hf(
+    def test_config_onnx_suffix_not_exists_raises(
         self,
         tmp_path,
-        mock_hf_config: MagicMock,
-        mock_model_class: MagicMock,
-        mock_loader_config: WinMLLoaderConfig,
-        mock_export_config: WinMLExportConfig,
     ) -> None:
-        """An .onnx path that doesn't exist falls through to HF config generation."""
+        """A missing .onnx path raises instead of silently falling through to HF (#553)."""
         output_file = tmp_path / "result.json"
 
-        with (
-            patch(
-                "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class, MagicMock()),
-            ),
-            patch(
-                "winml.modelkit.config.build._resolve_export_config_from_specs",
-                return_value=mock_export_config,
-            ),
-            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
-            # config now inspects the HF config to route seq2seq composites (#850);
-            # stub that load (bert -> no composite) so the placeholder -m isn't fetched.
-            patch("transformers.AutoConfig.from_pretrained", return_value=BertConfig()),
-        ):
-            runner = CliRunner()
-            result = runner.invoke(
-                config_command,
-                ["-m", "nonexistent.onnx", "-o", str(output_file)],
-            )
+        runner = CliRunner()
+        result = runner.invoke(
+            config_command,
+            ["-m", "nonexistent.onnx", "-o", str(output_file)],
+        )
 
-        assert result.exit_code == 0, f"CLI failed: {result.output}"
-        output_data = json.loads(output_file.read_text())
-        # Should be HF config (export present)
-        assert output_data["export"] is not None
+        assert result.exit_code != 0
+        assert "ONNX file not found" in result.output
+        assert not output_file.exists()
 
 
 # =============================================================================

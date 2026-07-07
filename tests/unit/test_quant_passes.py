@@ -14,7 +14,7 @@ import pytest
 
 from winml.modelkit.quant import WinMLQuantizationConfig
 from winml.modelkit.quant.config import QuantizeResult
-from winml.modelkit.quant.passes import BaseQuantPass, FP16Pass, RTNPass, StaticPass
+from winml.modelkit.quant.passes import BaseQuantPass, DynamicPass, FP16Pass, RTNPass, StaticPass
 
 
 if TYPE_CHECKING:
@@ -89,13 +89,14 @@ class TestExpandPrecision:
         assert len(passes) == 1
         assert isinstance(passes[0], StaticPass)
 
-    def test_dynamic_returns_qdq_pass(self) -> None:
+    def test_dynamic_returns_dynamic_pass(self) -> None:
         from winml.modelkit.quant.quantizer import expand_precision
 
-        config = WinMLQuantizationConfig(mode="static")
+        config = WinMLQuantizationConfig(mode="dynamic")
         passes = expand_precision("dynamic", config)
         assert len(passes) == 1
-        assert isinstance(passes[0], StaticPass)
+        assert isinstance(passes[0], DynamicPass)
+        assert passes[0].config is config
 
     def test_unknown_mode_raises(self) -> None:
         from winml.modelkit.quant.quantizer import expand_precision
@@ -411,3 +412,189 @@ class TestRTNPassConfig:
 
         RTNPass(config).run(model_path, tmp_path / "out.onnx")
         assert init_kwargs[0]["accuracy_level"] is None
+
+
+# ---------------------------------------------------------------------------
+# DynamicPass — config field wiring
+# ---------------------------------------------------------------------------
+
+
+def _install_fake_onnx_for_dynamic(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_model: Any,
+) -> None:
+    """Install a fake ``winml.modelkit.onnx`` so DynamicPass needs no real I/O."""
+    fake_onnx_mod = ModuleType("winml.modelkit.onnx")
+    fake_onnx_mod.load_onnx = lambda *a, **k: fake_model  # type: ignore[attr-defined]
+    fake_onnx_mod.save_onnx = lambda *a, **k: None  # type: ignore[attr-defined]
+    fake_onnx_mod.capture_metadata = (  # type: ignore[attr-defined]
+        lambda m: SimpleNamespace(node_count=len(m.graph.node))
+    )
+    fake_onnx_mod.restore_metadata = lambda *a, **k: None  # type: ignore[attr-defined]
+    fake_onnx_mod.infer_shapes = lambda m: m  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "winml.modelkit.onnx", fake_onnx_mod)
+
+
+def _patch_quantize_dynamic(
+    monkeypatch: pytest.MonkeyPatch,
+    init_kwargs: dict,
+) -> None:
+    """Patch the real ``quantize_dynamic``/``add_pre_process_metadata`` with no-ops."""
+    import onnxruntime.quantization as oq
+    import onnxruntime.quantization.quant_utils as oqu
+
+    def fake_quantize_dynamic(**kwargs: Any) -> None:
+        init_kwargs.update(kwargs)
+
+    monkeypatch.setattr(oq, "quantize_dynamic", fake_quantize_dynamic)
+    monkeypatch.setattr(oqu, "add_pre_process_metadata", lambda *a, **k: None)
+
+
+class TestDynamicPassConfig:
+    def test_reads_dynamic_fields_from_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DynamicPass should forward config fields to quantize_dynamic."""
+        from onnxruntime.quantization import QuantType
+
+        config = WinMLQuantizationConfig(
+            mode="dynamic",
+            weight_type="int8",
+            per_channel=True,
+            reduce_range=True,
+            symmetric=True,
+            op_types_to_quantize=["MatMul"],
+            nodes_to_exclude=["skip_me"],
+        )
+        model_path = tmp_path / "model.onnx"
+        model_path.write_text("x")
+        output_path = tmp_path / "out.onnx"
+
+        init_kwargs: dict = {}
+        _patch_quantize_dynamic(monkeypatch, init_kwargs)
+        fake_model = SimpleNamespace(
+            graph=SimpleNamespace(
+                node=[
+                    SimpleNamespace(op_type="MatMulInteger"),
+                    SimpleNamespace(op_type="DynamicQuantizeLinear"),
+                    SimpleNamespace(op_type="Add"),
+                ]
+            )
+        )
+        _install_fake_onnx_for_dynamic(monkeypatch, fake_model)
+
+        result = DynamicPass(config).run(model_path, output_path)
+
+        assert result.success
+        assert init_kwargs["weight_type"] == QuantType.QInt8
+        assert init_kwargs["per_channel"] is True
+        assert init_kwargs["reduce_range"] is True
+        assert init_kwargs["op_types_to_quantize"] == ["MatMul"]
+        assert init_kwargs["nodes_to_exclude"] == ["skip_me"]
+        assert init_kwargs["extra_options"]["WeightSymmetric"] is True
+        # Only the two dynamic-quant ops are counted, not the Add.
+        assert result.nodes_quantized == 2
+
+    def test_weight_symmetric_override_takes_precedence(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = WinMLQuantizationConfig(
+            mode="dynamic",
+            symmetric=False,
+            weight_symmetric=True,
+        )
+        model_path = tmp_path / "model.onnx"
+        model_path.write_text("x")
+
+        init_kwargs: dict = {}
+        _patch_quantize_dynamic(monkeypatch, init_kwargs)
+        _install_fake_onnx_for_dynamic(monkeypatch, SimpleNamespace(graph=SimpleNamespace(node=[])))
+
+        DynamicPass(config).run(model_path, tmp_path / "out.onnx")
+        assert init_kwargs["extra_options"]["WeightSymmetric"] is True
+
+    def test_uint8_weight_maps_to_quint8(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from onnxruntime.quantization import QuantType
+
+        config = WinMLQuantizationConfig(mode="dynamic", weight_type="uint8")
+        model_path = tmp_path / "model.onnx"
+        model_path.write_text("x")
+
+        init_kwargs: dict = {}
+        _patch_quantize_dynamic(monkeypatch, init_kwargs)
+        _install_fake_onnx_for_dynamic(monkeypatch, SimpleNamespace(graph=SimpleNamespace(node=[])))
+
+        DynamicPass(config).run(model_path, tmp_path / "out.onnx")
+        assert init_kwargs["weight_type"] == QuantType.QUInt8
+
+    def test_16bit_weight_falls_back_to_int8_with_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dynamic quantization only supports 8-bit weights."""
+        from onnxruntime.quantization import QuantType
+
+        config = WinMLQuantizationConfig(mode="dynamic", weight_type="int16")
+        model_path = tmp_path / "model.onnx"
+        model_path.write_text("x")
+
+        init_kwargs: dict = {}
+        _patch_quantize_dynamic(monkeypatch, init_kwargs)
+        _install_fake_onnx_for_dynamic(monkeypatch, SimpleNamespace(graph=SimpleNamespace(node=[])))
+
+        result = DynamicPass(config).run(model_path, tmp_path / "out.onnx")
+        assert init_kwargs["weight_type"] == QuantType.QInt8
+        assert any("8-bit" in w for w in result.warnings)
+
+    def test_dequantizelinear_counted_but_quantizelinear_not(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DequantizeLinear (weight/embedding restore) is counted as a quantized
+        node; a stray static QuantizeLinear is not.
+
+        Embedding models emit DequantizeLinear when a statically-quantized
+        embedding feeds a non-integer op (e.g. Gather -> Add), so it must count
+        toward ``nodes_quantized``. QuantizeLinear never appears in
+        ``quantize_dynamic`` output and must be ignored.
+        """
+        config = WinMLQuantizationConfig(mode="dynamic")
+        model_path = tmp_path / "model.onnx"
+        model_path.write_text("x")
+
+        init_kwargs: dict = {}
+        _patch_quantize_dynamic(monkeypatch, init_kwargs)
+        fake_model = SimpleNamespace(
+            graph=SimpleNamespace(
+                node=[
+                    SimpleNamespace(op_type="DynamicQuantizeLinear"),
+                    SimpleNamespace(op_type="MatMulInteger"),
+                    SimpleNamespace(op_type="DequantizeLinear"),
+                    SimpleNamespace(op_type="QuantizeLinear"),  # must NOT count
+                    SimpleNamespace(op_type="Add"),
+                ]
+            )
+        )
+        _install_fake_onnx_for_dynamic(monkeypatch, fake_model)
+
+        result = DynamicPass(config).run(model_path, tmp_path / "out.onnx")
+        # DynamicQuantizeLinear + MatMulInteger + DequantizeLinear = 3.
+        # QuantizeLinear and Add are excluded.
+        assert result.nodes_quantized == 3
+
+
+# ---------------------------------------------------------------------------
+# WinMLQuantizationConfig — dynamic serialization
+# ---------------------------------------------------------------------------
+
+
+class TestDynamicConfigSerialization:
+    def test_reduce_range_round_trips_in_dynamic_mode(self) -> None:
+        config = WinMLQuantizationConfig(mode="dynamic", reduce_range=True)
+        data = config.to_dict()
+        assert data["reduce_range"] is True
+        assert WinMLQuantizationConfig.from_dict(data).reduce_range is True
+
+    def test_reduce_range_omitted_for_non_dynamic_modes(self) -> None:
+        config = WinMLQuantizationConfig(mode="static", reduce_range=True)
+        assert "reduce_range" not in config.to_dict()
