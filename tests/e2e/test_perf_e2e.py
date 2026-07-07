@@ -824,10 +824,12 @@ class TestPerfGenai:
     for each device/ep resolution. Skipped unless ``onnxruntime_genai`` /
     ``torch`` / ``transformers`` are importable and the build succeeds.
 
-    Only ``config`` / CPU routing is asserted: the builder emits a *flat*
-    bundle (single ``model.onnx``, no ``decoder.pipeline``), so a hardware-EP
-    override would be a silent no-op there. The pipeline-rewrite override is
-    covered by the GenaiSession unit tests.
+    Both ``config`` / CPU routing and the honest-reporting path are asserted:
+    the builder emits a *flat* bundle (single ``model.onnx``, no
+    ``decoder.pipeline``), so a hardware-EP override matches no stage and is
+    reported as ``config`` rather than the requested EP (and still runs on CPU).
+    The pipeline-rewrite override (skip-CPU, device-aware options) is covered by
+    the GenaiSession unit tests.
     """
 
     @pytest.fixture(scope="class")
@@ -923,3 +925,16 @@ class TestPerfGenai:
         data = self._run(genai_bundle, tmp_path / "genai_device_cpu.json", device="cpu")
         assert data["benchmark_info"]["device"] == "cpu"
         assert data["benchmark_info"]["ep"] == "cpu"
+
+    def test_ep_qnn_on_flat_bundle_reports_config(self, tmp_path: Path, genai_bundle: Path):
+        """A hardware-EP override matching no stage is reported as config.
+
+        The flat CPU bundle has no ``decoder.pipeline`` for ``--ep qnn`` to
+        rewrite, so the override takes no effect: nothing routes to QNN (so QNN
+        never has to register — this runs on CPU-only CI), and the report says
+        ``ep: config`` instead of falsely claiming ``qnn`` (comment #3).  The
+        *requested* device is still echoed back.
+        """
+        data = self._run(genai_bundle, tmp_path / "genai_ep_qnn_flat.json", ep="qnn")
+        assert data["benchmark_info"]["ep"] == "config"
+        assert data["benchmark_info"]["device"] == "config"

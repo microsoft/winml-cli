@@ -41,7 +41,12 @@ from ..session import (
     GenaiSessionError,
     GenerationConfig,
 )
-from ..utils.constants import EP_NAME_TO_ALIAS, EPNameOrAlias
+from ..utils.constants import (
+    EP_NAME_TO_ALIAS,
+    EP_SUPPORTED_DEVICES,
+    EPNameOrAlias,
+    normalize_ep_name,
+)
 
 
 if TYPE_CHECKING:
@@ -182,6 +187,12 @@ class GenaiBenchmarkResult:
     generated_tokens: int = 0
     context_length: int | None = None
 
+    # EP that actually took effect (from GenaiSession.effective_ep): the override
+    # alias when it applied, or None to mean "config" (no override, or an
+    # override that matched no stage).  Reported instead of the *requested* ep so
+    # the report never claims an EP that never applied.
+    effective_ep: str | None = None
+
     # Time to first token (prefill + first decode), milliseconds
     ttft_mean_ms: float = 0.0
     ttft_min_ms: float = 0.0
@@ -216,7 +227,7 @@ class GenaiBenchmarkResult:
             "benchmark_info": {
                 "runtime": RUNTIME_TYPE,
                 "bundle_dir": str(self.config.bundle_dir),
-                "ep": self.config.ep or "config",
+                "ep": self.effective_ep or "config",
                 "device": self.config.device,
                 "compile": self.config.compile,
                 "compile_timeout": self.config.compile_timeout,
@@ -295,10 +306,30 @@ class GenaiPerfBenchmark:
         return GenaiSession(
             self._config.bundle_dir,
             self._config.ep,
+            device=self._session_device(),
             context_length=self._config.context_length,
             compile=self._config.compile,
             compile_timeout=self._config.compile_timeout,
         )
+
+    def _session_device(self) -> str | None:
+        """Concrete device (npu/gpu/cpu) the forced EP should target, or None.
+
+        Only meaningful when an EP override is active: it lets the session
+        synthesize ``device_type`` for device-parameterized EPs (OpenVINO /
+        VitisAI) when a re-routed stage has no reusable options.  A concrete
+        ``--device`` is used verbatim; the sentinels ``config``/``auto`` (e.g.
+        ``--ep`` given alone) fall back to the EP's primary supported device.
+        """
+        ep = self._config.ep
+        if ep is None:
+            return None
+        device = (self._config.device or "").lower()
+        if device and device not in ("config", "auto"):
+            return device
+        canonical = normalize_ep_name(ep)
+        devices = EP_SUPPORTED_DEVICES.get(canonical)
+        return devices[0] if devices else None
 
     def _prompt_text(self, session: GenaiSession) -> str:
         """Return the prompt to benchmark, chat-templated when enabled.
@@ -397,6 +428,7 @@ class GenaiPerfBenchmark:
 
         return GenaiBenchmarkResult(
             config=self._config,
+            effective_ep=getattr(self._session, "effective_ep", None),
             prompt_tokens=len(self._prompt_token_ids),
             generated_tokens=timed[0].n_tokens if timed else 0,
             context_length=self._session.context_length if self._session else None,
@@ -432,7 +464,7 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
     cfg = result.config
     console.print()
     console.print(f"[dim]Runtime:[/dim]   {RUNTIME_TYPE}")
-    ep_label = cfg.ep or "config"
+    ep_label = result.effective_ep or "config"
     device_str = cfg.device if cfg.device == ep_label else f"{cfg.device} ({ep_label})"
     console.print(f"[dim]Device:[/dim]    {device_str}")
     console.print(f"[dim]Bundle:[/dim]    {cfg.bundle_dir}")

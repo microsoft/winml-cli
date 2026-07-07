@@ -76,6 +76,7 @@ class _FakeSession:
         prompt_ids: list[int] | None = None,
         context_length: int = 256,
         chat_template: bool = True,
+        effective_ep: str | None = None,
     ) -> None:
         self._timings = list(timings)
         self._i = 0
@@ -84,6 +85,10 @@ class _FakeSession:
         self._chat_template = chat_template
         self.encoded_text: str | None = None
         self.template_applied = False
+        # Mirrors GenaiSession.effective_ep: the EP that actually took effect (or
+        # None to mean "config").  Reported by the benchmark instead of the
+        # requested ep so a no-op override is not falsely claimed.
+        self.effective_ep = effective_ep
 
     def encode(self, text: str) -> list[int]:
         self.encoded_text = text
@@ -342,7 +347,9 @@ class TestResultToDict:
             compile=True,
             compile_timeout=120,
         )
-        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])], prompt_ids=[1, 2, 3])
+        session = _FakeSession(
+            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])], prompt_ids=[1, 2, 3], effective_ep="qnn"
+        )
         bench = GenaiPerfBenchmark(cfg, session=session)
         return bench.run()
 
@@ -393,6 +400,59 @@ class TestResultToDict:
         info = GenaiPerfBenchmark(cfg, session=session).run().to_dict()["benchmark_info"]
         assert info["ep"] == "config"
         assert info["device"] == "auto"
+
+    def test_to_dict_reports_effective_ep_over_requested_ep(self) -> None:
+        # A hardware override that took no effect (session.effective_ep is None,
+        # e.g. flat/all-CPU bundle) is reported as "config", never the requested
+        # ep — so the JSON never claims an EP that never applied.
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"), ep="qnn", device="npu", iterations=1, warmup=0
+        )
+        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4])], effective_ep=None)
+        info = GenaiPerfBenchmark(cfg, session=session).run().to_dict()["benchmark_info"]
+        assert info["ep"] == "config"
+        assert info["device"] == "npu"
+
+
+# ---------------------------------------------------------------------------
+# _session_device (concrete device for a forced EP)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionDevice:
+    """``_session_device`` resolves the device a forced EP should target."""
+
+    @staticmethod
+    def _bench(ep: str | None, device: str) -> GenaiPerfBenchmark:
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), ep=ep, device=device)
+        return GenaiPerfBenchmark(cfg, session=_FakeSession([]))
+
+    def test_none_without_override(self) -> None:
+        assert self._bench(None, "config")._session_device() is None
+
+    def test_concrete_device_used_verbatim(self) -> None:
+        assert self._bench("openvino", "npu")._session_device() == "npu"
+
+    def test_config_sentinel_falls_back_to_ep_primary_device(self) -> None:
+        # --ep given alone (device defaults to "config"): use the EP's primary
+        # supported device so device-parameterized EPs still get a device_type.
+        assert self._bench("openvino", "config")._session_device() == "npu"
+
+    def test_auto_falls_back_to_ep_primary_device(self) -> None:
+        assert self._bench("qnn", "auto")._session_device() == "npu"
+
+    def test_build_session_forwards_device(self, monkeypatch) -> None:
+        captured: dict = {}
+
+        def fake_ctor(bundle_dir, ep, *, device=None, **_kwargs):
+            captured["ep"] = ep
+            captured["device"] = device
+            return _FakeSession([])
+
+        monkeypatch.setattr(perf_genai, "GenaiSession", fake_ctor)
+        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), ep="openvino", device="npu")
+        GenaiPerfBenchmark(cfg)._build_session()
+        assert captured == {"ep": "openvino", "device": "npu"}
 
 
 # ---------------------------------------------------------------------------

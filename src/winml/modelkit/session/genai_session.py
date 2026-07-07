@@ -54,7 +54,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from ..utils.constants import EP_NAME_TO_ALIAS, EP_NAMES, normalize_ep_name
+from ..utils.constants import (
+    EP_NAME_TO_ALIAS,
+    EP_NAMES,
+    EP_SUPPORTED_DEVICES,
+    normalize_ep_name,
+)
 from .ep_registry import WinMLEPRegistry
 
 
@@ -65,6 +70,14 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+# EPs whose hardware target is selected by a ``device_type`` provider option
+# (rather than a backend path/library).  When forcing one of these onto a stage
+# the bundle defines no options for, synthesize ``device_type`` from the
+# requested device.  Kept as full EP names so comparisons stay canonical.
+_DEVICE_TYPE_EPS: frozenset[str] = frozenset(
+    {"OpenVINOExecutionProvider", "VitisAIExecutionProvider"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -264,17 +277,28 @@ class GenaiSession:
               and pre-compilation are decided from ``genai_config.json`` (per-stage
               ``session_options.provider_options``), exactly as the bundle
               author intended.
-            * a concrete EP — *force the whole decoder pipeline onto that EP*,
-              rewriting every stage's ``provider_options``.  ``"cpu"`` strips the
-              hardware providers (falling back to CPU, no WinML EP registration or
-              compilation); a hardware EP routes every stage to it (registering the
-              WinML EPs it needs, and pre-compiling when ``compile=True``).
+            * a concrete EP — *override the pipeline's execution provider*.
+              ``"cpu"`` strips the hardware providers from every stage (CPU
+              fallback, no WinML EP registration or compilation).  A hardware EP
+              re-routes **only the stages that already run on a hardware EP**,
+              leaving stages the bundle deliberately keeps on CPU (e.g.
+              ``embeddings``/``lm_head``) untouched — forcing a large
+              CPU-intended graph onto an accelerator is rarely wanted and can
+              trigger very slow on-the-fly compilation.  A re-routed stage reuses
+              the bundle's own options for the target EP when available (e.g. QNN
+              ``backend_path``/``soc_model``, borrowed from any stage), otherwise
+              synthesizes ``device_type`` from *device* for device-parameterized
+              EPs (OpenVINO/VitisAI).
 
-            The override is generic — it is validated against and rewritten from
-            the shared EP union, with no hardcoded EP short-name → behavior map.
-            Forcing a hardware EP onto stages the bundle did not build for it
-            (e.g. ``embeddings``/``lm_head``) may fall back to JIT/CPU inside
-            onnxruntime-genai; the always-safe override direction is ``"cpu"``.
+            The override is generic — validated against and rewritten from the
+            shared EP union, with no hardcoded EP short-name → behavior map.  If
+            the override matches no stage (flat/empty pipeline, or an all-CPU
+            bundle) the run follows the bundle config and :attr:`effective_ep`
+            reports ``None`` (the always-safe override direction is ``"cpu"``).
+        device: Concrete target device (``"npu"``/``"gpu"``/``"cpu"``) the forced
+            *ep* should run on.  Used only to synthesize ``device_type`` for
+            device-parameterized EPs (OpenVINO/VitisAI) when a re-routed stage
+            has no reusable options; ignored when respecting the bundle config.
         context_length: Override for the static KV cache length.  When
             ``None`` (default), read from ``genai_config.json``.
             Must match the ``--max-cache-len`` used during the winml-cli build.
@@ -309,6 +333,7 @@ class GenaiSession:
         bundle_dir: str | Path,
         ep: EPNameOrAlias | None = None,
         *,
+        device: str | None = None,
         context_length: int | None = None,
         verbose: bool = False,
         compile: bool = False,
@@ -319,6 +344,15 @@ class GenaiSession:
         # and normalized to a canonical EPName so the rewrite/registration logic
         # stays generic (no hardcoded EP short-name behavior).
         self._ep_override: EPName | None = self._resolve_ep_override(ep)
+        # Concrete target device (npu/gpu/cpu) for the forced EP, or None.  Only
+        # used to synthesize device-parameterized provider options (OpenVINO /
+        # VitisAI ``device_type``) when re-routing a stage that has no reusable
+        # options for the target EP; QNN reuses the bundle's own ``backend_path``.
+        self._device: str | None = device.lower() if device else None
+        # Set at load(): did the override actually take effect (rewrite/strip at
+        # least one stage)?  Drives :attr:`effective_ep` so the report never
+        # claims an EP that never applied (flat/empty pipeline, all-CPU bundle).
+        self._override_effective: bool = False
         self._context_length_override = context_length
         self._verbose = verbose
         self._compile = compile
@@ -395,6 +429,19 @@ class GenaiSession:
         # actually drives routing.  Precedence is explicit arg > bundle config:
         # when no override is set this is the bundle config verbatim.
         effective_cfg, overridden = self._apply_ep_override(cfg)
+
+        # Record whether the override actually applied so :attr:`effective_ep`
+        # (and the perf report) never claim an EP that matched no stage.  Warn
+        # when a requested override is a no-op so ``--ep qnn`` on a flat/all-CPU
+        # bundle is visibly reported as "config" rather than silently ignored.
+        self._override_effective = self._override_took_effect(effective_cfg)
+        if self._ep_override is not None and not self._override_effective:
+            logger.warning(
+                "EP override %r was requested but did not take effect (flat/empty "
+                "pipeline, or every stage runs on CPU); the run follows the "
+                "bundle's genai_config.json instead.",
+                EP_NAME_TO_ALIAS[self._ep_override],
+            )
 
         # Register WinML EPs only when the *effective* config routes at least one
         # stage to a hardware EP.  Reading it from the post-override config means
@@ -710,6 +757,19 @@ class GenaiSession:
         return EP_NAME_TO_ALIAS[self._ep_override]
 
     @property
+    def effective_ep(self) -> EPAlias | None:
+        """The EP alias that actually took effect, or ``None`` to mean "config".
+
+        Differs from :attr:`ep` (the *requested* override) when the override was
+        a no-op: ``None`` when there was no override, **or** when the requested EP
+        matched no pipeline stage (flat/empty pipeline, or an all-CPU bundle) so
+        the run follows the bundle config.  Valid only after :meth:`load`.
+        """
+        if self._ep_override is None or not self._override_effective:
+            return None
+        return EP_NAME_TO_ALIAS[self._ep_override]
+
+    @property
     def context_length(self) -> int | None:
         """Static KV cache length, populated after :meth:`load`."""
         return self._context_length
@@ -764,18 +824,19 @@ class GenaiSession:
         config is returned verbatim (``changed=False``) so config-driven bundles
         behave exactly as before.
 
-        Otherwise every stage in ``model.decoder.pipeline`` has its
-        ``session_options.provider_options`` rewritten so the *whole* decoder
-        pipeline is forced onto the override EP:
+        Otherwise the stages in ``model.decoder.pipeline`` are rewritten:
 
         * **CPU** — strip hardware ``provider_options`` (set to ``[]``) so
           onnxruntime-genai falls back to the CPU provider.  Stages that were
           already CPU are left untouched.
-        * **hardware EP** — route every stage to that EP as
-          ``[{alias: opts}]``.  A stage's existing options are carried over only
-          when it already targeted the *same* provider (so re-selecting the
-          bundle's own EP is a no-op); otherwise empty options are written and
-          the registered EP supplies its defaults.
+        * **hardware EP** — re-route only the stages that *already run on a
+          hardware EP* to that EP as ``[{alias: opts}]``, leaving CPU-intended
+          stages (``embeddings``/``lm_head``) untouched.  A re-routed stage's
+          options are, in priority order: its own options when it already
+          targeted the *same* provider; else options borrowed from any pipeline
+          stage that targets the provider (e.g. QNN ``backend_path``); else a
+          ``device_type`` synthesized from *device* for device-parameterized EPs
+          (OpenVINO/VitisAI), else empty.
 
         The rewrite is generic: EPs are compared/aliased through the shared EP
         union, and the only literal provider name is the universal ``"cpu"``.
@@ -790,19 +851,26 @@ class GenaiSession:
         effective = copy.deepcopy(cfg)
         pipeline = effective.get("model", {}).get("decoder", {}).get("pipeline", [])
         if isinstance(pipeline, list):
+            # Pre-scan for options the bundle already defines for the target EP,
+            # so re-routing another hardware stage onto it can reuse the bundle's
+            # own machine-correct options (e.g. QNN backend_path/soc_model)
+            # instead of guessing them.
+            borrow_opts = self._pipeline_opts_for_ep(pipeline, self._ep_override)
             for stage_entry in pipeline:
                 if not isinstance(stage_entry, dict):
                     continue
                 for stage_cfg in stage_entry.values():
                     if isinstance(stage_cfg, dict):
-                        self._override_stage_provider(stage_cfg)
+                        self._override_stage_provider(stage_cfg, borrow_opts)
 
         return effective, effective != cfg
 
-    def _override_stage_provider(self, stage_cfg: dict[str, Any]) -> None:
+    def _override_stage_provider(self, stage_cfg: dict[str, Any], borrow_opts: dict) -> None:
         """Rewrite one pipeline stage's ``provider_options`` for the override EP.
 
         Mutates *stage_cfg* in place.  Assumes :attr:`_ep_override` is set.
+        *borrow_opts* are options harvested from another pipeline stage that
+        already targets the override EP (empty when none exist).
         """
         ep = self._ep_override
         if ep is None:
@@ -819,15 +887,86 @@ class GenaiSession:
                     so["provider_options"] = []
             return
 
-        # Force a hardware EP: route the stage to it, carrying over the stage's
-        # own options only when it already targeted the same provider.
-        alias = EP_NAME_TO_ALIAS[ep]
+        # Force a hardware EP: only re-route stages the bundle already runs on a
+        # hardware EP.  Stages it deliberately keeps on CPU (empty/missing
+        # provider_options — typically embeddings/lm_head) are left untouched;
+        # forcing a large CPU-intended graph onto an accelerator is rarely wanted
+        # and can trigger very slow on-the-fly compilation.
         so = stage_cfg.get("session_options")
+        current_po = so.get("provider_options") if isinstance(so, dict) else None
+        if not (isinstance(current_po, list) and self._provider_list_has_hardware_ep(current_po)):
+            return
+
+        alias = EP_NAME_TO_ALIAS[ep]
+        if self._stage_targets_ep(current_po, ep):
+            # Re-selecting the stage's own EP: preserve its shipped options
+            # verbatim (even when empty) — this is a byte-for-byte no-op.
+            opts = self._existing_opts_for_ep(current_po, ep)
+        elif borrow_opts:
+            opts = dict(borrow_opts)
+        else:
+            opts = self._default_opts_for_device(ep)
         if not isinstance(so, dict):
             so = {}
             stage_cfg["session_options"] = so
-        opts = self._existing_opts_for_ep(so.get("provider_options"), ep)
         so["provider_options"] = [{alias: opts}]
+
+    def _default_opts_for_device(self, ep: EPName) -> dict[str, Any]:
+        """Synthesize provider options for *ep* when the bundle defines none.
+
+        Device-parameterized EPs (OpenVINO/VitisAI) need a ``device_type`` to
+        target hardware; it is derived from the session's *device* (falling back
+        to the EP's primary supported device).  QNN needs a ``backend_path`` that
+        this code must not hardcode, so it warns and returns empty options; other
+        EPs (e.g. DML) take no options.
+        """
+        if ep in _DEVICE_TYPE_EPS:
+            device = self._device or EP_SUPPORTED_DEVICES[ep][0]
+            return {"device_type": device.upper()}
+        if ep == "QNNExecutionProvider":
+            logger.warning(
+                "Forcing %s onto a stage the bundle did not route to it, and no "
+                "reusable QNN options were found in the pipeline; writing empty "
+                "QNN options. QNN will fall back to its default backend and may "
+                "not target the intended device. Point --ep/--device at a bundle "
+                "whose config already defines QNN, or rebuild it for this EP.",
+                EP_NAME_TO_ALIAS[ep],
+            )
+        return {}
+
+    @staticmethod
+    def _stage_targets_ep(provider_options: Any, target: EPName) -> bool:
+        """True if *provider_options* already names *target* (any options)."""
+        if isinstance(provider_options, list):
+            for entry in provider_options:
+                if isinstance(entry, dict):
+                    for name in entry:
+                        if normalize_ep_name(cast("EPNameOrAlias", str(name))) == target:
+                            return True
+        return False
+
+    @classmethod
+    def _pipeline_opts_for_ep(cls, pipeline: list, target: EPName) -> dict:
+        """Return the first non-empty options any pipeline stage defines for *target*.
+
+        Lets forcing a hardware EP onto a stage reuse the bundle's own
+        machine-correct options for that EP (e.g. QNN ``backend_path``/
+        ``soc_model``) rather than guessing them.  Empty (``{}``) stage options
+        are skipped since borrowing them adds nothing.
+        """
+        for stage_entry in pipeline:
+            if not isinstance(stage_entry, dict):
+                continue
+            for stage_cfg in stage_entry.values():
+                if not isinstance(stage_cfg, dict):
+                    continue
+                so = stage_cfg.get("session_options")
+                if not isinstance(so, dict):
+                    continue
+                opts = cls._existing_opts_for_ep(so.get("provider_options"), target)
+                if opts:
+                    return opts
+        return {}
 
     @staticmethod
     def _provider_list_has_hardware_ep(provider_options: list) -> bool:
@@ -1294,6 +1433,44 @@ class GenaiSession:
                 if ep is not None:
                     return ep
         return None
+
+    def _override_took_effect(self, effective_cfg: dict[str, Any]) -> bool:
+        """Whether the ``ep`` override actually applied to *effective_cfg*.
+
+        Drives :attr:`effective_ep`: ``False`` means the override matched no
+        stage (flat/empty pipeline, or an all-CPU bundle) so the report should
+        say "config" rather than claim an EP that never applied.
+
+        * no override → ``False`` (there is nothing to claim).
+        * force CPU → ``True`` iff no hardware EP remains (so ``--ep cpu`` on a
+          bundle whose hardware lives outside the pipeline honestly reports
+          "config").
+        * force a hardware EP → ``True`` iff a stage routes to it.
+        """
+        ep = self._ep_override
+        if ep is None:
+            return False
+        if ep == "CPUExecutionProvider":
+            return self._bundle_uses_hardware_ep(effective_cfg) is None
+        return self._config_routes_to_ep(effective_cfg, ep)
+
+    @classmethod
+    def _config_routes_to_ep(cls, cfg: dict[str, Any], target: EPName) -> bool:
+        """True if any decoder-pipeline stage's provider_options names *target*."""
+        pipeline = cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
+        if not isinstance(pipeline, list):
+            return False
+        for stage_entry in pipeline:
+            if not isinstance(stage_entry, dict):
+                continue
+            for stage_cfg in stage_entry.values():
+                if not isinstance(stage_cfg, dict):
+                    continue
+                so = stage_cfg.get("session_options")
+                po = so.get("provider_options") if isinstance(so, dict) else None
+                if cls._stage_targets_ep(po, target):
+                    return True
+        return False
 
     def _read_context_length(self) -> int:
         """Read ``model.context_length`` from ``genai_config.json``."""
