@@ -120,7 +120,16 @@ class TestInspectListTasks:
         return [line.strip() for line in output.splitlines() if line.strip()]
 
     def test_list_tasks_model_type_is_strict_subset(self) -> None:
-        """--list-tasks --model-type clip must be a strict subset of the full taxonomy."""
+        """clip's tasks are a strict subset of the full taxonomy.
+
+        This holds for clip specifically because its composite task
+        (zero-shot-image-classification) happens to live inside KNOWN_TASKS, so the
+        whole listing stays within the full set. It is NOT a general guarantee: only
+        the Optimum half is intersected with KNOWN_TASKS; composite tasks are unioned
+        unfiltered, so a model whose composite task sits outside KNOWN_TASKS (t5 ->
+        summarization/translation, see test_list_tasks_excludes_with_past_flavors)
+        would break the subset relation. Asserted only for clip.
+        """
         full = set(self._task_lines(_run("--list-tasks").output))
         result = _run("--list-tasks", "--model-type", "clip")
         assert result.exit_code == 0
@@ -128,7 +137,7 @@ class TestInspectListTasks:
         assert clip_tasks, "Expected clip to have at least one task"
         assert clip_tasks == sorted(clip_tasks)
         clip_set = set(clip_tasks)
-        assert clip_set < full, "Model-specific tasks must be a strict subset of all tasks"
+        assert clip_set < full, "clip's tasks should be a strict subset of the full taxonomy"
         # Optimum-exportable and composite pipeline tasks both surface.
         assert "image-classification" in clip_set
         assert "zero-shot-image-classification" in clip_set
@@ -167,6 +176,23 @@ class TestInspectListTasks:
         result = _run("--list-tasks", "--model-type", "depth_anything")
         assert result.exit_code == 0
         assert "depth-estimation" in self._task_lines(result.output)
+
+    def test_list_tasks_unknown_model_type_fails_loudly(self) -> None:
+        """A typo'd --model-type must exit non-zero, not print nothing and exit 0."""
+        result = _run("--list-tasks", "--model-type", "asdf")
+        assert result.exit_code != 0
+        assert "No exportable tasks" in result.output
+
+    def test_list_tasks_non_canonical_separator_fails_loudly(self) -> None:
+        """Hyphenated gpt-neo (canonical is gpt_neo) resolves empty and must error.
+
+        Optimum's export table is keyed on the exact config.model_type with no
+        separator normalization, so a hyphenated variant finds nothing. Rather than
+        silently emit an empty list, --list-tasks fails and points at the canonical form.
+        """
+        result = _run("--list-tasks", "--model-type", "gpt-neo")
+        assert result.exit_code != 0
+        assert "canonical" in result.output.lower()
 
 
 # ===========================================================================

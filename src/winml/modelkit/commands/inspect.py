@@ -63,9 +63,16 @@ def _list_tasks_for_model(model_type: str) -> list[str]:
     Unions Optimum's ONNX-exportable tasks with any registered composite pipeline
     tasks. Optimum's list is intersected with ``KNOWN_TASKS`` first, dropping
     ``-with-past`` KV-cache export flavors that are not user-facing tasks (and which
-    ``--task`` validation would itself reject). Returns ``[]`` for an unknown model_type
-    (it genuinely has no exportable tasks). The caller resolves ``model_type`` from
-    ``--model-type`` or the model id's config.
+    ``--task`` validation would itself reject). Returns ``[]`` when the model_type is
+    unknown to *both* lookups — the caller (``--list-tasks``) turns that into a loud
+    error rather than printing nothing.
+
+    ``model_type`` must be the canonical HF ``config.model_type`` string. The ``-m``
+    path already passes that; ``--model-type`` is trusted verbatim. Optimum's task
+    table is an exact dict lookup whose keys mix separators (``gpt_neo`` underscored,
+    ``megatron-bert`` hyphenated), so no normalization can reconstruct the canonical
+    key from an arbitrary variant — a non-canonical ``--model-type`` (``gpt-neo``,
+    ``BERT``) resolves empty on the Optimum half by design.
     """
     # get_supported_tasks reads Optimum's ONNX task table, which is populated by
     # import side-effects. Two triggers are required and order-independent once both
@@ -125,7 +132,8 @@ def _list_tasks_for_model(model_type: str) -> list[str]:
     "--model-type",
     "model_type",
     default=None,
-    help="Override model type (e.g., bert, resnet) — can be used without --model",
+    help="Override model type — use the canonical HF config.model_type "
+    "(e.g. bert, gpt_neo, megatron-bert). Can be used without --model.",
 )
 @click.option(
     "--model-class",
@@ -204,7 +212,24 @@ def inspect(
                 click.echo(t)
             return
 
-        for t in _list_tasks_for_model(resolved_type):
+        tasks = _list_tasks_for_model(resolved_type)
+        if not tasks:
+            # Empty means the model_type matched neither the Optimum export table
+            # nor the composite registry. For a user-supplied --model-type the
+            # likeliest cause is a typo or non-canonical form (gpt-neo/BERT rather
+            # than gpt_neo/bert), so fail loudly instead of printing nothing and
+            # exiting 0 — mirrors how --task rejects unknown values.
+            if model_type is not None:
+                raise click.ClickException(
+                    f"No exportable tasks found for model type '{resolved_type}'. "
+                    "Check it is the canonical HF config.model_type "
+                    "(e.g. gpt_neo, not gpt-neo; bert, not BERT)."
+                )
+            raise click.ClickException(
+                f"No exportable tasks found for model type '{resolved_type}' "
+                f"(resolved from '{model}')."
+            )
+        for t in tasks:
             click.echo(t)
         return
 
