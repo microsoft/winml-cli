@@ -588,6 +588,7 @@ class TestCliDispatch:
         onnx.write_bytes(b"fake")
         result = runner.invoke(perf, ["-m", str(onnx), "--runtime", "winml-genai"])
         assert result.exit_code != 0
+        assert "directory" in result.output.lower()
         assert "config" not in capture_run
 
     def test_missing_directory_rejected(

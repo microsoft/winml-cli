@@ -318,14 +318,7 @@ class TestPerfUnifiedPipeline:
         ):
             result = runner.invoke(
                 perf,
-                [
-                    "-m",
-                    str(onnx_file),
-                    "--model-id",
-                    "test/model",
-                    "-o",
-                    str(tmp_path / "out.json"),
-                ],
+                ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
                 obj={},
             )
 
@@ -368,8 +361,6 @@ class TestPerfUnifiedPipeline:
                 [
                     "-m",
                     str(onnx_file),
-                    "--model-id",
-                    "test/model",
                     "--shape-config",
                     str(shape_cfg_file),
                     "-o",
@@ -407,8 +398,6 @@ class TestPerfUnifiedPipeline:
                 [
                     "-m",
                     str(onnx_file),
-                    "--model-id",
-                    "test/model",
                     "--no-quant",
                     "--no-optimize",
                     "-o",
@@ -444,14 +433,7 @@ class TestPerfUnifiedPipeline:
         ):
             result = runner.invoke(
                 perf,
-                [
-                    "-m",
-                    str(onnx_file),
-                    "--model-id",
-                    "test/model",
-                    "-o",
-                    str(tmp_path / "out.json"),
-                ],
+                ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
                 obj={},
             )
 
@@ -557,8 +539,6 @@ class TestPerfUnifiedPipeline:
                 [
                     "-m",
                     str(onnx_file),
-                    "--model-id",
-                    "test/model",
                     "--ep-options",
                     "htp_performance_mode=burst",
                     "--ep-options",
@@ -682,16 +662,7 @@ class TestPerfUnifiedPipeline:
         ):
             result = runner.invoke(
                 perf,
-                [
-                    "-m",
-                    str(onnx_file),
-                    "--model-id",
-                    "test/model",
-                    "--device",
-                    "npu",
-                    "-o",
-                    str(tmp_path / "out.json"),
-                ],
+                ["-m", str(onnx_file), "--device", "npu", "-o", str(tmp_path / "out.json")],
                 obj={},
             )
 
