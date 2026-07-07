@@ -603,12 +603,6 @@ class PerfBenchmark:
 
             samples.append(_GenSample(ttft_ms=ttft_ms, total_ms=total_ms, n_tokens=n_generated))
 
-            phase = "warmup" if i < self.config.warmup else "timed"
-            if (i + 1) % max(1, total_runs // 5) == 0 or i == total_runs - 1:
-                console.print(
-                    f"  [{phase}] {i + 1}/{total_runs}: {total_ms:.1f} ms, {n_generated} tokens"
-                )
-
         # Aggregate (exclude warmup)
         timed = samples[self.config.warmup :]
         if not timed:
