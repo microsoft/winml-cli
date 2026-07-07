@@ -680,6 +680,7 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
     help="List available execution providers",
 )
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def sysinfo(
     ctx: click.Context,

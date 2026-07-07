@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import QuantizeResult, WinMLQuantizationConfig
-from .passes import BaseQuantPass, FP16Pass, RTNPass, StaticPass
+from .passes import BaseQuantPass, DynamicPass, FP16Pass, RTNPass, StaticPass
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def expand_precision(
     ``fp16``      ``[FP16Pass(config)]``
     ``rtn``       ``[RTNPass(config)]``
     ``static``    ``[StaticPass(config)]``
-    ``dynamic``   ``[StaticPass(config)]``  (placeholder until DynamicPass is implemented)
+    ``dynamic``   ``[DynamicPass(config)]``
     ============= =======================
 
     Args:
@@ -64,7 +64,7 @@ def expand_precision(
         "fp16": FP16Pass,
         "rtn": RTNPass,
         "static": StaticPass,
-        "dynamic": StaticPass,
+        "dynamic": DynamicPass,
     }
 
     if effective_precision in _pass_types:
@@ -219,6 +219,57 @@ def _merge_results(base: QuantizeResult, new: QuantizeResult) -> QuantizeResult:
     )
 
 
+def _check_input_model_opset(model_path: Path) -> str | None:
+    """Return a clear error message if *model_path* is empty/corrupt, else None.
+
+    Mirrors ORT's ``get_opset_version`` requirement: a usable model must declare
+    a default (``""`` / ``ai.onnx``) opset import. A zero-byte or truncated file
+    parses into an (almost) empty ModelProto with no such opset import — the
+    signature of a previous stage that failed to finish writing (most commonly
+    because it ran out of disk space). Detecting it here lets us surface the
+    real cause instead of ORT's opaque "Failed to find proper ai.onnx domain".
+
+    A zero-byte file (the most common disk-full artefact) is caught up front
+    with a cheap ``stat`` so the healthy success path never pays for a full
+    proto parse. The full parse via ``onnx.load_model`` (graph only — no
+    external weights, so it never trips over a missing ``.data`` sidecar) is the
+    fallback for the rarer truncated-but-nonzero case.
+    """
+    from onnx import load_model
+
+    # Fast path: a zero-byte output is the most common disk-full artefact.
+    try:
+        if model_path.stat().st_size == 0:
+            return (
+                f"Input ONNX model is empty (zero bytes): {model_path}. "
+                "A previous build stage may have run out of disk space. "
+                "Free up disk space and rebuild."
+            )
+    except OSError:
+        # stat() failing is unexpected (existence was already checked); fall
+        # through to the full parse, which surfaces a clear error either way.
+        pass
+
+    try:
+        model = load_model(str(model_path), load_external_data=False)
+    except Exception as e:
+        return (
+            f"Input ONNX model could not be parsed: {model_path} ({e}). "
+            "The file may be truncated or corrupt — for example, a previous "
+            "build stage may have run out of disk space. Free up disk space "
+            "and rebuild."
+        )
+
+    has_default_opset = any(opset.domain in ("", "ai.onnx") for opset in model.opset_import)
+    if not has_default_opset:
+        return (
+            f"Input ONNX model is empty or corrupt (no ai.onnx opset import): "
+            f"{model_path}. It may have been truncated by a previous failed "
+            "write (e.g. insufficient disk space). Free up disk space and rebuild."
+        )
+    return None
+
+
 def quantize_onnx(
     model_path: str | Path,
     output_path: str | Path | None = None,
@@ -234,7 +285,9 @@ def quantize_onnx(
 
     - ``"fp16"`` — FP16 conversion (no quantization)
     - ``"rtn"`` — RTN weight-only quantization
-    - ``"static"`` / ``"dynamic"`` — QDQ calibrated quantization
+    - ``"static"`` — QDQ calibrated quantization (requires calibration data)
+    - ``"dynamic"`` — dynamic quantization (weights static, activations at
+      runtime; no calibration data)
 
     Args:
         model_path: Path to input ONNX model.
@@ -257,6 +310,25 @@ def quantize_onnx(
         output_path = model_path.parent / f"{model_path.stem}_quantized.onnx"
 
     use_external_data: bool = kwargs.pop("use_external_data", True)
+    if kwargs:
+        raise TypeError(f"quantize_onnx() got unexpected keyword arguments: {sorted(kwargs)}")
+
+    # Guard against an empty/corrupt input model before building the pipeline.
+    # A previous stage that ran out of disk space can leave a truncated/zero-byte
+    # .onnx behind; without this check a pass fails deep inside ORT with the
+    # opaque "Failed to find proper ai.onnx domain". Surface the real cause
+    # instead, and catch it before the model-type finalizer reads the model. A
+    # missing file is left to Quantizer.run(), which reports a clear
+    # "Model not found".
+    if model_path.exists():
+        opset_error = _check_input_model_opset(model_path)
+        if opset_error is not None:
+            return QuantizeResult(
+                success=False,
+                output_path=None,
+                errors=[opset_error],
+            )
+
     # Apply model-type-specific quant finalizer if registered. Some model types
     # finalize calibration reader / nodes-to-exclude / dtypes only once the
     # exported ONNX exists.
@@ -267,7 +339,5 @@ def quantize_onnx(
         if finalizer is not None:
             config = finalizer.finalize(config, onnx_path=model_path, model_id=config.model_id)
 
-    if kwargs:
-        raise TypeError(f"quantize_onnx() got unexpected keyword arguments: {sorted(kwargs)}")
     passes = expand_precision(config=config)
     return Quantizer(passes).run(model_path, output_path, use_external_data=use_external_data)

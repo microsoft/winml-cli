@@ -7,6 +7,10 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
@@ -27,6 +31,46 @@ F = TypeVar("F", bound="Callable[..., Any]")
 
 # Allowed values for ``--format`` / ``-f``.
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
+
+
+class ModelLoadError(click.ClickException):
+    """Exit code 3: model could not be loaded onto the device/EP.
+
+    Use for failures loading a model onto a device/EP, missing accelerators,
+    or session creation that fails for hardware reasons. The message is printed
+    verbatim to stderr (no ``Error:`` prefix) so callers control the wording.
+    """
+
+    exit_code = 3
+
+    def show(self, file: Any = None) -> None:
+        """Print the message verbatim to stderr (no ``Error:`` prefix)."""
+        click.echo(self.format_message(), err=True)
+
+
+class InferenceError(click.ClickException):
+    """Exit code 4: inference/prediction failed at runtime.
+
+    Use for prediction failures after the model loaded successfully. The
+    message is printed verbatim to stderr (no ``Error:`` prefix).
+    """
+
+    exit_code = 4
+
+    def show(self, file: Any = None) -> None:
+        """Print the message verbatim to stderr (no ``Error:`` prefix)."""
+        click.echo(self.format_message(), err=True)
+
+
+class PartialSupportError(click.exceptions.Exit):
+    """Exit code 1: a valid negative result, not an error.
+
+    Raised silently (no ``Error:`` prefix) so commands can signal an
+    actionable-but-non-fatal outcome (e.g. analyze: model not fully supported).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(1)
 
 
 # Shared stderr console for security/diagnostic messages emitted from utils.
@@ -92,47 +136,77 @@ def warn_ignored_calibration_options(
         out.print(f"[yellow]Warning:[/yellow] {', '.join(ignored)} ignored — {reason}")
 
 
-def model_path_option(required: bool = True) -> Callable[[F], F]:
-    """Add --model option that accepts a local ONNX file path.
+def model_path_option(
+    required: bool = True,
+    multiple: bool = False,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add ``-m/--model`` option that accepts a local ONNX file path.
 
-    The path is validated for existence on disk.
+    The path is validated for existence on disk and delivered as a
+    :class:`pathlib.Path`. Shared by the ONNX-only commands (``analyze``,
+    ``compile``, ``optimize``, ``quantize``) so the flag spelling, ``Path``
+    type, and existence check stay identical. The decorated function receives
+    the value as the ``model`` parameter (a tuple when ``multiple=True``).
 
     Args:
-        required: Whether the model option is required (default: True)
+        required: Whether the model option is required (default: True).
+        multiple: Accept the flag repeatably; the value becomes a tuple
+            (default: False).
+        help_text: Override for the help string (default: a generic
+            ONNX-file description).
 
     Returns:
-        Decorator function
+        Decorator function.
     """
     return click.option(
         "--model",
         "-m",
         required=required,
+        multiple=multiple,
         type=click.Path(exists=True, path_type=Path),
-        help="Path to ONNX model file to analyze",
+        help=help_text or "Path to ONNX model file to analyze",
     )
 
 
-def model_option(required: bool = True, optional_message: str | None = None) -> Callable[[F], F]:
-    """Add --model option that accepts any model reference.
+def model_option(
+    required: bool = True,
+    optional_message: str | None = None,
+    multiple: bool = False,
+    help_text: str | None = None,
+) -> Callable[[F], F]:
+    """Add ``-m/--model`` option that accepts any model reference.
 
     Accepts a HuggingFace model ID, build output directory, or .onnx file path.
-    No path existence validation is performed.
+    No path existence validation is performed. Shared by the flexible-input
+    commands (``build``, ``config``, ``eval``, ``export``, ``inspect``,
+    ``perf``, ``run``, ``serve``) so the flag spelling stays identical. The
+    decorated function receives the value as the ``model`` parameter (a tuple
+    when ``multiple=True``).
 
     Args:
-        required: Whether the model option is required (default: True)
+        required: Whether the model option is required (default: True).
+        optional_message: Command-specific note appended after the help text.
+        multiple: Accept the flag repeatably; the value becomes a tuple
+            (default: False).
+        help_text: Override for the base help string. Commands whose accepted
+            inputs are narrower (e.g. ``inspect`` takes only an HF ID) supply
+            their own; ``optional_message`` is still appended to it.
 
     Returns:
-        Decorator function
+        Decorator function.
     """
-    help = "Model: HF model ID, build output directory, or .onnx file path"
+    help = help_text or "Model: HF model ID, build output directory, or .onnx file path"
     if optional_message:
         help = f"{help}. {optional_message}"
+    # ``multiple`` options default to an empty tuple; single-valued ones to None.
+    kwargs: dict[str, Any] = {"multiple": True} if multiple else {"default": None}
     return click.option(
         "--model",
         "-m",
         required=required,
-        default=None,
         help=help,
+        **kwargs,
     )
 
 
@@ -518,6 +592,34 @@ def verbosity_options() -> Callable[[F], F]:
         )(f)
 
     return decorator
+
+
+def no_color_option() -> Callable[[F], F]:
+    """Add a ``--no-color`` flag that disables colored output.
+
+    Rich honors the ``NO_COLOR`` environment variable for every Console, so the
+    flag's callback just sets ``NO_COLOR=1`` for the remainder of the run — this
+    covers all consoles regardless of how they are constructed and matches the
+    existing ``NO_COLOR=1`` / ``CI=true`` environment behavior. The change lives
+    only in the current process, so the next invocation is colored again.
+
+    Returns:
+        Decorator function adding the ``--no-color`` flag (no exposed param).
+    """
+
+    def _disable_color(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
+        if value:
+            os.environ["NO_COLOR"] = "1"
+        return value
+
+    return click.option(
+        "--no-color",
+        is_flag=True,
+        default=False,
+        expose_value=False,
+        callback=_disable_color,
+        help="Disable colored output (also via NO_COLOR=1 or CI=true).",
+    )
 
 
 def resolve_verbosity(ctx: click.Context, verbose: int, quiet: bool) -> tuple[int, bool]:
@@ -929,14 +1031,116 @@ def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
     return WinMLBuildConfig.from_dict(data), data
 
 
-def is_onnx_file_path(model_input: str) -> bool:
-    """Check if input is a path to an existing ``.onnx`` file.
+# ---------------------------------------------------------------------------
+# ``-m/--model`` input classification
+# ---------------------------------------------------------------------------
 
-    Shared helper for CLI commands that accept either a HuggingFace model ID
-    or a local ``.onnx`` file path for the ``-m/--model`` option.
+# Local model-file extensions used only to give a "path does not exist" error
+# (instead of "not a valid HF id") when a path-shaped, non-existent value is
+# passed.  ``.onnx`` is handled separately so it gets its own message.
+_LOCAL_MODEL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin", ".gguf"})
+
+# HuggingFace repo id: an optional ``org/`` prefix plus a repo name, each
+# segment built from ``[A-Za-z0-9]`` plus ``._-`` (must start alphanumeric).
+_HF_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?$")
+
+
+class ModelInputKind(Enum):
+    """What a ``-m/--model`` value resolves to.
+
+    - ``HF_ID``: not present on disk; a HuggingFace hub reference (``org/name``).
+    - ``ONNX_FILE``: an existing local ``.onnx`` file.
+    - ``FOLDER``: an existing local directory. The ``is_*``/``folder_has_onnx``
+      flags on :class:`ModelInput` describe what the folder contains so each
+      command can apply its own policy (build-family treats it as a transformers
+      source; run/serve load the ONNX the engine discovers inside it).
     """
-    path = Path(model_input)
-    return path.suffix == ".onnx" and path.exists()
+
+    HF_ID = "hf_id"
+    ONNX_FILE = "onnx_file"
+    FOLDER = "folder"
+
+
+@dataclass(frozen=True)
+class ModelInput:
+    """Classification result for a ``-m/--model`` value.
+
+    The folder flags are only meaningful when ``kind is FOLDER`` (all ``False``
+    otherwise). ``is_winml_cli_folder`` implies ``folder_has_onnx``.
+    """
+
+    kind: ModelInputKind
+    raw: str
+    is_hf_folder: bool = False
+    folder_has_onnx: bool = False
+    is_winml_cli_folder: bool = False
+
+
+def _looks_like_path(raw: str) -> bool:
+    """Return True when *raw* is clearly a filesystem path (not an HF id).
+
+    Used only for a non-existent value to choose between a "path does not
+    exist" error and a "not a valid HF id" error. HF ids carry at most one
+    ``/`` and none of these path indicators.
+    """
+    if "\\" in raw:
+        return True
+    if raw.startswith(("./", "../", "~/", ".\\", "..\\", "~\\")):
+        return True
+    p = Path(raw)
+    if p.is_absolute():
+        return True
+    # Windows drive-letter prefix, e.g. ``C:models``.
+    if len(raw) >= 2 and raw[1] == ":":
+        return True
+    if raw.count("/") > 1:
+        return True
+    return p.suffix.lower() in _LOCAL_MODEL_FILE_EXTS
+
+
+def classify_model_input(raw: str) -> ModelInput:
+    """Classify a ``-m/--model`` value into a :class:`ModelInput`.
+
+    Existence-first: a value present on disk is a local file or directory; a
+    value absent from disk is a HuggingFace hub id (or an error). The engine
+    remains responsible for locating the actual ``*.onnx`` inside a folder.
+
+    Raises:
+        click.UsageError: for a non-existent ``.onnx`` path, a non-existent
+            path-shaped value, a syntactically invalid HF id, or an existing
+            non-``.onnx`` file.
+    """
+    path = Path(raw)
+
+    if not path.exists():
+        if path.suffix.lower() == ".onnx":
+            raise click.UsageError(f"ONNX file not found: {raw}")
+        if _looks_like_path(raw):
+            raise click.UsageError(f"Model path does not exist: {raw}")
+        if _HF_ID_RE.match(raw):
+            return ModelInput(kind=ModelInputKind.HF_ID, raw=raw)
+        raise click.UsageError(
+            f"'{raw}' is not a valid HuggingFace model id, an existing .onnx "
+            "file, or an existing directory."
+        )
+
+    if path.is_file():
+        if path.suffix.lower() == ".onnx":
+            return ModelInput(kind=ModelInputKind.ONNX_FILE, raw=raw)
+        raise click.UsageError(
+            f"Unsupported model file: {raw} (expected a .onnx file or a directory)."
+        )
+
+    # Existing directory: report what it contains; callers apply policy.
+    folder_has_onnx = any(path.glob("*.onnx"))
+    is_winml_cli_folder = folder_has_onnx and any(path.glob("*build_manifest.json"))
+    return ModelInput(
+        kind=ModelInputKind.FOLDER,
+        raw=raw,
+        is_hf_folder=(path / "config.json").is_file(),
+        folder_has_onnx=folder_has_onnx,
+        is_winml_cli_folder=is_winml_cli_folder,
+    )
 
 
 def is_cli_provided(ctx: click.Context, param_name: str) -> bool:

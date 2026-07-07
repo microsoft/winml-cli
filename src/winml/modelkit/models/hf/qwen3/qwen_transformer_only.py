@@ -75,6 +75,12 @@ class QwenTransformerOnlyDecoderWrapper(nn.Module):
         self.model = model
         self.num_layers = num_layers
         self.config: PretrainedConfig = cast("PretrainedConfig", model.config)
+        # ``max_rope_len`` is intentionally left at its default here (the rope
+        # cache spans ``config.max_position_embeddings``). Pinning it to the
+        # build's ``max_cache_len`` needs that value threaded down to this
+        # load-time hook through the generic model loader, which is deferred to
+        # the follow-up PR. The ``apply_transformer_only_export_prep(...,
+        # max_rope_len=...)`` path is already implemented and unit-tested for it.
         apply_transformer_only_export_prep(model, matmul_to_conv=True)
         # Tag the config so the exporter resolves this variant's OnnxConfig
         # (registered under ``TRANSFORMER_ONLY_MODEL_TYPE``) rather than the

@@ -575,6 +575,36 @@ class TestQuantizePrecisionValidation:
         assert ran["called"] is False
 
 
+class TestQuantizeMultiPrecisionDiskFull:
+    """The multi-precision pipeline drives Quantizer directly (bypassing
+    quantize_onnx), so it must apply the same disk-full/corruption guard:
+    a truncated/empty input must surface a clear error instead of ORT's opaque
+    "Failed to find proper ai.onnx domain" — parity with the single-precision
+    path, which routes through quantize_onnx.
+    """
+
+    @staticmethod
+    def _invoke(args):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.quantize import quantize as quantize_cmd
+
+        return CliRunner().invoke(quantize_cmd, args, obj={}, catch_exceptions=False)
+
+    def test_empty_input_model_surfaces_clear_error(self, tmp_path):
+        model = tmp_path / "truncated.onnx"
+        model.write_bytes(b"")  # zero-byte artifact left by a disk-full write
+
+        # Two precisions -> len(precision) > 1 -> _run_multi_precision path.
+        r = self._invoke(["-m", str(model), "-p", "int4", "-p", "fp16"])
+
+        assert r.exit_code != 0, r.output
+        # Collapse rich console wrapping before substring checks.
+        normalized = " ".join(r.output.split()).lower()
+        assert "disk space" in normalized
+        assert "failed to find proper ai.onnx domain" not in normalized
+
+
 class TestOverwriteGuard:
     """The shared --overwrite/--no-overwrite guard on quantize (file) and
     compile (directory) outputs. Cross-checks the wiring of

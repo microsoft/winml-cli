@@ -128,6 +128,7 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
 )
 @cli_utils.trust_remote_code_option()
 @cli_utils.verbosity_options()
+@cli_utils.no_color_option()
 @click.pass_context
 def config(
     ctx: click.Context,
@@ -261,14 +262,18 @@ def config(
             _shape_config_file = shape_config_path.name
 
         # ONNX file detection: generate simpler config without loader/export
-        if hf_model and cli_utils.is_onnx_file_path(hf_model) and module:
+        _model_input = cli_utils.classify_model_input(hf_model) if hf_model else None
+        _hf_is_onnx = (
+            _model_input is not None and _model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+        )
+        if hf_model and _hf_is_onnx and module:
             raise click.UsageError(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
             )
         config_obj: WinMLBuildConfig | None = None
         output_data: dict[str, Any] | list[Any]
-        if hf_model and cli_utils.is_onnx_file_path(hf_model):
+        if hf_model and _hf_is_onnx:
             config_obj = generate_onnx_build_config(
                 hf_model,
                 task=task,
@@ -481,27 +486,14 @@ def _resolve_composite_model_components(
     No --task: ``resolve_task`` detects + tags the composite (its ``.composite``
     field carries the seq2seq bridge), so no-task routing matches --task routing.
     """
-    from transformers import AutoConfig
+    from ..loader.resolution import resolve_composite_components
 
-    from ..loader.resolution import resolve_composite, resolve_task
-
-    if task is not None:
-        resolved_type = model_type
-        if resolved_type is None and hf_model is not None:
-            resolved_type = AutoConfig.from_pretrained(
-                hf_model, trust_remote_code=trust_remote_code
-            ).model_type
-        if resolved_type is None:
-            return None
-        return resolve_composite(resolved_type, task)
-
-    if hf_model is not None:
-        config = AutoConfig.from_pretrained(hf_model, trust_remote_code=trust_remote_code)
-    elif model_type is not None:
-        config = AutoConfig.for_model(model_type)
-    else:
-        return None
-    return resolve_task(config).composite
+    return resolve_composite_components(
+        hf_model,
+        task=task,
+        model_type=model_type,
+        trust_remote_code=trust_remote_code,
+    )
 
 
 def _generate_pipeline_configs(

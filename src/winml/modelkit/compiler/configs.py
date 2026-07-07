@@ -43,7 +43,7 @@ class EPConfig:
         device: Target device ("npu", "gpu", "cpu", "auto")
     """
 
-    provider: EPAlias = "qnn"
+    provider: EPAlias | None = None
     provider_options: dict[str, str] = field(default_factory=dict)
     enable_ep_context: bool = True
     embed_context: bool = False
@@ -92,7 +92,7 @@ class WinMLCompileConfig:
     @property
     def device(self) -> str:
         """Get device/provider name for backward compatibility."""
-        return self.ep_config.provider
+        return self.ep_config.provider or ""
 
     @classmethod
     def for_provider(
@@ -253,7 +253,7 @@ class WinMLCompileConfig:
     def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
         """Create from dictionary. Unknown keys are ignored."""
         ep_config = EPConfig(
-            provider=data.get("execution_provider", "qnn"),
+            provider=data.get("execution_provider"),
             provider_options=data.get("provider_options", {}),
             enable_ep_context=data.get("enable_ep_context", True),
             embed_context=data.get("embed_context", False),
