@@ -262,8 +262,8 @@ class TestOptimizeOnnxInput:
             mock_opt.return_value.optimize.return_value = onnx.ModelProto()
             result = optimize_onnx(str(model_file))
             assert isinstance(result, onnx.ModelProto)
-            # Verify model was loaded and passed to optimizer
-            assert mock_opt.return_value.optimize.call_count == 1
+            # Default passes=2: optimizer.optimize called twice
+            assert mock_opt.return_value.optimize.call_count == 2
 
     def test_accepts_path_object(self, model_file: Path) -> None:
         """Accept Path object as model input."""
@@ -288,8 +288,8 @@ class TestOptimizeOnnxInput:
         """The passes parameter controls how many times optimizer.optimize is called."""
         with patch("winml.modelkit.optim.api.Optimizer") as mock_opt:
             mock_opt.return_value.optimize.return_value = onnx.ModelProto()
-            optimize_onnx(model_file, passes=2)
-            assert mock_opt.return_value.optimize.call_count == 2
+            optimize_onnx(model_file, passes=1)
+            assert mock_opt.return_value.optimize.call_count == 1
 
 
 class TestOptimizeOnnxOutput:

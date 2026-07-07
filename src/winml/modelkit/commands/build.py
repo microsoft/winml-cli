@@ -825,8 +825,12 @@ def build(
                     from ..loader.resolution import resolve_composite_components
 
                     task_hint = config.loader.task if config.loader else None
+                    model_type_hint = config.loader.model_type if config.loader else None
                     components = resolve_composite_components(
-                        model, task=task_hint, trust_remote_code=trust_remote_code
+                        model,
+                        task=task_hint,
+                        model_type=model_type_hint,
+                        trust_remote_code=trust_remote_code,
                     )
                 except click.ClickException:
                     raise
@@ -869,10 +873,28 @@ def build(
                             precision=precision,
                             ep=ep,
                         )
-                        # Carry over quant/compile from the outer config (already
-                        # patched by CLI overrides like --no-quant / --no-compile).
-                        component_config.quant = config.quant
-                        component_config.compile = config.compile
+                        # Carry over quant/compile settings from the outer config
+                        # (already patched by CLI overrides like --no-quant /
+                        # --no-compile). Deep-copy to avoid sharing mutable state
+                        # across sub-builds, and preserve component-specific
+                        # metadata (task, model_id, model_type) that
+                        # generate_build_config populated.
+                        if config.quant is None:
+                            component_config.quant = None
+                        elif component_config.quant is not None:
+                            # Preserve component metadata, overlay outer settings
+                            saved_task = component_config.quant.task
+                            saved_model_id = component_config.quant.model_id
+                            saved_model_type = component_config.quant.model_type
+                            import copy
+
+                            component_config.quant = copy.deepcopy(config.quant)
+                            component_config.quant.task = saved_task
+                            component_config.quant.model_id = saved_model_id
+                            component_config.quant.model_type = saved_model_type
+
+                        if config.compile is None:
+                            component_config.compile = None
 
                         try:
                             component_config.validate()

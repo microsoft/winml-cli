@@ -2085,20 +2085,18 @@ class TestBuildComposite:
         # Warning about partial composite build.
         assert "composite build did not finish" in result.output.lower()
 
-    def test_composite_carries_quant_compile_from_outer_config(
+    def test_composite_clears_quant_compile_when_outer_is_none(
         self,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """Composite sub-model configs inherit quant/compile from outer config."""
+        """When outer config has quant=None/compile=None, component configs are cleared."""
         from winml.modelkit.commands.build import build
 
         components = {"enc": "feature-extraction"}
         output_dir = tmp_path / "out"
         config_file = _make_minimal_config_file(tmp_path, task="text-generation")
 
-        # generate_build_config returns a mock with distinct quant/compile;
-        # the command should overwrite them with the outer config's values.
         component_cfg = MagicMock()
         component_cfg.quant = MagicMock(name="component_quant")
         component_cfg.compile = MagicMock(name="component_compile")
@@ -2120,16 +2118,22 @@ class TestBuildComposite:
         ):
             result = runner.invoke(
                 build,
-                ["-c", config_file, "-m", "Qwen/Qwen3-0.6B", "-o", str(output_dir)],
+                [
+                    "-c",
+                    config_file,
+                    "-m",
+                    "Qwen/Qwen3-0.6B",
+                    "-o",
+                    str(output_dir),
+                    "--no-quant",
+                    "--no-compile",
+                ],
                 obj={"debug": False},
             )
 
         assert result.exit_code == 0, result.output
-        # The component config passed to _run_single_build should have the
-        # outer config's quant/compile, not the generate_build_config defaults.
         built_config = mock_build.call_args.kwargs["config"]
-        # Outer config loaded from file has quant set (see sample_config_file
-        # fixture-like structure in _make_minimal_config_file with quant=None).
-        # The key assertion: the built config's quant/compile came from the
-        # outer config, not from generate_build_config's auto-generation.
         assert built_config is component_cfg
+        # Outer config has quant=None / compile=None → component cleared
+        assert built_config.quant is None
+        assert built_config.compile is None

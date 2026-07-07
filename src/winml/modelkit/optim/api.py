@@ -165,7 +165,7 @@ def optimize_onnx(
     output: str | Path | None = None,
     *,
     config: str | Path | dict[str, Any] | None = None,
-    passes: int = 1,
+    passes: int = 2,
     **capabilities: Any,
 ) -> onnx.ModelProto:
     """Optimize an ONNX model with capability-based control.

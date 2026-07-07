@@ -1595,6 +1595,10 @@ class PatternMatcher:
         outside the skeleton or are graph outputs. The skeleton output is exempt
         because it will be replaced by an equivalent subgraph.
 
+        When edge registrations are incomplete (orphaned edges from graph
+        transformations), we conservatively mark the match as non-removable to
+        avoid deleting nodes that still feed external consumers.
+
         Args:
             matched_nodes: List of matched node names in the skeleton.
             skeleton_output: The output tensor name of the skeleton (exempt from check).
@@ -1622,6 +1626,20 @@ class PatternMatcher:
 
                 # Check all consumers of this tensor
                 consumers = self.edge_info_by_name.get(output_tensor, {})
+
+                # If there's a producer registered but no consumers, yet the
+                # tensor name appears as an input to some graph node, edge
+                # registration is incomplete — conservatively not removable.
+                if not consumers and output_tensor in self.producer_lookup:
+                    for graph_node in self.graph.node:
+                        if output_tensor in graph_node.input:
+                            consumer_key = make_stable_node_key(
+                                graph_node,
+                                list(self.graph.node).index(graph_node),
+                            )
+                            if consumer_key not in matched_node_names:
+                                return False
+
                 for consumer_node_name in consumers:
                     # If consumer is outside the skeleton, not removable
                     if consumer_node_name not in matched_node_names:
