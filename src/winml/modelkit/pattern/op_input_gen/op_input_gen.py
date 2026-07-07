@@ -454,22 +454,6 @@ class OpInputGenerator(ABC):
             self.type_annotations,
         ) = get_op_input_properties(self.schema)
 
-        # Inputs whose schema type is driven by TypeVar (e.g. T/T1/T2). Only these
-        # need dtype alignment with applied type_var combinations when serializing
-        # value constraints for output JSON.
-        type_var_names = tuple(self.type_var_dtypes_to_test.keys())
-        input_names_for_type_check = list(self.op_input_names)
-        if self.op_variadic_input_name is not None:
-            input_names_for_type_check.append(self.op_variadic_input_name)
-        self._type_var_bound_inputs = {
-            input_name
-            for input_name in input_names_for_type_check
-            if any(
-                type_var in self.type_annotations.get(input_name, "")
-                for type_var in type_var_names
-            )
-        }
-
         # Identify optional inputs from schema
         self.optional_input_names = [
             input_param.name
@@ -1817,8 +1801,8 @@ class OpInputGenerator(ABC):
                             # Keep these independent from type_var-applied dtype changes.
                             validation_input_constraints: dict[str, Any] = {}
 
-                            # Persisted input constraints: align dtype with applied type_vars
-                            # only for inputs whose schema type is type-var bound.
+                            # Persisted input constraints should mirror runtime-applied
+                            # input values for value constraints.
                             input_constraints: dict[str, Any] = {}
                             for k, v in optional_input_comb.items():
                                 if not self._is_input_key(k):
@@ -1829,12 +1813,9 @@ class OpInputGenerator(ABC):
                                     validation_input_constraints[k] = v
 
                                 if isinstance(v, InputValueConstraint):
-                                    if k in self._type_var_bound_inputs:
-                                        input_constraints[k] = InputValueConstraint(
-                                            applied_input_comb[k]
-                                        ).to_dict()
-                                    else:
-                                        input_constraints[k] = v.to_dict()
+                                    input_constraints[k] = InputValueConstraint(
+                                        applied_input_comb[k]
+                                    ).to_dict()
                                 elif isinstance(v, InputConstraint):
                                     input_constraints[k] = v.to_dict()
                                 else:
