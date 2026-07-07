@@ -195,7 +195,7 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
         with torch.no_grad():
             for i in range(pixel_values.shape[0]):
                 outputs = self.model(pixel_values=pixel_values[i : i + 1], **extra_inputs)
-                heatmaps.append(self._extract_heatmaps(outputs))
+                heatmaps.append(self._fix_migraphx_output_layout(self._extract_heatmaps(outputs)))
 
         wrapped = SimpleNamespace(heatmaps=torch.cat(heatmaps, dim=0))
         # post_process returns one list per image; we pass a single image.
@@ -203,6 +203,21 @@ class WinMLKeypointDetectionEvaluator(WinMLEvaluator):
             wrapped, boxes=[boxes]
         )[0]
         return results
+
+    def _fix_migraphx_output_layout(self, heatmaps: Any) -> Any:
+        """Transpose the heatmaps back to NCHW on the MIGraphX GPU EP.
+
+        The MIGraphX EP is returning NHWC for the graph output (the channels-last
+        convolution layout is not transposed back at the output boundary). This
+        might be a bug in MIGraphX; transpose to NCHW to work around it. It is a
+        no-op on every other EP.
+        """
+        if getattr(self.model, "ep_name", None) != "MIGraphXExecutionProvider":
+            return heatmaps
+        # The buffer is NHWC-ordered under the declared (N, C, H, W) shape:
+        # reinterpret as (N, H, W, C) and transpose back to (N, C, H, W).
+        n, c, h, w = heatmaps.shape
+        return heatmaps.reshape(n, h, w, c).permute(0, 3, 1, 2).contiguous()
 
     @staticmethod
     def _extract_heatmaps(outputs: Any) -> Any:
