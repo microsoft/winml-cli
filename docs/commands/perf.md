@@ -25,8 +25,9 @@ $ winml perf [options]
 | `--ep` | | `TEXT` | — | Force a specific execution provider (e.g., `qnn`, `dml`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. |
 | `--ep-options` | | `KEY=VALUE` (multiple) | — | Runtime EP provider option forwarded to the inference session (e.g., `--ep-options htp_performance_mode=burst`). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. Unlike build-time options set via `--config`, these tune the runtime session, not the compiled graph. |
 | `--output` | `-o` | `PATH` | `~/.cache/winml/perf/<slug>/<timestamp>.json` | Output JSON file path for the benchmark report. |
-| `--batch-size` | | `INTEGER` | `1` | Batch size used when generating synthetic input tensors. |
-| `--shape-config` | | `PATH` | — | Path to a JSON file containing shape overrides (e.g., `{"height": 480, "width": 480}`). Ignored for pre-exported ONNX files and in `--module` mode. |
+| `--batch-size` | | `INTEGER` | `1` | Batch size used when generating synthetic input tensors. Ignored when `--input-data` is set. |
+| `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to benchmark with instead of randomly generated inputs. The archive's keys and dtypes must match the model's inputs exactly. Not supported with `--module` or `--runtime winml-genai`. |
+| `--shape-config` | | `PATH` | — | Path to a JSON file containing shape overrides (e.g., `{"height": 480, "width": 480}`). Ignored for pre-exported ONNX files, in `--module` mode, and when `--input-data` is set. |
 | `--quantize/--no-quantize` | | flag | `true` | Run quantization during model build (use `--no-quantize` to skip it). Useful for measuring the fp32 baseline. |
 | `--rebuild/--no-rebuild` | | flag | `false` | Force model rebuild even if a cached artifact already exists. |
 | `--ignore-cache/--no-ignore-cache` | | flag | `false` | Build from scratch in a temporary folder and discard the artifact after benchmarking. Implies `--rebuild`. |
@@ -93,9 +94,24 @@ Per-module benchmarking to find latency hot-spots across all attention blocks:
 $ winml perf -m bert-base-uncased --module BertAttention --iterations 200
 ```
 
+Benchmark with real inputs from a `.npz` file instead of random data:
+
+```bash
+$ winml perf -m model.onnx --input-data inputs.npz
+```
+
+The archive must contain one array per model input, keyed by the input name,
+with a matching dtype — for example:
+
+```python
+import numpy as np
+np.savez("inputs.npz", pixel_values=np.zeros((4, 3, 224, 224), dtype=np.float32))
+```
+
 ## Common pitfalls
 
 - **Warm-up too low on NPU.** The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need `--warmup 30` or higher to reach steady-state latency.
+- **`--input-data` requires an exact match.** The `.npz` keys must equal the model's input names and each array's dtype must match the model's expected dtype; a missing key, an unexpected key, or a dtype mismatch is a hard error. `.npy` files are not supported — save named arrays as `.npz`. When `--input-data` is set, `--batch-size` and `--shape-config` are ignored (the tensors define their own shapes).
 - **`--shape-config` is silently ignored in two cases.** It has no effect on pre-exported ONNX files (shapes are baked into the graph) and is ignored in `--module` mode. The command prints a warning in both situations.
 - **Random inputs do not represent real data distributions.** Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.
 - **Cross-device comparison.** To compare performance across devices, run `winml perf` separately with different `--device` values and compare the resulting JSON reports.

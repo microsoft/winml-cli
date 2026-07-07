@@ -13,8 +13,10 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -822,6 +824,125 @@ class TestEffectiveBatchSize:
         info = result.to_dict()["benchmark_info"]
         assert info["batch_size"] == 8
         assert info["effective_batch_size"] == 1
+
+
+# =============================================================================
+# --INPUT-DATA TESTS
+# =============================================================================
+
+
+class TestLoadInputData:
+    """Loading real benchmark inputs from a .npz file (issue #1065)."""
+
+    _IO: ClassVar[dict] = {
+        "input_names": ["pixel_values"],
+        "input_shapes": [[None, 3, 64, 64]],
+        "input_types": ["float32"],
+    }
+
+    def _write_npz(self, tmp_path, **arrays):
+        import numpy as np
+
+        path = tmp_path / "inputs.npz"
+        np.savez(path, **arrays)
+        return path
+
+    def test_loads_matching_npz(self, tmp_path) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import load_input_data
+
+        path = self._write_npz(tmp_path, pixel_values=np.zeros((4, 3, 64, 64), dtype=np.float32))
+        inputs = load_input_data(path, self._IO)
+
+        assert list(inputs) == ["pixel_values"]
+        assert inputs["pixel_values"].shape == (4, 3, 64, 64)
+
+    def test_missing_input_name_errors(self, tmp_path) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import load_input_data
+
+        path = self._write_npz(tmp_path, wrong_name=np.zeros((1, 3, 64, 64), dtype=np.float32))
+        with pytest.raises(click.UsageError, match="do not match"):
+            load_input_data(path, self._IO)
+
+    def test_unexpected_key_errors(self, tmp_path) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import load_input_data
+
+        path = self._write_npz(
+            tmp_path,
+            pixel_values=np.zeros((1, 3, 64, 64), dtype=np.float32),
+            extra=np.zeros((1,), dtype=np.float32),
+        )
+        with pytest.raises(click.UsageError, match="unexpected"):
+            load_input_data(path, self._IO)
+
+    def test_dtype_mismatch_errors(self, tmp_path) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import load_input_data
+
+        path = self._write_npz(tmp_path, pixel_values=np.zeros((1, 3, 64, 64), dtype=np.float64))
+        with pytest.raises(click.UsageError, match="dtype mismatch"):
+            load_input_data(path, self._IO)
+
+    def test_npy_rejected(self, tmp_path) -> None:
+        import numpy as np
+
+        from winml.modelkit.commands.perf import load_input_data
+
+        path = tmp_path / "inputs.npy"
+        np.save(path, np.zeros((1, 3, 64, 64), dtype=np.float32))
+        with pytest.raises(click.UsageError, match=r"does not support \.npy"):
+            load_input_data(path, self._IO)
+
+    def test_non_npz_rejected(self, tmp_path) -> None:
+        from winml.modelkit.commands.perf import load_input_data
+
+        path = tmp_path / "inputs.bin"
+        path.write_bytes(b"not an archive")
+        with pytest.raises(click.UsageError, match=r"must be a \.npz"):
+            load_input_data(path, self._IO)
+
+    def test_generate_inputs_uses_provided_data(self, tmp_path) -> None:
+        import numpy as np
+
+        path = self._write_npz(tmp_path, pixel_values=np.zeros((7, 3, 64, 64), dtype=np.float32))
+        config = BenchmarkConfig(model_id="m", batch_size=1, input_data=path)
+        benchmark = PerfBenchmark(config)
+        single = MagicMock()
+        single.io_config = self._IO
+        benchmark._model = single
+
+        # No random generation when real inputs are supplied.
+        with patch("winml.modelkit.commands.perf.generate_random_inputs") as mock_gen:
+            benchmark._generate_inputs()
+
+        mock_gen.assert_not_called()
+        assert benchmark._inputs["pixel_values"].shape == (7, 3, 64, 64)
+        # Effective batch is read from the provided data, not config.batch_size.
+        assert benchmark._effective_batch == 7
+
+
+class TestPerfInputDataCli:
+    """CLI-level guards for --input-data."""
+
+    def test_input_data_rejected_with_module(self, tmp_path, runner) -> None:
+        import numpy as np
+
+        path = tmp_path / "inputs.npz"
+        np.savez(path, pixel_values=np.zeros((1, 3, 64, 64), dtype=np.float32))
+
+        result = runner.invoke(
+            perf,
+            ["-m", "bert-base-uncased", "--module", "BertAttention", "--input-data", str(path)],
+        )
+
+        assert result.exit_code != 0
+        assert "--input-data is not supported in --module mode" in result.output
 
 
 # =============================================================================
