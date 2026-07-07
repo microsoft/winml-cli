@@ -193,10 +193,12 @@ parameters:
     type: string
     default: NPU-AMD
   - name: amdPairs
-    displayName: 'AMD: EP/device pairs (any of: vitisai_npu)'
+    displayName: 'AMD: EP/device pairs (any of: vitisai_npu, migraphx_gpu, trtrtx_gpu)'
     type: object
     default:
       - vitisai_npu
+      - migraphx_gpu
+      - trtrtx_gpu
 
 stages:
   - stage: NPU_QNN
