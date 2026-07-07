@@ -326,6 +326,17 @@ def _validate_task_supported_for_model(
     if task in TASK_SYNONYM_EXTENSIONS:
         return hf_config
 
+    # [2.5] Composite pipeline tasks (summarization / translation /
+    #     table-question-answering / …) fan out to an encoder/decoder pair via the
+    #     composite registry rather than a single Optimum export, so they never
+    #     appear in Optimum's supported_tasks. Accept when the task is a registered
+    #     composite for this architecture. ensure_hf_models_registered() above has
+    #     already populated the registry, so this is a cheap lookup.
+    from ..loader import composite_pipeline_tasks
+
+    if task in composite_pipeline_tasks(model_type.lower().replace("_", "-")):
+        return hf_config
+
     # [3] Optimum synonym fallback — e.g. ``masked-lm`` -> ``fill-mask``.
     #     Accept, but warn so users converge on the canonical spelling.
     #
