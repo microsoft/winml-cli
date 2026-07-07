@@ -115,6 +115,59 @@ class TestInspectListTasks:
         lines = [line.strip() for line in result.output.splitlines() if line.strip()]
         assert lines == sorted(lines), "Task list is not sorted"
 
+    @staticmethod
+    def _task_lines(output: str) -> list[str]:
+        return [line.strip() for line in output.splitlines() if line.strip()]
+
+    def test_list_tasks_model_type_is_strict_subset(self) -> None:
+        """--list-tasks --model-type clip must be a strict subset of the full taxonomy."""
+        full = set(self._task_lines(_run("--list-tasks").output))
+        result = _run("--list-tasks", "--model-type", "clip")
+        assert result.exit_code == 0
+        clip_tasks = self._task_lines(result.output)
+        assert clip_tasks, "Expected clip to have at least one task"
+        assert clip_tasks == sorted(clip_tasks)
+        clip_set = set(clip_tasks)
+        assert clip_set < full, "Model-specific tasks must be a strict subset of all tasks"
+        # Optimum-exportable and composite pipeline tasks both surface.
+        assert "image-classification" in clip_set
+        assert "zero-shot-image-classification" in clip_set
+
+    def test_list_tasks_model_type_is_model_specific(self) -> None:
+        """--list-tasks --model-type bert lists NLP tasks and excludes vision-only ones."""
+        result = _run("--list-tasks", "--model-type", "bert")
+        assert result.exit_code == 0
+        bert_set = set(self._task_lines(result.output))
+        assert {"fill-mask", "feature-extraction"} <= bert_set
+        assert "image-classification" not in bert_set
+
+    def test_list_tasks_excludes_with_past_flavors(self) -> None:
+        """Optimum's `-with-past` export flavors are not user-facing tasks and must not leak."""
+        result = _run("--list-tasks", "--model-type", "t5")
+        assert result.exit_code == 0
+        t5_tasks = self._task_lines(result.output)
+        assert not any(t.endswith("-with-past") for t in t5_tasks), t5_tasks
+        # The real tasks (exportable + composite) still surface.
+        assert {"summarization", "translation", "text2text-generation"} <= set(t5_tasks)
+
+    def test_list_tasks_includes_modelkit_registered_tasks(self) -> None:
+        """ModelKit's register_onnx_overwrite tasks must surface (needs models.hf import).
+
+        sam -> mask-generation is registered by winml.modelkit.models.hf, not by
+        stock Optimum. If the listing only triggers optimum's own registry it is
+        silently dropped, so this pins the models.hf import trigger.
+        """
+        result = _run("--list-tasks", "--model-type", "sam")
+        assert result.exit_code == 0
+        sam_set = set(self._task_lines(result.output))
+        assert "mask-generation" in sam_set, sam_set
+
+    def test_list_tasks_resolves_underscored_model_type(self) -> None:
+        """An underscored model_type (depth_anything) must resolve, not return empty."""
+        result = _run("--list-tasks", "--model-type", "depth_anything")
+        assert result.exit_code == 0
+        assert "depth-estimation" in self._task_lines(result.output)
+
 
 # ===========================================================================
 # Progress feedback (banner + spinner) — fixes #543's 14s silence

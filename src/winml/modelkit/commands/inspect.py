@@ -80,6 +80,58 @@ def _looks_like_local_path(model_id: str) -> bool:
     )
 
 
+def _list_tasks_for_model(model_id: str | None, model_type: str | None) -> list[str]:
+    """Sorted tasks a specific model supports: Optimum-exportable + composite pipeline.
+
+    Resolves the top-level model_type (from --model-type, or the model_id's
+    AutoConfig — weight-free), then unions Optimum's ONNX-exportable tasks with any
+    registered composite pipeline tasks. Optimum's list is intersected with
+    ``KNOWN_TASKS`` first, dropping ``-with-past`` KV-cache export flavors that are
+    not user-facing tasks (and which ``--task`` validation would itself reject).
+    Returns ``[]`` for an unknown/unsupported model_type (the model genuinely has no
+    exportable tasks).
+    """
+    from ..loader import (
+        composite_pipeline_tasks,
+        get_supported_tasks,
+        resolve_optimum_library,
+    )
+    from ..loader.task import KNOWN_TASKS
+
+    resolved_type = model_type
+    if resolved_type is None:
+        from transformers import AutoConfig
+
+        try:
+            hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=False)
+        except Exception as e:
+            raise click.ClickException(f"Could not resolve model type for '{model_id}': {e}") from e
+        resolved_type = getattr(hf_config, "model_type", None)
+        if not resolved_type:
+            raise click.ClickException(
+                f"Could not determine model type for '{model_id}' (config has no model_type)."
+            )
+
+    # get_supported_tasks reads Optimum's ONNX task table, which is populated by
+    # import side-effects. Two triggers are required and order-independent once both
+    # run: optimum's own model_configs, AND winml.modelkit.models.hf, whose
+    # register_onnx_overwrite calls add ModelKit's custom exportable tasks (e.g.
+    # sam -> mask-generation). Importing only the former silently drops those and is
+    # even flaky for stock tasks depending on prior import order.
+    import optimum.exporters.onnx.model_configs  # noqa: F401
+
+    import winml.modelkit.models.hf  # noqa: F401  # REQUIRED: registers ModelKit ONNX overwrites
+
+    # Intersect with KNOWN_TASKS to drop Optimum's `-with-past` export flavors,
+    # which are not user-facing WinML tasks. Composite tasks are added separately
+    # (they intentionally live outside KNOWN_TASKS), so union after the filter.
+    optimum_tasks = get_supported_tasks(resolved_type, resolve_optimum_library(resolved_type))
+    tasks: set[str] = {t for t in optimum_tasks if t in KNOWN_TASKS}
+    # Composite registrations key on the hyphenated, lowercased model_type.
+    tasks.update(composite_pipeline_tasks(resolved_type.lower().replace("_", "-")))
+    return sorted(tasks)
+
+
 @click.command("inspect")
 @click.option(
     "-m",
@@ -161,14 +213,22 @@ def inspect(
         # List all known tasks
         winml inspect --list-tasks
     """
-    # Handle --list-tasks (no model required).
-    # Import the hand-coded KNOWN_TASKS directly from loader.task to keep this
-    # branch fast — going through inspect.resolver pulls in ..models which
-    # transitively imports transformers and costs ~10s on a warm cache.
+    # Handle --list-tasks. Two paths:
+    #   * No model target (plain `--list-tasks`, or --model-class only) -> dump the
+    #     full KNOWN_TASKS taxonomy. Imports the hand-coded set directly from
+    #     loader.task to keep this branch fast — going through inspect.resolver pulls
+    #     in ..models which transitively imports transformers and costs ~10s warm.
+    #   * With -m/--model or --model-type -> list only the tasks that model supports
+    #     (Optimum-exportable + registered composite pipeline tasks).
     if list_tasks:
-        from ..loader.task import KNOWN_TASKS
+        if model_id is None and model_type is None:
+            from ..loader.task import KNOWN_TASKS
 
-        for t in sorted(KNOWN_TASKS):
+            for t in sorted(KNOWN_TASKS):
+                click.echo(t)
+            return
+
+        for t in _list_tasks_for_model(model_id, model_type):
             click.echo(t)
         return
 
