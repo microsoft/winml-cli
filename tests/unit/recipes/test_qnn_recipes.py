@@ -8,12 +8,14 @@ from pathlib import Path
 
 import pytest
 
+from winml.modelkit.config import WinMLBuildConfig
 
-ROOT = Path.cwd()
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 recipes = [
     {
-        "path": ROOT
+        "path": REPO_ROOT
         / "examples"
         / "recipes"
         / "facebook_dinov2-base"
@@ -25,7 +27,7 @@ recipes = [
         "quant_expected": {"weight_type": "uint8", "activation_type": "uint16"},
     },
     {
-        "path": ROOT
+        "path": REPO_ROOT
         / "examples"
         / "recipes"
         / "facebook_dinov2-small"
@@ -36,59 +38,47 @@ recipes = [
         "optim_value": True,
         "quant_expected": {"weight_type": "uint8", "activation_type": "uint16"},
     },
+    {
+        "path": REPO_ROOT
+        / "examples"
+        / "recipes"
+        / "microsoft_swinv2-tiny-patch4-window16-256"
+        / "qnn"
+        / "image-classification_fp16_opset21_matmul-transpose_config.json",
+        "loader_task": "image-classification",
+        "optim_key": "matmul_transpose_fusion",
+        "optim_value": True,
+        "quant_expected": None,
+    },
 ]
 
-swin = {
-    "path": ROOT
-    / "examples"
-    / "recipes"
-    / "microsoft_swinv2-tiny-patch4-window16-256"
-    / "qnn"
-    / "image-classification_fp16_opset21_matmul-transpose_config.json",
-    "loader_task": "image-classification",
-    "optim_key": "matmul_transpose_fusion",
-    "optim_value": True,
-    "quant_expected": None,
-}
 
-
-@pytest.mark.parametrize("rec", recipes)
-def test_dinov2_qnn_recipes(rec):
+@pytest.mark.parametrize("rec", recipes, ids=["dinov2-base", "dinov2-small", "swinv2-tiny"])
+def test_qnn_recipes(rec):
     path: Path = rec["path"]
     assert path.exists(), f"Recipe file missing: {path}"
+
     data = json.loads(path.read_text(encoding="utf-8"))
 
-    # export.opset_version == 21
-    assert "export" in data and data["export"].get("opset_version") == 21
-
-    # loader.task exact
-    assert "loader" in data and data["loader"].get("task") == rec["loader_task"]
-
-    # optim key/value
-    assert "optim" in data and rec["optim_key"] in data["optim"]
-    assert data["optim"][rec["optim_key"]] == rec["optim_value"]
-
-    # quant presence and types
-    assert "quant" in data and isinstance(data["quant"], dict)
-    quant = data["quant"]
-    assert quant.get("weight_type") == rec["quant_expected"]["weight_type"]
-    assert quant.get("activation_type") == rec["quant_expected"]["activation_type"]
-
-
-def test_swinv2_qnn_recipe():
-    path: Path = swin["path"]
-    assert path.exists(), f"Recipe file missing: {path}"
-    data = json.loads(path.read_text(encoding="utf-8"))
+    # Construct the validated config from the recipe dict
+    config = WinMLBuildConfig.from_dict(data)
 
     # export.opset_version == 21
-    assert "export" in data and data["export"].get("opset_version") == 21
+    assert config.export is not None
+    assert config.export.opset_version == 21
 
     # loader.task exact
-    assert "loader" in data and data["loader"].get("task") == swin["loader_task"]
+    assert config.loader.task == rec["loader_task"]
 
     # optim key/value
-    assert "optim" in data and swin["optim_key"] in data["optim"]
-    assert data["optim"][swin["optim_key"]] == swin["optim_value"]
+    # config.optim supports dict-like access in the approved API
+    assert rec["optim_key"] in config.optim
+    assert config.optim[rec["optim_key"]] == rec["optim_value"]
 
-    # quant is None
-    assert "quant" in data and data["quant"] is None
+    # quant expectations
+    if rec["quant_expected"] is None:
+        assert config.quant is None
+    else:
+        assert config.quant is not None
+        assert config.quant.weight_type == rec["quant_expected"]["weight_type"]
+        assert config.quant.activation_type == rec["quant_expected"]["activation_type"]
