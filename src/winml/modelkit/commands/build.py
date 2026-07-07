@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import time
@@ -824,7 +825,14 @@ def build(
                 try:
                     from ..loader.resolution import resolve_composite_components
 
-                    task_hint = config.loader.task if config.loader else None
+                    # Only forward an explicit task from a config file. For an
+                    # auto-generated config (no -c), loader.task is the
+                    # auto-detected task (e.g. "text2text-generation" for
+                    # seq2seq), which would take the resolver's explicit-task
+                    # path and skip the seq2seq composite bridge. Pass task=None
+                    # in that case so detection applies the bridge, while still
+                    # forwarding model_type for explicit overrides.
+                    task_hint = config.loader.task if (config_file and config.loader) else None
                     model_type_hint = config.loader.model_type if config.loader else None
                     components = resolve_composite_components(
                         model,
@@ -876,25 +884,33 @@ def build(
                         # Carry over quant/compile settings from the outer config
                         # (already patched by CLI overrides like --no-quant /
                         # --no-compile). Deep-copy to avoid sharing mutable state
-                        # across sub-builds, and preserve component-specific
-                        # metadata (task, model_id, model_type) that
-                        # generate_build_config populated.
+                        # across sub-builds, and preserve the component-specific
+                        # quant metadata (task, model_id, model_type) that
+                        # generate_build_config populated for the sub-model.
                         if config.quant is None:
                             component_config.quant = None
-                        elif component_config.quant is not None:
-                            # Preserve component metadata, overlay outer settings
-                            saved_task = component_config.quant.task
-                            saved_model_id = component_config.quant.model_id
-                            saved_model_type = component_config.quant.model_type
-                            import copy
-
+                        else:
+                            # Preserve component metadata (if the component had a
+                            # quant config), then overlay the outer quant settings.
+                            saved_meta: tuple[Any, Any, Any] | None = None
+                            if component_config.quant is not None:
+                                saved_meta = (
+                                    component_config.quant.task,
+                                    component_config.quant.model_id,
+                                    component_config.quant.model_type,
+                                )
                             component_config.quant = copy.deepcopy(config.quant)
-                            component_config.quant.task = saved_task
-                            component_config.quant.model_id = saved_model_id
-                            component_config.quant.model_type = saved_model_type
+                            if saved_meta is not None:
+                                (
+                                    component_config.quant.task,
+                                    component_config.quant.model_id,
+                                    component_config.quant.model_type,
+                                ) = saved_meta
 
                         if config.compile is None:
                             component_config.compile = None
+                        else:
+                            component_config.compile = copy.deepcopy(config.compile)
 
                         try:
                             component_config.validate()

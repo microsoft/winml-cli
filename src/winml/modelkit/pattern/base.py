@@ -1595,9 +1595,11 @@ class PatternMatcher:
         outside the skeleton or are graph outputs. The skeleton output is exempt
         because it will be replaced by an equivalent subgraph.
 
-        When edge registrations are incomplete (orphaned edges from graph
-        transformations), we conservatively mark the match as non-removable to
-        avoid deleting nodes that still feed external consumers.
+        Consumers are derived directly from ``graph.node`` inputs rather than from
+        ``edge_info_by_name``, which can be incomplete after graph transformations
+        (orphaned edges). Relying on the edge map could miss an unregistered
+        external consumer and wrongly mark the match removable, letting the
+        rewriter delete nodes that still feed outside the match.
 
         Args:
             matched_nodes: List of matched node names in the skeleton.
@@ -1606,44 +1608,34 @@ class PatternMatcher:
         Returns:
             True if removable, False otherwise.
         """
-        # matched_nodes is list of node name strings
         matched_node_names = set(matched_nodes)
 
-        # Check each matched node's outputs
+        # Collect intermediate tensors (matched-node outputs, excluding the
+        # skeleton output which will be replaced). Bail early if any is a graph
+        # output.
+        intermediate_tensors: set[str] = set()
         for node_name in matched_nodes:
             node = self.node_lookup[node_name]
             for output_tensor in node.output:
-                if not output_tensor:
+                if not output_tensor or output_tensor == skeleton_output:
                     continue
-
-                # Skip the skeleton's final output (it will be replaced)
-                if output_tensor == skeleton_output:
-                    continue
-
-                # If intermediate tensor is a graph output, not removable
                 if output_tensor in self.graph_output_names:
                     return False
+                intermediate_tensors.add(output_tensor)
 
-                # Check all consumers of this tensor
-                consumers = self.edge_info_by_name.get(output_tensor, {})
+        if not intermediate_tensors:
+            return True
 
-                # If there's a producer registered but no consumers, yet the
-                # tensor name appears as an input to some graph node, edge
-                # registration is incomplete — conservatively not removable.
-                if not consumers and output_tensor in self.producer_lookup:
-                    for graph_node in self.graph.node:
-                        if output_tensor in graph_node.input:
-                            consumer_key = make_stable_node_key(
-                                graph_node,
-                                list(self.graph.node).index(graph_node),
-                            )
-                            if consumer_key not in matched_node_names:
-                                return False
-
-                for consumer_node_name in consumers:
-                    # If consumer is outside the skeleton, not removable
-                    if consumer_node_name not in matched_node_names:
-                        return False
+        # Authoritative consumer check: scan every graph node's inputs. If any
+        # node outside the match consumes an intermediate tensor, the match is
+        # not removable. This is independent of edge_info_by_name completeness.
+        for node_idx, node in enumerate(self.graph.node):
+            node_key = make_stable_node_key(node, node_idx)
+            if node_key in matched_node_names:
+                continue
+            for input_name in node.input:
+                if input_name in intermediate_tensors:
+                    return False
 
         return True
 
