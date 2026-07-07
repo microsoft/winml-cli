@@ -600,6 +600,20 @@ class PerfBenchmark:
             # but this gives directionally correct numbers for comparison.
             # For the first generated token, prefill dominates.
             ttft_ms = total_ms / max(n_generated, 1)
+            total_s = t_end - t_start
+            tpot_s = total_s / max(n_generated, 1)
+            decode_tps = n_generated / total_s if total_s > 0 else 0
+
+            logger.info(
+                "generate_timed: input_tokens=%d generated_tokens=%d "
+                "ttft=%.3fs tpot=%.3fs decode=%.1f tok/s total=%.3fs",
+                prompt_tokens,
+                n_generated,
+                ttft_ms / 1000.0,
+                tpot_s,
+                decode_tps,
+                total_s,
+            )
 
             samples.append(_GenSample(ttft_ms=ttft_ms, total_ms=total_ms, n_tokens=n_generated))
 
