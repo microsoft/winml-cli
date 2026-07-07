@@ -1,0 +1,25 @@
+are initializing BertForTokenClassification from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+[2026-05-26T11:55:04] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/854 [00:00<?, ?it/s]
+ 13%|█▎        | 110/854 [00:00<00:00, 990.15it/s]
+ 26%|██▌       | 223/854 [00:00<00:00, 1038.70it/s]
+ 38%|███▊      | 327/854 [00:00<00:00, 1033.59it/s]
+ 50%|█████     | 431/854 [00:00<00:00, 996.17it/s] 
+ 63%|██████▎   | 539/854 [00:00<00:00, 1021.16it/s]
+ 75%|███████▌  | 642/854 [00:00<00:00, 956.79it/s] 
+ 88%|████████▊ | 749/854 [00:00<00:00, 959.37it/s]
+100%|██████████| 854/854 [00:00<00:00, 996.55it/s]
+[2026-05-26T11:55:25] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/759 [00:00<?, ?it/s]
+ 11%|█         | 85/759 [00:00<00:00, 838.97it/s]
+ 25%|██▍       | 189/759 [00:00<00:00, 942.77it/s]
+ 38%|███▊      | 287/759 [00:00<00:00, 958.93it/s]
+ 52%|█████▏    | 397/759 [00:00<00:00, 976.84it/s]
+ 67%|██████▋   | 509/759 [00:00<00:00, 988.05it/s]
+ 80%|████████  | 608/759 [00:00<00:00, 909.88it/s]
+ 94%|█████████▍| 715/759 [00:00<00:00, 926.70it/s]
+100%|██████████| 759/759 [00:00<00:00, 936.86it/s]
+[2026-05-26T11:55:26] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-26T11:55:29] WARNING: Task 'token-classification' not in supported tasks ['image-classification', 'image-feature-extraction', 'object-detection', 'text-classification', 'text-feature-extraction', 'feature-extraction', 'sentence-similarity', 'next-sentence-prediction', 'fill-mask', 'zero-shot-classification', 'image-segmentation', 'random'], falling back to RandomDataset

@@ -1,0 +1,8 @@
+[0;93m2026-05-26 23:44:32.8914271 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
+WARNING: trust_remote_code is enabled - custom Python from the model repository
+will be downloaded and executed. Proceed only if you trust the publisher.
+[2026-05-26T23:44:52] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+[2026-05-26T23:44:52] WARNING: Failed to register EP MIGraphXExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under MIGraphXExecutionProvider
+[2026-05-26T23:44:52] WARNING: Failed to register EP VitisAIExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under VitisAIExecutionProvider
+[2026-05-26T23:44:52] WARNING: Failed to register EP NvTensorRTRTXExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under NvTensorRTRTXExecutionProvider
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' (name=None, split='validation'): Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_indonlu_posp.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.

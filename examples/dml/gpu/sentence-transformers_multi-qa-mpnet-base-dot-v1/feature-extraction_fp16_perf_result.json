@@ -1,0 +1,59 @@
+{
+  "benchmark_info": {
+    "model_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    "task": "feature-extraction",
+    "device": "gpu",
+    "ep": "DmlExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-20T21:15:29.834679+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        768
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 641.66,
+    "min": 635.05,
+    "max": 675.13,
+    "p50": 638.34,
+    "p90": 675.13,
+    "p95": 675.13,
+    "p99": 675.13,
+    "std": 11.39,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 1.56,
+    "batches_per_sec": 1.56
+  },
+  "raw_samples_ms": []
+}

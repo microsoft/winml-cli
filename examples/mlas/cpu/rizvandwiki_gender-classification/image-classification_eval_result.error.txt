@@ -1,0 +1,27 @@
+Proceed only if you trust the publisher.
+[2026-05-28T07:20:52] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/416 [00:00<?, ?it/s]
+ 10%|▉         | 40/416 [00:00<00:01, 357.51it/s]
+ 23%|██▎       | 94/416 [00:00<00:00, 435.37it/s]
+ 34%|███▎      | 140/416 [00:00<00:00, 437.26it/s]
+ 44%|████▍     | 184/416 [00:00<00:00, 399.83it/s]
+ 57%|█████▋    | 238/416 [00:00<00:00, 441.71it/s]
+ 71%|███████▏  | 297/416 [00:00<00:00, 473.50it/s]
+ 83%|████████▎ | 346/416 [00:00<00:00, 463.30it/s]
+ 96%|█████████▌| 400/416 [00:00<00:00, 470.37it/s]
+100%|██████████| 416/416 [00:00<00:00, 444.77it/s]
+[2026-05-28T07:21:09] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/368 [00:00<?, ?it/s]
+ 10%|▉         | 35/368 [00:00<00:00, 347.79it/s]
+ 19%|█▉        | 70/368 [00:00<00:00, 308.97it/s]
+ 32%|███▏      | 117/368 [00:00<00:00, 372.22it/s]
+ 45%|████▍     | 165/368 [00:00<00:00, 407.53it/s]
+ 59%|█████▊    | 216/368 [00:00<00:00, 426.95it/s]
+ 73%|███████▎  | 267/368 [00:00<00:00, 448.30it/s]
+ 85%|████████▌ | 314/368 [00:00<00:00, 452.51it/s]
+100%|█████████▉| 367/368 [00:00<00:00, 472.94it/s]
+100%|██████████| 368/368 [00:00<00:00, 432.81it/s]
+[2026-05-28T07:21:10] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_fairface' is not compatible with task 'image-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_fairface' (name=None, split='validation'): Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_fairface.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task image-classification' to see the expected schema.

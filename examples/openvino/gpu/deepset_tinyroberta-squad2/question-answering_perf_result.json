@@ -1,0 +1,65 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "deepset/tinyroberta-squad2",
+                           "task":  "question-answering",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T11:59:26.838039+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "start_logits",
+                                            "end_logits"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512
+                                             ],
+                                             [
+                                                 1,
+                                                 512
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  10.23,
+                       "min":  9.55,
+                       "max":  12.41,
+                       "p50":  10.02,
+                       "p90":  12.41,
+                       "p95":  12.41,
+                       "p99":  12.41,
+                       "std":  0.8,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  97.78,
+                       "batches_per_sec":  97.78
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

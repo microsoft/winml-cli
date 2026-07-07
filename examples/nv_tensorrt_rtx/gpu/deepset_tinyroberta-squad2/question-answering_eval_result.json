@@ -1,0 +1,37 @@
+{
+  "model_id": "deepset/tinyroberta-squad2",
+  "task": "question-answering",
+  "device": "gpu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\deepset_tinyroberta-squad2\\question-answering_eval_result.json",
+  "metrics": {
+    "exact": 80.0,
+    "f1": 82.25,
+    "total": 100,
+    "HasAns_exact": 79.16666666666667,
+    "HasAns_f1": 83.85416666666667,
+    "HasAns_total": 48,
+    "NoAns_exact": 80.76923076923077,
+    "NoAns_f1": 80.76923076923077,
+    "NoAns_total": 52,
+    "best_exact": 80.0,
+    "best_exact_thresh": 0.9947828650474548,
+    "best_f1": 82.25,
+    "best_f1_thresh": 0.9947828650474548,
+    "total_time_in_seconds": 2.029963900000439,
+    "samples_per_second": 49.261959781638666,
+    "latency_in_seconds": 0.02029963900000439
+  }
+}

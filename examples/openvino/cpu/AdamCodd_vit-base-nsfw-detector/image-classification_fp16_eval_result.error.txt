@@ -1,0 +1,25 @@
+▍      | 3434/10000 [00:06<00:17, 384.12 examples/s] 
+Generating validation split:  45%|████▌     | 4534/10000 [00:06<00:08, 607.44 examples/s]
+Generating validation split:  57%|█████▋    | 5734/10000 [00:06<00:04, 941.32 examples/s]
+Generating validation split:  68%|██████▊   | 6767/10000 [00:07<00:02, 1305.28 examples/s]
+Generating validation split:  78%|███████▊  | 7767/10000 [00:07<00:01, 1762.31 examples/s]
+Generating validation split:  88%|████████▊ | 8767/10000 [00:07<00:00, 2319.47 examples/s]
+Generating validation split: 100%|█████████▉| 9967/10000 [00:07<00:00, 3128.79 examples/s]
+Generating validation split: 100%|██████████| 10000/10000 [00:07<00:00, 1339.75 examples/s]
+
+Generating test split:   0%|          | 0/5000 [00:00<?, ? examples/s]
+Generating test split:  16%|█▌        | 800/5000 [00:00<00:00, 6349.29 examples/s]
+Generating test split:  32%|███▏      | 1600/5000 [00:00<00:00, 6985.85 examples/s]
+Generating test split:  52%|█████▏    | 2600/5000 [00:00<00:00, 6965.50 examples/s]
+Generating test split:  76%|███████▌  | 3800/5000 [00:00<00:00, 7930.05 examples/s]
+Generating test split:  96%|█████████▌| 4800/5000 [00:00<00:00, 7976.23 examples/s]
+Generating test split: 100%|██████████| 5000/5000 [00:00<00:00, 7616.46 examples/s]
+
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 100/100 [00:04<00:00, 23.27 examples/s]
+Aligning the labels: 100%|██████████| 100/100 [00:04<00:00, 23.06 examples/s]
+
+Filter:   0%|          | 0/100 [00:00<?, ? examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 444.83 examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 383.43 examples/s]
+Error: Evaluation failed: Dataset 'timm/mini-imagenet' is not compatible with task 'image-classification': No samples remain after label filtering. Dataset and model labels have no overlap.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task image-classification' to see the expected schema.

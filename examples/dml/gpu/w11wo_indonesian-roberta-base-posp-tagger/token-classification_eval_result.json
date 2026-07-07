@@ -1,0 +1,170 @@
+{
+  "model_id": "w11wo/indonesian-roberta-base-posp-tagger",
+  "task": "token-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "~/.cache/winml/eval_datasets/build_indonlu_posp",
+    "columns_mapping": {
+      "label_column": "pos_tags"
+    },
+    "build_script": "scripts/e2e_eval/datasets/build_indonlu_posp.py"
+  },
+  "output_path": "D:\\LocalAI\\public_repo\\WinML-ModelKit\\examples\\dml\\gpu\\w11wo_indonesian-roberta-base-posp-tagger\\token-classification_eval_result.json",
+  "metrics": {
+    "ADJ": {
+      "precision": 0.8831168831168831,
+      "recall": 0.918918918918919,
+      "f1": 0.9006622516556292,
+      "number": 74
+    },
+    "ADK": {
+      "precision": 1.0,
+      "recall": 0.95,
+      "f1": 0.9743589743589743,
+      "number": 40
+    },
+    "ADV": {
+      "precision": 0.9827586206896551,
+      "recall": 0.9827586206896551,
+      "f1": 0.9827586206896551,
+      "number": 58
+    },
+    "ART": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 35
+    },
+    "CCN": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 46
+    },
+    "CSN": {
+      "precision": 0.8913043478260869,
+      "recall": 1.0,
+      "f1": 0.9425287356321839,
+      "number": 41
+    },
+    "KUA": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 11
+    },
+    "NEG": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 13
+    },
+    "NNO": {
+      "precision": 0.9516129032258065,
+      "recall": 0.9584837545126353,
+      "f1": 0.9550359712230216,
+      "number": 554
+    },
+    "NNP": {
+      "precision": 0.9577777777777777,
+      "recall": 0.9410480349344978,
+      "f1": 0.9493392070484581,
+      "number": 458
+    },
+    "NUM": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 100
+    },
+    "PAR": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 7
+    },
+    "PPO": {
+      "precision": 0.9948186528497409,
+      "recall": 0.964824120603015,
+      "f1": 0.9795918367346939,
+      "number": 199
+    },
+    "PRI": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 2
+    },
+    "PRK": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 1
+    },
+    "PRN": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 33
+    },
+    "PRR": {
+      "precision": 0.9787234042553191,
+      "recall": 1.0,
+      "f1": 0.989247311827957,
+      "number": 46
+    },
+    "SYM": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 366
+    },
+    "UNS": {
+      "precision": 1.0,
+      "recall": 0.5,
+      "f1": 0.6666666666666666,
+      "number": 2
+    },
+    "VBE": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 3
+    },
+    "VBI": {
+      "precision": 0.922077922077922,
+      "recall": 0.9466666666666667,
+      "f1": 0.9342105263157895,
+      "number": 75
+    },
+    "VBL": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 9
+    },
+    "VBP": {
+      "precision": 0.958904109589041,
+      "recall": 0.9859154929577465,
+      "f1": 0.9722222222222222,
+      "number": 71
+    },
+    "VBT": {
+      "precision": 0.970873786407767,
+      "recall": 0.970873786407767,
+      "f1": 0.970873786407767,
+      "number": 103
+    },
+    "overall_precision": 0.9680443118875159,
+    "overall_recall": 0.9680443118875159,
+    "overall_f1": 0.9680443118875159,
+    "overall_accuracy": 0.9680443118875159,
+    "total_time_in_seconds": 25.945681100012735,
+    "samples_per_second": 3.8542060088740904,
+    "latency_in_seconds": 0.25945681100012735
+  }
+}

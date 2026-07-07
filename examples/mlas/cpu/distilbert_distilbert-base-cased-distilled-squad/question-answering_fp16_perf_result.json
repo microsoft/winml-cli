@@ -1,0 +1,63 @@
+{
+  "benchmark_info": {
+    "model_id": "distilbert/distilbert-base-cased-distilled-squad",
+    "task": "question-answering",
+    "device": "cpu",
+    "ep": "CPUExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T04:46:20.658533+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "start_logits",
+      "end_logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 99.76,
+    "min": 95.65,
+    "max": 104.91,
+    "p50": 100.42,
+    "p90": 104.91,
+    "p95": 104.91,
+    "p99": 104.91,
+    "std": 2.4,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 10.02,
+    "batches_per_sec": 10.02
+  },
+  "raw_samples_ms": []
+}

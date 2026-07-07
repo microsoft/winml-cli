@@ -1,0 +1,59 @@
+{
+  "benchmark_info": {
+    "model_id": "sentence-transformers/all-mpnet-base-v2",
+    "task": "feature-extraction",
+    "device": "npu",
+    "ep": "QNNExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T12:34:34.127916+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        768
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 48.08,
+    "min": 47.37,
+    "max": 49.92,
+    "p50": 47.85,
+    "p90": 49.92,
+    "p95": 49.92,
+    "p99": 49.92,
+    "std": 0.78,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 20.8,
+    "batches_per_sec": 20.8
+  },
+  "raw_samples_ms": []
+}

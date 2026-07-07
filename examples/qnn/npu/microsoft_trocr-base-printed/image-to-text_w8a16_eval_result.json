@@ -1,0 +1,22 @@
+{
+  "model_id": "microsoft/trocr-base-printed",
+  "task": "image-to-text",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 500,
+    "shuffle": true,
+    "seed": 42,
+    "path": "priyank-m/SROIE_2019_text_recognition",
+    "columns_mapping": {
+      "input_column": "image",
+      "label_column": "text"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\microsoft_trocr-base-printed\\image-to-text_w8a16_eval_result.json",
+  "metrics": {
+    "cer": 7.325,
+    "cider": 0.0018,
+    "n_samples": 500
+  }
+}

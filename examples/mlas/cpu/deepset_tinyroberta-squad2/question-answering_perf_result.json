@@ -1,0 +1,50 @@
+{
+  "benchmark_info": {
+    "model_id": "deepset/tinyroberta-squad2",
+    "task": "question-answering",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T04:35:00.087408+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "start_logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 97.66,
+    "min": 96.11,
+    "max": 103.48,
+    "p50": 97.11,
+    "p90": 103.48,
+    "p95": 103.48,
+    "p99": 103.48,
+    "std": 2.02
+  },
+  "throughput": {
+    "samples_per_sec": 10.24,
+    "batches_per_sec": 10.24
+  }
+}

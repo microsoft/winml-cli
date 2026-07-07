@@ -1,0 +1,61 @@
+{
+  "benchmark_info": {
+    "model_id": "valentinafeve/yolos-fashionpedia",
+    "task": "object-detection",
+    "device": "cpu",
+    "ep": "CPUExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T11:21:20.835508+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        512,
+        864
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits",
+      "pred_boxes"
+    ],
+    "output_shapes": [
+      [
+        1,
+        100,
+        47
+      ],
+      [
+        1,
+        100,
+        4
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 409.42,
+    "min": 382.12,
+    "max": 430.41,
+    "p50": 407.8,
+    "p90": 430.41,
+    "p95": 430.41,
+    "p99": 430.41,
+    "std": 13.79,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 2.44,
+    "batches_per_sec": 2.44
+  },
+  "raw_samples_ms": []
+}

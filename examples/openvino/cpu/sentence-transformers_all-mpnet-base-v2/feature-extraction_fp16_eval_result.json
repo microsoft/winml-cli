@@ -1,0 +1,23 @@
+{
+  "model_id": "sentence-transformers/all-mpnet-base-v2",
+  "task": "feature-extraction",
+  "device": "cpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    },
+    "streaming": true
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\cpu\\sentence-transformers_all-mpnet-base-v2\\feature-extraction_fp16_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 82.7129
+  }
+}

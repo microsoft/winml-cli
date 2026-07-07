@@ -1,0 +1,14 @@
+100%|██████████| 442/442 [00:00<00:00, 1136.40it/s]
+[2026-05-26T13:02:37] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/395 [00:00<?, ?it/s]
+ 33%|███▎      | 132/395 [00:00<00:00, 1313.10it/s]
+ 67%|██████▋   | 264/395 [00:00<00:00, 1203.90it/s]
+ 98%|█████████▊| 389/395 [00:00<00:00, 1221.26it/s]
+100%|██████████| 395/395 [00:00<00:00, 1213.54it/s]
+[2026-05-26T13:02:38] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-26T13:02:38] WARNING: Failed to register EP OpenVINOExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : library is already registered under OpenVINOExecutionProvider
+[0;93m2026-05-26 13:02:38.9744359 [W:onnxruntime:, ov_provider.cc:162 onnxruntime::openvino_ep_plugin::OpenVINOEpPluginOptions::ParseProviderOptions] Provider option device_type is ignored. Please pass one of the enumerated EP device to AppendExecutionProvider_V2 for device selection.[m
+[0;93m2026-05-26 13:02:41.2177608 [W:onnxruntime:, ov_provider.cc:162 onnxruntime::openvino_ep_plugin::OpenVINOEpPluginOptions::ParseProviderOptions] Provider option device_type is ignored. Please pass one of the enumerated EP device to AppendExecutionProvider_V2 for device selection.[m
+[2026-05-26T13:02:42] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' (name=None, split='validation'): Couldn't find any data file at C:\Users\yuesu\.cache\winml\eval_datasets\build_indonlu_posp.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.

@@ -1,0 +1,54 @@
+{
+  "benchmark_info": {
+    "model_id": "mattmdjaga/segformer_b2_clothes",
+    "task": "image-segmentation",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T08:12:35.686779+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        512,
+        512
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        18,
+        128,
+        128
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 456.84,
+    "min": 440.93,
+    "max": 479.72,
+    "p50": 457.23,
+    "p90": 479.72,
+    "p95": 479.72,
+    "p99": 479.72,
+    "std": 11.74
+  },
+  "throughput": {
+    "samples_per_sec": 2.19,
+    "batches_per_sec": 2.19
+  }
+}

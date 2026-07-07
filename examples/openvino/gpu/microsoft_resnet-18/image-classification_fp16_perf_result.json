@@ -1,0 +1,56 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "microsoft/resnet-18",
+                           "task":  "image-classification",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "fp16",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T14:34:09.385080+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "pixel_values"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                3,
+                                                224,
+                                                224
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "float32"
+                                       ],
+                       "output_names":  [
+                                            "logits"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 1000
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  1.87,
+                       "min":  1.64,
+                       "max":  2.45,
+                       "p50":  1.73,
+                       "p90":  2.45,
+                       "p95":  2.45,
+                       "p99":  2.45,
+                       "std":  0.26,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  536.01,
+                       "batches_per_sec":  536.01
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

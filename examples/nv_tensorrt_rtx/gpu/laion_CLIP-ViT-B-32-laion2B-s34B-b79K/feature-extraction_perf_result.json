@@ -1,0 +1,50 @@
+{
+  "benchmark_info": {
+    "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "task": "feature-extraction",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T19:39:37.926505+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        77
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "text_embeds"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 1.16,
+    "min": 1.14,
+    "max": 1.18,
+    "p50": 1.16,
+    "p90": 1.18,
+    "p95": 1.18,
+    "p99": 1.18,
+    "std": 0.01
+  },
+  "throughput": {
+    "samples_per_sec": 862.86,
+    "batches_per_sec": 862.86
+  }
+}

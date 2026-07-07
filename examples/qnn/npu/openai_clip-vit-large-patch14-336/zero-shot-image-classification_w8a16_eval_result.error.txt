@@ -1,0 +1,33 @@
+timum\exporters\tasks.py", line 1300, in get_exporter_config_constructor
+    raise ValueError(
+ValueError: clip_vision_model doesn't support task image-feature-extraction for the onnx backend. Supported tasks are: feature-extraction.
+[2026-05-26T18:04:13] WARNING: Model producer not matched: Expected "pytorch", Got "onnxruntime.transformers".Please specify correct --model_type parameter.
+[2026-05-26T18:04:33] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/777 [00:00<?, ?it/s]
+  4%|▍         | 33/777 [00:00<00:02, 329.31it/s]
+ 10%|▉         | 74/777 [00:00<00:01, 369.69it/s]
+ 15%|█▍        | 115/777 [00:00<00:01, 381.38it/s]
+ 20%|██        | 156/777 [00:00<00:01, 384.42it/s]
+ 25%|██▌       | 195/777 [00:00<00:01, 377.45it/s]
+ 30%|██▉       | 233/777 [00:00<00:01, 374.63it/s]
+ 35%|███▍      | 271/777 [00:00<00:01, 370.95it/s]
+ 40%|███▉      | 309/777 [00:00<00:01, 346.93it/s]
+ 44%|████▍     | 345/777 [00:00<00:01, 344.56it/s]
+ 49%|████▉     | 384/777 [00:01<00:01, 357.49it/s]
+ 54%|█████▍    | 422/777 [00:01<00:00, 362.91it/s]
+ 59%|█████▉    | 459/777 [00:01<00:00, 347.09it/s]
+ 64%|██████▎   | 494/777 [00:01<00:00, 317.14it/s]
+ 73%|███████▎  | 568/777 [00:01<00:00, 429.75it/s]
+ 84%|████████▎ | 649/777 [00:01<00:00, 531.86it/s]
+ 91%|█████████ | 707/777 [00:01<00:00, 541.85it/s]
+ 98%|█████████▊| 763/777 [00:01<00:00, 471.76it/s]
+100%|██████████| 777/777 [00:01<00:00, 408.90it/s]
+[2026-05-26T18:04:36] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 227.08 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map:  80%|████████  | 8/10 [00:00<00:00, 60.55 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 42.04 examples/s]

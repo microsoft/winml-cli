@@ -1,0 +1,5 @@
+WARNING: trust_remote_code is enabled - custom Python from the model repository
+will be downloaded and executed. Proceed only if you trust the publisher.
+Error: Dataset script failed (exit 1): packaging\version.py", line 122, in parse
+  File "C:\Users\zhangchao\project\winml-cli\.venv\Lib\site-packages\packaging\version.py", line 414, in __init__
+TypeError: 'NoneType' object is not iterable

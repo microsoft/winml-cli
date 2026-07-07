@@ -1,0 +1,54 @@
+{
+  "benchmark_info": {
+    "model_id": "nvidia/segformer-b2-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T10:04:38.745261+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        512,
+        512
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        150,
+        128,
+        128
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 466.6,
+    "min": 452.51,
+    "max": 477.04,
+    "p50": 467.83,
+    "p90": 477.04,
+    "p95": 477.04,
+    "p99": 477.04,
+    "std": 7.73
+  },
+  "throughput": {
+    "samples_per_sec": 2.14,
+    "batches_per_sec": 2.14
+  }
+}

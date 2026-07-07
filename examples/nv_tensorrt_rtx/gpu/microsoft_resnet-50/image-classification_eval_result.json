@@ -1,0 +1,19 @@
+{
+  "model_id": "microsoft/resnet-50",
+  "task": "image-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\microsoft_resnet-50\\image-classification_eval_result.json",
+  "metrics": {
+    "accuracy": 0.78,
+    "total_time_in_seconds": 3.193246100010583,
+    "samples_per_second": 31.316095555450165,
+    "latency_in_seconds": 0.031932461000105834
+  }
+}

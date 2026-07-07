@@ -1,0 +1,51 @@
+{
+  "benchmark_info": {
+    "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "sentence-similarity",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "w8a16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T23:04:32.797705+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        384
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 40.76,
+    "min": 39.98,
+    "max": 41.57,
+    "p50": 40.89,
+    "p90": 41.57,
+    "p95": 41.57,
+    "p99": 41.57,
+    "std": 0.5
+  },
+  "throughput": {
+    "samples_per_sec": 24.53,
+    "batches_per_sec": 24.53
+  }
+}

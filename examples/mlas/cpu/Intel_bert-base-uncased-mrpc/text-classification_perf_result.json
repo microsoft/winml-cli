@@ -1,0 +1,50 @@
+{
+  "benchmark_info": {
+    "model_id": "Intel/bert-base-uncased-mrpc",
+    "task": "text-classification",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T01:55:36.492304+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        2
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 197.6,
+    "min": 190.76,
+    "max": 211.0,
+    "p50": 194.72,
+    "p90": 211.0,
+    "p95": 211.0,
+    "p99": 211.0,
+    "std": 6.7
+  },
+  "throughput": {
+    "samples_per_sec": 5.06,
+    "batches_per_sec": 5.06
+  }
+}

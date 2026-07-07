@@ -1,0 +1,64 @@
+{
+  "benchmark_info": {
+    "model_id": "cross-encoder/ms-marco-MiniLM-L4-v2",
+    "task": "text-classification",
+    "device": "npu",
+    "ep": "OpenVINOExecutionProvider",
+    "precision": "fp16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T16:04:10.728135+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids",
+      "attention_mask",
+      "token_type_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "int32",
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        1
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 9.33,
+    "min": 6.67,
+    "max": 10.08,
+    "p50": 9.75,
+    "p90": 10.08,
+    "p95": 10.08,
+    "p99": 10.08,
+    "std": 1.04,
+    "warmup_mean": null
+  },
+  "throughput": {
+    "samples_per_sec": 107.16,
+    "batches_per_sec": 107.16
+  },
+  "raw_samples_ms": []
+}

@@ -1,0 +1,22 @@
+{
+  "model_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+  "task": "sentence-similarity",
+  "device": "gpu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\yuesu\\winml-cli\\examples\\openvino\\gpu\\sentence-transformers_multi-qa-mpnet-base-dot-v1\\sentence-similarity_fp16_eval_result.json",
+  "metrics": {
+    "cosine_spearman": 69.966
+  }
+}
