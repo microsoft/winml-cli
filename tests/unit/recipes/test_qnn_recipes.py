@@ -20,7 +20,7 @@ recipes = [
         / "recipes"
         / "facebook_dinov2-base"
         / "qnn"
-        / "image-feature-extraction_w8a16_opset21_bias-softmax_config.json",
+        / "image-feature-extraction_w8a16_config.json",
         "loader_task": "image-feature-extraction",
         "optim_key": "bias_softmax_fusion",
         "optim_value": True,
@@ -32,7 +32,7 @@ recipes = [
         / "recipes"
         / "facebook_dinov2-small"
         / "qnn"
-        / "image-feature-extraction_w8a16_opset21_bias-softmax_config.json",
+        / "image-feature-extraction_w8a16_config.json",
         "loader_task": "image-feature-extraction",
         "optim_key": "bias_softmax_fusion",
         "optim_value": True,
@@ -44,7 +44,7 @@ recipes = [
         / "recipes"
         / "microsoft_swinv2-tiny-patch4-window16-256"
         / "qnn"
-        / "image-classification_fp16_opset21_matmul-transpose_config.json",
+        / "image-classification_fp16_config.json",
         "loader_task": "image-classification",
         "optim_key": "matmul_transpose_fusion",
         "optim_value": True,
