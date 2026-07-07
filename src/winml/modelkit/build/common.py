@@ -87,7 +87,6 @@ def run_optimize_analyze_loop(
     optimize_onnx(
         model=model_path,
         output=optimized_path,
-        passes=1,
         **onnx_kwargs,
         **config.optim,
     )
@@ -191,7 +190,6 @@ def _run_analyze_loop(
             optimize_onnx(
                 model=iter_model,
                 output=iter_model,
-                passes=1,
                 **kwargs,
                 **optim_config,
             )
