@@ -158,8 +158,9 @@ class QNNProfiler(OpTracer):
         *,
         output_dir: Path,
         level: str = "basic",
+        input_data: dict[str, np.ndarray] | None = None,
     ) -> None:
-        super().__init__(onnx_path, output_dir=output_dir, level=level)
+        super().__init__(onnx_path, output_dir=output_dir, level=level, input_data=input_data)
 
     def is_available(self) -> bool:
         """Check if QNN EP is available for profiling."""
@@ -205,7 +206,7 @@ class QNNProfiler(OpTracer):
                 sess_options=options,
             )
 
-            inputs = self._generate_inputs(session)
+            inputs = self._resolve_inputs(session)
 
             # Warmup (not measured).
             for _ in range(warmup):
@@ -257,6 +258,34 @@ class QNNProfiler(OpTracer):
     # ------------------------------------------------------------------
     # Input generation
     # ------------------------------------------------------------------
+
+    def _resolve_inputs(self, session: Any) -> dict[str, np.ndarray]:
+        """Pick trace inputs: the caller-provided tensors, else random.
+
+        When ``input_data`` was supplied (from ``perf --input-data``), use it so
+        the op trace runs on the same real tensors as the latency benchmark.
+        Each array is cast to the session's expected dtype (mirroring
+        ``WinMLSession._prepare_inputs``). If the provided keys don't cover the
+        traced session's inputs -- e.g. a compiled context model with different
+        inputs -- fall back to random generation with a warning rather than
+        failing the trace.
+        """
+        if not self.input_data:
+            return self._generate_inputs(session)
+
+        expected = {inp.name: _ort_type_to_numpy(inp.type) for inp in session.get_inputs()}
+        if set(self.input_data) != set(expected):
+            logger.warning(
+                "--input-data inputs %s do not match the traced model's inputs "
+                "%s; falling back to random inputs for op-tracing.",
+                sorted(self.input_data),
+                sorted(expected),
+            )
+            return self._generate_inputs(session)
+
+        return {
+            name: np.asarray(arr).astype(expected[name]) for name, arr in self.input_data.items()
+        }
 
     @staticmethod
     def _generate_inputs(session: Any) -> dict[str, np.ndarray]:

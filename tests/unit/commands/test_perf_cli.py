@@ -880,13 +880,34 @@ class TestLoadInputData:
         with pytest.raises(click.UsageError, match="unexpected"):
             load_input_data(path, self._IO)
 
-    def test_dtype_mismatch_errors(self, tmp_path) -> None:
+    def test_dtype_cast_with_warning(self, tmp_path, caplog) -> None:
+        import logging
+
         import numpy as np
 
         from winml.modelkit.commands.perf import load_input_data
 
-        path = self._write_npz(tmp_path, pixel_values=np.zeros((1, 3, 64, 64), dtype=np.float64))
-        with pytest.raises(click.UsageError, match="dtype mismatch"):
+        # int64 literals against an int32 input: a normal run casts silently,
+        # so load_input_data casts (with a warning) rather than hard-failing.
+        io = {
+            "input_names": ["input_ids"],
+            "input_shapes": [[None, 8]],
+            "input_types": ["int32"],
+        }
+        path = self._write_npz(tmp_path, input_ids=np.zeros((1, 8), dtype=np.int64))
+
+        with caplog.at_level(logging.WARNING, logger="winml.modelkit.commands.perf"):
+            inputs = load_input_data(path, io)
+
+        assert inputs["input_ids"].dtype == np.int32
+        assert "casting" in caplog.text.lower()
+
+    def test_corrupt_npz_errors(self, tmp_path) -> None:
+        from winml.modelkit.commands.perf import load_input_data
+
+        path = tmp_path / "corrupt.npz"
+        path.write_bytes(b"not an archive")
+        with pytest.raises(click.UsageError, match="Could not read"):
             load_input_data(path, self._IO)
 
     def test_npy_rejected(self, tmp_path) -> None:

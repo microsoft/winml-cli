@@ -311,12 +311,15 @@ def load_input_data(
     a single-array ``.npy`` carries no input names to bind against and is
     rejected with guidance to repackage as ``.npz``.
 
-    Validation is strict:
+    Validation:
 
     * the archive's keys must exactly match the model's input names -- any
       missing or unexpected key is an error (an unexpected key is usually a
       typo that would otherwise leave a required input silently unset);
-    * each array's dtype must equal the model's expected input dtype.
+    * an array whose dtype differs from the model's expected input dtype is
+      cast to the expected dtype with a warning, matching the silent casting
+      ``WinMLSession._prepare_inputs`` does on a normal run (e.g. numpy's
+      default int64 literals binding to an int32 input).
 
     Shapes are taken from the arrays as-is; correctness beyond dtype (e.g. a
     static dimension the data violates) surfaces as a runtime error from the
@@ -330,8 +333,7 @@ def load_input_data(
         Dictionary of ``input_name -> numpy array``.
 
     Raises:
-        click.UsageError: On a non-``.npz`` file, a key mismatch, or a dtype
-            mismatch.
+        click.UsageError: On a non-``.npz`` file or a key mismatch.
     """
     if path.suffix.lower() == ".npy":
         raise click.UsageError(
@@ -367,13 +369,20 @@ def load_input_data(
             f"Expected exactly: {expected_names}."
         )
 
+    # Cast dtype mismatches instead of failing, mirroring the session's
+    # _prepare_inputs, so inputs that would run fine on a normal invocation
+    # (e.g. int64 literals against an int32 input) don't hard-error here.
     for name, expected_dtype in zip(expected_names, expected_types, strict=True):
-        got = provided[name].dtype
         want = np.dtype(expected_dtype)
+        got = provided[name].dtype
         if got != want:
-            raise click.UsageError(
-                f"--input-data dtype mismatch for '{name}': got {got}, expected {want}."
+            logger.warning(
+                "--input-data dtype for '%s' is %s; casting to the model's expected %s.",
+                name,
+                got,
+                want,
             )
+            provided[name] = provided[name].astype(want)
 
     return provided
 
@@ -2224,10 +2233,17 @@ def perf(
                     f"No tracer registered for QNN EP at level '{op_tracing}'"
                 )
 
+            # When --input-data was supplied, trace on the same real tensors the
+            # benchmark used (benchmark._inputs), so the op trace isn't measured
+            # on random data. The profiler falls back to random inputs if these
+            # don't match the traced session's inputs.
+            trace_inputs = getattr(benchmark, "_inputs", None) if input_data else None
+
             profiler = tracer_cls(
                 onnx_for_trace,
                 output_dir=output_dir,
                 level=op_tracing,
+                input_data=trace_inputs,
             )
             trace_result = profiler.run(
                 iterations=min(iterations, 10),
