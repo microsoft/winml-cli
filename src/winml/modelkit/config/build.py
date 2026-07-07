@@ -136,10 +136,14 @@ class WinMLBuildConfig:
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
     auto: bool = True
-    # Original precision string (e.g., "w4a16", "int4", "fp16") used to derive
-    # the quantization pass sequence via expand_precision(). Set during config
-    # resolution; None means legacy config without precision info.
-    precision: str | None = None
+    # Stamped True by generate_*_build_config (or by the build_*_model
+    # entry-point defensive fallback) when the input ONNX is already
+    # quantized (QDQ or QOperator format). When True, the optimize stage
+    # is bypassed for downstream pipelines (no ORT graph optimization,
+    # no autoconf analyze loop). This is the SINGLE source of truth for
+    # "is this model pre-quantized?" — downstream stages must read this
+    # flag instead of calling ``is_quantized_onnx`` again.
+    skip_optimize: bool = False
 
     def __post_init__(self) -> None:
         # Lazy import: inject into module globals so typing.get_type_hints()
@@ -173,7 +177,7 @@ class WinMLBuildConfig:
             ),
             eval=eval_cfg,
             auto=config_dict.get("auto", True),
-            precision=config_dict.get("precision"),
+            skip_optimize=config_dict.get("skip_optimize", False),
         )
 
     def to_dict(self) -> dict:
@@ -181,8 +185,8 @@ class WinMLBuildConfig:
         result: dict = {}
         if not self.auto:
             result["auto"] = False
-        if self.precision is not None:
-            result["precision"] = self.precision
+        if self.skip_optimize:
+            result["skip_optimize"] = True
         result.update(
             {
                 "export": self.export.to_dict() if self.export is not None else None,
@@ -450,8 +454,11 @@ def generate_onnx_build_config(
         )
 
         if is_quantized_onnx(onnx_path_resolved):
-            # Skip optimize+quantize, compile with resolved policy
+            # Skip optimize+quantize, compile with resolved policy.
+            # ``skip_optimize`` is the single source of truth — downstream
+            # pipelines must read this flag and not re-detect.
             config.quant = None
+            config.skip_optimize = True
             config.compile = resolved_compile
             logger.info("Quantized model (QDQ) detected")
         else:
@@ -726,8 +733,8 @@ def generate_hf_build_config(
         # CPU/GPU: precision is float (fp32) — no quantization
         parent_config.quant = None
 
-    # Store resolved precision for multi-pass expansion
-    parent_config.precision = policy.precision
+    # Store resolved precision for multi-pass expansion.
+    parent_config.precision = policy.precision  # type: ignore[attr-defined]
 
     # Compile config
     parent_config.compile = WinMLCompileConfig.for_provider(

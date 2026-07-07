@@ -506,6 +506,22 @@ def _run_build(
     skips compile (``--no-compile``) — no execution provider is required.
     Otherwise the build populates the global cache (``--use-cache``).
     """
+    composite_onnx = getattr(entry, "composite_onnx", None)
+    if isinstance(composite_onnx, dict) and composite_onnx:
+        return {
+            "success": True,
+            "onnx_paths": dict(composite_onnx),
+            "stage": "prebuilt",
+            "proc": {
+                "exit_code": 0,
+                "stdout": "Using pre-built composite ONNX paths from registry.",
+                "stderr": "",
+                "elapsed": 0.0,
+                "timeout": False,
+                "command": "registry composite_onnx",
+            },
+        }
+
     config_path = model_dir / "build_config.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 

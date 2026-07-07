@@ -167,6 +167,19 @@ def inspect(
                 "Use 'winml config -m model.onnx' for ONNX build config."
             )
 
+    # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+    # is not downloadable for inspect (which targets HF architecture
+    # metadata, not raw ONNX graphs), but surfacing the same friendly
+    # error keeps the UX consistent with local .onnx inputs. Detect via
+    # the unified classifier so we don't trigger an unwanted download.
+    from ..utils.model_input import classify_model_input
+
+    if model and classify_model_input(model).kind == "hub_onnx":
+        raise click.ClickException(
+            "ONNX file inspection is not yet supported. "
+            "Use 'winml config -m model.onnx' for ONNX build config."
+        )
+
     # Merge top-level -v/-q with subcommand-level flags so either position
     # works, once and up front. The banner decision below needs the merged
     # --quiet (so both `winml --quiet inspect …` and `winml inspect -q`
