@@ -10,7 +10,13 @@ import functools
 import logging
 from typing import TYPE_CHECKING
 
-from ..utils.constants import DEVICE_TYPE_TO_DEVICE, EP_SUPPORTED_DEVICES, EPName, normalize_ep_name
+from ..utils.constants import (
+    DEVICE_TYPE_TO_DEVICE,
+    EP_SUPPORTED_DEVICES,
+    SUPPORTED_EPS,
+    EPName,
+    normalize_ep_name,
+)
 from ..winml import get_registered_ep_devices
 
 
@@ -119,8 +125,17 @@ def _get_device_ep_map_from_ort() -> dict[str, tuple[EPName, ...]]:
     try:
         for ep_device in get_registered_ep_devices():
             device_name = DEVICE_TYPE_TO_DEVICE.get(ep_device.device.type)
-            if device_name is not None:
-                result.setdefault(device_name.lower(), []).append(ep_device.ep_name)
+            if device_name is None:
+                continue
+            # ORT reports device-qualified aliases (e.g. "OpenVINOExecutionProvider.AUTO")
+            # as distinct ep_name values. ORT's ep_name is always a canonical full
+            # name (never a short alias), so a plain SUPPORTED_EPS membership check
+            # drops the aliases and keeps downstream availability sets / error
+            # messages limited to real providers.
+            ep_name = ep_device.ep_name
+            if ep_name not in SUPPORTED_EPS:
+                continue
+            result.setdefault(device_name.lower(), []).append(ep_name)
     except Exception:
         # WARNING (not DEBUG): if ORT is installed but enumeration fails
         # (driver bug, version mismatch, etc.) downstream code sees an empty
