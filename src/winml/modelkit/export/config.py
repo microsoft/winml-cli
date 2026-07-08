@@ -28,6 +28,96 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+DynamicAxes = dict[str, dict[int, str]]
+
+
+def _normalize_dynamic_axes(dynamic_axes: Any) -> DynamicAxes | None:
+    """Validate and normalize a torch.onnx.export dynamic_axes mapping."""
+    if dynamic_axes is None:
+        return None
+    if not isinstance(dynamic_axes, dict):
+        raise TypeError(
+            f"dynamic_axes must be a JSON object, got {type(dynamic_axes).__name__}"
+        )
+
+    normalized: DynamicAxes = {}
+    for tensor_name, axes in dynamic_axes.items():
+        if not isinstance(tensor_name, str) or not tensor_name:
+            raise ValueError("dynamic_axes tensor names must be non-empty strings")
+        if not isinstance(axes, dict):
+            raise TypeError(
+                f"dynamic_axes['{tensor_name}'] must be an object mapping axis to name"
+            )
+
+        normalized_axes: dict[int, str] = {}
+        for axis, dim_name in axes.items():
+            try:
+                axis_index = int(axis)
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    f"dynamic_axes['{tensor_name}'] axis {axis!r} must be an integer"
+                ) from e
+            if axis_index < 0:
+                raise ValueError(
+                    f"dynamic_axes['{tensor_name}'] axis {axis_index} must be non-negative"
+                )
+            if not isinstance(dim_name, str) or not dim_name:
+                raise ValueError(
+                    f"dynamic_axes['{tensor_name}'][{axis_index}] must be a non-empty string"
+                )
+            normalized_axes[axis_index] = dim_name
+
+        normalized[tensor_name] = normalized_axes
+
+    return normalized
+
+
+def _dynamic_axes_from_input_tensors(
+    input_tensors: list[InputTensorSpec] | None,
+) -> DynamicAxes | None:
+    """Infer dynamic axes from symbolic string dimensions in input tensor specs."""
+    if not input_tensors:
+        return None
+
+    dynamic_axes: DynamicAxes = {}
+    for spec in input_tensors:
+        if not spec.name or not spec.shape:
+            continue
+        axes = {
+            axis: dim_name
+            for axis, dim_name in enumerate(spec.shape)
+            if isinstance(dim_name, str)
+        }
+        if axes:
+            dynamic_axes[spec.name] = axes
+
+    return dynamic_axes or None
+
+
+def _merge_dynamic_axes(
+    explicit: DynamicAxes | None,
+    inferred: DynamicAxes | None,
+) -> DynamicAxes | None:
+    """Merge explicit dynamic axes with axes inferred from symbolic input shapes."""
+    if not explicit:
+        return inferred
+    if not inferred:
+        return explicit
+
+    merged: DynamicAxes = {name: dict(axes) for name, axes in explicit.items()}
+    for tensor_name, axes in inferred.items():
+        merged_axes = merged.setdefault(tensor_name, {})
+        for axis, dim_name in axes.items():
+            existing = merged_axes.get(axis)
+            if existing is not None and existing != dim_name:
+                raise ValueError(
+                    f"Conflicting dynamic axis for '{tensor_name}' axis {axis}: "
+                    f"{existing!r} vs {dim_name!r}"
+                )
+            merged_axes[axis] = dim_name
+
+    return merged
+
 
 @dataclass
 class WinMLExportConfig:
@@ -80,7 +170,7 @@ class WinMLExportConfig:
     output_tensors: list[OutputTensorSpec] | None = None
 
     # Dynamic axes for ONNX export (optional)
-    dynamic_axes: dict[str, dict[int, str]] | None = None
+    dynamic_axes: DynamicAxes | None = None
 
     # Export behavior
     export_params: bool = True
@@ -129,10 +219,20 @@ class WinMLExportConfig:
         if self.opset_version < 11:
             logger.warning("opset_version %s is very old, consider using 17+", self.opset_version)
 
+        self.dynamic_axes = _merge_dynamic_axes(
+            _normalize_dynamic_axes(self.dynamic_axes),
+            _dynamic_axes_from_input_tensors(self.input_tensors),
+        )
+
         # Validate input tensor shapes match batch_size if specified
         if self.input_tensors:
             for spec in self.input_tensors:
-                if spec.shape and len(spec.shape) > 0 and spec.shape[0] != self.batch_size:
+                if (
+                    spec.shape
+                    and len(spec.shape) > 0
+                    and isinstance(spec.shape[0], int)
+                    and spec.shape[0] != self.batch_size
+                ):
                     logger.warning(
                         "Input tensor '%s' shape[0]=%s doesn't match batch_size=%s",
                         spec.name or "unnamed",
@@ -146,7 +246,7 @@ class WinMLExportConfig:
                 if 0 in axes:  # Batch dimension is dynamic
                     logger.warning(
                         "Dynamic batch detected for input '%s'. "
-                        "This prevents MatMulAddFusion and causes BiasGelu!",
+                        "QNN optimizations such as MatMulAddFusion may require static batch.",
                         input_name,
                     )
 
@@ -182,7 +282,7 @@ class WinMLExportConfig:
             return []
         return [spec.name for spec in self.output_tensors if spec.name]
 
-    def get_input_shape(self, name: str | None = None) -> tuple[int, ...] | None:
+    def get_input_shape(self, name: str | None = None) -> tuple[int | str, ...] | None:
         """Get shape for a specific input tensor or the first input.
 
         Args:
@@ -215,7 +315,7 @@ class WinMLExportConfig:
         return self.get_output_names()
 
     @property
-    def input_shape(self) -> tuple[int, ...]:
+    def input_shape(self) -> tuple[int | str, ...]:
         """Backward-compatible property for first input tensor shape.
 
         Returns default (1, 3, 224, 224) if no input tensors specified.

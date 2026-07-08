@@ -124,25 +124,25 @@ class TestInputTensorShapeMismatchWarning:
 
 
 # =============================================================================
-# 5. dynamic_axes with axis 0 logs BiasGelu warning
+# 5. dynamic_axes with axis 0 logs QNN compatibility warning
 # =============================================================================
 
 
 class TestDynamicAxesWarning:
-    """dynamic_axes with axis 0 warns about BiasGelu."""
+    """dynamic_axes with axis 0 warns about QNN compatibility."""
 
     def test_dynamic_batch_axis_warns(self, caplog):
         dynamic_axes = {"input_ids": {0: "batch_size"}}
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.export.config"):
             WinMLExportConfig(dynamic_axes=dynamic_axes)
         assert "Dynamic batch detected for input 'input_ids'" in caplog.text
-        assert "BiasGelu" in caplog.text
+        assert "QNN optimizations" in caplog.text
 
     def test_dynamic_non_batch_axis_no_warning(self, caplog):
         dynamic_axes = {"input_ids": {1: "sequence_length"}}
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.export.config"):
             WinMLExportConfig(dynamic_axes=dynamic_axes)
-        assert "BiasGelu" not in caplog.text
+        assert "Dynamic batch detected" not in caplog.text
 
     def test_multiple_inputs_dynamic_batch(self, caplog):
         dynamic_axes = {
@@ -157,7 +157,28 @@ class TestDynamicAxesWarning:
     def test_no_dynamic_axes_no_warning(self, caplog):
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.export.config"):
             WinMLExportConfig(dynamic_axes=None)
-        assert "BiasGelu" not in caplog.text
+        assert "Dynamic batch detected" not in caplog.text
+
+    def test_dynamic_axes_json_keys_normalized(self):
+        cfg = WinMLExportConfig(dynamic_axes={"input_ids": {"0": "batch", "1": "sequence"}})
+        assert cfg.dynamic_axes == {"input_ids": {0: "batch", 1: "sequence"}}
+
+    def test_symbolic_input_shape_infers_dynamic_axes(self):
+        cfg = WinMLExportConfig(
+            input_tensors=[
+                InputTensorSpec(name="input_ids", dtype="int64", shape=("batch", "sequence")),
+            ],
+        )
+        assert cfg.dynamic_axes == {"input_ids": {0: "batch", 1: "sequence"}}
+
+    def test_symbolic_input_shape_conflict_raises(self):
+        with pytest.raises(ValueError, match="Conflicting dynamic axis"):
+            WinMLExportConfig(
+                input_tensors=[
+                    InputTensorSpec(name="input_ids", dtype="int64", shape=("batch", 128)),
+                ],
+                dynamic_axes={"input_ids": {0: "different_batch"}},
+            )
 
 
 # =============================================================================
@@ -229,6 +250,11 @@ class TestInputTensorSpecRoundtrip:
         assert restored.dtype is None
         assert restored.shape is None
 
+    def test_symbolic_shape_roundtrip(self):
+        original = InputTensorSpec(name="input_ids", dtype="int64", shape=("batch", "sequence"))
+        restored = InputTensorSpec.from_dict(original.to_dict())
+        assert restored.shape == ("batch", "sequence")
+
     def test_name_only_roundtrip(self):
         original = InputTensorSpec(name="input_ids")
         restored = InputTensorSpec.from_dict(original.to_dict())
@@ -261,6 +287,11 @@ class TestInputTensorSpecListToTuple:
         data = {"name": "pixel_values"}
         spec = InputTensorSpec.from_dict(data)
         assert spec.shape is None
+
+    def test_list_symbolic_shape_converted_to_tuple(self):
+        data = {"name": "input_ids", "shape": ["batch", 128]}
+        spec = InputTensorSpec.from_dict(data)
+        assert spec.shape == ("batch", 128)
 
 
 # =============================================================================

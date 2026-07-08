@@ -264,7 +264,7 @@ class HTPExporter:
                 pre_consolidation_external = []
 
             # Verify ONNX export
-            self._verify_onnx_export(output_path)
+            self._verify_onnx_export(output_path, export_config)
 
             # Update monitor with ONNX export info
             onnx_size_mb = (
@@ -366,16 +366,21 @@ class HTPExporter:
         self._hierarchy_data = summary["module_hierarchy"]
         self._export_stats["hierarchy_modules"] = len(self._hierarchy_data)
 
-    def _verify_onnx_export(self, output_path: str) -> None:
+    def _verify_onnx_export(
+        self,
+        output_path: str,
+        export_config: WinMLExportConfig | None = None,
+    ) -> None:
         """Verify ONNX export succeeded and check for common issues.
 
         Post-export validation:
         1. Load ONNX model
         2. Run ONNX checker
-        3. Verify static batch (warn if dynamic detected)
+        3. Verify batch shape and warn only about unexpected dynamic batch
 
         Args:
-            output_path: Path to exported ONNX file
+            output_path: Path to exported ONNX file.
+            export_config: Export configuration used for the export.
         """
         import logging
 
@@ -388,20 +393,31 @@ class HTPExporter:
             model = load_onnx(output_path)
             logger.info("✅ ONNX verification passed")
 
-            # Check for dynamic batch dimension (should be static)
+            # Check for dynamic batch dimension. Static remains the QNN-safe default,
+            # but dynamic dimensions are valid when explicitly requested.
             graph_inputs = model.graph.input
             has_dynamic_batch = False
+            requested_dynamic_axes = export_config.dynamic_axes if export_config else {}
             for input_tensor in graph_inputs:
                 if input_tensor.type.tensor_type.shape.dim:
                     batch_dim = input_tensor.type.tensor_type.shape.dim[0]
                     if batch_dim.dim_param:  # Has symbolic name (dynamic)
                         has_dynamic_batch = True
-                        logger.warning(
-                            "⚠️  Dynamic batch detected in ONNX for '%s'.\n"
-                            "   This may cause QNN compatibility issues.\n"
-                            "   Recommendation: Remove dynamic_axes from export_config.",
-                            input_tensor.name,
+                        requested_dynamic_batch = (
+                            0 in requested_dynamic_axes.get(input_tensor.name, {})
                         )
+                        if requested_dynamic_batch:
+                            logger.info(
+                                "Dynamic batch confirmed for '%s' as requested.",
+                                input_tensor.name,
+                            )
+                        else:
+                            logger.warning(
+                                "⚠️  Dynamic batch detected in ONNX for '%s'.\n"
+                                "   This may cause QNN compatibility issues.\n"
+                                "   Use static batch for QNN-targeted optimization paths.",
+                                input_tensor.name,
+                            )
 
             if not has_dynamic_batch:
                 logger.info("✅ Static batch confirmed (QNN-compatible)")

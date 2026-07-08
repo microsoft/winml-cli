@@ -30,6 +30,8 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+ShapeDim = int | str
+
 
 # =============================================================================
 # Tensor Specification Dataclasses
@@ -45,7 +47,8 @@ class InputTensorSpec:
     Attributes:
         name: Input tensor name in the ONNX graph (e.g., "pixel_values", "input_ids")
         dtype: Data type (e.g., "float32", "int64", "float16")
-        shape: Tensor shape as tuple (e.g., (1, 3, 224, 224))
+        shape: Tensor shape as tuple (e.g., (1, 3, 224, 224)). String dimensions
+            are symbolic ONNX dimensions and use size 1 for dummy tensor generation.
         value_range: Optional (min, max_exclusive) for dummy tensor generation.
             Populated by resolve_export_config() via Optimum's interceptor.
             Integer semantics: torch.randint(min, max) — max is exclusive.
@@ -64,7 +67,7 @@ class InputTensorSpec:
 
     name: str | None = None
     dtype: str | None = None  # "float32", "float16", "int64", "int32", etc.
-    shape: tuple[int, ...] | None = None
+    shape: tuple[ShapeDim, ...] | None = None
     value_range: tuple[float, float] | None = None  # (min, max_exclusive)
 
     def to_tensor(self) -> Any:
@@ -97,16 +100,38 @@ class InputTensorSpec:
         }
         torch_dtype = dtype_map.get(self.dtype or "float32", torch.float32)
 
+        concrete_shape = self._concrete_shape()
+
         if self.value_range is not None:
             lo, hi = self.value_range
             if torch_dtype.is_floating_point:
-                return torch.rand(self.shape, dtype=torch_dtype) * (hi - lo) + lo
-            return torch.randint(int(lo), int(hi), self.shape, dtype=torch_dtype)
+                return torch.rand(concrete_shape, dtype=torch_dtype) * (hi - lo) + lo
+            return torch.randint(int(lo), int(hi), concrete_shape, dtype=torch_dtype)
 
         # Fallback: no range info (backward compatible)
         if torch_dtype.is_floating_point:
-            return torch.rand(self.shape, dtype=torch_dtype)
-        return torch.ones(self.shape, dtype=torch_dtype)
+            return torch.rand(concrete_shape, dtype=torch_dtype)
+        return torch.ones(concrete_shape, dtype=torch_dtype)
+
+    def _concrete_shape(self) -> tuple[int, ...]:
+        """Return a torch-compatible dummy shape, replacing symbolic dims with 1."""
+        if self.shape is None:
+            raise ValueError(f"Cannot create tensor: shape is None for '{self.name}'")
+
+        concrete: list[int] = []
+        for dim in self.shape:
+            if isinstance(dim, str):
+                if not dim:
+                    raise ValueError(f"Cannot create tensor: empty symbolic dim for '{self.name}'")
+                concrete.append(1)
+            elif isinstance(dim, int):
+                concrete.append(dim)
+            else:
+                raise TypeError(
+                    f"Cannot create tensor: shape for '{self.name}' contains "
+                    f"unsupported dimension {dim!r}"
+                )
+        return tuple(concrete)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
