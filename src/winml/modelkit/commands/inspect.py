@@ -61,6 +61,50 @@ def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None
     )
 
 
+def _list_tasks_for_model(model_type: str) -> list[str]:
+    """Sorted tasks a model_type supports: Optimum-exportable + composite pipeline.
+
+    Unions Optimum's ONNX-exportable tasks with any registered composite pipeline
+    tasks. Optimum's list is intersected with ``KNOWN_TASKS`` first, dropping
+    ``-with-past`` KV-cache export flavors that are not user-facing tasks (and which
+    ``--task`` validation would itself reject). Returns ``[]`` when the model_type is
+    unknown to *both* lookups — the caller (``--list-tasks``) turns that into a loud
+    error rather than printing nothing.
+
+    ``model_type`` must be the canonical HF ``config.model_type`` string. The ``-m``
+    path already passes that; ``--model-type`` is trusted verbatim. Optimum's task
+    table is an exact dict lookup whose keys mix separators (``gpt_neo`` underscored,
+    ``megatron-bert`` hyphenated), so no normalization can reconstruct the canonical
+    key from an arbitrary variant — a non-canonical ``--model-type`` (``gpt-neo``,
+    ``BERT``) resolves empty on the Optimum half by design.
+    """
+    # get_supported_tasks reads Optimum's ONNX task table, which is populated by
+    # import side-effects. Two triggers are required and order-independent once both
+    # run: optimum's own model_configs, AND winml.modelkit.models.hf, whose
+    # register_onnx_overwrite calls add ModelKit's custom exportable tasks (e.g.
+    # sam -> mask-generation). Importing only the former silently drops those and is
+    # even flaky for stock tasks depending on prior import order.
+    import optimum.exporters.onnx.model_configs  # noqa: F401
+
+    import winml.modelkit.models.hf  # noqa: F401  # REQUIRED: registers ModelKit ONNX overwrites
+
+    from ..loader import (
+        composite_pipeline_tasks,
+        get_supported_tasks,
+        resolve_optimum_library,
+    )
+    from ..loader.task import KNOWN_TASKS
+
+    # Intersect with KNOWN_TASKS to drop Optimum's `-with-past` export flavors,
+    # which are not user-facing WinML tasks. Composite tasks are added separately
+    # (they intentionally live outside KNOWN_TASKS), so union after the filter.
+    optimum_tasks = get_supported_tasks(model_type, resolve_optimum_library(model_type))
+    tasks: set[str] = {t for t in optimum_tasks if t in KNOWN_TASKS}
+    # Composite registrations key on the hyphenated, lowercased model_type.
+    tasks.update(composite_pipeline_tasks(model_type.lower().replace("_", "-")))
+    return sorted(tasks)
+
+
 @click.command("inspect")
 @cli_utils.model_option(
     required=False,
@@ -92,7 +136,8 @@ def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None
     "--model-type",
     "model_type",
     default=None,
-    help="Override model type (e.g., bert, resnet) — can be used without --model",
+    help="Override model type — use the canonical HF config.model_type "
+    "(e.g. bert, gpt_neo, megatron-bert). Can be used without --model.",
 )
 @click.option(
     "--model-class",
@@ -139,14 +184,56 @@ def inspect(
         # List all known tasks
         winml inspect --list-tasks
     """
-    # Handle --list-tasks (no model required).
-    # Import the hand-coded KNOWN_TASKS directly from loader.task to keep this
-    # branch fast — going through inspect.resolver pulls in ..models which
-    # transitively imports transformers and costs ~10s on a warm cache.
+    # Handle --list-tasks: with a model target, list that model_type's supported
+    # tasks; with no target, dump the full KNOWN_TASKS taxonomy (fast path).
     if list_tasks:
-        from ..loader.task import KNOWN_TASKS
+        # --model-type wins; else resolve the model_type from the id's config
+        # (weight-free); else (no target) dump the full taxonomy via the fast path.
+        if model_type is not None:
+            resolved_type = model_type
+        elif model is not None:
+            from transformers import AutoConfig
 
-        for t in sorted(KNOWN_TASKS):
+            try:
+                hf_config = AutoConfig.from_pretrained(model, trust_remote_code=False)
+            except Exception as e:
+                raise click.ClickException(
+                    f"Could not resolve model type for '{model}': {e}"
+                ) from e
+            mt = getattr(hf_config, "model_type", None)
+            if not mt:
+                raise click.ClickException(
+                    f"Could not determine model type for '{model}' (config has no model_type)."
+                )
+            resolved_type = mt
+        else:
+            # No model target: dump the full KNOWN_TASKS taxonomy. Imports the
+            # hand-coded set directly from loader.task to keep this branch fast —
+            # going through _list_tasks_for_model pulls in transformers (~10s warm).
+            from ..loader.task import KNOWN_TASKS
+
+            for t in sorted(KNOWN_TASKS):
+                click.echo(t)
+            return
+
+        tasks = _list_tasks_for_model(resolved_type)
+        if not tasks:
+            # Empty means the model_type matched neither the Optimum export table
+            # nor the composite registry. For a user-supplied --model-type the
+            # likeliest cause is a typo or non-canonical form (gpt-neo/BERT rather
+            # than gpt_neo/bert), so fail loudly instead of printing nothing and
+            # exiting 0 — mirrors how --task rejects unknown values.
+            if model_type is not None:
+                raise click.ClickException(
+                    f"No exportable tasks found for model type '{resolved_type}'. "
+                    "Check it is the canonical HF config.model_type "
+                    "(e.g. gpt_neo, not gpt-neo; bert, not BERT)."
+                )
+            raise click.ClickException(
+                f"No exportable tasks found for model type '{resolved_type}' "
+                f"(resolved from '{model}')."
+            )
+        for t in tasks:
             click.echo(t)
         return
 
