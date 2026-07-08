@@ -29,6 +29,7 @@ def _make_evaluator(box_format: str = "xywh") -> WinMLKeypointDetectionEvaluator
     ev._box_format = box_format
     ev._sigmas = None
     ev._keypoint_names = None
+    ev._dataset_index = 0
     return ev
 
 
@@ -120,3 +121,72 @@ class TestComputeLoop:
         assert result["num_images"] == 2
         assert result["num_predictions"] == 3
         assert result["num_ground_truths"] == 3
+
+
+class _RecordingModel:
+    """Mock model that records call kwargs and declares an input contract."""
+
+    def __init__(self, input_names, num_keypoints: int = 17) -> None:
+        self.io_config = {"input_names": list(input_names)}
+        self._num_keypoints = num_keypoints
+        self.calls: list[dict] = []
+
+    def __call__(self, pixel_values, **kwargs):
+        self.calls.append(kwargs)
+        batch = pixel_values.shape[0]
+        return {"heatmaps": torch.zeros(batch, self._num_keypoints, 64, 48)}
+
+
+class _ForwardSignatureModel:
+    """Mock PyTorch-style model with no ``io_config``; declares ``dataset_index``
+    only in its ``forward`` signature (like a native ``VitPoseForPoseEstimation``)."""
+
+    def __init__(self, num_keypoints: int = 17) -> None:
+        self._num_keypoints = num_keypoints
+        self.calls: list[dict] = []
+
+    def forward(self, pixel_values, dataset_index=None, **kwargs):
+        self.calls.append({"dataset_index": dataset_index, **kwargs})
+        batch = pixel_values.shape[0]
+        return {"heatmaps": torch.zeros(batch, self._num_keypoints, 64, 48)}
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+
+class TestModelInputContract:
+    def test_dataset_index_passed_when_declared(self):
+        ev = _make_evaluator()
+        ev._dataset_index = 0
+        model = _RecordingModel(["pixel_values", "dataset_index"])
+        ev.model = model
+        ev._predict_poses(_MockProcessor(), object(), [[0.0, 0.0, 10.0, 10.0]])
+        assert "dataset_index" in model.calls[0]
+        assert model.calls[0]["dataset_index"].tolist() == [0]
+
+    def test_dataset_index_absent_when_not_declared(self):
+        ev = _make_evaluator()
+        ev._dataset_index = 0
+        model = _RecordingModel(["pixel_values"])
+        ev.model = model
+        ev._predict_poses(_MockProcessor(), object(), [[0.0, 0.0, 10.0, 10.0]])
+        assert model.calls[0] == {}
+
+    def test_configured_dataset_index_value_is_used(self):
+        ev = _make_evaluator()
+        ev._dataset_index = 3
+        model = _RecordingModel(["pixel_values", "dataset_index"])
+        ev.model = model
+        ev._predict_poses(_MockProcessor(), object(), [[0.0, 0.0, 10.0, 10.0]])
+        assert model.calls[0]["dataset_index"].tolist() == [3]
+
+    def test_dataset_index_detected_from_forward_signature(self):
+        # Native PyTorch modules have no ``io_config``; the input contract is
+        # read from the ``forward`` signature instead (e.g. ViTPose+ MoE).
+        ev = _make_evaluator()
+        ev._dataset_index = 2
+        model = _ForwardSignatureModel()
+        ev.model = model
+        ev._predict_poses(_MockProcessor(), object(), [[0.0, 0.0, 10.0, 10.0]])
+        assert model.calls[0]["dataset_index"].tolist() == [2]
+

@@ -35,7 +35,6 @@ from ..utils.console import (
     print_error,
     print_final,
     print_setup,
-    print_stage_skip,
     print_stages_header,
 )
 from ..utils.logging import configure_logging
@@ -351,6 +350,17 @@ def _validate_task_supported_for_model(
     if task in TASK_SYNONYM_EXTENSIONS:
         return hf_config
 
+    # [2.5] Composite pipeline tasks (summarization / translation /
+    #     table-question-answering / …) fan out to an encoder/decoder pair via the
+    #     composite registry rather than a single Optimum export, so they never
+    #     appear in Optimum's supported_tasks. Accept when the task is a registered
+    #     composite for this architecture. ensure_hf_models_registered() above has
+    #     already populated the registry, so this is a cheap lookup.
+    from ..loader import composite_pipeline_tasks
+
+    if task in composite_pipeline_tasks(model_type.lower().replace("_", "-")):
+        return hf_config
+
     # [3] Optimum synonym fallback — e.g. ``masked-lm`` -> ``fill-mask``.
     #     Accept, but warn so users converge on the canonical spelling.
     #
@@ -601,6 +611,11 @@ def build(
         logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx file thereafter.
+        if model is not None:
+            model = cli_utils.normalize_model_arg(model)
+
         # Load or auto-generate config
         if config_file is not None:
             config_or_configs = _load_config(
@@ -613,13 +628,26 @@ def build(
                 raise click.UsageError("-m/--model is required when -c is not provided.")
             from ..config import generate_build_config
 
-            config_or_configs = generate_build_config(
-                model,
-                trust_remote_code=trust_remote_code,
-                device=device,
-                precision=precision,
-                ep=ep,
-            )
+            # When ``model`` resolves to an .onnx file (either a local path or
+            # a Hub-hosted ONNX ref that was just downloaded by
+            # ``normalize_model_arg``), route to the ONNX config generator instead
+            # of treating the path as a HuggingFace repo id (which would try to
+            # load the .onnx file as a JSON config and crash).
+            if cli_utils.is_onnx_file_path(model):
+                config_or_configs = generate_build_config(
+                    onnx_path=model,
+                    device=device,
+                    precision=precision,
+                    ep=ep,
+                )
+            else:
+                config_or_configs = generate_build_config(
+                    model,
+                    trust_remote_code=trust_remote_code,
+                    device=device,
+                    precision=precision,
+                    ep=ep,
+                )
             if not quant:
                 config_or_configs.quant = None
             # Auto-generated configs: compile disabled by default unless
@@ -640,7 +668,7 @@ def build(
                 resolved_quant, _ = resolve_quant_compile_config(
                     device=device, precision=precision, ep=ep
                 )
-                if not quant or resolved_quant is None:
+                if cfg.skip_optimize or not quant or resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
                     # Populate calibration identifiers from the loader/model
@@ -663,7 +691,7 @@ def build(
                         cfg.quant.rtn_accuracy_level = resolved_quant.rtn_accuracy_level
                 # Store the original precision string for stage display
                 if precision:
-                    cfg.precision = precision.lower()
+                    cfg.precision = precision.lower()  # type: ignore[attr-defined]
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -1151,6 +1179,7 @@ def _run_optimize_stage(
     show_io_first: bool = False,
     analyze_output_path: Path | None = None,
     allow_unsupported_nodes: bool = False,
+    skip_optimize: bool = False,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -1167,6 +1196,9 @@ def _run_optimize_stage(
         stage_timings: List to append (stage_name, elapsed) tuple to.
         show_io_first: If True, show I/O tensors at the start of the stage
             (used in ONNX mode where there is no export stage).
+        skip_optimize: When True, skip the ORT graph-optimization pass.
+            Used for pre-quantized models (QDQ or QOperator format) whose
+            integer ops have no kernel on the host EP.
 
     Returns:
         Tuple of (current_path, opt_elapsed).
@@ -1264,6 +1296,7 @@ def _run_optimize_stage(
             device=device,
             max_optim_iterations=max_iters,
             allow_unsupported_nodes=allow_unsupported_nodes,
+            skip_optimize=skip_optimize,
             on_ep_start=_on_ep_start,
             on_node_result=_on_node_result,
             on_iteration_start=_on_iteration_start,
@@ -1315,17 +1348,18 @@ def _run_quantize_stage(
     Returns:
         Updated current_path (quantized_path if quantization ran, else unchanged).
     """
-    from ..onnx import is_quantized_onnx
     from ..quant import quantize_onnx
     from ..utils.console import StageLive
 
-    if config.quant is None:
+    if config.skip_optimize:
+        config.quant = None
         return current_path
 
-    # QDQ skip check: if model already has QDQ nodes and we're doing static/dynamic
-    if config.quant.mode in ("static", "dynamic") and is_quantized_onnx(current_path):
-        print_stage_skip(console, "quantize", "(QDQ nodes already present)")
-        stage_timings.append(("Quantize", None))
+    if config.quant is None:
+        # ``generate_onnx_build_config`` and ``ensure_pre_quantized_stamped``
+        # (in build/common.py) both clear ``config.quant`` for pre-quantized
+        # inputs, so this single check covers both "user-explicit None" and
+        # "auto-detected pre-quantized" cases.
         return current_path
 
     # Determine stage label from quant mode
@@ -1649,6 +1683,7 @@ def _build_onnx_pipeline(
     Returns list of (stage_name, elapsed_seconds | None) for summary,
     or None if build was reused.
     """
+    from ..build.common import ensure_pre_quantized_stamped
     from ..onnx import copy_onnx_model
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
@@ -1690,6 +1725,20 @@ def _build_onnx_pipeline(
     if current_path.resolve() != onnx_path.resolve():
         copy_onnx_model(onnx_path, current_path)
 
+    # Keep the CLI ONNX path aligned with the library build paths: if a user
+    # supplies a pre-quantized model via ``-c config.json`` we must stamp the
+    # config before any stage reads it, otherwise the optimize stage will still
+    # run on integer ops and the quantize stage may try to re-quantize.
+    ensure_pre_quantized_stamped(config, current_path)
+
+    # Pre-quantized models (QDQ or QOperator format) cannot pass through
+    # ORT-based graph optimization on hosts that lack kernels for ops like
+    # ``ConvInteger``. The unified pipeline stamps ``config.skip_optimize``
+    # exactly once in ``generate_onnx_build_config`` -- downstream stages
+    # (here and inside ``build_onnx_model``) read the flag instead of
+    # re-running ``is_quantized_onnx`` on the same file.
+    is_pre_quantized = config.skip_optimize
+
     # ── Optimize stage (first stage for ONNX — show I/O here) ────
     current_path, _ = _run_optimize_stage(
         config=config,
@@ -1702,6 +1751,7 @@ def _build_onnx_pipeline(
         show_io_first=True,
         analyze_output_path=analyze_result_path,
         allow_unsupported_nodes=allow_unsupported_nodes,
+        skip_optimize=is_pre_quantized,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))

@@ -164,6 +164,34 @@ class TestWiredTasksAccepted:
         assert _validate_task(None, None, task) == task  # must not raise
 
 
+class TestCompositeTasksAccepted:
+    """Composite pipeline tasks excluded from KNOWN_TASKS must still pass --task validation.
+
+    Regression for #1069: `--list-tasks` advertises summarization/translation but they
+    were rejected by `--task` because they are (deliberately) not in KNOWN_TASKS. The
+    validators now accept the union of KNOWN_TASKS and COMPOSITE_TASKS.
+    """
+
+    COMPOSITE_ONLY_TASKS = ("summarization", "translation")
+
+    @pytest.mark.parametrize("task", COMPOSITE_ONLY_TASKS)
+    def test_not_in_known_tasks(self, task: str) -> None:
+        """These stay out of KNOWN_TASKS (cache-key/alias invariant)."""
+        assert task not in KNOWN_TASKS
+
+    @pytest.mark.parametrize("task", COMPOSITE_ONLY_TASKS)
+    def test_click_callback_accepts(self, task: str) -> None:
+        from winml.modelkit.commands.inspect import _validate_task
+
+        assert _validate_task(None, None, task) == task  # must not raise
+
+    @pytest.mark.parametrize("task", COMPOSITE_ONLY_TASKS)
+    def test_resolver_validate_task_accepts(self, task: str) -> None:
+        from winml.modelkit.inspect.resolver import validate_task
+
+        validate_task(task)  # must not raise
+
+
 class TestStaleTasksDropped:
     """Audit lock for #724: the 8 stale names stay out of every task view."""
 

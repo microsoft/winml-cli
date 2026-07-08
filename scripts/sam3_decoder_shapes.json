@@ -1,0 +1,8 @@
+{
+  "input_points": [1, 1, 1, 2],
+  "input_labels": [1, 1, 1],
+  "input_boxes": [1, 1, 4],
+  "image_embeddings.0": [1, 32, 288, 288],
+  "image_embeddings.1": [1, 64, 144, 144],
+  "image_embeddings.2": [1, 256, 72, 72]
+}
