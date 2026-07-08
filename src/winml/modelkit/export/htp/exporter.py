@@ -397,14 +397,18 @@ class HTPExporter:
             # but dynamic dimensions are valid when explicitly requested.
             graph_inputs = model.graph.input
             has_dynamic_batch = False
-            requested_dynamic_axes = export_config.dynamic_axes if export_config else {}
+            requested_dynamic_axes: dict[str, dict[int, str]] = (
+                export_config.dynamic_axes
+                if export_config and export_config.dynamic_axes is not None
+                else {}
+            )
             for input_tensor in graph_inputs:
                 if input_tensor.type.tensor_type.shape.dim:
                     batch_dim = input_tensor.type.tensor_type.shape.dim[0]
                     if batch_dim.dim_param:  # Has symbolic name (dynamic)
                         has_dynamic_batch = True
-                        requested_dynamic_batch = (
-                            0 in requested_dynamic_axes.get(input_tensor.name, {})
+                        requested_dynamic_batch = 0 in requested_dynamic_axes.get(
+                            input_tensor.name, {}
                         )
                         if requested_dynamic_batch:
                             logger.info(

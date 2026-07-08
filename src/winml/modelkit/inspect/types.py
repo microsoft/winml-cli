@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from ..onnx import ShapeDim
+
 
 class SupportLevel(Enum):
     """Support level for each component."""
@@ -24,7 +26,7 @@ class TensorInfo:
 
     name: str
     dtype: str | None = None
-    shape: tuple[int, ...] | None = None
+    shape: tuple[ShapeDim, ...] | None = None
     shape_desc: str | None = None  # Human-readable shape like "[B, 3, 224, 224]"
     dynamic_axes: dict[int, str] | None = None  # {0: "batch", 1: "sequence"}
     value_range: tuple[float, float] | None = None  # e.g., (0.0, 1.0) for pixel values
