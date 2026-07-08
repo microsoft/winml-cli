@@ -549,6 +549,18 @@ class PerfBenchmark:
         assert self._model is not None
 
         if self._is_composite:
+            # Composite-ness is only known after _load_model, so this guard
+            # can't live with the up-front --module / --runtime checks. Without
+            # it, each sub-model's child benchmark calls load_input_data with a
+            # single .npz that can't match two different encoders' input names,
+            # surfacing as a re-wrapped "Sub-model '…' failed" RuntimeError
+            # instead of a clean up-front error.
+            if self.config.input_data is not None:
+                raise click.UsageError(
+                    "--input-data is not supported for composite (dual-encoder) "
+                    "models; each sub-model has its own inputs that a single "
+                    ".npz cannot address."
+                )
             return self._run_sub_models()
         return self._run_single()
 
@@ -2059,9 +2071,20 @@ def perf(
     # SINGLE MODEL MODE: existing benchmark flow
     # =========================================================================
 
-    # Load shape overrides from JSON if provided
+    # Load shape overrides from JSON if provided.
+    #
+    # Real input tensors define their own shapes, so --shape-config doesn't
+    # apply when --input-data is set. Skip parsing/printing the overrides in
+    # that case, otherwise we'd announce "Shape overrides: {…}" and then
+    # immediately warn they're ignored.
     shape_config = None
-    if shape_config_path:
+    if input_data is not None:
+        if shape_config_path:
+            console.print(
+                "[yellow]Warning:[/yellow] --shape-config is ignored when "
+                "--input-data is set; shapes come from the provided tensors."
+            )
+    elif shape_config_path:
         try:
             with shape_config_path.open() as f:
                 shape_config = json.load(f)
@@ -2075,21 +2098,13 @@ def perf(
             ) from e
         console.print(f"[dim]Shape overrides: {shape_config}[/dim]")
 
-    # Real input tensors define their own shapes, so input-generation controls
-    # (--batch-size, --shape-config) don't apply. Warn instead of silently
-    # ignoring so the user isn't surprised by the reported batch.
-    if input_data is not None:
-        if cli_utils.is_cli_provided(ctx, "batch_size"):
-            console.print(
-                "[yellow]Warning:[/yellow] --batch-size is ignored when "
-                "--input-data is set; the batch comes from the provided tensors."
-            )
-        if shape_config is not None:
-            console.print(
-                "[yellow]Warning:[/yellow] --shape-config is ignored when "
-                "--input-data is set; shapes come from the provided tensors."
-            )
-            shape_config = None
+    # --batch-size likewise doesn't apply to real input tensors; warn instead
+    # of silently ignoring so the user isn't surprised by the reported batch.
+    if input_data is not None and cli_utils.is_cli_provided(ctx, "batch_size"):
+        console.print(
+            "[yellow]Warning:[/yellow] --batch-size is ignored when "
+            "--input-data is set; the batch comes from the provided tensors."
+        )
 
     # Resolve output path
     if output is None:

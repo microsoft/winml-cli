@@ -965,6 +965,81 @@ class TestPerfInputDataCli:
         assert result.exit_code != 0
         assert "--input-data is not supported in --module mode" in result.output
 
+    def test_input_data_composite_model_rejected(self, tmp_path) -> None:
+        """Composite (dual-encoder) models reject --input-data up front.
+
+        Composite-ness is only known after the model loads, so the guard lives
+        in run() rather than with the --module / --runtime checks. Without it,
+        each sub-model's child benchmark would hit a re-wrapped RuntimeError.
+        """
+        from unittest.mock import PropertyMock
+
+        import numpy as np
+
+        path = tmp_path / "inputs.npz"
+        np.savez(path, pixel_values=np.zeros((1, 3, 64, 64), dtype=np.float32))
+
+        config = BenchmarkConfig(model_id="openai/clip-vit-base-patch32", input_data=path)
+        benchmark = PerfBenchmark(config)
+
+        def fake_load(self) -> None:
+            self._model = MagicMock()
+
+        with (
+            patch.object(PerfBenchmark, "_load_model", fake_load),
+            patch.object(
+                PerfBenchmark, "_is_composite", new_callable=PropertyMock, return_value=True
+            ),
+            pytest.raises(click.UsageError, match="composite"),
+        ):
+            benchmark.run()
+
+    def test_shape_config_ignored_suppresses_overrides_print(self, tmp_path, runner) -> None:
+        """--shape-config + --input-data: warn once, don't first announce the overrides.
+
+        Printing "Shape overrides: {…}" and then immediately warning they're
+        ignored is confusing, so the parse/print is skipped entirely when
+        --input-data is set.
+        """
+        import numpy as np
+
+        npz = tmp_path / "inputs.npz"
+        np.savez(npz, pixel_values=np.zeros((1, 3, 64, 64), dtype=np.float32))
+        shape_cfg = tmp_path / "shapes.json"
+        shape_cfg.write_text(json.dumps({"height": 480, "width": 480}))
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    "bert-base-uncased",
+                    "--input-data",
+                    str(npz),
+                    "--shape-config",
+                    str(shape_cfg),
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "shape-config is ignored" in result.output
+        assert "Shape overrides:" not in result.output
+
 
 # =============================================================================
 # --FORMAT JSON TESTS
