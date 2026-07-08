@@ -21,6 +21,7 @@ from .depth_estimation import DEFAULT_DEPTH_ESTIMATION_SIZE, DepthEstimationData
 from .image import ImageDataset
 from .image_segmentation import ImageSegmentationDataset
 from .keypoint_detection import KeypointDetectionDataset
+from .mask_generation import MaskGenerationDataset
 from .object_detection import DEFAULT_OBJECT_DETECTION_SIZE, ObjectDetectionDataset
 from .processor_utils import get_image_processor_config
 from .random_dataset import RandomDataset
@@ -48,6 +49,7 @@ TASK_DATASET_MAPPING = {
     "fill-mask": TextDataset,
     "zero-shot-classification": TextDataset,
     "image-segmentation": ImageSegmentationDataset,
+    "mask-generation": MaskGenerationDataset,
     "depth-estimation": DepthEstimationDataset,
     "keypoint-detection": KeypointDetectionDataset,
     "random": RandomDataset,

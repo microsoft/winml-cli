@@ -83,4 +83,16 @@ def add_ep_for_device(
                 [ep_device], {} if ep_options is None else ep_options
             )
             return True
+
+    # Legacy-API fallback: some EPs (notably VitisAIExecutionProvider in
+    # ``onnxruntime-vitisai`` 1.23.x) are present in
+    # ``get_available_providers()`` but not in ``get_ep_devices()``. Use the
+    # legacy ``SessionOptions.add_provider`` path for those. ``add_provider``
+    # takes ``dict[str, str]`` so coerce values.
+    if ep_name in ort.get_available_providers():
+        str_options = {k: str(v) for k, v in (ep_options or {}).items()}
+        logger.info("Adding %s via legacy add_provider (no OrtEpDevice)", ep_name)
+        session_options.add_provider(ep_name, str_options)
+        return True
+
     return False

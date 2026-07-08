@@ -189,6 +189,64 @@ class TestOpTracingTargetKey:
         assert entries[0].op_tracing_targets == ["QNNExecutionProvider_npu"]
 
 
+class TestCompositeOnnxRegistry:
+    def test_registry_preserves_composite_onnx(self, run_eval, tmp_path):
+        registry = tmp_path / "models.json"
+        registry.write_text(
+            json.dumps(
+                [
+                    {
+                        "hf_id": "onnx-community/sam3-tracker-ONNX",
+                        "task": "mask-generation",
+                        "model_type": "sam3_tracker",
+                        "group": "Top200",
+                        "priority": "P2",
+                        "composite_onnx": {
+                            "image-encoder": "org/repo/encoder.onnx",
+                            "prompt-decoder": "org/repo/decoder.onnx",
+                        },
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        entries = run_eval.load_registry(registry)
+
+        assert entries[0].composite_onnx == {
+            "image-encoder": "org/repo/encoder.onnx",
+            "prompt-decoder": "org/repo/decoder.onnx",
+        }
+
+    def test_run_build_uses_composite_onnx_without_subprocess(self, run_eval, tmp_path):
+        entry = run_eval.ModelEntry(
+            hf_id="onnx-community/sam3-tracker-ONNX",
+            task="mask-generation",
+            model_type="sam3_tracker",
+            group="Top200",
+            priority="P2",
+            composite_onnx={
+                "image-encoder": "org/repo/encoder.onnx",
+                "prompt-decoder": "org/repo/decoder.onnx",
+            },
+        )
+
+        with patch.object(run_eval, "_run_subprocess") as mock_subprocess:
+            result = run_eval._run_build(
+                entry,
+                "cpu",
+                None,
+                300,
+                tmp_path,
+                ep="cpu",
+            )
+
+        assert result["success"] is True
+        assert result["stage"] == "prebuilt"
+        assert result["onnx_paths"] == entry.composite_onnx
+        mock_subprocess.assert_not_called()
+
+
 class TestRunBuildNoQuantInjection:
     """``_run_build`` must append ``--no-quant`` to both winml config and
     winml build invocations when the EP is in ``_EPS_SKIP_WINML_QUANT``.

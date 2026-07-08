@@ -182,9 +182,11 @@ def test_seam_autodetected_bart_renders_composite():
 
 
 def test_seam_explicit_task_pins_no_composite():
-    """Gate contract: an explicit --task pins composite=None (USER_TASK), so no composite
-    view — even for a genuine seq2seq. Pins the design the inline comment documents, so a
-    revert to a registry-fallback (which would show it) can't slip through silently.
+    """Gate contract: an explicit *granular* --task (text2text-generation) pins
+    composite=None (USER_TASK, single-decoder export), so no composite view — even for a
+    genuine seq2seq. Pins the design the inline comment documents, so a revert to a
+    registry-fallback (which would show it) can't slip through silently. Contrast with
+    test_seam_explicit_composite_task_shows_composite below.
     """
     resolution = resolve_task(_bart_config(), task="text2text-generation")
     assert resolution.composite is None
@@ -192,3 +194,15 @@ def test_seam_explicit_task_pins_no_composite():
     out = _render(_make_result(composite=None, task="text2text-generation"))
     assert "Composite Pipeline" not in out
     assert "[composite]" not in out
+
+
+def test_seam_explicit_composite_task_shows_composite():
+    """An explicit --task naming a composite pipeline task (summarization) now populates
+    composite, so inspect renders the Composite Pipeline panel — the #1069 behavior."""
+    resolution = resolve_task(_bart_config(), task="summarization")
+    assert resolution.composite == _BART_COMPONENTS
+    info = resolve_composite_info("bart", resolution.composite)
+    assert info is not None
+    out = _render(_make_result(info, task="summarization"))
+    assert "Composite Pipeline" in out
+    assert "[composite]" in out

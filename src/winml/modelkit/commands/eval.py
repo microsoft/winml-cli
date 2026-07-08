@@ -475,6 +475,10 @@ def _resolve_model_path(
             raise click.UsageError(
                 "--model-id is required when using composite `-m role=path` options."
             )
+        # Each role's path may be either a local .onnx file OR a Hub-hosted
+        # ONNX ref (``org/repo/path/file.onnx``). ``normalize_model_arg``
+        # resolves Hub refs to local cached paths so downstream code sees
+        # only filesystem paths.
         sub_model_paths: dict[str, str] = {}
         for v in role_assigned:
             role, _, path = v.partition("=")
@@ -489,6 +493,12 @@ def _resolve_model_path(
                     f"Duplicate role {role!r} in -m options.",
                     param_hint="-m/--model",
                 )
+            try:
+                path = cli_utils.normalize_model_arg(path) or path
+            except Exception as e:
+                raise click.ClickException(
+                    f"Failed to resolve Hub-hosted ONNX path {path!r}: {e}"
+                ) from e
             if not Path(path).exists():
                 raise click.BadParameter(
                     f"ONNX file not found: {path}",
@@ -503,12 +513,20 @@ def _resolve_model_path(
         )
 
     value = plain[0]
-    try:
-        _mi = cli_utils.classify_model_input(value)
-    except click.UsageError as e:
-        # Preserve eval's param-scoped BadParameter contract (tests + hint).
-        raise click.BadParameter(str(e), param_hint="-m/--model") from e
-    if _mi.kind is cli_utils.ModelInputKind.ONNX_FILE:
+    if Path(value).suffix.lower() == ".onnx":
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx path thereafter.
+        try:
+            value = cli_utils.normalize_model_arg(value) or value
+        except Exception as e:
+            raise click.ClickException(
+                f"Failed to resolve Hub-hosted ONNX path {value!r}: {e}"
+            ) from e
+        if not Path(value).exists():
+            raise click.BadParameter(
+                f"ONNX file not found: {value}",
+                param_hint="-m/--model",
+            )
         if model_id is None:
             raise click.UsageError(
                 "When using an ONNX file, --model-id is required "

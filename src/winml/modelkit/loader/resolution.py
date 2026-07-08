@@ -406,6 +406,30 @@ def _composite_components_for_task(model_type: str, task: str) -> CompositeCompo
     )
 
 
+def _composite_display_class(model_type_norm: str, components: CompositeComponents) -> type:
+    """Representative model class for a pure-composite task (display/provenance only).
+
+    A pure composite (e.g. bart table-question-answering) has no single Optimum model
+    class. Pick the generation sub-task's class so inspect has something to show; the
+    real export fans out per sub-component. Prefers a generation sub-task
+    (``text2text-generation`` / ``text-generation``), else the first sub-task that
+    resolves to a custom class, else any sub-task's class.
+    """
+    sub_tasks = list(components.values())
+    generation_first = sorted(
+        sub_tasks, key=lambda t: 0 if t in ("text2text-generation", "text-generation") else 1
+    )
+    for sub_task in generation_first:
+        cls = _get_custom_model_class(model_type_norm, sub_task)
+        if cls is not None:
+            return cls
+    # Fallback: no custom class registered for any sub-task — defer to Optimum for the
+    # generation sub-task. Kept minimal; every real composite registers a decoder class.
+    from optimum.exporters.tasks import TasksManager
+
+    return cast("type", TasksManager.get_model_class_for_task(generation_first[0], framework="pt"))
+
+
 def resolve_task(
     config: PretrainedConfig,
     *,
@@ -481,6 +505,11 @@ def resolve_task(
     if task is not None:
         original = task
         normalized = normalize_task(task)
+        # Exact-key composite lookup on the ORIGINAL user string: registration keys are
+        # `summarization` / `table-question-answering`, never the normalized
+        # `text2text-generation`. So `--task summarization` tags the composite while
+        # `--task text2text-generation` stays composite=None (single-decoder export).
+        composite = resolve_composite(model_type_norm, original) if model_type_norm else None
         resolved = None
         if model_type_norm:
             resolved = _get_custom_model_class(
@@ -490,12 +519,19 @@ def resolve_task(
             try:
                 resolved = TasksManager.get_model_class_for_task(normalized, framework="pt")
             except KeyError as e:
-                raise ValueError(
-                    f"Task '{normalized}' not supported by TasksManager. "
-                    f"Check optimum documentation for supported tasks."
-                ) from e
+                if composite is not None:
+                    # Pure composite (e.g. table-question-answering): no single model class
+                    # exists. Resolve a representative display class from the generation
+                    # sub-task so callers (inspect) have a class to show; the actual build
+                    # fans out per sub-component via resolve_composite_components.
+                    resolved = _composite_display_class(model_type_norm, composite)
+                else:
+                    raise ValueError(
+                        f"Task '{normalized}' not supported by TasksManager. "
+                        f"Check optimum documentation for supported tasks."
+                    ) from e
         return TaskResolution(
-            original, to_optimum_task(original), resolved, TaskSource.USER_TASK, None
+            original, to_optimum_task(original), resolved, TaskSource.USER_TASK, composite
         )
 
     # --- Stage 1: detection -----------------------------------------------

@@ -29,9 +29,9 @@ from typing import TYPE_CHECKING, Any
 
 from ..compiler import compile_onnx
 from ..export import export_onnx
-from ..onnx import copy_onnx_model, is_quantized_onnx
+from ..onnx import copy_onnx_model
 from ..quant import quantize_onnx
-from .common import run_optimize_analyze_loop
+from .common import ensure_pre_quantized_stamped, run_optimize_analyze_loop
 
 
 if TYPE_CHECKING:
@@ -243,21 +243,24 @@ def build_hf_model(
     # duplicated between build_hf_model() and build_onnx_model(). Extract
     # into a shared run_build_stages() function in common.py.
     # =========================================================================
-    skip_optimize: bool = kwargs.pop("skip_optimize", False)
-    # Defensive fallback: when called through the unified pipeline,
-    # generate_*_build_config() already detects QDQ models and sets
-    # config.quant=None. This is_quantized_onnx() check is redundant in that
-    # path but kept for backward compatibility when build_hf_model()
-    # is called directly with a hand-built config.
-    is_pre_quantized = is_quantized_onnx(current_path) or skip_optimize
+    # Single defensive detection on the freshly exported ONNX. No-op when
+    # the caller already stamped ``config.skip_optimize``. HF export rarely
+    # produces a pre-quantized ONNX (Optimum exports float weights), but a
+    # direct caller could plausibly hand a pre-quantized
+    # ``pytorch_model`` and reach this branch.
+    skip_optimize_kwarg: bool = kwargs.pop("skip_optimize", False)
+    ensure_pre_quantized_stamped(config, current_path, force=skip_optimize_kwarg)
+    is_pre_quantized = config.skip_optimize
 
     if is_pre_quantized:
-        logger.info(
-            "Pre-quantized model detected (QDQ nodes present). "
-            "Skipping optimize + quantize, running analyze-only."
-        )
+        logger.info("Skipping optimize + quantize stages (config.skip_optimize=True)")
         stages_skipped.append("optimize")
-        # Optimize+analyze only, no autoconf re-optimization
+        # Skip the ORT-based graph optimization (no kernel for QOperator
+        # ops like ConvInteger on the host EP). The autoconf re-optim/
+        # analyze loop is disabled too -- ``run_optimize_analyze_loop``
+        # forces ``max_optim_iterations=0`` when ``skip_optimize=True``,
+        # so ``_run_analyze_loop`` is not invoked. The model still flows
+        # through later stages (quantize-skip + compile) for validation.
         current_path, _, analyze_iterations, analyze_unsupported_nodes, analyze_details = (
             run_optimize_analyze_loop(
                 model_path=current_path,
@@ -265,6 +268,7 @@ def build_hf_model(
                 config=config,
                 ep=ep,
                 device=device,
+                skip_optimize=True,
                 **onnx_kwargs,
             )
         )
@@ -299,45 +303,31 @@ def build_hf_model(
     # =========================================================================
     # [4] QUANTIZE (optional — config.quant=None means skip)
     # =========================================================================
+    # No defensive ``is_quantized_onnx`` re-check here: when the model is
+    # pre-quantized, ``ensure_pre_quantized_stamped`` has already set
+    # ``config.quant = None`` at stage [3], so this branch naturally
+    # falls through to the ``quant is None`` skip path.
     quant_result = None
     if is_pre_quantized:
         if "quantize" not in stages_skipped:
             stages_skipped.append("quantize")
         logger.info("Quantize skipped (pre-quantized model)")
     elif config.quant is not None:
-        # Defensive fallback: catches the edge case where a direct caller
-        # provides config.quant != None but the model already has QDQ nodes
-        # (e.g., hand-built config without running generate_*_build_config).
-        if is_quantized_onnx(current_path):
-            logger.warning(
-                "Model already contains QDQ nodes, skipping quantization. "
-                "Set config.quant=None to silence this warning."
-            )
-            stages_skipped.append("quantize")
-        else:
-            logger.info("Quantizing model...")
-            t0 = time.monotonic()
-            # A model-type-specific quant policy (e.g. the qwen3_transformer_only
-            # w8a16 finalizer) is resolved and applied inside ``quantize_onnx``
-            # from ``config.quant.model_type``. Ensure it carries the resolved
-            # variant so hand-built configs (that skipped assemble_build_config)
-            # still trigger the right policy; ``quantize_onnx`` no-ops for
-            # model types without a registered finalizer.
-            if config.quant.model_type is None:
-                config.quant.model_type = config.loader.model_type
-            quant_result = quantize_onnx(
-                model_path=current_path,
-                output_path=quantized_path,
-                config=config.quant,
-                **onnx_kwargs,
-            )
-            if not quant_result.success:
-                errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
-                raise RuntimeError(f"Quantization failed: {errors}")
-            current_path = quantized_path
-            stage_timings["quantize"] = time.monotonic() - t0
-            stages_completed.append("quantize")
-            logger.info("Quantize done (%.1fs) -> %s", stage_timings["quantize"], quantized_path)
+        logger.info("Quantizing model...")
+        t0 = time.monotonic()
+        quant_result = quantize_onnx(
+            model_path=current_path,
+            output_path=quantized_path,
+            config=config.quant,
+            **onnx_kwargs,
+        )
+        if not quant_result.success:
+            errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
+            raise RuntimeError(f"Quantization failed: {errors}")
+        current_path = quantized_path
+        stage_timings["quantize"] = time.monotonic() - t0
+        stages_completed.append("quantize")
+        logger.info("Quantize done (%.1fs) -> %s", stage_timings["quantize"], quantized_path)
     else:
         stages_skipped.append("quantize")
         logger.info("Quantize skipped (config.quant is None)")
