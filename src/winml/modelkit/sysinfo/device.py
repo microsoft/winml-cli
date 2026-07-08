@@ -128,11 +128,12 @@ def _get_device_ep_map_from_ort() -> dict[str, tuple[EPName, ...]]:
             if device_name is None:
                 continue
             # ORT reports device-qualified aliases (e.g. "OpenVINOExecutionProvider.AUTO")
-            # as distinct ep_name values. Normalize and drop anything that isn't a
-            # canonical EPName so downstream availability sets and error messages
-            # only list real providers.
-            ep_name = normalize_ep_name(ep_device.ep_name)
-            if ep_name is None or ep_name not in SUPPORTED_EPS:
+            # as distinct ep_name values. ORT's ep_name is always a canonical full
+            # name (never a short alias), so a plain SUPPORTED_EPS membership check
+            # drops the aliases and keeps downstream availability sets / error
+            # messages limited to real providers.
+            ep_name = ep_device.ep_name
+            if ep_name not in SUPPORTED_EPS:
                 continue
             result.setdefault(device_name.lower(), []).append(ep_name)
     except Exception:
