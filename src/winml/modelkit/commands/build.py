@@ -918,22 +918,33 @@ def build(
                         if config.quant is None:
                             component_config.quant = None
                         else:
-                            # Preserve component metadata (if the component had a
-                            # quant config), then overlay the outer quant settings.
-                            saved_meta: tuple[Any, Any, Any] | None = None
+                            # Overlay the outer quant settings, but always keep
+                            # the calibration identity (task / model_id /
+                            # model_type) pointed at *this* sub-model. Prefer the
+                            # component's own generated quant metadata; if the
+                            # component config produced no quant, derive it from
+                            # the sub-model's task, the model arg, and the
+                            # component loader so calibration runs against the
+                            # sub-model rather than the outer model.
+                            component_loader = component_config.loader
                             if component_config.quant is not None:
                                 saved_meta = (
                                     component_config.quant.task,
                                     component_config.quant.model_id,
                                     component_config.quant.model_type,
                                 )
+                            else:
+                                saved_meta = (
+                                    component_task,
+                                    model,
+                                    component_loader.model_type if component_loader else None,
+                                )
                             component_config.quant = copy.deepcopy(config.quant)
-                            if saved_meta is not None:
-                                (
-                                    component_config.quant.task,
-                                    component_config.quant.model_id,
-                                    component_config.quant.model_type,
-                                ) = saved_meta
+                            (
+                                component_config.quant.task,
+                                component_config.quant.model_id,
+                                component_config.quant.model_type,
+                            ) = saved_meta
 
                         if config.compile is None:
                             component_config.compile = None

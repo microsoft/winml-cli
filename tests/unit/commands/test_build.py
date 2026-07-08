@@ -2447,11 +2447,16 @@ class TestBuildComposite:
 
         assert result.exit_code == 0, result.output
         built_config = mock_build.call_args.kwargs["config"]
-        # Outer quant carried over (not None) with its settings preserved, and
-        # deep-copied (not the same object as the outer config's quant).
+        # Outer quant settings carried over (not None), deep-copied (not the same
+        # object as the outer config's quant).
         assert built_config.quant is not None
         assert built_config.quant.samples == 42
         assert built_config.quant is not outer_cfg.quant
+        # Calibration identity points at *this* sub-model, not the outer model,
+        # even though the component config produced no quant of its own.
+        assert built_config.quant.task == "feature-extraction"
+        assert built_config.quant.model_id == "Qwen/Qwen3-0.6B"
+        assert built_config.quant.model_type == "qwen3"
         # Outer compile carried over too, deep-copied.
         assert built_config.compile is not None
         assert built_config.compile is not outer_cfg.compile
