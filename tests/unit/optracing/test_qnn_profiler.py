@@ -141,6 +141,62 @@ def test_generate_inputs():
     assert inputs["input_ids"].dtype == np.int64
 
 
+def _profiler_with_input_data(tmp_path, input_data):
+    """Build a QNNProfiler carrying input_data without running init side effects."""
+    return QNNProfiler(tmp_path / "m.onnx", output_dir=tmp_path, input_data=input_data)
+
+
+def test_resolve_inputs_uses_provided_data_and_casts(tmp_path):
+    """Provided input_data is used (and cast to the session dtype) when keys match."""
+    mock_session = MagicMock()
+    mock_input = MagicMock()
+    mock_input.name = "input_ids"
+    mock_input.type = "tensor(int64)"
+    mock_session.get_inputs.return_value = [mock_input]
+
+    provided = {"input_ids": np.zeros((1, 4), dtype=np.int32)}
+    profiler = _profiler_with_input_data(tmp_path, provided)
+
+    with patch.object(QNNProfiler, "_generate_inputs") as mock_gen:
+        inputs = profiler._resolve_inputs(mock_session)
+
+    mock_gen.assert_not_called()
+    assert set(inputs) == {"input_ids"}
+    assert inputs["input_ids"].dtype == np.int64
+
+
+def test_resolve_inputs_falls_back_on_key_mismatch(tmp_path):
+    """When provided keys don't match the traced session, fall back to random."""
+    mock_session = MagicMock()
+    mock_input = MagicMock()
+    mock_input.name = "pixel_values"
+    mock_input.type = "tensor(float)"
+    mock_session.get_inputs.return_value = [mock_input]
+
+    provided = {"input_ids": np.zeros((1, 4), dtype=np.int64)}
+    profiler = _profiler_with_input_data(tmp_path, provided)
+
+    sentinel = {"pixel_values": np.zeros((1, 3), dtype=np.float32)}
+    with patch.object(QNNProfiler, "_generate_inputs", return_value=sentinel) as mock_gen:
+        inputs = profiler._resolve_inputs(mock_session)
+
+    mock_gen.assert_called_once()
+    assert inputs is sentinel
+
+
+def test_resolve_inputs_no_data_uses_random(tmp_path):
+    """With no input_data, _resolve_inputs delegates to random generation."""
+    mock_session = MagicMock()
+    profiler = _profiler_with_input_data(tmp_path, None)
+
+    sentinel = {"x": np.zeros((1,), dtype=np.float32)}
+    with patch.object(QNNProfiler, "_generate_inputs", return_value=sentinel) as mock_gen:
+        inputs = profiler._resolve_inputs(mock_session)
+
+    mock_gen.assert_called_once()
+    assert inputs is sentinel
+
+
 # =====================================================================
 # Profiler: full run with mocked ORT
 # =====================================================================

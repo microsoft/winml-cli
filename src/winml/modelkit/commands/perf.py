@@ -100,6 +100,9 @@ class BenchmarkConfig:
     ep: EPNameOrAlias | None = None
     ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
+    # Path to a .npz file of real input tensors. When set, benchmarking uses
+    # these instead of randomly generated inputs (single-model path only).
+    input_data: Path | None = None
 
 
 @dataclass
@@ -367,6 +370,93 @@ def _resolve_shape(
     return tuple(resolved)
 
 
+def load_input_data(
+    path: Path,
+    io_config: dict[str, Any],
+) -> dict[str, np.ndarray]:
+    """Load benchmark inputs from a ``.npz`` file, validated against the model.
+
+    Lets ``winml perf`` profile with real input tensors instead of randomly
+    generated ones. Only ``.npz`` (a named-array archive) is supported today;
+    a single-array ``.npy`` carries no input names to bind against and is
+    rejected with guidance to repackage as ``.npz``.
+
+    Validation:
+
+    * the archive's keys must exactly match the model's input names -- any
+      missing or unexpected key is an error (an unexpected key is usually a
+      typo that would otherwise leave a required input silently unset);
+    * an array whose dtype differs from the model's expected input dtype is
+      cast to the expected dtype with a warning, matching the silent casting
+      ``WinMLSession._prepare_inputs`` does on a normal run (e.g. numpy's
+      default int64 literals binding to an int32 input).
+
+    Shapes are taken from the arrays as-is; correctness beyond dtype (e.g. a
+    static dimension the data violates) surfaces as a runtime error from the
+    inference session.
+
+    Args:
+        path: Path to the ``.npz`` file.
+        io_config: Model I/O configuration (``input_names``, ``input_types``).
+
+    Returns:
+        Dictionary of ``input_name -> numpy array``.
+
+    Raises:
+        click.UsageError: On a non-``.npz`` file or a key mismatch.
+    """
+    if path.suffix.lower() == ".npy":
+        raise click.UsageError(
+            f"--input-data does not support .npy files ({path.name}). A single "
+            f"array carries no input names; save your inputs as a named .npz "
+            f"archive instead (e.g. np.savez('inputs.npz', input_ids=..., "
+            f"attention_mask=...))."
+        )
+    if path.suffix.lower() != ".npz":
+        raise click.UsageError(
+            f"--input-data must be a .npz file, got '{path.suffix or path.name}'."
+        )
+
+    try:
+        with np.load(path, allow_pickle=False) as archive:
+            provided = {name: archive[name] for name in archive.files}
+    except Exception as exc:
+        raise click.UsageError(f"Could not read --input-data file {path}: {exc}") from exc
+
+    expected_names = list(io_config["input_names"])
+    expected_types = list(io_config["input_types"])
+
+    missing = [name for name in expected_names if name not in provided]
+    unexpected = [name for name in provided if name not in expected_names]
+    if missing or unexpected:
+        parts = []
+        if missing:
+            parts.append(f"missing {missing}")
+        if unexpected:
+            parts.append(f"unexpected {unexpected}")
+        raise click.UsageError(
+            f"--input-data keys do not match the model inputs ({', '.join(parts)}). "
+            f"Expected exactly: {expected_names}."
+        )
+
+    # Cast dtype mismatches instead of failing, mirroring the session's
+    # _prepare_inputs, so inputs that would run fine on a normal invocation
+    # (e.g. int64 literals against an int32 input) don't hard-error here.
+    for name, expected_dtype in zip(expected_names, expected_types, strict=True):
+        want = np.dtype(expected_dtype)
+        got = provided[name].dtype
+        if got != want:
+            logger.warning(
+                "--input-data dtype for '%s' is %s; casting to the model's expected %s.",
+                name,
+                got,
+                want,
+            )
+            provided[name] = provided[name].astype(want)
+
+    return provided
+
+
 def effective_batch_size(
     inputs: dict[str, np.ndarray],
     input_names: list[str],
@@ -529,6 +619,18 @@ class PerfBenchmark:
         assert self._model is not None
 
         if self._is_composite:
+            # Composite-ness is only known after _load_model, so this guard
+            # can't live with the up-front --module / --runtime checks. Without
+            # it, each sub-model's child benchmark calls load_input_data with a
+            # single .npz that can't match two different encoders' input names,
+            # surfacing as a re-wrapped "Sub-model '…' failed" RuntimeError
+            # instead of a clean up-front error.
+            if self.config.input_data is not None:
+                raise click.UsageError(
+                    "--input-data is not supported for composite (dual-encoder) "
+                    "models; each sub-model has its own inputs that a single "
+                    ".npz cannot address."
+                )
             return self._run_sub_models()
         return self._run_single()
 
@@ -710,8 +812,22 @@ class PerfBenchmark:
             )
 
     def _generate_inputs(self) -> None:
-        """Generate random inputs based on model io_config."""
+        """Generate random inputs, or load real inputs from a .npz file."""
         io_config = self._single.io_config
+        if self.config.input_data is not None:
+            self._inputs = load_input_data(self.config.input_data, io_config)
+            self._effective_batch = effective_batch_size(
+                self._inputs,
+                io_config["input_names"],
+                self.config.batch_size,
+            )
+            logger.info(
+                "Loaded benchmark inputs from %s (effective batch %d)",
+                self.config.input_data,
+                self._effective_batch,
+            )
+            return
+
         self._inputs = generate_random_inputs(
             io_config=io_config,
             batch_size=self.config.batch_size,
@@ -1777,6 +1893,15 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     help="Batch size for input generation",
 )
 @click.option(
+    "--input-data",
+    "input_data",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to a .npz file of real input tensors to benchmark with instead "
+    "of randomly generated inputs. Keys must match the model's input names and "
+    "dtypes exactly. Not supported with --module or --runtime winml-genai.",
+)
+@click.option(
     "--shape-config",
     "shape_config_path",
     type=click.Path(exists=True, path_type=Path),
@@ -1859,6 +1984,7 @@ def perf(
     output: Path | None,
     overwrite: bool,
     batch_size: int,
+    input_data: Path | None,
     shape_config_path: Path | None,
     quant: bool,
     optimize: bool,
@@ -1908,6 +2034,9 @@ def perf(
         # Per-module benchmarking
         winml perf -m bert-base-uncased --module BertAttention
 
+        # Benchmark with real inputs from a .npz file
+        winml perf -m model.onnx --input-data inputs.npz
+
         # Operator-level profiling (QNN NPU)
         winml perf -m model.onnx --op-tracing basic
     """
@@ -1952,6 +2081,11 @@ def perf(
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
     # =========================================================================
     if runtime == "winml-genai":
+        if input_data is not None:
+            raise click.UsageError(
+                "--input-data is not supported with --runtime winml-genai; "
+                "genai benchmarking is driven by --prompt."
+            )
         _run_genai_runtime(ctx, console=console, json_mode=json_mode)
         return
 
@@ -1975,6 +2109,11 @@ def perf(
                 f"--module is not supported for ONNX files. "
                 f"Submodule benchmarking requires a HuggingFace model ID "
                 f"(e.g., 'microsoft/resnet-50'), not '{hf_model}'."
+            )
+        if input_data is not None:
+            raise click.UsageError(
+                "--input-data is not supported in --module mode. Each submodule "
+                "has its own internal inputs, which a single .npz cannot address."
             )
         if shape_config_path:
             console.print(
@@ -2013,9 +2152,20 @@ def perf(
     # SINGLE MODEL MODE: existing benchmark flow
     # =========================================================================
 
-    # Load shape overrides from JSON if provided
+    # Load shape overrides from JSON if provided.
+    #
+    # Real input tensors define their own shapes, so --shape-config doesn't
+    # apply when --input-data is set. Skip parsing/printing the overrides in
+    # that case, otherwise we'd announce "Shape overrides: {…}" and then
+    # immediately warn they're ignored.
     shape_config = None
-    if shape_config_path:
+    if input_data is not None:
+        if shape_config_path:
+            console.print(
+                "[yellow]Warning:[/yellow] --shape-config is ignored when "
+                "--input-data is set; shapes come from the provided tensors."
+            )
+    elif shape_config_path:
         try:
             with shape_config_path.open() as f:
                 shape_config = json.load(f)
@@ -2028,6 +2178,14 @@ def perf(
                 f"Invalid JSON in --shape-config: {shape_config_path}: {e}"
             ) from e
         console.print(f"[dim]Shape overrides: {shape_config}[/dim]")
+
+    # --batch-size likewise doesn't apply to real input tensors; warn instead
+    # of silently ignoring so the user isn't surprised by the reported batch.
+    if input_data is not None and cli_utils.is_cli_provided(ctx, "batch_size"):
+        console.print(
+            "[yellow]Warning:[/yellow] --batch-size is ignored when "
+            "--input-data is set; the batch comes from the provided tensors."
+        )
 
     # Resolve output path
     if output is None:
@@ -2062,6 +2220,7 @@ def perf(
         ep=ep,
         ep_options=ep_provider_options,
         shape_config=shape_config,
+        input_data=input_data,
     )
 
     try:
@@ -2164,10 +2323,17 @@ def perf(
                     f"No tracer registered for QNN EP at level '{op_tracing}'"
                 )
 
+            # When --input-data was supplied, trace on the same real tensors the
+            # benchmark used (benchmark._inputs), so the op trace isn't measured
+            # on random data. The profiler falls back to random inputs if these
+            # don't match the traced session's inputs.
+            trace_inputs = getattr(benchmark, "_inputs", None) if input_data else None
+
             profiler = tracer_cls(
                 onnx_for_trace,
                 output_dir=output_dir,
                 level=op_tracing,
+                input_data=trace_inputs,
             )
             trace_result = profiler.run(
                 iterations=min(iterations, 10),
