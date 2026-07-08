@@ -145,7 +145,7 @@ def _normalize_exported_model(output_path: Path) -> bool:
     tmp_path = tmp_dir / output_path.name
 
     try:
-        optimize_onnx(model=output_path, output=tmp_path, passes=2)
+        optimize_onnx(model=output_path, output=tmp_path)
         copy_onnx_model(tmp_path, output_path)
     except Exception:
         logger.warning(
