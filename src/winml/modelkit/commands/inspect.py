@@ -46,13 +46,17 @@ def _validate_task(ctx: click.Context, param: click.Parameter, value: str | None
     """
     if value is None:
         return None
-    from ..loader.task import KNOWN_TASKS
+    from ..loader.task import COMPOSITE_TASKS, KNOWN_TASKS
 
-    if value in KNOWN_TASKS:
+    # Accept the union of granular tasks (KNOWN_TASKS) and composite pipeline tasks
+    # (summarization/translation etc.), which the resolver builds into composite
+    # exports. Both imports come from ..loader.task, so validation stays transformers-free.
+    accepted = KNOWN_TASKS | COMPOSITE_TASKS
+    if value in accepted:
         return value
-    examples = ", ".join(sorted(KNOWN_TASKS)[:5])
+    examples = ", ".join(sorted(accepted)[:5])
     raise click.UsageError(
-        f"Invalid task '{value}'. Valid: {examples}, ... ({len(KNOWN_TASKS)} total). "
+        f"Invalid task '{value}'. Valid: {examples}, ... ({len(accepted)} total). "
         f"See 'winml inspect --list-tasks' for the full list."
     )
 
@@ -495,9 +499,10 @@ def _inspect_model_v2(
         model_type_override or getattr(parent_hf_config, "model_type", None) or model_type
     )
 
-    # Composite pipeline structure. resolution.composite is set only on the auto-detect
-    # path (resolve_task); an explicit --task / --model-class pins composite=None, so the
-    # pipeline-led composite view is shown only for auto-detected composites — by design.
+    # Composite pipeline structure. resolution.composite is set on the auto-detect path
+    # AND on an explicit --task naming a composite pipeline task (summarization,
+    # translation, table-question-answering, …). It stays None for a granular explicit
+    # task (text2text-generation -> single decoder) and for --model-class.
     composite_info = resolve_composite_info(display_model_type, resolution.composite)
 
     return InspectResult(

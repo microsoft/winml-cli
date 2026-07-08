@@ -116,6 +116,28 @@ _TASK_ALIAS_ABBREV: dict[str, str] = {
 KNOWN_TASKS: frozenset[str] = frozenset(_TASK_REGISTRY)
 
 
+# Composite *pipeline* task names — the higher-level tasks a multi-component model
+# serves (each fans out to an encoder/decoder pair via the composite registry, see
+# `models/hf/{bart,t5,marian,blip,qwen}.py`). Hand-coded so `--task` validation
+# (`commands/inspect.py::_validate_task`) can accept them without importing the
+# registry (which pulls in transformers and defeats inspect's fast startup). Some
+# of these already live in `_TASK_REGISTRY`/`KNOWN_TASKS` (image-to-text,
+# text-generation, zero-shot-image-classification, table-question-answering); the
+# only ones this set *adds* to the accepted union are `summarization`/`translation`
+# (kept out of KNOWN_TASKS by the cache-key/alias rules above). Locked in sync with
+# the live registry by `tests/unit/loader/test_composite_tasks.py`.
+COMPOSITE_TASKS: frozenset[str] = frozenset(
+    {
+        "image-to-text",
+        "summarization",
+        "table-question-answering",
+        "text-generation",
+        "translation",
+        "zero-shot-image-classification",
+    }
+)
+
+
 # Task -> abbreviation for cache keys. Derived from `_TASK_REGISTRY`: canonical
 # tasks whose abbreviation is `None` are omitted here (and truncated to 8 chars
 # by `get_task_abbrev`); the collapsed aliases are appended for cache-key and

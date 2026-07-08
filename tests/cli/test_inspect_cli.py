@@ -67,6 +67,22 @@ class TestInspectCliSurface:
         output_lower = result.output.lower()
         assert "xml" in output_lower or "choice" in output_lower or "invalid" in output_lower
 
+    def test_composite_task_passes_validation(self) -> None:
+        """A composite pipeline task (summarization) must pass --task validation.
+
+        Regression for #1069: it was rejected with "Invalid task" despite being
+        advertised by --list-tasks. Validation is a Click callback (no network), so a
+        rejection surfaces as "Invalid task" regardless of model resolution.
+        """
+        result = _run("--model-type", "t5", "--task", "summarization")
+        assert "Invalid task" not in result.output
+
+    def test_bogus_task_still_rejected(self) -> None:
+        """A genuinely unknown task must still be rejected at validation time."""
+        result = _run("--model-type", "t5", "--task", "not-a-real-task")
+        assert result.exit_code != 0
+        assert "Invalid task" in result.output
+
 
 # ===========================================================================
 # --list-tasks

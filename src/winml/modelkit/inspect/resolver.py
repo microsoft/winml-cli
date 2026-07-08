@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ..loader.resolution import _get_custom_model_class
 from ..loader.task import (
+    COMPOSITE_TASKS,
     HF_TASK_DEFAULTS,
     KNOWN_TASKS,
     resolve_optimum_library,
@@ -75,9 +76,9 @@ def get_known_tasks() -> set[str]:
         to avoid. The two paths therefore see slightly different sets:
 
         * ``--list-tasks``     ->  :data:`KNOWN_TASKS`
-        * ``validate_task()``  ->  ``KNOWN_TASKS`` plus ``HF_TASK_DEFAULTS``
-                                  keys plus ``HF_MODEL_CLASS_MAPPING`` task
-                                  entries
+        * ``validate_task()``  ->  ``KNOWN_TASKS`` plus :data:`COMPOSITE_TASKS`
+                                  plus ``HF_TASK_DEFAULTS`` keys plus
+                                  ``HF_MODEL_CLASS_MAPPING`` task entries
 
         ``tests/unit/loader/test_known_tasks.py`` asserts ``KNOWN_TASKS``
         is a superset of the local registries, so anything ``validate_task``
@@ -85,6 +86,7 @@ def get_known_tasks() -> set[str]:
         a silent break.
     """
     tasks: set[str] = set(KNOWN_TASKS)
+    tasks.update(COMPOSITE_TASKS)
     tasks.update(HF_TASK_DEFAULTS.keys())
     tasks.update(task for _, task in HF_MODEL_CLASS_MAPPING if task is not None)
     return tasks
