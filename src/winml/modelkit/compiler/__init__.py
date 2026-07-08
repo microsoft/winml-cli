@@ -33,7 +33,12 @@ from .configs import (
 from .context import CompileContext
 from .result import CompileResult
 from .transforms import clear_transforms, get_transforms_for_ep, register_transform
-from .utils import QDQ_OP_TYPES, needs_format_conversion
+from .utils import (
+    QDQ_OP_TYPES,
+    QOPERATOR_OP_TYPES,
+    QUANTIZATION_OP_TYPES,
+    needs_format_conversion,
+)
 
 
 # Names below are loaded lazily via ``__getattr__`` to avoid pulling in session/
@@ -83,6 +88,8 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "QDQ_OP_TYPES",
+    "QOPERATOR_OP_TYPES",
+    "QUANTIZATION_OP_TYPES",
     "CompileContext",
     "CompileResult",
     "CompileStage",

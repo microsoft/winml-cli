@@ -325,14 +325,12 @@ class TestPerfUnifiedPipeline:
         assert result.exit_code == 0, result.output
         mock_run.assert_called_once()
 
-    def test_cli_onnx_clears_shape_config_with_warning(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """ONNX input with --shape-config: warn + clear shape_config before PerfBenchmark.
+    def test_cli_onnx_preserves_shape_config(self, runner: CliRunner, tmp_path: Path) -> None:
+        """ONNX input with --shape-config keeps the override for dummy inputs.
 
-        Shapes are baked into a pre-exported ONNX, so --shape-config is silently
-        ignored; we want to be sure the CLI both surfaces the warning to the
-        user and actually drops the override before constructing PerfBenchmark.
+        Regression: perf previously warned that shape config was ignored for
+        ONNX inputs and force-cleared the override. The ONNX path now honors
+        user-provided shapes during random input generation.
         """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
@@ -370,9 +368,9 @@ class TestPerfUnifiedPipeline:
             )
 
         assert result.exit_code == 0, result.output
-        assert "shape-config is ignored" in result.output
+        assert "shape-config is ignored" not in result.output
         assert "Benchmarking ONNX" in result.output
-        assert captured["config"].shape_config is None
+        assert captured["config"].shape_config == {"input_ids": [1, 128]}
 
     def test_cli_onnx_warns_ignored_build_flags(self, runner: CliRunner, tmp_path: Path) -> None:
         """Build-pipeline flags are no-ops for a pre-built ONNX with skip_build,
@@ -450,6 +448,59 @@ class TestPerfUnifiedPipeline:
         )
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
+
+    def test_cli_hub_onnx_ref_is_resolved(self, runner: CliRunner, tmp_path: Path) -> None:
+        """CLI with a Hub-style ONNX ref must download once before the
+        ``Path(...).suffix == '.onnx' and exists()`` check, otherwise the
+        ref string is mistaken for a missing local file and rejected with
+        ``FileNotFoundError`` before any HF Hub call happens.
+
+        Regression test for ``winml perf -m
+        onnx-community/sam3-tracker-ONNX/onnx/...``.
+        """
+        local = tmp_path / "vision_encoder_int8.onnx"
+        local.write_bytes(b"fake onnx")
+        hub_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+
+        mock_result = MagicMock()
+        mock_result.to_dict = MagicMock(return_value={})
+
+        # Stub PerfBenchmark so the test stays fast and EP-independent;
+        # capture the BenchmarkConfig it was constructed with so we can
+        # assert ``model_id`` is the resolved local path, not the Hub ref.
+        captured_configs: list = []
+        original_init = PerfBenchmark.__init__
+
+        def _capturing_init(self_, config, *args, **kwargs):
+            captured_configs.append(config)
+            original_init(self_, config, *args, **kwargs)
+
+        with (
+            patch(
+                "winml.modelkit.loader.onnx_hub.resolve_hf_onnx_path",
+                return_value=local,
+            ) as mock_resolve,
+            patch.object(PerfBenchmark, "__init__", _capturing_init),
+            patch.object(PerfBenchmark, "run", return_value=mock_result) as mock_run,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", hub_ref, "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        # ``resolve_model_input`` forwards revision/cache_dir/token kwargs
+        # to the downloader; only the positional Hub ref is meaningful here.
+        mock_resolve.assert_called_once()
+        assert mock_resolve.call_args.args == (hub_ref,)
+        # After resolution, the PerfBenchmark sees the LOCAL path on its
+        # config.model_id -- not the original Hub ref string.
+        mock_run.assert_called_once()
+        assert len(captured_configs) == 1
+        assert Path(captured_configs[0].model_id) == local
 
     def test_onnx_load_model_passes_ep(self, tmp_path: Path) -> None:
         """EP argument should be forwarded to from_onnx."""
@@ -689,6 +740,36 @@ class TestPerfUnifiedPipeline:
         result = BenchmarkResult(config=config)
 
         assert result.to_dict()["benchmark_info"]["ep_options"] is None
+
+
+class TestResolveShape:
+    def test_symbolic_override_rejects_list_value_with_clean_error(self) -> None:
+        import click
+
+        from winml.modelkit.commands.perf import _resolve_shape
+
+        with pytest.raises(click.ClickException, match="symbolic dimension 'seq'"):
+            _resolve_shape(
+                [1, "seq"],
+                input_name="tokens",
+                batch_size=1,
+                symbolic_shape=[None, "seq"],
+                shape_config={"seq": [1, 128]},
+            )
+
+    def test_symbolic_override_rejects_non_integer_float_value(self) -> None:
+        import click
+
+        from winml.modelkit.commands.perf import _resolve_shape
+
+        with pytest.raises(click.ClickException, match="scalar integer"):
+            _resolve_shape(
+                [1, "seq"],
+                input_name="tokens",
+                batch_size=1,
+                symbolic_shape=[None, "seq"],
+                shape_config={"seq": 128.5},
+            )
 
 
 class TestEffectiveBatchSize:
