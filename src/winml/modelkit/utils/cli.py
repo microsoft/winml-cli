@@ -33,6 +33,96 @@ F = TypeVar("F", bound="Callable[..., Any]")
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
 
 
+class ModelInputKind(Enum):
+    """Back-compat kind enum for CLI call sites.
+
+    Canonical classifier values now live in ``utils.model_input`` as string
+    literals. Command modules still compare against enum members, so this enum
+    preserves the old API surface while delegating classification to the
+    canonical implementation.
+    """
+
+    ONNX_FILE = "local_onnx"
+    FOLDER = "build_dir"
+    HUB_ONNX = "hub_onnx"
+    HF_ID = "hf_id"
+    INVALID = "invalid"
+
+
+@dataclass(frozen=True)
+class ModelInput:
+    """Back-compat model-input classification result used by CLI commands/tests."""
+
+    kind: ModelInputKind
+    raw: str
+    local_path: str | None = None
+    hf_id: str | None = None
+    is_hf_folder: bool = False
+    folder_has_onnx: bool = False
+    is_winml_cli_folder: bool = False
+
+
+def classify_model_input(value: str) -> ModelInput:
+    """Classify CLI model input with legacy semantics and error messages.
+
+    Returns a back-compat ``ModelInput`` object and raises ``click.UsageError``
+    for invalid/missing local-path-like values.
+    """
+    if value is None or not str(value).strip():
+        raise click.UsageError("Model input cannot be empty.")
+
+    raw = value
+    path = Path(value).expanduser()
+
+    if path.exists():
+        if path.is_file():
+            if path.suffix.lower() != ".onnx":
+                raise click.UsageError(
+                    f"Unsupported model file: '{value}'. Only .onnx files are supported."
+                )
+            return ModelInput(
+                kind=ModelInputKind.ONNX_FILE,
+                raw=raw,
+                local_path=str(path),
+            )
+
+        if path.is_dir():
+            onnx_files = list(path.glob("*.onnx"))
+            manifest_files = list(path.glob("build_manifest.json")) + list(
+                path.glob("*_build_manifest.json")
+            )
+            has_onnx = bool(onnx_files)
+            is_hf_folder = (path / "config.json").exists()
+            is_winml_folder = has_onnx and bool(manifest_files)
+            return ModelInput(
+                kind=ModelInputKind.FOLDER,
+                raw=raw,
+                local_path=str(path),
+                is_hf_folder=is_hf_folder,
+                folder_has_onnx=has_onnx,
+                is_winml_cli_folder=is_winml_folder,
+            )
+
+    if value.lower().endswith(".onnx"):
+        raise click.UsageError(f"ONNX file not found: {value}")
+
+    if (
+        value.startswith(("./", "../", "/", "~"))
+        or "\\" in value
+        or re.match(r"^[A-Za-z]:[\\/]", value)
+        or value.count("/") >= 2
+    ):
+        raise click.UsageError(f"Model path does not exist: {value}")
+
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?$", value):
+        raise click.UsageError(
+            f"'{value}' is not a valid HuggingFace model identifier "
+            "(expected 'name' or 'org/name')."
+        )
+
+    return ModelInput(kind=ModelInputKind.HF_ID, raw=raw, hf_id=value)
+
+
 class ModelLoadError(click.ClickException):
     """Exit code 3: model could not be loaded onto the device/EP.
 
@@ -1035,112 +1125,48 @@ def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
 # ``-m/--model`` input classification
 # ---------------------------------------------------------------------------
 
-# Local model-file extensions used only to give a "path does not exist" error
-# (instead of "not a valid HF id") when a path-shaped, non-existent value is
-# passed.  ``.onnx`` is handled separately so it gets its own message.
-_LOCAL_MODEL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin", ".gguf"})
 
-# HuggingFace repo id: an optional ``org/`` prefix plus a repo name, each
-# segment built from ``[A-Za-z0-9]`` plus ``._-`` (must start alphanumeric).
-_HF_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?$")
+def is_onnx_file_path(model_input: str) -> bool:
+    """Return True when *model_input* resolves to a local ONNX file path.
 
-
-class ModelInputKind(Enum):
-    """What a ``-m/--model`` value resolves to.
-
-    - ``HF_ID``: not present on disk; a HuggingFace hub reference (``org/name``).
-    - ``ONNX_FILE``: an existing local ``.onnx`` file.
-    - ``FOLDER``: an existing local directory. The ``is_*``/``folder_has_onnx``
-      flags on :class:`ModelInput` describe what the folder contains so each
-      command can apply its own policy (build-family treats it as a transformers
-      source; run/serve load the ONNX the engine discovers inside it).
+    Thin wrapper kept for backwards-compatible callers; new code should
+    use :func:`~winml.modelkit.utils.model_input.classify_model_input`
+    directly and inspect the returned ``ModelInput.kind``.
     """
-
-    HF_ID = "hf_id"
-    ONNX_FILE = "onnx_file"
-    FOLDER = "folder"
+    return classify_model_input(model_input).kind is ModelInputKind.ONNX_FILE
 
 
-@dataclass(frozen=True)
-class ModelInput:
-    """Classification result for a ``-m/--model`` value.
+def normalize_model_arg(value: str | None) -> str | None:
+    """Normalize a CLI ``-m/--model`` value to a local path or pass-through.
 
-    The folder flags are only meaningful when ``kind is FOLDER`` (all ``False``
-    otherwise). ``is_winml_cli_folder`` implies ``folder_has_onnx``.
+    Single CLI-layer entry point for resolving Hub-hosted ONNX references
+    (``org/repo/path/file.onnx``) into local cached paths. Every
+    ``winml`` subcommand should call this once on the raw ``-m`` value
+    near the top of its command body, so downstream code (build configs,
+    perf benchmarks, eval sessions, inspect lookups) only ever sees:
+
+    * a local filesystem path (Hub refs are resolved here), or
+    * a HuggingFace model ID (``org/name``, passed through unchanged), or
+    * ``None`` (pass-through).
+
+    Delegates to :func:`~winml.modelkit.utils.model_input.resolve_model_input`,
+    the single unified classifier+resolver. This is the CLI counterpart
+    to library entry points such as :meth:`WinMLSession.load` and
+    :meth:`WinMLAutoModel.from_pretrained`, which call ``resolve_model_input``
+    directly at the programmatic boundary.
+
+    Args:
+        value: Raw ``-m/--model`` value (HF id, local path, Hub ONNX ref, or ``None``).
+
+    Returns:
+        Local ``.onnx`` path string when ``value`` was a Hub ref; the
+        original ``value`` otherwise. ``None`` returns ``None``.
     """
+    if value is None:
+        return None
+    from .model_input import resolve_model_input
 
-    kind: ModelInputKind
-    raw: str
-    is_hf_folder: bool = False
-    folder_has_onnx: bool = False
-    is_winml_cli_folder: bool = False
-
-
-def _looks_like_path(raw: str) -> bool:
-    """Return True when *raw* is clearly a filesystem path (not an HF id).
-
-    Used only for a non-existent value to choose between a "path does not
-    exist" error and a "not a valid HF id" error. HF ids carry at most one
-    ``/`` and none of these path indicators.
-    """
-    if "\\" in raw:
-        return True
-    if raw.startswith(("./", "../", "~/", ".\\", "..\\", "~\\")):
-        return True
-    p = Path(raw)
-    if p.is_absolute():
-        return True
-    # Windows drive-letter prefix, e.g. ``C:models``.
-    if len(raw) >= 2 and raw[1] == ":":
-        return True
-    if raw.count("/") > 1:
-        return True
-    return p.suffix.lower() in _LOCAL_MODEL_FILE_EXTS
-
-
-def classify_model_input(raw: str) -> ModelInput:
-    """Classify a ``-m/--model`` value into a :class:`ModelInput`.
-
-    Existence-first: a value present on disk is a local file or directory; a
-    value absent from disk is a HuggingFace hub id (or an error). The engine
-    remains responsible for locating the actual ``*.onnx`` inside a folder.
-
-    Raises:
-        click.UsageError: for a non-existent ``.onnx`` path, a non-existent
-            path-shaped value, a syntactically invalid HF id, or an existing
-            non-``.onnx`` file.
-    """
-    path = Path(raw)
-
-    if not path.exists():
-        if path.suffix.lower() == ".onnx":
-            raise click.UsageError(f"ONNX file not found: {raw}")
-        if _looks_like_path(raw):
-            raise click.UsageError(f"Model path does not exist: {raw}")
-        if _HF_ID_RE.match(raw):
-            return ModelInput(kind=ModelInputKind.HF_ID, raw=raw)
-        raise click.UsageError(
-            f"'{raw}' is not a valid HuggingFace model id, an existing .onnx "
-            "file, or an existing directory."
-        )
-
-    if path.is_file():
-        if path.suffix.lower() == ".onnx":
-            return ModelInput(kind=ModelInputKind.ONNX_FILE, raw=raw)
-        raise click.UsageError(
-            f"Unsupported model file: {raw} (expected a .onnx file or a directory)."
-        )
-
-    # Existing directory: report what it contains; callers apply policy.
-    folder_has_onnx = any(path.glob("*.onnx"))
-    is_winml_cli_folder = folder_has_onnx and any(path.glob("*build_manifest.json"))
-    return ModelInput(
-        kind=ModelInputKind.FOLDER,
-        raw=raw,
-        is_hf_folder=(path / "config.json").is_file(),
-        folder_has_onnx=folder_has_onnx,
-        is_winml_cli_folder=is_winml_cli_folder,
-    )
+    return resolve_model_input(value).local_path or value
 
 
 def is_cli_provided(ctx: click.Context, param_name: str) -> bool:

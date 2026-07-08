@@ -128,19 +128,35 @@ def load_optimum_types() -> set[str]:
 
 
 def load_curated_entries(curated_path: Path) -> list[dict]:
-    """Load curated entries (hf_id + task + group + priority) from source JSON."""
+    """Load curated entries (hf_id + task + group + priority) from source JSON.
+
+    Optional fields recognised by downstream consumers but not enforced here:
+
+    * ``composite_onnx`` -- ``{role: hub_onnx_ref}`` map for models that
+      ship as several role-tagged ONNX graphs (e.g. SAM-family mask
+      generators with ``image-encoder`` + ``prompt-decoder``).  Old
+      consumers ignore this field; new consumers (e.g.
+      ``mask-generation`` evaluator dispatch) read it to discover the
+      per-role files.  ``hf_id`` is still required and should point at
+      the canonical repo (typically the encoder's repo).
+    """
     with curated_path.open(encoding="utf-8") as f:
         entries = json.load(f)
-    return [
-        {
+    loaded: list[dict] = []
+    for e in entries:
+        if "hf_id" not in e:
+            continue
+        item = {
             "hf_id": e["hf_id"],
             "task": e.get("task") or "",
             "group": e.get("group", "P0"),
             "priority": e.get("priority", "P0"),
         }
-        for e in entries
-        if "hf_id" in e
-    ]
+        # Pass-through additive fields so they survive into the built registry.
+        if "composite_onnx" in e:
+            item["composite_onnx"] = e["composite_onnx"]
+        loaded.append(item)
+    return loaded
 
 
 def print_stats(registry_path: Path) -> None:
@@ -380,6 +396,10 @@ def build_registry(
                     existing["priority"] = priority
                     existing["group"] = group
                     safe_print(f"    [{priority}] {model_id} / {task} — updated (group={group})")
+                # Carry curated ``composite_onnx`` onto an existing entry so
+                # downstream consumers always see the canonical role map.
+                if "composite_onnx" in c and "composite_onnx" not in existing:
+                    existing["composite_onnx"] = c["composite_onnx"]
                 continue
 
             # New curated entry — fetch metadata if not already loaded
@@ -399,6 +419,8 @@ def build_registry(
                 "last_update_time": metadata["last_modified"],
                 "optimum_supported": is_optimum,
             }
+            if "composite_onnx" in c:
+                entry["composite_onnx"] = c["composite_onnx"]
 
             seen.add(key)
             entry_lookup[key] = entry

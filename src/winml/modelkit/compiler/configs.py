@@ -211,10 +211,24 @@ class WinMLCompileConfig:
 
     @classmethod
     def for_vitisai(cls, device: str | None = None) -> WinMLCompileConfig:
-        """Factory for Vitis AI (AMD NPU) compilation."""
+        """Factory for Vitis AI (AMD NPU) compilation.
+
+        Populates Phoenix XDNA defaults from ``RYZEN_AI_INSTALLATION_PATH``
+        when available (target=X1, xclbin=<install>/voe-4.0-win_amd64/
+        xclbins/phoenix/4x4.xclbin, xlnx_enable_py3_round=0). VitisAI EP
+        ignores ``device_type``; the correct device hint is the xclbin path.
+        """
+        import os
+        from pathlib import Path as _Path
+
         provider_options: dict[str, str] = {}
-        if device:
-            provider_options["device_type"] = device.upper()
+        ryzen_ai = os.environ.get("RYZEN_AI_INSTALLATION_PATH")
+        if ryzen_ai:
+            xclbin = _Path(ryzen_ai) / "voe-4.0-win_amd64" / "xclbins" / "phoenix" / "4x4.xclbin"
+            if xclbin.exists():
+                provider_options["target"] = "X1"
+                provider_options["xclbin"] = str(xclbin)
+                provider_options["xlnx_enable_py3_round"] = "0"
         ep_cfg = EPConfig(
             provider="vitisai",
             enable_ep_context=True,

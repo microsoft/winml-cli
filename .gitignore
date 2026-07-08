@@ -203,6 +203,7 @@ $RECYCLE.BIN/
 # Temporary files
 temp/
 tmp/
+out/
 *.tmp
 *.temp
 
@@ -222,6 +223,17 @@ tmp/
 *_htp_export_report.txt
 *.graphml
 *.onnxdata
+
+# ONNX Runtime external-data sidecars dropped at CWD (UUID-named *.data files)
+# from sessions that did not pin the external-data directory
+/*.data
+
+# Quark / quantizer side-effect outputs
+/quantized_info.csv
+
+# Local debug / scratch scripts (convention: leading underscore = private)
+scripts/_*.py
+scripts/_*.json
 
 # Logs
 *.log
