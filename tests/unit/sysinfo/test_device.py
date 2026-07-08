@@ -21,12 +21,14 @@ from winml.modelkit.sysinfo.device import (
 from winml.modelkit.utils.constants import EP_NAMES
 
 
-def _make_ep_device(device_type, ep_name: str = "TestEP") -> MagicMock:
+def _make_ep_device(device_type, ep_name: str = "CPUExecutionProvider") -> MagicMock:
     """Build a mock OrtEpDevice with ``.device.type`` and ``.ep_name`` set.
 
     Both attributes matter to ``_get_device_ep_map_from_ort``: ``device.type``
-    keys the result map, and ``ep_name`` populates each value tuple. Tests
-    that don't care about the EP name can rely on the default.
+    keys the result map, and ``ep_name`` populates each value tuple (after
+    canonical-name normalization). Tests that only care about device grouping
+    can rely on the default, which is a valid ``EPName`` so it survives the
+    normalization filter.
     """
     mock = MagicMock()
     mock.device.type = device_type
@@ -126,6 +128,50 @@ class TestGetAvailableDevices:
             devices = _get_available_devices()
 
         assert devices == ("gpu", "cpu")
+
+
+class TestGetDeviceEpMapFromOrt:
+    """Tests for _get_device_ep_map_from_ort() ep_name handling."""
+
+    def test_auto_suffixed_ep_names_filtered(self) -> None:
+        """``.AUTO`` device-qualified variants from ORT must not leak into the map.
+
+        ``ort.get_ep_devices()`` reports device-qualified aliases such as
+        ``OpenVINOExecutionProvider.AUTO`` as distinct ``ep_name`` values. These
+        are not canonical ``EPName`` entries and must be dropped so the derived
+        available-EP set and its error messages only list real providers.
+        """
+        import onnxruntime as ort
+
+        from winml.modelkit.sysinfo.device import _get_device_ep_map_from_ort
+
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            return_value=[
+                _make_ep_device(ort.OrtHardwareDeviceType.NPU, "OpenVINOExecutionProvider"),
+                _make_ep_device(ort.OrtHardwareDeviceType.NPU, "OpenVINOExecutionProvider.AUTO"),
+            ],
+        ):
+            mapping = _get_device_ep_map_from_ort()
+
+        assert mapping == {"npu": ("OpenVINOExecutionProvider",)}
+
+    def test_unknown_ep_names_filtered(self) -> None:
+        """``ep_name`` values not in the canonical ``EPName`` set are dropped."""
+        import onnxruntime as ort
+
+        from winml.modelkit.sysinfo.device import _get_device_ep_map_from_ort
+
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            return_value=[
+                _make_ep_device(ort.OrtHardwareDeviceType.GPU, "DmlExecutionProvider"),
+                _make_ep_device(ort.OrtHardwareDeviceType.GPU, "SomeFutureExecutionProvider"),
+            ],
+        ):
+            mapping = _get_device_ep_map_from_ort()
+
+        assert mapping == {"gpu": ("DmlExecutionProvider",)}
 
 
 class TestMappingConstants:

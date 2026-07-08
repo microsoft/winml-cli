@@ -304,7 +304,8 @@ class InferenceEngine:
         """Load model from model_path.
 
         Args:
-            model_path: HF model ID, build output dir, or .onnx file path.
+            model_path: HF model ID, build output dir, or .onnx file path
+                (local or Hub-hosted ``<org>/<repo>/<path>.onnx``).
             task: Required when model_path is a raw .onnx file.
             device: "auto" | "cpu" | "gpu" | "npu".
             ep: Explicit EP short name (e.g. "dml", "qnn").  Overrides device.
@@ -321,6 +322,12 @@ class InferenceEngine:
                 no effect on raw .onnx files or pre-built build directories
                 (no build/analyze step runs in those paths).
         """
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx path thereafter.
+        from ..utils.model_input import resolve_model_input
+
+        model_path = resolve_model_input(str(model_path)).local_path or str(model_path)
+
         self._model_path = str(model_path)
         self._ep = ep
         self._device = device
@@ -396,6 +403,12 @@ class InferenceEngine:
         Falls back to ``load()`` only when the task cannot be determined
         without a full model load.
         """
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx path thereafter.
+        from ..utils.model_input import resolve_model_input
+
+        model_path = resolve_model_input(str(model_path)).local_path or str(model_path)
+
         self._model_path = str(model_path)
         self._device = device
         self._ep = ep

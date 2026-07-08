@@ -1519,27 +1519,25 @@ class PatternMatcher:
         """
         return ONNXDomain.from_str(node.domain)
 
-    def _get_registered_edge_info(self, tensor_name: str, consumer_name: str) -> EdgeInfo:
-        """Return edge info for a registered tensor-consumer pair.
+    def _get_registered_edge_info(self, tensor_name: str, consumer_name: str) -> EdgeInfo | None:
+        """Return edge info for a registered tensor-consumer pair, or None.
 
         Skeleton matching only queries edge metadata for non-virtual inputs with an
-        upstream producer in the model graph. Those entries must exist once
-        _build_lookups() has completed, so a miss indicates a broken registration
-        invariant rather than an ordinary pattern mismatch.
+        upstream producer in the model graph. Those entries should exist once
+        _build_lookups() has completed, but graph transformations (e.g. ORT
+        optimization fusing or renaming nodes) can leave edges whose producer was
+        dropped without updating all consumers. Return ``None`` for such orphaned
+        edges so pattern matching can skip them gracefully.
 
         Args:
             tensor_name: Name of the consumed tensor.
             consumer_name: Canonical name of the consumer node.
 
         Returns:
-            Registered EdgeInfo for the tensor-consumer pair.
+            Registered EdgeInfo for the tensor-consumer pair, or ``None`` if the
+            edge was not registered (orphaned after graph transformation).
         """
-        edge_info = self.edge_info_by_name.get(tensor_name, {}).get(consumer_name)
-        assert edge_info is not None, (
-            f"Missing edge registration for tensor '{tensor_name}' consumed by "
-            f"'{consumer_name}'. Non-virtual inputs should be registered in _build_lookups()."
-        )
-        return edge_info
+        return self.edge_info_by_name.get(tensor_name, {}).get(consumer_name)
 
     def _check_constant_constraints(
         self,
@@ -1597,6 +1595,12 @@ class PatternMatcher:
         outside the skeleton or are graph outputs. The skeleton output is exempt
         because it will be replaced by an equivalent subgraph.
 
+        Consumers are derived directly from ``graph.node`` inputs rather than from
+        ``edge_info_by_name``, which can be incomplete after graph transformations
+        (orphaned edges). Relying on the edge map could miss an unregistered
+        external consumer and wrongly mark the match removable, letting the
+        rewriter delete nodes that still feed outside the match.
+
         Args:
             matched_nodes: List of matched node names in the skeleton.
             skeleton_output: The output tensor name of the skeleton (exempt from check).
@@ -1604,30 +1608,34 @@ class PatternMatcher:
         Returns:
             True if removable, False otherwise.
         """
-        # matched_nodes is list of node name strings
         matched_node_names = set(matched_nodes)
 
-        # Check each matched node's outputs
+        # Collect intermediate tensors (matched-node outputs, excluding the
+        # skeleton output which will be replaced). Bail early if any is a graph
+        # output.
+        intermediate_tensors: set[str] = set()
         for node_name in matched_nodes:
             node = self.node_lookup[node_name]
             for output_tensor in node.output:
-                if not output_tensor:
+                if not output_tensor or output_tensor == skeleton_output:
                     continue
-
-                # Skip the skeleton's final output (it will be replaced)
-                if output_tensor == skeleton_output:
-                    continue
-
-                # If intermediate tensor is a graph output, not removable
                 if output_tensor in self.graph_output_names:
                     return False
+                intermediate_tensors.add(output_tensor)
 
-                # Check all consumers of this tensor
-                consumers = self.edge_info_by_name.get(output_tensor, {})
-                for consumer_node_name in consumers:
-                    # If consumer is outside the skeleton, not removable
-                    if consumer_node_name not in matched_node_names:
-                        return False
+        if not intermediate_tensors:
+            return True
+
+        # Authoritative consumer check: scan every graph node's inputs. If any
+        # node outside the match consumes an intermediate tensor, the match is
+        # not removable. This is independent of edge_info_by_name completeness.
+        for node_idx, node in enumerate(self.graph.node):
+            node_key = make_stable_node_key(node, node_idx)
+            if node_key in matched_node_names:
+                continue
+            for input_name in node.input:
+                if input_name in intermediate_tensors:
+                    return False
 
         return True
 
@@ -1731,7 +1739,7 @@ class PatternMatcher:
                         # Free input (graph input / initializer); no edge_info needed.
                         continue
                     edge_info = self._get_registered_edge_info(input_edge, node_name)
-                    if edge_info.src_slot != src_slot:
+                    if edge_info is None or edge_info.src_slot != src_slot:
                         src_slot_matched = False
                         break
                 if not src_slot_matched:
@@ -1760,6 +1768,9 @@ class PatternMatcher:
                             # src_node_matched = False
                             continue
                         edge_info = self._get_registered_edge_info(input_edge, node_name)
+                        if edge_info is None:
+                            dst_slot_partial_mappings.append([])
+                            continue
                         src_matched_mappings = [
                             partial_mapping.node_mapping.copy()
                             for partial_mapping in edge_partial_matching_results[input_edge]

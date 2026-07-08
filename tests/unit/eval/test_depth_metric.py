@@ -293,8 +293,8 @@ class TestAffineAlignment:
 
 
 class TestDisparity:
-    def test_disparity_inverts_then_aligns(self):
-        """pred = k / gt (disparity); after invert + affine should be perfect."""
+    def test_disparity_pure_scale_recovers_perfect(self):
+        """pred = k / gt (pure-scale disparity) recovers perfectly under affine."""
         rng = np.random.default_rng(4)
         gt = rng.uniform(1.0, 10.0, size=(8, 8)).astype(np.float32)
         disparity = 2.0 / gt  # scale-free disparity
@@ -307,6 +307,41 @@ class TestDisparity:
         m.update(disparity, gt)
         result = m.compute()
         assert result["abs_rel"] == pytest.approx(0.0, abs=1e-5)
+
+    def test_disparity_affine_recovers_under_scale_and_shift(self):
+        """Real disparity has an unknown shift: disp = s * (1/gt) + t.
+
+        Affine alignment in disparity space must recover depth exactly; the
+        old invert-then-align-in-depth approach could not undo the shift.
+        """
+        rng = np.random.default_rng(11)
+        gt = rng.uniform(1.0, 10.0, size=(16, 16)).astype(np.float32)
+        disparity = 3.0 * (1.0 / gt) + 0.7  # unknown scale AND shift
+        m = DepthMetric(
+            align="affine",
+            depth_kind="disparity",
+            min_depth=0.0,
+            max_depth=None,
+        )
+        m.update(disparity, gt)
+        result = m.compute()
+        assert result["abs_rel"] == pytest.approx(0.0, abs=1e-5)
+        assert result["delta1"] == pytest.approx(1.0)
+
+    def test_disparity_shift_breaks_depth_space_affine(self):
+        """Sanity: shifted disparity scored as depth+affine is clearly wrong.
+
+        Confirms the disparity-space path is doing real work — the same input
+        under depth_kind="depth" cannot recover the reciprocal relationship.
+        """
+        rng = np.random.default_rng(12)
+        gt = rng.uniform(1.0, 10.0, size=(16, 16)).astype(np.float32)
+        disparity = 3.0 * (1.0 / gt) + 0.7
+        m_depth = DepthMetric(align="affine", depth_kind="depth", min_depth=0.0, max_depth=None)
+        m_disp = DepthMetric(align="affine", depth_kind="disparity", min_depth=0.0, max_depth=None)
+        m_depth.update(disparity, gt)
+        m_disp.update(disparity, gt)
+        assert m_disp.compute()["abs_rel"] < m_depth.compute()["abs_rel"]
 
     def test_disparity_with_align_none_is_bad(self):
         """Sanity: forgetting to invert disparity yields a poor score."""

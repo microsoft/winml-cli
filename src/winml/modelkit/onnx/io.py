@@ -222,6 +222,7 @@ def get_io_config(
     io_config: dict[str, Any] = {
         "input_names": [],
         "input_shapes": [],
+        "input_symbolic_shapes": [],
         "input_types": [],
         "output_names": [],
         "output_shapes": [],
@@ -243,18 +244,25 @@ def get_io_config(
             # Extract dtype
             dtype = ONNX_ELEM_TYPE_TO_NUMPY.get(tensor_type.elem_type, np.dtype("float32"))
 
-            # Extract shape (None for dynamic dims)
+            # Extract shape (None for dynamic dims) and capture symbolic
+            # dim_param strings in a parallel list so downstream consumers
+            # can resolve dynamic dims by their declared symbolic name.
             shape: list[int | None] = []
+            symbolic_shape: list[int | str | None] = []
             if tensor_type.HasField("shape"):
                 for dim in tensor_type.shape.dim:
                     if dim.HasField("dim_value"):
                         shape.append(dim.dim_value)
+                        symbolic_shape.append(dim.dim_value)
                     else:
                         shape.append(None)
+                        symbolic_shape.append(dim.dim_param or None)
 
             io_config[f"{prefix}_names"].append(io.name)
             io_config[f"{prefix}_shapes"].append(shape)
             io_config[f"{prefix}_types"].append(dtype)
+            if prefix == "input":
+                io_config["input_symbolic_shapes"].append(symbolic_shape)
 
     # Enhance with value ranges from winml.io.inputs metadata
     for prop in model.metadata_props:
