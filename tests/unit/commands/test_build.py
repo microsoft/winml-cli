@@ -12,15 +12,11 @@ NO WinMLAutoModel involvement.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 _DEVICE_TO_EPS = {
@@ -1997,3 +1993,470 @@ class TestBuildOnnxPipelineRegressions:
         mock_stamp.assert_called_once()
         assert mock_opt.call_args.kwargs["skip_optimize"] is True
         assert mock_quant.call_args.kwargs["config"].quant is None
+
+
+# =============================================================================
+# COMPOSITE MODEL TESTS
+# =============================================================================
+
+
+class TestBuildComposite:
+    """Test build fans a composite model out with flat _<component> naming."""
+
+    def test_composite_builds_flat_with_cache_key(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """A composite model runs _run_single_build once per sub-component with cache_key."""
+        from winml.modelkit.commands.build import build
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+        output_dir = tmp_path / "out"
+
+        fake_cfg = MagicMock()
+        fake_cfg.quant = None
+        fake_cfg.compile = None
+        fake_cfg.loader = MagicMock(task=None)
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch(
+                "winml.modelkit.config.generate_build_config",
+                return_value=fake_cfg,
+            ) as mock_gen_cfg,
+            patch(
+                "winml.modelkit.commands.build._run_single_build",
+            ) as mock_single_build,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                ["-m", "Qwen/Qwen3-0.6B", "-o", str(output_dir)],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        # One build per component.
+        assert mock_single_build.call_count == len(components)
+        # All components share the same resolved_dir (flat layout).
+        built_dirs = {
+            Path(call.kwargs["resolved_dir"]) for call in mock_single_build.call_args_list
+        }
+        assert built_dirs == {output_dir}
+        # Each component name is passed as cache_key for flat file naming.
+        built_keys = {call.kwargs["cache_key"] for call in mock_single_build.call_args_list}
+        assert built_keys == set(components)
+        # generate_build_config is called once for the outer auto-gen config,
+        # then once per component.
+        component_tasks = {
+            call.kwargs["task"]
+            for call in mock_gen_cfg.call_args_list
+            if "task" in call.kwargs and call.kwargs["task"] is not None
+        }
+        assert component_tasks == set(components.values())
+
+    def test_composite_autogen_passes_task_none_to_resolver(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Auto-generated config (no -c) passes task=None so the seq2seq bridge applies."""
+        from winml.modelkit.commands.build import build
+
+        components = {"encoder": "feature-extraction", "decoder": "text2text-generation"}
+        output_dir = tmp_path / "out"
+
+        fake_cfg = MagicMock()
+        fake_cfg.quant = None
+        fake_cfg.compile = None
+        # Auto-detected task for a seq2seq model.
+        fake_cfg.loader = MagicMock(task="text2text-generation", model_type="t5")
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.config.generate_build_config",
+                return_value=fake_cfg,
+            ),
+            patch("winml.modelkit.commands.build._run_single_build"),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                ["-m", "google-t5/t5-small", "-o", str(output_dir)],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        # No -c: task must be None (so the seq2seq bridge is applied), but
+        # model_type is still forwarded.
+        assert mock_resolve.call_args.kwargs["task"] is None
+        assert mock_resolve.call_args.kwargs["model_type"] == "t5"
+
+    def test_composite_config_file_forwards_explicit_task(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """A config-file build forwards the explicit loader.task to the resolver."""
+        from winml.modelkit.commands.build import build
+
+        components = {"encoder": "feature-extraction", "decoder": "translation"}
+        output_dir = tmp_path / "out"
+
+        # Outer config comes from -c via _load_config; control it directly so
+        # loader.task / loader.model_type are deterministic.
+        outer_cfg = MagicMock()
+        outer_cfg.quant = None
+        outer_cfg.compile = None
+        outer_cfg.loader = MagicMock(task="translation", model_type="marian")
+
+        component_cfg = MagicMock()
+        component_cfg.quant = None
+        component_cfg.compile = None
+        component_cfg.loader = MagicMock(task="translation", model_type="marian")
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text("{}")
+
+        with (
+            patch(
+                "winml.modelkit.commands.build._load_config",
+                return_value=outer_cfg,
+            ),
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.config.generate_build_config",
+                return_value=component_cfg,
+            ),
+            patch("winml.modelkit.commands.build._run_single_build"),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-c",
+                    str(config_path),
+                    "-m",
+                    "Helsinki-NLP/opus-mt-en-de",
+                    "-o",
+                    str(output_dir),
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        # -c provided: explicit task and model_type are forwarded.
+        assert mock_resolve.call_args.kwargs["task"] == "translation"
+        assert mock_resolve.call_args.kwargs["model_type"] == "marian"
+
+    def test_composite_rejects_use_cache(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """--use-cache is ambiguous for a composite and must be a usage error."""
+        from winml.modelkit.commands.build import build
+
+        fake_cfg = MagicMock()
+        fake_cfg.quant = None
+        fake_cfg.compile = None
+        fake_cfg.loader = MagicMock(task="text-generation")
+        fake_cfg.generate_cache_key.return_value = "key"
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value={"enc": "feature-extraction"},
+            ),
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+            patch("winml.modelkit.commands.build._run_single_build"),
+        ):
+            result = runner.invoke(
+                build,
+                ["-m", "Qwen/Qwen3-0.6B", "--use-cache"],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "composite" in result.output.lower()
+
+    def test_composite_resolution_valueerror_surfaces_as_usage_error(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """A ValueError during composite resolution is surfaced, not swallowed."""
+        from winml.modelkit.commands.build import build
+
+        fake_cfg = MagicMock()
+        fake_cfg.quant = None
+        fake_cfg.compile = None
+        fake_cfg.loader = MagicMock(task=None)
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                side_effect=ValueError(
+                    "qwen3 has multiple composite exports; pass --task explicitly"
+                ),
+            ),
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+            patch("winml.modelkit.commands.build._run_single_build"),
+        ):
+            result = runner.invoke(
+                build,
+                ["-m", "Qwen/Qwen3-0.6B", "-o", str(tmp_path / "out")],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "multiple composite exports" in result.output
+
+    def test_composite_resolution_unexpected_error_surfaces(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """An unexpected error during composite detection is surfaced, not masked."""
+        from winml.modelkit.commands.build import build
+
+        fake_cfg = MagicMock()
+        fake_cfg.quant = None
+        fake_cfg.compile = None
+        fake_cfg.loader = MagicMock(task=None)
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                side_effect=KeyError("boom"),
+            ),
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+            patch("winml.modelkit.commands.build._run_single_build"),
+        ):
+            result = runner.invoke(
+                build,
+                ["-m", "Qwen/Qwen3-0.6B", "-o", str(tmp_path / "out")],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "unexpectedly" in result.output.lower()
+
+    def test_composite_partial_build_warns(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """If a later sub-model fails, completed components are warned about."""
+        from winml.modelkit.commands.build import build
+
+        components = {
+            "decoder_prefill": "feature-extraction",
+            "decoder_gen": "text2text-generation",
+        }
+        output_dir = tmp_path / "out"
+
+        fake_cfg = MagicMock()
+        fake_cfg.quant = None
+        fake_cfg.compile = None
+        fake_cfg.loader = MagicMock(task=None)
+
+        call_count = [0]
+
+        def fake_single_build(**kwargs):
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise RuntimeError("second sub-model blew up")
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch("winml.modelkit.config.generate_build_config", return_value=fake_cfg),
+            patch(
+                "winml.modelkit.commands.build._run_single_build",
+                side_effect=fake_single_build,
+            ),
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                ["-m", "Qwen/Qwen3-0.6B", "-o", str(output_dir)],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        # Warning about partial composite build.
+        assert "composite build did not finish" in result.output.lower()
+
+    def test_composite_clears_quant_compile_when_outer_is_none(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """When outer config has quant=None/compile=None, component configs are cleared."""
+        from winml.modelkit.commands.build import build
+
+        components = {"enc": "feature-extraction"}
+        output_dir = tmp_path / "out"
+        config_file = _make_minimal_config_file(tmp_path, task="text-generation")
+
+        component_cfg = MagicMock()
+        component_cfg.quant = MagicMock(name="component_quant")
+        component_cfg.compile = MagicMock(name="component_compile")
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch(
+                "winml.modelkit.config.generate_build_config",
+                return_value=component_cfg,
+            ),
+            patch("winml.modelkit.commands.build._run_single_build") as mock_build,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-c",
+                    config_file,
+                    "-m",
+                    "Qwen/Qwen3-0.6B",
+                    "-o",
+                    str(output_dir),
+                    "--no-quant",
+                    "--no-compile",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        built_config = mock_build.call_args.kwargs["config"]
+        assert built_config is component_cfg
+        # Outer config has quant=None / compile=None → component cleared
+        assert built_config.quant is None
+        assert built_config.compile is None
+
+    def test_composite_carries_outer_quant_when_component_quant_none(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Outer quant/compile are deep-copied even when component config has none."""
+        from winml.modelkit.commands.build import build
+        from winml.modelkit.compiler.configs import WinMLCompileConfig
+        from winml.modelkit.quant.config import WinMLQuantizationConfig
+
+        components = {"enc": "feature-extraction"}
+        output_dir = tmp_path / "out"
+
+        # Outer config (from -c) has explicit quant + compile sections. Control
+        # it directly via _load_config so it isn't re-validated against a file.
+        outer_cfg = MagicMock()
+        outer_cfg.quant = WinMLQuantizationConfig(
+            mode="static", samples=42, task="text-generation", model_id="outer/model"
+        )
+        outer_cfg.compile = WinMLCompileConfig()
+        outer_cfg.loader = MagicMock(task="text-generation", model_type="qwen3")
+
+        # Component config generated without quant (e.g. device/precision policy
+        # produced no quant), but with populated loader metadata.
+        component_cfg = MagicMock()
+        component_cfg.quant = None
+        component_cfg.compile = None
+        component_cfg.loader = MagicMock(task="feature-extraction", model_type="qwen3")
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text("{}")
+
+        with (
+            patch(
+                "winml.modelkit.commands.build._load_config",
+                return_value=outer_cfg,
+            ),
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch(
+                "winml.modelkit.config.generate_build_config",
+                return_value=component_cfg,
+            ),
+            patch("winml.modelkit.commands.build._run_single_build") as mock_build,
+            patch(
+                "winml.modelkit.commands.build._validate_loader_tasks_for_model",
+                return_value=None,
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-c",
+                    str(config_path),
+                    "-m",
+                    "Qwen/Qwen3-0.6B",
+                    "-o",
+                    str(output_dir),
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        built_config = mock_build.call_args.kwargs["config"]
+        # Outer quant settings carried over (not None), deep-copied (not the same
+        # object as the outer config's quant).
+        assert built_config.quant is not None
+        assert built_config.quant.samples == 42
+        assert built_config.quant is not outer_cfg.quant
+        # Calibration identity points at *this* sub-model, not the outer model,
+        # even though the component config produced no quant of its own.
+        assert built_config.quant.task == "feature-extraction"
+        assert built_config.quant.model_id == "Qwen/Qwen3-0.6B"
+        assert built_config.quant.model_type == "qwen3"
+        # Outer compile carried over too, deep-copied.
+        assert built_config.compile is not None
+        assert built_config.compile is not outer_cfg.compile

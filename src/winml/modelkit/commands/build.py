@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import time
@@ -55,6 +56,30 @@ console = get_console()
 # =============================================================================
 # CLI HELPERS
 # =============================================================================
+
+
+def _warn_partial_composite_build(completed: list[str], output_dir: Path) -> None:
+    """Warn that a composite build failed mid-run, listing completed components.
+
+    We deliberately do NOT delete anything: the targets may be pre-existing
+    artifacts the user chose to ``--rebuild``, and a component can fail before
+    writing anything, so auto-deleting could destroy artifacts this run never
+    actually wrote. Instead we surface the completed sub-models and let the user
+    decide whether to keep or remove the partial build.
+    """
+    if not completed:
+        return
+    console.print(
+        "\n[yellow]Warning:[/yellow] composite build did not finish; "
+        f"{len(completed)} sub-model(s) were built by this run:"
+    )
+    for name in completed:
+        console.print(f"  • {name} ({output_dir / f'{name}_model.onnx'})")
+    console.print(
+        "[yellow]The build did not complete for every sub-model.[/yellow] "
+        "Review these artifacts and remove them if you don't want to keep the "
+        "partial build."
+    )
 
 
 def _load_config(
@@ -820,19 +845,150 @@ def build(
                     raise click.UsageError("--output-dir is required when --use-cache is not set.")
                 resolved_dir = Path(output_dir)
 
-            _run_single_build(
-                config=config,
-                config_file=config_file,
-                model_id=model,
-                is_onnx=model_is_onnx,
-                resolved_dir=resolved_dir,
-                rebuild=rebuild,
-                cache_key=cache_key,
-                ep=ep,
-                device=device,
-                extra_kwargs=extra_kwargs,
-                preloaded_hf_config=preloaded_hf_config,
-            )
+            # Detect composite pipeline (registry-driven, same pattern as
+            # export command). A composite fans out into one build per
+            # sub-component; a plain model builds to the single output dir.
+            components = None
+            if model and not model_is_onnx:
+                try:
+                    from ..loader.resolution import resolve_composite_components
+
+                    # Only forward an explicit task from a config file. For an
+                    # auto-generated config (no -c), loader.task is the
+                    # auto-detected task (e.g. "text2text-generation" for
+                    # seq2seq), which would take the resolver's explicit-task
+                    # path and skip the seq2seq composite bridge. Pass task=None
+                    # in that case so detection applies the bridge, while still
+                    # forwarding model_type for explicit overrides.
+                    task_hint = config.loader.task if (config_file and config.loader) else None
+                    model_type_hint = config.loader.model_type if config.loader else None
+                    components = resolve_composite_components(
+                        model,
+                        task=task_hint,
+                        model_type=model_type_hint,
+                        trust_remote_code=trust_remote_code,
+                    )
+                except click.ClickException:
+                    raise
+                except ValueError as e:
+                    raise click.UsageError(str(e)) from e
+                except RuntimeError:
+                    raise
+                except OSError as e:
+                    logger.debug("Composite detection unavailable (config not resolvable): %s", e)
+                except Exception as e:
+                    raise click.ClickException(
+                        f"Composite model detection failed unexpectedly: {e}"
+                    ) from e
+
+            if components:
+                if use_cache:
+                    raise click.UsageError(
+                        "--use-cache is not supported for composite models. "
+                        "Use --output-dir instead."
+                    )
+                console.print(
+                    f"\n[dim]Composite model: {len(components)} sub-models "
+                    f"({', '.join(components)})[/dim]"
+                )
+
+                completed: list[str] = []
+                try:
+                    for name, component_task in components.items():
+                        console.print(
+                            f"\n[bold blue]Sub-model:[/bold blue] {name} (task={component_task})"
+                        )
+
+                        from ..config import generate_build_config as gen_cfg
+
+                        component_config = gen_cfg(
+                            model,
+                            task=component_task,
+                            trust_remote_code=trust_remote_code,
+                            device=device,
+                            precision=precision,
+                            ep=ep,
+                        )
+                        # Carry over quant/compile settings from the outer config
+                        # (already patched by CLI overrides like --no-quant /
+                        # --no-compile). Deep-copy to avoid sharing mutable state
+                        # across sub-builds, and preserve the component-specific
+                        # quant metadata (task, model_id, model_type) that
+                        # generate_build_config populated for the sub-model.
+                        if config.quant is None:
+                            component_config.quant = None
+                        else:
+                            # Overlay the outer quant settings, but always keep
+                            # the calibration identity (task / model_id /
+                            # model_type) pointed at *this* sub-model. Prefer the
+                            # component's own generated quant metadata; if the
+                            # component config produced no quant, derive it from
+                            # the sub-model's task, the model arg, and the
+                            # component loader so calibration runs against the
+                            # sub-model rather than the outer model.
+                            component_loader = component_config.loader
+                            if component_config.quant is not None:
+                                saved_meta = (
+                                    component_config.quant.task,
+                                    component_config.quant.model_id,
+                                    component_config.quant.model_type,
+                                )
+                            else:
+                                saved_meta = (
+                                    component_task,
+                                    model,
+                                    component_loader.model_type if component_loader else None,
+                                )
+                            component_config.quant = copy.deepcopy(config.quant)
+                            (
+                                component_config.quant.task,
+                                component_config.quant.model_id,
+                                component_config.quant.model_type,
+                            ) = saved_meta
+
+                        if config.compile is None:
+                            component_config.compile = None
+                        else:
+                            component_config.compile = copy.deepcopy(config.compile)
+
+                        try:
+                            component_config.validate()
+                        except ValueError as e:
+                            raise click.UsageError(
+                                f"Config validation failed for sub-model '{name}': {e}"
+                            ) from e
+
+                        _run_single_build(
+                            config=component_config,
+                            config_file=None,
+                            model_id=model,
+                            is_onnx=False,
+                            resolved_dir=resolved_dir,
+                            rebuild=rebuild,
+                            cache_key=name,
+                            ep=ep,
+                            device=device,
+                            extra_kwargs=dict(extra_kwargs),
+                            preloaded_hf_config=preloaded_hf_config,
+                        )
+                        completed.append(name)
+                except BaseException:
+                    _warn_partial_composite_build(completed, resolved_dir)
+                    raise
+            else:
+                _run_single_build(
+                    config=config,
+                    config_file=config_file,
+                    model_id=model,
+                    is_onnx=model_is_onnx,
+                    resolved_dir=resolved_dir,
+                    rebuild=rebuild,
+                    cache_key=cache_key,
+                    ep=ep,
+                    device=device,
+                    extra_kwargs=extra_kwargs,
+                    preloaded_hf_config=preloaded_hf_config,
+                )
 
     except click.UsageError:
         raise  # Let click handle its own errors
@@ -958,7 +1114,8 @@ def _run_single_build(
             )
 
         elapsed = time.monotonic() - start_time
-        final_path = resolved_dir / "model.onnx"
+        final_name = f"{cache_key}_model.onnx" if cache_key else "model.onnx"
+        final_path = resolved_dir / final_name
         if final_path.exists() and stage_timings:
             config_json = resolved_dir / (
                 f"{cache_key}_winml_build_config.json" if cache_key else "winml_build_config.json"
