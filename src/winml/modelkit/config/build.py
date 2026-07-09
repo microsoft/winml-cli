@@ -756,7 +756,7 @@ def generate_hf_build_config(
 
         # Extract input shapes and dtypes from export_config -- NO HARDCODED VALUES
         input_tensors = [t for t in (export_config.input_tensors or []) if t.shape is not None]
-        input_shapes = [t._concrete_shape() for t in input_tensors]
+        input_shapes = [t.concrete_shape() for t in input_tensors]
         input_dtypes = [t.dtype for t in input_tensors]
         if not input_shapes:
             raise ValueError(

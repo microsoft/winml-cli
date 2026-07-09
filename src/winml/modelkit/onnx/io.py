@@ -100,7 +100,7 @@ class InputTensorSpec:
         }
         torch_dtype = dtype_map.get(self.dtype or "float32", torch.float32)
 
-        concrete_shape = self._concrete_shape()
+        concrete_shape = self.concrete_shape()
 
         if self.value_range is not None:
             lo, hi = self.value_range
@@ -113,7 +113,7 @@ class InputTensorSpec:
             return torch.rand(concrete_shape, dtype=torch_dtype)
         return torch.ones(concrete_shape, dtype=torch_dtype)
 
-    def _concrete_shape(self) -> tuple[int, ...]:
+    def concrete_shape(self) -> tuple[int, ...]:
         """Return a torch-compatible dummy shape, replacing symbolic dims with 1."""
         if self.shape is None:
             raise ValueError(f"Cannot create tensor: shape is None for '{self.name}'")

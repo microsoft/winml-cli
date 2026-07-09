@@ -313,12 +313,8 @@ def export(
     # Load export configuration from JSON file if provided (task-independent).
     export_config_dict: dict = {}
     if export_config:
-        try:
-            export_config_dict = _load_json_object(export_config, "--export-config")
-            console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
-        except Exception as e:
-            console.print(f"[bold red]Failed to load export config:[/bold red] {e}")
-            raise click.ClickException(f"Failed to load export config: {e}") from e
+        export_config_dict = _load_json_object(export_config, "--export-config")
+        console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
 
     # Load shape overrides from JSON (task-independent).
     shape_overrides = None

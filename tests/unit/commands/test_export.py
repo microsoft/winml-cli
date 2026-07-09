@@ -122,8 +122,7 @@ class TestExportCLIInterface:
                 args = [str(specs_file) if arg == "inputs.json" else arg for arg in args]
                 args = [str(config_file) if arg == "config.json" else arg for arg in args]
                 args = [
-                    str(dynamic_axes_file) if arg == "dynamic_axes.json" else arg
-                    for arg in args
+                    str(dynamic_axes_file) if arg == "dynamic_axes.json" else arg for arg in args
                 ]
                 args = [str(tmp_path / arg) if arg.endswith(".onnx") else arg for arg in args]
                 saw_input_specs_example |= str(specs_file) in args
@@ -565,7 +564,7 @@ class TestExportConfigFiles:
         )
 
         assert result.exit_code != 0
-        assert "Failed to load export config" in result.output
+        assert "Invalid JSON in --export-config" in result.output
 
 
 class TestExportWarnings:
