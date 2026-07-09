@@ -147,7 +147,7 @@ class WinMLManifest:
 
     def save(self, path: Path) -> None:
         """Write the manifest as indented JSON to *path*."""
-        path.write_text(json.dumps(self.to_dict(), indent=2))
+        path.write_text(json.dumps(self.to_dict(), indent=2, default=str))
         logger.debug("Manifest persisted: %s", path)
 
     # ------------------------------------------------------------------
