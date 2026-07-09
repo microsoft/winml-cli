@@ -188,6 +188,15 @@ from .decoder_only import WinMLDecoderOnlyModel
 from .depth_estimation import WinMLModelForDepthEstimation
 from .encoder_decoder import WinMLEncoderDecoderModel
 from .feature_extraction import WinMLModelForFeatureExtraction
+from .genai_bundle import (
+    GENAI_BUNDLE_REGISTRY,
+    GenaiBundleRecipe,
+    GenaiCompanionSpec,
+    GenaiTransformerSpec,
+    build_genai_bundle,
+    register_genai_bundle,
+    resolve_genai_bundle,
+)
 from .image_classification import WinMLModelForImageClassification
 from .image_segmentation import (
     ImageSegmentationOutput,
@@ -206,8 +215,12 @@ from .zero_shot_image_classification import WinMLModelForZeroShotImageClassifica
 
 __all__ = [
     "COMPOSITE_MODEL_REGISTRY",
+    "GENAI_BUNDLE_REGISTRY",
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
+    "GenaiBundleRecipe",
+    "GenaiCompanionSpec",
+    "GenaiTransformerSpec",
     "ImageSegmentationOutput",
     "WinMLCache",
     "WinMLCompositeModel",
@@ -225,8 +238,11 @@ __all__ = [
     "WinMLPreTrainedModel",
     "WinMLSlidingWindowCache",
     "WinMLStaticCache",
+    "build_genai_bundle",
     "get_supported_tasks",
     "get_winml_class",
     "register_composite_model",
+    "register_genai_bundle",
     "register_specialization",
+    "resolve_genai_bundle",
 ]

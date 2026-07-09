@@ -441,6 +441,83 @@ def _validate_loader_tasks_for_model(
     return hf_config
 
 
+def _maybe_build_genai_bundle(
+    ctx: click.Context,
+    *,
+    model: str | None,
+    model_is_onnx: bool,
+    config_or_configs: Any,
+    preloaded_hf_config: Any | None,
+    output_dir: str | None,
+    use_cache: bool,
+    device: str,
+    ep: EPNameOrAlias | None,
+    precision: str | None,
+    rebuild: bool,
+) -> bool:
+    """Route a registered decoder-LLM to the genai-bundle builder, if applicable.
+
+    Returns ``True`` when this call fully handled the build (an
+    onnxruntime-genai bundle was produced) and the caller should stop; ``False``
+    to fall through to the normal single/composite pipeline.
+
+    The trigger is intentionally narrow and explicit (see the call site): a
+    single HuggingFace model whose ``model_type`` has a registered
+    :class:`~winml.modelkit.models.winml.genai_bundle.GenaiBundleRecipe`, built
+    with ``--device npu`` and ``--ep qnn`` *both passed on the command line*.
+    Nothing here is architecture-specific; the recipe carries every model detail.
+    """
+    if (
+        not model
+        or model_is_onnx
+        or isinstance(config_or_configs, list)
+        or not cli_utils.is_cli_provided(ctx, "device")
+        or not cli_utils.is_cli_provided(ctx, "ep")
+        or device.lower() != "npu"
+    ):
+        return False
+
+    from ..utils.constants import normalize_ep_name
+
+    if normalize_ep_name(ep) != "QNNExecutionProvider":
+        return False
+
+    from ..models.winml import build_genai_bundle, resolve_genai_bundle
+
+    single_config = config_or_configs
+    model_type = getattr(preloaded_hf_config, "model_type", None)
+    if not model_type and single_config.loader is not None:
+        model_type = single_config.loader.model_type
+    recipe = resolve_genai_bundle(model_type)
+    if recipe is None:
+        return False
+
+    if use_cache:
+        raise click.UsageError(
+            "genai bundle output is a directory; pass --output-dir, not --use-cache."
+        )
+    if not output_dir:
+        raise click.UsageError("--output-dir is required for a genai bundle build.")
+
+    bundle_dir = Path(output_dir)
+    override_precision = precision if cli_utils.is_cli_provided(ctx, "precision") else None
+    console.print(f"\n[bold blue]Genai bundle[/bold blue] ({model_type}): {model} -> {bundle_dir}")
+    config_path = build_genai_bundle(
+        model,
+        bundle_dir,
+        recipe,
+        ep="qnn",
+        device="npu",
+        precision=override_precision,
+        force_rebuild=rebuild,
+        emit=lambda msg: console.print(msg, markup=False),
+    )
+    console.print(
+        f"\n[green]\u2713[/green] genai bundle ready: {bundle_dir} ([dim]{config_path.name}[/dim])"
+    )
+    return True
+
+
 # =============================================================================
 # CLI COMMAND
 # =============================================================================
@@ -743,6 +820,31 @@ def build(
         # on the key being present, matching the module-mode path which passes
         # allow_unsupported_nodes explicitly regardless of its value.
         extra_kwargs["allow_unsupported_nodes"] = allow_unsupported_nodes
+
+        # ---- GENAI BUNDLE FAST PATH ----
+        # A registered decoder-LLM family targeted *explicitly* at the NPU HTP
+        # (``--device npu --ep qnn``) emits a full onnxruntime-genai bundle
+        # (ctx/iter/embeddings/lm_head + genai_config.json + tokenizer) in one
+        # command, instead of the stock per-model ONNX output. The switch is
+        # data-driven (the genai-bundle recipe registry) and architecture-
+        # agnostic here -- every model-specific value lives in the recipe. Both
+        # flags must be passed explicitly, so an auto-resolved npu/qnn target and
+        # every other device/ep combination keep today's behavior unchanged
+        # (including this family's stock composite build).
+        if _maybe_build_genai_bundle(
+            ctx,
+            model=model,
+            model_is_onnx=model_is_onnx,
+            config_or_configs=config_or_configs,
+            preloaded_hf_config=preloaded_hf_config,
+            output_dir=output_dir,
+            use_cache=use_cache,
+            device=device,
+            ep=ep,
+            precision=precision,
+            rebuild=rebuild,
+        ):
+            return
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----

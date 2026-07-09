@@ -28,73 +28,18 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import collections
 import sys
 import time
 from pathlib import Path
 
-import onnx
-
-from winml.modelkit.models.auto import WinMLAutoModel
-from winml.modelkit.models.hf.qwen3.qwen_transformer_only import (
-    WinMLQwen3TransformerOnlyModel,
-)
-from winml.modelkit.onnx import strip_node_attrs
+from winml.modelkit.models.hf.qwen3.genai import QWEN3_GENAI_BUNDLE_RECIPE
+from winml.modelkit.models.winml import build_genai_bundle
 
 
-_DEVICE_TO_EP = {
-    "cpu": "CPUExecutionProvider",
-    "npu": "QNNExecutionProvider",
-    "gpu": "DmlExecutionProvider",
-}
-
-# Build specs for the two CPU-side companion models.
-_COMPANION_COMPONENTS: dict[str, dict[str, str]] = {
-    "embeddings": {"model_type": "qwen3_embeddings_only", "precision": "fp32"},
-    "lm_head": {"model_type": "qwen3_lm_head_only", "precision": "w4a32"},
-}
+_DEVICES = ("cpu", "gpu", "npu")
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_BUNDLE = _REPO_ROOT / "out" / "bundle"
-
-# Attributes that com.microsoft::GroupQueryAttention requires for Qwen3.
-# Any other attributes (e.g. k_quant_type, local_window_size, qk_output,
-# smooth_softmax, v_quant_type) are default-valued extras injected by the
-# TorchScript exporter from the ORT op schema; strip them so the bundle
-# matches the expected minimal attribute set.
-_GQA_KEEP_ATTRS = frozenset({"do_rotary", "kv_num_heads", "num_heads"})
-
-
-def _strip_gqa_default_attrs(model: onnx.ModelProto) -> onnx.ModelProto:
-    """Remove exporter-injected default attributes from GQA nodes."""
-    return strip_node_attrs(model, "GroupQueryAttention", _GQA_KEEP_ATTRS, domain="com.microsoft")
-
-
-# ---------------------------------------------------------------------------
-# Helpers shared between sub-commands
-# ---------------------------------------------------------------------------
-
-
-def _node_summary(path: str | Path) -> str:
-    """One-line op-type summary of an ONNX graph (loads shape metadata only)."""
-    model = onnx.load(str(path), load_external_data=False)
-    counts = collections.Counter(n.op_type for n in model.graph.node)
-    gqa_io: set[str] = set()
-    for node in model.graph.node:
-        if node.op_type == "GroupQueryAttention":
-            gqa_io.update(node.input)
-            gqa_io.update(node.output)
-    qdq_touching_gqa = sum(
-        1
-        for n in model.graph.node
-        if n.op_type in ("QuantizeLinear", "DequantizeLinear")
-        and (set(n.input) & gqa_io or set(n.output) & gqa_io)
-    )
-    return (
-        f"Gather={counts['Gather']} MatMulNBits={counts['MatMulNBits']} "
-        f"Q={counts['QuantizeLinear']} DQ={counts['DequantizeLinear']} "
-        f"GQA={counts['GroupQueryAttention']} QDQ@GQA={qdq_touching_gqa}"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +62,7 @@ def _add_export_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore
     p.add_argument(
         "--device",
         default="npu",
-        choices=sorted(_DEVICE_TO_EP),
+        choices=_DEVICES,
         help="Target device for transformer stages. Default: npu.",
     )
     p.add_argument("--precision", default="w8a16", help="Transformer precision. Default: w8a16.")
@@ -159,87 +104,35 @@ def _add_export_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
-    """Build all components and write the genai bundle."""
-    from winml.modelkit.models.hf.qwen3.genai import write_genai_bundle
+    """Build all components and write the genai bundle.
+
+    Thin wrapper over the shared, architecture-agnostic
+    :func:`~winml.modelkit.models.winml.build_genai_bundle` orchestrator driven
+    by the registered Qwen3 recipe. The same bundle is produced by
+    ``winml build -m <qwen3> -o <dir> --device npu --ep qnn``.
+    """
+    companion_overrides: dict[str, Path] = {}
+    if args.embeddings is not None:
+        companion_overrides["embeddings"] = args.embeddings
+    if args.lm_head is not None:
+        companion_overrides["lm_head"] = args.lm_head
 
     t0 = time.monotonic()
-
-    # --- Transformer (ctx + iter) ---
-    print(f"\n=== building transformer stages (device={args.device}) ===")
-    transformer = WinMLQwen3TransformerOnlyModel.from_pretrained(
+    config_path = build_genai_bundle(
         args.model_id,
+        args.output,
+        QWEN3_GENAI_BUNDLE_RECIPE,
+        ep="qnn" if args.device == "npu" else args.device,
         device=args.device,
         precision=args.precision,
-        ep=_DEVICE_TO_EP[args.device],
-        no_compile=True,
-        use_cache=True,
-        force_rebuild=args.force_rebuild,
-        sub_model_kwargs={
-            "decoder_prefill": {
-                "shape_config": {
-                    "max_cache_len": args.max_cache_len,
-                    "seq_len": args.prefill_seq_len,
-                }
-            },
-            "decoder_gen": {"shape_config": {"max_cache_len": args.max_cache_len, "seq_len": 1}},
-        },
-    )
-    prefill_path = Path(transformer.sub_models["decoder_prefill"].onnx_path)
-    decode_path = Path(transformer.sub_models["decoder_gen"].onnx_path)
-    for name, path in (("ctx", prefill_path), ("iter", decode_path)):
-        print(f"  [{name}] {path}")
-        print(f"        {_node_summary(path)}")
-
-    # --- Companion models (embeddings + lm_head) ---
-    embeddings_src = args.embeddings
-    lm_head_src = args.lm_head
-
-    for key, override in (("embeddings", embeddings_src), ("lm_head", lm_head_src)):
-        if override is not None:
-            print(f"\n=== using provided {key}: {override} ===")
-            continue
-        spec = _COMPANION_COMPONENTS[key]
-        print(
-            f"\n=== building {key} "
-            f"(model_type={spec['model_type']}, precision={spec['precision']}) ==="
-        )
-        companion = WinMLAutoModel.from_pretrained(
-            args.model_id,
-            task="feature-extraction",
-            model_type=spec["model_type"],
-            precision=spec["precision"],
-            device="cpu",
-            ep=_DEVICE_TO_EP["cpu"],
-            no_compile=True,
-            use_cache=True,
-            force_rebuild=args.force_rebuild,
-        )
-        companion_path = Path(companion.onnx_path)
-        print(f"  [{key}] {companion_path}")
-        print(f"        {_node_summary(companion_path)}")
-        if key == "embeddings":
-            embeddings_src = companion_path
-        else:
-            lm_head_src = companion_path
-
-    # --- Assemble bundle ---
-    print(f"\n=== assembling bundle -> {args.output} ===")
-    config_path = write_genai_bundle(
-        args.output,
-        context_onnx=prefill_path,
-        iterator_onnx=decode_path,
-        model_id=args.model_id,
         max_cache_len=args.max_cache_len,
         prefill_seq_len=args.prefill_seq_len,
-        embeddings_src=embeddings_src,
-        lm_head_src=lm_head_src,
-        ep="qnn" if args.device == "npu" else args.device,
-        transformer_onnx_passes=[_strip_gqa_default_attrs],
+        companion_overrides=companion_overrides or None,
+        force_rebuild=args.force_rebuild,
+        emit=print,
     )
-    print(f"  genai_config.json -> {config_path}")
-
     elapsed = time.monotonic() - t0
-    print(f"\n=== export complete in {elapsed:.1f}s ===")
+    print(f"\n=== export complete in {elapsed:.1f}s: {config_path} ===")
     return 0
 
 
