@@ -64,17 +64,6 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
             onnx_path.unlink()
 
 
-def _cleanup_partial_composite(written: list[Path]) -> None:
-    """Remove sub-model ONNX outputs written by a composite export that failed mid-run.
-
-    Best-effort: a failed run should not leave a half-exported composite on disk.
-    Each path is deleted together with its external-data sidecars.
-    """
-    for onnx_path in written:
-        _delete_onnx_with_external_data(onnx_path)
-        logger.debug("Cleaned up partial composite sub-model: %s", onnx_path)
-
-
 def _warn_partial_composite(completed: list[Path]) -> None:
     """Warn that a composite export failed mid-run, listing what was written.
 
@@ -476,7 +465,7 @@ def export(
         # For composite exports each sub-model gets a prefixed manifest
         # (e.g. model_decoder_winml_manifest.json); single exports get
         # a plain winml_manifest.json.
-        from ..utils.manifest import ManifestStage, WinMLManifest
+        from ..utils import ManifestStage, WinMLManifest
 
         elapsed = time.monotonic() - start_time
         manifest = WinMLManifest(

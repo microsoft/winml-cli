@@ -276,7 +276,7 @@ def build_onnx_model(
     # =========================================================================
     # [5] BUILD MANIFEST — Machine-readable build provenance
     # =========================================================================
-    from ..utils.manifest import ManifestStage, WinMLManifest
+    from ..utils import ManifestStage, WinMLManifest
 
     manifest_stages: list[ManifestStage] = []
     stage_filenames = {

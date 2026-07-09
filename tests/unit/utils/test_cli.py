@@ -442,9 +442,9 @@ class TestClassifyModelInput:
         assert not result.is_hf_folder
 
     def test_winml_build_folder(self, tmp_path: Path) -> None:
-        """onnx + build_manifest.json -> winml cli build output."""
+        """onnx + winml_manifest.json -> winml cli build output."""
         (tmp_path / "model.onnx").write_bytes(b"\x00")
-        (tmp_path / "build_manifest.json").write_text("{}")
+        (tmp_path / "winml_manifest.json").write_text("{}")
         result = classify_model_input(str(tmp_path))
         assert result.kind is ModelInputKind.FOLDER
         assert result.folder_has_onnx
@@ -453,14 +453,14 @@ class TestClassifyModelInput:
     def test_winml_build_folder_cache_prefixed(self, tmp_path: Path) -> None:
         """Cache-key-prefixed artifact names are recognized too."""
         (tmp_path / "abc123_model.onnx").write_bytes(b"\x00")
-        (tmp_path / "abc123_build_manifest.json").write_text("{}")
+        (tmp_path / "abc123_winml_manifest.json").write_text("{}")
         result = classify_model_input(str(tmp_path))
         assert result.folder_has_onnx
         assert result.is_winml_cli_folder
 
     def test_manifest_without_onnx_is_not_winml_folder(self, tmp_path: Path) -> None:
         """A manifest with no onnx (partial build) is not a winml build dir."""
-        (tmp_path / "build_manifest.json").write_text("{}")
+        (tmp_path / "winml_manifest.json").write_text("{}")
         result = classify_model_input(str(tmp_path))
         assert not result.folder_has_onnx
         assert not result.is_winml_cli_folder
@@ -468,7 +468,7 @@ class TestClassifyModelInput:
     def test_winml_folder_can_also_be_hf_folder(self, tmp_path: Path) -> None:
         """Build dirs often carry a copied config.json; flags are independent."""
         (tmp_path / "model.onnx").write_bytes(b"\x00")
-        (tmp_path / "build_manifest.json").write_text("{}")
+        (tmp_path / "winml_manifest.json").write_text("{}")
         (tmp_path / "config.json").write_text("{}")
         result = classify_model_input(str(tmp_path))
         assert result.is_winml_cli_folder

@@ -36,6 +36,31 @@ MANIFEST_FILENAME = "winml_manifest.json"
 SCHEMA_VERSION = 1
 
 
+def _sanitize_value(value: Any) -> Any:
+    """Coerce non-JSON-native types (``Path``, etc.) to JSON-safe primitives.
+
+    This replaces the blanket ``default=str`` in ``json.dumps`` so that
+    numeric metrics are never accidentally serialised as strings.
+    """
+    from pathlib import PurePath
+
+    if isinstance(value, PurePath):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _sanitize_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_value(v) for v in value]
+    return value
+
+
+def _sanitize_stage_dict(stage: dict[str, Any]) -> dict[str, Any]:
+    """Compact a stage dict: drop ``None``, merge ``extras``, sanitize values."""
+    extras = stage.pop("extras", {})
+    d = {k: _sanitize_value(v) for k, v in stage.items() if v is not None}
+    d.update({k: _sanitize_value(v) for k, v in extras.items()})
+    return d
+
+
 @dataclass
 class ManifestStage:
     """One pipeline stage entry inside the manifest."""
@@ -50,6 +75,8 @@ class ManifestStage:
     nodes_skipped: int | None = None
     calibration_time_seconds: float | None = None
     qdq_insertion_time_seconds: float | None = None
+
+    extras: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -111,18 +138,16 @@ class WinMLManifest:
         raw = asdict(self)
         extras = raw.pop("extras", {})
         # Drop None values for a compact JSON representation.
-        d.update({k: v for k, v in raw.items() if v is not None})
-        # Stage entries: also drop None fields inside each stage.
+        d.update({k: _sanitize_value(v) for k, v in raw.items() if v is not None})
+        # Stage entries: also drop None fields inside each stage, merge extras.
         if "stages" in d:
-            d["stages"] = [
-                {sk: sv for sk, sv in s.items() if sv is not None} for s in d["stages"]
-            ]
-        d.update(extras)
+            d["stages"] = [_sanitize_stage_dict(s) for s in d["stages"]]
+        d.update({k: _sanitize_value(v) for k, v in extras.items()})
         return d
 
     def save(self, path: Path) -> None:
         """Write the manifest as indented JSON to *path*."""
-        path.write_text(json.dumps(self.to_dict(), indent=2, default=str))
+        path.write_text(json.dumps(self.to_dict(), indent=2))
         logger.debug("Manifest persisted: %s", path)
 
     # ------------------------------------------------------------------
@@ -154,10 +179,12 @@ class WinMLManifest:
         data.pop("schema_version", None)
 
         stages_raw = data.pop("stages", [])
-        stages = [
-            ManifestStage(**{k: v for k, v in s.items() if k in ManifestStage.__dataclass_fields__})
-            for s in stages_raw
-        ]
+        stage_known = set(ManifestStage.__dataclass_fields__) - {"extras"}
+        stages = []
+        for s in stages_raw:
+            s = dict(s)  # shallow copy
+            known_stage = {k: s.pop(k) for k in list(s) if k in stage_known}
+            stages.append(ManifestStage(**known_stage, extras=s))
 
         known = set(cls.__dataclass_fields__) - {"stages", "extras"}
         known_kwargs = {k: data.pop(k) for k in list(data) if k in known}

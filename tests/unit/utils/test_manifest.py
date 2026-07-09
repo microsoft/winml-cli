@@ -106,6 +106,26 @@ class TestWinMLManifestRoundTrip:
         m = WinMLManifest.from_dict(d)
         assert m.extras["future_field"] == "hello"
 
+    def test_forward_compat_stage_extras(self) -> None:
+        """Unknown keys inside a stage land in stage ``extras``."""
+        d = {
+            "schema_version": 1,
+            "source": "hf",
+            "final_artifact": "model.onnx",
+            "stages": [
+                {
+                    "name": "export",
+                    "status": "completed",
+                    "future_metric": 42,
+                }
+            ],
+        }
+        m = WinMLManifest.from_dict(d)
+        assert m.stages[0].extras["future_metric"] == 42
+        # Round-trip preserves the extra
+        rt = WinMLManifest.from_dict(m.to_dict())
+        assert rt.stages[0].extras["future_metric"] == 42
+
 
 class TestWinMLManifestIO:
     """File I/O helpers."""
@@ -132,6 +152,19 @@ class TestWinMLManifestIO:
         assert loaded.source == "onnx"
         assert loaded.input_onnx == "input.onnx"
         assert len(loaded.stages) == 1
+
+    def test_save_sanitizes_path_objects(self, tmp_path: Path) -> None:
+        """Path values in export_stats are coerced to strings, not dropped."""
+        m = WinMLManifest(
+            source="export",
+            final_artifact="model.onnx",
+            export_stats={"output_path": tmp_path / "model.onnx", "count": 5},
+        )
+        path = tmp_path / MANIFEST_FILENAME
+        m.save(path)
+        data = json.loads(path.read_text())
+        assert isinstance(data["export_stats"]["output_path"], str)
+        assert data["export_stats"]["count"] == 5  # numeric stays numeric
 
     def test_manifest_path_for_plain(self, tmp_path: Path) -> None:
         p = WinMLManifest.manifest_path_for(tmp_path)

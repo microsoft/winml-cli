@@ -369,7 +369,7 @@ def build_hf_model(
     # =========================================================================
     # [7] BUILD MANIFEST — Machine-readable build provenance
     # =========================================================================
-    from ..utils.manifest import ManifestStage, WinMLManifest
+    from ..utils import ManifestStage, WinMLManifest
 
     manifest_stages: list[ManifestStage] = []
     stage_filenames = {
