@@ -719,6 +719,8 @@ def build(
             raise click.UsageError(f"Config validation failed: {e}") from e
 
         model_input = cli_utils.classify_model_input(model) if model else None
+        if model_input is not None and model_input.kind is cli_utils.ModelInputKind.INVALID:
+            raise click.UsageError(model_input.error or f"Invalid model input: {model}")
         model_is_onnx = (
             model_input is not None and model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
         )

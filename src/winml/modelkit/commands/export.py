@@ -218,6 +218,8 @@ def export(
     # HuggingFace model IDs — reject ONNX files and folders early.
     if model:
         model_input = cli_utils.classify_model_input(model)
+        if model_input.kind is cli_utils.ModelInputKind.INVALID:
+            raise click.UsageError(model_input.error or f"Invalid model input: {model}")
         if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not an ONNX file. "

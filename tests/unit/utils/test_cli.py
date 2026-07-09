@@ -388,23 +388,31 @@ class TestClassifyModelInput:
         result = classify_model_input("Qwen/Qwen2.5-0.5B")
         assert result.kind is ModelInputKind.HF_ID
 
-    def test_missing_onnx_file_raises(self) -> None:
-        """A non-existent .onnx path is an error, not an HF id (#553)."""
-        with pytest.raises(click.UsageError, match="ONNX file not found"):
-            classify_model_input("does_not_exist.onnx")
+    def test_missing_onnx_file_is_invalid(self) -> None:
+        """A non-existent .onnx path is invalid, not an HF id (#553)."""
+        result = classify_model_input("does_not_exist.onnx")
+        assert result.kind is ModelInputKind.INVALID
+        assert result.error is not None
+        assert "ONNX file not found" in result.error
 
-    def test_missing_path_shaped_value_raises(self) -> None:
-        with pytest.raises(click.UsageError, match="path does not exist"):
-            classify_model_input("./nope/model_dir")
+    def test_missing_path_shaped_value_is_invalid(self) -> None:
+        result = classify_model_input("./nope/model_dir")
+        assert result.kind is ModelInputKind.INVALID
+        assert result.error is not None
+        assert "does not exist" in result.error
 
-    def test_missing_nested_path_raises(self) -> None:
+    def test_missing_nested_path_is_invalid(self) -> None:
         """More than one slash marks a path, not an org/name HF id."""
-        with pytest.raises(click.UsageError, match="path does not exist"):
-            classify_model_input("a/b/c")
+        result = classify_model_input("a/b/c")
+        assert result.kind is ModelInputKind.INVALID
+        assert result.error is not None
+        assert "does not exist" in result.error
 
-    def test_invalid_hf_id_raises(self) -> None:
-        with pytest.raises(click.UsageError, match="not a valid HuggingFace"):
-            classify_model_input("has spaces")
+    def test_invalid_hf_id_is_invalid(self) -> None:
+        result = classify_model_input("has spaces")
+        assert result.kind is ModelInputKind.INVALID
+        assert result.error is not None
+        assert "not a valid HuggingFace" in result.error
 
     # --- existing file ------------------------------------------------------
 
@@ -415,11 +423,13 @@ class TestClassifyModelInput:
         assert result.kind is ModelInputKind.ONNX_FILE
         assert result.raw == str(onnx)
 
-    def test_existing_non_onnx_file_raises(self, tmp_path: Path) -> None:
+    def test_existing_non_onnx_file_is_invalid(self, tmp_path: Path) -> None:
         other = tmp_path / "weights.safetensors"
         other.write_bytes(b"\x00")
-        with pytest.raises(click.UsageError, match="Unsupported model file"):
-            classify_model_input(str(other))
+        result = classify_model_input(str(other))
+        assert result.kind is ModelInputKind.INVALID
+        assert result.error is not None
+        assert "Unsupported model file" in result.error
 
     # --- existing directory -------------------------------------------------
 

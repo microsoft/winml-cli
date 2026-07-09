@@ -2093,6 +2093,8 @@ def perf(
     # single-model path share one source of truth. Raises cleanly on a missing
     # .onnx or an invalid id instead of a confusing downstream config error.
     model_input = cli_utils.classify_model_input(hf_model)
+    if model_input.kind is cli_utils.ModelInputKind.INVALID:
+        raise click.UsageError(model_input.error or f"Invalid model input: {hf_model}")
     is_onnx = model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
 
     # =========================================================================

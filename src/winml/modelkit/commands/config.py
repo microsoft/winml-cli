@@ -267,6 +267,8 @@ def config(
 
         # ONNX file detection: generate simpler config without loader/export
         _model_input = cli_utils.classify_model_input(hf_model) if hf_model else None
+        if _model_input is not None and _model_input.kind is cli_utils.ModelInputKind.INVALID:
+            raise click.UsageError(_model_input.error or f"Invalid model input: {hf_model}")
         _hf_is_onnx = (
             _model_input is not None and _model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
         )

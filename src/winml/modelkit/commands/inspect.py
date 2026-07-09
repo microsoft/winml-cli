@@ -246,30 +246,31 @@ def inspect(
 
     # Classify the -m value once (existence-first). Rejects a missing path or
     # invalid id up front, and keeps dotted HF IDs (Phi-3.5, Qwen2.5, …) on the
-    # Hub path instead of misclassifying them as local files.
+    # Hub path instead of misclassifying them as local files. Hub-hosted ONNX
+    # (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``) is not downloadable
+    # for inspect (which targets HF architecture metadata, not raw ONNX
+    # graphs); the single classifier detects it without triggering a download,
+    # so we surface the same friendly error as for local .onnx inputs.
     if model:
-        try:
-            model_input = cli_utils.classify_model_input(model)
-        except click.UsageError as e:
-            raise click.ClickException(str(e)) from e
+        model_input = cli_utils.classify_model_input(model)
+        if model_input.kind is cli_utils.ModelInputKind.INVALID:
+            raise click.ClickException(model_input.error or f"Invalid model input: {model}")
         if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
+            # A local .onnx path: distinguish a missing file (friendly path
+            # error) from an existing one (inspection simply isn't wired up yet).
+            from pathlib import Path
+
+            if model_input.local_path and not Path(model_input.local_path).exists():
+                raise click.ClickException(f"ONNX file not found: {model}")
             raise click.ClickException(
                 "ONNX file inspection is not yet supported. "
                 "Use 'winml config -m model.onnx' for ONNX build config."
             )
-
-    # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
-    # is not downloadable for inspect (which targets HF architecture
-    # metadata, not raw ONNX graphs), but surfacing the same friendly
-    # error keeps the UX consistent with local .onnx inputs. Detect via
-    # the unified classifier so we don't trigger an unwanted download.
-    from ..utils.model_input import classify_model_input
-
-    if model and classify_model_input(model).kind == "hub_onnx":
-        raise click.ClickException(
-            "ONNX file inspection is not yet supported. "
-            "Use 'winml config -m model.onnx' for ONNX build config."
-        )
+        if model_input.kind is cli_utils.ModelInputKind.HUB_ONNX:
+            raise click.ClickException(
+                "ONNX file inspection is not yet supported. "
+                "Use 'winml config -m model.onnx' for ONNX build config."
+            )
 
     # Merge top-level -v/-q with subcommand-level flags so either position
     # works, once and up front. The banner decision below needs the merged
