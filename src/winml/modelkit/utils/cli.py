@@ -15,7 +15,6 @@ import click
 from rich.console import Console
 
 from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
-from .model_input import ModelInput as ModelInput
 from .model_input import ModelInputKind as ModelInputKind
 from .model_input import classify_model_input as classify_model_input
 
