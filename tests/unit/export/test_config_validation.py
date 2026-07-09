@@ -124,16 +124,16 @@ class TestInputTensorShapeMismatchWarning:
 
 
 # =============================================================================
-# 5. dynamic_axes with axis 0 logs QNN compatibility warning
+# 5. dynamic_axes with axis 0 logs QNN compatibility info
 # =============================================================================
 
 
 class TestDynamicAxesWarning:
-    """dynamic_axes with axis 0 warns about QNN compatibility."""
+    """dynamic_axes with axis 0 reports QNN compatibility context."""
 
-    def test_dynamic_batch_axis_warns(self, caplog):
+    def test_dynamic_batch_axis_logs_info(self, caplog):
         dynamic_axes = {"input_ids": {0: "batch_size"}}
-        with caplog.at_level(logging.WARNING, logger="winml.modelkit.export.config"):
+        with caplog.at_level(logging.INFO, logger="winml.modelkit.export.config"):
             WinMLExportConfig(dynamic_axes=dynamic_axes)
         assert "Dynamic batch detected for input 'input_ids'" in caplog.text
         assert "QNN optimizations" in caplog.text
@@ -144,12 +144,12 @@ class TestDynamicAxesWarning:
             WinMLExportConfig(dynamic_axes=dynamic_axes)
         assert "Dynamic batch detected" not in caplog.text
 
-    def test_multiple_inputs_dynamic_batch(self, caplog):
+    def test_multiple_inputs_dynamic_batch_logs_info(self, caplog):
         dynamic_axes = {
             "input_ids": {0: "batch", 1: "seq"},
             "attention_mask": {0: "batch"},
         }
-        with caplog.at_level(logging.WARNING, logger="winml.modelkit.export.config"):
+        with caplog.at_level(logging.INFO, logger="winml.modelkit.export.config"):
             WinMLExportConfig(dynamic_axes=dynamic_axes)
         assert "input_ids" in caplog.text
         assert "attention_mask" in caplog.text
@@ -170,6 +170,14 @@ class TestDynamicAxesWarning:
             ],
         )
         assert cfg.dynamic_axes == {"input_ids": {0: "batch", 1: "sequence"}}
+
+    def test_empty_symbolic_input_shape_raises(self):
+        with pytest.raises(ValueError, match="non-empty symbolic dimension name"):
+            WinMLExportConfig(
+                input_tensors=[
+                    InputTensorSpec(name="input_ids", dtype="int64", shape=("", 128)),
+                ],
+            )
 
     def test_symbolic_input_shape_conflict_raises(self):
         with pytest.raises(ValueError, match="Conflicting dynamic axis"):

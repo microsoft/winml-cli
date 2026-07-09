@@ -36,18 +36,14 @@ def _normalize_dynamic_axes(dynamic_axes: Any) -> DynamicAxes | None:
     if dynamic_axes is None:
         return None
     if not isinstance(dynamic_axes, dict):
-        raise TypeError(
-            f"dynamic_axes must be a JSON object, got {type(dynamic_axes).__name__}"
-        )
+        raise TypeError(f"dynamic_axes must be a JSON object, got {type(dynamic_axes).__name__}")
 
     normalized: DynamicAxes = {}
     for tensor_name, axes in dynamic_axes.items():
         if not isinstance(tensor_name, str) or not tensor_name:
             raise ValueError("dynamic_axes tensor names must be non-empty strings")
         if not isinstance(axes, dict):
-            raise TypeError(
-                f"dynamic_axes['{tensor_name}'] must be an object mapping axis to name"
-            )
+            raise TypeError(f"dynamic_axes['{tensor_name}'] must be an object mapping axis to name")
 
         normalized_axes: dict[int, str] = {}
         for axis, dim_name in axes.items():
@@ -83,11 +79,16 @@ def _dynamic_axes_from_input_tensors(
     for spec in input_tensors:
         if not spec.name or not spec.shape:
             continue
-        axes = {
-            axis: dim_name
-            for axis, dim_name in enumerate(spec.shape)
-            if isinstance(dim_name, str)
-        }
+        axes: dict[int, str] = {}
+        for axis, dim_name in enumerate(spec.shape):
+            if not isinstance(dim_name, str):
+                continue
+            if not dim_name:
+                raise ValueError(
+                    f"Input tensor '{spec.name}' shape axis {axis} must use a "
+                    "non-empty symbolic dimension name"
+                )
+            axes[axis] = dim_name
         if axes:
             dynamic_axes[spec.name] = axes
 
@@ -240,11 +241,11 @@ class WinMLExportConfig:
                         self.batch_size,
                     )
 
-        # Warn if dynamic batch is detected
+        # Report dynamic batch when explicitly configured.
         if self.dynamic_axes:
             for input_name, axes in self.dynamic_axes.items():
                 if 0 in axes:  # Batch dimension is dynamic
-                    logger.warning(
+                    logger.info(
                         "Dynamic batch detected for input '%s'. "
                         "QNN optimizations such as MatMulAddFusion may require static batch.",
                         input_name,

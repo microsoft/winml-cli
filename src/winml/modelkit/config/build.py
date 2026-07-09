@@ -756,9 +756,7 @@ def generate_hf_build_config(
 
         # Extract input shapes and dtypes from export_config -- NO HARDCODED VALUES
         input_tensors = [t for t in (export_config.input_tensors or []) if t.shape is not None]
-        input_shapes = [
-            _concrete_input_shape(t.shape) for t in input_tensors if t.shape is not None
-        ]
+        input_shapes = [t._concrete_shape() for t in input_tensors]
         input_dtypes = [t.dtype for t in input_tensors]
         if not input_shapes:
             raise ValueError(
@@ -1258,11 +1256,6 @@ def _find_submodules_by_class(
         )
 
     return results
-
-
-def _concrete_input_shape(shape: tuple[int | str, ...]) -> tuple[int, ...]:
-    """Return a torch-compatible shape, replacing symbolic dimensions with 1."""
-    return tuple(1 if isinstance(dim, str) else dim for dim in shape)
 
 
 def _build_dummy_inputs(
