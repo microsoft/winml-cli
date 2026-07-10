@@ -14,10 +14,8 @@ import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.utils.cli import (
-    ModelInputKind,
     analyze_option,
     build_pipeline_extra_kwargs,
-    classify_model_input,
     guard_output,
     ignored_build_flags_warning,
     max_optim_iterations_option,
@@ -28,6 +26,7 @@ from winml.modelkit.utils.cli import (
     precision_option,
     quant_option,
 )
+from winml.modelkit.utils.model_input import ModelInputKind, classify_model_input
 
 
 if TYPE_CHECKING:

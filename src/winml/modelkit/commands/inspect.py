@@ -28,6 +28,7 @@ from rich.console import Console
 
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
 
 
 logger = logging.getLogger(__name__)
@@ -252,10 +253,10 @@ def inspect(
     # graphs); the single classifier detects it without triggering a download,
     # so we surface the same friendly error as for local .onnx inputs.
     if model:
-        model_input = cli_utils.classify_model_input(model)
-        if model_input.kind is cli_utils.ModelInputKind.INVALID:
+        model_input = classify_model_input(model)
+        if model_input.kind is ModelInputKind.INVALID:
             raise click.ClickException(model_input.error or f"Invalid model input: {model}")
-        if model_input.kind is cli_utils.ModelInputKind.ONNX_FILE:
+        if model_input.kind is ModelInputKind.ONNX_FILE:
             # A local .onnx path: distinguish a missing file (friendly path
             # error) from an existing one (inspection simply isn't wired up yet).
             from pathlib import Path
@@ -266,7 +267,7 @@ def inspect(
                 "ONNX file inspection is not yet supported. "
                 "Use 'winml config -m model.onnx' for ONNX build config."
             )
-        if model_input.kind is cli_utils.ModelInputKind.HUB_ONNX:
+        if model_input.kind is ModelInputKind.HUB_ONNX:
             raise click.ClickException(
                 "ONNX file inspection is not yet supported. "
                 "Use 'winml config -m model.onnx' for ONNX build config."

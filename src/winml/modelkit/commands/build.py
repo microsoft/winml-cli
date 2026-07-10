@@ -38,6 +38,7 @@ from ..utils.console import (
     print_stages_header,
 )
 from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
 
 
 if TYPE_CHECKING:
@@ -718,12 +719,10 @@ def build(
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
 
-        model_input = cli_utils.classify_model_input(model) if model else None
-        if model_input is not None and model_input.kind is cli_utils.ModelInputKind.INVALID:
+        model_input = classify_model_input(model) if model else None
+        if model_input is not None and model_input.kind is ModelInputKind.INVALID:
             raise click.UsageError(model_input.error or f"Invalid model input: {model}")
-        model_is_onnx = (
-            model_input is not None and model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
-        )
+        model_is_onnx = model_input is not None and model_input.kind is ModelInputKind.ONNX_FILE
 
         preloaded_hf_config = _validate_loader_tasks_for_model(
             model_id=model,

@@ -31,6 +31,7 @@ from rich.table import Table
 from ..utils import cli as cli_utils
 from ..utils.constants import EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
 from ._live_chart import LiveMonitorDisplay
 
 
@@ -2092,10 +2093,10 @@ def perf(
     # Classify the -m value once (existence-first) so module mode and the
     # single-model path share one source of truth. Raises cleanly on a missing
     # .onnx or an invalid id instead of a confusing downstream config error.
-    model_input = cli_utils.classify_model_input(hf_model)
-    if model_input.kind is cli_utils.ModelInputKind.INVALID:
+    model_input = classify_model_input(hf_model)
+    if model_input.kind is ModelInputKind.INVALID:
         raise click.UsageError(model_input.error or f"Invalid model input: {hf_model}")
-    is_onnx = model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
+    is_onnx = model_input.kind is ModelInputKind.ONNX_FILE
 
     # =========================================================================
     # MODULE MODE: per-module build + benchmark
