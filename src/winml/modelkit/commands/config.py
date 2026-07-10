@@ -31,6 +31,7 @@ import click
 
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
+from ..utils.model_input import ModelInputKind, classify_model_input
 
 
 if TYPE_CHECKING:
@@ -266,10 +267,10 @@ def config(
             _shape_config_file = shape_config_path.name
 
         # ONNX file detection: generate simpler config without loader/export
-        _model_input = cli_utils.classify_model_input(hf_model) if hf_model else None
-        _hf_is_onnx = (
-            _model_input is not None and _model_input.kind is cli_utils.ModelInputKind.ONNX_FILE
-        )
+        _model_input = classify_model_input(hf_model) if hf_model else None
+        if _model_input is not None and _model_input.kind is ModelInputKind.INVALID:
+            raise click.UsageError(_model_input.error or f"Invalid model input: {hf_model}")
+        _hf_is_onnx = _model_input is not None and _model_input.kind is ModelInputKind.ONNX_FILE
         if hf_model and _hf_is_onnx and module:
             raise click.UsageError(
                 "--module is not supported with ONNX file input. "
