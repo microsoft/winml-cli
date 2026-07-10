@@ -7,7 +7,7 @@
 Unit tests for ONNXModel Pydantic validation.
 
 Tests verify:
-- opset_version validation (>= 13)
+- opset_version validation (>= 11)
 - graph serialization and deserialization
 - from_onnx_model class method
 - get_graph method
@@ -23,9 +23,9 @@ from winml.modelkit.analyze import ONNXModel
 class TestONNXModelValidation:
     """Test ONNXModel Pydantic validation rules."""
 
-    @pytest.mark.parametrize("opset", [12, 13, 14, 15, 16])
-    def test_opset_version_must_be_at_least_12(self, opset):
-        """Test that opset_version must be >= 12."""
+    @pytest.mark.parametrize("opset", [11, 12, 13, 14, 15, 16])
+    def test_opset_version_must_be_at_least_11(self, opset):
+        """Test that opset_version must be >= 11."""
         # Valid opset
         model = ONNXModel(
             model_path="test.onnx",
@@ -37,13 +37,13 @@ class TestONNXModelValidation:
         )
         assert model.opset_version == opset
 
-    def test_opset_version_below_12_invalid(self):
-        """Test that opset_version < 12 raises ValidationError."""
-        # Invalid opset (< 12)
-        with pytest.raises(ValidationError, match=r"Opset version .* < 12"):
+    def test_opset_version_below_11_invalid(self):
+        """Test that opset_version < 11 raises ValidationError."""
+        # Invalid opset (< 11)
+        with pytest.raises(ValidationError, match=r"Opset version .* < 11"):
             ONNXModel(
                 model_path="test.onnx",
-                opset_version=11,
+                opset_version=10,
                 node_count=1,
                 initializer_count=0,
                 input_count=1,
