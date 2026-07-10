@@ -752,6 +752,195 @@ class TestCompileTimeout:
 
 
 # ---------------------------------------------------------------------------
+# Tests: _compile_stage EPContext salvage (crash-during-teardown recovery)
+# ---------------------------------------------------------------------------
+
+
+class TestCompileStageSalvage:
+    """When a compile subprocess writes a valid EPContext then exits non-zero
+    (e.g. an accelerator faulting during teardown), the good artifact is
+    salvaged instead of discarded + JIT-recompiled."""
+
+    # A native access violation / heap-corruption style non-zero exit code.
+    _CRASH_EXIT = 3221225477
+
+    @staticmethod
+    def _make_epcontext(path: Path, bin_name: str) -> None:
+        """Code-generate a minimal, structurally valid EPContext ONNX model."""
+        import onnx
+        from onnx import TensorProto, helper
+
+        node = helper.make_node(
+            "EPContext",
+            inputs=[],
+            outputs=["output"],
+            name="ep_context_0",
+            domain="com.microsoft",
+            embed_mode=0,
+            ep_cache_context=bin_name,
+            main_context=1,
+        )
+        output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 4])
+        graph = helper.make_graph([node], "epcontext_model", [], [output_info])
+        model = helper.make_model(
+            graph,
+            opset_imports=[
+                helper.make_opsetid("", 17),
+                helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
+        model.ir_version = 9
+        path.parent.mkdir(parents=True, exist_ok=True)
+        onnx.save(model, str(path))
+
+    def _crash_context(self) -> MagicMock:
+        """A multiprocessing context whose Process reports a non-zero exit."""
+        proc = MagicMock()
+        proc.is_alive.return_value = False
+        proc.exitcode = self._CRASH_EXIT
+        ctx = MagicMock()
+        ctx.Process.return_value = proc
+        return ctx
+
+    def test_salvages_source_dir_auto_epcontext_on_teardown_crash(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """ORT writes the auto EPContext next to the *source* model; a teardown
+        crash leaves it there before it is copied into _compiled/. The salvage
+        must find it in the source dir, move it to the canonical output, and
+        bring its .bin sidecar along so ep_cache_context still resolves."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        # Auto-named EPContext + weights sidecar sit next to the source ctx.onnx.
+        auto_onnx = bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"
+        auto_bin = bundle_dir_with_pipeline / "ctx_auto_ctx_qnn.bin"
+        auto_bin.write_bytes(b"weights")
+        self._make_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch("multiprocessing.get_context", return_value=self._crash_context()):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert ctx_out.exists()
+        # The graph and its weights sidecar were moved into the compiled dir...
+        assert (compiled_dir / "ctx_auto_ctx_qnn.bin").exists()
+        # ...and removed from the source dir.
+        assert not auto_onnx.exists()
+        assert not auto_bin.exists()
+
+        # ep_cache_context is unchanged and now resolves next to ctx_out.
+        import onnx
+
+        model = onnx.load(str(ctx_out), load_external_data=False)
+        ref = next(
+            a.s.decode()
+            for n in model.graph.node
+            if n.op_type == "EPContext"
+            for a in n.attribute
+            if a.name == "ep_cache_context"
+        )
+        assert ref == "ctx_auto_ctx_qnn.bin"
+        assert (compiled_dir / ref).exists()
+
+    def test_salvages_compiled_dir_auto_epcontext(self, bundle_dir_with_pipeline: Path) -> None:
+        """If the auto EPContext was already copied into _compiled/ before the
+        crash, it is promoted to the canonical output from there."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        auto_onnx = compiled_dir / "ctx_auto_ctx.onnx"
+        (compiled_dir / "ctx_auto_ctx_qnn.bin").write_bytes(b"weights")
+        self._make_epcontext(auto_onnx, "ctx_auto_ctx_qnn.bin")
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch("multiprocessing.get_context", return_value=self._crash_context()):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert ctx_out.exists()
+        assert not auto_onnx.exists()
+        # The .bin already lived in compiled_dir and is left in place.
+        assert (compiled_dir / "ctx_auto_ctx_qnn.bin").exists()
+
+    def test_salvages_canonical_output_written_before_crash(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """If the compiler already copied a valid EPContext to the canonical
+        output before crashing, it is used as-is (no auto file needed)."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+        (compiled_dir / "context_ctx_qnn.bin").write_bytes(b"weights")
+        self._make_epcontext(ctx_out, "context_ctx_qnn.bin")
+
+        with patch("multiprocessing.get_context", return_value=self._crash_context()):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is True
+        assert ctx_out.exists()
+
+    def test_discards_when_no_valid_epcontext_after_crash(
+        self, bundle_dir_with_pipeline: Path
+    ) -> None:
+        """A crash with no salvageable EPContext still fails (discard + fallback)."""
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+        # A leftover next to the source that matches the auto-name glob but is
+        # not a valid ONNX model -> nothing to salvage.
+        (bundle_dir_with_pipeline / "ctx_auto_ctx.onnx").write_bytes(b"not an onnx model")
+
+        with patch("multiprocessing.get_context", return_value=self._crash_context()):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
+
+    def test_non_epcontext_leftover_is_not_salvaged(self, bundle_dir_with_pipeline: Path) -> None:
+        """A structurally valid ONNX that is *not* an EPContext model is rejected."""
+        import onnx
+        from onnx import TensorProto, helper
+
+        session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
+        compiled_dir = bundle_dir_with_pipeline / "_compiled"
+        compiled_dir.mkdir()
+
+        # A plain Identity graph (valid ONNX, no EPContext node) next to source.
+        node = helper.make_node("Identity", inputs=["x"], outputs=["y"], name="id0")
+        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])
+        y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])
+        model = helper.make_model(
+            helper.make_graph([node], "plain", [x], [y]),
+            opset_imports=[helper.make_opsetid("", 17)],
+        )
+        model.ir_version = 9
+        onnx.save(model, str(bundle_dir_with_pipeline / "ctx_auto_ctx.onnx"))
+
+        src_onnx = bundle_dir_with_pipeline / "ctx.onnx"
+        ctx_out = compiled_dir / "context_ctx.onnx"
+
+        with patch("multiprocessing.get_context", return_value=self._crash_context()):
+            ok = session._compile_stage(src_onnx, ctx_out, "context", "qnn", {})
+
+        assert ok is False
+        assert not ctx_out.exists()
+
+
+# ---------------------------------------------------------------------------
 # Tests: _compile_stage_worker (delegation to the shared compiler)
 # ---------------------------------------------------------------------------
 
