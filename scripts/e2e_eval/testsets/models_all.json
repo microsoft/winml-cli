@@ -19,10 +19,10 @@
     "downloads": 1258716,
     "last_update_time": "2024-12-03T14:14:31+00:00",
     "optimum_supported": true,
-    "order": 5,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 5
   },
   {
     "hf_id": "Alexei1/imdb",
@@ -80,10 +80,10 @@
     "tags": [
       "acc"
     ],
-    "order": 8,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 8
   },
   {
     "hf_id": "BAAI/bge-base-en-v1.5",
@@ -97,10 +97,10 @@
     "tags": [
       "acc"
     ],
-    "order": 7,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 7
   },
   {
     "hf_id": "BAAI/bge-large-en-v1.5",
@@ -136,6 +136,9 @@
     "downloads": 18410715,
     "last_update_time": "2024-07-03T14:50:10+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 6
   },
   {
@@ -147,6 +150,9 @@
     "downloads": 18410715,
     "last_update_time": "2024-07-03T14:50:10+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -559,10 +565,10 @@
     "downloads": 476558,
     "last_update_time": "2024-02-09T08:58:56+00:00",
     "optimum_supported": true,
-    "order": 2,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 2
   },
   {
     "hf_id": "Intel/dpt-large",
@@ -573,10 +579,10 @@
     "downloads": 66162,
     "last_update_time": "2024-02-24T11:22:17+00:00",
     "optimum_supported": true,
-    "order": 8,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 8
   },
   {
     "hf_id": "Intel/zoedepth-nyu-kitti",
@@ -587,10 +593,7 @@
     "downloads": 248162,
     "last_update_time": "2024-05-20T15:06:27+00:00",
     "optimum_supported": false,
-    "order": 4,
-    "tags": [
-      "acc"
-    ]
+    "order": 4
   },
   {
     "hf_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
@@ -703,10 +706,10 @@
     "downloads": 64593,
     "last_update_time": "2024-01-25T08:13:34+00:00",
     "optimum_supported": false,
-    "order": 9,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 9
   },
   {
     "hf_id": "LiheYoung/depth-anything-large-hf",
@@ -717,10 +720,10 @@
     "downloads": 356918,
     "last_update_time": "2024-01-25T08:13:11+00:00",
     "optimum_supported": false,
-    "order": 3,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 3
   },
   {
     "hf_id": "LiheYoung/depth-anything-small-hf",
@@ -731,10 +734,10 @@
     "downloads": 115724,
     "last_update_time": "2024-01-25T08:12:14+00:00",
     "optimum_supported": false,
-    "order": 7,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 7
   },
   {
     "hf_id": "MCG-NJU/videomae-base",
@@ -925,26 +928,26 @@
     "order": 9
   },
   {
-    "hf_id": "PaddlePaddle/PP-OCRv5_server_det",
-    "task": "image-to-text",
+    "hf_id": "PaddlePaddle/PP-OCRv5_server_det_onnx/inference.onnx",
+    "task": "",
     "model_type": "unknown",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 623512,
-    "last_update_time": "2025-07-22T10:03:07+00:00",
+    "downloads": 0,
+    "last_update_time": null,
     "optimum_supported": false,
-    "order": 4
+    "order": 2
   },
   {
-    "hf_id": "PaddlePaddle/PP-OCRv5_server_rec",
-    "task": "image-to-text",
+    "hf_id": "PaddlePaddle/PP-OCRv5_server_rec_onnx/inference.onnx",
+    "task": "",
     "model_type": "unknown",
     "group": "ISV",
     "priority": "P1",
-    "downloads": 196930,
-    "last_update_time": "2025-07-22T10:04:11+00:00",
+    "downloads": 0,
+    "last_update_time": null,
     "optimum_supported": false,
-    "order": 9
+    "order": 3
   },
   {
     "hf_id": "PekingU/rtdetr_r101vd_coco_o365",
@@ -1341,10 +1344,10 @@
     "downloads": 2142214,
     "last_update_time": "2025-02-03T06:45:16+00:00",
     "optimum_supported": false,
-    "order": 1,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 1
   },
   {
     "hf_id": "Salesforce/blip-vqa-base",
@@ -1628,7 +1631,7 @@
     "downloads": 0,
     "last_update_time": "2022-09-25T13:17:44+00:00",
     "optimum_supported": false,
-    "order": 2
+    "order": 4
   },
   {
     "hf_id": "ai-forever/kandinsky-videomae-large-camera-motion",
@@ -1661,7 +1664,7 @@
     "downloads": 89372,
     "last_update_time": "2023-12-11T14:31:20+00:00",
     "optimum_supported": true,
-    "order": 13
+    "order": 11
   },
   {
     "hf_id": "alibaba-pai/Wan2.1-Fun-14B-Control",
@@ -1694,10 +1697,10 @@
     "downloads": 629050,
     "last_update_time": "2023-11-18T20:58:42+00:00",
     "optimum_supported": true,
-    "order": 8,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 8
   },
   {
     "hf_id": "apple/DepthPro-hf",
@@ -1708,10 +1711,7 @@
     "downloads": 25173,
     "last_update_time": "2025-02-28T18:31:40+00:00",
     "optimum_supported": false,
-    "order": 11,
-    "tags": [
-      "acc"
-    ]
+    "order": 11
   },
   {
     "hf_id": "apple/mobilevit-small",
@@ -1725,10 +1725,10 @@
     "tags": [
       "acc"
     ],
-    "order": 4,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 4
   },
   {
     "hf_id": "athrael-soju/colqwen3.5-4.5B-v3",
@@ -1885,10 +1885,10 @@
     "downloads": 2220115,
     "last_update_time": "2025-08-29T14:36:22+00:00",
     "optimum_supported": true,
-    "order": 9,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 9
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L4-v2",
@@ -1899,10 +1899,10 @@
     "downloads": 2220115,
     "last_update_time": "2025-08-29T14:36:22+00:00",
     "optimum_supported": true,
-    "order": 2,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 2
   },
   {
     "hf_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
@@ -2024,10 +2024,10 @@
     "tags": [
       "acc"
     ],
-    "order": 2,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 2
   },
   {
     "hf_id": "deepset/roberta-large-squad2",
@@ -2052,10 +2052,10 @@
     "tags": [
       "acc"
     ],
-    "order": 9,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 9
   },
   {
     "hf_id": "dell-research-harvard/lt-un-data-fine-fine-es",
@@ -2121,10 +2121,10 @@
     "downloads": 54287,
     "last_update_time": "2024-07-05T11:29:09+00:00",
     "optimum_supported": false,
-    "order": 10,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 10
   },
   {
     "hf_id": "depth-anything/Depth-Anything-V2-Large-hf",
@@ -2135,10 +2135,10 @@
     "downloads": 201936,
     "last_update_time": "2024-07-05T11:30:29+00:00",
     "optimum_supported": false,
-    "order": 5,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 5
   },
   {
     "hf_id": "depth-anything/Depth-Anything-V2-Small-hf",
@@ -2149,10 +2149,10 @@
     "downloads": 1921591,
     "last_update_time": "2024-07-05T11:38:31+00:00",
     "optimum_supported": false,
-    "order": 1,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 1
   },
   {
     "hf_id": "dima806/fairface_age_image_detection",
@@ -2319,10 +2319,10 @@
     "tags": [
       "acc"
     ],
-    "order": 12,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 12
   },
   {
     "hf_id": "facebook/detr-resnet-50",
@@ -2375,10 +2375,10 @@
     "tags": [
       "acc"
     ],
-    "order": 9,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 9
   },
   {
     "hf_id": "facebook/dinov2-base",
@@ -2508,7 +2508,7 @@
     "downloads": 324203,
     "last_update_time": "2023-11-20T09:26:49+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 4
   },
   {
     "hf_id": "facebook/opt-125m",
@@ -3465,7 +3465,7 @@
     "downloads": 293788,
     "last_update_time": "2022-06-22T15:34:05+00:00",
     "optimum_supported": true,
-    "order": 6
+    "order": 5
   },
   {
     "hf_id": "knkarthick/MEETING_SUMMARY",
@@ -3802,6 +3802,9 @@
     "downloads": 527639,
     "last_update_time": "2024-04-08T11:06:50+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 9
   },
   {
@@ -3816,10 +3819,10 @@
     "tags": [
       "acc"
     ],
-    "order": 11,
     "op_tracing_targets": [
       "qnn_npu"
-    ]
+    ],
+    "order": 11
   },
   {
     "hf_id": "microsoft/speecht5_tts",
@@ -3855,6 +3858,9 @@
     "downloads": 388488,
     "last_update_time": "2022-12-10T10:09:55+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 10
   },
   {
@@ -3993,10 +3999,10 @@
     "downloads": 155321,
     "last_update_time": "2025-02-11T04:26:58+00:00",
     "optimum_supported": true,
-    "order": 11,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 9
   },
   {
     "hf_id": "microsoft/trocr-base-printed",
@@ -4007,10 +4013,10 @@
     "downloads": 719870,
     "last_update_time": "2024-05-27T20:11:53+00:00",
     "optimum_supported": true,
-    "order": 2,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 2
   },
   {
     "hf_id": "microsoft/trocr-large-handwritten",
@@ -4021,10 +4027,10 @@
     "downloads": 204436,
     "last_update_time": "2024-05-27T20:10:58+00:00",
     "optimum_supported": true,
-    "order": 8,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 7
   },
   {
     "hf_id": "microsoft/trocr-large-printed",
@@ -4035,10 +4041,10 @@
     "downloads": 169946,
     "last_update_time": "2024-05-27T20:09:18+00:00",
     "optimum_supported": true,
-    "order": 10,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 8
   },
   {
     "hf_id": "microsoft/xclip-base-patch32",
@@ -4129,7 +4135,7 @@
     "downloads": 152510,
     "last_update_time": "2022-08-13T08:27:12+00:00",
     "optimum_supported": true,
-    "order": 12
+    "order": 10
   },
   {
     "hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
@@ -4140,7 +4146,7 @@
     "downloads": 19477,
     "last_update_time": "2022-08-13T08:28:13+00:00",
     "optimum_supported": true,
-    "order": 14
+    "order": 12
   },
   {
     "hf_id": "naver-clova-ix/donut-base-finetuned-docvqa",
@@ -4173,7 +4179,7 @@
     "downloads": 253548,
     "last_update_time": "2023-02-27T15:00:09+00:00",
     "optimum_supported": true,
-    "order": 7
+    "order": 6
   },
   {
     "hf_id": "nomic-ai/nomic-embed-vision-v1.5",
@@ -4746,6 +4752,9 @@
     "downloads": 34802154,
     "last_update_time": "2025-08-19T10:14:25+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 3
   },
   {
@@ -4782,6 +4791,9 @@
     "downloads": 2299047,
     "last_update_time": "2025-08-19T10:21:26+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 14
   },
   {
@@ -5017,6 +5029,9 @@
     "downloads": 64947,
     "last_update_time": "2025-01-08T12:25:32+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
@@ -5028,6 +5043,9 @@
     "downloads": 3149226,
     "last_update_time": "2025-01-08T12:42:35+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
@@ -5039,6 +5057,9 @@
     "downloads": 36145,
     "last_update_time": "2025-01-12T20:49:19+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -5050,6 +5071,9 @@
     "downloads": 10483,
     "last_update_time": "2025-01-12T20:49:41+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 6
   },
   {
@@ -5061,6 +5085,9 @@
     "downloads": 19011,
     "last_update_time": "2025-01-12T20:50:10+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -5199,10 +5226,10 @@
     "downloads": 187273,
     "last_update_time": "2025-03-26T11:47:43+00:00",
     "optimum_supported": false,
-    "order": 6,
     "tags": [
       "acc"
-    ]
+    ],
+    "order": 6
   },
   {
     "hf_id": "zai-org/GLM-OCR",
