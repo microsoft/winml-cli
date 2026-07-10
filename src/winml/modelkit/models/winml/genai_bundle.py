@@ -24,7 +24,7 @@ import collections
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import onnx
 
@@ -33,6 +33,10 @@ from ...utils.constants import normalize_ep_name
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from ...utils.constants import EPNameOrAlias
+    from .base import WinMLPreTrainedModel
+    from .composite_model import WinMLCompositeModel
 
 
 # =========================================================================
@@ -233,7 +237,7 @@ def build_genai_bundle(
     soc_model = recipe.soc_model if soc_model is None else soc_model
     transformer = recipe.transformer
     transformer_precision = precision or transformer.precision
-    transformer_ep = normalize_ep_name(ep) or ep
+    transformer_ep = normalize_ep_name(cast("EPNameOrAlias", ep)) or ep
     companion_ep = normalize_ep_name("cpu") or "cpu"
 
     from ..auto import WinMLAutoModel
@@ -260,6 +264,7 @@ def build_genai_bundle(
             },
         },
     )
+    built = cast("WinMLCompositeModel", built)
     context_onnx = Path(built.sub_models[transformer.context_sub_model].onnx_path)
     iterator_onnx = Path(built.sub_models[transformer.iterator_sub_model].onnx_path)
     for label, model_path in (("ctx", context_onnx), ("iter", iterator_onnx)):
@@ -288,6 +293,7 @@ def build_genai_bundle(
             force_rebuild=force_rebuild,
             cache_dir=cache_dir,
         )
+        companion = cast("WinMLPreTrainedModel", companion)
         companion_path = Path(companion.onnx_path)
         _emit(f"  [{spec.role}] {companion_path}")
         _emit(f"        {_node_summary(companion_path)}")
