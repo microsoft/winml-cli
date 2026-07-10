@@ -1911,7 +1911,7 @@ def _run_winml_eval(
             args += ["--label-mapping", ds_config["label_mapping_file"]]
         if ds_config.get("streaming"):
             args += ["--streaming"]
-    args += ["--output", str(output_path)]
+    args += ["--output", str(output_path), "--overwrite"]
     args += entry.eval_args
 
     proc = _run_subprocess(args, timeout)

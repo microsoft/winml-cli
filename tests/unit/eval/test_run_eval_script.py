@@ -928,6 +928,77 @@ class TestRunWinmlEvalRecipePath:
         assert res["status"] == "PASS"
 
 
+class TestRunWinmlEvalOverwrite:
+    """``_run_winml_eval`` must pass ``--overwrite`` so re-runs replace their own
+    ``winml_eval_output.json`` instead of aborting.
+
+    Regression guard: the harness owns that output file and re-runs it (plain
+    re-run into an existing output dir, or ``--continue`` / ``--retry-failed``).
+    Without ``--overwrite`` winml eval's ``guard_output()`` exits 1 with
+    "... already exists" before the model loads, which the runner then
+    misreports as ``acc=FAIL`` for a model that is actually fine.
+    """
+
+    @staticmethod
+    def _capture_fake(captured):
+        def _fake(args, _timeout):
+            captured.append(list(args))
+            out = Path(args[args.index("--output") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(
+                json.dumps({"metrics": {"accuracy": 1.0}, "dataset": {"samples": 1}}),
+                encoding="utf-8",
+            )
+            return {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+                "elapsed": 1.0,
+                "timeout": False,
+                "command": " ".join(args),
+            }
+
+        return _fake
+
+    @staticmethod
+    def _assert_overwrite_follows_output(call):
+        assert "--output" in call, call
+        idx = call.index("--output")
+        # Layout is ["--output", <path>, "--overwrite"]; assert both the flag's
+        # presence and that it clobbers this specific output path.
+        assert call[idx + 2] == "--overwrite", call
+
+    def test_recipe_path_adds_overwrite(self, run_eval, tmp_path):
+        cfg = tmp_path / "recipe.json"
+        cfg.write_text("{}", encoding="utf-8")
+        # A stale output file from a prior run is exactly what used to trigger
+        # the "already exists" abort; it must not change the emitted command.
+        (tmp_path / "winml_eval_output.json").write_text("stale", encoding="utf-8")
+        captured: list[list[str]] = []
+        with patch.object(run_eval, "_run_subprocess", side_effect=self._capture_fake(captured)):
+            run_eval._run_winml_eval(
+                _entry(),
+                "npu",
+                300,
+                {},
+                tmp_path,
+                {"": "model.onnx"},
+                ep="openvino",
+                recipe_config=cfg,
+            )
+        self._assert_overwrite_follows_output(captured[0])
+
+    def test_fallback_path_adds_overwrite(self, run_eval, tmp_path):
+        (tmp_path / "winml_eval_output.json").write_text("stale", encoding="utf-8")
+        captured: list[list[str]] = []
+        ds_config = {"dataset": "timm/mini-imagenet", "split": "test", "num_samples": 50}
+        with patch.object(run_eval, "_run_subprocess", side_effect=self._capture_fake(captured)):
+            run_eval._run_winml_eval(
+                _entry(), "npu", 300, ds_config, tmp_path, {"": "model.onnx"}, ep="openvino"
+            )
+        self._assert_overwrite_follows_output(captured[0])
+
+
 class TestCleanStrayCwdArtifacts:
     """``_clean_stray_cwd_artifacts`` sweeps UUID/sym-shape temps from the cwd."""
 
