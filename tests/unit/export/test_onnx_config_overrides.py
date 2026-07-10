@@ -57,6 +57,7 @@ class TestOnnxConfigRegistration:
             ("xlm-roberta", "fill-mask", "XLMRobertaIOConfig"),
             ("camembert", "fill-mask", "CamemBERTIOConfig"),
             ("mpnet", "fill-mask", "MPNetIOConfig"),
+            ("layoutlm", "question-answering", "LayoutLMQAIOConfig"),
             ("zoedepth", "depth-estimation", "ZoeDepthIOConfig"),
         ],
         ids=[
@@ -67,6 +68,7 @@ class TestOnnxConfigRegistration:
             "xlm-roberta",
             "camembert",
             "mpnet",
+            "layoutlm-qa",
             "zoedepth",
         ],
     )
@@ -129,6 +131,59 @@ class TestBertSequenceLengthOverride:
                 f"Input '{name}' has shape[1]={shape[1]}, "
                 f"expected {bert_config.max_position_embeddings}"
             )
+
+
+class TestLayoutLMQuestionAnsweringOverride:
+    """LayoutLM QA export must include bbox and safe token_type_ids."""
+
+    def test_layoutlm_qa_dummy_inputs_include_bbox_and_zero_token_types(self) -> None:
+        """Dummy inputs must keep bbox while forcing token_type_ids to zero."""
+        from transformers import LayoutLMConfig
+
+        layoutlm_config = LayoutLMConfig(
+            vocab_size=100,
+            hidden_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            intermediate_size=128,
+            max_position_embeddings=32,
+            max_2d_position_embeddings=1024,
+            type_vocab_size=1,
+        )
+
+        inputs = generate_dummy_inputs("layoutlm", "question-answering", layoutlm_config)
+
+        assert set(inputs) == {"input_ids", "bbox", "attention_mask", "token_type_ids"}
+        assert inputs["input_ids"].shape == (1, layoutlm_config.max_position_embeddings)
+        assert inputs["bbox"].shape == (1, layoutlm_config.max_position_embeddings, 4)
+        assert inputs["token_type_ids"].shape == (1, layoutlm_config.max_position_embeddings)
+        assert inputs["token_type_ids"].max().item() == 0
+
+    def test_layoutlm_qa_io_specs_include_span_outputs(self) -> None:
+        """LayoutLM QA specs expose document bbox input and span logits outputs."""
+        from transformers import LayoutLMConfig
+
+        layoutlm_config = LayoutLMConfig(
+            vocab_size=100,
+            hidden_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            intermediate_size=128,
+            max_position_embeddings=32,
+            max_2d_position_embeddings=1024,
+            type_vocab_size=1,
+        )
+
+        specs = resolve_io_specs("layoutlm", "question-answering", layoutlm_config)
+
+        assert specs["input_names"] == [
+            "input_ids",
+            "bbox",
+            "attention_mask",
+            "token_type_ids",
+        ]
+        assert specs["input_shapes"] == [(1, 32), (1, 32, 4), (1, 32), (1, 32)]
+        assert specs["output_names"] == ["start_logits", "end_logits"]
 
 
 # =============================================================================

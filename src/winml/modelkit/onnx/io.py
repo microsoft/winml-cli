@@ -106,6 +106,13 @@ class InputTensorSpec:
             lo, hi = self.value_range
             if torch_dtype.is_floating_point:
                 return torch.rand(concrete_shape, dtype=torch_dtype) * (hi - lo) + lo
+            if self.name == "bbox" and len(concrete_shape) >= 1 and concrete_shape[-1] == 4:
+                coords = torch.randint(int(lo), int(hi), concrete_shape, dtype=torch_dtype)
+                x0 = torch.minimum(coords[..., 0], coords[..., 2])
+                y0 = torch.minimum(coords[..., 1], coords[..., 3])
+                x1 = torch.maximum(coords[..., 0], coords[..., 2])
+                y1 = torch.maximum(coords[..., 1], coords[..., 3])
+                return torch.stack((x0, y0, x1, y1), dim=-1)
             return torch.randint(int(lo), int(hi), concrete_shape, dtype=torch_dtype)
 
         # Fallback: no range info (backward compatible)
