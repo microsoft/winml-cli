@@ -43,7 +43,7 @@ dependencies = [
   "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
   "numpy>=2.2,<2.3",
-  "onnx==1.18",
+  "onnx==1.22.0",
   "onnx-ir>=0.1",
   "onnxruntime-genai-winml==0.14.1",
   "onnxruntime-windowsml==1.24.5.202604171637",
