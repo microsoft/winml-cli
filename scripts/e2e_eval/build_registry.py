@@ -11,6 +11,7 @@ model_type from config.json, assigns priority, and writes models.json.
 Usage:
     python scripts/e2e_eval/build_registry.py
     python scripts/e2e_eval/build_registry.py --top-n 5 --output models_small.json
+    python scripts/e2e_eval/build_registry.py --top-n 0 --recheck-downloads
     python scripts/e2e_eval/build_registry.py --stats
 """
 
@@ -33,6 +34,15 @@ def safe_print(text: str) -> None:
 
 
 HF_TASKS_URL = "https://huggingface.co/api/tasks"
+
+
+def get_hf_api_model_id(hf_id: str) -> str:
+    """Return the repository ID to use for HuggingFace API calls."""
+    if hf_id.lower().endswith(".onnx"):
+        parts = hf_id.split("/")
+        if len(parts) >= 2:
+            return "/".join(parts[:2])
+    return hf_id
 
 
 def fetch_all_tasks() -> list[str]:
@@ -81,7 +91,7 @@ def get_model_type(model_id: str) -> str | None:
         return None
 
     try:
-        config_path = Path(hf_hub_download(model_id, "config.json"))
+        config_path = Path(hf_hub_download(get_hf_api_model_id(model_id), "config.json"))
         with config_path.open(encoding="utf-8") as f:
             config = json.load(f)
         return config.get("model_type")
@@ -97,7 +107,7 @@ def get_model_metadata(model_id: str) -> dict:
         return {"last_modified": None, "downloads": 0, "pipeline_tag": ""}
 
     try:
-        info = model_info(model_id)
+        info = model_info(get_hf_api_model_id(model_id))
         last_modified = getattr(info, "last_modified", None)
         return {
             "last_modified": (last_modified.isoformat() if last_modified else None),
@@ -210,6 +220,7 @@ def build_registry(
     optimum_types: set[str] | None = None,
     existing_entries: list[dict] | None = None,
     acc_keys: set[tuple[str, str]] | None = None,
+    recheck_downloads: bool = False,
 ) -> list[dict]:
     """Build the registry by querying HF Hub for top models per task.
 
@@ -429,7 +440,22 @@ def build_registry(
                 f"    [{priority}] {model_id} / {task} ({model_type}) - merged from curated source"
             )
 
-    # Phase 3: Rank within each task by downloads (descending).
+    # Phase 3: Optionally refresh downloads for every selected/preserved model.
+    # This is useful with --top-n 0 when the registry should be kept intact but
+    # popularity order should be recomputed from current HF Hub download counts.
+    if recheck_downloads:
+        safe_print("\n  Rechecking downloads for all entries...")
+        download_cache: dict[str, int] = {}
+        for e in all_entries:
+            hf_id = e.get("hf_id")
+            if not hf_id:
+                continue
+            if hf_id not in download_cache:
+                download_cache[hf_id] = get_model_metadata(hf_id).get("downloads", 0)
+            e["downloads"] = download_cache[hf_id]
+        safe_print(f"  Rechecked downloads for {len(download_cache)} model IDs")
+
+    # Phase 4: Rank within each task by downloads (descending).
     task_groups: dict[str, list[dict]] = {}
     for e in all_entries:
         task_groups.setdefault(e["task"], []).append(e)
@@ -438,7 +464,7 @@ def build_registry(
         for idx, e in enumerate(entries_in_task, start=1):
             e["order"] = idx
 
-    # Phase 4: Sync the "acc" tag on every entry from models_with_acc lookup.
+    # Phase 5: Sync the "acc" tag on every entry from models_with_acc lookup.
     # Other tags are preserved as-is.
     for e in all_entries:
         key = (e["hf_id"], e.get("task", ""))
@@ -511,6 +537,11 @@ def main() -> None:
         "--no-optimum-filter",
         action="store_true",
         help="Disable Optimum-first soft filter",
+    )
+    parser.add_argument(
+        "--recheck-downloads",
+        action="store_true",
+        help="Refresh downloads for every registry entry before assigning per-task order",
     )
     parser.add_argument("--stats", action="store_true", help="Print registry stats and exit")
     parser.add_argument("--dry-run", action="store_true", help="Print results without writing")
@@ -587,6 +618,7 @@ def main() -> None:
         optimum_types,
         existing_entries,
         acc_keys,
+        recheck_downloads=args.recheck_downloads,
     )
     entries.sort(key=lambda e: (e["hf_id"], e.get("task", "")))
 
