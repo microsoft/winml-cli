@@ -1717,10 +1717,11 @@ def _run_simple_loop(
 
 # perf() param names for WinML-only options that a prebuilt genai bundle
 # ignores. Mapped to the user-facing flag for the warning message.
+# NB: ``--ep`` is intentionally absent — it is honored for winml-genai as an EP
+# override (explicit --ep > concrete --device > respect config).
 _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "task": "--task",
     "precision": "--precision",
-    "ep": "--ep",
     "ep_options": "--ep-options",
     "shape_config_path": "--shape-config",
     "quant": "--quant/--no-quantize",
@@ -1760,8 +1761,8 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     """
     from ._perf_genai import (
         GenaiPerfConfig,
-        device_to_genai_ep,
         genai_output_path,
+        resolve_genai_ep,
         run_genai_perf,
     )
 
@@ -1790,13 +1791,23 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
     warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
 
-    device = p["device"].lower()
+    # genai defaults to "config" (respect the bundle's own per-stage routing).
+    # The shared --device default is "auto" (the ONNX default), so an omitted
+    # flag is treated as "config"; an explicit --device is a deliberate override.
+    device = p["device"].lower() if cli_utils.is_cli_provided(ctx, "device") else "config"
     output = p.get("output") or genai_output_path(bundle_dir)
     cli_utils.guard_output(output, p["overwrite"])
 
+    # EP override precedence: an explicit ``--ep`` wins over the ``--device``
+    # resolution, which in turn wins over the default ("config" = respect the
+    # bundle's genai_config.json routing).  GenaiSession validates the value.
+    ep: EPNameOrAlias | None = (
+        p["ep"] if cli_utils.is_cli_provided(ctx, "ep") else resolve_genai_ep(device)
+    )
+
     config = GenaiPerfConfig(
         bundle_dir=bundle_dir,
-        ep=device_to_genai_ep(device),
+        ep=ep,
         device=device,
         prompt=p["prompt"],
         apply_template=p["apply_template"],
@@ -1871,7 +1882,13 @@ def _run_genai_runtime(ctx: click.Context, *, console: Console, json_mode: bool)
     show_default=True,
     help="Number of warmup iterations (excluded from statistics; must be >= 0)",
 )
-@cli_utils.device_option(required=False, default="auto", include_auto=True)
+@cli_utils.device_option(
+    required=False,
+    default="auto",
+    include_auto=True,
+    include_config=True,
+    optional_message="'config' (winml-genai only) respects the bundle's genai_config.json routing.",
+)
 @cli_utils.precision_option()
 @cli_utils.ep_option(
     required=False,
@@ -2088,6 +2105,16 @@ def perf(
             )
         _run_genai_runtime(ctx, console=console, json_mode=json_mode)
         return
+
+    # ``--device config`` is a winml-genai-only sentinel (respect the bundle's
+    # genai_config.json routing).  It is meaningless for the single-shot WinML
+    # path, so reject it explicitly rather than letting resolve_device raise a
+    # generic "unknown device" error.
+    if device.lower() == "config":
+        raise click.UsageError(
+            "--device config is only valid with --runtime winml-genai "
+            "(it means 'respect the bundle's genai_config.json routing')."
+        )
 
     # Classify the -m value once (existence-first) so module mode and the
     # single-model path share one source of truth. Raises cleanly on a missing

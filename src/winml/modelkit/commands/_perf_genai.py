@@ -41,6 +41,12 @@ from ..session import (
     GenaiSessionError,
     GenerationConfig,
 )
+from ..utils.constants import (
+    EP_NAME_TO_ALIAS,
+    EP_SUPPORTED_DEVICES,
+    EPNameOrAlias,
+    normalize_ep_name,
+)
 
 
 if TYPE_CHECKING:
@@ -59,24 +65,43 @@ RUNTIME_TYPE = "winml-genai"
 # ``GenaiPerfConfig.prompt`` field default (a test asserts the two stay in sync).
 _DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
 
-# --device -> GenaiSession EP short name.  The default ("auto") resolves to
-# "mixed": genai bundles route each stage via its own session_options in
-# genai_config.json (e.g. ctx/iter on the NPU/QNN, embeddings/lm_head on CPU).
-# "mixed" registers the WinML EPs those stages need while honoring that
-# per-stage routing, so it is the correct default for real decoder bundles.
-# "cpu" skips WinML EP registration (CPU-only bundles); "qnn"/"dml" register
-# the WinML EPs like "mixed" but name the intended accelerator explicitly.
-_DEVICE_TO_GENAI_EP: dict[str, str] = {
-    "cpu": "cpu",
-    "npu": "qnn",
-    "gpu": "dml",
-    "auto": "mixed",
-}
+# Sentinel ``--device`` value meaning "respect the bundle's genai_config.json
+# routing" (no EP override).  It is the winml-genai default: a genai bundle is
+# mixed by design (e.g. ctx/iter on the NPU, embeddings/lm_head on CPU) and its
+# config already encodes that per-stage routing, so the common case leaves it
+# untouched.  A concrete ``--device`` (or ``--ep``) is an explicit override that
+# forces the *whole* decoder pipeline onto one EP.
+GENAI_CONFIG_DEVICE = "config"
 
 
-def device_to_genai_ep(device: str) -> str:
-    """Map a ``--device`` value to a :class:`GenaiSession` EP short name."""
-    return _DEVICE_TO_GENAI_EP.get(device.lower(), "mixed")
+def resolve_genai_ep(device: str) -> EPNameOrAlias | None:
+    """Resolve a ``--device`` value to a :class:`GenaiSession` EP override.
+
+    ``config`` -> ``None`` (respect ``genai_config.json`` as-is).  Any concrete
+    device (``auto``/``npu``/``gpu``/``cpu``) goes through the same
+    :func:`resolve_device` / :func:`resolve_eps` path the WinML ONNX runtime
+    uses, so it forces the whole pipeline onto the *best EP actually available
+    for that device on this machine* (e.g. an NPU that is VitisAI/OpenVINO
+    rather than QNN) instead of a static short-name guess.  Returns the EP's
+    canonical short alias, or ``None`` when the device resolves to no EP.
+
+    Raises:
+        ValueError: propagated from :func:`resolve_device` when the requested
+            device has no compatible EP available -- fail fast, like the ONNX
+            path, rather than silently falling back to CPU.
+    """
+    if device == GENAI_CONFIG_DEVICE:
+        return None
+
+    # Function-local import mirrors the ONNX path (perf.py) and avoids a
+    # module-level cycle: ``sysinfo`` pulls in heavier device-probing deps.
+    from ..sysinfo import resolve_device, resolve_eps
+
+    resolved_device, _ = resolve_device(device=device, ep=None)
+    eps = resolve_eps(resolved_device)
+    if not eps:
+        return None
+    return EP_NAME_TO_ALIAS[eps[0]]
 
 
 def genai_output_path(bundle_dir: str | Path) -> Path:
@@ -125,7 +150,7 @@ class GenaiPerfConfig:
     """Resolved request for a genai generation benchmark."""
 
     bundle_dir: Path
-    ep: str = "mixed"
+    ep: EPNameOrAlias | None = None
     device: str = "auto"
     prompt: str = _DEFAULT_PROMPT
     apply_template: bool = True
@@ -162,6 +187,12 @@ class GenaiBenchmarkResult:
     generated_tokens: int = 0
     context_length: int | None = None
 
+    # EP that actually took effect (from GenaiSession.effective_ep): the override
+    # alias when it applied, or None to mean "config" (no override, or an
+    # override that matched no stage).  Reported instead of the *requested* ep so
+    # the report never claims an EP that never applied.
+    effective_ep: str | None = None
+
     # Time to first token (prefill + first decode), milliseconds
     ttft_mean_ms: float = 0.0
     ttft_min_ms: float = 0.0
@@ -196,7 +227,7 @@ class GenaiBenchmarkResult:
             "benchmark_info": {
                 "runtime": RUNTIME_TYPE,
                 "bundle_dir": str(self.config.bundle_dir),
-                "ep": self.config.ep,
+                "ep": self.effective_ep or "config",
                 "device": self.config.device,
                 "compile": self.config.compile,
                 "compile_timeout": self.config.compile_timeout,
@@ -275,10 +306,32 @@ class GenaiPerfBenchmark:
         return GenaiSession(
             self._config.bundle_dir,
             self._config.ep,
+            device=self._session_device(),
             context_length=self._config.context_length,
             compile=self._config.compile,
             compile_timeout=self._config.compile_timeout,
         )
+
+    def _session_device(self) -> str | None:
+        """Concrete device (npu/gpu/cpu) the forced EP should target, or None.
+
+        Only meaningful when an EP override is active: it lets the session
+        synthesize ``device_type`` for device-parameterized EPs (OpenVINO /
+        VitisAI) when a re-routed stage has no reusable options.  A concrete
+        ``--device`` is used verbatim; the sentinels ``config``/``auto`` (e.g.
+        ``--ep`` given alone) fall back to the EP's primary supported device.
+        """
+        ep = self._config.ep
+        if ep is None:
+            return None
+        device = (self._config.device or "").lower()
+        if device and device not in ("config", "auto"):
+            return device
+        canonical = normalize_ep_name(ep)
+        if canonical is None:
+            return None
+        devices = EP_SUPPORTED_DEVICES.get(canonical)
+        return devices[0] if devices else None
 
     def _prompt_text(self, session: GenaiSession) -> str:
         """Return the prompt to benchmark, chat-templated when enabled.
@@ -377,6 +430,7 @@ class GenaiPerfBenchmark:
 
         return GenaiBenchmarkResult(
             config=self._config,
+            effective_ep=getattr(self._session, "effective_ep", None),
             prompt_tokens=len(self._prompt_token_ids),
             generated_tokens=timed[0].n_tokens if timed else 0,
             context_length=self._session.context_length if self._session else None,
@@ -412,7 +466,8 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
     cfg = result.config
     console.print()
     console.print(f"[dim]Runtime:[/dim]   {RUNTIME_TYPE}")
-    device_str = cfg.device if cfg.device == cfg.ep else f"{cfg.device} ({cfg.ep})"
+    ep_label = result.effective_ep or "config"
+    device_str = cfg.device if cfg.device == ep_label else f"{cfg.device} ({ep_label})"
     console.print(f"[dim]Device:[/dim]    {device_str}")
     console.print(f"[dim]Bundle:[/dim]    {cfg.bundle_dir}")
     console.print(
