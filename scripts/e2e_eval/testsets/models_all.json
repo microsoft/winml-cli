@@ -928,18 +928,7 @@
     "order": 9
   },
   {
-    "hf_id": "PaddlePaddle/PP-OCRv5_server_det_onnx/inference.onnx",
-    "task": "",
-    "model_type": "unknown",
-    "group": "ISV",
-    "priority": "P1",
-    "downloads": 0,
-    "last_update_time": null,
-    "optimum_supported": false,
-    "order": 2
-  },
-  {
-    "hf_id": "PaddlePaddle/PP-OCRv5_server_rec_onnx/inference.onnx",
+    "hf_id": "PaddlePaddle/PP-OCRv6_medium_det_onnx/inference.onnx",
     "task": "",
     "model_type": "unknown",
     "group": "ISV",
@@ -948,6 +937,17 @@
     "last_update_time": null,
     "optimum_supported": false,
     "order": 3
+  },
+  {
+    "hf_id": "PaddlePaddle/PP-OCRv6_medium_rec_onnx/inference.onnx",
+    "task": "",
+    "model_type": "unknown",
+    "group": "ISV",
+    "priority": "P1",
+    "downloads": 0,
+    "last_update_time": null,
+    "optimum_supported": false,
+    "order": 4
   },
   {
     "hf_id": "PekingU/rtdetr_r101vd_coco_o365",
@@ -1631,7 +1631,7 @@
     "downloads": 0,
     "last_update_time": "2022-09-25T13:17:44+00:00",
     "optimum_supported": false,
-    "order": 4
+    "order": 2
   },
   {
     "hf_id": "ai-forever/kandinsky-videomae-large-camera-motion",

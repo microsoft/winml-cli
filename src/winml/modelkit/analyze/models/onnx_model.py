@@ -81,9 +81,9 @@ class ONNXModel(BaseModel):
     @field_validator("opset_version")
     @classmethod
     def validate_opset_version(cls, v: int) -> int:
-        """Validate opset version is >= 12 per assumption."""
-        if v < 12:
-            raise ValueError(f"Opset version {v} < 12 (minimum supported version)")
+        """Validate opset version is >= 11 per assumption."""
+        if v < 11:
+            raise ValueError(f"Opset version {v} < 11 (minimum supported version)")
         return v
 
     @field_validator("node_count")
