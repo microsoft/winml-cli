@@ -322,6 +322,57 @@ class TestRunBuildNoQuantInjection:
         assert all("--no-quant" not in args for args in calls)
 
 
+class TestRunBuildConfigOverwrite:
+    """``_run_build`` must pass ``--overwrite`` to ``winml config`` so a re-run
+    replaces its own prior ``build_config.json`` instead of aborting.
+
+    Regression guard: the harness owns build_config.json and re-runs it (plain
+    re-run into an existing output dir, or ``--continue`` / ``--retry-failed``).
+    Without ``--overwrite`` winml config's ``guard_output()`` exits with
+    "... already exists", and the runner records the whole job as
+    build_failed even though the model itself is fine.
+    """
+
+    @staticmethod
+    def _make_entry():
+        entry = MagicMock()
+        entry.hf_id = "AdamCodd/vit-base-nsfw-detector"
+        entry.task = "image-classification"
+        entry.perf_args = []
+        return entry
+
+    def test_config_call_includes_overwrite(self, run_eval, tmp_path):
+        entry = self._make_entry()
+        # A stale config from a prior run is exactly what used to trigger the
+        # "already exists" abort; it must not change the emitted command.
+        (tmp_path / "build_config.json").write_text("{}", encoding="utf-8")
+
+        captured: list[list[str]] = []
+
+        def fake_subprocess(args, _timeout):
+            captured.append(list(args))
+            stdout = "" if "config" in args else "Build cache: model.onnx"
+            return {
+                "exit_code": 0,
+                "stdout": stdout,
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(args),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            run_eval._run_build(entry, "cpu", None, 300, tmp_path, ep="cpu")
+
+        config_call = next(args for args in captured if "config" in args)
+        idx = config_call.index("-o")
+        # Layout is ["-o", <path>, "--overwrite"]; assert the flag is present
+        # and clobbers this specific config path.
+        assert config_call[idx + 2] == "--overwrite", config_call
+
+
 class TestFeedVersionForCombo:
     """``_feed_version_for`` embeds the EP/device combo after the run-stamp."""
 
@@ -1115,6 +1166,12 @@ class TestShouldSkipExistingRetry:
         # empty set = retry ALL non-PASS; an accuracy FAIL must be re-run.
         res = self._result(perf_passed=True, acc_status="FAIL")
         assert run_eval._should_skip_existing(res, set(), "both") is False
+
+    def test_retry_all_skips_full_pass(self, run_eval):
+        # empty set = retry ALL non-PASS, so a perf+acc PASS job must stay
+        # skipped (--retry-failed "Implies --continue for passing jobs").
+        res = self._result(perf_passed=True, acc_status="PASS")
+        assert run_eval._should_skip_existing(res, set(), "both") is True
 
     def test_retry_fail_matches_accuracy_fail(self, run_eval):
         # The documented `--retry-failed FAIL` must actually match acc=FAIL.
