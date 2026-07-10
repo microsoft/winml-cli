@@ -76,11 +76,6 @@ class ModelInput:
             ``HF_ID``.
         hf_id: HuggingFace repo id (``org/name``) for ``HF_ID`` /
             ``HUB_ONNX``. ``None`` otherwise.
-        is_hf_folder: For ``FOLDER``: the directory contains a ``config.json``
-            (i.e. looks like a HuggingFace source checkout).
-        folder_has_onnx: For ``FOLDER``: the directory contains ``*.onnx``.
-        is_winml_cli_folder: For ``FOLDER``: the directory has both ``*.onnx``
-            and a ModelKit build manifest (a ``winml build`` output folder).
         error: Human-readable reason the value is ``INVALID``. ``None`` for
             every valid kind.
     """
@@ -89,27 +84,12 @@ class ModelInput:
     raw: str
     local_path: str | None = None
     hf_id: str | None = None
-    is_hf_folder: bool = False
-    folder_has_onnx: bool = False
-    is_winml_cli_folder: bool = False
     error: str | None = None
 
 
 def _classify_local_dir(path: Path, raw: str) -> ModelInput:
-    """Classify an existing directory, extracting folder metadata."""
-    onnx_files = list(path.glob("*.onnx"))
-    manifest_files = list(path.glob("build_manifest.json")) + list(
-        path.glob("*_build_manifest.json")
-    )
-    has_onnx = bool(onnx_files)
-    return ModelInput(
-        kind=ModelInputKind.FOLDER,
-        raw=raw,
-        local_path=str(path),
-        is_hf_folder=(path / "config.json").exists(),
-        folder_has_onnx=has_onnx,
-        is_winml_cli_folder=has_onnx and bool(manifest_files),
-    )
+    """Classify an existing directory as a ``FOLDER`` input."""
+    return ModelInput(kind=ModelInputKind.FOLDER, raw=raw, local_path=str(path))
 
 
 def classify_model_input(value: str) -> ModelInput:

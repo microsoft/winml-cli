@@ -2090,13 +2090,16 @@ def perf(
         _run_genai_runtime(ctx, console=console, json_mode=json_mode)
         return
 
-    # Classify the -m value once (existence-first) so module mode and the
-    # single-model path share one source of truth. Raises cleanly on a missing
-    # .onnx or an invalid id instead of a confusing downstream config error.
+    # Classify the -m value once so module mode and the single-model path share
+    # one source of truth. Rejects an invalid id up front; a path-shaped .onnx
+    # that doesn't exist is caught below with a friendly "not found" message
+    # (the pure classifier stays existence-agnostic).
     model_input = classify_model_input(hf_model)
     if model_input.kind is ModelInputKind.INVALID:
         raise click.UsageError(model_input.error or f"Invalid model input: {hf_model}")
     is_onnx = model_input.kind is ModelInputKind.ONNX_FILE
+    if is_onnx and model_input.local_path and not Path(model_input.local_path).exists():
+        raise click.UsageError(f"ONNX file not found: {hf_model}")
 
     # =========================================================================
     # MODULE MODE: per-module build + benchmark

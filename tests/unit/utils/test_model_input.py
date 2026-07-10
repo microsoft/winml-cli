@@ -74,6 +74,10 @@ class TestClassifyHfId:
         assert mi.kind == "hf_id"
         assert mi.hf_id == "bert-base-uncased"
 
+    def test_hf_id_with_dots_in_name(self) -> None:
+        """Version dots (e.g. Qwen2.5) are valid HF id characters."""
+        assert classify_model_input("Qwen/Qwen2.5-0.5B").kind == "hf_id"
+
     def test_three_segment_non_onnx_is_invalid(self) -> None:
         """A non-.onnx three-plus-segment string is a path that doesn't exist.
 
@@ -115,6 +119,12 @@ class TestClassifyLocal:
         mi = classify_model_input(str(d))
         assert mi.kind == "build_dir"
         assert mi.local_path == str(d)
+
+    def test_existing_dir_wins_over_hf_id_shape(self, tmp_path: Path) -> None:
+        """An on-disk directory is a build_dir even if its name parses as an HF id."""
+        d = tmp_path / "org"
+        d.mkdir()
+        assert classify_model_input(str(d)).kind == "build_dir"
 
     def test_relative_path_prefixes_rejected_as_hub(self) -> None:
         """``./``, ``../``, ``~/`` prefixes block Hub interpretation."""
@@ -170,56 +180,6 @@ class TestClassifyEdge:
             "./model.onnx",
         ):
             assert classify_model_input(value).raw == value
-
-
-# ---------------------------------------------------------------------------
-# classify_model_input: folder metadata
-# ---------------------------------------------------------------------------
-
-
-class TestClassifyFolderMetadata:
-    """``build_dir`` results carry folder-shape flags for CLI call sites."""
-
-    def test_hf_source_folder(self, tmp_path: Path) -> None:
-        """config.json but no onnx -> HF source folder."""
-        (tmp_path / "config.json").write_text("{}")
-        mi = classify_model_input(str(tmp_path))
-        assert mi.kind == "build_dir"
-        assert mi.is_hf_folder
-        assert not mi.folder_has_onnx
-        assert not mi.is_winml_cli_folder
-
-    def test_loose_onnx_folder(self, tmp_path: Path) -> None:
-        """onnx but no manifest -> loadable dir, not a winml build output."""
-        (tmp_path / "model.onnx").write_bytes(b"\x00")
-        mi = classify_model_input(str(tmp_path))
-        assert mi.kind == "build_dir"
-        assert mi.folder_has_onnx
-        assert not mi.is_winml_cli_folder
-        assert not mi.is_hf_folder
-
-    def test_winml_build_folder(self, tmp_path: Path) -> None:
-        """onnx + build_manifest.json -> winml cli build output."""
-        (tmp_path / "model.onnx").write_bytes(b"\x00")
-        (tmp_path / "build_manifest.json").write_text("{}")
-        mi = classify_model_input(str(tmp_path))
-        assert mi.folder_has_onnx
-        assert mi.is_winml_cli_folder
-
-    def test_winml_build_folder_cache_prefixed(self, tmp_path: Path) -> None:
-        """Cache-key-prefixed artifact names are recognized too."""
-        (tmp_path / "abc123_model.onnx").write_bytes(b"\x00")
-        (tmp_path / "abc123_build_manifest.json").write_text("{}")
-        mi = classify_model_input(str(tmp_path))
-        assert mi.folder_has_onnx
-        assert mi.is_winml_cli_folder
-
-    def test_manifest_without_onnx_is_not_winml_folder(self, tmp_path: Path) -> None:
-        """A manifest with no onnx (partial build) is not a winml build dir."""
-        (tmp_path / "build_manifest.json").write_text("{}")
-        mi = classify_model_input(str(tmp_path))
-        assert not mi.folder_has_onnx
-        assert not mi.is_winml_cli_folder
 
 
 # ---------------------------------------------------------------------------

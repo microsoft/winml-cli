@@ -614,8 +614,13 @@ def build(
     try:
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
-        if model is not None:
+        model_input = None
+        if model:
             model = cli_utils.normalize_model_arg(model)
+            if model:
+                model_input = classify_model_input(model)
+                if model_input.kind is ModelInputKind.INVALID:
+                    raise click.UsageError(model_input.error or f"Invalid model input: {model}")
 
         # Load or auto-generate config
         if config_file is not None:
@@ -634,7 +639,7 @@ def build(
             # ``normalize_model_arg``), route to the ONNX config generator instead
             # of treating the path as a HuggingFace repo id (which would try to
             # load the .onnx file as a JSON config and crash).
-            if classify_model_input(model).kind is ModelInputKind.ONNX_FILE:
+            if model_input is not None and model_input.kind is ModelInputKind.ONNX_FILE:
                 config_or_configs = generate_build_config(
                     onnx_path=model,
                     device=device,
@@ -719,9 +724,6 @@ def build(
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
 
-        model_input = classify_model_input(model) if model else None
-        if model_input is not None and model_input.kind is ModelInputKind.INVALID:
-            raise click.UsageError(model_input.error or f"Invalid model input: {model}")
         model_is_onnx = model_input is not None and model_input.kind is ModelInputKind.ONNX_FILE
 
         preloaded_hf_config = _validate_loader_tasks_for_model(

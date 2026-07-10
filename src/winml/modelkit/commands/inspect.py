@@ -257,17 +257,13 @@ def inspect(
         if model_input.kind is ModelInputKind.INVALID:
             raise click.ClickException(model_input.error or f"Invalid model input: {model}")
         if model_input.kind is ModelInputKind.ONNX_FILE:
-            # A local .onnx path: distinguish a missing file (friendly path
-            # error) from an existing one (inspection simply isn't wired up yet).
+            # A local .onnx path: a missing file gets a friendly "not found"
+            # error instead of the "not yet supported" message below.
             from pathlib import Path
 
             if model_input.local_path and not Path(model_input.local_path).exists():
                 raise click.ClickException(f"ONNX file not found: {model}")
-            raise click.ClickException(
-                "ONNX file inspection is not yet supported. "
-                "Use 'winml config -m model.onnx' for ONNX build config."
-            )
-        if model_input.kind is ModelInputKind.HUB_ONNX:
+        if model_input.kind in (ModelInputKind.ONNX_FILE, ModelInputKind.HUB_ONNX):
             raise click.ClickException(
                 "ONNX file inspection is not yet supported. "
                 "Use 'winml config -m model.onnx' for ONNX build config."
