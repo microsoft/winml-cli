@@ -132,6 +132,11 @@ class TestInputTensorSpecToTensor:
         with pytest.raises(ValueError, match="shape is None"):
             spec.to_tensor()
 
+    def test_symbolic_shape_uses_dummy_dimension(self) -> None:
+        spec = InputTensorSpec(name="x", dtype="float32", shape=("batch", 10))
+        t = spec.to_tensor()
+        assert t.shape == (1, 10)
+
 
 # =============================================================================
 # TestWinMLExportConfigGenerateDummyInputs
@@ -241,6 +246,18 @@ class TestExportPytorch:
         onnx_model = onnx.load(str(tmp_path / "model.onnx"))
         input_shape = [d.dim_value for d in onnx_model.graph.input[0].type.tensor_type.shape.dim]
         assert input_shape == [1, 10]
+
+    def test_symbolic_input_shape_exports_dynamic_axis(self, tmp_path) -> None:
+        model = SimpleLinear()
+        config = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=("batch", 10))],
+        )
+        export_pytorch(model, tmp_path / "model.onnx", config, normalize=False)
+
+        onnx_model = onnx.load(str(tmp_path / "model.onnx"))
+        dims = onnx_model.graph.input[0].type.tensor_type.shape.dim
+        assert dims[0].dim_param == "batch"
+        assert dims[1].dim_value == 10
 
     def test_no_input_tensors_raises(self, tmp_path) -> None:
         model = SimpleLinear()

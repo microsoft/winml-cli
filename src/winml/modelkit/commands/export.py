@@ -85,6 +85,23 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     )
 
 
+def _load_json_object(path: Path, option_name: str) -> dict:
+    """Load a JSON object from a CLI option path."""
+    try:
+        with path.open() as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise click.ClickException(f"Invalid JSON in {option_name}: {path}: {e}") from e
+    except Exception as e:
+        raise click.ClickException(f"Failed to load {option_name}: {e}") from e
+
+    if not isinstance(data, dict):
+        raise click.ClickException(
+            f"{option_name} must contain a JSON object, got {type(data).__name__}"
+        )
+    return data
+
+
 @click.command()
 @cli_utils.model_option(
     required=True,
@@ -151,6 +168,15 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     default=None,
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
+@click.option(
+    "--dynamic-axes",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help=(
+        "JSON dynamic axes mapping for ONNX export "
+        '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
+    ),
+)
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
@@ -171,6 +197,7 @@ def export(
     input_specs: Path | None,
     export_config: Path | None,
     shape_config: Path | None,
+    dynamic_axes: Path | None,
     config_file: Path | None,
 ) -> None:
     r"""Export HuggingFace model to ONNX format with HTP.
@@ -213,6 +240,9 @@ def export(
 
         # Custom ONNX export configuration
         winml export -m bert-base-uncased -o bert.onnx --export-config config.json
+
+        # Dynamic dimensions from a dedicated JSON file
+        winml export -m bert-base-uncased -o bert.onnx --dynamic-axes dynamic_axes.json
     """
     # Classify the -m value once (existence-first). Export only works with
     # HuggingFace model IDs — reject ONNX files and folders early.
@@ -275,36 +305,27 @@ def export(
         console.print(f"[bold blue]Input specs:[/bold blue] {input_specs}")
     if export_config:
         console.print(f"[bold blue]Export config:[/bold blue] {export_config}")
+    if dynamic_axes:
+        console.print(f"[bold blue]Dynamic axes:[/bold blue] {dynamic_axes}")
 
     output_path = Path(output)
 
     # Load export configuration from JSON file if provided (task-independent).
     export_config_dict: dict = {}
     if export_config:
-        try:
-            with export_config.open() as f:
-                export_config_dict = json.load(f)
-            console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
-        except Exception as e:
-            console.print(f"[bold red]Failed to load export config:[/bold red] {e}")
-            raise click.ClickException(f"Failed to load export config: {e}") from e
+        export_config_dict = _load_json_object(export_config, "--export-config")
+        console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
 
     # Load shape overrides from JSON (task-independent).
     shape_overrides = None
     if shape_config:
-        try:
-            with shape_config.open() as f:
-                shape_overrides = json.load(f)
-            if not isinstance(shape_overrides, dict):
-                raise click.ClickException(
-                    f"--shape-config must contain a JSON object, "
-                    f"got {type(shape_overrides).__name__}"
-                )
-        except json.JSONDecodeError as e:
-            raise click.ClickException(
-                f"Invalid JSON in --shape-config: {shape_config}: {e}"
-            ) from e
+        shape_overrides = _load_json_object(shape_config, "--shape-config")
         console.print(f"[dim]Shape overrides: {shape_overrides}[/dim]")
+
+    dynamic_axes_dict = None
+    if dynamic_axes:
+        dynamic_axes_dict = _load_json_object(dynamic_axes, "--dynamic-axes")
+        console.print(f"[dim]Dynamic axes: {dynamic_axes_dict}[/dim]")
 
     # One-time warnings (apply to every sub-model in a composite export).
     if torch_module:
@@ -423,6 +444,8 @@ def export(
             config_kwargs["verbose"] = bool(verbose)
         if cli_utils.is_cli_provided(ctx, "dynamo"):
             config_kwargs["dynamo"] = dynamo
+        if dynamic_axes_dict is not None:
+            config_kwargs["dynamic_axes"] = dynamic_axes_dict
 
         # Add input/output tensors if we resolved them
         if input_tensors:

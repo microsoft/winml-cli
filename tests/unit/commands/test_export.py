@@ -74,6 +74,7 @@ class TestExportCLIInterface:
         assert "--torch-module" in result.output
         assert "--input-specs" in result.output
         assert "--export-config" in result.output
+        assert "--dynamic-axes" in result.output
 
     def test_export_help_examples_run(self, runner: CliRunner, tmp_path: Path) -> None:
         """Every command example in export help should execute without crashing."""
@@ -91,6 +92,8 @@ class TestExportCLIInterface:
         specs_file.write_text(json.dumps({"input_ids": {"dtype": "int64", "shape": [1, 8]}}))
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"opset_version": 17}))
+        dynamic_axes_file = tmp_path / "dynamic_axes.json"
+        dynamic_axes_file.write_text(json.dumps({"input_ids": {"0": "batch"}}))
 
         mock_export_cfg = WinMLExportConfig()
         mock_loader_cfg = WinMLLoaderConfig(task="feature-extraction", model_type="bert")
@@ -118,6 +121,9 @@ class TestExportCLIInterface:
                 args = tokens[2:]  # drop "winml export"
                 args = [str(specs_file) if arg == "inputs.json" else arg for arg in args]
                 args = [str(config_file) if arg == "config.json" else arg for arg in args]
+                args = [
+                    str(dynamic_axes_file) if arg == "dynamic_axes.json" else arg for arg in args
+                ]
                 args = [str(tmp_path / arg) if arg.endswith(".onnx") else arg for arg in args]
                 saw_input_specs_example |= str(specs_file) in args
                 saw_export_config_example |= str(config_file) in args
@@ -409,6 +415,127 @@ class TestExportConfigFiles:
         assert config.input_tensors is not None
         assert len(config.input_tensors) == 2
 
+    def test_export_loads_dynamic_axes_json(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test --dynamic-axes loads and normalizes JSON dynamic axes."""
+        from winml.modelkit.commands.export import export
+
+        dynamic_axes_file = tmp_path / "dynamic_axes.json"
+        dynamic_axes_file.write_text(
+            json.dumps(
+                {
+                    "input_ids": {"0": "batch", "1": "sequence"},
+                    "logits": {"0": "batch"},
+                }
+            )
+        )
+
+        output_path = tmp_path / "model.onnx"
+        result = runner.invoke(
+            export,
+            [
+                "--model",
+                "test-model",
+                "--output",
+                str(output_path),
+                "--dynamic-axes",
+                str(dynamic_axes_file),
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_export_onnx.call_args.kwargs
+        config = call_kwargs["export_config"]
+        assert config.dynamic_axes == {
+            "input_ids": {0: "batch", 1: "sequence"},
+            "logits": {0: "batch"},
+        }
+
+    def test_export_input_specs_symbolic_shape_infers_dynamic_axes(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Symbolic dims in --input-specs become dynamic axes."""
+        from winml.modelkit.commands.export import export
+
+        specs_file = tmp_path / "inputs.json"
+        specs_file.write_text(
+            json.dumps(
+                {
+                    "input_ids": {
+                        "dtype": "int64",
+                        "shape": ["batch", "sequence"],
+                    }
+                }
+            )
+        )
+
+        output_path = tmp_path / "model.onnx"
+        result = runner.invoke(
+            export,
+            [
+                "--model",
+                "test-model",
+                "--output",
+                str(output_path),
+                "--input-specs",
+                str(specs_file),
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_export_onnx.call_args.kwargs
+        config = call_kwargs["export_config"]
+        assert config.input_tensors is not None
+        assert config.input_tensors[0].shape == ("batch", "sequence")
+        assert config.dynamic_axes == {"input_ids": {0: "batch", 1: "sequence"}}
+
+    def test_export_dynamic_axes_overrides_export_config(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Dedicated --dynamic-axes has CLI precedence over --export-config."""
+        from winml.modelkit.commands.export import export
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"dynamic_axes": {"input_ids": {"0": "old"}}}))
+        dynamic_axes_file = tmp_path / "dynamic_axes.json"
+        dynamic_axes_file.write_text(json.dumps({"input_ids": {"0": "batch"}}))
+
+        output_path = tmp_path / "model.onnx"
+        result = runner.invoke(
+            export,
+            [
+                "--model",
+                "test-model",
+                "--output",
+                str(output_path),
+                "--export-config",
+                str(config_file),
+                "--dynamic-axes",
+                str(dynamic_axes_file),
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_export_onnx.call_args.kwargs
+        config = call_kwargs["export_config"]
+        assert config.dynamic_axes == {"input_ids": {0: "batch"}}
+
     def test_export_invalid_export_config_raises(
         self,
         runner: CliRunner,
@@ -437,7 +564,7 @@ class TestExportConfigFiles:
         )
 
         assert result.exit_code != 0
-        assert "Failed to load export config" in result.output
+        assert "Invalid JSON in --export-config" in result.output
 
 
 class TestExportWarnings:
