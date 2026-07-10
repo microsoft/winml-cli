@@ -258,9 +258,6 @@ class TestRunBuildNoQuantInjection:
         entry.hf_id = hf_id
         entry.task = task
         entry.perf_args = []
-        # Mirror the real ModelEntry default: no pre-exported ONNX, so _run_build
-        # takes the HF-id path (a truthy MagicMock would trigger ONNX download).
-        entry.onnx_file = None
         return entry
 
     @staticmethod

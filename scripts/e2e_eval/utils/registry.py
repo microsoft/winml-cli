@@ -23,10 +23,6 @@ class ModelEntry:
     group: str
     priority: str
     precision: str | None = None
-    # Pre-exported ONNX filename inside the HF repo (e.g. "inference.onnx").
-    # When set, the eval harness downloads this file and feeds the local path to
-    # winml config/build/perf instead of the hf_id, skipping the HF->ONNX export.
-    onnx_file: str | None = None
     dataset_config: dict | None = None
     perf_args: list[str] = field(default_factory=list)
     eval_args: list[str] = field(default_factory=list)
@@ -112,7 +108,6 @@ def load_registry(path: Path) -> list[ModelEntry]:
                 group=item["group"],
                 priority=priority,
                 precision=item.get("precision"),
-                onnx_file=item.get("onnx_file"),
                 dataset_config=ds_config,
                 perf_args=perf_args,
                 eval_args=eval_args,

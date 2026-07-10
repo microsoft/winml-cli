@@ -151,7 +151,6 @@ def load_curated_entries(curated_path: Path) -> list[dict]:
             "task": e.get("task") or "",
             "group": e.get("group", "P0"),
             "priority": e.get("priority", "P0"),
-            **({"onnx_file": e["onnx_file"]} if e.get("onnx_file") else {}),
         }
         # Pass-through additive fields so they survive into the built registry.
         if "composite_onnx" in e:
