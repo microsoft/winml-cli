@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import torch
 import torch.nn as nn
@@ -40,8 +40,7 @@ class RegressionHead(nn.Module):
         x = self.dense(x)
         x = torch.tanh(x)
         x = self.dropout(x)
-        x = self.out_proj(x)
-        return x  # noqa: RET504
+        return cast("torch.Tensor", self.out_proj(x))
 
 
 class EmotionModel(Wav2Vec2PreTrainedModel):
